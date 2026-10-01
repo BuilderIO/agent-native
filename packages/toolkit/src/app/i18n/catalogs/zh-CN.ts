@@ -365,6 +365,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.auto": "自动",
   "composer.builderModelCredits": "Claude、OpenAI 和 Gemini 的免费额度",
   "composer.chatGptSubscription": "ChatGPT 订阅",
+  "composer.chatgptManageUsage": "管理使用量",
+  "composer.chatgptPlanUsing": "正在使用 ChatGPT 方案",
   "composer.closePreview": "关闭预览",
   "composer.configureProviderKeys": "配置 Anthropic、OpenAI 或其他提供商",
   "composer.connectAbove": "请在上方连接 AI 以继续...",
@@ -552,6 +554,9 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "正在加载聊天...",
   "empty.prompt": "我能为您做些什么？",
   "error.afterDuration": "{{duration}} 后{{headline}}",
+  "error.chatgptPlanUsageLimit": "已达到您的 ChatGPT 方案使用上限。",
+  "error.chatgptPlanUsageUnavailable":
+    "OpenAI 无法检查此 ChatGPT 方案的使用上限。请查看 ChatGPT 使用量，或尝试其他模型。",
   "error.failed": "智能体遇到错误",
   "error.render": "无法显示此内容。",
   "error.stopped": "智能体在完成前已停止",
@@ -574,6 +579,12 @@ const messages: ToolkitAgentChatTranslation = {
     "工具架构无效，因此模型在请求开始前拒绝了该请求。可以跳过无效工具并重试请求。",
   "errorMessages.malformedRequest":
     "模型提供方认为该请求格式有误并予以拒绝，因此未重试。请重试，若问题持续出现，请开始新的对话。",
+  "errorMessages.runInterrupted": "智能体在完成前停止了。",
+  "errorMessages.runFailed": "智能体运行失败。",
+  "errorMessages.runUnverified":
+    "此对话已无法跟踪智能体，它可能仍在运行。请刷新以查看进度。",
+  "errorMessages.runSignedOut":
+    "您已退出登录，因此此对话无法跟踪智能体。请重新登录，然后刷新。",
   "errorMessages.malformedRequestAttachment":
     "模型拒绝了一个附加文件，因此该消息未发送。请移除附件后重试：PDF、纯文本文件以及 JPEG、PNG、GIF、WebP 图片可直接读取；其他格式需要先上传再以链接形式引用。",
   "errorMessages.noProviderConnected":
@@ -1018,6 +1029,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "正在连接 Builder.io",
   "recovery.copyDebug": "复制调试信息",
   "recovery.copyFailed": "复制失败",
+  "recovery.retryAttachmentUnavailable":
+    "此请求包含一个无法重试的文件。请在消息输入框中重新附加该文件，然后重试。",
   "recovery.deferredSubmissionFailed":
     "此消息未能发送。请检查网络连接或聊天设置，然后重试。",
   "recovery.credentialRejected":
@@ -1449,6 +1462,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "你的预计费用",
   "settings.usage.yourCreditSpend": "你的 Builder.io 积分消耗",
   "settings.usage.calls": "调用",
+  "settings.usage.chatgptPlanUsage": "ChatGPT 方案用量",
   "settings.usage.tokens": "Token",
   "settings.usage.activePeople": "活跃人员",
   "settings.usage.history": "用量历史",
@@ -2483,9 +2497,31 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.cancel": "取消",
   "settingsModel.change": "更改",
   "settingsModel.chatgptConnected": "已连接",
-  "settingsModel.chatgptDescription": "通过您的 ChatGPT 套餐使用 Codex 引擎。",
+  "settingsModel.chatgptDescription":
+    "通过您的 ChatGPT 方案使用符合条件的 OpenAI 模型。",
   "settingsModel.chatgptPopupBlocked": "请允许此网站的弹出窗口，然后重试。",
-  "settingsModel.chatgptTitle": "ChatGPT 订阅",
+  "settingsModel.chatgptTitle": "ChatGPT 方案访问",
+  "settingsModel.chatgptAddAccount": "添加另一个账户",
+  "settingsModel.chatgptConnecting": "正在连接…",
+  "settingsModel.chatgptContinue": "继续使用 ChatGPT",
+  "settingsModel.chatgptDisconnect": "断开连接",
+  "settingsModel.chatgptDisconnectTitle": "断开 ChatGPT 连接？",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} 将退出此应用，智能体将不再使用你的 ChatGPT 方案。你可以随时重新登录。",
+  "settingsModel.chatgptDisconnecting": "正在断开连接…",
+  "settingsModel.chatgptRemoveLegacySignIn": "移除旧版登录",
+  "settingsModel.chatgptLegacySignInDetails":
+    "此处保存了旧版 ChatGPT 登录信息，官方流程无法使用。",
+  "settingsModel.chatgptManageAccess": "在 ChatGPT 中管理",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "已在此处断开连接。在 ChatGPT 中，访问权限可能仍然有效。",
+  "settingsModel.chatgptLocalOnly":
+    "开源应用在本地使用 loopback callback 运行时，无需申请合作伙伴资格即可使用 ChatGPT 计划。托管在 *.agent-native.com 上的应用需要运营方批准，并配置托管 callback。",
+  "settingsModel.chatgptNoDirectUse":
+    "重新连接并允许直接访问模型，才能使用此 ChatGPT 账户。",
+  "settingsModel.chatgptReconnect": "重新连接",
+  "settingsModel.chatgptSelectAccount": "ChatGPT 账户",
+  "settingsModel.chatgptUsageLimit": "已达到您的 ChatGPT 方案使用上限。",
   "settingsModel.checkAgain": "重新检查",
   "settingsModel.checkedJustNow": "刚刚已检查。",
   "settingsModel.checkedOn": "已于 {{date}} 检查。",

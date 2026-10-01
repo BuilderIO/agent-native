@@ -52,6 +52,32 @@ test("normalizes paths from git output", () => {
   );
 });
 
+test("selects Slides caret CI for exact package roots and Creative Context", () => {
+  const filtersFor = (path: string) =>
+    JSON.stringify(workspaceFiltersForPaths([path]));
+  const selectsRoot = (filters: string, root: string) =>
+    filters.includes(`{${root}}`);
+
+  assert.equal(
+    selectsRoot(filtersFor("packages/core/src/index.ts"), "packages/core"),
+    true,
+  );
+  assert.equal(
+    selectsRoot(
+      filtersFor("packages/core-corpus/src/index.ts"),
+      "packages/core",
+    ),
+    false,
+  );
+  assert.equal(
+    selectsRoot(
+      filtersFor("packages/creative-context/src/index.ts"),
+      "packages/creative-context",
+    ),
+    true,
+  );
+});
+
 test("fails closed for empty and unknown root change sets", () => {
   const empty = classifyChangedPaths([]);
   assert.equal(empty.docsOnly, false);

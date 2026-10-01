@@ -46,7 +46,7 @@ const messages = {
     designSystems: "디자인 시스템",
   },
   settings: {
-    agentObservability: "에이전트 관찰성",
+    agentObservability: "관찰성",
     title: "설정",
     labs: "Labs",
     labsIntro: "출시 전에 실험적인 기능을 미리 사용해 보세요.",
@@ -449,6 +449,7 @@ const messages = {
     retry: "다시 시도",
     clickToAddComment: "클릭하여 댓글 추가",
     selectSlideToAdd: "추가하려면 슬라이드를 선택하세요",
+    filters: "댓글 필터",
     scope: "댓글 범위",
     thisSlide: "이 슬라이드",
     allComments: "모든 슬라이드",

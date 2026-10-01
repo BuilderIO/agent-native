@@ -71,6 +71,25 @@ describe("action discovery", () => {
     expect(registry["mutating-read"].readOnly).toBe(false);
   });
 
+  it("preserves explicit MCP annotations from static action entries", () => {
+    const mcpAnnotations = {
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: false,
+    };
+    const registry = loadActionsFromStaticRegistry({
+      "update-design": {
+        default: {
+          tool: { description: "Update a design", parameters: {} },
+          mcpAnnotations,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["update-design"].mcpAnnotations).toEqual(mcpAnnotations);
+  });
+
   it(
     "makes audit reads available with a static registry while respecting disabled groups",
     async () => {
@@ -139,6 +158,20 @@ describe("action discovery", () => {
     });
 
     expect(registry["safe-write"].parallelSafe).toBe(true);
+  });
+
+  it("preserves the explicit changeEvents opt-out", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "save-position": {
+        default: {
+          tool: { description: "Save position", parameters: {} },
+          changeEvents: false,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["save-position"].changeEvents).toBe(false);
   });
 
   it("preserves request-scoped action discovery predicates", () => {

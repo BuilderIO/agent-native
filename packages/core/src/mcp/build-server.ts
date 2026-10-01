@@ -7,7 +7,7 @@ import type {
   Tool,
 } from "@modelcontextprotocol/server";
 
-import { actionCallIsReadOnly } from "../action-call-classification.js";
+import { actionCallEmitsChange } from "../action-call-classification.js";
 import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
@@ -25,6 +25,7 @@ import {
   describeToolResultImages,
   extractAgentImagesFromActionResult,
 } from "../agent/tool-result-images.js";
+import { getAppConfig } from "../app-config/store.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
@@ -115,21 +116,29 @@ export interface MCPConfig {
   askAgent?: (message: string) => Promise<string>;
   builtinCrossAppTools?: boolean;
   /**
-   * `"app"` serves exactly the app's own tool registry, flat: every action the
-   * in-app agent holds, and nothing the in-app agent does not — no cross-app
-   * builtins, no `ask-agent`, no `tool-search`, and no compact/connector
-   * trimming. `connectorCatalog`, the compact default, and the
-   * `--full-catalog` / `AGENT_NATIVE_MCP_FULL_CATALOG` opt-ins are all inert
-   * on this mode; `externalAgents.denyActions` and the OAuth scope filter
-   * still apply, because both are explicit removals rather than tiering.
+   * `"app"` serves the app's own action registry flat. `"directory"` serves
+   * only the explicitly curated connectorCatalog; it also requires explicit
+   * per-action MCP annotations and a unique HTTPS widgetDomain. Both profiles
+   * omit cross-app builtins, `ask-agent`, and `tool-search`, and ignore the
+   * full-catalog opt-in. Explicit denies and OAuth scope filters still apply.
    *
    * The dev-open surface split is deliberately NOT bypassed: an
    * unauthenticated loopback probe still gets `actions`, not
    * `productionActions`. Parity is with the app's agent for a real
    * authenticated caller, not an escalation for anonymous ones.
    */
-  catalogMode?: "app";
+  catalogMode?: "app" | "directory";
+  directoryProfile?: {
+    connectorCatalog: string[];
+    instructions?: string;
+    keyToolNames?: readonly string[];
+    toolDescriptions?: Record<string, string>;
+    toolParameterDescriptions?: Record<string, Record<string, string>>;
+    hiddenToolParameters?: Record<string, string[]>;
+    projectResult?: (toolName: string, result: unknown) => unknown;
+  };
   connectorCatalog?: string[];
+  widgetDomain?: string;
   externalAgents?: ExternalAgentPolicy;
 }
 
@@ -335,6 +344,118 @@ function withoutExternalOptOuts(
   );
 }
 
+export class McpDirectoryProfileValidationError extends Error {
+  readonly code = "MCP_DIRECTORY_PROFILE_INVALID";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "McpDirectoryProfileValidationError";
+  }
+}
+
+export function selectMcpActionSurface(
+  config: MCPConfig,
+  requestMeta?: MCPRequestMeta,
+): Record<string, ActionEntry> {
+  const useFullSurface = requestMeta?.fullSurface === true;
+  return useFullSurface && config.productionActions
+    ? config.productionActions
+    : config.actions;
+}
+
+export function getConfiguredMcpOwnerEmail(): string | undefined {
+  return getAppConfig().auth.mcpOwnerEmail;
+}
+
+export function validateMcpDirectoryProfile(
+  config: MCPConfig,
+  sourceActions = config.productionActions ?? config.actions,
+): void {
+  const names =
+    config.directoryProfile?.connectorCatalog ?? config.connectorCatalog ?? [];
+  if (names.length === 0) {
+    throw new McpDirectoryProfileValidationError(
+      '[agent-native] MCP catalogMode "directory" requires a non-empty connectorCatalog allowlist.',
+    );
+  }
+  if (new Set(names).size !== names.length) {
+    throw new McpDirectoryProfileValidationError(
+      "[agent-native] MCP directory catalog cannot contain duplicate tool names.",
+    );
+  }
+
+  const actions = withoutExternalOptOuts(withoutToolSearch(sourceActions));
+  const reserved = new Set([
+    ...COMPACT_MCP_APP_CATALOG_BUILTINS,
+    "ask-agent",
+    "ask-app",
+    "ask_app",
+  ]);
+  for (const name of names) {
+    if (
+      reserved.has(name) ||
+      /^(?:provider-api-|db-(?:schema|query|exec|patch)$|seed-)/i.test(name)
+    ) {
+      throw new McpDirectoryProfileValidationError(
+        `[agent-native] MCP directory catalog cannot expose reserved tool "${name}".`,
+      );
+    }
+    const entry = actions[name];
+    if (!entry) {
+      throw new McpDirectoryProfileValidationError(
+        `[agent-native] MCP directory catalog action "${name}" is not registered or is not exposed to MCP.`,
+      );
+    }
+    const annotations = entry.mcpAnnotations;
+    if (
+      !annotations ||
+      typeof annotations.readOnlyHint !== "boolean" ||
+      typeof annotations.destructiveHint !== "boolean" ||
+      typeof annotations.openWorldHint !== "boolean"
+    ) {
+      throw new McpDirectoryProfileValidationError(
+        `[agent-native] MCP directory catalog action "${name}" must declare boolean readOnlyHint, destructiveHint, and openWorldHint values.`,
+      );
+    }
+  }
+
+  for (const map of [
+    config.directoryProfile?.toolDescriptions,
+    config.directoryProfile?.toolParameterDescriptions,
+    config.directoryProfile?.hiddenToolParameters,
+  ]) {
+    const unknownName = Object.keys(map ?? {}).find(
+      (name) => !names.includes(name),
+    );
+    if (unknownName) {
+      throw new McpDirectoryProfileValidationError(
+        `[agent-native] MCP directory profile override refers to unlisted tool "${unknownName}".`,
+      );
+    }
+  }
+}
+
+export function validateMcpDirectoryWidgetDomain(
+  domain: string | undefined,
+): void {
+  let validWidgetDomain = false;
+  try {
+    const parsed = new URL(domain ?? "");
+    validWidgetDomain =
+      parsed.protocol === "https:" &&
+      parsed.origin === domain &&
+      !parsed.username &&
+      !parsed.password;
+  } catch {
+    validWidgetDomain = false;
+  }
+  if (!validWidgetDomain) {
+    throw new McpDirectoryProfileValidationError(
+      '[agent-native] MCP catalogMode "directory" requires widgetDomain to be an HTTPS origin.',
+    );
+  }
+}
+
 async function filterActionsAvailableForDiscovery(
   actions: Record<string, ActionEntry>,
   context: ActionRunContext,
@@ -382,10 +503,8 @@ const COMPACT_MCP_APP_CATALOG_BUILTINS = new Set([
   "ask_app",
   "ask_app_status",
   "create_embed_session",
-  // `tool-search` MUST stay in every compact/connector surface: it is how a
-  // compacted client discovers any action on demand, which is what makes
-  // "small catalog by default" non-opaque. Discovery is not permission — a
-  // searched name still has to be in the advertised set to be callable.
+  // Compact/connector catalogs use tool-search for on-demand discovery.
+  // The reviewed directory profile is intentionally a closed allowlist.
   TOOL_SEARCH_TOOL_NAME,
 ]);
 
@@ -530,6 +649,7 @@ interface McpAppResourceContext {
   actionName: string;
   appId?: string;
   requestOrigin?: string;
+  catalogMode?: "app" | "directory";
 }
 
 interface VersionedMcpAppResourceUri {
@@ -812,13 +932,16 @@ function mcpAppEmbedOpenLinkMeta(
 async function withServerMintedMcpAppEmbedStart(
   result: unknown,
   meta: MCPRequestMeta | undefined,
+  directoryLinkUrl?: string,
 ): Promise<unknown> {
   if (!result || typeof result !== "object" || Array.isArray(result)) {
     return result;
   }
 
   const out = result as Record<string, unknown>;
-  if (out.embed !== true) return result;
+  if (out.embed === false || (out.embed !== true && !directoryLinkUrl)) {
+    return result;
+  }
   if (typeof out.embedStartUrl === "string" && out.embedStartUrl.trim()) {
     return result;
   }
@@ -830,7 +953,11 @@ async function withServerMintedMcpAppEmbedStart(
     return result;
   }
 
-  const candidate = [out.url, out.path, out.deepLinkUrl].find(
+  const candidates =
+    out.embed === true
+      ? [out.url, out.path, out.deepLinkUrl, directoryLinkUrl]
+      : [directoryLinkUrl];
+  const candidate = candidates.find(
     (value): value is string =>
       typeof value === "string" && value.trim().length > 0,
   );
@@ -1113,6 +1240,7 @@ function mcpAppUiMeta(
   resolvedCsp: ActionMcpAppCsp | undefined,
   requestMeta?: MCPRequestMeta,
   description?: string,
+  widgetDomain?: string,
 ): Record<string, unknown> | undefined {
   const base =
     resource._meta && typeof resource._meta === "object"
@@ -1149,8 +1277,10 @@ function mcpAppUiMeta(
   const hostSpecificDomain =
     hostSpecificDomainString(resource.domain) ??
     hostSpecificDomainString(existingUi.domain);
-  if (hostSpecificDomain) ui.domain = hostSpecificDomain;
+  if (widgetDomain) ui.domain = widgetDomain;
+  else if (hostSpecificDomain) ui.domain = hostSpecificDomain;
   const openAiWidgetDomain =
+    originString(widgetDomain) ??
     originString(resource.domain) ??
     originString(ui.domain) ??
     originString(existingUi.domain) ??
@@ -1172,7 +1302,10 @@ function mcpAppUiMeta(
   if (openAiCsp && base["openai/widgetCSP"] == null) {
     base["openai/widgetCSP"] = openAiCsp;
   }
-  if (openAiWidgetDomain && base["openai/widgetDomain"] == null) {
+  if (
+    openAiWidgetDomain &&
+    (widgetDomain || base["openai/widgetDomain"] == null)
+  ) {
     base["openai/widgetDomain"] = openAiWidgetDomain;
   }
   return Object.keys(base).length > 0 ? base : undefined;
@@ -1203,12 +1336,14 @@ async function resolveMcpAppResource(
     actionName,
     appId: config.appId,
     requestOrigin: requestMeta?.origin,
+    catalogMode: config.catalogMode,
   });
   const resourceMeta = mcpAppUiMeta(
     resource,
     resolvedCsp,
     requestMeta,
     description,
+    config.catalogMode === "directory" ? config.widgetDomain : undefined,
   );
   return {
     uri: resolvedUri.uri,
@@ -1266,6 +1401,7 @@ function renderMcpAppHtml(
       actionName,
       appId: config.appId,
       requestOrigin: requestMeta?.origin,
+      catalogMode: config.catalogMode,
     });
   }
   return resource.html;
@@ -1450,7 +1586,7 @@ export async function createMCPServerForRequest(
     inputRequired,
   } = await import("@modelcontextprotocol/server");
 
-  const ownerFromEnv = process.env.AGENT_NATIVE_OWNER_EMAIL?.trim();
+  const ownerFromEnv = getConfiguredMcpOwnerEmail();
   const effectiveIdentity: MCPCallerIdentity | undefined =
     identity ??
     (ownerFromEnv
@@ -1460,7 +1596,10 @@ export async function createMCPServerForRequest(
   requestMeta = {
     ...(requestMeta ?? {}),
     inlineMcpApps:
-      requestMeta?.inlineMcpApps ?? isMcpAppsInlineEnabled(effectiveIdentity),
+      config.catalogMode === "directory" ||
+      requestMeta?.inlineMcpApps === true ||
+      (requestMeta?.inlineMcpApps === undefined &&
+        isMcpAppsInlineEnabled(effectiveIdentity)),
   };
 
   const analyticsBase: McpAnalyticsContext = {
@@ -1488,18 +1627,23 @@ export async function createMCPServerForRequest(
     };
   }
 
-  const useFullSurface = requestMeta?.fullSurface === true || !!ownerFromEnv;
-  const baseActions =
-    useFullSurface && config.productionActions
-      ? config.productionActions
-      : config.actions;
+  const baseActions = selectMcpActionSurface(config, requestMeta);
   const appCatalog = config.catalogMode === "app";
+  const directoryCatalog = config.catalogMode === "directory";
+  const directoryNames = config.connectorCatalog ?? [];
+  if (directoryCatalog) {
+    validateMcpDirectoryProfile(config, baseActions);
+    validateMcpDirectoryWidgetDomain(config.widgetDomain);
+  }
   const fullCatalogRequested =
-    !appCatalog && explicitlyRequestsFullMcpCatalog(requestMeta);
-  const flatCatalog = appCatalog || fullCatalogRequested;
-  const mergedActions = appCatalog
-    ? baseActions
-    : mergeBuiltinTools(config, baseActions, requestMeta);
+    !appCatalog &&
+    !directoryCatalog &&
+    explicitlyRequestsFullMcpCatalog(requestMeta);
+  const flatCatalog = appCatalog || directoryCatalog || fullCatalogRequested;
+  const mergedActions =
+    appCatalog || directoryCatalog
+      ? baseActions
+      : mergeBuiltinTools(config, baseActions, requestMeta);
   const actions = withoutExternalOptOuts(
     flatCatalog ? withoutToolSearch(mergedActions) : mergedActions,
   );
@@ -1525,13 +1669,10 @@ export async function createMCPServerForRequest(
         orgId: orgId ?? null,
       }),
   );
-  // Compact/connector is the DEFAULT for every caller — hosted connectors,
-  // code clients (Claude Code / Cursor / Codex), and the local CLI alike. The
-  // full ~105-tool catalog is served only on the explicit opt-in above, so a
-  // host can never dump every action schema into one giant tool card. The
-  // `mcp:apps` scope still lands on this compact MCP-Apps surface; with no
-  // opt-in, everyone else does too.
-  const compactMcpAppCatalog = !appCatalog && !fullCatalogRequested;
+  // The compact catalog is the default for every caller. Directory mode is a
+  // separate closed catalog; the full catalog still needs an explicit opt-in.
+  const compactMcpAppCatalog =
+    !appCatalog && !directoryCatalog && !fullCatalogRequested;
   const advertisedActionsBeforeConnector = compactMcpAppCatalog
     ? Object.fromEntries(
         Object.entries(visibleActions).filter(([name, entry]) =>
@@ -1539,39 +1680,52 @@ export async function createMCPServerForRequest(
         ),
       )
     : visibleActions;
-  const autoReadNames = autoAuthenticatedReadNames(visibleActions, config);
-  const connectorNames = new Set([
-    ...(config.connectorCatalog ?? []),
-    ...declaredMcpToolNames(visibleActions),
-    ...autoReadNames,
-  ]);
+  const autoReadNames = directoryCatalog
+    ? new Set<string>()
+    : autoAuthenticatedReadNames(visibleActions, config);
+  const connectorNames = directoryCatalog
+    ? new Set(directoryNames)
+    : new Set([
+        ...(config.connectorCatalog ?? []),
+        ...declaredMcpToolNames(visibleActions),
+        ...autoReadNames,
+      ]);
   const denyNames = externalAgentDenySet(config);
   const automaticConnectorPolicyActive =
     config.externalAgents?.authenticatedReads === "auto";
   const connectorCatalogActive =
     !appCatalog &&
-    (connectorNames.size > 0 || automaticConnectorPolicyActive) &&
-    !fullCatalogRequested;
+    !fullCatalogRequested &&
+    (directoryCatalog ||
+      connectorNames.size > 0 ||
+      automaticConnectorPolicyActive);
+  const writesAreAskAppOnly = externalAgentWritesAreAskAppOnly(config);
   const advertisedActionsBeforeToolSearchScope = appCatalog
     ? Object.fromEntries(
         Object.entries(visibleActions).filter(([name]) => !denyNames.has(name)),
       )
-    : connectorCatalogActive
+    : directoryCatalog
       ? Object.fromEntries(
-          Object.entries(visibleActions).filter(([name, entry]) => {
-            if (denyNames.has(name)) return false;
-            if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
-            if (!connectorNames.has(name)) return false;
-            if (
-              externalAgentWritesAreAskAppOnly(config) &&
-              entry.readOnly !== true
-            ) {
-              return false;
-            }
-            return true;
-          }),
+          Object.entries(visibleActions).filter(
+            ([name, entry]) =>
+              connectorNames.has(name) &&
+              !denyNames.has(name) &&
+              (!writesAreAskAppOnly || entry.readOnly === true),
+          ),
         )
-      : advertisedActionsBeforeConnector;
+      : connectorCatalogActive
+        ? Object.fromEntries(
+            Object.entries(visibleActions).filter(([name, entry]) => {
+              if (denyNames.has(name)) return false;
+              if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
+              if (!connectorNames.has(name)) return false;
+              if (writesAreAskAppOnly && entry.readOnly !== true) {
+                return false;
+              }
+              return true;
+            }),
+          )
+        : advertisedActionsBeforeConnector;
   const advertisedActions = scopeToolSearchToAdvertised(
     advertisedActionsBeforeToolSearchScope,
   );
@@ -1605,6 +1759,7 @@ export async function createMCPServerForRequest(
   }
   const supportsMcpApps =
     compactMcpAppCatalog ||
+    directoryCatalog ||
     Object.values(advertisedActions).some((entry) =>
       Boolean(entry.mcpApp?.resource),
     );
@@ -1612,10 +1767,9 @@ export async function createMCPServerForRequest(
     (name) => name in advertisedActions,
   );
   const server = new Server(mcpServerInfo(config, requestMeta), {
-    instructions: agentNativeMcpInstructions(
-      config.instructions,
-      servedKeyToolNames,
-    ),
+    instructions: directoryCatalog
+      ? config.directoryProfile?.instructions
+      : agentNativeMcpInstructions(config.instructions, servedKeyToolNames),
     capabilities: {
       tools: {},
       ...(supportsMcpApps
@@ -1799,6 +1953,28 @@ export async function createMCPServerForRequest(
                 ? { ...((entry.tool as any)._meta as Record<string, unknown>) }
                 : {};
             const inputSchema = mcpToolInputSchema(name, entry.tool.parameters);
+            if (directoryCatalog) {
+              const properties = inputSchema.properties as
+                | Record<string, Record<string, unknown>>
+                | undefined;
+              for (const parameter of config.directoryProfile
+                ?.hiddenToolParameters?.[name] ?? []) {
+                if (properties) delete properties[parameter];
+                if (Array.isArray(inputSchema.required)) {
+                  inputSchema.required = inputSchema.required.filter(
+                    (required) => required !== parameter,
+                  );
+                }
+              }
+              for (const [parameter, description] of Object.entries(
+                config.directoryProfile?.toolParameterDescriptions?.[name] ??
+                  {},
+              )) {
+                if (properties?.[parameter]) {
+                  properties[parameter].description = description;
+                }
+              }
+            }
             const hasOpenAppEntrypoint =
               name === "open_app" &&
               !inputSchema.required?.length &&
@@ -1822,16 +1998,23 @@ export async function createMCPServerForRequest(
                   }
                 : {}),
             };
-            const baseDescription = entry.tool.description ?? name;
+            const baseDescription =
+              (directoryCatalog
+                ? config.directoryProfile?.toolDescriptions?.[name]
+                : undefined) ??
+              entry.tool.description ??
+              name;
             const title = agentNativeToolTitle(name, entry.tool.title);
-            const annotations: Record<string, unknown> = {
-              title,
-              readOnlyHint: entry.readOnly === true,
-              destructiveHint:
-                entry.publicAgent?.isConsequential === true ||
-                entry.needsApproval !== undefined,
-              openWorldHint: false,
-            };
+            const annotations: Record<string, unknown> = directoryCatalog
+              ? { title, ...entry.mcpAnnotations }
+              : {
+                  title,
+                  readOnlyHint: entry.readOnly === true,
+                  destructiveHint:
+                    entry.publicAgent?.isConsequential === true ||
+                    entry.needsApproval !== undefined,
+                  openWorldHint: false,
+                };
             if (hasLink) annotations["agent-native/producesOpenLink"] = true;
             return {
               name,
@@ -2026,6 +2209,15 @@ export async function createMCPServerForRequest(
           const mcpResult = isMcpActionResult(result) ? result : null;
           const rawResult = mcpResult ? mcpResult.raw : result;
           const resultForClient = mcpResult ? mcpResult.text : result;
+          const projectDirectoryResult = directoryCatalog
+            ? config.directoryProfile?.projectResult
+            : undefined;
+          const projectedRawResult = projectDirectoryResult
+            ? projectDirectoryResult(name, rawResult)
+            : rawResult;
+          const projectedResultForClient = projectDirectoryResult
+            ? projectDirectoryResult(name, resultForClient)
+            : resultForClient;
           const mcpResultIsError =
             !!mcpResult &&
             !!mcpResult.raw &&
@@ -2039,16 +2231,30 @@ export async function createMCPServerForRequest(
                 requestMeta,
               )
             : null;
-          const rawResultForClient = mcpAppResourceCandidate
-            ? await withServerMintedMcpAppEmbedStart(rawResult, requestMeta)
-            : rawResult;
+          let directoryLinkUrl: string | undefined;
+          if (config.catalogMode === "directory" && entry.link) {
+            const linked = entry.link({
+              args: (args as Record<string, any>) ?? {},
+              result: rawResult,
+            });
+            directoryLinkUrl = linked?.url ?? undefined;
+          }
+          const rawResultForClient =
+            mcpAppResourceCandidate &&
+            !(directoryCatalog && entry.readOnly === true)
+              ? await withServerMintedMcpAppEmbedStart(
+                  projectedRawResult,
+                  requestMeta,
+                  directoryLinkUrl,
+                )
+              : projectedRawResult;
           const {
             value: actionResultForClient,
             images: resultImages,
             notes: resultImageNotes,
           } = extractAgentImagesFromActionResult(rawResultForClient);
           const textResultForClient = mcpResult
-            ? resultForClient
+            ? projectedResultForClient
             : actionResultForClient;
           const embedHasContent =
             resultImages.length > 0 ||
@@ -2147,7 +2353,7 @@ export async function createMCPServerForRequest(
           };
           if (
             response.isError !== true &&
-            !actionCallIsReadOnly(entry, args, false)
+            actionCallEmitsChange(entry, args, false)
           ) {
             try {
               await writeActionChangeMarker({
@@ -2169,9 +2375,16 @@ export async function createMCPServerForRequest(
               ? ` (errorCode: ${err.errorCode})`
               : "";
           failure = describeMcpError(err);
+          const projectedError =
+            directoryCatalog && config.directoryProfile?.projectResult
+              ? config.directoryProfile.projectResult(name, err.message)
+              : err.message;
           return {
             content: [
-              { type: "text", text: `Error: ${err.message}${errorCode}` },
+              {
+                type: "text",
+                text: `Error: ${typeof projectedError === "string" ? projectedError : err.message}${errorCode}`,
+              },
             ],
             isError: true,
           };
@@ -2387,7 +2600,7 @@ function deriveStaticTokenIdentity(
   ownerEmailHeader: string | undefined,
 ): MCPCallerIdentity | undefined {
   const owner =
-    process.env.AGENT_NATIVE_OWNER_EMAIL?.trim() ||
+    getConfiguredMcpOwnerEmail() ||
     (typeof ownerEmailHeader === "string" && ownerEmailHeader.trim()) ||
     "";
   if (!owner) return undefined;

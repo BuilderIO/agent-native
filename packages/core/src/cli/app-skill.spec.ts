@@ -145,6 +145,16 @@ describe("app skill manifests", () => {
     ]);
   });
 
+  it("rejects malformed ChatGPT plugin metadata instead of casting it", () => {
+    expect(() =>
+      normalizeAppSkillManifest({
+        id: "assets",
+        hosted: { url: "https://assets.agent-native.com" },
+        chatgpt: { version: "1.0.0" },
+      }),
+    ).toThrow("chatgpt.interface must be an object.");
+  });
+
   it("parses commands and flags", () => {
     expect(
       parseAppSkillArgs([

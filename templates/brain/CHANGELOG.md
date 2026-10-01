@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Brain are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-01
+
+### Improved
+
+- Brain answers from synced Slack and Zoom messages with their channel and date, including questions asked from Dispatch, Slack, or MCP.
+
 ## 2026-09-30
 
 ### Added

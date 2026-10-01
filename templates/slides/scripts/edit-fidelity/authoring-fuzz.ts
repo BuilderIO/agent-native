@@ -63,6 +63,18 @@ export interface AuthoringFuzzPersistence {
   reloadedHtml: string;
 }
 
+export async function canonicalizeAuthoringFuzzPersistence(
+  persistence: AuthoringFuzzPersistence,
+  canonicalize: (html: string) => string | Promise<string>,
+): Promise<AuthoringFuzzPersistence> {
+  return {
+    originalHtml: await canonicalize(persistence.originalHtml),
+    liveHtml: await canonicalize(persistence.liveHtml),
+    savedHtml: await canonicalize(persistence.savedHtml),
+    reloadedHtml: await canonicalize(persistence.reloadedHtml),
+  };
+}
+
 export interface AuthoringFuzzOptions {
   seed: number;
   steps: number;

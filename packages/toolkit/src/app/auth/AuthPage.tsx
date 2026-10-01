@@ -8,6 +8,7 @@ import {
   shouldRetryAuthSessionProbe,
 } from "@agent-native/core/client/auth/auth-page-helpers";
 import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
+import { navigateForSession } from "@agent-native/core/client/use-session";
 import { normalizeLocaleCode } from "@agent-native/core/localization/shared";
 import { canonicalTrackingEvent } from "@agent-native/core/shared/analytics-events";
 import { getAppStatus } from "@agent-native/core/shared/app-status";
@@ -758,7 +759,7 @@ export function AuthPage(props: AuthPageProps) {
   );
   const redirectToSignedInApp = React.useCallback(
     (target?: string) => {
-      window.location.replace(identityBootstrapHref(target));
+      navigateForSession(identityBootstrapHref(target), "signed_in_app");
     },
     [identityBootstrapHref],
   );
@@ -948,7 +949,10 @@ export function AuthPage(props: AuthPageProps) {
       return: resumeHref(),
       prompt: "none",
     });
-    window.location.replace(`${identityHref}?${probeParams.toString()}`);
+    navigateForSession(
+      `${identityHref}?${probeParams.toString()}`,
+      "sso_probe",
+    );
   }, [
     identityHref,
     identitySsoAuto,
@@ -1350,6 +1354,11 @@ export function AuthPage(props: AuthPageProps) {
       stopOAuthPolling();
       oauthPollTimer.current = window.setInterval(() => void check(), 1000);
       if (popup) {
+        // `popup.closed` is not proof the user gave up: once the popup reaches
+        // a provider page that sets Cross-Origin-Opener-Policy, the opener's
+        // handle reads `closed` while sign-in is still in progress. So a
+        // closed popup only re-enables the button; the exchange poll keeps
+        // running and finishes the flow whenever the sign-in completes.
         oauthPopupTimer.current = window.setInterval(() => {
           let closed = false;
           try {
@@ -1379,21 +1388,11 @@ export function AuthPage(props: AuthPageProps) {
                   finishOAuthExchange(target);
                   return;
                 }
-                stopOAuthPolling();
                 setGoogleBusy(false);
-                setNotice("google", {
-                  kind: "error",
-                  text: t("googlePopupHelp"),
-                });
               })
               .catch(() => {
                 if (flowId !== oauthFlowId.current) return;
-                stopOAuthPolling();
                 setGoogleBusy(false);
-                setNotice("google", {
-                  kind: "error",
-                  text: t("googlePopupHelp"),
-                });
               });
           }, 5000);
         }, 500);

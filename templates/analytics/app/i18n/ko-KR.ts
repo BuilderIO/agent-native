@@ -150,7 +150,7 @@ export default {
     untitledAnalysis: "제목 없는 분석",
   },
   settings: {
-    agentObservability: "에이전트 관찰성",
+    agentObservability: "관찰성",
     reviewPreviewUnavailable: "미리보기를 사용할 수 없습니다",
     agentTitle: "에이전트 관리",
     agentDescription:

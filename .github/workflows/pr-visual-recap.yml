@@ -368,7 +368,7 @@ jobs:
             const url = new URL("/_agent-native/actions/record-recap-usage", process.env.PLAN_RECAP_APP_URL || "https://plan.agent-native.com");
             const req = https.request(url, { method: "POST", headers: { "authorization": "Bearer " + process.env.PLAN_RECAP_TOKEN, "content-type": "application/json" }, timeout: 8000 }, (res) => { process.stdout.write(String(res.statusCode)); req.destroy(); });
             req.on("error", () => process.stdout.write("0"));
-            req.end(JSON.stringify({ planId: "__probe__" }));
+            req.end(JSON.stringify({ __probe__: true }));
           ' 2>/dev/null || echo "0")
           if [ "$HTTP_STATUS" = "401" ]; then
             echo "auth_failed=true" >> "$GITHUB_OUTPUT"

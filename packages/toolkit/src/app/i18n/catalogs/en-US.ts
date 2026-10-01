@@ -382,6 +382,8 @@ const messages = {
   "composer.auto": "Auto",
   "composer.builderModelCredits": "Free credits for Claude, OpenAI & Gemini",
   "composer.chatGptSubscription": "ChatGPT subscription",
+  "composer.chatgptManageUsage": "Manage usage",
+  "composer.chatgptPlanUsing": "Using ChatGPT plan",
   "composer.closePreview": "Close preview",
   "composer.configureProviderKeys":
     "Configure Anthropic, OpenAI, or another provider",
@@ -582,6 +584,10 @@ const messages = {
   "empty.loadingChat": "Loading chat...",
   "empty.prompt": "How can I help you?",
   "error.afterDuration": "{{headline}} after {{duration}}",
+  "error.chatgptPlanUsageLimit":
+    "Your ChatGPT plan usage limit has been reached.",
+  "error.chatgptPlanUsageUnavailable":
+    "OpenAI couldn’t check this ChatGPT plan’s usage limit. Check ChatGPT usage or try another model.",
   "error.failed": "The agent hit an error",
   "error.render": "This content couldn’t be displayed.",
   "error.stopped": "The agent stopped before finishing",
@@ -605,6 +611,12 @@ const messages = {
     "A tool schema was invalid, so the model rejected the request before it started. The invalid tool can be skipped and the request retried.",
   "errorMessages.malformedRequest":
     "The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.",
+  "errorMessages.runInterrupted": "The agent stopped before finishing.",
+  "errorMessages.runFailed": "The agent run failed.",
+  "errorMessages.runUnverified":
+    "This chat lost track of the agent, which may still be running. Reload to see its progress.",
+  "errorMessages.runSignedOut":
+    "You're signed out, so this chat can't follow the agent. Sign in again, then reload.",
   "errorMessages.malformedRequestAttachment":
     "The model rejected an attached file, so this message was never sent. Remove the attachment and retry — a PDF, a plain-text file, or a JPEG, PNG, GIF, or WebP image is read directly; other formats have to be uploaded and linked instead.",
   "errorMessages.noProviderConnected":
@@ -1082,6 +1094,8 @@ const messages = {
   "recovery.connectingBuilder": "Connecting Builder.io",
   "recovery.copyDebug": "Copy debug",
   "recovery.copyFailed": "Copy failed",
+  "recovery.retryAttachmentUnavailable":
+    "This request included a file that can’t be retried. Attach it again in the message box, then try again.",
   "recovery.deferredSubmissionFailed":
     "This message couldn't be sent. Check your connection or chat setup, then retry.",
   "recovery.credentialRejected":
@@ -1558,6 +1572,7 @@ const messages = {
   "settings.usage.yourEstimatedSpend": "Your estimated spend",
   "settings.usage.yourCreditSpend": "Your Builder.io credit spend",
   "settings.usage.calls": "Calls",
+  "settings.usage.chatgptPlanUsage": "ChatGPT plan usage",
   "settings.usage.tokens": "Tokens",
   "settings.usage.activePeople": "Active people",
   "settings.usage.history": "Usage history",
@@ -2729,10 +2744,32 @@ const messages = {
   "settingsModel.change": "Change",
   "settingsModel.chatgptConnected": "Connected",
   "settingsModel.chatgptDescription":
-    "Use the Codex engine with your ChatGPT plan.",
+    "Use eligible OpenAI models through your ChatGPT plan.",
   "settingsModel.chatgptPopupBlocked":
     "Allow pop-ups for this site, then try again.",
-  "settingsModel.chatgptTitle": "ChatGPT subscription",
+  "settingsModel.chatgptTitle": "ChatGPT plan access",
+  "settingsModel.chatgptAddAccount": "Add another account",
+  "settingsModel.chatgptConnecting": "Connecting…",
+  "settingsModel.chatgptContinue": "Continue with ChatGPT",
+  "settingsModel.chatgptDisconnect": "Disconnect",
+  "settingsModel.chatgptDisconnectTitle": "Disconnect ChatGPT?",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} will be signed out of this app and the agent will stop using your ChatGPT plan. You can sign in again anytime.",
+  "settingsModel.chatgptDisconnecting": "Disconnecting…",
+  "settingsModel.chatgptRemoveLegacySignIn": "Remove old sign-in",
+  "settingsModel.chatgptLegacySignInDetails":
+    "An older ChatGPT sign-in is saved here. The official flow cannot use it.",
+  "settingsModel.chatgptManageAccess": "Manage in ChatGPT",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "Disconnected here. Access may remain active in ChatGPT.",
+  "settingsModel.chatgptLocalOnly":
+    "Open-source apps are self-serve when run locally with a loopback callback; no partner application is needed. Hosted apps on *.agent-native.com need operator approval and a hosted callback.",
+  "settingsModel.chatgptNoDirectUse":
+    "Reconnect and allow direct model access to use this ChatGPT account.",
+  "settingsModel.chatgptReconnect": "Reconnect",
+  "settingsModel.chatgptSelectAccount": "ChatGPT account",
+  "settingsModel.chatgptUsageLimit":
+    "Your ChatGPT plan usage limit has been reached.",
   "settingsModel.checkAgain": "Check again",
   "settingsModel.checkedJustNow": "Checked just now.",
   "settingsModel.checkedOn": "Checked {{date}}.",

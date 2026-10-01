@@ -6,6 +6,8 @@ import {
   resetAgentAppModelDefaultSettings,
   writeAgentAppModelDefaultSettings,
 } from "../../agent/app-model-defaults.js";
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../../agent/chatgpt-subscription-contract.js";
+import { listChatGPTSubscriptionModels } from "../../agent/engine/chatgpt-subscription-engine.js";
 import {
   getAgentEngineEntry,
   isAgentEnginePackageInstalled,
@@ -104,6 +106,23 @@ async function runSetAppDefault(args: Record<string, string>): Promise<string> {
   if (!engine) return "Error: engine is required";
   if (!model) return "Error: model is required";
 
+  const ctx = currentContext();
+  if (engine === CHATGPT_SUBSCRIPTION_ENGINE_NAME) {
+    if (ctx.orgId) {
+      return "Error: ChatGPT plan access is personal and cannot be selected as an organization default.";
+    }
+    const email = ctx.userEmail;
+    if (!email) return "Error: Sign in before selecting ChatGPT plan access.";
+    try {
+      const catalog = await listChatGPTSubscriptionModels(email);
+      if (!catalog.models.includes(model)) {
+        return "Error: Choose a visible model from the selected ChatGPT account's model list.";
+      }
+    } catch (error) {
+      return `Error: ${error instanceof Error ? error.message : "Unable to load the ChatGPT account's model list."}`;
+    }
+  }
+
   const entry = getAgentEngineEntry(engine);
   if (!entry) return `Error: Unknown engine "${engine}"`;
   if (!isAgentEnginePackageInstalled(entry)) {
@@ -116,7 +135,6 @@ async function runSetAppDefault(args: Record<string, string>): Promise<string> {
     preserveCustomModels,
   });
 
-  const ctx = currentContext();
   const canUpdate = await canUpdateAgentAppModelDefaultSettings(
     ctx.userEmail,
     ctx.orgId,

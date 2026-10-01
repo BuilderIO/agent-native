@@ -4,6 +4,7 @@ import type { SnapRecord, Snapshot } from "./in-page.ts";
 import {
   ceilingFor,
   diffSnapshots,
+  followsCenteredFlexReflow,
   findBaselineProblems,
   hardFailures,
   isDraftRevert,
@@ -128,6 +129,81 @@ describe("diffSnapshots", () => {
     expect(d.deltas).toEqual([]);
     expect(d.missing).toEqual([]);
     expect(d.added).toEqual([]);
+  });
+});
+
+describe("followsCenteredFlexReflow", () => {
+  const centered = (
+    context: string,
+    containerPosition: number,
+    containerSize: number,
+    itemSize = 20,
+    editedItemSize = 20,
+    axis: "x" | "y" = "y",
+  ) => ({
+    ...rec("box:div#0", {}),
+    flexCrossAlignment: {
+      context,
+      axis,
+      containerPosition,
+      containerSize,
+      itemSize,
+      editedItemSize,
+    },
+  });
+
+  it("allows a centered sibling to follow a flex line's cross-axis growth", () => {
+    expect(
+      followsCenteredFlexReflow(
+        centered("1.2", 0, 20),
+        centered("1.2", 0, 60, 20, 60),
+        "y",
+        20,
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects unrelated shifts, moved parents or a different flex parent", () => {
+    expect(
+      followsCenteredFlexReflow(
+        centered("1.2", 0, 20),
+        centered("1.2", 0, 60, 20, 60),
+        "y",
+        5,
+      ),
+    ).toBe(false);
+    expect(
+      followsCenteredFlexReflow(
+        centered("1.2", 0, 20),
+        centered("1.2", 5, 60, 20, 60),
+        "y",
+        25,
+      ),
+    ).toBe(false);
+    expect(
+      followsCenteredFlexReflow(
+        centered("1.2", 0, 20),
+        centered("1.3", 0, 60, 20, 60),
+        "y",
+        20,
+      ),
+    ).toBe(false);
+    expect(
+      followsCenteredFlexReflow(
+        centered("1.2", 0, 20),
+        centered("1.2", 0, 60, 20, 60),
+        "x",
+        20,
+      ),
+    ).toBe(false);
+    expect(
+      followsCenteredFlexReflow(
+        centered("1.2", 0, 20),
+        centered("1.2", 0, 60, 20, 20),
+        "y",
+        20,
+      ),
+    ).toBe(false);
   });
 });
 
@@ -349,26 +425,51 @@ describe("restyledAddedText", () => {
     expect(restyledAddedText(view, reload)).toEqual([]);
   });
 
-  it("allows an unstyled paragraph after a heading while still flagging styled text", () => {
-    const view = snap([{ ...rec("text:Title#0", white, true), tag: "h1" }]);
+  it.each([
+    ["heading", "h1"],
+    ["list item", "li"],
+  ])(
+    "allows an unstyled paragraph after a %s while still flagging styled text",
+    (_, tag) => {
+      const view = snap([{ ...rec("text:Title#0", white, true), tag }]);
+      const plainParagraph = {
+        ...rec("text:new line#0", { color: "rgb(255, 255, 255)" }, true),
+        tag: "p",
+        inlineStyle: "",
+      };
+      const reload = snap([...view.records, plainParagraph]);
+      expect(restyledAddedText(view, reload, tag)).toEqual([]);
+      expect(restyledAddedText(view, reload)).toEqual(["text:new line#0"]);
+      expect(
+        restyledAddedText(
+          view,
+          snap([
+            ...view.records,
+            { ...plainParagraph, inlineStyle: "font-size: 48px" },
+          ]),
+          tag,
+        ),
+      ).toEqual(["text:new line#0"]);
+    },
+  );
+
+  it("does not exempt a paragraph edit because a sibling is a list item", () => {
+    const view = snap([
+      { ...rec("text:List item#0", white, true), tag: "li" },
+      {
+        ...rec("text:Paragraph#0", { color: "rgb(0, 0, 255)" }, true),
+        tag: "p",
+      },
+    ]);
     const plainParagraph = {
-      ...rec("text:new line#0", { color: "rgb(255, 255, 255)" }, true),
+      ...rec("text:new line#0", { color: "rgb(0, 0, 0)" }, true),
       tag: "p",
       inlineStyle: "",
     };
-    const reload = snap([...view.records, plainParagraph]);
-    expect(restyledAddedText(view, reload, true)).toEqual([]);
-    expect(restyledAddedText(view, reload)).toEqual(["text:new line#0"]);
-    expect(
-      restyledAddedText(
-        view,
-        snap([
-          ...view.records,
-          { ...plainParagraph, inlineStyle: "font-size: 48px" },
-        ]),
-        true,
-      ),
-    ).toEqual(["text:new line#0"]);
+    const after = snap([...view.records, plainParagraph]);
+
+    expect(restyledAddedText(view, after, "p")).toEqual(["text:new line#0"]);
+    expect(restyledAddedText(view, after, "li")).toEqual([]);
   });
 });
 

@@ -160,7 +160,7 @@ export default {
     untitledAnalysis: "Unbenannte Analyse",
   },
   settings: {
-    agentObservability: "Agentenbeobachtbarkeit",
+    agentObservability: "Beobachtbarkeit",
     reviewPreviewUnavailable: "Vorschau nicht verfügbar",
     agentTitle: "Agent verwalten",
     agentDescription:

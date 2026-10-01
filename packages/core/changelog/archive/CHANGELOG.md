@@ -1,3 +1,23 @@
+## 0.164.24
+
+### Patch Changes
+
+- 14a3f87: Preserve the beta environment opt-out when custom authentication pages are served.
+- 14a3f87: Keep BYOA sign-in and liveness routes available while unrelated serverless bootstrap work is waiting on the database.
+
+## 0.164.23
+
+### Patch Changes
+
+- b811566: Preserve the beta environment opt-out when custom authentication pages are served.
+
+## 0.164.22
+
+### Patch Changes
+
+- 7bb5be0: Reject host-native database binaries in Netlify server bundles before publication.
+- 7bb5be0: Persist beta-to-production opt-outs from the cached sign-in shell for 24 hours.
+
 ## 0.164.21
 
 ### Patch Changes

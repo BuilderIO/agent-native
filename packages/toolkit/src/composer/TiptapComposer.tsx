@@ -992,6 +992,7 @@ export interface TiptapComposerProps {
     engine: string;
     label: string;
     models: string[];
+    modelDisplayNames?: Readonly<Record<string, string>>;
     configured: boolean;
     statusLabel?: string;
     isSubscription?: boolean;
@@ -1639,6 +1640,7 @@ function ModelSelector({
     engine: string;
     label: string;
     models: string[];
+    modelDisplayNames?: Readonly<Record<string, string>>;
     configured: boolean;
     statusLabel?: string;
     isSubscription?: boolean;
@@ -1822,17 +1824,20 @@ function ModelSelector({
       group.models.includes(model) &&
       (!selectedEngine || group.engine === selectedEngine),
   );
+  const selectedModelDisplayName = selectedModelProviderGroups
+    .map((group) => group.modelDisplayNames?.[model])
+    .find((displayName) => typeof displayName === "string");
   const selectedModelNeedsConnection =
     onlyConnectPathAvailable ||
     (selectedModelProviderGroups.length > 0 &&
       selectedModelProviderGroups.every((group) => !group.configured));
   const selectedModelName = selectedModelNeedsConnection
     ? t("agentChat.composer.connectKeys", { defaultValue: "Connect keys" })
-    : friendlyModelName(model, t);
+    : (selectedModelDisplayName ?? friendlyModelName(model, t));
   const selectedModelLabel = selectedModelName;
   const selectedModelButtonLabel = selectedModelNeedsConnection
     ? selectedModelLabel
-    : compactComposerModelName(model, t);
+    : (selectedModelDisplayName ?? compactComposerModelName(model, t));
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
@@ -2353,7 +2358,10 @@ function ModelSelector({
                     {hasConfiguredProvider &&
                       !onlyConnectPathAvailable &&
                       visibleProviderGroups.map((group, groupIndex) => {
-                        const models = latestModelsOnly(group.models);
+                        const models =
+                          group.engine === "chatgpt-subscription"
+                            ? group.models
+                            : latestModelsOnly(group.models);
                         const showProviderLabels =
                           visibleProviderGroups.length > 1;
                         const isLocalRuntime =
@@ -2447,7 +2455,8 @@ function ModelSelector({
                                         : "text-muted-foreground"
                                     }`}
                                   >
-                                    {friendlyModelName(m, t)}
+                                    {group.modelDisplayNames?.[m] ??
+                                      friendlyModelName(m, t)}
                                   </span>
                                   <ModelCostTier model={m} />
                                   {!showProviderLabels && statusLabel && (
@@ -2634,7 +2643,6 @@ export function TiptapComposer({
   });
   const [popover, setPopover] = useState<PopoverState>(null);
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
-  const [contextMenuSearch, setContextMenuSearch] = useState("");
   const popoverRef = useRef<MentionPopoverRef>(null);
   const composerRuntime = useComposerRuntime();
   const lastComposerRuntimeSyncRef = useRef<{
@@ -2748,18 +2756,10 @@ export function TiptapComposer({
     error: mentionsError,
     retry: retryMentions,
   } = useMentionSearch(
-    contextMenuOpen
-      ? contextMenuSearch
-      : popover?.type === "@"
-        ? popover.query
-        : "",
+    popover?.type === "@" ? popover.query : "",
     includeDefaultMentionSearch && (contextMenuOpen || popover?.type === "@"),
   );
-  const mentionQuery = contextMenuOpen
-    ? contextMenuSearch
-    : popover?.type === "@"
-      ? popover.query
-      : "";
+  const mentionQuery = popover?.type === "@" ? popover.query : "";
   const filteredMentionItems = useMemo(
     () =>
       filterMentionItemsForSlots(
@@ -5302,7 +5302,6 @@ export function TiptapComposer({
             attachmentsEnabled={attachmentsEnabled}
             open={contextMenuOpen}
             onOpenChange={setContextMenuOpen}
-            onSearchChange={setContextMenuSearch}
             loading={mentionsLoading}
             error={
               mentionsError

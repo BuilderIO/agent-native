@@ -16,6 +16,7 @@ import {
 import {
   actionErrorMessage,
   signOut,
+  usePollLoop,
   useSession,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
@@ -248,6 +249,8 @@ const OUTPUT_VIEW_STORAGE_KEY = "slides:output-viewed";
 const OUTPUT_VIEW_LEGACY_PREFIX = "slides:output-viewed:";
 const OUTPUT_VIEW_LEGACY_CLEANUP_KEY = "slides:output-viewed-cleanup-v1";
 const OUTPUT_VIEW_DECK_LIMIT = 512;
+const ACCESS_REQUEST_CHECK_INTERVAL_MS = 60_000;
+const ACCESS_REQUEST_MAX_CHECKS = 10;
 
 async function claimOutputView(
   sessionId: string,
@@ -702,6 +705,11 @@ export default function DeckEditor() {
   const [pinMode, setPinMode] = useState(false);
   const [textBoxMode, setTextBoxMode] = useState(false);
   const [shapeType, setShapeType] = useState<SlideShapeType | null>(null);
+  const [selectedCommentThreadId, setSelectedCommentThreadId] = useState<
+    string | null
+  >(null);
+  const [selectedCommentThreadRequestId, setSelectedCommentThreadRequestId] =
+    useState(0);
 
   const openAnimationsForTarget = useCallback(
     (target: SelectedAnimationTarget) => {
@@ -814,8 +822,24 @@ export default function DeckEditor() {
         panel: "comments",
       });
     }
+    if (!opening) setSelectedCommentThreadId(null);
     setSidePanel(opening ? "comments" : null);
   }, [sidePanel]);
+  const selectCommentThread = useCallback(
+    (threadId: string) => {
+      setSelectedCommentThreadId(threadId);
+      setSelectedCommentThreadRequestId((requestId) => requestId + 1);
+      if (sidePanel !== "comments") {
+        trackEvent("slide_panel_opened", {
+          app_name: "slides",
+          template_name: "slides",
+          panel: "comments",
+        });
+      }
+      setSidePanel("comments");
+    },
+    [sidePanel],
+  );
   const [pendingComment, setPendingComment] = useState<{
     slideId: string;
     quotedText: string;
@@ -1729,11 +1753,14 @@ export default function DeckEditor() {
             const target =
               editingEl?.closest<HTMLElement>("[data-slide-object-id]") ??
               selectionElement?.closest<HTMLElement>("[data-slide-object-id]");
+            const textRoot =
+              target ?? canvas.querySelector<HTMLElement>(".slide-content");
             return slideCommentAnchorFromRange({
               range: requestedAnchor,
               slideRect: canvas.getBoundingClientRect(),
               objectId: target?.getAttribute("data-slide-object-id"),
               objectRect: target?.getBoundingClientRect(),
+              objectElement: textRoot,
               targetText: quotedText,
             });
           })()
@@ -2065,6 +2092,34 @@ export default function DeckEditor() {
       setAccessRequestNotified(false);
     }
   }, [accessRequestSentDeckId, id]);
+
+  // The deck poll stops on 403/404, so a visible tab waiting on an access
+  // request checks back on its own for a while instead of needing a refocus.
+  const waitingOnAccessRequest =
+    !deck &&
+    (accessRequestSentDeckId === id ||
+      deniedPageAccessRequest.isSuccess ||
+      Boolean(deckAccessStatus?.pendingAccessRequest));
+  const accessRequestChecksRef = useRef({ deckId: id, count: 0 });
+  usePollLoop(
+    async () => {
+      if (!id) return;
+      if (accessRequestChecksRef.current.deckId !== id) {
+        accessRequestChecksRef.current = { deckId: id, count: 0 };
+      }
+      if (accessRequestChecksRef.current.count >= ACCESS_REQUEST_MAX_CHECKS) {
+        return;
+      }
+      accessRequestChecksRef.current.count += 1;
+      await refreshOpenDeck(id);
+    },
+    {
+      intervalMs: ACCESS_REQUEST_CHECK_INTERVAL_MS,
+      enabled: Boolean(id) && waitingOnAccessRequest,
+      pauseWhenHidden: true,
+      leading: false,
+    },
+  );
 
   useEffect(() => {
     resetDeniedPageAccessRequest();
@@ -2763,6 +2818,8 @@ export default function DeckEditor() {
           const object = selectionElement?.closest<HTMLElement>(
             "[data-slide-object-id]",
           );
+          const textRoot =
+            object ?? canvas.querySelector<HTMLElement>(".slide-content");
           openCommentComposer(
             quotedText,
             slideCommentAnchorFromRange({
@@ -2770,6 +2827,7 @@ export default function DeckEditor() {
               slideRect: canvas.getBoundingClientRect(),
               objectId: object?.getAttribute("data-slide-object-id"),
               objectRect: object?.getBoundingClientRect(),
+              objectElement: textRoot,
               targetText: quotedText,
             }),
           );
@@ -4013,6 +4071,7 @@ export default function DeckEditor() {
             canComment={canComment}
             currentUserEmail={session?.email ?? null}
             comments={currentSlideThreads}
+            onSelectCommentThread={selectCommentThread}
             contextToolbarSlot={contextToolbarSlot}
             wideContextToolbarSlot={wideContextToolbarSlot}
             layersPanelSlot={layersPanelSlot}
@@ -4181,6 +4240,8 @@ export default function DeckEditor() {
             canComment={canComment}
             canEdit={canEdit}
             currentUserEmail={session?.email ?? null}
+            selectedThreadId={selectedCommentThreadId}
+            selectedThreadRequestId={selectedCommentThreadRequestId}
             onBeforeCommentSubmit={flushCommentWrites}
             onSelectSlide={handleSlideSelection}
             pendingComment={
@@ -4191,6 +4252,7 @@ export default function DeckEditor() {
             onPendingDone={() => setPendingComment(null)}
             onClose={() => {
               setSidePanel(null);
+              setSelectedCommentThreadId(null);
               setPendingComment(null);
             }}
           />

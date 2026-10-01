@@ -337,7 +337,7 @@ export default {
     untitledDashboard: "Untitled dashboard",
   },
   settings: {
-    agentObservability: "Agent Observability",
+    agentObservability: "Observability",
     reviewPreviewUnavailable: "Preview unavailable",
     agentTitle: "Manage agent",
     agentDescription:

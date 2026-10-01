@@ -1,5 +1,6 @@
 import { chromium } from "@playwright/test";
 
+import { SetupDeadlineError, withHostDeadline } from "./lib/deadline";
 import {
   authenticatableSites,
   chatSites,
@@ -25,6 +26,13 @@ import {
   BETA_E2E_TEST_TRAFFIC_HEADERS,
   installBetaE2ETrafficMarker,
 } from "./lib/test-traffic";
+
+// Slow beta hosts cost 20-40s per page load from a GitHub runner, so this has to
+// cover a session exchange plus a key install without tripping on a cold host.
+const HOST_SETUP_DEADLINE_MS = 150_000;
+// Hosts that hang rather than fail; past this the run is not going to recover
+// and each further host would only burn another full deadline.
+const MAX_HUNG_HOSTS = 3;
 
 function providerKeyRequired(): boolean {
   return process.env.BETA_E2E_CLUSTER?.trim().toLowerCase() === "chat";
@@ -111,38 +119,62 @@ async function globalSetup(): Promise<void> {
 
   const browser = await chromium.launch();
   const failures: string[] = [];
+  let hungHosts = 0;
   try {
-    for (const site of targets) {
+    for (const [index, site] of targets.entries()) {
+      if (hungHosts >= MAX_HUNG_HOSTS) {
+        failures.push(
+          `${targets
+            .slice(index)
+            .map((remaining) => remaining.id)
+            .join(
+              ", ",
+            )}: not attempted — ${hungHosts} earlier hosts hung past their setup deadline.`,
+        );
+        break;
+      }
       const origin = originFor(site);
+      const installsKey = needsProviderKey && needsKey.has(site.id);
       try {
-        const identity = await bootstrapAppSession(browser, site);
+        await withHostDeadline(
+          site.id,
+          HOST_SETUP_DEADLINE_MS,
+          async (step) => {
+            step("bootstrapping the session");
+            const identity = await bootstrapAppSession(browser, site, step);
 
-        if (needsProviderKey && needsKey.has(site.id)) {
-          const context = await browser.newContext({
-            storageState: authStatePath(site.id),
-            extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS,
-          });
-          await installBetaE2ETrafficMarker(context);
-          try {
-            if (!apiKey) {
-              throw new Error("No validated OpenAI credential is available.");
+            if (installsKey) {
+              step("installing the OpenAI key");
+              const context = await browser.newContext({
+                storageState: authStatePath(site.id),
+                extraHTTPHeaders: BETA_E2E_TEST_TRAFFIC_HEADERS,
+              });
+              await installBetaE2ETrafficMarker(context);
+              try {
+                if (!apiKey) {
+                  throw new Error(
+                    "No validated OpenAI credential is available.",
+                  );
+                }
+                const install = await installOpenAiKey(context, origin, apiKey);
+                if (!install.installed) {
+                  failures.push(
+                    `${site.id}: signed in as ${identity.email} but the dedicated OpenAI key was not confirmed at runtime (install HTTP ${install.status}; status HTTP ${install.runtimeStatus.status}: ${install.runtimeStatus.body}). Turns here would bill an unintended credential.`,
+                  );
+                  return;
+                }
+              } finally {
+                await context.close();
+              }
             }
-            const install = await installOpenAiKey(context, origin, apiKey);
-            if (!install.installed) {
-              failures.push(
-                `${site.id}: signed in as ${identity.email} but the dedicated OpenAI key was not confirmed at runtime (install HTTP ${install.status}; status HTTP ${install.runtimeStatus.status}: ${install.runtimeStatus.body}). Turns here would bill an unintended credential.`,
-              );
-              continue;
-            }
-          } finally {
-            await context.close();
-          }
-        }
 
-        console.log(
-          `[beta-e2e]   ${site.id}: session ok as ${identity.email}${needsProviderKey && needsKey.has(site.id) ? `, ${resolvedKey?.source} OpenAI key installed` : ""}`,
+            console.log(
+              `[beta-e2e]   ${site.id}: session ok as ${identity.email}${installsKey ? `, ${resolvedKey?.source} OpenAI key installed` : ""}`,
+            );
+          },
         );
       } catch (error) {
+        if (error instanceof SetupDeadlineError) hungHosts += 1;
         failures.push(
           `${site.id}: ${error instanceof Error ? error.message : String(error)}`,
         );

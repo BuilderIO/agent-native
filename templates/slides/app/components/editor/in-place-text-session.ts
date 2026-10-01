@@ -2545,7 +2545,10 @@ export function startInPlaceTextSession(
       paragraph.style.removeProperty(property);
     }
     if (!paragraph.style.margin) paragraph.style.margin = "0";
-    if (empty || !hasRenderedContent(paragraph)) {
+    if (
+      (empty || !hasRenderedContent(paragraph)) &&
+      !PLACEHOLDER_ONLY.test(paragraph.textContent ?? "")
+    ) {
       paragraph.replaceChildren(ZERO_WIDTH_SPACE);
     }
 
@@ -3643,11 +3646,11 @@ export function startInPlaceTextSession(
 
   function collapseAfterInlineFormat(
     block: HTMLElement,
-    offset: number,
+    formattedRange: Range,
     format: InlineTextFormat,
   ) {
-    const point = textPoint(block, offset);
-    const [node, position] = point;
+    const node = formattedRange.endContainer;
+    const position = formattedRange.endOffset;
     if (node instanceof Text && position === node.length) {
       for (
         let current = node.parentElement;
@@ -3919,12 +3922,8 @@ export function startInPlaceTextSession(
           formatted = toggleInlineTextFormat(el, inline.format);
         }
         const applied = formatted.scope === "selection";
-        if (applied) {
-          collapseAfterInlineFormat(
-            block,
-            base + openStart + inline.text.length,
-            inline.format,
-          );
+        if (applied && formatted.range) {
+          collapseAfterInlineFormat(block, formatted.range, inline.format);
         }
         return applied;
       });

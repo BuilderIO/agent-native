@@ -46,7 +46,7 @@ const messages = {
     designSystems: "设计系统",
   },
   settings: {
-    agentObservability: "代理可观测性",
+    agentObservability: "可观测性",
     title: "设置",
     labs: "实验室",
     labsIntro: "在正式发布前预览实验性功能。",
@@ -439,6 +439,7 @@ const messages = {
     retry: "重试",
     clickToAddComment: "点击添加评论",
     selectSlideToAdd: "选择幻灯片以添加评论",
+    filters: "评论筛选",
     scope: "评论范围",
     thisSlide: "此幻灯片",
     allComments: "所有幻灯片",

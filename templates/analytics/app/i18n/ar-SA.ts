@@ -151,7 +151,7 @@ export default {
     untitledAnalysis: "تحليل بلا عنوان",
   },
   settings: {
-    agentObservability: "مراقبة الوكيل",
+    agentObservability: "قابلية المراقبة",
     reviewPreviewUnavailable: "المعاينة غير متاحة",
     agentTitle: "إدارة الوكيل",
     agentDescription:

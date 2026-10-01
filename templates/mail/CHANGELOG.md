@@ -3,6 +3,31 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-01
+
+### Fixed
+
+- Mail stops repeating actions when Gmail remains in a cooldown.
+- When Gmail rate-limits Mail it keeps showing your saved inbox with a small notice and retries on its own, and an account Google rejected now asks you to reconnect instead of retrying forever
+
+## 2026-09-30
+
+### Improved
+
+- Builder credit connections now use the Builder.io name.
+- The Mail navigation stays readable over the inbox and uses locale-formatted label counts
+
+### Fixed
+
+- Mail refreshes chat readiness after a successful Builder connection.
+- Mail scopes cached message bodies to the signed-in account and mailbox.
+- Opening an agent-focused draft restores its composer when minimized.
+- Restored emails return to Inbox and cached messages are cleared at sign-out.
+
+### Security
+
+- Switching accounts or mailboxes no longer shows cached messages from the previous mailbox.
+
 ## 2026-09-29
 
 ### Improved
@@ -74,6 +99,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Emails show as soon as their text arrives instead of waiting for every image, and no longer go blank when an open email refreshes.
 - Failed queued draft sends now report an error instead of appearing successful.
 - Gmail cooldown messages now show when to try again.
 - Inbox sorting recovers automatically when background processing is interrupted

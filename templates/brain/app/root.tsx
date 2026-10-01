@@ -146,7 +146,14 @@ function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const navigate = useNavigate();
   const t = useT();
-  useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
+  // The home chat composer takes focus on load, and without this the shortcut
+  // is swallowed whenever a contenteditable has focus.
+  useCommandMenuShortcut(
+    useCallback(() => setCmdkOpen(true), []),
+    {
+      allowContentEditable: true,
+    },
+  );
   return (
     <>
       <CommandMenu

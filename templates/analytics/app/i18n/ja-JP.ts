@@ -153,7 +153,7 @@ export default {
     untitledAnalysis: "無題の分析",
   },
   settings: {
-    agentObservability: "エージェントの可観測性",
+    agentObservability: "可観測性",
     reviewPreviewUnavailable: "プレビューを利用できません",
     agentTitle: "エージェントを管理",
     agentDescription:

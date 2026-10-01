@@ -263,7 +263,7 @@ test.describe.serial("rare-but-real unique paths", () => {
     expect(Math.abs(dyRepeat - dyManual)).toBeLessThan(6);
   });
 
-  test("holding Space mid-drag keeps an element a sibling instead of reparenting it into the frame it passes over", async ({
+  test("holding Space through the drop keeps the current parent; a normal drag can still reparent", async ({
     page,
   }) => {
     await selectByTextDeep(page, "Alpha Button");
@@ -276,77 +276,50 @@ test.describe.serial("rare-but-real unique paths", () => {
     const beforeParentTag = parentTagNameOf(beforeHtml, "e2e-alpha-button");
     const beforeLiveParent = await liveParentSignature(page, "Alpha Button");
 
+    await page.evaluate(() => {
+      document.body.dataset.editorDragStarted = "false";
+      window.addEventListener(
+        "message",
+        (event: MessageEvent) => {
+          if (
+            event.data?.type === "agent-native:editor-drag-state" &&
+            event.data.active === true
+          ) {
+            document.body.dataset.editorDragStarted = "true";
+          }
+        },
+        true,
+      );
+    });
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
-    await page.mouse.move(
-      sectionBox.x + sectionBox.width / 2,
-      sectionBox.y + 10,
-      {
-        steps: 10,
-      },
+    await page.mouse.move(box.x + box.width / 2 + 8, box.y + box.height / 2, {
+      steps: 2,
+    });
+    await expect(page.locator("body")).toHaveAttribute(
+      "data-editor-drag-started",
+      "true",
     );
     await page.keyboard.down("Space");
     await page.mouse.move(
       sectionBox.x + sectionBox.width / 2,
       sectionBox.y + sectionBox.height / 2,
-      {
-        steps: 10,
-      },
+      { steps: 20 },
     );
-    await page.keyboard.up("Space");
     await page.mouse.up();
-
-    await expect.poll(() => getFileHtml(page)).not.toBe(beforeHtml);
+    await page.keyboard.up("Space");
 
     const html = await getFileHtml(page);
-    const sectionOpen = html.indexOf(">Fixture Card Title<");
-    const alphaIdx = html.indexOf(
-      'data-agent-native-node-id="e2e-alpha-button"',
-    );
-    const sectionCloseIdx = html.indexOf("</section>", sectionOpen);
-    expect(
-      sectionOpen,
-      "Fixture Card Title section sentinel must exist",
-    ).toBeGreaterThanOrEqual(0);
-    expect(alphaIdx, "Alpha Button sentinel must exist").toBeGreaterThanOrEqual(
-      0,
-    );
-    expect(
-      sectionCloseIdx,
-      "section close sentinel must exist",
-    ).toBeGreaterThanOrEqual(0);
-    expect(
-      alphaIdx > sectionOpen &&
-        sectionCloseIdx > sectionOpen &&
-        alphaIdx > sectionCloseIdx,
-      "Alpha Button must not land inside the section while Space is held during the drag",
-    ).toBe(true);
     const afterParentTag = parentTagNameOf(html, "e2e-alpha-button");
     expect(
       afterParentTag,
-      `Alpha Button must become a direct child of the screen root <body> (a real sibling of <main>/the section), not merely "somewhere after" the section. before-parent=${beforeParentTag} after-parent=${afterParentTag}`,
-    ).toBe("body");
+      `Alpha Button must stay in its original auto-layout parent. before-parent=${beforeParentTag} after-parent=${afterParentTag}`,
+    ).toBe(beforeParentTag);
     const afterLiveParent = await liveParentSignature(page, "Alpha Button");
     expect(
-      afterLiveParent.startsWith("BODY|"),
-      `Alpha Button's live DOM parent must be <body> (the screen root) after the Space-held drop; before=${beforeLiveParent} after=${afterLiveParent}`,
-    ).toBe(true);
-
-    await page.keyboard.press(`${MOD}+z`);
-    await expect
-      .poll(() => getFileHtml(page), {
-        message:
-          "one undo after a Space-held drag must restore the original document (parent and position), not just deselect",
-      })
-      .toBe(beforeHtml);
-    const restoredBox = (await (
-      await frameNode(page, "Alpha Button")
-    ).boundingBox())!;
-    expect(
-      Math.abs(restoredBox.x - box.x) < 1 &&
-        Math.abs(restoredBox.y - box.y) < 1,
-      `one undo must restore Alpha Button's live position; before=(${box.x},${box.y}) after-undo=(${restoredBox.x},${restoredBox.y})`,
-    ).toBe(true);
+      afterLiveParent,
+      `Alpha Button's live parent must remain unchanged after the Space-held drop; before=${beforeLiveParent} after=${afterLiveParent}`,
+    ).toBe(beforeLiveParent);
 
     await layerRowButton(page, "Alpha Button").click();
     await page.waitForTimeout(100);
@@ -925,7 +898,7 @@ async function liveParentSignature(page: Page, text: string): Promise<string> {
   return node.evaluate((el) => {
     const parent = el.parentElement;
     return parent
-      ? `${parent.tagName}|${parent.getAttribute("style") ?? ""}`
+      ? `${parent.tagName}|${parent.getAttribute("data-agent-native-node-id") ?? ""}|${parent.getAttribute("style") ?? ""}`
       : "(no parent)";
   });
 }

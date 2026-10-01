@@ -61,10 +61,11 @@ Run slash, Markdown, list, and Docs-shaped paste with undo/redo against
 representative source slides from the selected corpus. The gate requires
 absolute positioning, flex/grid, styled list rows, and a viewport-scaled slide;
 it saves and reloads each result and compares canonical markup plus
-outside-block style/geometry. On the largest corpus slide, it measures keydown
-latency through the next rendered update with the Event Timing API and fails
-when p95 exceeds 16 ms. Browsers without Event Timing report a non-gating
-frame/layout proxy instead. Slides with `data:` URLs are excluded from the
+outside-block style/geometry. On the largest corpus slide, it reports Event
+Timing input-to-paint latency and gates the p95 time from keydown through the
+first animation frame and forced layout at 16 ms. Event Timing includes browser
+presentation scheduling, so it is diagnostic; browsers without Event Timing
+use the same frame/layout gate. Slides with `data:` URLs are excluded from the
 authoring rounds; the largest-slide latency copy replaces those URLs with
 `about:blank` while preserving the source geometry, so embedded image bytes are
 never copied into the scratch database:

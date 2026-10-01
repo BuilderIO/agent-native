@@ -512,6 +512,59 @@ describe("Slides context readiness and identity", () => {
     ).toBe(JSON.stringify(initialSelection));
   });
 
+  it("tracks the automatic recent deck separately from a chosen deck", async () => {
+    const { result } = renderHook(() =>
+      useSlidesComposerContext({ ...defaults, defaultReferenceDeck: deck }),
+    );
+    await waitFor(() =>
+      expect(result.current.props.contextItems[0]?.status).toBe("ready"),
+    );
+    expect(result.current.automaticReferenceDeckId).toBe(deck.id);
+
+    const presentation = picker(result.current, "deck").presentation;
+    if (
+      !presentation ||
+      presentation === "submenu" ||
+      presentation.mode !== "multiple"
+    )
+      throw new Error("Missing deck picker");
+    await act(async () =>
+      presentation.onAttach([{ id: deck.id, title: deck.title }], request()),
+    );
+
+    expect(result.current.automaticReferenceDeckId).toBeNull();
+  });
+
+  it("preserves automatic-deck provenance when another context is saved", async () => {
+    const { result, unmount } = renderHook(() =>
+      useSlidesComposerContext({ ...defaults, defaultReferenceDeck: deck }),
+    );
+    await waitFor(() =>
+      expect(result.current.props.contextItems[0]?.status).toBe("ready"),
+    );
+
+    await act(async () =>
+      picker(result.current, "website").onSelect!(
+        { id: "https://example.com/reference", title: "Reference site" },
+        request(),
+      ),
+    );
+
+    const storageKey = "slides-home-context:one@example.test:one";
+    expect(result.current.automaticReferenceDeckId).toBe(deck.id);
+    expect(
+      JSON.parse(window.localStorage.getItem(storageKey) ?? "null"),
+    ).toMatchObject({ automaticReferenceDeckId: deck.id });
+    unmount();
+
+    const restored = renderHook(() =>
+      useSlidesComposerContext({ ...defaults, defaultReferenceDeck: deck }),
+    );
+    await waitFor(() =>
+      expect(restored.result.current.automaticReferenceDeckId).toBe(deck.id),
+    );
+  });
+
   it("ignores reference reads that finish after the Home route deactivates", async () => {
     let resolve!: (value: unknown) => void;
     callAction.mockReturnValue(new Promise((done) => (resolve = done)));

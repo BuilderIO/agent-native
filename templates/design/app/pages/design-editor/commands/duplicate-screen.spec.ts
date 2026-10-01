@@ -20,6 +20,9 @@ import {
 } from "./duplicate-screen";
 import { runUndo } from "./undo";
 
+// Figma uses 40px for duplication; Design keeps its board-wide 56px gap.
+const DESIGN_SCREEN_GAP = 56;
+
 const ref = <T>(current: T) => ({ current });
 
 function duplicateArgs(
@@ -127,7 +130,7 @@ describe("getDuplicateScreenGeometry", () => {
     const source = { x: 200, y: 720, width: 320, height: 240, z: 4 };
 
     expect(getDuplicateScreenGeometry(source, [])).toMatchObject({
-      x: 576,
+      x: source.x + source.width + DESIGN_SCREEN_GAP,
       y: 720,
       width: 320,
       height: 240,
@@ -136,14 +139,15 @@ describe("getDuplicateScreenGeometry", () => {
 
   it("uses the next free slot instead of jumping past farther screens", () => {
     const source = { x: 200, y: 720, width: 320, height: 240, z: 4 };
+    const firstSlotX = source.x + source.width + DESIGN_SCREEN_GAP;
     const occupied = [
-      { x: 560, y: 720, width: 320, height: 240, z: 90 },
+      { x: firstSlotX, y: 720, width: 320, height: 240, z: 90 },
       { x: 1800, y: 720, width: 320, height: 240, z: 100 },
-      { x: 576, y: 1200, width: 320, height: 240, z: 200 },
+      { x: firstSlotX, y: 1200, width: 320, height: 240, z: 200 },
     ];
 
     expect(getDuplicateScreenGeometry(source, occupied)).toMatchObject({
-      x: 936,
+      x: firstSlotX + source.width + DESIGN_SCREEN_GAP,
       y: 720,
       width: 320,
       height: 240,
@@ -152,13 +156,14 @@ describe("getDuplicateScreenGeometry", () => {
 
   it("uses a moved source and skips occupied frames in the same row", () => {
     const source = { x: 1000, y: 240, width: 800, height: 600, z: 4 };
+    const firstSlotX = source.x + source.width + DESIGN_SCREEN_GAP;
     const occupied = [
-      { x: 1856, y: 240, width: 800, height: 600, z: 5 },
+      { x: firstSlotX, y: 240, width: 800, height: 600, z: 5 },
       { x: 400, y: 1200, width: 800, height: 600, z: 9 },
     ];
 
     expect(getDuplicateScreenGeometry(source, occupied)).toMatchObject({
-      x: 2712,
+      x: firstSlotX + source.width + DESIGN_SCREEN_GAP,
       y: 240,
       width: 800,
       height: 600,
@@ -180,7 +185,10 @@ describe("runDuplicateScreen", () => {
 
     expect(args.focusCreatedScreen).toHaveBeenCalledWith(
       "copy",
-      expect.objectContaining({ x: 576, y: 720 }),
+      expect.objectContaining({
+        x: sourceGeometry.x + sourceGeometry.width + DESIGN_SCREEN_GAP,
+        y: 720,
+      }),
       expect.any(Object),
     );
   });
@@ -198,7 +206,10 @@ describe("runDuplicateScreen", () => {
 
     expect(args.focusCreatedScreen).toHaveBeenCalledWith(
       "copy",
-      expect.objectContaining({ x: 576, y: 720 }),
+      expect.objectContaining({
+        x: sourceGeometry.x + sourceGeometry.width + DESIGN_SCREEN_GAP,
+        y: 720,
+      }),
       expect.any(Object),
     );
   });
@@ -216,7 +227,10 @@ describe("runDuplicateScreen", () => {
 
     expect(args.focusCreatedScreen).toHaveBeenCalledWith(
       "copy",
-      expect.objectContaining({ x: 576, y: 720 }),
+      expect.objectContaining({
+        x: sourceGeometry.x + sourceGeometry.width + DESIGN_SCREEN_GAP,
+        y: 720,
+      }),
       expect.any(Object),
     );
   });

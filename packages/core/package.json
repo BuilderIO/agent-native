@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.198.6",
+  "version": "0.199.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -286,6 +286,8 @@
     "./agent/actions/set-tool-approval-policy": "./dist/agent/actions/set-tool-approval-policy.js",
     "./agent/actions/get-chatgpt-subscription-status": "./dist/agent/actions/get-chatgpt-subscription-status.js",
     "./agent/actions/disconnect-chatgpt-subscription": "./dist/agent/actions/disconnect-chatgpt-subscription.js",
+    "./agent/actions/list-chatgpt-subscription-accounts": "./dist/agent/actions/list-chatgpt-subscription-accounts.js",
+    "./agent/actions/select-chatgpt-subscription-account": "./dist/agent/actions/select-chatgpt-subscription-account.js",
     "./agent/actions/check-provider-key": "./dist/agent/actions/check-provider-key.js",
     "./agent/actions/manage-provider-key-policy": "./dist/agent/actions/manage-provider-key-policy.js",
     "./agent/actions/manage-builder-connection": "./dist/agent/actions/manage-builder-connection.js",
@@ -492,6 +494,7 @@
     "./client/feature-flags/helpers": "./dist/client/feature-flags/helpers.js",
     "./client/feature-flags/types": "./dist/client/feature-flags/types.js",
     "./client/feature-flags/use-feature-flag": "./dist/client/feature-flags/use-feature-flag.js",
+    "./client/failure-report": "./dist/client/failure-report.js",
     "./client/feedback-context": "./dist/client/feedback-context.js",
     "./client/frame": "./dist/client/frame.js",
     "./client/host-bridge": "./dist/client/host-bridge.js",
@@ -577,6 +580,7 @@
     "./shared/docs-url": "./dist/shared/docs-url.js",
     "./shared/document-title": "./dist/shared/document-title.js",
     "./shared/environment-lanes": "./dist/shared/environment-lanes.js",
+    "./shared/error-noise": "./dist/shared/error-noise.js",
     "./shared/first-party-agents": "./dist/shared/first-party-agents.js",
     "./shared/first-run-onboarding": "./dist/shared/first-run-onboarding.js",
     "./shared/framework-route-prefix": "./dist/shared/framework-route-prefix.js",

@@ -152,7 +152,7 @@ export default {
     untitledAnalysis: "Análise sem título",
   },
   settings: {
-    agentObservability: "Observabilidade do agente",
+    agentObservability: "Observabilidade",
     reviewPreviewUnavailable: "Prévia indisponível",
     agentTitle: "Gerenciar agente",
     agentDescription:

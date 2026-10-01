@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/agentkit",
-  "version": "0.198.6",
+  "version": "0.199.0",
   "description": "Provider-neutral AgentKit protocol, headless client, and transports for composable agent-native conversations.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {

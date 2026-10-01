@@ -3,15 +3,48 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-01
+
+### Fixed
+
+- Visual edits leave the pending canvas after your coding agent applies and acknowledges them.
+- Cmd/Ctrl+K opens the command menu again while the prompt box is focused
+- Dragging absolute layers out of a nested frame preserves their selected stacking order in the receiving frame.
+- The home screen shows one toolbar and a compact credit notice above Feedback only when the quota is exhausted.
+- Design shows one search and import toolbar, with a compact credit notice above feedback only at the limit.
+
 ## 2026-09-30
+
+### Added
+
+- Connect ChatGPT to create and refine interactive prototypes in Design.
 
 ### Improved
 
+- Add references through compact dropdown menus and find designs with the centered home search.
+- Visual edit handoffs copy complete source instructions by default, and editors can update screen URLs.
 - Design remembers your home library tab, so returning users can open straight to Recent.
 - Reloaded app changes stay available to your coding agent until they are acknowledged.
 
 ### Fixed
 
+- Visual edit over MCP now gives your agent the bridge start command with the right token, so local screens connect instead of failing with a 401.
+- Applied visual edits clear from the canvas after your agent acknowledges them
+- Design shows pending local file write requests in the editor
+- Holding Space while dragging a layer keeps it in its current auto-layout parent.
+- Local file write approvals stay available when an editor handoff needs a retry
+- Outline-only vector polygons no longer show corner-radius handles
+- Releasing Space before a drop resumes normal layer reparenting
+- Signed-in Design editors see pending local file write approvals.
+- The editor reliably surfaces local file-write consent requests.
+- Design preserves positions explicitly requested for localhost screens.
+- Fix selected-screen PNG and PDF exports for external previews.
+- New localhost screens avoid overlapping existing screens
+- PDF and SVG exports use the selected screen sizes and skip unavailable live frames.
+- PDF exports use the current localhost page after its route changes
+- PDF exports work with multiple selected screens and SVG exports stay on the chosen screen.
+- Selected screens duplicate with copy and paste.
+- Live preview export failures no longer show misleading screen or desktop-only guidance.
 - Copied visual edit prompts include the edits and explain how to apply them without Design MCP.
 - Design previews wait for the editor connection before becoming ready.
 - New local screens open beside existing canvas content.

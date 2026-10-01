@@ -28,6 +28,7 @@ interface ReferenceImage {
 interface DeckSlide {
   id?: string;
   content?: unknown;
+  contentHash?: unknown;
 }
 
 interface DeckWithSlides {
@@ -93,9 +94,13 @@ async function insertGeneratedImage({
   const imageUrl = parseGeneratedImageUrl(url);
   const deck = (await getDeckAction.run({ id: deckId })) as DeckWithSlides;
   const slide = deck.slides?.find((candidate) => candidate.id === slideId);
-  if (!slide || typeof slide.content !== "string") {
+  if (
+    !slide ||
+    typeof slide.content !== "string" ||
+    typeof slide.contentHash !== "string"
+  ) {
     throw new Error(
-      `Slide ${slideId} was not found in deck ${deckId} for image insertion`,
+      `Slide ${slideId} or its contentHash was not found in deck ${deckId} for image insertion`,
     );
   }
 
@@ -106,6 +111,7 @@ async function insertGeneratedImage({
     deckId,
     slideId,
     fullContent,
+    baseContentHash: slide.contentHash,
     preserveSource: true,
   });
   if (!update.ok || !("applied" in update) || !update.applied) {

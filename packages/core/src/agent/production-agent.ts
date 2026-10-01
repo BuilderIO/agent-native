@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
 import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
+import Ajv2020 from "ajv/dist/2020.js";
 import {
   defineEventHandler,
   getHeader,
@@ -14,7 +15,10 @@ import type { EventHandler as H3EventHandler } from "h3";
 import "../authorization/check-action.js";
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
-import { actionCallIsReadOnly } from "../action-call-classification.js";
+import {
+  actionCallEmitsChange,
+  actionCallIsReadOnly,
+} from "../action-call-classification.js";
 import {
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   normalizeActionChangeResult,
@@ -256,6 +260,7 @@ import {
   abortRunDurably,
   abortTurnByRefDurably,
   abortTurnDurably,
+  getSlotHoldingRunId,
   tryClaimRunSlot,
   isHostedRuntime,
   resolveRunSoftTimeoutMs,
@@ -906,6 +911,54 @@ export async function resolveOwnerEngineApiKey(input: {
 }
 
 /**
+ * The engine a chat request runs on. Anything that tells the user what their
+ * chat will run on (the sidebar credit notice) asks this too, so it cannot
+ * disagree with the chat.
+ */
+export async function resolveChatEngine(input: {
+  engineOption?: ResolveEngineConfig["engineOption"];
+  ownerKey: ResolvedOwnerApiKey;
+  model?: string;
+  appId?: string;
+  credentialIdentity: ResolveEngineConfig["credentialIdentity"];
+}): Promise<AgentEngine> {
+  const key = {
+    apiKey: input.ownerKey.apiKey,
+    apiKeyEnvVar: input.ownerKey.apiKeyEnvVar,
+    apiKeyProvenance: input.ownerKey.credentialProvenance,
+    appId: input.appId,
+    credentialIdentity: input.credentialIdentity,
+  };
+  try {
+    return await resolveEngine({
+      ...key,
+      engineOption: input.engineOption,
+      model: input.model,
+    });
+  } catch (error) {
+    if (error instanceof CredentialEndpointMismatchError) throw error;
+    return resolveEngine(key);
+  }
+}
+
+/**
+ * A message sent while another run holds the thread. It is not saved yet; the
+ * client delivers it once that run ends instead of showing the user an error.
+ */
+function runSlotBusy(
+  event: Parameters<typeof setResponseStatus>[0],
+  activeRunId: string | null,
+) {
+  setResponseStatus(event, 409);
+  return {
+    error: "Run already in progress for this thread",
+    code: "run_slot_busy",
+    retryable: true,
+    activeRunId,
+  };
+}
+
+/**
  * The error a chat turn answers with when no model credential is usable. A
  * member whose org restricts personal API keys can't fix that by adding a key,
  * so they get the restriction instead of the connect-a-provider prompt.
@@ -964,12 +1017,23 @@ export interface ActionEntry {
   uiOnly?: boolean;
   agentTool?: boolean;
   mcpTool?: boolean;
+  /** True when this entry's raw tool schema was authored by an external MCP
+   *  server (imported via the MCP client), not a local action. Distinct
+   *  from `mcpTool`, which controls whether a *local* action is exposed to
+   *  external agents — reusing that flag here would both misclassify local
+   *  actions that opt into external exposure and (via `declaredMcpToolNames`)
+   *  auto-add imported server tools to this app's own outbound MCP/A2A
+   *  catalog. Only used to pick the MCP protocol's default 2020-12 JSON
+   *  Schema dialect when the schema omits `$schema`. */
+  fromMcpServer?: boolean;
+  mcpAnnotations?: import("../action.js").ActionMcpToolAnnotations;
   deferLoading?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;
   grounding?: boolean;
   allowInPlanMode?: boolean;
   planMode?: import("../action.js").ActionPlanModeConfig<any>;
+  changeEvents?: boolean;
   parallelSafe?: boolean;
   dedupe?: boolean;
   toolCallable?: boolean;
@@ -3839,6 +3903,10 @@ export function normalizeToolErrorForBreaker(error: string): string {
       )
       // Bare JSON payloads some providers inline instead of a Received: span.
       .replace(/\{[\s\S]{0,2000}?\}/g, "{}")
+      .replace(
+        /\bready again in about \d+s\b/g,
+        "ready again after the cooldown",
+      )
       .replace(/\s+/g, " ")
       .trim()
   );
@@ -4250,7 +4318,19 @@ const rawToolInputAjv = new Ajv({
   verbose: true,
 });
 
-const rawToolInputValidatorCache = new WeakMap<object, ValidateFunction>();
+const rawToolInputAjv2020 = new Ajv2020({
+  strict: false,
+  allErrors: true,
+  coerceTypes: true,
+  useDefaults: false,
+  removeAdditional: false,
+  verbose: true,
+});
+
+const rawToolInputValidatorCache = new WeakMap<
+  object,
+  Map<boolean, ValidateFunction>
+>();
 
 const optionalPlaceholderAjv = new Ajv({
   strict: false,
@@ -4465,11 +4545,28 @@ function coerceStringifiedJsonToolValues(
     : { input, changed: false };
 }
 
-function getRawToolInputValidator(schema: RawJsonSchema): ValidateFunction {
-  const cached = rawToolInputValidatorCache.get(schema);
+function getRawToolInputValidator(
+  schema: RawJsonSchema,
+  useMcpDefaultDialect = false,
+): ValidateFunction {
+  const cached = rawToolInputValidatorCache
+    .get(schema)
+    ?.get(useMcpDefaultDialect);
   if (cached) return cached;
-  const validator = rawToolInputAjv.compile(schema);
-  rawToolInputValidatorCache.set(schema, validator);
+  const declaredDialect = (schema as { $schema?: unknown }).$schema;
+  const normalizedDialect =
+    typeof declaredDialect === "string"
+      ? declaredDialect.replace(/#$/, "")
+      : undefined;
+  const ajv =
+    normalizedDialect === "https://json-schema.org/draft/2020-12/schema" ||
+    (declaredDialect === undefined && useMcpDefaultDialect)
+      ? rawToolInputAjv2020
+      : rawToolInputAjv;
+  const validator = ajv.compile(schema);
+  const validators = rawToolInputValidatorCache.get(schema) ?? new Map();
+  validators.set(useMcpDefaultDialect, validator);
+  rawToolInputValidatorCache.set(schema, validators);
   return validator;
 }
 
@@ -4521,7 +4618,10 @@ function validateRawToolInput(
   if (!parameters) return null;
   let validator: ValidateFunction;
   try {
-    validator = getRawToolInputValidator(parameters);
+    validator = getRawToolInputValidator(
+      parameters,
+      entry.fromMcpServer === true,
+    );
   } catch (err) {
     return `tool schema is invalid: ${sanitizeToolErrorValue(err)}`;
   }
@@ -6856,7 +6956,7 @@ export async function runAgentLoop(opts: {
           try {
             const { notifyActionChangeInBackground } =
               await import("../server/action-change.js");
-            if (!actionIsReadOnly) {
+            if (actionCallEmitsChange(actionEntry, toolCall.input, false)) {
               const owner =
                 opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
               const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
@@ -8338,8 +8438,11 @@ export async function chainServerDrivenContinuation(opts: {
             ? lastDispatchErr.message
             : lastDispatchErr,
         );
+        // The turn continues in the pre-inserted successor, so this chunk is
+        // truncated, never completed, and its stream ends with the same
+        // continuation signal a dispatched handoff sends.
         const statusUpdated = await d
-          .updateRunStatusIfRunning(runId, "completed")
+          .updateRunStatusIfRunning(runId, "truncated")
           .catch(() => false);
         if (statusUpdated) {
           await d
@@ -8349,6 +8452,10 @@ export async function chainServerDrivenContinuation(opts: {
             )
             .catch(() => {});
         }
+        run.continuationTerminalEvent = {
+          type: "auto_continue",
+          reason: continuationReason,
+        };
         return;
       }
       throw lastDispatchErr instanceof Error
@@ -8903,6 +9010,13 @@ export function createProductionAgentHandler(
           (a.type === "image" || a.type === "file" || a.type === "document"),
       )
     ) {
+      // A busy thread refuses this message (409) and the client sends it again
+      // once the thread frees up; uploading first would store every
+      // attachment again on each refusal.
+      if (threadId && !isBackgroundWorker) {
+        const activeRunId = await getSlotHoldingRunId(threadId);
+        if (activeRunId) return runSlotBusy(event, activeRunId);
+      }
       try {
         const preUpload = await preUploadAttachments({
           attachments: requestAttachments,
@@ -8949,16 +9063,13 @@ export function createProductionAgentHandler(
 
     workerStep("apikey_start");
     const engineOption = requestEngine ?? options.engine;
-    const {
-      apiKey: effectiveApiKey,
-      apiKeyEnvVar: effectiveApiKeyEnvVar,
-      credentialProvenance: apiKeyProvenance,
-    } = await resolveOwnerEngineApiKey({
+    const ownerKey = await resolveOwnerEngineApiKey({
       engineOption,
       ownerEmail,
       anthropicFallback:
         options.apiKey ?? readDeployCredentialEnv("ANTHROPIC_API_KEY"),
     });
+    const effectiveApiKey = ownerKey.apiKey;
     workerStep("apikey_done");
 
     workerStep("engine_start");
@@ -8966,27 +9077,13 @@ export function createProductionAgentHandler(
       userEmail: ownerEmail,
       orgId: getRequestOrgId(),
     };
-    let engine: AgentEngine;
-    try {
-      engine = await resolveEngine({
-        engineOption,
-        apiKey: effectiveApiKey,
-        apiKeyEnvVar: effectiveApiKeyEnvVar,
-        apiKeyProvenance,
-        model: configuredModel,
-        appId: options.appId,
-        credentialIdentity,
-      });
-    } catch (error) {
-      if (error instanceof CredentialEndpointMismatchError) throw error;
-      engine = await resolveEngine({
-        apiKey: effectiveApiKey,
-        apiKeyEnvVar: effectiveApiKeyEnvVar,
-        apiKeyProvenance,
-        appId: options.appId,
-        credentialIdentity,
-      });
-    }
+    const engine = await resolveChatEngine({
+      engineOption,
+      ownerKey,
+      model: configuredModel,
+      appId: options.appId,
+      credentialIdentity,
+    });
     workerStep("engine_done");
 
     workerStep("model_start");
@@ -9680,13 +9777,7 @@ export function createProductionAgentHandler(
         setResponseHeader(event, "X-Dispatch-Mode", "replay");
         return stream;
       }
-      if (!slot.claimed) {
-        setResponseStatus(event, 409);
-        return {
-          error: "Run already in progress for this thread",
-          activeRunId: slot.activeRunId,
-        };
-      }
+      if (!slot.claimed) return runSlotBusy(event, slot.activeRunId);
       foregroundRunRowInserted = true;
     }
 
@@ -10240,7 +10331,11 @@ export function createProductionAgentHandler(
           return;
         }
 
-        send({ type: "activity", label: "Starting agent" });
+        send({
+          type: "activity",
+          id: `agentkit:internal:${runId}:starting-agent`,
+          label: "Starting agent",
+        });
 
         if (isBackgroundWorker) {
           await recordRunDiagnostic(
@@ -10523,7 +10618,11 @@ export function createProductionAgentHandler(
             : {}),
         };
 
-        send({ type: "activity", label: "Contacting model" });
+        send({
+          type: "activity",
+          id: `agentkit:internal:${runId}:contacting-model`,
+          label: "Contacting model",
+        });
 
         let instrumented = false;
         try {

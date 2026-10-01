@@ -218,11 +218,14 @@ function PrivateRootContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const hasSession = Boolean(session?.email);
   const isPublicVisualEdit = location.pathname === "/visual-edit";
+  // The home prompt composer takes focus on load, and without this the shortcut
+  // is swallowed whenever a contenteditable has focus.
   useCommandMenuShortcut(
     useCallback(() => {
       if (!hasSession || isPublicVisualEdit) return;
       setCmdkOpen(true);
     }, [hasSession, isPublicVisualEdit]),
+    { allowContentEditable: true },
   );
 
   const content = isPublicVisualEdit ? (

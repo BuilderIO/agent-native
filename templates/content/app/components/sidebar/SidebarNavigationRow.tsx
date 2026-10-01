@@ -4,6 +4,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { Link } from "react-router";
 
 import { ContentIcon } from "@/components/icons/ContentIcon";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 export function sidebarRowClassName(active = false) {
@@ -84,5 +85,60 @@ export function SidebarNavigationRow({
       </span>
       {children}
     </Link>
+  );
+}
+
+const SKELETON_ROW_WIDTHS = [70, 55, 85, 60, 45];
+
+// Placeholder rows in a sidebar list's own geometry: 28px rows 2px apart, and
+// a 28px "Show more" row when `more` is set. `framed` adds the list's own
+// padding, for a placeholder that stands in for the whole list; without it the
+// rows sit inside a list that is already drawn.
+export function SidebarRowsSkeleton({
+  rows,
+  more = false,
+  framed = true,
+  firstRowProps,
+}: {
+  rows: number;
+  more?: boolean;
+  framed?: boolean;
+  firstRowProps?: Record<string, string>;
+}) {
+  const rowList = Array.from({ length: rows }, (_, index) => (
+    <div
+      key={index}
+      aria-hidden="true"
+      {...(index === 0 ? firstRowProps : {})}
+      className="flex h-7 items-center gap-1.5 px-1.5"
+    >
+      <Skeleton className="size-3.5 shrink-0 rounded-sm bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10" />
+      <Skeleton
+        className="h-3 rounded bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10"
+        style={{
+          width: `${SKELETON_ROW_WIDTHS[index % SKELETON_ROW_WIDTHS.length]}%`,
+        }}
+      />
+    </div>
+  ));
+  const moreRow = more ? <div aria-hidden="true" className="h-7" /> : null;
+  if (!framed) {
+    return (
+      <>
+        {rowList}
+        {moreRow}
+      </>
+    );
+  }
+  return (
+    <>
+      <div
+        aria-hidden="true"
+        className="grid min-w-0 gap-0.5 overflow-x-hidden py-1 ps-1"
+      >
+        {rowList}
+      </div>
+      {moreRow}
+    </>
   );
 }

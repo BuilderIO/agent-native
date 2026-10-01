@@ -53,6 +53,16 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
       "@agent-native/core/agent/actions/disconnect-chatgpt-subscription",
   },
   {
+    name: "list-chatgpt-subscription-accounts",
+    specifier:
+      "@agent-native/core/agent/actions/list-chatgpt-subscription-accounts",
+  },
+  {
+    name: "select-chatgpt-subscription-account",
+    specifier:
+      "@agent-native/core/agent/actions/select-chatgpt-subscription-account",
+  },
+  {
     name: "preview-secret-removal",
     specifier: "@agent-native/core/secrets/actions/preview-secret-removal",
   },

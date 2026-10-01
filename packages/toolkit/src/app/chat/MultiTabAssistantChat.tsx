@@ -1,4 +1,5 @@
 import type { AgentChatAttachment } from "@agent-native/core";
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "@agent-native/core/agent/chatgpt-subscription-contract";
 import type { AgentChatMessage } from "@agent-native/core/client/agent-chat";
 import {
   DEFAULT_MODEL,
@@ -243,7 +244,10 @@ function resolveModelSelection(
   const fallbackGroup = matchingConfiguredGroup ?? fallbackConfiguredGroup;
   const engine = suppliedEngineGroup?.engine ?? fallbackGroup?.engine;
   const model = suppliedEngineGroup
-    ? selection.model
+    ? suppliedEngineGroup.engine === CHATGPT_SUBSCRIPTION_ENGINE_NAME &&
+      !suppliedEngineGroup.models.includes(selection.model)
+      ? suppliedEngineGroup.models[0]
+      : selection.model
     : matchingConfiguredGroup?.models.includes(selection.model)
       ? selection.model
       : fallbackGroup?.models[0];
@@ -497,7 +501,7 @@ function HistoryPopover({
       <PopoverAnchor asChild>
         <span
           aria-hidden
-          className={`absolute top-0 h-px w-px ${popoverAlign === "start" ? "start-2" : "end-2"}`}
+          className={`absolute h-px w-px ${popoverAlign === "start" ? "top-12 start-2" : "top-0 end-2"}`}
         />
       </PopoverAnchor>
       <PopoverContent
@@ -1153,6 +1157,7 @@ export function MultiTabAssistantChat({
     ? (hostModelListLoading ?? false)
     : discoveredModelsLoading;
   const [defaultModel, setDefaultModel] = useState<string>(DEFAULT_MODEL);
+  const engineCatalogRequestRef = useRef(0);
   const threadModelRef = useRef<
     Map<string, { model: string; engine?: string; effort?: ReasoningEffort }>
   >(new Map());
@@ -1387,9 +1392,18 @@ export function MultiTabAssistantChat({
 
   const refreshEngines = useCallback(() => {
     if (hostManagedModels) return;
+    const requestId = ++engineCatalogRequestRef.current;
+    const isCurrentRequest = () =>
+      requestId === engineCatalogRequestRef.current;
+    setDiscoveredModels((groups) =>
+      groups.filter(
+        (group) => group.engine !== CHATGPT_SUBSCRIPTION_ENGINE_NAME,
+      ),
+    );
     setModelListLoading(true);
     loadChatModelCatalog()
       .then((catalog) => {
+        if (!isCurrentRequest()) return;
         if (catalog.state !== "available") {
           if (catalog.enginesUnavailable) {
             // Leaves `availableModels` empty for the session, so an override
@@ -1403,21 +1417,27 @@ export function MultiTabAssistantChat({
         setDiscoveredModels(catalog.groups);
         setDefaultModel(catalog.defaultModel);
         void catalog.loadLiveGroups().then((liveGroups) => {
-          if (liveGroups) setDiscoveredModels(liveGroups);
+          if (isCurrentRequest() && liveGroups) {
+            setDiscoveredModels(liveGroups);
+          }
         });
       })
       .catch(() => {})
-      .finally(() => setModelListLoading(false));
+      .finally(() => {
+        if (isCurrentRequest()) setModelListLoading(false);
+      });
   }, [hostManagedModels]);
 
   useEffect(() => {
     refreshEngines();
     window.addEventListener("agent-engine:configured-changed", refreshEngines);
-    return () =>
+    return () => {
       window.removeEventListener(
         "agent-engine:configured-changed",
         refreshEngines,
       );
+      engineCatalogRequestRef.current += 1;
+    };
   }, [refreshEngines]);
 
   // Parent-child thread mapping — persisted to localStorage.
