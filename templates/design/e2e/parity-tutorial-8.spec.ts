@@ -810,13 +810,24 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
       .poll(async () => {
         const frames = (await designData(request, designId)).canvasFrames;
         return {
+          copy: frames?.[dup1Id],
           sourceZ: frames?.[sourceId]?.z,
           firstCopyZ: frames?.[dup1Id]?.z,
           neighborZ: frames?.[neighborId]?.z,
           fartherZ: frames?.[fartherId]?.z,
         };
       })
-      .toEqual({ sourceZ: 0, firstCopyZ: 1, neighborZ: 2, fartherZ: 3 });
+      .toEqual({
+        copy: {
+          ...sourceGeometry,
+          x: sourceGeometry.x + sourceGeometry.width + 56,
+          z: 1,
+        },
+        sourceZ: 0,
+        firstCopyZ: 1,
+        neighborZ: 2,
+        fartherZ: 3,
+      });
 
     await page.keyboard.press(`${MOD}+Shift+z`);
     await expect
@@ -972,6 +983,38 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
     await expect
       .poll(() => selectedScreenFilenames(request, designId))
       .toEqual(copies.slice().sort());
+    const [redoneSourceCopyId, redoneNeighborCopyId, redoneFartherCopyId] =
+      await Promise.all([
+        fileId(request, designId, "index-copy.html"),
+        fileId(request, designId, "neighbor-copy.html"),
+        fileId(request, designId, "farther-copy.html"),
+      ]);
+    await expect
+      .poll(async () => {
+        const frames = (await designData(request, designId)).canvasFrames;
+        return {
+          sourceCopy: frames?.[redoneSourceCopyId],
+          neighborCopy: frames?.[redoneNeighborCopyId],
+          fartherCopy: frames?.[redoneFartherCopyId],
+        };
+      })
+      .toEqual({
+        sourceCopy: {
+          ...geometry[sourceId],
+          x: geometry[neighborId].x + geometry[neighborId].width + 56,
+          z: 1,
+        },
+        neighborCopy: {
+          ...geometry[neighborId],
+          x: geometry[fartherId].x + geometry[fartherId].width + 56,
+          z: 3,
+        },
+        fartherCopy: {
+          ...geometry[fartherId],
+          x: geometry[fartherId].x + 2 * (geometry[fartherId].width + 56),
+          z: 5,
+        },
+      });
   });
 
   test("step 6 [in-screen]: dragging a new element into the assembled page reorders it between existing children via the layers panel", async ({
