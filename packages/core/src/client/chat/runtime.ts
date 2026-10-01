@@ -19,6 +19,9 @@ export type AgentChatRuntimeToolCallId = string;
 export type AgentChatRuntimeMetadata = Record<string, unknown>;
 export type AgentChatRuntimeAwaitable<T> = T | Promise<T>;
 
+export const AGENT_NATIVE_RUN_RESUME_STATE_METADATA_KEY =
+  "agentNativeRunResumeState";
+
 export type AgentChatRuntimeKind =
   | "agent-native"
   | "external-agent"
@@ -2812,12 +2815,16 @@ export function createAgentNativeChatRuntime(
       if (!response.ok) throw await readHttpRuntimeError(response);
 
       const latestRun = asRecord(await response.json());
-      const runId = latestRun?.runId;
-      if (typeof runId !== "string" || !runId.trim()) {
+      if (
+        !latestRun ||
+        typeof latestRun.runId !== "string" ||
+        !latestRun.runId.trim()
+      ) {
         throw new TypeError(
           "Agent chat latest-run response must include a run ID.",
         );
       }
+      const runId = latestRun.runId;
       const events = await nativeRuntime.subscribe!({
         ...input,
         runId,
@@ -2827,6 +2834,13 @@ export function createAgentNativeChatRuntime(
         id: input.turnId,
         sessionId: threadId,
         runId,
+        metadata: {
+          ...input.metadata,
+          [AGENT_NATIVE_RUN_RESUME_STATE_METADATA_KEY]: {
+            status: latestRun.status,
+            dispatchMode: latestRun.dispatchMode,
+          },
+        },
         events,
       };
     },

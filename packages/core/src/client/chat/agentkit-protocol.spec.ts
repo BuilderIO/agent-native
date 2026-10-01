@@ -2242,6 +2242,73 @@ describe("createAgentKitProtocolAdapter", () => {
     }
   });
 
+  it("keeps resuming an active durable background run after stream EOFs", async () => {
+    vi.useFakeTimers();
+    try {
+      const sseResponse = (events: unknown[], runId: string) =>
+        new Response(
+          events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+          {
+            headers: {
+              "Content-Type": "text/event-stream",
+              "X-Run-Id": runId,
+            },
+          },
+        );
+      let latestReads = 0;
+      const fetchMock = vi.fn(
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = new URL(String(input), "http://localhost");
+          const method = String(init?.method ?? "GET").toUpperCase();
+          if (method === "POST") {
+            return sseResponse(
+              [{ type: "text", text: "part one", seq: 0 }],
+              "run-1",
+            );
+          }
+          if (url.pathname.endsWith("/runs/latest")) {
+            latestReads += 1;
+            return Response.json({
+              runId: "run-1",
+              status: latestReads < 5 ? "running" : "completed",
+              dispatchMode: "background-processing",
+            });
+          }
+          const runId = url.pathname.split("/").at(-2);
+          return sseResponse(
+            latestReads < 5 ? [] : [{ type: "done", seq: 1 }],
+            runId!,
+          );
+        },
+      ) as typeof fetch;
+      const transport = createAgentKitProtocolAdapter(
+        createAgentNativeChatRuntime({
+          apiUrl: "/_agent-native/agent-chat",
+          fetch: fetchMock,
+        }),
+      );
+      const { runId } = await transport.startRun({
+        threadId: "thread-1",
+        messages: [userMessage("Resume after an interrupted stream")],
+      });
+      const resultPromise = drain(
+        transport.subscribeToRun({ threadId: "thread-1", runId }),
+      );
+
+      await vi.advanceTimersByTimeAsync(10_000);
+      const result = await resultPromise;
+
+      expect(latestReads).toBe(5);
+      expect(
+        result.find((event) => event.type === "run.failed"),
+      ).toBeUndefined();
+      expect(result.at(-1)?.type).toBe("run.completed");
+      await transport.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("deduplicates compatibility activity mirrors and closes activity on completion", async () => {
     async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
       for (const label of ["Starting agent", "Contacting model"]) {

@@ -40,7 +40,10 @@ import {
   resumeOptionId,
 } from "@agent-native/agentkit/protocol";
 
-import { BACKGROUND_FUNCTION_WALL_HEADROOM_MS } from "../../app-config/run-lifecycle-invariants.js";
+import {
+  BACKGROUND_FUNCTION_WALL_HEADROOM_MS,
+  BACKGROUND_FUNCTION_WALL_MS,
+} from "../../app-config/run-lifecycle-invariants.js";
 import {
   emitChatFirstOpenApp,
   emitChatFirstOpenBrowser,
@@ -60,6 +63,7 @@ import type {
   AgentChatRuntimeTurn,
   AgentChatRuntimeUsage,
 } from "./runtime.js";
+import { AGENT_NATIVE_RUN_RESUME_STATE_METADATA_KEY } from "./runtime.js";
 
 export interface CreateAgentKitProtocolAdapterOptions {
   /** Stable clock used for event timestamps and thread fallbacks. */
@@ -130,6 +134,7 @@ interface ProtocolRun {
   runtimeSequence?: number;
   resumeAttempts?: number;
   continuationStartedAtMs?: number;
+  resumeDeadlineAtMs?: number;
   pendingWidgets: Map<string, AgentWidget>;
   actions: Map<string, AgentActionInvocation>;
   activeTools: Map<string, AgentToolCall>;
@@ -2477,12 +2482,18 @@ export function createAgentKitProtocolAdapter(
       run.continuationStartedAtMs === undefined
         ? undefined
         : run.continuationStartedAtMs + BACKGROUND_FUNCTION_WALL_HEADROOM_MS;
+    const resumeDeadline =
+      continuationDeadline === undefined
+        ? run.resumeDeadlineAtMs
+        : run.resumeDeadlineAtMs === undefined
+          ? continuationDeadline
+          : Math.max(continuationDeadline, run.resumeDeadlineAtMs);
     if (
       capabilities.resumableRuns !== true ||
       (!runtime.resume && !runtime.subscribe) ||
       (typeof asRecord(cause)?.retryable === "boolean" &&
         asRecord(cause)?.retryable === false) ||
-      (continuationDeadline === undefined &&
+      (resumeDeadline === undefined &&
         (run.resumeAttempts ?? 0) >= MAX_DURABLE_RESUME_ATTEMPTS)
     ) {
       return null;
@@ -2497,13 +2508,13 @@ export function createAgentKitProtocolAdapter(
     };
     let lastError: unknown;
     while (
-      continuationDeadline === undefined
+      resumeDeadline === undefined
         ? (run.resumeAttempts ?? 0) < MAX_DURABLE_RESUME_ATTEMPTS
-        : Date.now() < continuationDeadline
+        : Date.now() < resumeDeadline
     ) {
       if (run.terminal || run.streamClosed) return null;
-      if (continuationDeadline !== undefined && (run.resumeAttempts ?? 0) > 0) {
-        const remainingMs = continuationDeadline - Date.now();
+      if (resumeDeadline !== undefined && (run.resumeAttempts ?? 0) > 0) {
+        const remainingMs = resumeDeadline - Date.now();
         if (remainingMs <= 0) return null;
         const retryDelayMs = Math.min(
           250 * 2 ** Math.min((run.resumeAttempts ?? 1) - 1, 4),
@@ -2534,7 +2545,7 @@ export function createAgentKitProtocolAdapter(
         if (asRecord(error)?.retryable === false) throw error;
       }
     }
-    if (continuationDeadline !== undefined && lastError === undefined) {
+    if (resumeDeadline !== undefined && lastError === undefined) {
       return null;
     }
     if (lastError !== undefined) throw lastError;
@@ -2546,10 +2557,29 @@ export function createAgentKitProtocolAdapter(
     resumed: AgentChatRuntimeTurn,
   ): void {
     const runtimeRunId = run.turn.runId ?? run.runId;
+    const resumeState = asRecord(
+      resumed.metadata?.[AGENT_NATIVE_RUN_RESUME_STATE_METADATA_KEY],
+    );
+    const isRunningBackgroundRun =
+      resumeState?.status === "running" &&
+      typeof resumeState?.dispatchMode === "string" &&
+      resumeState.dispatchMode.startsWith("background");
     if (resumed.runId && resumed.runId !== runtimeRunId) {
       run.runtimeSequence = undefined;
       run.resumeAttempts = 0;
       run.continuationStartedAtMs = undefined;
+      run.resumeDeadlineAtMs = isRunningBackgroundRun
+        ? Date.now() +
+          BACKGROUND_FUNCTION_WALL_MS +
+          BACKGROUND_FUNCTION_WALL_HEADROOM_MS
+        : undefined;
+    } else if (isRunningBackgroundRun) {
+      run.resumeDeadlineAtMs ??=
+        Date.now() +
+        BACKGROUND_FUNCTION_WALL_MS +
+        BACKGROUND_FUNCTION_WALL_HEADROOM_MS;
+    } else if (resumeState) {
+      run.resumeDeadlineAtMs = undefined;
     }
     run.turn = resumed;
   }
