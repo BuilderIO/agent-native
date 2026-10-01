@@ -343,7 +343,7 @@ export function StorageSetupCard({
             href="https://www.builder.io/legal/terms"
             target="_blank"
             rel="noreferrer"
-            className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {t("storageSetup.builderTerms")}
           </a>{" "}
@@ -352,7 +352,7 @@ export function StorageSetupCard({
             href="https://www.builder.io/legal/privacy"
             target="_blank"
             rel="noreferrer"
-            className="text-foreground underline decoration-border underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {t("storageSetup.builderPrivacy")}
           </a>
