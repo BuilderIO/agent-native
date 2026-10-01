@@ -1238,6 +1238,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Ein Tool-Schema war ungültig. Deshalb hat das Modell die Anfrage abgelehnt, bevor sie gestartet wurde. Das ungültige Tool kann übersprungen und die Anfrage erneut gesendet werden.",
   "errorMessages.malformedRequest":
     "Der Modellanbieter hat diese Anfrage als fehlerhaft abgelehnt, daher wurde sie nicht wiederholt. Versuchen Sie es erneut oder starten Sie einen neuen Chat, wenn das Problem weiterhin auftritt.",
+  "errorMessages.runInterrupted": "Der Agent hat vor dem Abschluss aufgehört.",
+  "errorMessages.runFailed": "Der Agent-Lauf ist fehlgeschlagen.",
+  "errorMessages.runUnverified":
+    "Dieser Chat hat den Agenten aus den Augen verloren; er läuft möglicherweise noch. Laden Sie neu, um den Fortschritt zu sehen.",
+  "errorMessages.runSignedOut":
+    "Sie sind abgemeldet, daher kann dieser Chat dem Agenten nicht folgen. Melden Sie sich erneut an und laden Sie dann neu.",
   "errorMessages.malformedRequestAttachment":
     "Das Modell hat eine angehängte Datei abgelehnt, daher wurde diese Nachricht nie gesendet. Entfernen Sie den Anhang und versuchen Sie es erneut – eine PDF-, eine reine Textdatei oder ein JPEG-, PNG-, GIF- oder WebP-Bild wird direkt gelesen; andere Formate müssen hochgeladen und verlinkt werden.",
   "errorMessages.noProviderConnected":

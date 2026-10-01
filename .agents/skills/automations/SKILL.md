@@ -89,8 +89,12 @@ Use the web-request tool with ${keys.SLACK_WEBHOOK}.
 | `runAs`       | `"creator" \| "shared"`        | Execution identity; trigger-aware automations use `creator` |
 | `mcpTools`    | `string[]?`                    | Exact MCP tool allowlist for this automation           |
 | `lastRun`     | `string?`                      | ISO timestamp of last execution                        |
-| `lastStatus`  | `string?`                      | `success`, `error`, `running`, or `skipped`            |
-| `lastError`   | `string?`                      | Error message from last failed run                     |
+| `lastStatus`  | `string?`                      | `success`, `error`, `running`, `skipped`, or `paused`  |
+| `lastError`   | `string?`                      | The real cause of the last failed run                  |
+| `lastErrorCode` | `string?`                    | Typed code of the last failure (see Failure handling)  |
+| `consecutiveFailures` | `number?`              | Run of identical `lastErrorCode` failures              |
+| `pausedReason` | `string?`                     | Set with `enabled: false` when the framework paused it |
+| `pausedAt`    | `string?`                      | ISO timestamp of that pause                            |
 
 ## Agent Tools
 
@@ -197,6 +201,53 @@ Automations use the `web-request` tool for outbound HTTP. It supports `${keys.NA
   hardcode real API keys, webhook URLs, tokens, private Builder/internal data, or
   customer data. Use `${keys.NAME}` and synthetic `example.com` identities.
 
+## Failure Handling
+
+An automation fails once, with its real cause, instead of re-failing every
+tick. The runner classifies each failure (`jobs/automation-outcome.ts`):
+
+| Class        | Codes                                                                 | Pauses after |
+| ------------ | --------------------------------------------------------------------- | ------------ |
+| Precondition | `missing_credentials`, `missing_tools`, `owner_missing`, `owner_reserved`, `config_invalid` | 3 identical (owner/identity failures: immediately) |
+| Runtime      | the run's own code, e.g. `http_502`                                   | 5, with a widening gap between attempts |
+
+- An event or webhook automation counts a failure once per event
+  (`lastFailedEventId`): queue retries of the same event never pause it alone.
+- Preconditions are checked before a thread or `agent_runs` row exists: no
+  "Job:" thread per tick. The failure is recorded on the automation and its run
+  history only. Never write a generic "ended with status: errored"; surface the
+  run's own error.
+- A paused automation has `enabled: false`, `lastStatus: paused`, and
+  `pausedReason`/`pausedAt`. The owner is emailed once by the run that paused
+  it (for organization and shared jobs: the creator while still a member,
+  otherwise an org owner or admin). Enabling the automation clears the pause
+  and the streak. One paused for an absent credential (`missing_credentials`)
+  resumes by itself once its identity has a usable LLM credential; a rejected
+  key stays paused until the owner enables it again.
+- Transient failures (spent credits, an unreadable credential store, a remote
+  host, 429/5xx) pause like runtime ones, but the scheduler lifts the pause for
+  one probe run on the same backoff (at most 6h). A failing probe pauses again
+  at once without a new email; a successful one clears the streak.
+- A paused job's "Run now" is still settled (stale `running`, remote
+  reconcile); it never moves the streak, and resumes the job only on success.
+- Pauses and automatic resumes are measurable: `automation_paused`
+  (`error_code`, `failure_kind`, `consecutive_failures`, `surface`) and
+  `automation_resumed` (`via`) carry `automation_hash`, the first 12 hex
+  characters of sha256 of `<app>|<name>`, never the name. A failed run's
+  capture carries its own thread, run and automation name in
+  `extra.failureContext`.
+- `runAs: shared` and organization jobs run as the organization, never as the
+  creator's personal connection: only an org admin can connect the provider.
+- Jobs owned by users that no longer exist, or by reserved test identities
+  (`.test`, `.invalid`, `.example`, `example.com|org|net`) in production, are
+  disabled with `owner_missing` / `owner_reserved`. Absence is proven only by a
+  populated built-in `"user"` table (case-insensitive); a lookup error, or a
+  deployment whose accounts live elsewhere (custom `getSession`), is never read
+  as "deleted".
+- The scheduler tick also closes `automation_runs` stuck `running` for over 25
+  hours (`interrupted`, `automation_run_abandoned`) and A2A tasks idle for 24
+  hours (`failed`, `a2a_task_abandoned`), a bounded batch at a time.
+
 ## UI
 
 The full-page Agent surface's **Automations** tab is the primary management
@@ -230,6 +281,8 @@ Agent flow:
 | `packages/core/src/triggers/actions.ts`        | Agent tools (define, list, update, delete, test)  |
 | `packages/core/src/triggers/dispatcher.ts`     | Event subscription and agentic dispatch          |
 | `packages/core/src/jobs/background-automation-runner.ts` | Shared schedule/event execution lifecycle |
+| `packages/core/src/jobs/automation-outcome.ts` | Failure classification, pause thresholds, reserved identities |
+| `packages/core/src/jobs/stale-reaper.ts`       | Bounded reaping of stuck runs and A2A tasks      |
 | `packages/core/src/triggers/condition-evaluator.ts` | Haiku condition classification with caching |
 | `packages/core/src/event-bus/`                 | Event bus (register, emit, subscribe)            |
 | `packages/core/src/tools/fetch-tool.ts`        | `web-request` tool with key substitution         |

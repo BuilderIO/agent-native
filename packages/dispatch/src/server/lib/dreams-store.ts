@@ -1,6 +1,10 @@
 import crypto from "node:crypto";
 
-import type { ActionRunContext } from "@agent-native/core/action";
+import { fail, type ActionRunContext } from "@agent-native/core/action";
+import {
+  isResolvedEngineUsableForRequest,
+  resolveEngine,
+} from "@agent-native/core/agent/engine";
 import {
   and,
   desc,
@@ -10,11 +14,13 @@ import {
   or,
 } from "@agent-native/core/db/schema";
 import {
+  organizationIdFromResourceOwner,
   resourceGetByPath,
   resourceList,
   resourcePut,
   SHARED_OWNER,
 } from "@agent-native/core/resources/store";
+import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import {
   getOrgSetting,
   getUserSetting,
@@ -3134,6 +3140,29 @@ Run a safe Dispatch dreaming pass.
 `;
 }
 
+/**
+ * A `__shared__` or `__organization__:*` owner is a scope, not a person, so its
+ * jobs can only use a credential connected for that scope. Without one the job
+ * would fail `missing_credentials` on every scheduler tick, so it is not
+ * scheduled at all.
+ */
+async function pseudoOwnerHasNoLlmCredential(
+  owner: string,
+  orgId: string | null,
+): Promise<boolean> {
+  const identityOrgId = organizationIdFromResourceOwner(owner) ?? orgId;
+  const credentialIdentity = {
+    userEmail: owner,
+    orgId: identityOrgId ?? undefined,
+  };
+  return runWithRequestContext(credentialIdentity, async () => {
+    const engine = await resolveEngine({ credentialIdentity });
+    return !(await isResolvedEngineUsableForRequest(engine, {
+      credentialIdentity,
+    }));
+  });
+}
+
 export async function ensureDreamJob(input: {
   schedule?: string;
   sourceId?: string;
@@ -3171,6 +3200,20 @@ export async function ensureDreamJob(input: {
   }
   const owner = currentOwnerEmail();
   const orgId = currentOrgId();
+  if (
+    (owner === SHARED_OWNER || organizationIdFromResourceOwner(owner)) &&
+    (await pseudoOwnerHasNoLlmCredential(owner, orgId))
+  ) {
+    const message = `The Dispatch dream job was not scheduled: it would run as ${owner}, which has no LLM provider connected. An admin of that organization or workspace must connect one in Settings > Agent > AI providers first.`;
+    await recordAudit({
+      action: "dream.job.skipped",
+      targetType: "job",
+      targetId: DREAM_JOB_PATH,
+      summary: message,
+      metadata: { reason: "missing_credentials", owner },
+    });
+    fail(message, { errorCode: "missing_credentials", statusCode: 409 });
+  }
   const jobSettings = { ...settings, schedule, enabled: true };
   const content = [
     "---",

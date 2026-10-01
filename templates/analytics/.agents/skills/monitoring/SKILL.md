@@ -77,7 +77,9 @@ selection to the `monitoring` application-state key.
 A recording's devtools Console error lines link to the grouped issue at
 `/monitoring?view=errors&issue=<id>`, resolved by `match-error-issues` (exact
 fingerprint match, no heuristics); issues link back to the originating
-recording at `/sessions/<recordingId>`.
+recording at `/sessions/<recordingId>`. The fingerprint includes the app, so
+`match-error-issues` takes the recording's `app` and only matches issues filed
+under it.
 
 ## Related Skills
 

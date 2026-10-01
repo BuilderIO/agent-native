@@ -297,6 +297,11 @@ describe("materializeTemplate", () => {
 
     const scaffoldFiles = scaffoldFileList(appDir);
     expect(scaffoldFiles.length).toBeGreaterThan(20);
+    // The workspace-only OTel wiring stays on the hosted site.
+    expect(scaffoldFiles).not.toContain("server/plugins/otel.ts");
+    expect(
+      fs.readFileSync(path.join(appDir, "package.json"), "utf-8"),
+    ).not.toContain("@agent-native/otel");
     expect(scaffoldFileList(materialized.dir)).toEqual(scaffoldFiles);
     for (const rel of scaffoldFiles) {
       expect(

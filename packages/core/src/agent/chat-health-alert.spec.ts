@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 let turnRows: Array<Record<string, unknown>> = [];
+let failedRunRows: Array<Record<string, unknown>> = [];
+let failedRunQueryThrows = false;
 let memberRows: Array<Record<string, unknown>> = [];
 let staleA2aTasks = 0;
 let historicalStaleA2aTasks = 0;
@@ -39,6 +41,10 @@ const execute = vi.fn(async ({ sql }: { sql: string; args?: unknown[] }) => {
         ? 0
         : unmarkedStaleWorkingTasks);
     return { rows: [{ stale_tasks: total }], rowsAffected: 0 };
+  }
+  if (sql.includes("SELECT id, thread_id")) {
+    if (failedRunQueryThrows) throw new Error("failed-run lookup failed");
+    return { rows: failedRunRows, rowsAffected: 0 };
   }
   if (turnQueryThrows) throw new Error("ledger unreadable");
   return { rows: turnRows, rowsAffected: 0 };
@@ -101,6 +107,8 @@ function turns(total: number, bad: number) {
 
 beforeEach(() => {
   turnRows = [];
+  failedRunRows = [];
+  failedRunQueryThrows = false;
   memberRows = [{ org_id: "org-1", email: "owner@example.com", role: "owner" }];
   staleA2aTasks = 0;
   historicalStaleA2aTasks = 0;
@@ -134,6 +142,57 @@ describe("checkChatHealthAndAlert", () => {
     const out = await checkChatHealthAndAlert(NOW);
     expect(out.status).toBe("healthy");
     expect(notifyWithDelivery).not.toHaveBeenCalled();
+  });
+
+  it("names the latest failed turns so the alert can be opened, not asked about", async () => {
+    vi.stubEnv("APP_URL", "https://mail.agent-native.com");
+    try {
+      turns(10, 8);
+      failedRunRows = [
+        {
+          id: "run-9",
+          thread_id: "thr_9",
+          error_code: "credential_rejected",
+          terminal_reason: "errored",
+        },
+        { id: "run-8", thread_id: "", error_code: null, terminal_reason: null },
+        { id: "", thread_id: "thr_x" },
+      ];
+
+      const out = await checkChatHealthAndAlert(NOW);
+
+      expect(out.status).toBe("alerted");
+      const { body } = notifyWithDelivery.mock.calls[0][0] as { body: string };
+      expect(body).toContain(
+        "- https://mail.agent-native.com/?thread=thr_9 (run run-9, credential_rejected / errored)",
+      );
+      expect(body).toContain("- thread unknown (run run-8)");
+      expect(body).not.toContain("thr_x");
+      expect(body).toContain("get-agent-thread-debug");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("still alerts, and says the examples are missing, when they cannot be read", async () => {
+    turns(10, 8);
+    failedRunQueryThrows = true;
+
+    const out = await checkChatHealthAndAlert(NOW);
+
+    expect(out.status).toBe("alerted");
+    const { body } = notifyWithDelivery.mock.calls[0][0] as { body: string };
+    expect(body).toContain(
+      "Latest failed turns could not be read: Error: failed-run lookup failed.",
+    );
+  });
+
+  it("adds no example list to an A2A-only alert", async () => {
+    staleA2aTasks = 1;
+    failedRunRows = [{ id: "run-1", thread_id: "thr_1" }];
+    await checkChatHealthAndAlert(NOW);
+    const { body } = notifyWithDelivery.mock.calls[0][0] as { body: string };
+    expect(body).not.toContain("Latest failed turns");
   });
 
   it("pages on stale delegated A2A work even without a large turn sample", async () => {

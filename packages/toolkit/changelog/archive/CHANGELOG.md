@@ -1,3 +1,9 @@
+## 0.9.0
+
+### Minor Changes
+
+- 0341a7d: Add an ejectable dashboard presentation kit with cards, tables, date ranges, chart state rendering, and layout helpers.
+
 ## 0.8.3
 
 ### Patch Changes

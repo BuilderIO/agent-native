@@ -22,6 +22,13 @@ const mockResolveEmbedSessionFromRequest = vi.hoisted(() =>
 );
 const mockRegisterAuthPublicPaths = vi.hoisted(() => vi.fn());
 const mockHasUiActionCapability = vi.hoisted(() => vi.fn(() => false));
+const mockCountActionFailure = vi.hoisted(() => vi.fn());
+const mockCountCredentialState = vi.hoisted(() => vi.fn());
+
+vi.mock("../tracking/failure-counters.js", () => ({
+  countActionFailure: mockCountActionFailure,
+  countCredentialState: mockCountCredentialState,
+}));
 
 function fakeUnsignedJwt(payload: Record<string, string>): string {
   const encode = (value: Record<string, string>) =>
@@ -723,6 +730,13 @@ describe("mountActionRoutes", () => {
       error: "No such meeting",
       errorCode: "not_found",
     });
+    expect(mockCountActionFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "getMeeting",
+        status: 404,
+        errorCode: "not_found",
+      }),
+    );
   });
 
   it("forwards a bounded Retry-After for typed quota cooldowns", async () => {
@@ -992,6 +1006,18 @@ describe("mountActionRoutes", () => {
           caller: "frontend",
           status_code: "500",
         },
+        extra: {
+          failureContext: expect.objectContaining({
+            route: "/_agent-native/actions/resolve-notion-sync-conflict",
+            actionName: "resolve-notion-sync-conflict",
+          }),
+        },
+      });
+      expect(mockCountActionFailure).toHaveBeenCalledWith({
+        action: "resolve-notion-sync-conflict",
+        status: 500,
+        caller: "frontend",
+        errorCode: undefined,
       });
     } finally {
       unregister();
@@ -1970,6 +1996,52 @@ describe("mountActionRoutes", () => {
       actionName: "mutating-read",
       requestSource: "browser-tab-1",
     });
+  });
+
+  it("publishes change events only for calls that mutate and have not opted out", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "poll-engine": {
+        planMode: {
+          effect: (args: { action?: string }) =>
+            args.action === "list" ? "read" : "write",
+        },
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+      "save-position": {
+        changeEvents: false,
+        run: vi.fn(async () => ({ ok: true })),
+      } as any,
+      "undeclared-write": { run: vi.fn(async () => ({ ok: true })) } as any,
+    };
+    mountActionRoutes(nitroApp, actions);
+    const call = (name: string, body: Record<string, unknown>) => {
+      const mount = mounted.find((entry) => entry.path.endsWith(`/${name}`))!;
+      return mount.handler({
+        _method: "POST",
+        _headers: {},
+        req: {
+          url: `http://app.test/_agent-native/actions/${name}`,
+          json: async () => body,
+        },
+      });
+    };
+
+    await call("poll-engine", { action: "list" });
+    await call("save-position", { ms: 1 });
+    expect(mockNotifyActionChange).not.toHaveBeenCalled();
+
+    await call("poll-engine", { action: "set" });
+    await call("undeclared-write", {});
+    expect(
+      mockNotifyActionChange.mock.calls.map(([arg]) => arg.actionName),
+    ).toEqual(["poll-engine", "undeclared-write"]);
   });
 
   it("refuses extension tools-bridge calls to provider-api-request", async () => {
@@ -3307,6 +3379,216 @@ describe("mountActionRoutes", () => {
       anonymous: false,
       name: "A2A Caller",
     });
+  });
+});
+
+describe("action boundary error classification", () => {
+  async function invoke(error: unknown) {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const { registerErrorCaptureProvider } = await import("./capture-error.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const provider = vi.fn(() => "evt_boundary");
+    const unregister = registerErrorCaptureProvider(
+      "action-boundary-test",
+      provider,
+    );
+    try {
+      mountActionRoutes(nitroApp, {
+        "do-thing": {
+          run: vi.fn(async () => {
+            throw error;
+          }),
+          http: { method: "POST" as const },
+        } as any,
+      });
+      const event = { _method: "POST", req: { json: async () => ({}) } };
+      const result = await mounted[0].handler(event);
+      return { status: (event as any)._status, result, captured: provider };
+    } finally {
+      unregister();
+    }
+  }
+
+  it("types a missing LLM provider as a 424 and does not capture it", async () => {
+    const { EngineError } = await import("../agent/engine/types.js");
+    const { status, result, captured } = await invoke(
+      new EngineError(
+        'No LLM provider is connected. (engine "anthropic" has no ANTHROPIC_API_KEY)',
+        { errorCode: "missing_credentials", statusCode: 401 },
+      ),
+    );
+
+    expect(status).toBe(424);
+    expect(result).toEqual({
+      error: expect.stringContaining("No LLM provider is connected."),
+      errorCode: "llm_provider_missing",
+    });
+    expect(JSON.stringify(result)).not.toContain("ANTHROPIC_API_KEY");
+    expect(captured).not.toHaveBeenCalled();
+    expect(mockCountActionFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "do-thing",
+        status: 424,
+        errorCode: "llm_provider_missing",
+      }),
+    );
+    expect(mockCountCredentialState).toHaveBeenCalledWith(
+      { kind: "missing", credential: "provider" },
+      "action_route",
+    );
+  });
+
+  it("recognizes a code-less missing-provider error by its message", async () => {
+    const { status, result, captured } = await invoke(
+      new Error(
+        "No LLM provider is connected. Open Settings > Agent > AI providers.",
+      ),
+    );
+
+    expect(status).toBe(424);
+    expect(result).toMatchObject({ errorCode: "llm_provider_missing" });
+    expect(captured).not.toHaveBeenCalled();
+  });
+
+  it("keeps a credential store outage a captured 500", async () => {
+    const { EngineError } = await import("../agent/engine/types.js");
+    const error = new EngineError("LLM credential store is unavailable", {
+      errorCode: "credential_store_unavailable",
+    });
+    const { status, result, captured } = await invoke(error);
+
+    expect(status).toBe(500);
+    expect(result).toEqual({ error: "Internal server error" });
+    expect(captured).toHaveBeenCalledWith(error, expect.anything());
+  });
+
+  it("does not read another typed code as a missing provider", async () => {
+    const error = Object.assign(new Error("Token rejected"), {
+      errorCode: "unauthorized",
+    });
+    const { status, result, captured } = await invoke(error);
+
+    expect(status).toBe(500);
+    expect(result).toEqual({ error: "Internal server error" });
+    expect(captured).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns a fail() conflict typed and uncaptured", async () => {
+    const { fail } = await import("../action.js");
+    let thrown: unknown;
+    try {
+      fail("This update was prepared from an outdated revision.", {
+        errorCode: "plan_revision_conflict",
+        statusCode: 409,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    const { status, result, captured } = await invoke(thrown);
+
+    expect(status).toBe(409);
+    expect(result).toEqual({
+      error: "This update was prepared from an outdated revision.",
+      errorCode: "plan_revision_conflict",
+    });
+    expect(captured).not.toHaveBeenCalled();
+  });
+
+  it("treats an error marked expected with a typed code as user-facing", async () => {
+    const conflict = Object.assign(new Error("Edit conflict"), {
+      expected: true,
+      errorCode: "edit_conflict",
+    });
+    const defaulted = await invoke(conflict);
+    expect(defaulted.status).toBe(409);
+    expect(defaulted.result).toEqual({
+      error: "Edit conflict",
+      errorCode: "edit_conflict",
+    });
+    expect(defaulted.captured).not.toHaveBeenCalled();
+
+    const explicit = await invoke(
+      Object.assign(new Error("Gone"), {
+        expected: true,
+        errorCode: "gone",
+        statusCode: 404,
+      }),
+    );
+    expect(explicit.status).toBe(404);
+    expect(explicit.captured).not.toHaveBeenCalled();
+  });
+
+  it("does not trust an expected marker without a typed code", async () => {
+    const error = Object.assign(new Error("relation does not exist"), {
+      expected: true,
+    });
+    const { status, result, captured } = await invoke(error);
+
+    expect(status).toBe(500);
+    expect(result).toEqual({ error: "Internal server error" });
+    expect(captured).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an unclassified bare Error loud: 500 and captured", async () => {
+    const error = new Error("Generation run not found.");
+    const { status, result, captured } = await invoke(error);
+
+    expect(status).toBe(500);
+    expect(result).toEqual({ error: "Internal server error" });
+    expect(captured).toHaveBeenCalledWith(error, expect.anything());
+  });
+
+  it("keeps code-less LLM and credential bugs that are not a missing provider loud", async () => {
+    for (const message of [
+      "LLM response missing required field 'slides'",
+      "AI engine returned no content; a tool_result block is required",
+      "Invalid BUILDER_PRIVATE_KEY for space abc: 401 from Builder content API",
+    ]) {
+      const error = new Error(message);
+      const { status, result, captured } = await invoke(error);
+
+      expect(status, message).toBe(500);
+      expect(result).toEqual({ error: "Internal server error" });
+      expect(captured).toHaveBeenCalledWith(error, expect.anything());
+    }
+  });
+
+  it("still types a code-less error naming an unset provider key as a 424", async () => {
+    for (const message of [
+      "ANTHROPIC_API_KEY is not set",
+      "Missing OPENAI_API_KEY for the agent engine",
+    ]) {
+      const { status, result, captured } = await invoke(new Error(message));
+
+      expect(status, message).toBe(424);
+      expect(result).toMatchObject({ errorCode: "llm_provider_missing" });
+      expect(captured).not.toHaveBeenCalled();
+    }
+  });
+
+  it("keeps a fail() typed missing_credentials error's own message and status", async () => {
+    const { fail } = await import("../action.js");
+    const message =
+      "The dream job would run as __organization__:org-1, which has no LLM provider connected. An admin of that organization must connect one.";
+    let thrown: unknown;
+    try {
+      fail(message, { errorCode: "missing_credentials", statusCode: 409 });
+    } catch (error) {
+      thrown = error;
+    }
+    const { status, result, captured } = await invoke(thrown);
+
+    expect(status).toBe(409);
+    expect(result).toEqual({
+      error: message,
+      errorCode: "missing_credentials",
+    });
+    expect(captured).not.toHaveBeenCalled();
   });
 });
 

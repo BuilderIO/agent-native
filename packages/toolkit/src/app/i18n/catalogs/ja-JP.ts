@@ -624,6 +624,12 @@ const messages: ToolkitAgentChatTranslation = {
     "ツールのスキーマが無効だったため、モデルは開始前にリクエストを拒否しました。無効なツールをスキップして再試行できます。",
   "errorMessages.malformedRequest":
     "モデルプロバイダーがこのリクエストを不正な形式として拒否したため、再試行されませんでした。再試行するか、繰り返し発生する場合は新しいチャットを開始してください。",
+  "errorMessages.runInterrupted": "エージェントは完了前に停止しました。",
+  "errorMessages.runFailed": "エージェントの実行に失敗しました。",
+  "errorMessages.runUnverified":
+    "このチャットはエージェントを追跡できなくなりました。エージェントはまだ実行中の可能性があります。再読み込みして進捗を確認してください。",
+  "errorMessages.runSignedOut":
+    "サインアウトしているため、このチャットはエージェントを追跡できません。もう一度サインインしてから再読み込みしてください。",
   "errorMessages.malformedRequestAttachment":
     "モデルが添付ファイルを拒否したため、このメッセージは送信されませんでした。添付を削除して再試行してください。PDF、プレーンテキスト、JPEG・PNG・GIF・WebP の画像は直接読み取れますが、その他の形式はアップロードしてリンクする必要があります。",
   "errorMessages.noProviderConnected":

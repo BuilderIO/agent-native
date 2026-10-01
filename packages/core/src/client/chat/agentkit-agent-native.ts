@@ -33,6 +33,7 @@ import {
   type AgentKitProtocolAdapter,
   type CreateAgentKitProtocolAdapterOptions,
 } from "./agentkit-protocol.js";
+import { trackRunOutcome } from "./run-outcome-telemetry.js";
 import {
   createAgentNativeChatRuntime,
   type AgentChatRuntime,
@@ -1034,7 +1035,9 @@ export function createAgentNativeAgentKitTransport(
     threadId: string,
   ): Promise<AgentThreadSnapshot | null> {
     const stored = await fetchThread(threadId);
-    return stored ? projectThread(threadId, stored) : null;
+    if (!stored) return null;
+    const thread = projectThread(threadId, stored);
+    return thread;
   }
 
   async function activeRunSnapshot(
@@ -1272,6 +1275,38 @@ export function createAgentNativeAgentKitTransport(
     );
   }
 
+  async function startRunTrackingRunningState(
+    input: Parameters<AgentKitProtocolAdapter["startRun"]>[0],
+    context: Parameters<AgentKitProtocolAdapter["startRun"]>[1],
+  ): ReturnType<AgentKitProtocolAdapter["startRun"]> {
+    dispatchAgentChatRunning({
+      isRunning: true,
+      phase: "working",
+      threadId: input.threadId,
+      tabId: input.threadId,
+    });
+    try {
+      const run = await startRun(input, context);
+      dispatchAgentChatRunning({
+        isRunning: true,
+        phase: "working",
+        threadId: input.threadId,
+        tabId: input.threadId,
+        runId: run.runId,
+      });
+      return run;
+    } catch (error) {
+      dispatchAgentChatRunning({
+        isRunning: false,
+        phase: "idle",
+        threadId: input.threadId,
+        tabId: input.threadId,
+        reason: "start_failed",
+      });
+      throw error;
+    }
+  }
+
   async function readQueue(threadId: string): Promise<AgentQueuedMessage[]> {
     const thread = await snapshot(threadId);
     if (!thread) {
@@ -1287,6 +1322,7 @@ export function createAgentNativeAgentKitTransport(
     options.feedbackUrl ??
     agentNativePath("/_agent-native/observability/feedback");
   const protocolTransport = createAgentKitProtocolAdapter(runtime, {
+    onRunOutcome: trackRunOutcome,
     ...options.adapter,
     metadata: adapterMetadata(options),
     capabilities: {
@@ -1393,24 +1429,29 @@ export function createAgentNativeAgentKitTransport(
           throw new TypeError("Agent chat queue claim response is invalid.");
         }
         try {
-          return await transport.startRun({
-            threadId,
-            messages: [
-              ...thread.messages,
-              {
-                id: queued.id,
-                role: "user",
-                parts: [
-                  { type: "text", text: queued.text },
-                  ...(queued.attachments ?? []),
-                ],
-                createdAt: queued.createdAt,
-                metadata: queued.metadata,
-              },
-            ],
-            options: queued.options,
-            metadata: queued.metadata,
-          });
+          return await startRunTrackingRunningState(
+            {
+              threadId,
+              messages: [
+                ...thread.messages.filter(
+                  (message) => message.id !== queued.id,
+                ),
+                {
+                  id: queued.id,
+                  role: "user",
+                  parts: [
+                    { type: "text", text: queued.text },
+                    ...(queued.attachments ?? []),
+                  ],
+                  createdAt: queued.createdAt,
+                  metadata: queued.metadata,
+                },
+              ],
+              options: queued.options,
+              metadata: queued.metadata,
+            },
+            undefined,
+          );
         } catch (error) {
           try {
             await persistQueueMutation(threadId, {
@@ -1569,34 +1610,7 @@ export function createAgentNativeAgentKitTransport(
     protocolTransport.subscribeToRun.bind(protocolTransport);
   transport = {
     ...protocolTransport,
-    async startRun(input, context) {
-      dispatchAgentChatRunning({
-        isRunning: true,
-        phase: "working",
-        threadId: input.threadId,
-        tabId: input.threadId,
-      });
-      try {
-        const run = await startRun(input, context);
-        dispatchAgentChatRunning({
-          isRunning: true,
-          phase: "working",
-          threadId: input.threadId,
-          tabId: input.threadId,
-          runId: run.runId,
-        });
-        return run;
-      } catch (error) {
-        dispatchAgentChatRunning({
-          isRunning: false,
-          phase: "idle",
-          threadId: input.threadId,
-          tabId: input.threadId,
-          reason: "start_failed",
-        });
-        throw error;
-      }
-    },
+    startRun: (input, context) => startRunTrackingRunningState(input, context),
     async *subscribeToRun(input) {
       dispatchAgentChatRunning({
         isRunning: true,

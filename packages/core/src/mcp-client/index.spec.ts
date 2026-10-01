@@ -98,6 +98,7 @@ describe("mcpToolsToActionEntries", () => {
     ]);
     for (const entry of Object.values(entries)) {
       expect(entry.http).toBe(false);
+      expect(entry.fromMcpServer).toBe(true);
       expect(typeof entry.run).toBe("function");
       expect(typeof entry.planMode?.effect).toBe("function");
     }
