@@ -268,6 +268,12 @@ Instead:
    before the search started. A write that commits while it runs may or may
    not appear, as with the scan.
 
+   The previous search is kept as it was, so it's a proven safety net. It
+   matches text literally: mid-word in bodies, without NFKC (full-width
+   "Ｑ３" doesn't find "Q3"), and with punctuation as written
+   (`docs-example` doesn't find "docs.example"). The index does those
+   differently, so results can differ while the index catches up.
+
 5. **Safe processing.**
    - A drain claims a batch with a 60-second lease using
      `FOR UPDATE SKIP LOCKED`, so concurrent drains never process the same
@@ -330,6 +336,8 @@ Matching, for each term:
   word in each field, and then only the words that come first. A document
   past any of these limits has `positions_complete` false, and a phrase
   matches it when every word is in one field. Chunks will make that exact.
+  The words left out of a vector that ran past 900 KB (tens of thousands of
+  distinct words) don't find that document until chunks cover them.
 
 Ranking uses the tiers the browser lane uses: exact title 5, title prefix 4,
 title word prefixes 3, title substrings 2, title or summary 1. Ties go to how
@@ -475,7 +483,8 @@ Built:
 - **Content:**
   - the relevance eval (`evals/search-relevance/`) with a recorded baseline;
   - a parity test that runs the same queries through the index and the
-    fallback, which must agree except on mid-word body text;
+    fallback, which must agree except where the index matches differently:
+    mid-word body text, NFKC, and punctuation inside a term;
   - the existing search suites, which run on the index path;
   - 10,000 documents on PGlite: the index builds in about 5 seconds, and warm
     search p95 is under 200 ms against a 400 ms budget.

@@ -179,7 +179,7 @@ describe("indexed search and the fallback scan", () => {
     );
   });
 
-  it("differ only on mid-word body text, which the index doesn't match", async () => {
+  it("differ on mid-word body text, which the index doesn't match", async () => {
     // "iorit" is inside "priorities": in titles and summaries both paths
     // find it, but in p2's body only the scan does.
     const indexed = await search("iorit", { fallback: false });
@@ -187,6 +187,15 @@ describe("indexed search and the fallback scan", () => {
     expect(scanned).toContain("p2");
     expect(indexed).not.toContain("p2");
     expect(indexed).toEqual(scanned.filter((id) => id !== "p2"));
+  });
+
+  it("differ where the index normalizes text and the scan matches it literally", async () => {
+    // Full-width input finds p3's "Q3", and a term's punctuation separates
+    // words, on the index only.
+    expect(await search("Ｑ３", { fallback: false })).toEqual(["p3"]);
+    expect(await search("Ｑ３", { fallback: true })).toEqual([]);
+    expect(await search("docs-example", { fallback: false })).toEqual(["eng"]);
+    expect(await search("docs-example", { fallback: true })).toEqual([]);
   });
 
   it("reflects an edit on the next search", async () => {
