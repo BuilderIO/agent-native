@@ -1169,7 +1169,7 @@ export function createAgentNativeAgentKitTransport(
       : input.snapshot.messages;
     const snapshotToolCalls = storedSnapshot
       ? mergeStoredAndIncomingToolCalls(
-          storedSnapshot.toolCalls,
+          storedSnapshot.toolCalls ?? [],
           input.snapshot.toolCalls ?? [],
         )
       : input.snapshot.toolCalls;
