@@ -18,6 +18,10 @@ import {
 import { getDatabaseRuntimeFingerprint } from "../db/runtime-diagnostics.js";
 import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
+  flushObservability,
+  recordHttpServerRequest,
+} from "../observability/metrics.js";
+import {
   createTrackingEventScope,
   flushTrackingEvents,
   type TrackingEventScope,
@@ -371,7 +375,8 @@ function moduleToRequestMs(state: HttpRequestTelemetryState): number {
 async function emitTelemetry(
   event: H3Event,
   state: HttpRequestTelemetryState,
-  response?: Response,
+  response: Response,
+  durationMs: number,
 ): Promise<void> {
   const statusCode = responseStatusCode(event, response);
   const pathname = requestPath(event);
@@ -401,7 +406,7 @@ async function emitTelemetry(
           sample_rate: decision.sampleRate,
           sample_weight: 1 / decision.sampleRate,
           sampled: decision.sampled,
-          duration_ms: Math.max(0, Date.now() - state.startedAt),
+          duration_ms: durationMs,
           request_id: state.requestId,
           measurement: "nitro_request",
           cold_start: state.requestSequence === 1,
@@ -473,7 +478,14 @@ async function emitTelemetry(
       // Response telemetry is best-effort. Never perturb request handling.
     }
   }
+  recordHttpServerRequest({
+    method: getMethod(event),
+    statusCode,
+    durationMs,
+    route: state.routeTemplate,
+  });
   await flushTrackingEvents(state.trackingScope);
+  await flushObservability();
 }
 
 function requestTelemetryState(
@@ -690,7 +702,7 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
         originSnapshotDesc(state),
       );
       logSlowRequest(event, state, response, durationMs, requestPath(event));
-      await emitTelemetry(event, state, response);
+      await emitTelemetry(event, state, response, durationMs);
       return;
     }
 
@@ -785,6 +797,6 @@ export function installHttpResponseTelemetryHooks(nitroApp: any): void {
     }
 
     logSlowRequest(event, state, response, durationMs, requestPath(event));
-    await emitTelemetry(event, state, response);
+    await emitTelemetry(event, state, response, durationMs);
   });
 }

@@ -3,6 +3,13 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-01
+
+### Fixed
+
+- Mail stops repeating actions when Gmail remains in a cooldown.
+- When Gmail rate-limits Mail it keeps showing your saved inbox with a small notice and retries on its own, and an account Google rejected now asks you to reconnect instead of retrying forever
+
 ## 2026-09-30
 
 ### Improved
@@ -92,6 +99,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Emails show as soon as their text arrives instead of waiting for every image, and no longer go blank when an open email refreshes.
 - Failed queued draft sends now report an error instead of appearing successful.
 - Gmail cooldown messages now show when to try again.
 - Inbox sorting recovers automatically when background processing is interrupted

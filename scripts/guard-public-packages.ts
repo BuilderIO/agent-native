@@ -22,6 +22,7 @@ const workspaceOnlyPackageAllowlist = new Set([
   "@agent-native/code-agents-ui",
   "@agent-native/embedding",
   "@agent-native/migrate",
+  "@agent-native/otel",
   "@agent-native/shared-app-config",
 ]);
 

@@ -21,6 +21,7 @@ import {
   _localTemplateSourceKind,
   _normalizeTemplateName,
   _postProcessStandalone,
+  _removeWorkspaceOnlyTemplateWiring,
   _renameGitignore,
   _replacePlaceholders,
   _rewriteNetlifyToml,
@@ -138,6 +139,7 @@ export async function materializeTemplate(
     );
     source = "github";
   }
+  _removeWorkspaceOnlyTemplateWiring(dest);
 
   const provenance = { templateRef: usedRef, templateSource: source };
 

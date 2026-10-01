@@ -682,6 +682,7 @@ export {
   resolveDeployPlatform,
   type DeployPlatform,
 } from "./deploy-environment.js";
+export { isServerlessRuntime } from "../db/client.js";
 export {
   BUILDER_PUBLISH_MCP_RESOURCE,
   canAuthorizeBuilderApiRequest,
@@ -880,6 +881,13 @@ export {
   type AgentReadableResourceDiscovery,
   type BuildAgentReadableResourceDiscoveryOptions,
 } from "../shared/agent-readable-resource.js";
+
+export {
+  registerObservabilityProvider,
+  type ObservabilityMeterProvider,
+  type ObservabilityProvider,
+  type ObservabilityTracerProvider,
+} from "../observability/otel-provider.js";
 
 export type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 export function defineNitroPlugin(def: NitroPluginDef): NitroPluginDef {
