@@ -176,8 +176,25 @@ const baseOf = (key: string) => key.replace(/#\d+$/, "");
  * the end (append / enter3 change the edited run's own key).
  */
 export function diffSnapshots(a: Snapshot, b: Snapshot): StyleDiff {
-  const A = a.records;
-  const B = b.records;
+  const allA = a.records;
+  const allB = b.records;
+  const stableB = new Map(
+    allB.flatMap((record) =>
+      record.stableKey ? [[record.stableKey, record] as const] : [],
+    ),
+  );
+  const pairs: Array<[SnapRecord, SnapRecord]> = [];
+  const pairedB = new Set<SnapRecord>();
+  const A = allA.filter((record) => {
+    const other = record.stableKey ? stableB.get(record.stableKey) : undefined;
+    if (other) {
+      pairs.push([record, other]);
+      pairedB.add(other);
+      return false;
+    }
+    return true;
+  });
+  const B = allB.filter((record) => !pairedB.has(record));
   // An edit changes one contiguous stretch of the document, so the head and
   // tail pair by position. Per-text ordinals cannot: when the edited copy of a
   // repeated text changes, later copies renumber onto their neighbours. Never
@@ -193,7 +210,6 @@ export function diffSnapshots(a: Snapshot, b: Snapshot): StyleDiff {
   ) {
     tail++;
   }
-  const pairs: Array<[SnapRecord, SnapRecord]> = [];
   for (let i = 0; i < head; i++) pairs.push([A[i], B[i]]);
   for (let i = 1; i <= tail; i++)
     pairs.push([A[A.length - i], B[B.length - i]]);
@@ -230,6 +246,15 @@ export function diffSnapshots(a: Snapshot, b: Snapshot): StyleDiff {
   const geometry: StyleDelta[] = [];
   for (const [ra, rb] of pairs) {
     const inside = ra.inside || rb.inside;
+    // Computed values can change with intrinsic layout; authored attrs cannot.
+    for (const [prop, before, after] of [
+      ["class", ra.className, rb.className],
+      ["style", ra.inlineStyle, rb.inlineStyle],
+    ] as const) {
+      if (before !== undefined && after !== undefined && before !== after) {
+        deltas.push({ key: ra.key, prop, a: "changed", b: "changed", inside });
+      }
+    }
     for (const prop of Object.keys(ra.props)) {
       if (ra.props[prop] !== rb.props[prop]) {
         deltas.push({

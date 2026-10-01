@@ -928,13 +928,16 @@ describe("SlideInner autofit", () => {
     await new Promise((resolve) => window.setTimeout(resolve, 20));
     expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.74");
 
+    const scheduleFrame = vi.spyOn(globalThis, "requestAnimationFrame");
     wrapperRect.mockClear();
     heading!.firstChild!.textContent = "Horizontally fitted title Expanded";
     await new Promise((resolve) => window.setTimeout(resolve, 20));
     expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).toBe("0.74");
     expect(wrapperRect).not.toHaveBeenCalled();
+    expect(scheduleFrame).not.toHaveBeenCalled();
 
     heading!.contentEditable = "false";
+    await waitFor(() => expect(scheduleFrame).toHaveBeenCalled());
     await waitFor(() =>
       expect(fitLayer?.style.getPropertyValue("--fmd-fit-scale")).not.toBe(
         "0.74",

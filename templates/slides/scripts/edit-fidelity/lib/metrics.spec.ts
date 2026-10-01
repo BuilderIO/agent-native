@@ -70,6 +70,62 @@ describe("resized", () => {
 });
 
 describe("diffSnapshots", () => {
+  it("matches live nodes by identity when same-class blocks are inserted", () => {
+    const before = {
+      ...rec("box:div.card#0", { color: "red" }),
+      stableKey: "node-1:box",
+    };
+    const inserted = {
+      ...rec("box:div.card#0", { color: "blue" }, true),
+      stableKey: "node-2:box",
+    };
+    const after = {
+      ...rec("box:div.card#1", { color: "red" }),
+      stableKey: "node-1:box",
+    };
+
+    expect(
+      diffSnapshots(snap([before]), snap([inserted, after])),
+    ).toMatchObject({
+      deltas: [],
+      geometry: [],
+      missing: [],
+      added: [{ key: "box:div.card#0", inside: true }],
+    });
+  });
+
+  it("reports authored attribute changes on identity-matched nodes", () => {
+    const before = {
+      ...rec("box:div.card#0", {}),
+      stableKey: "node-1:box",
+      className: "card",
+      inlineStyle: "color: red",
+    };
+    const after = {
+      ...rec("box:div.card.active#0", {}),
+      stableKey: "node-1:box",
+      className: "card active",
+      inlineStyle: "color: blue",
+    };
+
+    expect(diffSnapshots(snap([before]), snap([after])).deltas).toEqual([
+      {
+        key: before.key,
+        prop: "class",
+        a: "changed",
+        b: "changed",
+        inside: false,
+      },
+      {
+        key: before.key,
+        prop: "style",
+        a: "changed",
+        b: "changed",
+        inside: false,
+      },
+    ]);
+  });
+
   it("reports a class style dying on an unchanged run", () => {
     const d = diffSnapshots(
       snap([rec("text:Q3 review#0", { "text-transform": "uppercase" })]),

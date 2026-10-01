@@ -423,10 +423,11 @@ function useSlideAutofit(
       target.removeAttribute("data-fmd-autofit-active");
     };
 
-    const measureNow = () => {
-      if (disposed) return;
+    const isEditing = () => !!root.querySelector('[contenteditable="true"]');
 
-      const isEditing = !!root.querySelector('[contenteditable="true"]');
+    const measureNow = () => {
+      if (disposed || isEditing()) return;
+
       const rawTargets = ensureRawHtmlFitLayers(root);
       const targets =
         rawTargets.length > 0
@@ -438,8 +439,6 @@ function useSlideAutofit(
       let worstInfo: SlideOverflowInfo | null = null;
 
       for (const target of targets) {
-        if (isEditing) continue;
-
         resetTarget(target);
         const bounds = measureContentBounds(target);
         const viewportWidth = target.clientWidth || canvasWidth;
@@ -480,23 +479,21 @@ function useSlideAutofit(
         }
       }
 
-      if (!isEditing) {
-        overflowCallbackRef.current?.(
-          worstInfo ?? {
-            verticalOverflow: 0,
-            horizontalOverflow: 0,
-            contentHeight: 0,
-            contentWidth: 0,
-            viewportHeight: 0,
-            viewportWidth: 0,
-          },
-        );
-        autofitSettledRef.current?.();
-      }
+      overflowCallbackRef.current?.(
+        worstInfo ?? {
+          verticalOverflow: 0,
+          horizontalOverflow: 0,
+          contentHeight: 0,
+          contentWidth: 0,
+          viewportHeight: 0,
+          viewportWidth: 0,
+        },
+      );
+      autofitSettledRef.current?.();
     };
 
     const scheduleMeasure = () => {
-      if (disposed) return;
+      if (disposed || isEditing()) return;
       if (!visible) {
         measurePending = true;
         return;

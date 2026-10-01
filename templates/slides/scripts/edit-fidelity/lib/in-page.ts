@@ -51,6 +51,7 @@ export interface TextTarget {
 
 export interface SnapRecord {
   key: string;
+  stableKey?: string;
   kind: "text" | "box";
   inside: boolean;
   downstreamFlow?: boolean;
@@ -64,6 +65,7 @@ export interface SnapRecord {
   };
   layoutPath?: string[];
   tag?: string;
+  className?: string;
   inlineStyle?: string;
   props: Record<string, string>;
   rect: Rect;
@@ -159,6 +161,17 @@ declare global {
 }
 
 export function installInPageHelpers(chromeSelector: string) {
+  const snapEpoch = crypto.randomUUID();
+  const snapIds = new WeakMap<Element, number>();
+  let nextSnapId = 0;
+  const snapId = (element: Element) => {
+    let id = snapIds.get(element);
+    if (id === undefined) {
+      id = ++nextSnapId;
+      snapIds.set(element, id);
+    }
+    return id;
+  };
   const TEXT_PROPS = [
     "font-family",
     "font-size",
@@ -1023,11 +1036,20 @@ export function installInPageHelpers(chromeSelector: string) {
       flow: ReturnType<typeof followsEditedFlow> = false,
       textElement?: Pick<SnapRecord, "tag" | "inlineStyle">,
       layoutPath?: string[],
+      element?: Element,
     ) => {
       const n = seen.get(base) ?? 0;
       seen.set(base, n + 1);
+      const recordKind = base.endsWith("::before")
+        ? "before"
+        : base.endsWith("::after")
+          ? "after"
+          : kind;
       records.push({
         key: `${base}#${n}`,
+        ...(element
+          ? { stableKey: `${snapEpoch}:${snapId(element)}:${recordKind}` }
+          : {}),
         kind,
         inside,
         downstreamFlow: !!flow,
@@ -1035,6 +1057,12 @@ export function installInPageHelpers(chromeSelector: string) {
           ? { flexCrossAlignment: flow.flexCrossAlignment }
           : {}),
         ...(layoutPath ? { layoutPath } : {}),
+        ...(element
+          ? {
+              className: element.getAttribute("class") ?? "",
+              inlineStyle: element.getAttribute("style") ?? "",
+            }
+          : {}),
         props,
         rect,
         ...textElement,
@@ -1075,6 +1103,7 @@ export function installInPageHelpers(chromeSelector: string) {
             inlineStyle: el.getAttribute("style") ?? "",
           },
           layoutPathOf(el),
+          el,
         );
       }
       if (
@@ -1091,6 +1120,7 @@ export function installInPageHelpers(chromeSelector: string) {
           flow,
           undefined,
           layoutPathOf(el),
+          el,
         );
       }
       for (const pseudo of ["::before", "::after"]) {
@@ -1107,6 +1137,7 @@ export function installInPageHelpers(chromeSelector: string) {
           false,
           undefined,
           layoutPathOf(el),
+          el,
         );
       }
       if (el.tagName.toUpperCase() === "SVG") return;
