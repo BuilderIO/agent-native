@@ -578,22 +578,92 @@ export function suggestionPresentations(
       : [];
 }
 
+export function documentEditorSuggestionPresentations(args: {
+  savedSuggestions: ResourceSuggestion[];
+  drafts: DraftSuggestion[];
+  currentMarkdown: string;
+  editingSuggestionId: string | null;
+  pendingSuggestionId: string | null;
+  transitions: SuggestionPresentationTransitions;
+  observedTransition?: SuggestionPresentationTransition;
+}): VisualEditorSuggestion[] {
+  const savedPresentations: VisualEditorSuggestion[] = [];
+  for (const suggestion of args.savedSuggestions) {
+    if (suggestion.id === args.editingSuggestionId) continue;
+    savedPresentations.push(
+      ...suggestionPresentations(
+        suggestion,
+        args.currentMarkdown,
+        args.transitions.get(suggestionPresentationTransitionKey(suggestion)),
+        args.observedTransition,
+      ),
+    );
+  }
+  const draftPresentations: VisualEditorSuggestion[] = [];
+  for (const suggestion of args.drafts) {
+    if (suggestion.id === args.pendingSuggestionId) continue;
+    const preciseDrafts = preciseDraftSuggestionPresentations(
+      suggestion,
+      args.currentMarkdown,
+    );
+    if (preciseDrafts) {
+      draftPresentations.push(...preciseDrafts);
+      continue;
+    }
+    const operation = suggestion.operations[0]!;
+    const before = operation.before as { changedText: string };
+    const after = operation.after as {
+      markdown: string;
+      changedText: string;
+    };
+    const beforeMarkdown = (operation.before as { markdown: string }).markdown;
+    const operationAnchor = operation.anchor as { from: number; to: number };
+    draftPresentations.push({
+      id: suggestion.id,
+      kind: operation.kind as VisualEditorSuggestion["kind"],
+      beforeText: before.changedText,
+      afterText: after.changedText,
+      beforePresentation: {
+        source: beforeMarkdown,
+        from: operationAnchor.from,
+        to: operationAnchor.to,
+      },
+      afterPresentation: {
+        source: after.markdown,
+        from: operationAnchor.from,
+        to: operationAnchor.from + after.changedText.length,
+      },
+      anchor: suggestion.anchor,
+      presentation: "draft",
+    });
+  }
+  return replaceSuggestionPresentations(savedPresentations, draftPresentations);
+}
+
+function replaceSuggestionPresentations(
+  presentations: VisualEditorSuggestion[],
+  replacements: VisualEditorSuggestion[],
+): VisualEditorSuggestion[] {
+  if (replacements.length === 0) return presentations;
+  const replacedIds = new Set(
+    replacements.map((presentation) => presentation.id),
+  );
+  return [
+    ...presentations.filter(
+      (presentation) => !replacedIds.has(presentation.id),
+    ),
+    ...replacements,
+  ];
+}
+
 export function replaceAcceptedSuggestionPresentations(
   presentations: VisualEditorSuggestion[],
   accepted: VisualEditorSuggestion | VisualEditorSuggestion[] | null,
 ): VisualEditorSuggestion[] {
-  if (!accepted) return presentations;
-  const acceptedPresentations = Array.isArray(accepted) ? accepted : [accepted];
-  if (acceptedPresentations.length === 0) return presentations;
-  const acceptedIds = new Set(
-    acceptedPresentations.map((presentation) => presentation.id),
+  return replaceSuggestionPresentations(
+    presentations,
+    accepted ? (Array.isArray(accepted) ? accepted : [accepted]) : [],
   );
-  return [
-    ...presentations.filter(
-      (presentation) => !acceptedIds.has(presentation.id),
-    ),
-    ...acceptedPresentations,
-  ];
 }
 
 export function replaceAcceptedProposalPresentations(
@@ -1736,17 +1806,43 @@ export function utilityPanelAfterCommentFocusDismissal(
   return utilityPanel === "comments" ? null : utilityPanel;
 }
 
-export function documentEditorShowsUtilityPanelSheet(args: {
-  utilityPanel: DocumentUtilityPanel;
+type DocumentCommentSurfaceLayout = {
   commentsHistoryDrawerOpen: boolean;
   hasUtilityRailSpace: boolean;
   hasInlineCommentSpace: boolean;
-  selectedSuggestionId: string | null;
-}) {
+};
+
+function documentEditorHasDesktopCommentSurface(
+  args: DocumentCommentSurfaceLayout,
+) {
+  return args.commentsHistoryDrawerOpen
+    ? args.hasUtilityRailSpace
+    : args.hasInlineCommentSpace;
+}
+
+export function dismissDocumentCommentFocus(
+  args: DocumentCommentSurfaceLayout & {
+    closeReply: () => void;
+    clearFocus: () => void;
+    closePanel: () => void;
+  },
+) {
+  args.closeReply();
+  args.clearFocus();
+  if (!documentEditorHasDesktopCommentSurface(args)) args.closePanel();
+}
+
+export function documentEditorShowsUtilityPanelSheet(
+  args: DocumentCommentSurfaceLayout & {
+    utilityPanel: DocumentUtilityPanel;
+    selectedSuggestionId: string | null;
+  },
+) {
   if (args.utilityPanel === "comments") {
-    return args.commentsHistoryDrawerOpen
-      ? !args.hasUtilityRailSpace
-      : !args.hasInlineCommentSpace && !!args.selectedSuggestionId;
+    return (
+      !documentEditorHasDesktopCommentSurface(args) &&
+      (args.commentsHistoryDrawerOpen || !!args.selectedSuggestionId)
+    );
   }
   return args.utilityPanel === "info" && !args.hasUtilityRailSpace;
 }
@@ -5521,62 +5617,18 @@ function PageEditorSessionBody({
             ) ?? undefined)
           : undefined
       : undefined;
-    const byId = new Map<string, VisualEditorSuggestion>();
-    for (const suggestion of displaySavedSuggestions) {
-      if (suggestion.id === editingSuggestionId) continue;
-      for (const [index, presentation] of suggestionPresentations(
-        suggestion,
-        currentMarkdown,
-        renderedSuggestionTransitions.get(
-          suggestionPresentationTransitionKey(suggestion),
-        ),
-        observedTransition,
-      ).entries()) {
-        byId.set(`${presentation.id}:${index}`, presentation);
-      }
-    }
-    for (const suggestion of suggestionSessionVisuals(
-      sessionDraftSuggestions,
-      createdSuggestionOperationsRef.current,
-    )) {
-      if (suggestion.id === pendingSuggestionDecision?.suggestion.id) continue;
-      const preciseDrafts = preciseDraftSuggestionPresentations(
-        suggestion,
-        currentMarkdown,
-      );
-      if (preciseDrafts) {
-        for (const [index, presentation] of preciseDrafts.entries())
-          byId.set(`${presentation.id}:${index}`, presentation);
-        continue;
-      }
-      const operation = suggestion.operations[0]!;
-      const before = operation.before as { changedText: string };
-      const after = operation.after as {
-        markdown: string;
-        changedText: string;
-      };
-      const beforeMarkdown = (operation.before as { markdown: string })
-        .markdown;
-      const operationAnchor = operation.anchor as { from: number; to: number };
-      byId.set(suggestion.id, {
-        id: suggestion.id,
-        kind: operation.kind as VisualEditorSuggestion["kind"],
-        beforeText: before.changedText,
-        afterText: after.changedText,
-        beforePresentation: {
-          source: beforeMarkdown,
-          from: operationAnchor.from,
-          to: operationAnchor.to,
-        },
-        afterPresentation: {
-          source: after.markdown,
-          from: operationAnchor.from,
-          to: operationAnchor.from + after.changedText.length,
-        },
-        anchor: suggestion.anchor,
-        presentation: "draft" as const,
-      });
-    }
+    const ordinaryPresentations = documentEditorSuggestionPresentations({
+      savedSuggestions: displaySavedSuggestions,
+      drafts: suggestionSessionVisuals(
+        sessionDraftSuggestions,
+        createdSuggestionOperationsRef.current,
+      ),
+      currentMarkdown,
+      editingSuggestionId,
+      pendingSuggestionId: pendingSuggestionDecision?.suggestion.id ?? null,
+      transitions: renderedSuggestionTransitions,
+      observedTransition,
+    });
     let acceptedPresentations: VisualEditorSuggestion[] = [];
     if (
       pendingSuggestionDecision?.decision === "accepted" &&
@@ -5598,7 +5650,7 @@ function PageEditorSessionBody({
       }
     }
     const presentations = replaceAcceptedSuggestionPresentations(
-      [...byId.values()],
+      ordinaryPresentations,
       acceptedPresentations,
     );
     return proposalDecisionPresentations(
@@ -6064,7 +6116,12 @@ function PageEditorSessionBody({
   const showCommentsHistoryDrawer =
     utilityPanel === "comments" && commentsBrowseOpen;
   const showDesktopCommentsHistory =
-    showCommentsHistoryDrawer && hasUtilityRailSpace;
+    showCommentsHistoryDrawer &&
+    documentEditorHasDesktopCommentSurface({
+      commentsHistoryDrawerOpen: showCommentsHistoryDrawer,
+      hasUtilityRailSpace,
+      hasInlineCommentSpace,
+    });
   const hasOpenCommentThreads =
     threads?.some((thread) => !thread.resolved) ?? false;
   // A suggestion whose text is gone lives in the comments panel only, so it
@@ -6154,13 +6211,24 @@ function PageEditorSessionBody({
   }, []);
 
   const dismissCommentFocus = useCallback(() => {
-    replyDrafts.setOpenReply(null);
-    clearCommentFocus();
-    if (!hasInlineCommentSpace) {
-      setCommentsBrowseOpen(false);
-      setUtilityPanel(utilityPanelAfterCommentFocusDismissal);
-    }
-  }, [clearCommentFocus, hasInlineCommentSpace, replyDrafts.setOpenReply]);
+    dismissDocumentCommentFocus({
+      commentsHistoryDrawerOpen: showCommentsHistoryDrawer,
+      hasUtilityRailSpace,
+      hasInlineCommentSpace,
+      closeReply: () => replyDrafts.setOpenReply(null),
+      clearFocus: clearCommentFocus,
+      closePanel: () => {
+        setCommentsBrowseOpen(false);
+        setUtilityPanel(utilityPanelAfterCommentFocusDismissal);
+      },
+    });
+  }, [
+    clearCommentFocus,
+    hasInlineCommentSpace,
+    hasUtilityRailSpace,
+    replyDrafts.setOpenReply,
+    showCommentsHistoryDrawer,
+  ]);
 
   const handleEditorEscape = useCallback(() => {
     dismissCommentFocus();

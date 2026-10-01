@@ -19,6 +19,7 @@ import {
   documentEditorReservesInlineReviewSpace,
   documentEditorShowsInlineComments,
   documentEditorShowsUtilityPanelSheet,
+  dismissDocumentCommentFocus,
   documentEditorLoadState,
   documentTitleWidthChanged,
   documentEditorTitleRegionClassName,
@@ -938,6 +939,46 @@ describe("document editor layout", () => {
     expect(utilityPanelAfterCommentFocusDismissal("info")).toBe("info");
     expect(utilityPanelAfterCommentFocusDismissal(null)).toBeNull();
   });
+
+  it.each([
+    [959, true, true],
+    [960, true, false],
+    [1040, true, false],
+    [1087, true, false],
+    [1088, true, false],
+    [959, false, true],
+    [960, false, true],
+    [1040, false, true],
+    [1087, false, true],
+    [1088, false, false],
+  ] as const)(
+    "dismisses comment focus at width %i with history=%s without closing a desktop owner: closes=%s",
+    (width, commentsHistoryDrawerOpen, closesPanel) => {
+      const closeReply = vi.fn();
+      const clearFocus = vi.fn();
+      const closePanel = vi.fn();
+      dismissDocumentCommentFocus({
+        commentsHistoryDrawerOpen,
+        hasUtilityRailSpace: width >= 960,
+        hasInlineCommentSpace: width >= 1088,
+        closeReply,
+        clearFocus,
+        closePanel,
+      });
+      expect(closeReply).toHaveBeenCalledOnce();
+      expect(clearFocus).toHaveBeenCalledOnce();
+      expect(closePanel).toHaveBeenCalledTimes(closesPanel ? 1 : 0);
+      expect(
+        documentEditorShowsUtilityPanelSheet({
+          utilityPanel: "comments",
+          commentsHistoryDrawerOpen,
+          hasUtilityRailSpace: width >= 960,
+          hasInlineCommentSpace: width >= 1088,
+          selectedSuggestionId: "saved-suggestion",
+        }),
+      ).toBe(closesPanel);
+    },
+  );
 
   it("keeps the selected inline conversation visible after its last thread resolves", () => {
     expect(
