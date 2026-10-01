@@ -699,7 +699,11 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
         };
       })
       .toEqual({
-        copy: { ...sourceGeometry, x: 560, z: 1 },
+        copy: {
+          ...sourceGeometry,
+          x: sourceGeometry.x + sourceGeometry.width + 56,
+          z: 1,
+        },
         neighborZ: 2,
         fartherZ: 3,
       });
@@ -759,7 +763,11 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
         };
       })
       .toEqual({
-        copy: { ...sourceGeometry, x: 920, z: 1 },
+        copy: {
+          ...sourceGeometry,
+          x: sourceGeometry.x + 2 * (sourceGeometry.width + 56),
+          z: 1,
+        },
         firstCopyZ: 2,
         neighborZ: 3,
         fartherZ: 4,
@@ -826,7 +834,11 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
         };
       })
       .toEqual({
-        copy: { ...sourceGeometry, x: 920, z: 1 },
+        copy: {
+          ...sourceGeometry,
+          x: sourceGeometry.x + 2 * (sourceGeometry.width + 56),
+          z: 1,
+        },
         firstCopyZ: 2,
         neighborZ: 3,
         fartherZ: 4,
@@ -920,9 +932,21 @@ test.describe("tutorial 8 — assemble your portfolio pages", () => {
         };
       })
       .toEqual({
-        sourceCopy: { ...geometry[sourceId], x: 736, z: 1 },
-        neighborCopy: { ...geometry[neighborId], x: 1488, z: 3 },
-        fartherCopy: { ...geometry[fartherId], x: 1848, z: 5 },
+        sourceCopy: {
+          ...geometry[sourceId],
+          x: geometry[neighborId].x + geometry[neighborId].width + 56,
+          z: 1,
+        },
+        neighborCopy: {
+          ...geometry[neighborId],
+          x: geometry[fartherId].x + geometry[fartherId].width + 56,
+          z: 3,
+        },
+        fartherCopy: {
+          ...geometry[fartherId],
+          x: geometry[fartherId].x + 2 * (geometry[fartherId].width + 56),
+          z: 5,
+        },
         farther: { ...geometry[fartherId], z: 4 },
       });
 
