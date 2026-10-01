@@ -97,8 +97,10 @@ export function Header({ onOpenNavigation }: { onOpenNavigation: () => void }) {
     <div className={cn(isHome ? "design-home-toolbar shrink-0" : "contents")}>
       <header
         className={cn(
-          "hidden h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4 md:flex lg:px-6",
-          isHome && "h-14 border-b-0 design-home-header",
+          "shrink-0 items-center gap-3 bg-background px-4 lg:px-6",
+          isHome
+            ? "h-14 design-home-header"
+            : "hidden h-12 border-b border-border md:flex",
         )}
       >
         <div className="flex items-center gap-3 flex-1 min-w-0">
