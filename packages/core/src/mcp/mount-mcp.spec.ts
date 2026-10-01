@@ -23,6 +23,7 @@ vi.mock("../server/h3-helpers.js", () => ({
 vi.mock("./build-server.js", () => ({
   buildLinkArtifacts: vi.fn(),
   createMCPServerForRequest: vi.fn(),
+  validateMcpDirectoryProfile: vi.fn(),
   getAccessTokens: vi.fn(),
   resolveOrgIdFromDomain: vi.fn(),
   verifyAuth: vi.fn(),

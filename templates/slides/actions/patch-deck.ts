@@ -878,6 +878,11 @@ export default defineAction({
   }),
   agentInputSchema: AgentPatchDeckInputSchema,
   http: { method: "POST" },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async (
     {
       deckId,

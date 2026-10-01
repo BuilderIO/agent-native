@@ -2427,6 +2427,37 @@ function oauthPopupCompletionHtml(completionId: string): string {
   return `<!doctype html><html><head><meta charset="utf-8"><title></title></head><body><script>try{localStorage.setItem("${storageKey}","1")}catch(error){console.error("Could not persist OAuth completion",error)}window.opener?.postMessage({type:"agent-native:workspace-connection-complete",completionId:"${completionId}"},window.location.origin);window.close();</script></body></html>`;
 }
 
+export function createOpenAiAppsChallengeHandler(
+  getToken: () => string | undefined = () =>
+    getAppConfig().openAiApps.challengeToken,
+) {
+  return defineEventHandler((event: H3Event) => {
+    setResponseHeader(event, "Cache-Control", "no-store");
+    const mountedPathname = (event.context as Record<string, unknown>)
+      ._mountedPathname;
+    const pathname =
+      typeof mountedPathname === "string"
+        ? mountedPathname
+        : getRequestURL(event).pathname;
+    if (pathname !== "/.well-known/openai-apps-challenge") {
+      setResponseStatus(event, 404);
+      return "";
+    }
+    if (getMethod(event) !== "GET") {
+      setResponseHeader(event, "Allow", "GET");
+      setResponseStatus(event, 405);
+      return { error: "Method not allowed" };
+    }
+    const token = getToken();
+    if (!token) {
+      setResponseStatus(event, 404);
+      return "";
+    }
+    setResponseHeader(event, "Content-Type", "text/plain; charset=utf-8");
+    return token;
+  });
+}
+
 export function createOAuthPopupWaitingHandler() {
   return defineEventHandler((event: H3Event) => {
     if (getMethod(event) !== "GET") {
@@ -2563,6 +2594,7 @@ export function createCoreRoutesPlugin(
         `${FRAMEWORK_ROUTE_PREFIX}/oauth/popup`,
         `${FRAMEWORK_ROUTE_PREFIX}/embed/start`,
         `${FRAMEWORK_ROUTE_PREFIX}/application-state`,
+        "/.well-known/openai-apps-challenge",
         ...FRAMEWORK_AUTH_EARLY_PATHS,
       ],
     });
@@ -2573,6 +2605,10 @@ export function createCoreRoutesPlugin(
         `${P}/automations/email-unsubscribe`,
         createAutomationFailureUnsubscribeHandler(),
       );
+      getH3App(nitroApp).use(
+        "/.well-known/openai-apps-challenge",
+        createOpenAiAppsChallengeHandler(),
+      );
       markFrameworkRoutesReadyBeforeBootstrap(nitroApp, [
         ...(!options.disablePing ? [`${P}/ping`] : []),
         ...(!options.disableHealth ? [`${P}/health`] : []),
@@ -2580,6 +2616,7 @@ export function createCoreRoutesPlugin(
         `${P}/oauth/popup`,
         ...(!options.disableEmbedRoute ? [`${P}/embed/start`] : []),
         ...(!options.disableAppState ? [`${P}/application-state`] : []),
+        "/.well-known/openai-apps-challenge",
       ]);
 
       // Keep the framework-owned S3-compatible provider available even when an

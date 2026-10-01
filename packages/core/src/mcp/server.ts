@@ -19,6 +19,7 @@ import {
   getAccessTokens,
   resolveOrgIdFromDomain,
   buildLinkArtifacts,
+  validateMcpDirectoryProfile,
   type MCPConfig,
   type MCPCallerIdentity,
   type MCPRequestMeta,
@@ -31,6 +32,7 @@ import {
   getMcpOAuthResource,
 } from "./oauth-route.js";
 import {
+  MCP_DIRECTORY_ROUTE_PREFIX,
   MCP_PUBLIC_ROUTE_PREFIX,
   MCP_ROUTE_PREFIXES,
   joinMcpRoute,
@@ -116,7 +118,11 @@ function isLoopbackOrigin(origin: string | undefined): boolean {
   }
 }
 
-function buildWebRequest(event: H3Event, method: string): Request {
+function buildWebRequest(
+  event: H3Event,
+  method: string,
+  routePath = MCP_PUBLIC_ROUTE_PREFIX,
+): Request {
   const src = (event as any).req as Request | undefined;
 
   const headers = new Headers();
@@ -141,7 +147,7 @@ function buildWebRequest(event: H3Event, method: string): Request {
     forwardedProto?.split(",")[0]?.trim() ||
     (/^(localhost|127\.0\.0\.1)(:|$)/.test(host) ? "http" : "https");
   const basePath = getConfiguredAppBasePath();
-  const url = `${proto}://${host}${basePath}${MCP_PUBLIC_ROUTE_PREFIX}`;
+  const url = `${proto}://${host}${basePath}${routePath}`;
 
   return new Request(url, { method, headers });
 }
@@ -239,12 +245,30 @@ export async function handleMcpRequest(
   );
   const requestMeta = deriveRequestMeta(event);
   const hasLocalOwnerHint = Boolean(ownerEmailHeader?.trim());
+  const directoryProfile =
+    routePath === MCP_DIRECTORY_ROUTE_PREFIX
+      ? config.directoryProfile
+      : undefined;
+  if (routePath === MCP_DIRECTORY_ROUTE_PREFIX && !directoryProfile) {
+    setResponseStatus(event, 404);
+    return { error: "Not found" };
+  }
+  const requestConfig = directoryProfile
+    ? {
+        ...config,
+        catalogMode: "directory" as const,
+        connectorCatalog: directoryProfile.connectorCatalog,
+        instructions: directoryProfile.instructions,
+        keyToolNames: directoryProfile.keyToolNames,
+        widgetDomain: requestMeta.origin,
+      }
+    : config;
   const authResult = await verifyAuth(authHeader, ownerEmailHeader, {
     allowDevOpen:
       isLoopbackRequest(event) &&
       isLoopbackOrigin(requestMeta.origin) &&
       (hasLocalOwnerHint || process.env.AGENT_NATIVE_MCP_DEV_OPEN === "1"),
-    resourceUrl: getMcpOAuthAudiences(event),
+    resourceUrl: getMcpOAuthAudiences(event, routePath),
   });
   if (!authResult.authed) {
     setResponseStatus(event, 401);
@@ -299,9 +323,9 @@ export async function handleMcpRequest(
     const protocolVersion = initializeRequest.params?.protocolVersion;
     trackMcpInitialize({
       source: "http",
-      serverName: config.name,
-      serverVersion: config.version ?? "1.0.0",
-      ...(config.appId ? { appId: config.appId } : {}),
+      serverName: requestConfig.name,
+      serverVersion: requestConfig.version ?? "1.0.0",
+      ...(requestConfig.appId ? { appId: requestConfig.appId } : {}),
       ...(typeof clientInfo?.name === "string"
         ? { clientName: clientInfo.name }
         : {}),
@@ -321,13 +345,17 @@ export async function handleMcpRequest(
   const { createMcpHandler } = await import("@modelcontextprotocol/server");
   const handler = createMcpHandler(
     () =>
-      createMCPServerForRequest(config, authResult.identity, serverRequestMeta),
+      createMCPServerForRequest(
+        requestConfig,
+        authResult.identity,
+        serverRequestMeta,
+      ),
     {
       legacy: "stateless",
       responseMode: "auto",
     },
   );
-  const webRequest = buildWebRequest(event, method);
+  const webRequest = buildWebRequest(event, method, routePath);
   return handler.fetch(
     webRequest,
     method === "POST" ? { parsedBody: body } : undefined,
@@ -339,10 +367,12 @@ export function mountMCP(
   config: MCPConfig,
   routePrefix = "/_agent-native",
 ): void {
+  if (config.directoryProfile) validateMcpDirectoryProfile(config);
   const routePaths =
     routePrefix === "/_agent-native"
       ? [...MCP_ROUTE_PREFIXES]
       : [joinMcpRoute(routePrefix, "/mcp")];
+  if (config.directoryProfile) routePaths.push(MCP_DIRECTORY_ROUTE_PREFIX);
 
   for (const routePath of routePaths) {
     getH3App(nitroApp).use(

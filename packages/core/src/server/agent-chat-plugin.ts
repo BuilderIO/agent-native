@@ -3039,6 +3039,7 @@ export function createAgentChatPlugin(
           instructions: mcpOptions.instructions,
           keyToolNames: mcpOptions.keyToolNames,
           websiteUrl: mcpOptions.websiteUrl,
+          widgetDomain: mcpOptions.widgetDomain,
           icons: mcpOptions.icons,
           actions: externalActions,
           productionActions: externalFullActions,
@@ -3048,6 +3049,9 @@ export function createAgentChatPlugin(
             : {}),
           ...(mcpOptions.connectorCatalog
             ? { connectorCatalog: mcpOptions.connectorCatalog }
+            : {}),
+          ...(mcpOptions.directoryProfile
+            ? { directoryProfile: mcpOptions.directoryProfile }
             : {}),
           ...(mcpOptions.externalAgents
             ? { externalAgents: mcpOptions.externalAgents }

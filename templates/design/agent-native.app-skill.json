@@ -70,5 +70,89 @@
     "claude-skill",
     "chatgpt-mcp",
     "generic-mcp"
-  ]
+  ],
+  "chatgpt": {
+    "version": "1.0.0",
+    "interface": {
+      "displayName": "Agent-Native Design",
+      "shortDescription": "Interactive prototypes",
+      "longDescription": "Create interactive prototypes in your Agent-Native Design workspace. Browse saved designs, templates, design systems, and snapshots; start new designs, generate visual directions, and refine saved prototypes through chat. This connection works with designs in the connected Agent-Native workspace. It does not connect to local repositories, modify a running website, export files, or deploy an application.",
+      "developerName": "Agent-Native",
+      "category": "Creativity",
+      "capabilities": [
+        "Create interactive prototypes",
+        "Explore design directions",
+        "Apply workspace design systems"
+      ],
+      "websiteURL": "https://agent-native.com/apps/design/",
+      "supportURL": "https://www.agent-native.com/contact/",
+      "privacyPolicyURL": "https://www.agent-native.com/privacy/",
+      "termsOfServiceURL": "https://www.agent-native.com/terms/",
+      "defaultPrompt": [
+        "Prototype a checkout flow for a mobile-friendly outdoor gear store.",
+        "Create a polished sales dashboard for a neighborhood bakery with daily revenue, top-selling items, and staffing needs.",
+        "Create a landing page and show three visual directions."
+      ],
+      "keywords": [
+        "prototyping",
+        "interactive design",
+        "landing pages",
+        "product design",
+        "wireframes"
+      ],
+      "logoPath": "public/chatgpt-plugin-icon.svg"
+    },
+    "review": {
+      "test_cases": {
+        "positive": [
+          {
+            "description": "Create a new interactive prototype",
+            "prompt": "Create a responsive landing page for a neighborhood bakery, with a menu section, opening hours, and an online-order call to action.",
+            "tools_triggered": "create-design, generate-design",
+            "expected_behavior": "Save a renderable prototype in the connected Design workspace and provide a way to review it."
+          },
+          {
+            "description": "Find reusable design templates",
+            "prompt": "Find a landing-page template and create a new product launch page from it.",
+            "tools_triggered": "list-design-templates, create-design-from-template",
+            "expected_behavior": "Find a matching template and create a separate design based on it."
+          },
+          {
+            "description": "List saved designs",
+            "prompt": "Show me the designs saved in my workspace.",
+            "tools_triggered": "list-designs",
+            "expected_behavior": "Return designs available to the connected account and handle an empty list clearly."
+          },
+          {
+            "description": "Apply a saved design system",
+            "prompt": "Use the Northstar Brand design system to guide a new contact page for our product.",
+            "tools_triggered": "list-design-systems, get-design-system, create-design, generate-design",
+            "expected_behavior": "Use the saved Northstar Brand guidance and save a renderable contact-page prototype."
+          },
+          {
+            "description": "Refine an existing prototype",
+            "prompt": "In Product Launch Demo, make the hero headline clearer and the call to action easier to find. Keep the current layout and other sections.",
+            "tools_triggered": "list-designs, get-design-snapshot, edit-design",
+            "expected_behavior": "Update the identified prototype while preserving the layout and content the user did not ask to change."
+          }
+        ],
+        "negative": [
+          {
+            "description": "Local repository editing",
+            "prompt": "Connect to my localhost app and change its checkout page code."
+          },
+          {
+            "description": "Production deployment",
+            "prompt": "Deploy this prototype to production and configure working authentication and payments."
+          },
+          {
+            "description": "Unsupported deletion",
+            "prompt": "Delete every saved design and start over."
+          }
+        ]
+      },
+      "commerce": false,
+      "iframeJustification": "The plugin can render the Design editor for a prototype the user has created or opened. The saved design and editor are served from the Agent-Native Design origin. The widget loads the pinned MCP Apps bridge module from esm.sh to support the open UI protocol."
+    }
+  }
 }

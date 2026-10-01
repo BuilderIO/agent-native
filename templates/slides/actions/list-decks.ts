@@ -176,6 +176,11 @@ export default defineAction({
     label: "Open decks in Slides",
     view: "list",
   }),
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     const db = getDb();
     const ownerEmail = getRequestUserEmail();

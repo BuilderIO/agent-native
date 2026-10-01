@@ -71,6 +71,25 @@ describe("action discovery", () => {
     expect(registry["mutating-read"].readOnly).toBe(false);
   });
 
+  it("preserves explicit MCP annotations from static action entries", () => {
+    const mcpAnnotations = {
+      readOnlyHint: false,
+      destructiveHint: true,
+      openWorldHint: false,
+    };
+    const registry = loadActionsFromStaticRegistry({
+      "update-design": {
+        default: {
+          tool: { description: "Update a design", parameters: {} },
+          mcpAnnotations,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["update-design"].mcpAnnotations).toEqual(mcpAnnotations);
+  });
+
   it(
     "makes audit reads available with a static registry while respecting disabled groups",
     async () => {

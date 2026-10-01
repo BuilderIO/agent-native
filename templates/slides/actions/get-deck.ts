@@ -437,6 +437,11 @@ export default defineAction({
       height: 680,
     }),
   },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     const deckId = args.deckId ?? args.id;
     if (!deckId) {

@@ -273,6 +273,11 @@ export default defineAction({
   }),
   readOnly: true,
   http: { method: "GET" },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async ({ id, compact }) => {
     const access = await resolveAccess("design-system", id);
     if (!access) {

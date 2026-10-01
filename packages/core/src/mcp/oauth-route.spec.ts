@@ -150,7 +150,8 @@ const {
   handleMcpOAuthProtectedResourceMetadata,
   getMcpOAuthAudiences,
 } = await import("./oauth-route.js");
-const { MCP_LEGACY_ROUTE_PREFIX } = await import("./route-paths.js");
+const { MCP_DIRECTORY_ROUTE_PREFIX, MCP_LEGACY_ROUTE_PREFIX } =
+  await import("./route-paths.js");
 const { verifyMcpOAuthAccessToken } = await import("./oauth-token.js");
 
 function event(
@@ -313,6 +314,29 @@ describe("MCP OAuth route", () => {
     expect(buildMcpOAuthChallenge(event(), MCP_LEGACY_ROUTE_PREFIX)).toContain(
       `resource_metadata="https://mail.agent-native.com/.well-known/oauth-protected-resource?resource=%2F_agent-native%2Fmcp"`,
     );
+  });
+
+  it("keeps the directory OAuth resource separate from the existing MCP route", async () => {
+    expect(getMcpOAuthAudiences(event(), MCP_DIRECTORY_ROUTE_PREFIX)).toEqual([
+      `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+    ]);
+
+    const protectedRes = handleMcpOAuthProtectedResourceMetadata(
+      event({ query: { resource: MCP_DIRECTORY_ROUTE_PREFIX } }),
+    );
+    await expect(protectedRes.json()).resolves.toMatchObject({
+      resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+      authorization_servers: ["https://mail.agent-native.com"],
+    });
+    expect(
+      buildMcpOAuthChallenge(event(), MCP_DIRECTORY_ROUTE_PREFIX),
+    ).toContain(
+      `resource_metadata="https://mail.agent-native.com/.well-known/oauth-protected-resource?resource=${encodeURIComponent(MCP_DIRECTORY_ROUTE_PREFIX)}"`,
+    );
+    expect(getMcpOAuthAudiences(event())).toEqual([
+      "https://mail.agent-native.com/mcp",
+      "https://mail.agent-native.com/_agent-native/mcp",
+    ]);
   });
 
   it("registers public OAuth clients with safe redirect URIs", async () => {

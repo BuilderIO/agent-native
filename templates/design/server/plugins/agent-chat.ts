@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { designFinalResponseGuard } from "../lib/design-response-guard.js";
 import { guardRepromptActionRegistry } from "../lib/reprompt-action-guard.js";
+import { CHATGPT_DIRECTORY_TOOL_NAMES } from "./chatgpt-directory-tools.js";
 import "../register-secrets.js";
 
 const DESIGN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -47,6 +48,40 @@ const EXTERNAL_CONNECTOR_TOOL_NAMES = [
   "rename-screen",
   "export-png",
 ];
+
+function projectChatGptDirectoryResult(
+  toolName: string,
+  result: unknown,
+): unknown {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return result;
+  }
+  const projected = { ...(result as Record<string, unknown>) };
+  if (toolName === "create-design" && projected.nextRequiredAction) {
+    projected.nextRequiredAction =
+      "Use generate-design to create and save the screen HTML before reporting the design as renderable.";
+  }
+  if (toolName === "get-design-snapshot") {
+    const template = projected.createdFromTemplate;
+    if (template && typeof template === "object" && !Array.isArray(template)) {
+      projected.createdFromTemplate = {
+        ...(template as Record<string, unknown>),
+        note: "These files are edited copies of the template. Preserve the canvas dimensions, typography, and locked layers shown in this snapshot.",
+      };
+    }
+    if (projected.nextRequiredAction) {
+      projected.nextRequiredAction =
+        "Use edit-design once on the returned editTarget. Re-read only if the edit fails with a concrete missing-context error.";
+    }
+  }
+  if (toolName === "present-design-variants") {
+    projected.fallbackInstructions =
+      "The generated directions are saved as screens on the Design overview board. Ask the user to choose a screen. Then read that screen once and use edit-design on the same file to refine it. Keep the other screens saved unless the user asks to remove them.";
+    projected.nextRequiredAction =
+      "Wait for the user to choose a screen. Then call get-design-snapshot once for that file and edit-design on the same file in one bounded pass. Keep the other variant screens saved.";
+  }
+  return projected;
+}
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
@@ -266,6 +301,34 @@ export default createAgentChatPlugin({
     instructions:
       "Resolve a named template or prior design first with list-design-templates / list-designs; copy with create-design-from-template, then adapt with edit-design — never regenerate a copied screen with generate-design. For new-design exploration use create-design then present-design-variants (2-5 variants) and surface the returned open link; do not navigate. Hand-off goes through export-png for one screen, or export-html / export-zip / export-coding-handoff / export-design-as-figma-svg for other formats. Persist early: create or update the design and its files as soon as a coherent candidate exists. " +
       'Design system: get-design, get-design-snapshot, and view-screen return `designSystem` (a bounded summary with scope "summary" and a `next` line); call get-design-system { id } once before the first screen you author for the full context (create-design returns it in full), then reuse it. Apply designSystem.agentContext, plus index-design-tokens for an existing design, before authoring or restyling; never invent a generic palette. For a new design, pass the exact title as `designSystem` or a designSystemId; omit both to link the caller\'s default. Preserve existing screen composition as well as linked system tokens, fonts, assets, and custom instructions. Read back the saved file after every visual mutation. For a running localhost app, use open-visual-edit and keep each route/state/viewport as its own URL-backed screen. Update a selected screen with update-screen-source, and use add-localhost-screens or add-breakpoint for additional canvas frames. KEY VISUAL HANDOFF: after the user edits a live screen, call get-visual-edit-pending with the visual-edit designId before asking for copy/paste. It returns the latest source prompt and revision even when the Design tab is closed; apply that prompt to the connected app, then call acknowledge-visual-edit-pending with the same designId and revision only after the source change is verified, and call get-visual-edit-pending again to confirm it cleared. Never acknowledge a handoff you did not apply. The page-local get-visual-edit-prompt tool is an equivalent fallback only for browser-capable hosts.',
+    directoryProfile: {
+      connectorCatalog: CHATGPT_DIRECTORY_TOOL_NAMES,
+      keyToolNames: [
+        "list-designs",
+        "list-design-templates",
+        "create-design",
+        "generate-design",
+        "present-design-variants",
+        "edit-design",
+      ],
+      instructions:
+        "Create and refine interactive prototypes in the Agent-Native Design workspace. Inspect available templates and design systems, save a renderable design, and preserve unrelated screens when editing. This plugin does not connect to local repositories, deploy websites, or publish production changes.",
+      toolDescriptions: {
+        "get-design-snapshot":
+          "Read a saved design and its selected file. Use the returned design-system context and locked-layer details to preserve the existing prototype when editing.",
+        "create-design":
+          "Create an empty design project. Follow it with generate-design to author and save a renderable screen before reporting the project as complete.",
+        "present-design-variants":
+          "Create two to five saved visual directions for a design request. Ask the user to choose one, then refine that screen with get-design-snapshot and edit-design. Keep the other directions saved unless the user asks to remove them.",
+      },
+      toolParameterDescriptions: {
+        "generate-design": {
+          canvasFrames:
+            "Optional overview-canvas placements for saved screens. Reference each screen by filename or file ID and provide its x, y, width, and height.",
+        },
+      },
+      projectResult: projectChatGptDirectoryResult,
+    },
   },
   externalAgents: { writes: "allowlisted" },
   finalResponseGuard: designFinalResponseGuard,
