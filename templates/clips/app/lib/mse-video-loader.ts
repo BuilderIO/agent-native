@@ -10,7 +10,7 @@ const CHUNK_SIZE = 2 * 1024 * 1024;
 const INIT_PROBE_SIZE = 512 * 1024;
 const SEEK_PROBE_SIZE = 256 * 1024;
 const SEEK_PROBE_SCAN_BYTES = 3 * 1024 * 1024;
-const SEEK_PROBE_MAX_STEPS = Math.ceil(SEEK_PROBE_SCAN_BYTES / SEEK_PROBE_SIZE);
+const SEEK_PROBE_MAX_REQUESTS = 32;
 const BUFFER_AHEAD_SECONDS = 30;
 const LOW_BUFFER_SECONDS = 10;
 const BUFFER_BEHIND_SECONDS = 10;
@@ -56,6 +56,11 @@ export function readRangeResponse({
   const start = Number(match[1]);
   const end = Number(match[2]);
   const total = match[3] === "*" ? null : Number(match[3]);
+  if (end < start || (total !== null && end >= total)) {
+    throw new Error(
+      `Range response has invalid Content-Range: ${contentRange}`,
+    );
+  }
   if (start !== requestedStart) {
     throw new Error(
       `Range response starts at byte ${start}, requested ${requestedStart}`,
@@ -414,7 +419,12 @@ export class MseVideoLoader {
     sec: number;
   } | null> {
     let start = this.clampProbeStart(startByte);
-    for (let step = 0; step < SEEK_PROBE_MAX_STEPS; step++) {
+    const scanEnd = start + SEEK_PROBE_SCAN_BYTES;
+    for (
+      let requests = 0;
+      start < scanEnd && requests < SEEK_PROBE_MAX_REQUESTS;
+      requests++
+    ) {
       const end = this.totalKnown
         ? Math.min(start + SEEK_PROBE_SIZE, this.totalBytes) - 1
         : start + SEEK_PROBE_SIZE - 1;

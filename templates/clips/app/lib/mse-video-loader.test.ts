@@ -75,6 +75,28 @@ describe("readRangeResponse", () => {
     ).toEqual({ total: null, eof: false });
   });
 
+  it("throws when the Content-Range ends past the declared total", () => {
+    expect(() =>
+      readRangeResponse({
+        status: 206,
+        requestedStart: 0,
+        contentRange: `bytes 0-${MB - 1}/${MB / 2}`,
+        bodyLength: MB,
+      }),
+    ).toThrow(/invalid Content-Range/);
+  });
+
+  it("throws when the Content-Range end is before its start", () => {
+    expect(() =>
+      readRangeResponse({
+        status: 206,
+        requestedStart: MB,
+        contentRange: `bytes ${MB}-0/${total}`,
+        bodyLength: 0,
+      }),
+    ).toThrow(/invalid Content-Range/);
+  });
+
   it("throws when a 206 has no readable Content-Range", () => {
     expect(() =>
       readRangeResponse({
