@@ -101,7 +101,7 @@ describe("createAgentNativeAgentKitTransport", () => {
     ]);
   });
 
-  it("re-reads an accessible thread when its concurrent create returns 409", async () => {
+  it("merges the incoming snapshot into a thread after concurrent create returns 409", async () => {
     const requests: Array<{ url: string; method: string }> = [];
     let threadReads = 0;
     let savedThreadData: string | undefined;
@@ -123,9 +123,9 @@ describe("createAgentNativeAgentKitTransport", () => {
               threadData: JSON.stringify({
                 messages: [
                   {
-                    id: "saved-prompt",
+                    id: "legacy-only-prompt",
                     role: "user",
-                    content: "Keep the typed prompt",
+                    content: "Keep the legacy prompt",
                   },
                 ],
                 agentKit: {
@@ -133,7 +133,27 @@ describe("createAgentNativeAgentKitTransport", () => {
                     {
                       id: "saved-prompt",
                       role: "user",
-                      parts: [{ type: "text", text: "Keep the typed prompt" }],
+                      parts: [{ type: "text", text: "Stale prompt text" }],
+                    },
+                    {
+                      id: "stored-only-prompt",
+                      role: "user",
+                      parts: [{ type: "text", text: "Keep stored history" }],
+                    },
+                  ],
+                  toolCalls: [
+                    {
+                      id: "shared-tool",
+                      name: "old-tool-name",
+                      input: { version: "stored" },
+                      status: "running",
+                      messageId: "saved-prompt",
+                    },
+                    {
+                      id: "stored-only-tool",
+                      name: "keep-tool",
+                      output: { kept: true },
+                      status: "completed",
                     },
                   ],
                   widgets: [
@@ -179,7 +199,23 @@ describe("createAgentNativeAgentKitTransport", () => {
         title: "Typed prompt",
         createdAt: "2026-09-30T00:00:00.000Z",
         updatedAt: "2026-09-30T00:00:00.000Z",
-        messages: [],
+        messages: [
+          {
+            id: "saved-prompt",
+            role: "user",
+            parts: [{ type: "text", text: "Updated prompt text" }],
+          },
+        ],
+        toolCalls: [
+          {
+            id: "shared-tool",
+            name: "new-tool-name",
+            input: { version: "incoming" },
+            output: { saved: true },
+            status: "completed",
+            messageId: "saved-prompt",
+          },
+        ],
         widgets: [
           {
             messageId: "missing-message",
@@ -204,7 +240,11 @@ describe("createAgentNativeAgentKitTransport", () => {
     ]);
     const saved = JSON.parse(savedThreadData ?? "{}");
     expect(saved.messages).toEqual([
-      expect.objectContaining({ id: "saved-prompt", role: "user" }),
+      expect.objectContaining({
+        id: "legacy-only-prompt",
+        role: "user",
+        content: "Keep the legacy prompt",
+      }),
     ]);
     expect(saved.agentKit.messages).toEqual([
       expect.objectContaining({
@@ -213,10 +253,46 @@ describe("createAgentNativeAgentKitTransport", () => {
         parts: [
           expect.objectContaining({
             type: "text",
-            text: "Keep the typed prompt",
+            text: "Updated prompt text",
           }),
         ],
       }),
+      expect.objectContaining({
+        id: "stored-only-prompt",
+        role: "user",
+        parts: [
+          expect.objectContaining({
+            type: "text",
+            text: "Keep stored history",
+          }),
+        ],
+      }),
+      expect.objectContaining({
+        id: "legacy-only-prompt",
+        role: "user",
+        parts: [
+          expect.objectContaining({
+            type: "text",
+            text: "Keep the legacy prompt",
+          }),
+        ],
+      }),
+    ]);
+    expect(saved.agentKit.toolCalls).toEqual([
+      {
+        id: "shared-tool",
+        name: "new-tool-name",
+        input: { version: "incoming" },
+        output: { saved: true },
+        status: "completed",
+        messageId: "saved-prompt",
+      },
+      {
+        id: "stored-only-tool",
+        name: "keep-tool",
+        output: { kept: true },
+        status: "completed",
+      },
     ]);
     expect(saved.agentKit.widgets).toEqual([
       {
@@ -232,7 +308,7 @@ describe("createAgentNativeAgentKitTransport", () => {
         },
       },
     ]);
-    expect(savedMessageCount).toBe(1);
+    expect(savedMessageCount).toBe(3);
   });
 
   it("preserves a thread-create failure when no accessible row exists", async () => {

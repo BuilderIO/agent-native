@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { loadDashboardSeed } from "./dashboard-seeds";
 import {
   buildPanel,
@@ -173,12 +175,38 @@ const PRE_CUSTOM_RETENTION_ANCHOR_RANGE =
   "UNNEST(GENERATE_DATE_ARRAY(DATE_SUB(CURRENT_DATE(), INTERVAL n - 1 DAY), CURRENT_DATE())) AS date";
 const CUSTOM_RETENTION_ANCHOR_RANGE =
   "UNNEST(GENERATE_DATE_ARRAY(\n   CASE WHEN '{{timeRange}}' = 'custom' THEN DATE('{{timeRangeStart}}') ELSE DATE_SUB(CURRENT_DATE(), INTERVAL n - 1 DAY) END,\n   CASE WHEN '{{timeRange}}' = 'custom' THEN LEAST(DATE('{{timeRangeEnd}}'), CURRENT_DATE()) ELSE CURRENT_DATE() END\n )) AS date";
+const BIGQUERY_RETENTION_IDENTITY_EMAILS_CTE = `identity_emails AS (
+ SELECT
+   NULLIF(JSON_VALUE(properties, '$.auth_user_id'), '') AS user_key,
+   LOWER(ARRAY_AGG(NULLIF(user_id, '') IGNORE NULLS ORDER BY timestamp DESC, user_id DESC LIMIT 1)[SAFE_OFFSET(0)]) AS email
+ FROM \`builder-3b0a2.analytics.first_party_analytics_events_raw\`
+ WHERE org_id = 'PlRt3bfcpJNnOyF_Wfgsh'
+   AND NULLIF(JSON_VALUE(properties, '$.auth_user_id'), '') IS NOT NULL
+   AND LOWER(COALESCE(NULLIF(template, ''), NULLIF(JSON_VALUE(properties, '$.templateId'), ''), NULLIF(app, ''), NULLIF(JSON_VALUE(properties, '$.agent_native_app'), ''), 'unknown')) IN ('analytics', 'assets', 'brain', 'calendar', 'chat', 'clips', 'content', 'design', 'dispatch', 'forms', 'mail', 'plan', 'slides')
+   AND event_date >= IF('{{timeRange}}' = 'custom', DATE_SUB(DATE('{{timeRangeStart}}'), INTERVAL 371 DAY), DATE_SUB(CURRENT_DATE(), INTERVAL 371 DAY))
+   AND event_date <= CURRENT_DATE()
+ GROUP BY 1
+)`;
+const LEGACY_BIGQUERY_RETENTION_EMAIL_FILTER = `  AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND LOWER(COALESCE(NULLIF(user_id, ''), '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND LOWER(COALESCE(NULLIF(user_id, ''), '')) LIKE '%@builder.io'))`;
+const BIGQUERY_RETENTION_IDENTITY_EMAIL_FILTER = `  AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND COALESCE(identity_emails.email, '') NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND COALESCE(identity_emails.email, '') LIKE '%@builder.io'))`;
 
 export const FIRST_PARTY_BIGQUERY_RETENTION_SQL =
   LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL.replace(
-    "event_name = 'session status'\n  AND signed_in = 'true'\n  AND NULLIF(user_key, '') IS NOT NULL",
-    BIGQUERY_SIGNED_IN_ACTIVITY_FILTER,
+    "WITH base AS (",
+    `WITH ${BIGQUERY_RETENTION_IDENTITY_EMAILS_CTE},\nbase AS (`,
   )
+    .replace(
+      "FROM `builder-3b0a2.analytics.first_party_analytics_events_raw`\nWHERE event_name = 'session status'",
+      "FROM `builder-3b0a2.analytics.first_party_analytics_events_raw` AS events\nLEFT JOIN identity_emails ON identity_emails.user_key = NULLIF(JSON_VALUE(events.properties, '$.auth_user_id'), '')\nWHERE event_name = 'session status'",
+    )
+    .replace(
+      LEGACY_BIGQUERY_RETENTION_EMAIL_FILTER,
+      BIGQUERY_RETENTION_IDENTITY_EMAIL_FILTER,
+    )
+    .replace(
+      "event_name = 'session status'\n  AND signed_in = 'true'\n  AND NULLIF(user_key, '') IS NOT NULL",
+      BIGQUERY_SIGNED_IN_ACTIVITY_FILTER,
+    )
     .split("event_name = 'session status'")
     .join(BIGQUERY_SESSION_STATUS_EVENT_FILTER)
     .replace(
@@ -390,6 +418,102 @@ const NEW_VS_RECURRING_USERS_SQL = `WITH activity AS (SELECT NULLIF(user_key, ''
 const NEW_VS_RECURRING_USERS_DESCRIPTION =
   "Daily signed-in visitors split by first active day observed in the previous 365 days (New) vs return visit (Recurring), stacked with Recurring on the bottom and New on top. Docs and marketing-site traffic are excluded.";
 
+type FingerprintedPanelReplacement = {
+  id: string;
+  source: "first-party" | "bigquery";
+  sha256: string;
+  sql: string;
+};
+
+// Exact normalized query fingerprints from origin/main@452757b243ef, retained
+// after refreshing the catalog and shipped seed removed these signatures.
+const ORIGIN_MAIN_PANEL_REPLACEMENTS: readonly FingerprintedPanelReplacement[] =
+  [
+    {
+      id: "retention-over-time",
+      source: "first-party",
+      sha256:
+        "974b66473d3a9590bdaa9ccb6df9da2fc149008e07ce9838e56dcc8a478d6f6f",
+      sql: buildPanel("retention-over-time")!.sql,
+    },
+    {
+      id: "retention-over-time",
+      source: "first-party",
+      sha256:
+        "b395a694889d393d889ced4a79d936e17cb58af88b856670a393cba91e3cf83d",
+      sql: buildPanel("retention-over-time")!.sql,
+    },
+    {
+      id: "one-day-retention-by-template",
+      source: "first-party",
+      sha256:
+        "84049de619edfca2a8ce10f2da0f6acf674aa504eca65c242a4e76ffd0b22bf1",
+      sql: buildPanel("one-day-retention-by-template")!.sql,
+    },
+    {
+      id: "seven-day-retention-by-template",
+      source: "first-party",
+      sha256:
+        "3e8993b8d56fd33a3883bb57f832bbb539ee9750a563fe1b21eb10e12aec7966",
+      sql: buildPanel("seven-day-retention-by-template")!.sql,
+    },
+    {
+      id: "activation-funnel",
+      source: "first-party",
+      sha256:
+        "ba2e861c2044e2fec669bcb15a878a675eaf426f51bcfe4db32ebd228d2050f0",
+      sql: buildPanel("activation-funnel")!.sql,
+    },
+    {
+      id: "retention-over-time",
+      source: "bigquery",
+      sha256:
+        "d7b7a0400b5f1228dade65d89a9b576d5d98e387b8818b0177c6744805ea9b23",
+      sql: FIRST_PARTY_BIGQUERY_RETENTION_SQL,
+    },
+  ];
+
+function fingerprintPanelSql(sql: string): string {
+  return createHash("sha256")
+    .update(sql.replace(/\s+/g, " ").trim())
+    .digest("hex");
+}
+
+function repairFingerprintedPanelQueries(
+  config: Record<string, unknown>,
+  replacements: readonly FingerprintedPanelReplacement[],
+): { config: Record<string, unknown>; changed: boolean } {
+  if (!Array.isArray(config.panels)) return { config, changed: false };
+
+  let changed = false;
+  const panels = config.panels.map((rawPanel) => {
+    if (!rawPanel || typeof rawPanel !== "object") return rawPanel;
+    const panel = rawPanel as Record<string, unknown>;
+    if (
+      typeof panel.id !== "string" ||
+      (panel.source !== "first-party" && panel.source !== "bigquery") ||
+      typeof panel.sql !== "string"
+    ) {
+      return rawPanel;
+    }
+    const fingerprint = fingerprintPanelSql(panel.sql);
+    const replacement = replacements.find(
+      (candidate) =>
+        candidate.id === panel.id &&
+        candidate.source === panel.source &&
+        candidate.sha256 === fingerprint,
+    );
+    if (!replacement) return rawPanel;
+
+    changed = true;
+    return { ...panel, sql: replacement.sql };
+  });
+
+  return changed
+    ? { config: { ...config, panels }, changed }
+    : { config, changed };
+}
+
 const CANONICAL_CUSTOM_PANEL_REPLACEMENTS: readonly ExactFirstPartyPanelReplacement[] =
   [
     {
@@ -467,10 +591,19 @@ const CANONICAL_CATALOG_PANEL_REPLACEMENTS: readonly ExactFirstPartyPanelReplace
 export function repairCanonicalFirstPartyDashboardQueries(
   config: Record<string, unknown>,
 ) {
-  return repairFirstPartyObservedRetentionPanels(config, [
+  const historical = repairFingerprintedPanelQueries(
+    config,
+    ORIGIN_MAIN_PANEL_REPLACEMENTS.filter(
+      (replacement) => replacement.source === "first-party",
+    ),
+  );
+  const repaired = repairFirstPartyObservedRetentionPanels(historical.config, [
     ...CANONICAL_CUSTOM_PANEL_REPLACEMENTS,
     ...CANONICAL_CATALOG_PANEL_REPLACEMENTS,
   ]);
+  return historical.changed && !repaired.changed
+    ? { ...repaired, changed: true }
+    : repaired;
 }
 
 export function repairKnownFirstPartyDashboardQueries(
@@ -478,7 +611,18 @@ export function repairKnownFirstPartyDashboardQueries(
   config: Record<string, unknown>,
 ): { config: Record<string, unknown>; changed: boolean } {
   if (dashboardId === FIRST_PARTY_BIGQUERY_DASHBOARD_ID) {
-    return repairFirstPartyBigQueryDashboardQueries(config);
+    const historical = repairFingerprintedPanelQueries(
+      config,
+      ORIGIN_MAIN_PANEL_REPLACEMENTS.filter(
+        (replacement) => replacement.source === "bigquery",
+      ),
+    );
+    const repaired = repairFirstPartyBigQueryDashboardQueries(
+      historical.config,
+    );
+    return historical.changed && !repaired.changed
+      ? { ...repaired, changed: true }
+      : repaired;
   }
   if (dashboardId === FIRST_PARTY_DASHBOARD_ID) {
     return repairCanonicalFirstPartyDashboardQueries(config);

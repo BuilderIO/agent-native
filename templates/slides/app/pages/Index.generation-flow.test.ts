@@ -60,7 +60,7 @@ describe("new deck generation flow", () => {
     const createIndex = flow.indexOf("deck = createDeck(undefined, {");
     const hydrationIndex = flow.indexOf("await hydrateReferenceDocuments(");
     const contextIndex = flow.indexOf(
-      "updateDeck(deckId, { generationContext });",
+      "updateDeck(deckId, { generationContext:",
     );
     const latePersistenceIndex = flow.indexOf(
       "const persisted = await ensureDeckPersisted(deckId)",

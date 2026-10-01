@@ -13,6 +13,10 @@ import { trackRecordingFailure } from "../../server/lib/recording-failures.js";
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
 import { transactionalEmailStore } from "../../server/lib/transactional-email-store.js";
 import {
+  UPLOAD_LEASE_MS,
+  renewUploadLease,
+} from "../../server/lib/upload-lease.js";
+import {
   extractLoomVideoId,
   loomEmbedUrlForId,
   normalizeLoomShareUrl,
@@ -27,6 +31,64 @@ export type LoomImportJobResult = {
   status: "ready" | "failed";
   failureReason?: string;
 };
+
+const LOOM_IMPORT_LEASE_RENEWAL_MS = UPLOAD_LEASE_MS / 12;
+const LOOM_IMPORT_LEASE_LOST_REASON =
+  "The Loom import lease was lost before media was saved.";
+const LOOM_IMPORT_LEASE_UNCONFIRMED_REASON =
+  "The Loom import lease could not be confirmed before media was saved.";
+
+function startLoomImportLeaseRenewal(input: {
+  recordingId: string;
+  ownerEmail: string;
+  claimId: string;
+}) {
+  let lost = false;
+  let renewalFailed = false;
+  let stopped = false;
+  let renewalInFlight: Promise<void> | null = null;
+
+  const timer = setInterval(() => {
+    if (stopped || lost || renewalInFlight) return;
+
+    renewalInFlight = (async () => {
+      try {
+        const result = await renewUploadLease(input.recordingId, {
+          ownerEmail: input.ownerEmail,
+          loomImportClaimId: input.claimId,
+        });
+        if (!result.held) {
+          lost = true;
+        } else {
+          renewalFailed = false;
+        }
+      } catch (err) {
+        renewalFailed = true;
+        console.warn("[clips] Loom import lease renewal failed", {
+          recordingId: input.recordingId,
+          claimId: input.claimId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    })().finally(() => {
+      renewalInFlight = null;
+    });
+  }, LOOM_IMPORT_LEASE_RENEWAL_MS);
+
+  return {
+    get failureReason() {
+      if (lost) return LOOM_IMPORT_LEASE_LOST_REASON;
+      return renewalFailed ? LOOM_IMPORT_LEASE_UNCONFIRMED_REASON : null;
+    },
+    async stop() {
+      if (!stopped) {
+        stopped = true;
+        clearInterval(timer);
+      }
+      await renewalInFlight;
+    },
+  };
+}
 
 export async function enqueueFirstImportEmailIfEligible(
   input: { recordingId: string; ownerEmail: string; createdAt: string },
@@ -161,37 +223,41 @@ export async function runLoomImportJob({
 
   console.log("[loom-import] job started", { recordingId, claimId });
 
+  const lease = startLoomImportLeaseRenewal({
+    recordingId,
+    ownerEmail,
+    claimId,
+  });
   let media: Awaited<ReturnType<typeof downloadLoomVideo>> | null = null;
   try {
-    media = await downloadLoomVideo({
-      loomId,
-      shareUrl,
-      expectedDurationMs: recording.durationMs,
-    });
-    console.log("[loom-import] download complete", {
-      recordingId,
-      bytes: media.sizeBytes,
-      mimeType: media.mimeType,
-    });
-  } catch (err) {
-    if (err instanceof LoomVideoUnavailableError) {
-      console.warn(
-        "[loom-import] MP4 unavailable or could not be verified; keeping Loom embed",
-        {
-          recordingId,
-          loomId,
-        },
-      );
-    } else {
-      return failLoomImport(
+    try {
+      media = await downloadLoomVideo({
+        loomId,
+        shareUrl,
+        expectedDurationMs: recording.durationMs,
+      });
+      console.log("[loom-import] download complete", {
         recordingId,
-        err instanceof Error ? err.message : String(err),
-        claimId,
-      );
+        bytes: media.sizeBytes,
+        mimeType: media.mimeType,
+      });
+    } catch (err) {
+      if (err instanceof LoomVideoUnavailableError) {
+        console.warn(
+          "[loom-import] MP4 unavailable or could not be verified; keeping Loom embed",
+          {
+            recordingId,
+            loomId,
+          },
+        );
+      } else {
+        throw err;
+      }
     }
-  }
+    if (lease.failureReason) {
+      return { status: "failed", failureReason: lease.failureReason };
+    }
 
-  try {
     const upload = media
       ? await uploadFile({
           data: media.bytes,
@@ -202,6 +268,10 @@ export async function runLoomImportJob({
           recordAsset: false,
         })
       : null;
+    await lease.stop();
+    if (lease.failureReason) {
+      return { status: "failed", failureReason: lease.failureReason };
+    }
     if (media && !upload?.url) {
       return failLoomImport(
         recordingId,
@@ -233,17 +303,16 @@ export async function runLoomImportJob({
           eq(schema.recordings.id, recordingId),
           ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
           eq(schema.recordings.loomImportClaimId, claimId),
+          eq(schema.recordings.status, "processing"),
         ),
       )
       .returning({ id: schema.recordings.id });
     if (!mediaReady) {
-      const failureReason =
-        "The Loom import lease was lost before media was saved.";
       console.warn("[loom-import] lease lost before ready", {
         recordingId,
         claimId,
       });
-      return { status: "failed", failureReason };
+      return { status: "failed", failureReason: LOOM_IMPORT_LEASE_LOST_REASON };
     }
     console.log("[loom-import] recording ready", { recordingId });
 
@@ -392,10 +461,16 @@ export async function runLoomImportJob({
 
     return { status: "ready" };
   } catch (err) {
+    await lease.stop();
+    if (lease.failureReason) {
+      return { status: "failed", failureReason: lease.failureReason };
+    }
     return failLoomImport(
       recordingId,
       err instanceof Error ? err.message : String(err),
       claimId,
     );
+  } finally {
+    await lease.stop();
   }
 }

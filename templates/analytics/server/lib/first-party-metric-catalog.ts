@@ -208,6 +208,8 @@ const SIGNED_IN_ACTIVITY_KEY_SQL = USER_KEY_SQL;
 const AUTHENTICATED_ACTIVITY_USER_KEY_SQL =
   "NULLIF(properties::jsonb ->> 'auth_user_id', '')";
 const AUTHENTICATED_ACTIVITY_USER_FILTER_SQL = `${AUTHENTICATED_ACTIVITY_USER_KEY_SQL} IS NOT NULL`;
+const AUTHENTICATED_ACTIVITY_EMAIL_FILTER_SQL =
+  "('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND COALESCE(identity_emails.email, '') NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND COALESCE(identity_emails.email, '') LIKE '%@builder.io'))";
 const SESSION_STATUS_EVENT_FILTER =
   "event_name IN ('session status', 'session_status')";
 const LEGACY_SIGNED_IN_ACTIVITY_FILTER = `event_name = 'session status' AND signed_in = 'true' AND ${SIGNED_IN_ACTIVITY_KEY_SQL} IS NOT NULL`;
@@ -478,11 +480,30 @@ LEFT JOIN cohort_sizes cs ON cs.date = a.date
 LEFT JOIN retained r ON r.date = a.date AND r.period = p.period
 ORDER BY a.date, p.period`;
 // guard:allow-unbounded-read — base and cohort_history have explicit date and scope bounds.
-const RETENTION_OVER_TIME_SQL = `WITH ${RETENTION_DATE_SPINE_CTES}, base AS (
-  SELECT ${AUTHENTICATED_ACTIVITY_USER_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, user_id
+const RETENTION_OVER_TIME_SQL = `WITH ${RETENTION_DATE_SPINE_CTES}, identity_emails AS (
+  SELECT user_key, email
+  FROM (
+    SELECT ${AUTHENTICATED_ACTIVITY_USER_KEY_SQL} AS user_key,
+      lower(NULLIF(user_id, '')) AS email,
+      ROW_NUMBER() OVER (PARTITION BY ${AUTHENTICATED_ACTIVITY_USER_KEY_SQL} ORDER BY timestamp DESC, user_id DESC) AS email_rank
+    FROM analytics_events
+    CROSS JOIN date_spine_bounds
+    WHERE ${AUTHENTICATED_ACTIVITY_USER_FILTER_SQL}
+      AND ${FIRST_PARTY_TEMPLATE_FILTER}
+      AND NULLIF(user_id, '') IS NOT NULL
+      AND (
+        ('{{timeRange}}' = 'custom' AND event_date >= to_char((date_spine_bounds.start_date - INTERVAL '${OBSERVED_ACTIVITY_LOOKBACK_DAYS + RETENTION_ROLLING_DAYS - 1} days')::date, 'YYYY-MM-DD'))
+        OR ('{{timeRange}}' <> 'custom' AND ${RETENTION_OVER_TIME_LOOKBACK_FILTER})
+      )
+      AND event_date <= ${todaySql()}
+  ) email_candidates
+  WHERE email_rank = 1
+), base AS (
+  SELECT ${AUTHENTICATED_ACTIVITY_USER_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date
   FROM analytics_events
   CROSS JOIN date_spine_bounds
-  WHERE ${AUTHENTICATED_ACTIVITY_USER_FILTER_SQL} AND ${CONTENT_OR_CHAT_ACTIVITY_FILTER} AND ${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${DASHBOARD_APP_FILTER}
+  LEFT JOIN identity_emails ON identity_emails.user_key = ${AUTHENTICATED_ACTIVITY_USER_KEY_SQL}
+  WHERE ${AUTHENTICATED_ACTIVITY_USER_FILTER_SQL} AND ${CONTENT_OR_CHAT_ACTIVITY_FILTER} AND ${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ${AUTHENTICATED_ACTIVITY_EMAIL_FILTER_SQL} AND ${DASHBOARD_APP_FILTER}
     AND date_spine_bounds.start_date <= date_spine_bounds.end_date
     AND (
       ('{{timeRange}}' = 'custom' AND event_date >= to_char((date_spine_bounds.start_date - INTERVAL '6 days')::date, 'YYYY-MM-DD'))
@@ -490,11 +511,12 @@ const RETENTION_OVER_TIME_SQL = `WITH ${RETENTION_DATE_SPINE_CTES}, base AS (
     )
     AND event_date <= to_char(LEAST(date_spine_bounds.end_date + INTERVAL '14 days', CURRENT_DATE)::date, 'YYYY-MM-DD')
 ), cohort_history AS (
-  SELECT ${AUTHENTICATED_ACTIVITY_USER_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, user_id
+  SELECT ${AUTHENTICATED_ACTIVITY_USER_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date
   FROM analytics_events
   CROSS JOIN date_spine_bounds
+  LEFT JOIN identity_emails ON identity_emails.user_key = ${AUTHENTICATED_ACTIVITY_USER_KEY_SQL}
   WHERE '{{timeRange}}' = 'custom'
-    AND ${AUTHENTICATED_ACTIVITY_USER_FILTER_SQL} AND ${CONTENT_OR_CHAT_ACTIVITY_FILTER} AND ${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${DASHBOARD_APP_FILTER}
+    AND ${AUTHENTICATED_ACTIVITY_USER_FILTER_SQL} AND ${CONTENT_OR_CHAT_ACTIVITY_FILTER} AND ${FIRST_PARTY_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${MARKETING_SITE_TEMPLATE_FILTER} AND ${AUTHENTICATED_ACTIVITY_EMAIL_FILTER_SQL} AND ${DASHBOARD_APP_FILTER}
     AND date_spine_bounds.start_date <= date_spine_bounds.end_date
     AND event_date >= to_char((date_spine_bounds.start_date - INTERVAL '${OBSERVED_ACTIVITY_LOOKBACK_DAYS + RETENTION_ROLLING_DAYS - 1} days')::date, 'YYYY-MM-DD')
     AND event_date < to_char((date_spine_bounds.start_date - INTERVAL '6 days')::date, 'YYYY-MM-DD')

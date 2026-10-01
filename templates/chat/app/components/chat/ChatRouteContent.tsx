@@ -4,7 +4,10 @@ import type {
 } from "@agent-native/agentkit";
 import { createAgentKitIntegrityReporter } from "@agent-native/core/client/agentkit-chat/integrity";
 import { createAgentNativeAgentKitTransport } from "@agent-native/core/client/agentkit-chat/transport";
-import { trackEvent } from "@agent-native/core/client/analytics";
+import {
+  captureException,
+  trackEvent,
+} from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
 import {
   AgentMessageView,
@@ -243,10 +246,12 @@ function ChatRunFailure({
       });
     } catch (error) {
       retryStartedForRunsRef.current.delete(runId);
-      throw error;
+      captureException(error, { tags: { area: "chat_retry" } });
+      return;
     }
-    void Promise.resolve(send).catch(() => {
+    void Promise.resolve(send).catch((error) => {
       retryStartedForRunsRef.current.delete(runId);
+      captureException(error, { tags: { area: "chat_retry" } });
     });
   }, [controller, originalRequest, runId, t, threadId]);
   const isFirstMessage = userRequests.length === 1 && !hasRetryForThisRun;
@@ -263,7 +268,6 @@ function ChatRunFailure({
         <BuilderSetupCard
           fullWidth
           layout="sidebar"
-          onConnected={retryFirstMessage}
           onRetry={retryFirstMessage}
         />
         {retryError?.runId === runId &&

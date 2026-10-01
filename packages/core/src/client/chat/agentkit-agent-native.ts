@@ -606,9 +606,20 @@ function mergeStoredAndIncomingMessages(
 ): AgentMessage[] {
   const messages = new Map(stored.map((message) => [message.id, message]));
   for (const message of incoming) {
-    if (!messages.has(message.id)) messages.set(message.id, message);
+    messages.set(message.id, message);
   }
   return [...messages.values()];
+}
+
+function mergeStoredAndIncomingToolCalls(
+  stored: AgentToolCall[],
+  incoming: AgentToolCall[],
+): AgentToolCall[] {
+  const toolCalls = new Map(stored.map((toolCall) => [toolCall.id, toolCall]));
+  for (const toolCall of incoming) {
+    toolCalls.set(toolCall.id, toolCall);
+  }
+  return [...toolCalls.values()];
 }
 
 function mergeStoredAndIncomingWidgets(
@@ -1140,10 +1151,13 @@ export function createAgentNativeAgentKitTransport(
     }
     const repository = storedRepository(stored);
     const previousAgentKit = asRecord(repository.agentKit) ?? {};
-    const snapshotMessages = createdByAnotherRequest
+    const storedSnapshot = createdByAnotherRequest
+      ? projectThread(input.threadId, stored)
+      : null;
+    const snapshotMessages = storedSnapshot
       ? mergeStoredAndIncomingMessages(
           mergeStoredAndIncomingMessages(
-            projectThread(input.threadId, stored).messages,
+            storedSnapshot.messages,
             storedMessages(
               repository.messages,
               now,
@@ -1153,6 +1167,12 @@ export function createAgentNativeAgentKitTransport(
           input.snapshot.messages,
         )
       : input.snapshot.messages;
+    const snapshotToolCalls = storedSnapshot
+      ? mergeStoredAndIncomingToolCalls(
+          storedSnapshot.toolCalls,
+          input.snapshot.toolCalls ?? [],
+        )
+      : input.snapshot.toolCalls;
     const snapshotWidgets = createdByAnotherRequest
       ? mergeStoredAndIncomingWidgets(
           Array.isArray(previousAgentKit.widgets)
@@ -1200,7 +1220,7 @@ export function createAgentNativeAgentKitTransport(
       ...previousAgentKit,
       messages: persistedMessages(snapshotMessages),
       widgets: persistedActionWidgets(snapshotWidgets, snapshotMessageIds),
-      toolCalls: persistedToolCalls(input.snapshot.toolCalls),
+      toolCalls: persistedToolCalls(snapshotToolCalls),
       events: [...eventsById.values()],
       runs: [...runsById.values()].map((run) => {
         const record = asRecord(run);

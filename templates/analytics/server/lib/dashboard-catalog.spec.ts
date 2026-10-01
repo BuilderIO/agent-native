@@ -308,7 +308,7 @@ describe("dashboard catalog", () => {
           customLookbackFilter,
           presetLookbackFilter,
         ]) {
-          const lookback = sql.indexOf(lookbackFilter);
+          const lookback = sql.lastIndexOf(lookbackFilter);
           expect(lookback).toBeGreaterThan(baseStart);
           expect(lookback).toBeLessThan(baseEnd);
         }
