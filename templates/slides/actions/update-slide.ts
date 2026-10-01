@@ -313,6 +313,11 @@ export default defineAction({
       }
     }),
   http: { method: "POST" },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     const isAgentCaller = isAgentPatchCaller(ctx?.caller);
     const {

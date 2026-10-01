@@ -70,6 +70,11 @@ export default defineAction({
   readOnly: true,
   http: { method: "GET" },
   mcpApp: { compactCatalog: true },
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args) => {
     const includeAll = args.includeAll === true;
     const page = includeAll ? 1 : (args.page ?? 1);

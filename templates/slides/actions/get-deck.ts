@@ -426,6 +426,7 @@ export default defineAction({
         });
       }
     }),
+  readOnly: false, // GET repairs duplicate slide IDs.
   http: { method: "GET" },
   mcpApp: {
     compactCatalog: true,
@@ -436,6 +437,11 @@ export default defineAction({
       openLabel: "Open deck",
       height: 680,
     }),
+  },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
   },
   run: async (args, ctx) => {
     const deckId = args.deckId ?? args.id;

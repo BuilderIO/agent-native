@@ -7,6 +7,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import actionsRegistry from "../../.generated/actions-registry.js";
 import { resolveSlidesRequestAuthContext } from "../handlers/request-auth-context.js";
 import { prepareSlidesChatAttachments } from "../lib/chat-attachments.js";
+import { CHATGPT_DIRECTORY_PROFILE } from "../lib/chatgpt-directory-tools.js";
 import {
   createDeckChatBeginningSnapshot,
   deckVersionChatContextFromRun,
@@ -64,6 +65,17 @@ const EXTERNAL_CONNECTOR_TOOL_NAMES = [
   "duplicate-deck",
   "restore-deck-version",
 ];
+
+function projectChatGptDirectoryResult(
+  toolName: string,
+  result: unknown,
+): unknown {
+  if (toolName !== "update-slide" || typeof result !== "string") return result;
+  return result.replaceAll(
+    "view-screen",
+    "get-deck with the selected slide ID",
+  );
+}
 
 const DECK_EDIT_TOOLS = new Set([
   "add-slide",
@@ -186,6 +198,10 @@ export default createAgentChatPlugin({
       "Latest-message rule: a newer user message or correction supersedes unresolved earlier work. Before any write after a correction or ambiguous target, call view-screen again and use its slide/selection IDs; never infer a slide from semantic wording or prior tool output. If update-slide rejects a stale target, do not retry that slideId — re-read view-screen and rebase once. " +
       "Cross-slide selection rule: when view-screen returns selectionSlideId different from currentSlideId, use selectionSlideId and selectionSlideContentHash for the update; never pair a selectionSlideId with currentSlideContentHash. " +
       'Design system: every deck read (get-deck, view-screen, get-workspace-defaults, get-deck-reference-context) returns `designSystem` — a bounded summary with scope "summary" and a `next` line — and get-deck also returns `deckStyle` plus `representativeSlideId`. For a selected or retrieved designSystem with scope summary, call get-design-system { id } once for the full tokens, assets, docs, and custom instructions; reuse it instead of re-reading it. For a short generated deck, pass every slide to one create-deck call using design-system context already available. When create-deck is called with slides: [], apply its returned full agentContext before adding slides. Apply designSystem.agentContext and deckStyle before authoring or restyling. If designSystem.status is "unavailable", follow its message; never invent a generic style. For a new deck, pass the exact title as `designSystem` or a designSystemId; omit both to get the caller\'s personal default, then the workspace default. When view-screen returns an exact selectedText range, edit immediately with one update-slide literal edits replacement and expectedMatches=1, passing currentSlideContentHash as baseContentHash; when it returns a stable objectId without exact selectedText, use one update-slide replace edit with that objectId and the matching slide hash instead of fetching the full deck. For every content-only request, preserve all existing markup, inline styles, style blocks, backgrounds, and slide-level styling; change only the requested text or content value with a bounded edit. Use targeted get-deck with slideId only for ambiguous, truncated, or structural text. Use patch-deck for slide deletion, reordering, deck-wide, or multi-slide changes, and delete-deck to remove a deck. Before a multi-slide content patch, make one get-deck read with compact=false; use slideIds when target IDs are known, otherwise read the full deck once. Send each matching contentHash as baseContentHash in the same patch-deck call. Set styleOnly=true for CSS-only content changes that preserve text, markup, element order, and protected layout CSS. After the write, verify once with get-deck slideIds and compact=false; do not read back each slide after per-slide writes. Use update-slide for one targeted slide. Read it back once; delegated ask_app output remains unverified until persisted state confirms it.',
+    directoryProfile: {
+      ...CHATGPT_DIRECTORY_PROFILE,
+      projectResult: projectChatGptDirectoryResult,
+    },
   },
   externalAgents: { writes: "allowlisted" },
   durableBackgroundRuns: true,
