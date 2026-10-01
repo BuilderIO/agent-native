@@ -351,10 +351,18 @@ function main(): void {
       }
     }
 
-    const pending = apps.map(
-      (appId) =>
-        `- ${appId}: add the reviewer-accessible demo recording URL to the manifest after recording.`,
-    );
+    const pending = validated
+      .filter(([, app]) => !app.source.chatgpt.review.demo_recording_url)
+      .map(
+        ([appId]) =>
+          `- ${appId}: record a reviewer-accessible walkthrough and add its URL to the source manifest, then rebuild and upload the ZIP.`,
+      );
+    const endpoints = validated.flatMap(([appId, app]) => {
+      const origin = new URL(app.source.hosted.url).origin;
+      return [
+        `- ${appId}: MCP <${new URL(MCP_DIRECTORY_ROUTE_PREFIX, origin).toString()}>; challenge <${new URL("/.well-known/openai-apps-challenge", origin).toString()}>`,
+      ];
+    });
     const iframeNotes = validated.map(
       ([appId, app]) =>
         `### ${appId}\n\n${app.source.chatgpt.review.iframeJustification}`,
@@ -366,10 +374,22 @@ function main(): void {
         "",
         "DRAFT ONLY. These ZIPs are not ready for review submission until demo recordings, reviewer access, verified publisher identity, domain challenge tokens, and policy attestations are complete.",
         "",
+        "Production promotion: `9e1dbd1c81`.",
+        "",
         ...prepared.map((entry) => `- ${entry}`),
         "",
+        "## Production endpoints",
+        "",
+        ...endpoints,
+        "",
+        "Challenge URLs return 404 until that app's `OPENAI_APPS_CHALLENGE_TOKEN` is set and the app is redeployed. Rescan after redeployment and verify the response matches the dashboard-issued token.",
+        "",
         "## Remaining package work",
-        ...pending,
+        ...(pending.length
+          ? pending
+          : [
+              "- Add the reviewer-accessible demo URLs to the manifests and rebuild if the packages were generated before the walkthroughs were recorded.",
+            ]),
         "",
         "Each ZIP contains one remote MCP server at the app's /mcp/directory endpoint, the portable plugin manifest, and the app logo. Reviewer credentials and secrets are intentionally excluded.",
         "",
@@ -377,17 +397,26 @@ function main(): void {
         "",
         "## Portal-only steps",
         "",
-        "1. Verify the organization and confirm its selected publisher identity matches `developerName` in the source manifests.",
-        "2. Confirm project residency is eligible and an organization owner grants `api.apps.write` to the submitter.",
-        "3. Configure OAuth and enter each dashboard-issued domain challenge token into the matching app deployment as `OPENAI_APPS_CHALLENGE_TOKEN`.",
-        "4. Add reviewer credentials through the secure dashboard form, then run the eight cases in ChatGPT developer mode on web and mobile.",
-        "5. Record and add a reviewer-accessible demo video URL for each app; provide the following iframe explanation if the dashboard requests one.",
-        "6. Complete policy attestations, submit for review, choose country availability, and publish in the dashboard.",
+        "Confirm first that the organization's project residency is eligible. Then complete these steps for each app in order:",
+        "",
+        "1. Verify the publisher identity and confirm it matches `developerName` in the source manifest.",
+        "2. Have an organization owner grant the submitter `api.apps.write`.",
+        "3. Upload the draft ZIP.",
+        "4. Connect its MCP server at the listed `/mcp/directory` URL and complete OAuth setup.",
+        "5. Set that app's dashboard-issued challenge token as `OPENAI_APPS_CHALLENGE_TOKEN` on its deployment, then redeploy.",
+        "6. Rescan the domain and verify the challenge response matches the token.",
+        "7. Add reviewer credentials through the dashboard's secure form.",
+        "8. Run all eight cases on ChatGPT web and mobile. Use only the seeded records in `docs/chatgpt-plugin-directory.md`.",
+        "9. Record a reviewer-accessible walkthrough, add its URL to the source manifest, rebuild the ZIP, and upload the refreshed package. Provide the iframe explanation below if requested.",
+        "10. Complete policy attestations and submit for review; wait for the review decision.",
+        "11. After approval, select country availability and publish in the dashboard.",
         "",
         "## Iframe explanations",
         "",
         ...iframeNotes.flatMap((note) => [note, ""]),
         "Reviewer data to seed is listed in the repository at `docs/chatgpt-plugin-directory.md`.",
+        "",
+        "The project license is unresolved: root package metadata says ISC but there is no root `LICENSE` file. Do not make an open-source, ISC, MIT, free, or other specific license claim in the listings until the licensing decision is confirmed.",
         "",
       ].join("\n"),
     );

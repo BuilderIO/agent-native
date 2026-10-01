@@ -89,9 +89,9 @@
       "privacyPolicyURL": "https://www.agent-native.com/privacy/",
       "termsOfServiceURL": "https://www.agent-native.com/terms/",
       "defaultPrompt": [
-        "Prototype a checkout flow for a mobile-friendly outdoor gear store.",
-        "Create a polished sales dashboard for a neighborhood bakery with daily revenue, top-selling items, and staffing needs.",
-        "Create a landing page and show three visual directions."
+        "Prototype an outdoor-gear checkout for a TrailLite 20L daypack ($89), with $6 shipping, guest checkout, and confirmation.",
+        "Design a bakery sales dashboard with sample data: $1,240 revenue today; 86 items sold; 24 sourdough loaves; staffing need: 3.",
+        "Create 3 landing concepts for $65 pottery wheel classes, Saturdays 10 a.m. and 2 p.m.; include schedule and booking CTA."
       ],
       "keywords": [
         "prototyping",
@@ -107,31 +107,31 @@
         "positive": [
           {
             "description": "Create a new interactive prototype",
-            "prompt": "Create a responsive landing page for a neighborhood bakery, with a menu section, opening hours, and an online-order call to action.",
+            "prompt": "Create a responsive landing page for Briar & Crumb, a fictional neighborhood bakery. Include a sample menu of croissants, sourdough, and coffee; hours Monday through Friday, 7 a.m. to 5 p.m., and Saturday and Sunday, 8 a.m. to 3 p.m.; and an 'Order online' call to action.",
             "tools_triggered": "create-design, generate-design",
             "expected_behavior": "Save a renderable prototype in the connected Design workspace and provide a way to review it."
           },
           {
             "description": "Find reusable design templates",
-            "prompt": "Find a landing-page template and create a new product launch page from it.",
+            "prompt": "Choose any available template in my Design workspace and create a separate product launch page for TrailSpring's ultralight hiking pack, launching in May for $189. Highlight its 2.1-pound weight and 35-liter capacity, include a waitlist call to action, and leave the source template unchanged.",
             "tools_triggered": "list-design-templates, create-design-from-template",
-            "expected_behavior": "Find a matching template and create a separate design based on it."
+            "expected_behavior": "Adapt an available template from the connected workspace into a separate product launch page, use the supplied product facts, and make no unsupported product claims."
           },
           {
             "description": "List saved designs",
-            "prompt": "Show me the designs saved in my workspace.",
+            "prompt": "List my saved designs and confirm whether Product Launch Demo is available.",
             "tools_triggered": "list-designs",
-            "expected_behavior": "Return designs available to the connected account and handle an empty list clearly."
+            "expected_behavior": "List designs available to the connected account and confirm Product Launch Demo by name."
           },
           {
             "description": "Apply a saved design system",
-            "prompt": "Use the Northstar Brand design system to guide a new contact page for our product.",
+            "prompt": "Use the Northstar Brand design system to guide a responsive contact page for Briar & Crumb, a fictional bakery open Monday through Friday, 7 a.m. to 5 p.m., and Saturday and Sunday, 8 a.m. to 3 p.m. Include the hours and a message form.",
             "tools_triggered": "list-design-systems, get-design-system, create-design, generate-design",
-            "expected_behavior": "Use the saved Northstar Brand guidance and save a renderable contact-page prototype."
+            "expected_behavior": "Use only design details saved in Northstar Brand, identify missing guidance without inventing values, and save a renderable contact-page prototype."
           },
           {
             "description": "Refine an existing prototype",
-            "prompt": "In Product Launch Demo, make the hero headline clearer and the call to action easier to find. Keep the current layout and other sections.",
+            "prompt": "In Product Launch Demo, make the hero headline clearer using only product details already saved in the prototype, and make the primary call to action explicit. If the product benefit is missing, preserve it and report what detail is needed. Keep the existing layout and all other sections unchanged.",
             "tools_triggered": "list-designs, get-design-snapshot, edit-design",
             "expected_behavior": "Update the identified prototype while preserving the layout and content the user did not ask to change."
           }
@@ -152,7 +152,7 @@
         ]
       },
       "commerce": false,
-      "iframeJustification": "The plugin can render the Design editor for a prototype the user has created or opened. The saved design and editor are served from the Agent-Native Design origin. The widget loads the pinned MCP Apps bridge module from esm.sh to support the open UI protocol."
+      "iframeJustification": "The plugin renders saved Agent-Native Design prototypes inside ChatGPT. The widget and editor content are served from the Agent-Native Design origin and use ChatGPT's host API with the built-in MCP Apps bridge; no remote bridge script is loaded."
     }
   }
 }

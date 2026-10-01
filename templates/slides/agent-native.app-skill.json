@@ -88,9 +88,9 @@
       "privacyPolicyURL": "https://www.agent-native.com/privacy/",
       "termsOfServiceURL": "https://www.agent-native.com/terms/",
       "defaultPrompt": [
-        "Create an on-brand pitch deck for this product brief.",
-        "Turn these launch notes into an executive presentation with clear next steps.",
-        "Create a concise sales presentation for this audience."
+        "Create a 5-slide bakery deck for its June second location, targeting morning commuters; use cream and espresso-brown colors.",
+        "Create a June second-location launch deck for a bakery targeting morning commuters; cap the first-month budget at $20k.",
+        "Create a bakery catering sales deck for office managers planning team breakfasts; include pastry, coffee, and ordering steps."
       ],
       "keywords": [
         "presentations",
@@ -106,27 +106,27 @@
         "positive": [
           {
             "description": "Create a new editable presentation",
-            "prompt": "Create a five-slide pitch deck for a neighborhood bakery opening a second location. Cover the opportunity, audience, plan, budget assumptions, and next steps.",
+            "prompt": "Create a five-slide pitch deck for a neighborhood bakery opening a second location. Use cream backgrounds and espresso-brown headings. Cover the opportunity, target audience of morning commuters, launch plan, a first-month budget assumption capped at $20,000, and next steps.",
             "tools_triggered": "get-workspace-defaults, create-deck",
-            "expected_behavior": "Create a new deck in the connected Slides workspace and confirm its title and editable slides."
+            "expected_behavior": "Create one editable five-slide deck in the connected Slides workspace, preserve the supplied facts and visual direction, and confirm its title and slides."
           },
           {
             "description": "List saved presentations",
-            "prompt": "List the presentations available in my Slides workspace.",
+            "prompt": "List the presentations in my Slides workspace and confirm whether Quarterly Planning Demo is available.",
             "tools_triggered": "list-decks",
-            "expected_behavior": "Return only decks the connected account can access and report clearly if none are available."
+            "expected_behavior": "List only decks the connected account can access and confirm Quarterly Planning Demo by name."
           },
           {
-            "description": "Inspect a workspace design system",
-            "prompt": "What colors, typography, and logo should I use for presentations in my workspace?",
-            "tools_triggered": "list-design-systems, get-design-system",
-            "expected_behavior": "Find the Northstar Brand design system in the demo workspace and summarize its saved presentation guidance."
+            "description": "Inspect the seeded planning deck",
+            "prompt": "Inspect the Quarterly Planning Demo deck and list its slide titles, including the Priorities slide.",
+            "tools_triggered": "list-decks, get-deck",
+            "expected_behavior": "Return the slide titles from the named demo deck, including Priorities, without changing the deck."
           },
           {
             "description": "Add a slide to an identified deck",
-            "prompt": "Add a closing slide with owners and next steps to the Quarterly Planning Demo deck.",
+            "prompt": "Add a closing slide titled 'Owners & Next Steps' to Quarterly Planning Demo. Use its Priorities slide for context; repeat only owners, dates, or commitments already present and use 'TBD' for missing details. Leave all existing slides unchanged.",
             "tools_triggered": "list-decks, get-deck, add-slide",
-            "expected_behavior": "Add one closing slide to the named demo deck without changing unrelated slides."
+            "expected_behavior": "Add one closing slide using only saved owners, dates, or commitments, label missing details TBD, and preserve all existing slides."
           },
           {
             "description": "Duplicate an existing deck",
@@ -151,7 +151,7 @@
         ]
       },
       "commerce": false,
-      "iframeJustification": "The plugin can render the Slides editor for a presentation the user has just created or opened. The saved deck and editor are served from the Agent-Native Slides origin. The widget loads the pinned MCP Apps bridge module from esm.sh to support the open UI protocol."
+      "iframeJustification": "The plugin renders saved Agent-Native Slides presentations inside ChatGPT. The widget and editor content are served from the Agent-Native Slides origin and use ChatGPT's host API with the built-in MCP Apps bridge; no remote bridge script is loaded."
     }
   }
 }

@@ -1,8 +1,20 @@
 # ChatGPT Plugin Directory
 
-This repository prepares three focused ChatGPT plugins: Slides, Design, and Content. Each listing connects to one app’s hosted MCP endpoint and exposes a curated action set. The portable Agent Plugins package format supports multiple MCP servers, but separate listings make the task description, authorization, review cases, and app destination clear for each use case.
+This repository prepares three focused ChatGPT plugins: Slides, Design, and Content. Each listing connects to one app’s hosted MCP endpoint and exposes a curated action set. Separate listings keep each task description, authorization, review cases, and app destination clear.
 
-The public `/apps/*` descriptions are the starting point for listing copy. ChatGPT’s metadata limits require shorter subtitles, and each long description names the supported tasks and the current connector’s boundaries. Listing metadata and review cases live in each app’s `agent-native.app-skill.json` under `chatgpt`.
+The public `/apps/*` descriptions are the starting point for listing copy. ChatGPT’s metadata limits require shorter subtitles, and each long description names the supported tasks and the connector’s boundaries. Listing metadata and review cases live in each app’s `agent-native.app-skill.json` under `chatgpt`.
+
+## Production endpoints
+
+Slides, Design, and Content were promoted at `9e1dbd1c81`.
+
+| App     | MCP directory                                    | OpenAI challenge                                                     |
+| ------- | ------------------------------------------------ | -------------------------------------------------------------------- |
+| Slides  | <https://slides.agent-native.com/mcp/directory>  | <https://slides.agent-native.com/.well-known/openai-apps-challenge>  |
+| Design  | <https://design.agent-native.com/mcp/directory>  | <https://design.agent-native.com/.well-known/openai-apps-challenge>  |
+| Content | <https://content.agent-native.com/mcp/directory> | <https://content.agent-native.com/.well-known/openai-apps-challenge> |
+
+The MCP endpoints require authentication. Each challenge URL returns 404 until that app’s dashboard-issued `OPENAI_APPS_CHALLENGE_TOKEN` is configured and the app is redeployed. After redeployment, verify that the public challenge response exactly matches the token OpenAI issued for that domain.
 
 ## Build the upload packages
 
@@ -12,7 +24,7 @@ Run:
 pnpm pack:chatgpt-plugins
 ```
 
-The command validates metadata, review case counts, tool names, icon dimensions, and unique widget origins. It writes three ZIPs and a handoff file to `.tmp/chatgpt-plugin-submissions/`. It will stop if that output directory already exists; choose another `--out` path after changing metadata:
+The command validates metadata, review case counts, tool names, icon dimensions, and unique widget origins. It writes three ZIPs and a handoff file to `.tmp/chatgpt-plugin-submissions/`. It stops if that output directory already exists; choose another `--out` path after changing metadata:
 
 ```sh
 pnpm pack:chatgpt-plugins -- --out=.tmp/chatgpt-plugin-submissions-next
@@ -20,35 +32,44 @@ pnpm pack:chatgpt-plugins -- --out=.tmp/chatgpt-plugin-submissions-next
 
 Each ZIP contains only a portable root `plugin.json`, root `mcp.json`, and the app logo under `assets/`. It contains no app source, reviewer login, password, API token, or challenge token. Each `mcp.json` declares one `streamable-http` MCP server at the app’s hosted `/mcp/directory` endpoint.
 
-The ZIPs include five proposed positive and three proposed negative test cases. They have not been executed in ChatGPT yet. A reviewer-accessible `review.demo_recording_url` is required before review submission. After recording, add the URL under `chatgpt.review.demo_recording_url` in the relevant source manifest and generate a new output directory.
+The ZIPs include five positive and three negative review cases. They remain **DRAFT** until a reviewer-accessible demo recording URL is added to each source manifest at `chatgpt.review.demo_recording_url` and the packages are rebuilt. The initial draft ZIP is used to connect and exercise each listing; after recording the walkthroughs, upload the rebuilt ZIPs with their demo URLs before submitting.
 
 ## Runtime contract
 
 The `mcp.directoryProfile` exposes exactly its configured `connectorCatalog` actions at `/mcp/directory`. It rejects missing actions and incomplete MCP annotations, ignores full-catalog requests, omits generic cross-app actions and `tool-search`, and only allows calls to the advertised set. The three booleans are declared on each action: `readOnlyHint`, `destructiveHint`, and `openWorldHint`.
 
-The directory profile forces MCP App resources on for callers of `/mcp/directory`; the existing `/mcp` catalog and instructions remain unchanged. If a listed action provides a widget, its metadata uses the app’s request origin for `_meta.ui.domain` and ChatGPT’s compatibility alias. The OpenAI dashboard also asks for a justification when a widget’s CSP allows an iframe; each source manifest stores a prepared justification in `chatgpt.review.iframeJustification`.
+The directory profile forces MCP App resources on for callers of `/mcp/directory`; the existing `/mcp` catalog and instructions remain unchanged. ChatGPT directory widgets use `window.openai`, with the built-in MCP Apps bridge as the fallback, so they need no CDN bundle or self-hosted copy of the bridge. If both host bridges fail, the widget reports the error. Directory mode disables the remote `esm.sh` fallback and omits that origin from its widget CSP. The general `/mcp` endpoint retains its pinned `@modelcontextprotocol/ext-apps@1.7.5` fallback for clients that need it. Each app uses its own request origin for widget metadata and CSP. The OpenAI dashboard also asks for an iframe justification; use the text in the app’s source manifest under `chatgpt.review.iframeJustification`.
 
-The core route `GET /.well-known/openai-apps-challenge` returns the configured `OPENAI_APPS_CHALLENGE_TOKEN` as uncached plain text. It returns 404 while the token is unset. Set the token separately on each app deployment after OpenAI provides the challenge value for that domain.
+The core route `GET /.well-known/openai-apps-challenge` returns the configured `OPENAI_APPS_CHALLENGE_TOKEN` as uncached plain text. It returns 404 while the token is unset. Set the value on the matching app deployment and redeploy before rescanning the domain in OpenAI’s dashboard.
 
 ## Before submitting
 
 Use OpenAI’s [submission guide](https://developers.openai.com/plugins/deploy/submission), [plugin guidelines](https://developers.openai.com/plugins/plugin-guidelines), and [tool and UI reference](https://developers.openai.com/plugins/reference).
 
-1. Confirm the OpenAI organization’s verified publisher identity. The manifests currently use `Agent-Native` for `developerName`; update it if the verified identity uses a different name, then rebuild the ZIPs. The directory publisher label comes from the verified identity.
-2. Confirm the organization’s project residency is eligible for MCP plugin submissions and that an owner grants the submitting account `api.apps.write` access.
-3. Add each app’s hosted MCP URL to the OpenAI developer dashboard, configure OAuth, and set the exact challenge token on that app deployment. Verify the public challenge endpoint returns the exact token.
-4. Create a reviewer account with a password-based sign-in and no inaccessible MFA. Enter reviewer credentials only in the dashboard’s secure form. Seed and validate these records:
-   - **Slides:** `Northstar Brand` design system and `Quarterly Planning Demo` deck, including a `Priorities` slide.
-   - **Design:** `Northstar Brand` design system and `Product Launch Demo` prototype. Keep a template available for the template-based test.
-   - **Content:** `Launch Brief Demo` document containing the phrase `early access`, and a `Feature Requests Demo` database.
-5. Connect each plugin in ChatGPT developer mode. Run all listed positive and negative cases on web and mobile; confirm account boundaries, saved artifacts, no unsupported external edits, and widget rendering. Fix any mismatch before recording.
-6. Record one reviewer-accessible walkthrough for each plugin and add each video URL to its source manifest. The walkthrough should show connection/auth, a direct creation request, a revision or read flow, the saved artifact, and the supported-scope boundary.
-7. In the dashboard, provide the iframe justification from the corresponding source manifest when requested. Complete policy attestations, review submission, country availability, release notes, and publishing there.
+Before opening the dashboard, confirm the organization’s project residency is eligible for MCP plugin submissions. Complete the following in order for each app:
 
-The current dashboard-only gates are publisher verification, `api.apps.write`, reviewer access, challenge token setup, iframe rationale, demo recording, policy attestations, Submit, and Publish. These are intentionally left to the organization owner or authorized submitter.
+1. Verify the publisher and confirm its identity matches `developerName` in the source manifest. The manifests currently use `Agent-Native`; update the name and rebuild the ZIP if the verified identity differs.
+2. Have an organization owner grant the submitting account `api.apps.write` access.
+3. Upload the draft ZIP.
+4. Connect its MCP server at the app’s `/mcp/directory` URL and complete the dashboard’s OAuth setup.
+5. Set the challenge token issued for that app and domain as `OPENAI_APPS_CHALLENGE_TOKEN` on that app’s deployment, then redeploy it.
+6. Rescan the domain and confirm its public challenge URL returns the exact token.
+7. Add a reviewer account with password-based sign-in and no inaccessible MFA. Enter its credentials only in the dashboard’s secure form.
+8. Run all eight review cases on ChatGPT web and mobile. Confirm account boundaries, saved artifacts, no unsupported external edits, and widget rendering. Seed exactly the records below; prompts and expected behavior must not assume additional data.
+9. Record a reviewer-accessible walkthrough for the app. Add its URL to `chatgpt.review.demo_recording_url`, rebuild the ZIPs, and upload the refreshed package. The walkthrough should show connection and auth, a direct creation request, a revision or read flow, the saved artifact, and the supported-scope boundary.
+10. Submit the completed listing for review. Complete any policy attestations and wait for the review decision.
+11. After approval, select country availability and publish in the dashboard.
+
+Seeded records guaranteed for review:
+
+- **Slides:** `Quarterly Planning Demo` with a `Priorities` slide.
+- **Design:** `Northstar Brand`, `Product Launch Demo`, and one available template. The template’s name and type are not fixed.
+- **Content:** `Launch Brief Demo` containing `early access`, and a `Feature Requests Demo` database. Its schema and entries are not fixed.
+
+The package generator writes the current portal order and iframe explanations into `.tmp/chatgpt-plugin-submissions/SUBMISSION.md`. Reviewer credentials and secrets never belong in the ZIPs or repository.
 
 ## Distribution expectations
 
 Use app-specific task language in the title, subtitle, description, and starter prompts. Keep tool names and descriptions close to user goals such as “make a presentation,” “prototype a checkout flow,” or “revise this project brief.” The metadata can help ChatGPT recognize a fit, but there is no setting that guarantees an organic recommendation or invocation. Track discovery and completion after launch, then update the listing from real prompt and support feedback.
 
-Do not claim that listing keywords guarantee recommendations. The root package does not declare a license: this checkout has no root license file, and its root package metadata says ISC, so do not label the listing MIT without resolving the project’s licensing.
+The project’s license is unresolved. The root package metadata currently says ISC, but the repository has no root `LICENSE` file and the licensing decision has not been confirmed. Do not describe these listings as open source, ISC, MIT, free, or under another specific license until that decision is resolved.

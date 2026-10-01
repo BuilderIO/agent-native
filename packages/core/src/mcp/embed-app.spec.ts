@@ -5,7 +5,7 @@ import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { embedApp, MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 
 describe("embedApp", () => {
-  it("transplants app documents in ChatGPT and Claude MCP sandboxes", () => {
+  it("transplants app documents in ChatGPT and Claude MCP sandboxes", async () => {
     const resource = embedApp({
       title: "Dashboard",
       openLabel: "Open dashboard",
@@ -14,6 +14,10 @@ describe("embedApp", () => {
       typeof resource.html === "function"
         ? resource.html({ actionName: "open_app", appId: "analytics" })
         : resource.html;
+    const csp =
+      typeof resource.csp === "function"
+        ? await resource.csp({ actionName: "open_app", catalogMode: "app" })
+        : resource.csp;
 
     expect(html).toContain("create_embed_session");
     expect(html).toContain("app.callServerTool");
@@ -212,19 +216,11 @@ describe("embedApp", () => {
     expect(html).toContain("{ autoResize: false }");
     expect(html).toContain("openAiBridge.notifyIntrinsicHeight({ height })");
     expect(html).toContain("app.sendSizeChanged({ height })");
-    expect(resource.csp?.frameDomains).toEqual([
-      MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
-    ]);
-    expect(resource.csp?.resourceDomains).toContain(
-      MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
-    );
-    expect(resource.csp?.resourceDomains).toContain("https://esm.sh");
-    expect(resource.csp?.connectDomains).toContain(
-      MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
-    );
-    expect(resource.csp?.baseUriDomains).toEqual([
-      MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
-    ]);
+    expect(csp?.frameDomains).toEqual([MCP_APP_REQUEST_ORIGIN_CSP_SOURCE]);
+    expect(csp?.resourceDomains).toContain(MCP_APP_REQUEST_ORIGIN_CSP_SOURCE);
+    expect(csp?.resourceDomains).toContain("https://esm.sh");
+    expect(csp?.connectDomains).toContain(MCP_APP_REQUEST_ORIGIN_CSP_SOURCE);
+    expect(csp?.baseUriDomains).toEqual([MCP_APP_REQUEST_ORIGIN_CSP_SOURCE]);
   });
 
   it("prefers canonical metadata when legacy open-link fields conflict", () => {
@@ -313,7 +309,7 @@ describe("embedApp", () => {
     expect(html).toContain("appendEmbedParamsToAppUrl(url, config);");
   });
 
-  it("retains nested iframe mode as an explicit diagnostic fallback", () => {
+  it("retains nested iframe mode as an explicit diagnostic fallback", async () => {
     const resource = embedApp({
       title: "Dashboard",
       frameDomains: ["https://analytics.example.com"],
@@ -322,6 +318,10 @@ describe("embedApp", () => {
       typeof resource.html === "function"
         ? resource.html({ actionName: "open_app", appId: "analytics" })
         : resource.html;
+    const csp =
+      typeof resource.csp === "function"
+        ? await resource.csp({ actionName: "open_app", catalogMode: "app" })
+        : resource.csp;
 
     expect(html).toContain('document.createElement("iframe")');
     expect(html).toContain("renderFrameFallback");
@@ -369,10 +369,8 @@ describe("embedApp", () => {
     expect(html).toContain('render.frame === "iframe"');
     expect(html).toContain('"agentNative.frameOrigin"');
     expect(html).toContain('"agentNative.embeddedAppReady"');
-    expect(resource.csp?.connectDomains).toContain(
-      "https://analytics.example.com",
-    );
-    expect(resource.csp?.frameDomains).toEqual([
+    expect(csp?.connectDomains).toContain("https://analytics.example.com");
+    expect(csp?.frameDomains).toEqual([
       MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
       "https://analytics.example.com",
     ]);
@@ -410,6 +408,27 @@ describe("embedApp", () => {
     expect(html).toContain("openAiBridgePollMs = 50");
   });
 
+  it("omits the remote bridge fallback and esm.sh CSP origin for directory mode", async () => {
+    const resource = embedApp({ title: "Directory widget" });
+    const context = {
+      actionName: "create-deck",
+      catalogMode: "directory" as const,
+    };
+    const html =
+      typeof resource.html === "function"
+        ? resource.html(context)
+        : resource.html;
+    const csp =
+      typeof resource.csp === "function"
+        ? await resource.csp(context)
+        : resource.csp;
+
+    expect(html).toContain("const remoteBridgeFallbackEnabled = false");
+    expect(html).toContain("if (!remoteBridgeFallbackEnabled) throw nativeErr");
+    expect(csp?.connectDomains).not.toContain("https://esm.sh");
+    expect(csp?.resourceDomains).not.toContain("https://esm.sh");
+  });
+
   it("allows full-app embeds to request a 900px canvas", () => {
     const resource = embedApp({ height: 900 });
     const html =
@@ -421,8 +440,8 @@ describe("embedApp", () => {
     expect(html).toContain("--agent-native-viewport-height: 856px");
   });
 
-  it("provides a local MCP App payload fixture for renderer tests", () => {
-    const fixture = createLocalMcpAppEmbedHarness({
+  it("provides a local MCP App payload fixture for renderer tests", async () => {
+    const fixture = await createLocalMcpAppEmbedHarness({
       actionName: "open_app",
       appId: "analytics",
       openUrl: "http://localhost:5173/dashboard",
@@ -478,8 +497,8 @@ describe("embedApp", () => {
     });
   });
 
-  it("keeps the local fixture aligned with the wrapper bridge contract", () => {
-    const fixture = createLocalMcpAppEmbedHarness();
+  it("keeps the local fixture aligned with the wrapper bridge contract", async () => {
+    const fixture = await createLocalMcpAppEmbedHarness();
 
     expect(fixture.html).toContain("app.connect()");
     expect(fixture.html).toContain("app.callServerTool");
@@ -529,8 +548,8 @@ describe("embedApp", () => {
     expect(fixture.html).toContain("arguments: args");
   });
 
-  it("preserves host outcomes and prevents timed out wrapper chats from replaying", () => {
-    const { html } = createLocalMcpAppEmbedHarness();
+  it("preserves host outcomes and prevents timed out wrapper chats from replaying", async () => {
+    const { html } = await createLocalMcpAppEmbedHarness();
 
     expect(html).toContain("pending.resolve(message.result);");
     expect(html).toContain("code: message.error.code");
@@ -595,14 +614,19 @@ interface LocalMcpAppEmbedHarnessOptions {
   title?: string;
 }
 
-function createLocalMcpAppEmbedHarness({
+async function createLocalMcpAppEmbedHarness({
   actionName = "open_app",
   appId = "demo",
   openUrl = "http://localhost:5173/app",
   title = "Demo app",
 }: LocalMcpAppEmbedHarnessOptions = {}) {
   const resource = embedApp({ title });
-  const html = renderMcpAppResourceHtml(resource, { actionName, appId });
+  const context = { actionName, appId, catalogMode: "app" as const };
+  const html = renderMcpAppResourceHtml(resource, context);
+  const csp =
+    typeof resource.csp === "function"
+      ? await resource.csp(context)
+      : resource.csp;
 
   const payload: AgentMcpAppPayload = {
     serverId: "local-fixture",
@@ -626,7 +650,7 @@ function createLocalMcpAppEmbedHarness({
       text: html,
       _meta: {
         ui: {
-          csp: resource.csp,
+          ...(csp ? { csp } : {}),
           prefersBorder: resource.prefersBorder,
         },
       },

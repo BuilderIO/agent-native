@@ -53,7 +53,9 @@ export function embedApp(
   return {
     title,
     ...(options.description ? { description: options.description } : {}),
-    html: () => `<!doctype html>
+    html: (ctx) => {
+      const remoteBridgeFallbackEnabled = ctx.catalogMode !== "directory";
+      return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -123,6 +125,7 @@ export function embedApp(
     const nativeBridgeInitializeTimeoutMs = 5000;
     const nativeBridgeRequestTimeoutMs = 30000;
     const wrapperRequestTimeoutMs = 5000;
+    const remoteBridgeFallbackEnabled = ${remoteBridgeFallbackEnabled};
     let app = null;
     let appConnectPromise = null;
     let openAiBridge = null;
@@ -2207,6 +2210,7 @@ export function embedApp(
           await startNativeMcpAppsBridge();
         } catch (nativeErr) {
           console.warn("[agent-native] native MCP Apps bridge failed", nativeErr);
+          if (!remoteBridgeFallbackEnabled) throw nativeErr;
           await startMcpAppsBridge();
         }
       }
@@ -2239,25 +2243,30 @@ export function embedApp(
     })();
   </script>
 </body>
-</html>`,
-    csp: {
-      connectDomains: [
-        "https://esm.sh",
-        MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
-        ...(options.connectDomains ?? []),
-        ...(options.frameDomains ?? []),
-      ],
-      resourceDomains: [
-        "https://esm.sh",
-        MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
-        ...(options.resourceDomains ?? []),
-        ...(options.frameDomains ?? []),
-      ],
-      baseUriDomains: [
-        MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
-        ...(options.baseUriDomains ?? []),
-      ],
-      frameDomains,
+}</html>`;
+    },
+    csp: (ctx) => {
+      const bridgeFallbackDomains =
+        ctx.catalogMode === "directory" ? [] : ["https://esm.sh"];
+      return {
+        connectDomains: [
+          ...bridgeFallbackDomains,
+          MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+          ...(options.connectDomains ?? []),
+          ...(options.frameDomains ?? []),
+        ],
+        resourceDomains: [
+          ...bridgeFallbackDomains,
+          MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+          ...(options.resourceDomains ?? []),
+          ...(options.frameDomains ?? []),
+        ],
+        baseUriDomains: [
+          MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
+          ...(options.baseUriDomains ?? []),
+        ],
+        frameDomains,
+      };
     },
     prefersBorder: false,
   };

@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { CHATGPT_DIRECTORY_PROFILE as contentProfile } from "../../../../templates/content/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as designProfile } from "../../../../templates/design/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as slidesProfile } from "../../../../templates/slides/server/lib/chatgpt-directory-tools.js";
+import { isActionExposedToExternalAgents } from "../action.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
 import { generateActionRegistryForProject } from "../vite/action-types-plugin.js";
 import { validateMcpDirectoryProfile } from "./build-server.js";
@@ -53,7 +54,13 @@ async function loadTemplateActions(appId: string) {
       }),
     ),
   );
-  return { actions: loadActionsFromStaticRegistry(modules), actionNames };
+  const actions = loadActionsFromStaticRegistry(modules);
+  const productionActions = Object.fromEntries(
+    Object.entries(actions).filter(([, entry]) =>
+      isActionExposedToExternalAgents(entry),
+    ),
+  );
+  return { actions, productionActions, actionNames };
 }
 
 function schemaDescriptions(
@@ -88,7 +95,8 @@ describe("ChatGPT directory template profiles", () => {
   it.each(templateProfiles)(
     "$appId allowlist is registered, exposed, annotated, and narrowly scoped",
     async ({ appId, profile }) => {
-      const { actions, actionNames } = await loadTemplateActions(appId);
+      const { actions, productionActions, actionNames } =
+        await loadTemplateActions(appId);
 
       expect(() =>
         validateMcpDirectoryProfile({
@@ -97,7 +105,7 @@ describe("ChatGPT directory template profiles", () => {
           description: "ChatGPT directory profile validation",
           catalogMode: "directory",
           actions,
-          productionActions: actions,
+          productionActions,
           directoryProfile: profile,
         }),
       ).not.toThrow();
@@ -135,4 +143,46 @@ describe("ChatGPT directory template profiles", () => {
     },
     ACTION_REGISTRY_TEST_TIMEOUT_MS,
   );
+
+  it("validates names against production-exposed actions, not the raw registry", () => {
+    const annotations = {
+      readOnlyHint: true,
+      destructiveHint: false,
+      openWorldHint: false,
+    };
+    const rawActions = {
+      visible: {
+        tool: { description: "A visible action." },
+        run: async () => ({ ok: true }),
+        mcpAnnotations: annotations,
+      },
+      hidden: {
+        tool: { description: "An action omitted from the external surface." },
+        run: async () => ({ ok: true }),
+        mcpTool: false,
+        mcpAnnotations: annotations,
+      },
+    };
+    const productionActions = Object.fromEntries(
+      Object.entries(rawActions).filter(([, entry]) =>
+        isActionExposedToExternalAgents(entry),
+      ),
+    );
+    const config = {
+      name: "agent-native-directory-test",
+      description: "Production external action surface validation.",
+      catalogMode: "directory" as const,
+      actions: rawActions,
+      productionActions,
+      directoryProfile: { connectorCatalog: ["visible"] },
+    };
+
+    expect(() => validateMcpDirectoryProfile(config)).not.toThrow();
+    expect(() =>
+      validateMcpDirectoryProfile({
+        ...config,
+        directoryProfile: { connectorCatalog: ["hidden"] },
+      }),
+    ).toThrow(/not registered or is not exposed to MCP/);
+  });
 });

@@ -343,6 +343,29 @@ function withoutExternalOptOuts(
   );
 }
 
+export class McpDirectoryProfileValidationError extends Error {
+  readonly code = "MCP_DIRECTORY_PROFILE_INVALID";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "McpDirectoryProfileValidationError";
+  }
+}
+
+export function selectMcpActionSurface(
+  config: MCPConfig,
+  requestMeta?: MCPRequestMeta,
+  ownerConfigured = false,
+): Record<string, ActionEntry> {
+  if (config.catalogMode === "directory" && config.productionActions) {
+    return config.productionActions;
+  }
+  const useFullSurface = requestMeta?.fullSurface === true || ownerConfigured;
+  return useFullSurface && config.productionActions
+    ? config.productionActions
+    : config.actions;
+}
+
 export function validateMcpDirectoryProfile(
   config: MCPConfig,
   sourceActions = config.productionActions ?? config.actions,
@@ -350,12 +373,12 @@ export function validateMcpDirectoryProfile(
   const names =
     config.directoryProfile?.connectorCatalog ?? config.connectorCatalog ?? [];
   if (names.length === 0) {
-    throw new Error(
+    throw new McpDirectoryProfileValidationError(
       '[agent-native] MCP catalogMode "directory" requires a non-empty connectorCatalog allowlist.',
     );
   }
   if (new Set(names).size !== names.length) {
-    throw new Error(
+    throw new McpDirectoryProfileValidationError(
       "[agent-native] MCP directory catalog cannot contain duplicate tool names.",
     );
   }
@@ -372,13 +395,13 @@ export function validateMcpDirectoryProfile(
       reserved.has(name) ||
       /^(?:provider-api-|db-(?:schema|query|exec|patch)$|seed-)/i.test(name)
     ) {
-      throw new Error(
+      throw new McpDirectoryProfileValidationError(
         `[agent-native] MCP directory catalog cannot expose reserved tool "${name}".`,
       );
     }
     const entry = actions[name];
     if (!entry) {
-      throw new Error(
+      throw new McpDirectoryProfileValidationError(
         `[agent-native] MCP directory catalog action "${name}" is not registered or is not exposed to MCP.`,
       );
     }
@@ -389,7 +412,7 @@ export function validateMcpDirectoryProfile(
       typeof annotations.destructiveHint !== "boolean" ||
       typeof annotations.openWorldHint !== "boolean"
     ) {
-      throw new Error(
+      throw new McpDirectoryProfileValidationError(
         `[agent-native] MCP directory catalog action "${name}" must declare boolean readOnlyHint, destructiveHint, and openWorldHint values.`,
       );
     }
@@ -404,10 +427,31 @@ export function validateMcpDirectoryProfile(
       (name) => !names.includes(name),
     );
     if (unknownName) {
-      throw new Error(
+      throw new McpDirectoryProfileValidationError(
         `[agent-native] MCP directory profile override refers to unlisted tool "${unknownName}".`,
       );
     }
+  }
+}
+
+export function validateMcpDirectoryWidgetDomain(
+  domain: string | undefined,
+): void {
+  let validWidgetDomain = false;
+  try {
+    const parsed = new URL(domain ?? "");
+    validWidgetDomain =
+      parsed.protocol === "https:" &&
+      parsed.origin === domain &&
+      !parsed.username &&
+      !parsed.password;
+  } catch {
+    validWidgetDomain = false;
+  }
+  if (!validWidgetDomain) {
+    throw new McpDirectoryProfileValidationError(
+      '[agent-native] MCP catalogMode "directory" requires widgetDomain to be an HTTPS origin.',
+    );
   }
 }
 
@@ -604,6 +648,7 @@ interface McpAppResourceContext {
   actionName: string;
   appId?: string;
   requestOrigin?: string;
+  catalogMode?: "app" | "directory";
 }
 
 interface VersionedMcpAppResourceUri {
@@ -1290,6 +1335,7 @@ async function resolveMcpAppResource(
     actionName,
     appId: config.appId,
     requestOrigin: requestMeta?.origin,
+    catalogMode: config.catalogMode,
   });
   const resourceMeta = mcpAppUiMeta(
     resource,
@@ -1354,6 +1400,7 @@ function renderMcpAppHtml(
       actionName,
       appId: config.appId,
       requestOrigin: requestMeta?.origin,
+      catalogMode: config.catalogMode,
     });
   }
   return resource.html;
@@ -1579,33 +1626,17 @@ export async function createMCPServerForRequest(
     };
   }
 
-  const useFullSurface = requestMeta?.fullSurface === true || !!ownerFromEnv;
-  const baseActions =
-    useFullSurface && config.productionActions
-      ? config.productionActions
-      : config.actions;
+  const baseActions = selectMcpActionSurface(
+    config,
+    requestMeta,
+    !!ownerFromEnv,
+  );
   const appCatalog = config.catalogMode === "app";
   const directoryCatalog = config.catalogMode === "directory";
   const directoryNames = config.connectorCatalog ?? [];
   if (directoryCatalog) {
     validateMcpDirectoryProfile(config, baseActions);
-    const domain = config.widgetDomain;
-    let validWidgetDomain = false;
-    try {
-      const parsed = new URL(domain ?? "");
-      validWidgetDomain =
-        parsed.protocol === "https:" &&
-        parsed.origin === domain &&
-        !parsed.username &&
-        !parsed.password;
-    } catch {
-      validWidgetDomain = false;
-    }
-    if (!validWidgetDomain) {
-      throw new Error(
-        '[agent-native] MCP catalogMode "directory" requires widgetDomain to be an HTTPS origin.',
-      );
-    }
+    validateMcpDirectoryWidgetDomain(config.widgetDomain);
   }
   const fullCatalogRequested =
     !appCatalog &&
@@ -1619,27 +1650,6 @@ export async function createMCPServerForRequest(
   const actions = withoutExternalOptOuts(
     flatCatalog ? withoutToolSearch(mergedActions) : mergedActions,
   );
-  if (directoryCatalog) {
-    for (const name of directoryNames) {
-      const entry = actions[name];
-      if (!entry) {
-        throw new Error(
-          `[agent-native] MCP directory catalog action "${name}" is not registered or is not exposed to MCP.`,
-        );
-      }
-      const annotations = entry.mcpAnnotations;
-      if (
-        !annotations ||
-        typeof annotations.readOnlyHint !== "boolean" ||
-        typeof annotations.destructiveHint !== "boolean" ||
-        typeof annotations.openWorldHint !== "boolean"
-      ) {
-        throw new Error(
-          `[agent-native] MCP directory catalog action "${name}" must declare boolean readOnlyHint, destructiveHint, and openWorldHint values.`,
-        );
-      }
-    }
-  }
   const scopeVisibleActions = Object.fromEntries(
     Object.entries(actions).filter(([, entry]) =>
       isActionVisibleForOAuthScope(entry, effectiveIdentity?.oauthScopes),
