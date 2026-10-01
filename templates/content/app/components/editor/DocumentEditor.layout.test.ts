@@ -23,6 +23,7 @@ import {
   isDocumentLoadUnavailableError,
   isSuggestionConflictActionError,
   lifecycleKeepaliveDisposition,
+  loadedUpdatedAtForSave,
   metadataUpdatesWithPendingTitle,
   type OwnContentSaveLineage,
   ownConfirmedContentBase,
@@ -1461,7 +1462,11 @@ describe("document editor layout", () => {
       saveAttemptId: "keepalive-attempt",
     };
 
-    const moved = adoptOwnConfirmedBases(pending, ownBase);
+    const moved = adoptOwnConfirmedBases(
+      pending,
+      "Intro first second",
+      ownBase,
+    );
 
     expect(moved.contentBase).toEqual(latest);
     expect(moved.authoredContentIntent).toEqual({
@@ -1472,7 +1477,24 @@ describe("document editor layout", () => {
     });
     expect(moved.saveAttemptId).toEqual(expect.any(String));
     expect(moved.saveAttemptId).not.toBe("keepalive-attempt");
-    expect(adoptOwnConfirmedBases(pending, () => null)).toBe(pending);
+    // Page recovery still treats a receipt for the keepalive copy as proof
+    // that this draft landed.
+    expect(moved.equivalentSaveAttemptIds).toEqual(["keepalive-attempt"]);
+    expect(
+      adoptOwnConfirmedBases(pending, "Intro first second", () => null),
+    ).toBe(pending);
+
+    // Reverting the earlier save matches the captured base, so the keepalive
+    // copy sent no body. Its receipt must not confirm the revert.
+    expect(
+      adoptOwnConfirmedBases(pending, "Intro", ownBase)
+        .equivalentSaveAttemptIds,
+    ).toBeUndefined();
+    // Neither copy sends a body that already matches the newer base.
+    expect(
+      adoptOwnConfirmedBases(pending, "Intro first", ownBase)
+        .equivalentSaveAttemptIds,
+    ).toEqual(["keepalive-attempt"]);
   });
 
   it("rebases across a chain of this editor's earlier saves", () => {
@@ -2162,6 +2184,75 @@ describe("document editor layout", () => {
 
     expect(hidden.indexOf("sendKeepaliveSave(pending)")).toBeLessThan(
       hidden.indexOf("flushPendingDocumentSave(pending)"),
+    );
+  });
+
+  it("derives the hidden-tab keepalive copy's load watermark like the ordinary flush", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    ).replace(/\r\n/g, "\n");
+    const bounds = [
+      source.indexOf("const sendKeepaliveSave"),
+      source.indexOf("const onVisibilityChange"),
+      source.indexOf("return await updateDocument.mutateAsync({"),
+      source.indexOf("editorSnapshotTitle: options.editorSnapshotTitle"),
+    ];
+    expect(bounds).not.toContain(-1);
+    const keepalive = source.slice(bounds[0], bounds[1]);
+    const flush = source.slice(bounds[2], bounds[3]);
+
+    // A title-only save sends no content, but both copies share one
+    // attempt ID, so both must still carry the same load watermark.
+    expect(keepalive).toContain(
+      "loadedUpdatedAtForSave(\n          pending.contentBase,\n          documentUpdatedAtRef.current,\n        )",
+    );
+    expect(flush).toContain(
+      "loadedUpdatedAtForSave(\n            options.contentBase,\n            documentUpdatedAtRef.current,\n          )",
+    );
+    expect(
+      loadedUpdatedAtForSave(
+        { updatedAt: "2026-09-30T22:59:32.852Z" },
+        "2026-09-30T23:00:39.264Z",
+      ),
+    ).toBe("2026-09-30T22:59:32.852Z");
+    expect(
+      loadedUpdatedAtForSave({ updatedAt: null }, "2026-09-30T23:00:39.264Z"),
+    ).toBe("2026-09-30T23:00:39.264Z");
+    expect(loadedUpdatedAtForSave(undefined, null)).toBeUndefined();
+  });
+
+  it("journals a replacement attempt ID before any save branch sends it", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    ).replace(/\r\n/g, "\n");
+    const start = source.indexOf(
+      "const saveDocumentImmediately = useCallback(",
+    );
+    const end = source.indexOf("const queueDocumentSave = useCallback(");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const save = source.slice(start, end);
+    const journal = save.indexOf(
+      "journalCurrentDraft(title, content, editorEditGeneration, {\n          saveAttemptId: adopted.saveAttemptId,\n          equivalentSaveAttemptIds: adopted.equivalentSaveAttemptIds,",
+    );
+    // An edit made since this save was queued owns the journal entry.
+    const guard = save.indexOf(
+      "adopted.saveAttemptId !== options.saveAttemptId &&\n        contentEditVersionRef.current === contentEditVersion &&\n        contentObservationEpochRef.current === contentObservationEpoch &&\n        editorEditGenerationRef.current === editorEditGeneration",
+    );
+
+    expect(save.indexOf("adoptOwnConfirmedBases(options,")).toBeGreaterThan(-1);
+    expect(guard).toBeGreaterThan(
+      save.indexOf("adoptOwnConfirmedBases(options,"),
+    );
+    expect(journal).toBeGreaterThan(guard);
+    // Unchanged attestations and title-only saves send without journaling.
+    expect(journal).toBeLessThan(
+      save.indexOf("shouldAttestUnchangedEditorSave("),
+    );
+    expect(journal).toBeLessThan(
+      save.indexOf("saved = await persistDocumentUpdates(updates, options);"),
     );
   });
 

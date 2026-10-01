@@ -228,7 +228,11 @@ export function PageDraftRecovery({
       setJournalState("checking");
     };
     void (async () => {
-      if (journalSnapshot.saveAttemptId) {
+      const attemptIds = [
+        journalSnapshot.saveAttemptId,
+        ...(journalSnapshot.equivalentSaveAttemptIds ?? []),
+      ].filter((attemptId): attemptId is string => !!attemptId);
+      for (const attemptId of attemptIds) {
         const receipt = await callAction<{
           found: boolean;
           preservationRequired?: {
@@ -239,7 +243,7 @@ export function PageDraftRecovery({
           "get-document-save-attempt",
           {
             id: document.id,
-            browserSaveAttemptId: journalSnapshot.saveAttemptId,
+            browserSaveAttemptId: attemptId,
           },
           { method: "GET" },
         );
@@ -304,6 +308,7 @@ export function PageDraftRecovery({
             baseRevision: base.revision,
             saveAttemptId,
             priorSaveAttemptIds: undefined,
+            equivalentSaveAttemptIds: undefined,
           };
           const written = writePageDraftJournal({
             scope: entry.scope,
