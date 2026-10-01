@@ -2232,13 +2232,15 @@ export async function createMCPServerForRequest(
             });
             directoryLinkUrl = linked?.url ?? undefined;
           }
-          const rawResultForClient = mcpAppResourceCandidate
-            ? await withServerMintedMcpAppEmbedStart(
-                projectedRawResult,
-                requestMeta,
-                directoryLinkUrl,
-              )
-            : projectedRawResult;
+          const rawResultForClient =
+            mcpAppResourceCandidate &&
+            !(directoryCatalog && entry.readOnly === true)
+              ? await withServerMintedMcpAppEmbedStart(
+                  projectedRawResult,
+                  requestMeta,
+                  directoryLinkUrl,
+                )
+              : projectedRawResult;
           const {
             value: actionResultForClient,
             images: resultImages,

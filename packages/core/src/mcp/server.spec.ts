@@ -985,6 +985,62 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(wrongAudience).toMatchObject({ error: "Unauthorized" });
   });
 
+  it("does not mint an unrestricted embed ticket from a read-only directory link", async () => {
+    const readArtifact = defineAction({
+      description: "Read one workspace document.",
+      parameters: {},
+      readOnly: true,
+      mcpAnnotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://content/get-document/shell-v65",
+          title: "Document",
+          html: "<!doctype html><html><body>Document</body></html>",
+        },
+      },
+      run: async () => ({ id: "doc-1", title: "Launch plan" }),
+      link: () => ({
+        url: "/documents/doc-1",
+        label: "Open document",
+        view: "editor",
+      }),
+    });
+    const directoryConfig = {
+      ...config,
+      catalogMode: "directory" as const,
+      connectorCatalog: ["get-document"],
+      directoryProfile: { connectorCatalog: ["get-document"] },
+      widgetDomain: "https://mail.agent-native.com",
+      actions: { "get-document": readArtifact },
+    };
+    const headers = await mcpAppsAuthHeaders({
+      scope: "mcp:read mcp:apps",
+      resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+    });
+
+    const called = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 142,
+        method: "tools/call",
+        params: { name: "get-document", arguments: {} },
+      },
+      {
+        headers,
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+
+    expect(called.result.isError).not.toBe(true);
+    expect(embedSessionMocks.createEmbedSessionTicket).not.toHaveBeenCalled();
+    expect(called.result._meta["agent-native/embedStart"]).toBeUndefined();
+  });
+
   it("handles `initialize` without a 501", async () => {
     const out = await callWeb({
       jsonrpc: "2.0",
