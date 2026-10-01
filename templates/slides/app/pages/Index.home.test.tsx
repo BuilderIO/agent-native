@@ -555,6 +555,11 @@ describe("Slides prompt-led home", () => {
     rerenderHome();
 
     expect(referenceProps.mock.lastCall![0].referenceOptionsLoaded).toBe(true);
+
+    useDecks.mockReturnValue({ ...useDecks(), loadError: true });
+    rerenderHome();
+
+    expect(referenceProps.mock.lastCall![0].referenceOptionsLoaded).toBe(false);
   });
   it("opens the existing creator only on selection, keeps the composer mounted on cancel, and refetches on completion", async () => {
     renderHome();

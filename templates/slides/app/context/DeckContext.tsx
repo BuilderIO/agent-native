@@ -3749,6 +3749,9 @@ export function DeckProvider({
     if (hydratedEveryAddedDeck) {
       loadErrorRef.current = false;
       setLoadError(false);
+    } else {
+      loadErrorRef.current = true;
+      setLoadError(true);
     }
   }, [isNewerThanSnapshot]);
 
