@@ -2084,20 +2084,19 @@ const AgentKitAssistantChatBody = forwardRef<
             const selectionRevision = selectionRevisionRef.current;
             const attachments = options.attachments ?? [];
             const needsFileStorage =
-              files.length > 0 ||
-              attachments.some(
-                (attachment) => !attachment.displayOnly && !attachment.url,
-              );
+              !options.deferredFileParts &&
+              (files.length > 0 ||
+                attachments.some(
+                  (attachment) => !attachment.displayOnly && !attachment.url,
+                ));
             if (needsFileStorage && !fileStorageConfigured) {
               throw new Error(t("onboarding.fileStorage.title"));
             }
             // Persist only URLs or opaque file handles; application_state is
             // not a file store and must never receive attachment bodies.
-            const fileParts = await uploadAgentChatAttachments(
-              control,
-              attachments,
-              files,
-            );
+            const fileParts =
+              options.deferredFileParts ??
+              (await uploadAgentChatAttachments(control, attachments, files));
             const selectionChangedDuringUpload =
               selectionRevision !== selectionRevisionRef.current;
             const context = options.recoveryAction
