@@ -120,7 +120,7 @@ The dashboard has 6 tabs:
 
 Select a run to inspect its spans. Expand any span to view captured tool inputs, outputs, errors, and metadata. Use **Open full conversation** to jump to the associated chat thread.
 
-Tool arguments and results are off by default. Enable `captureToolArgs` and `captureToolResults` in the `observability` config to store them. Sensitive fields and tool error messages are redacted before storage.
+Tool arguments, results, and full error bodies are off by default. Enable `captureToolArgs` to store arguments and `captureToolResults` to store results and full error bodies in the `observability` config. Sensitive fields are redacted before storage. A failed tool always keeps a bounded first line of its error, with credentials, emails, and long opaque ids redacted, so failures stay diagnosable even when `captureToolResults` is off.
 
 ### Human review {#review}
 
@@ -282,7 +282,7 @@ export default defineAppConfig({
 
 <Callout id="doc-block-1xvsimn" tone="info">
 
-Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+Content is **redacted by default**: token counts, costs, and timing are stored, plus, for a failed tool, a bounded first line of its error with credentials, emails, and long opaque ids redacted. Prompts, tool inputs, tool results, and full error bodies stay off unless `capturePrompts`, `captureToolArgs`, and `captureToolResults` are on. Turn them on only when you need prompt or argument content for debugging.
 
 </Callout>
 

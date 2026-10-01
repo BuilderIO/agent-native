@@ -432,6 +432,19 @@ describe("controlled composer context", () => {
       vi.spyOn(frame, "getBoundingClientRect").mockImplementation(() =>
         DOMRect.fromRect(bounds),
       );
+      if (plusMenu) {
+        const button = container.querySelector<HTMLButtonElement>(
+          'button[aria-label="Add context"]',
+        )!;
+        vi.spyOn(button, "getBoundingClientRect").mockImplementation(() =>
+          DOMRect.fromRect({
+            x: bounds.x + 16,
+            y: bounds.y + bounds.height - 40,
+            width: 28,
+            height: 28,
+          }),
+        );
+      }
       // A wider ancestor must not override the narrower composer that owns the panel.
       container.dataset.agentComposerSlot = "root";
       vi.spyOn(container, "getBoundingClientRect").mockReturnValue(
@@ -494,7 +507,7 @@ describe("controlled composer context", () => {
         expect(panel.style.left).toBe("120px");
         expect(panel.style.bottom).toContain("160px");
       }
-      expect(panel.style.maxHeight).toBe("136px");
+      expect(panel.style.maxHeight).toBe(plusMenu ? "246px" : "136px");
       await act(async () =>
         editor.dispatchEvent(
           new KeyboardEvent("keydown", {

@@ -242,9 +242,37 @@ describe("createBuilderEngine", () => {
     expect(init.headers["x-builder-user-id"]).toBeUndefined();
   });
 
-  it("does not fall back to legacy credentials when Builder OAuth custody exists", async () => {
+  it("asks to reconnect, not to connect, when stored Builder OAuth custody is unusable", async () => {
     oauthState.ownerEmail = "person@example.com";
     oauthState.stored = true;
+    credentialState.lane = "gateway-deploy";
+    vi.stubEnv("BUILDER_GATEWAY_TOKEN", "deploy-gateway-token");
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    // The connection exists, so "No LLM provider is connected" would send the
+    // reader around a Connect loop; it is the stored grant that needs repair.
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "stop",
+        reason: "error",
+        errorCode: "builder_auth_error",
+        error: expect.stringContaining("Reconnect Builder"),
+      }),
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("reports an unreadable credential store instead of a missing connection", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.stored = true;
+    oauthState.resolveAccess.mockRejectedValueOnce(
+      Object.assign(new Error("Connection terminated unexpectedly"), {
+        code: "08006",
+      }),
+    );
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
 
@@ -254,7 +282,7 @@ describe("createBuilderEngine", () => {
       expect.objectContaining({
         type: "stop",
         reason: "error",
-        errorCode: "missing_credentials",
+        errorCode: "credential_store_unavailable",
       }),
     );
     expect(fetchSpy).not.toHaveBeenCalled();

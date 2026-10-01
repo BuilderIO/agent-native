@@ -580,6 +580,12 @@ const messages: ToolkitAgentChatTranslation = {
     "工具結構描述無效，因此模型在要求開始前便拒絕了要求。您可以略過無效工具並重試要求。",
   "errorMessages.malformedRequest":
     "模型供應商認為此要求格式有誤而予以拒絕，因此未重試。請重試，若問題持續發生，請開始新的對話。",
+  "errorMessages.runInterrupted": "代理在完成前停止了。",
+  "errorMessages.runFailed": "代理執行失敗。",
+  "errorMessages.runUnverified":
+    "此對話已無法追蹤代理，它可能仍在執行。請重新載入以查看進度。",
+  "errorMessages.runSignedOut":
+    "您已登出，因此此對話無法追蹤代理。請重新登入，然後重新載入。",
   "errorMessages.malformedRequestAttachment":
     "模型拒絕了一個附加檔案，因此這則訊息並未送出。請移除附件後重試：PDF、純文字檔案以及 JPEG、PNG、GIF、WebP 圖片可直接讀取；其他格式需要先上傳再以連結引用。",
   "errorMessages.noProviderConnected":

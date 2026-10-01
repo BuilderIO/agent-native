@@ -293,6 +293,18 @@ describe("db/client Postgres URL handling", () => {
     );
   });
 
+  it("treats Cloudflare Pages as a serverless runtime", async () => {
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "");
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "");
+    vi.stubEnv("LAMBDA_TASK_ROOT", "");
+    vi.stubEnv("CF_PAGES", "1");
+    const { isServerlessRuntime } = await import("./client.js");
+
+    expect(isServerlessRuntime()).toBe(true);
+  });
+
   it("keeps the pool bounded when Netlify exposes only the function marker", async () => {
     vi.stubEnv("NETLIFY", "");
     vi.stubEnv("NETLIFY_FUNCTION_NAME", "slides");

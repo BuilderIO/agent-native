@@ -2,11 +2,11 @@
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { parseDocument } from "yaml";
 
-const repoRoot = path.resolve(new URL("..", import.meta.url).pathname);
+const repoRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 
 function sh(cmd) {
   return execSync(cmd, { cwd: repoRoot, encoding: "utf8" }).trim();

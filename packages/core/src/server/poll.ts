@@ -16,20 +16,26 @@ import {
   getDbExec,
   isProductionServerlessFunctionRuntime,
 } from "../db/client.js";
-import {
-  ensureIndexExists,
-  ensureIndexExistsConcurrently,
-  ensureTableExists,
-} from "../db/ddl-guard.js";
+import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { appMigratesAtRelease } from "../db/migration-policy.js";
 import {
   EXTENSION_CHANGE_MARKER_KEY,
   parseExtensionChangeMarker,
   type ExtensionChangeTarget,
 } from "../extensions/change-marker.js";
+import {
+  registerRecurringSweepHandler,
+  type RecurringSweepContext,
+} from "../jobs/sweep-hooks.js";
 import { REALTIME_REGISTRATION_SETTING_KEY } from "../realtime-registration-key.js";
 import { getSettingsEmitter } from "../settings/store.js";
 import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
+import {
+  pruneSyncEvents,
+  SYNC_EVENTS_PRUNE_STATE_TABLE,
+  type SyncEventsPruneOptions,
+  type SyncEventsPruneResult,
+} from "./sync-events-prune.js";
 
 export interface ChangeEvent {
   version: number;
@@ -53,10 +59,27 @@ export interface TransactionalChange {
 
 const MAX_BUFFER = 200;
 const DURABLE_READ_LIMIT = 1000;
-const DURABLE_RETENTION_MS = 24 * 60 * 60 * 1000;
-const DURABLE_PRUNE_BATCH = 10_000;
-const DURABLE_PRUNE_MAX_BATCHES = 40;
-const DURABLE_PRUNE_LOCK_KEY = "agent-native:sync-events-prune";
+const DURABLE_PRUNE_WRITE_INTERVAL_MS = 5 * 60 * 1000;
+const DURABLE_PRUNE_WRITE_BUDGET_MS = 3_000;
+const DURABLE_PRUNE_SWEEP_BUDGET_MS = 20_000;
+export const SYNC_EVENTS_PRUNE_SWEEP_ID = "sync-events-prune";
+export const SYNC_EVENTS_PRUNE_STATE_CREATE_SQL = `
+  CREATE TABLE IF NOT EXISTS ${SYNC_EVENTS_PRUNE_STATE_TABLE} (
+    id INT PRIMARY KEY,
+    cursor_version BIGINT NOT NULL DEFAULT 0,
+    lease_owner TEXT,
+    lease_expires_at BIGINT,
+    last_run_at BIGINT,
+    last_checked_at BIGINT,
+    last_success_at BIGINT,
+    last_deleted BIGINT NOT NULL DEFAULT 0,
+    total_deleted BIGINT NOT NULL DEFAULT 0,
+    backlog BOOLEAN NOT NULL DEFAULT FALSE,
+    consecutive_failures INT NOT NULL DEFAULT 0,
+    last_error TEXT,
+    last_error_at BIGINT
+  )
+`;
 const ACTION_MARKER_REPLAY_WINDOW_MS = 60_000;
 const LEGACY_DB_CHECK_INTERVAL_MS = 1000;
 export const DURABLE_LEGACY_DB_CHECK_INTERVAL_MS = 30_000;
@@ -375,8 +398,9 @@ export class AppSyncState {
   private readonly buffer: ChangeEvent[] = [];
   private readonly pollEmitter = new EventEmitter();
   private syncEventsInitPromise: Promise<boolean> | undefined;
+  private syncEventsInitFailures = 0;
   private lastDurablePrune = Date.now();
-  private durablePruneFailures = 0;
+  private pruneInFlight: Promise<SyncEventsPruneResult> | undefined;
   private durableWriteFailures = 0;
   private allocatorReseedFailures = 0;
 
@@ -485,24 +509,26 @@ export class AppSyncState {
 
         const guardOptions = { injectedClient: client };
         await ensureTableExists("sync_events", createSql, guardOptions);
+        // Retention bookkeeping must never stop event writes: without this
+        // table the prune fails on its own, loudly, and events keep flowing.
+        try {
+          await ensureTableExists(
+            SYNC_EVENTS_PRUNE_STATE_TABLE,
+            SYNC_EVENTS_PRUNE_STATE_CREATE_SQL,
+            guardOptions,
+          );
+        } catch (error) {
+          console.error(
+            `[agent-native] sync_events_prune_state_unavailable: could not ensure ${SYNC_EVENTS_PRUNE_STATE_TABLE}; sync events still persist, retention prune will fail until it exists:`,
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        // `version` is the only index the read and the prune can use: the read
+        // ORs owner/org/resource_type, so (owner, version) and (org_id, version)
+        // were never scanned and only multiplied the write cost of every event.
         await ensureIndexExists(
           "sync_events_version_idx",
           "CREATE INDEX IF NOT EXISTS sync_events_version_idx ON sync_events (version)",
-          guardOptions,
-        );
-        await ensureIndexExists(
-          "sync_events_owner_version_idx",
-          "CREATE INDEX IF NOT EXISTS sync_events_owner_version_idx ON sync_events (owner, version)",
-          guardOptions,
-        );
-        await ensureIndexExists(
-          "sync_events_org_version_idx",
-          "CREATE INDEX IF NOT EXISTS sync_events_org_version_idx ON sync_events (org_id, version)",
-          guardOptions,
-        );
-        await ensureIndexExistsConcurrently(
-          "sync_events_created_at_id_idx",
-          "CREATE INDEX CONCURRENTLY IF NOT EXISTS sync_events_created_at_id_idx ON sync_events (created_at, id)",
           guardOptions,
         );
         if (this.dbAssignedVersions) {
@@ -513,52 +539,66 @@ export class AppSyncState {
           );
           await client.execute(SEED_SYNC_VERSION_SQL);
         }
+        this.syncEventsInitFailures = 0;
         return true;
-      })().catch(() => {
+      })().catch((error: unknown) => {
         this.syncEventsInitPromise = undefined;
+        this.syncEventsInitFailures++;
+        if (this.syncEventsInitFailures === 1) {
+          console.error(
+            "[agent-native] sync_events_unavailable: could not ensure sync_events; durable real-time events are not written until it recovers:",
+            error instanceof Error ? error.message : String(error),
+          );
+        }
         return false;
       });
     }
     return this.syncEventsInitPromise;
   }
 
-  private async pruneDurableEvents(client: DbExec): Promise<void> {
+  /** Single-flight per process; cross-instance exclusion is the state-row lease. */
+  pruneDurableEvents(
+    client: DbExec,
+    options?: SyncEventsPruneOptions,
+  ): Promise<SyncEventsPruneResult> {
+    if (this.pruneInFlight) return this.pruneInFlight;
+    const run = pruneSyncEvents(client, options).finally(() => {
+      if (this.pruneInFlight === run) this.pruneInFlight = undefined;
+    });
+    this.pruneInFlight = run;
+    return run;
+  }
+
+  private prunePiggyback(client: DbExec): void {
     const now = Date.now();
-    if (now - this.lastDurablePrune < 5 * 60 * 1000) return;
+    if (now - this.lastDurablePrune < DURABLE_PRUNE_WRITE_INTERVAL_MS) return;
     this.lastDurablePrune = now;
-    const cutoff = now - DURABLE_RETENTION_MS;
-    let deleted = 0;
-    try {
-      for (let batch = 0; batch < DURABLE_PRUNE_MAX_BATCHES; batch++) {
-        const rowsAffected = (
-          await client.execute({
-            sql: `WITH prune_lease AS MATERIALIZED (
-                   SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0::bigint)) AS acquired
-                 ), prune_batch AS MATERIALIZED (
-                   SELECT sync_events.id
-                   FROM sync_events CROSS JOIN prune_lease
-                   WHERE prune_lease.acquired AND sync_events.created_at < ?
-                   ORDER BY sync_events.created_at, sync_events.id LIMIT ?
-                 )
-                 DELETE FROM sync_events WHERE id IN (
-                   SELECT id FROM prune_batch
-                 )`,
-            args: [DURABLE_PRUNE_LOCK_KEY, cutoff, DURABLE_PRUNE_BATCH],
-          })
-        ).rowsAffected;
-        deleted += rowsAffected;
-        if (rowsAffected < DURABLE_PRUNE_BATCH) break;
-      }
-      this.durablePruneFailures = 0;
-    } catch (err) {
-      this.durablePruneFailures++;
-      if (this.durablePruneFailures === 1) {
-        console.warn(
-          `[agent-native] sync_events prune failed after deleting ${deleted} row(s); the table will grow until this succeeds:`,
-          err instanceof Error ? err.message : String(err),
-        );
-      }
+    void this.pruneDurableEvents(client, {
+      budgetMs: DURABLE_PRUNE_WRITE_BUDGET_MS,
+    }).catch((error) => {
+      console.error("[agent-native] sync_events prune crashed:", error);
+    });
+  }
+
+  /** Recurring-sweep driver: a failed prune must fail the tick, not pass as idle. */
+  async pruneDurableEventsForSweep(
+    context: RecurringSweepContext,
+  ): Promise<SyncEventsPruneResult | null> {
+    if (syncEventsDisabled()) return null;
+    if (!(await this.ensureSyncEventsTable())) {
+      throw new Error("sync_events is unavailable; retention prune skipped");
     }
+    const result = await this.pruneDurableEvents(this.getDb(), {
+      budgetMs: DURABLE_PRUNE_SWEEP_BUDGET_MS,
+      deadlineAt: context.deadlineAt,
+      signal: context.signal,
+    });
+    if (result.status === "failed") {
+      throw new Error(
+        `sync_events prune failed (${result.consecutiveFailures} consecutive): ${result.error}`,
+      );
+    }
+    return result;
   }
 
   private reportDurableWriteFailure(
@@ -610,7 +650,7 @@ export class AppSyncState {
       ],
     });
     this.durableWriteFailures = 0;
-    await this.pruneDurableEvents(client);
+    this.prunePiggyback(client);
   }
 
   private async persistWithDbAssignedVersion(
@@ -644,7 +684,7 @@ export class AppSyncState {
     }
     if (result.rows.length > 0) this.allocatorReseedFailures = 0;
     const version = timestampValue(result.rows[0]?.version);
-    await this.pruneDurableEvents(client);
+    this.prunePiggyback(client);
     return version > 0 ? version : null;
   }
 
@@ -1812,10 +1852,19 @@ export function getChangesSinceForUser(
   );
 }
 
+export function registerSyncEventsPruneSweep(state: AppSyncState): () => void {
+  return registerRecurringSweepHandler(SYNC_EVENTS_PRUNE_SWEEP_ID, (context) =>
+    state.pruneDurableEventsForSweep(context).then(() => undefined),
+  );
+}
+
 export function createPollHandler(
   state: AppSyncState = getDefaultAppSyncState(),
 ) {
-  if (state === getDefaultAppSyncState()) state.wireLocalEmitters();
+  if (state === getDefaultAppSyncState()) {
+    state.wireLocalEmitters();
+    registerSyncEventsPruneSweep(state);
+  }
   return defineEventHandler(async (event) => {
     try {
       // coercion-ok: polling must fail closed when session resolution is unavailable.

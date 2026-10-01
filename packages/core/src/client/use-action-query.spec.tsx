@@ -17,6 +17,7 @@ const sessionMocks = vi.hoisted(() => ({
 }));
 vi.mock("./use-session.js", () => sessionMocks);
 
+import { resetActionFailureCircuits } from "./action-failure-circuit.js";
 import { useActionQuery } from "./use-action.js";
 
 function actionResponseCount(): number {
@@ -34,6 +35,7 @@ describe("useActionQuery refetchInterval", () => {
     for (const container of containers) container.remove();
     roots.length = 0;
     containers.length = 0;
+    resetActionFailureCircuits();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
