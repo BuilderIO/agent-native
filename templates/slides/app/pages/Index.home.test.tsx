@@ -528,10 +528,15 @@ describe("Slides prompt-led home", () => {
       screen.queryByRole("dialog", { name: "Existing system setup" }),
     ).toBeNull();
   });
-  it("waits for the design-system flag before treating references as empty", () => {
+  it("waits for a ready design-system flag before treating references as empty", () => {
     systemFlag.enabled = false;
     systemFlag.status = "loading";
     const { rerenderHome } = renderHome();
+
+    expect(referenceProps.mock.lastCall![0].referenceOptionsLoaded).toBe(false);
+
+    systemFlag.status = "unavailable";
+    rerenderHome();
 
     expect(referenceProps.mock.lastCall![0].referenceOptionsLoaded).toBe(false);
 

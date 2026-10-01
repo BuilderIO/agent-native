@@ -2671,7 +2671,7 @@ export default function Index({ active = true }: { active?: boolean }) {
         designSystems={designSystems}
         decks={decks}
         referenceOptionsLoaded={
-          systemsFlag.status !== "loading" &&
+          systemsFlag.status === "ready" &&
           !loading &&
           !loadError &&
           (!systemsEnabled ||
