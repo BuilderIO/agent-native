@@ -1658,6 +1658,9 @@ export function DocumentToolbar({
                   <DropdownMenuItem
                     onSelect={() => {
                       onSuggestingChange?.(!suggesting);
+                      if (suggestFocusTimeoutRef.current != null) {
+                        window.clearTimeout(suggestFocusTimeoutRef.current);
+                      }
                       suggestFocusTimeoutRef.current = window.setTimeout(() => {
                         suggestFocusTimeoutRef.current = undefined;
                         document
