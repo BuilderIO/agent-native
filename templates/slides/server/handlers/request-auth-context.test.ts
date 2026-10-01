@@ -4,7 +4,7 @@ const mockGetSession = vi.hoisted(() => vi.fn());
 const mockGetMcpOAuthBearerSession = vi.hoisted(() => vi.fn());
 const mockGetOrgContext = vi.hoisted(() => vi.fn());
 const mockIsCredentialMembershipUnavailable = vi.hoisted(() =>
-  vi.fn(() => false),
+  vi.fn((..._args: unknown[]) => false),
 );
 const mockRunWithRequestContext = vi.hoisted(() =>
   vi.fn(async (_ctx: unknown, fn: () => unknown) => fn()),

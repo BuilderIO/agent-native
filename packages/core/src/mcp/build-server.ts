@@ -2504,7 +2504,7 @@ async function markConnectTokenUsed(jti: string | undefined): Promise<void> {
     const { touchTokenUsed } = await import("./connect-store.js");
     void touchTokenUsed(jti);
   } catch {
-    // last_used_at is informational only.
+    // coercion-ok: last_used_at is informational; failing to record it must not refuse an admitted request.
   }
 }
 
