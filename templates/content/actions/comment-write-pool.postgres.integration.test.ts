@@ -7,7 +7,7 @@ vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/application-state")
   >()),
-  writeAppState: vi.fn(),
+  writeAppState: vi.fn(async () => {}),
 }));
 vi.mock("@agent-native/core/tracking", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/tracking")>()),
