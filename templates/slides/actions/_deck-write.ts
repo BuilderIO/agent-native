@@ -144,6 +144,7 @@ export function assertDeckWriteApplied(
 
 export async function retryDeckWrite<T>(
   operation: () => Promise<T>,
+  retryConflicts = true,
 ): Promise<T> {
   for (let attempt = 0; ; attempt += 1) {
     try {
@@ -152,6 +153,7 @@ export async function retryDeckWrite<T>(
       if (
         (error as { errorCode?: unknown })?.errorCode !==
           "deck_write_conflict" ||
+        !retryConflicts ||
         attempt === 5
       ) {
         throw error;

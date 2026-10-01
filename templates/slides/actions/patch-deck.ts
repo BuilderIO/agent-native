@@ -51,6 +51,7 @@ import {
   assertHumanReadableDeckTitle,
   repairGeneratedDeckTitle,
 } from "../shared/deck-title.js";
+import { isMergeSafeDeckPatchOperations } from "../shared/deck-write.js";
 import {
   createLayoutFitRevision,
   deckFitRenderFieldsChanged,
@@ -910,16 +911,7 @@ export default defineAction({
         deckId,
         clientWrite,
         {
-          allowRevisionMismatch: operations.every((operation) =>
-            operation.op === "add-slide"
-              ? true
-              : operation.op === "patch-slide" &&
-                operation.fields.content !== undefined &&
-                operation.baseContentHash !== undefined &&
-                Object.keys(operation.fields).every(
-                  (field) => field === "content",
-                ),
-          ),
+          allowRevisionMismatch: isMergeSafeDeckPatchOperations(operations),
         },
       );
       if (writeDisposition === "already-applied") {
@@ -1528,6 +1520,8 @@ export default defineAction({
       };
       return base;
     };
-    return withDeckLock(deckId, () => retryDeckWrite(applyPatch));
+    return withDeckLock(deckId, () =>
+      retryDeckWrite(applyPatch, isMergeSafeDeckPatchOperations(operations)),
+    );
   },
 });

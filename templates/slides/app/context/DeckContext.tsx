@@ -42,6 +42,7 @@ import { toast } from "sonner";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
 import { deckContentSignature as stableDeckContentSignature } from "../../shared/deck-content";
+import { isMergeSafeDeckPatchOperations } from "../../shared/deck-write";
 import {
   normalizeSlidePadding,
   normalizeSlidePaddingForWrite,
@@ -1002,16 +1003,7 @@ async function callDeckWriteAction<TResult>(
   } catch (error) {
     const operations = payload.operations;
     const mergeablePatch =
-      actionName === "patch-deck" &&
-      Array.isArray(operations) &&
-      operations.length > 0 &&
-      operations.every(
-        (operation) =>
-          operation &&
-          typeof operation === "object" &&
-          "op" in operation &&
-          (operation.op === "patch-slide" || operation.op === "add-slide"),
-      );
+      actionName === "patch-deck" && isMergeSafeDeckPatchOperations(operations);
     if (mergeablePatch && isDeckRevisionConflict(error)) {
       const latest = await fetchDeckFromAPI(deckId);
       if (latest) rememberDeckServerRevision(deckId, latest);

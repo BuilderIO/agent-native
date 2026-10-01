@@ -3614,6 +3614,42 @@ describe("run() — client write ordering", () => {
     ]);
   });
 
+  it("does not retry metadata edits after a lost database CAS", async () => {
+    nextDeckWriteMiss = () => {
+      const latest = JSON.parse(mockDeckRow!.data as string);
+      latest.slides[0].notes = "remote edit";
+      mockDeckRow = {
+        ...mockDeckRow,
+        data: JSON.stringify(latest),
+        updatedAt: "2026-01-01T00:00:00.001Z",
+      };
+    };
+
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: { notes: "local edit" },
+            },
+          ],
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "deck_write_conflict",
+      statusCode: 409,
+    });
+
+    expect(JSON.parse(mockDeckRow!.data as string).slides[0]).toMatchObject({
+      content: "base",
+      notes: "remote edit",
+    });
+  });
+
   it("keeps a same-slide content conflict after a lost database CAS", async () => {
     nextDeckWriteMiss = () => {
       const latest = JSON.parse(mockDeckRow!.data as string);

@@ -1692,6 +1692,62 @@ describe("DeckContext deck creation persistence", () => {
     expect(hasUnsavedDeckChanges(deckId)).toBe(false);
   });
 
+  it("keeps mixed content and metadata revision conflicts terminal", async () => {
+    const deckId = "mixed-slide-revision-conflict-deck";
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const {
+      fetchMock,
+      setAccessibleDeck,
+      getAccessibleDeck,
+      getPatchAttempts,
+    } = setupFetch({
+      revisionConflicts: { deckId, count: 1 },
+      serverFaithfulClientWrites: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: deckId,
+      title: "Mixed revision conflict deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "One", notes: "Old notes", layout: "title" },
+        { id: "slide-4", content: "Remote", notes: "", layout: "content" },
+      ],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    const readsBeforeEdit = deckFetchCalls(fetchMock).length;
+    act(() => {
+      result.current.updateSlide(
+        deckId,
+        "slide-1",
+        { content: "Edited", notes: "New notes" },
+        { persistence: "immediate" },
+      );
+    });
+
+    await waitFor(() => expect(hasFailedDeckSave(deckId)).toBe(true));
+    await act(async () => {
+      await expect(result.current.flushDeckSave(deckId)).rejects.toThrow(
+        "Failed to save deck",
+      );
+    });
+
+    expect(getPatchAttempts(deckId)).toBe(1);
+    expect(deckFetchCalls(fetchMock)).toHaveLength(readsBeforeEdit);
+    expect(getAccessibleDeck()?.slides).toMatchObject([
+      { id: "slide-1", content: "One", notes: "Old notes" },
+      { id: "slide-4", notes: "Remote revision 1" },
+    ]);
+    expect(hasUnsavedDeckChanges(deckId)).toBe(true);
+  });
+
   it("does not refetch or retry a non-revision 409", async () => {
     const {
       fetchMock,
