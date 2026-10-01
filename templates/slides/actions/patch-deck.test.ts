@@ -3687,7 +3687,7 @@ describe("run() — client write ordering", () => {
   });
 });
 
-describe("run() — human deck history", () => {
+describe("run() — deck history", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockDeckRow = {
@@ -3729,5 +3729,40 @@ describe("run() — human deck history", () => {
       }),
       expect.objectContaining({ force: false, label: "Before deck patch" }),
     );
+  });
+
+  it("force-snapshots the original deck before an agent removes slides", async () => {
+    const originalSlides = Array.from({ length: 14 }, (_, index) => ({
+      id: `slide-${index + 1}`,
+      content: `<section>${index + 1}</section>`,
+    }));
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: originalSlides,
+    });
+
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: originalSlides.slice(0, 8).map((slide) => ({
+          op: "delete-slide",
+          slideId: slide.id,
+        })),
+      },
+      { caller: "tool", runId: "run-1", turnId: "turn-1" },
+    );
+
+    expect(mockCreateDeckVersionSnapshot).toHaveBeenCalledOnce();
+    expect(mockCreateDeckVersionSnapshot.mock.calls[0][0]).toMatchObject({
+      id: "deck-1",
+      ownerEmail: "owner@example.com",
+      data: JSON.stringify({ title: "Deck", slides: originalSlides }),
+    });
+    expect(mockCreateDeckVersionSnapshot.mock.calls[0][1]).toMatchObject({
+      force: true,
+      label: "Before deck patch",
+      chatContext: { runId: "run-1", turnId: "turn-1" },
+    });
+    expect(JSON.parse(mockDeckRow!.data as string).slides).toHaveLength(6);
   });
 });

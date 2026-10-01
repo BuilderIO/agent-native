@@ -244,6 +244,7 @@ describe("browser analytics pageviews", () => {
         new Response(
           JSON.stringify({
             configured: true,
+            chatEligible: false,
             engine: "builder",
             model: "claude-sonnet-4-6",
             source: "app_secrets",
@@ -262,6 +263,7 @@ describe("browser analytics pageviews", () => {
       properties: {
         llm_connection: "builder",
         llm_connection_configured: true,
+        llm_chat_eligible: false,
       },
     });
   });
@@ -324,6 +326,42 @@ describe("browser analytics pageviews", () => {
     expect(body.anonymousId).toMatch(/^[A-Za-z0-9_-]+$/);
     const latestBody = JSON.parse(String(analyticsCalls[1][1].body));
     expect(getCookie()).toContain(`an_aid=${latestBody.anonymousId}`);
+  });
+
+  it("keeps high-value signup attribution when the cookie payload exceeds its budget", async () => {
+    const params = new URLSearchParams({
+      gclid: "click-id",
+      msclkid: "microsoft-click-id",
+      utm_source: "google",
+      utm_medium: "cpc",
+      utm_campaign: "launch",
+      utm_content: "💡".repeat(120),
+      utm_term: "💡".repeat(120),
+    });
+    const { getCookie, localStorage } = installBrowser(
+      `https://slides.agent-native.com/?${params}`,
+    );
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      llmConnectionStatus: false,
+      authSessionRefresh: false,
+      pageviewTracking: false,
+    });
+
+    const cookie = getCookie();
+    const value = cookie.slice("an_ft=".length).split(";", 1)[0]!;
+    const captured = JSON.parse(decodeURIComponent(value));
+    const stored = JSON.parse(localStorage.getItem("an_attribution")!);
+
+    expect(cookie.length).toBeLessThanOrEqual(1500);
+    expect(captured).toMatchObject({
+      gclid: "click-id",
+      msclkid: "microsoft-click-id",
+      utm_source: "google",
+      capture_truncated: "1",
+    });
+    expect(stored.utm_term).toBe("💡".repeat(60));
   });
 
   it("emits return usage after a seven-day gap between app entries", async () => {

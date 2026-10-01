@@ -4021,7 +4021,11 @@ export default function DeckEditor() {
                 className="m-auto flex max-w-md flex-col items-center gap-4 text-center"
                 role="alert"
               >
-                <p>{t("deckEditor.deckHasNoSlides")}</p>
+                <p>
+                  {generationContext?.generationFailureCode === "agent_error"
+                    ? t("deckEditor.agentRunFailed")
+                    : t("deckEditor.deckHasNoSlides")}
+                </p>
                 <Button
                   disabled={!canEdit || generationRetryPending}
                   onClick={() => void retryEmptyGeneration()}

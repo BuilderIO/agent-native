@@ -1031,6 +1031,68 @@ export function AgentActivityGroup({
   );
   const firstSequence = new Map<string, number>();
   const latestEventOrder = new Map<string, number>();
+  const isInternalActivity = (activity: AgentActivity) =>
+    activity.id.startsWith("agentkit:internal:") ||
+    activity.id === "activity:Starting agent" ||
+    activity.id === "activity:Contacting model";
+  const delegatedActivityIds = new Set<string>();
+  const delegatedToolIds = new Set<string>();
+  if (excludeAgentActivities) {
+    for (const event of runEvents) {
+      if (
+        event.type === "activity.started" ||
+        event.type === "activity.updated" ||
+        event.type === "activity.completed"
+      ) {
+        const activity = thread.activities[event.activity.id] ?? event.activity;
+        if (event.activity.agentId || activity.agentId) {
+          delegatedActivityIds.add(event.activity.id);
+        }
+      }
+      if (event.type === "tool.started" || event.type === "tool.updated") {
+        const tool = thread.tools[event.toolCall.id] ?? event.toolCall;
+        if (event.toolCall.agentId || tool.agentId) {
+          delegatedToolIds.add(event.toolCall.id);
+        }
+      }
+      if (
+        event.type === "tool.delta" &&
+        thread.tools[event.toolCallId]?.agentId
+      ) {
+        delegatedToolIds.add(event.toolCallId);
+      }
+    }
+  }
+  let latestUsefulActivity:
+    | { activity: AgentActivity; sequence: number; eventOrder: number }
+    | undefined;
+  const usefulActivities = new Map<
+    string,
+    { activity: AgentActivity; sequence: number; eventOrder: number }
+  >();
+  const rememberUsefulActivity = (
+    activity: AgentActivity,
+    sequence: number,
+    eventOrder: number,
+  ) => {
+    if (
+      isInternalActivity(activity) ||
+      activity.label.trim().toLowerCase() ===
+        labels.reasoning.trim().toLowerCase()
+    ) {
+      return;
+    }
+    const candidate = { activity, sequence, eventOrder };
+    usefulActivities.set(activity.id, candidate);
+    if (
+      !latestUsefulActivity ||
+      (runId === undefined
+        ? latestUsefulActivity.eventOrder <= eventOrder
+        : latestUsefulActivity.sequence <= sequence)
+    ) {
+      latestUsefulActivity = candidate;
+    }
+  };
   const itemOrder: string[] = [];
   const seenItems = new Set<string>();
   const remember = (id: string, sequence: number) => {
@@ -1053,39 +1115,57 @@ export function AgentActivityGroup({
     ) {
       const id = `reasoning:${message.id}`;
       reasoningMap.set(id, message);
-      activityMap.set(id, {
+      const activity: AgentActivity = {
         id,
         kind: "reasoning",
         label: labels.reasoning,
         status: message.status === "streaming" ? "running" : "completed",
-      });
+      };
+      activityMap.set(id, activity);
       remember(id, event.sequence);
       latestEventOrder.set(id, eventOrder);
+      rememberUsefulActivity(activity, event.sequence, eventOrder);
     }
     if (
       event.type === "activity.started" ||
       event.type === "activity.updated" ||
       event.type === "activity.completed"
     ) {
-      if (excludeAgentActivities && event.activity.agentId) continue;
-      activityMap.set(
-        event.activity.id,
-        thread.activities[event.activity.id] ?? event.activity,
-      );
+      const activity = thread.activities[event.activity.id] ?? event.activity;
+      if (
+        excludeAgentActivities &&
+        delegatedActivityIds.has(event.activity.id)
+      ) {
+        continue;
+      }
+      activityMap.set(event.activity.id, activity);
       remember(event.activity.id, event.sequence);
       latestEventOrder.set(event.activity.id, eventOrder);
+      rememberUsefulActivity(activity, event.sequence, eventOrder);
     }
     if (event.type === "tool.started" || event.type === "tool.updated") {
-      toolMap.set(
-        event.toolCall.id,
-        thread.tools[event.toolCall.id] ?? event.toolCall,
-      );
+      const tool = thread.tools[event.toolCall.id] ?? event.toolCall;
+      if (excludeAgentActivities && delegatedToolIds.has(event.toolCall.id)) {
+        continue;
+      }
+      toolMap.set(event.toolCall.id, tool);
       remember(event.toolCall.id, event.sequence);
       latestEventOrder.set(event.toolCall.id, eventOrder);
+      rememberUsefulActivity(toolToActivity(tool), event.sequence, eventOrder);
     }
     if (event.type === "tool.delta") {
+      if (excludeAgentActivities && delegatedToolIds.has(event.toolCallId)) {
+        continue;
+      }
       const tool = thread.tools[event.toolCallId];
-      if (tool) toolMap.set(tool.id, tool);
+      if (tool) {
+        toolMap.set(tool.id, tool);
+        rememberUsefulActivity(
+          toolToActivity(tool),
+          event.sequence,
+          eventOrder,
+        );
+      }
       remember(event.toolCallId, event.sequence);
       latestEventOrder.set(event.toolCallId, eventOrder);
     }
@@ -1117,27 +1197,23 @@ export function AgentActivityGroup({
   const durableToolResultIds = new Set(
     durableToolResults.map(({ tool }) => tool.id),
   );
-  const isInternalActivity = (activity: AgentActivity) =>
-    activity.id.startsWith("agentkit:internal:") ||
-    activity.id === "activity:Starting agent" ||
-    activity.id === "activity:Contacting model";
   const activityItems = items.filter(
     (activity) =>
       !durableToolResultIds.has(activity.id) && !isInternalActivity(activity),
   );
-  const latestRunningActivity = items.reduce<AgentActivity | undefined>(
-    (current, activity) => {
-      if (activity.status !== "running" || isInternalActivity(activity)) {
-        return current;
-      }
-      if (!current) return activity;
-      return (latestEventOrder.get(activity.id) ?? -1) >=
-        (latestEventOrder.get(current.id) ?? -1)
-        ? activity
-        : current;
-    },
-    undefined,
-  );
+  const hasUsefulActivity =
+    activityItems.length > 0 || durableToolResults.length > 0;
+  const latestRunningUsefulActivity = [...usefulActivities.values()].reduce<
+    typeof latestUsefulActivity | undefined
+  >((current, candidate) => {
+    if (candidate.activity.status !== "running") return current;
+    return !current ||
+      (runId === undefined
+        ? candidate.eventOrder > current.eventOrder
+        : candidate.sequence > current.sequence)
+      ? candidate
+      : current;
+  }, undefined);
   const running = items.some((item) => item.status === "running");
   const run = runId ? thread.runs[runId] : undefined;
   const segmentStartedEvent = firstWorkEvents(runEvents).find(
@@ -1175,6 +1251,7 @@ export function AgentActivityGroup({
     isCurrentSegment &&
     (run ? run.status === "running" : running && !hasTerminalRunEvent);
   const completedRunSummary =
+    hasUsefulActivity &&
     !activelyWorking &&
     (throughSequence !== undefined ||
       (items.length > 0 && !running) ||
@@ -1182,9 +1259,16 @@ export function AgentActivityGroup({
       (afterSequence === undefined &&
         run !== undefined &&
         ["completed", "failed", "cancelled"].includes(run.status)));
-  if (items.length === 0 && !activelyWorking) return null;
+  if (
+    activityItems.length === 0 &&
+    durableToolResults.length === 0 &&
+    !activelyWorking
+  ) {
+    return null;
+  }
   const currentActivity = activelyWorking
-    ? (latestRunningActivity ?? {
+    ? (latestRunningUsefulActivity?.activity ??
+      latestUsefulActivity?.activity ?? {
         id: `thinking:${runId ?? thread.id}`,
         kind: "model",
         label: labels.reasoning,
@@ -1230,13 +1314,17 @@ export function AgentActivityGroup({
       minute: labels.durationMinuteShort,
       second: labels.durationSecondShort,
     });
-  const summaryLabel = activelyWorking
-    ? ""
-    : completedRunSummary
-      ? durationMs !== undefined && durationMs >= 1_000
-        ? labels.workedFor.replace("{{duration}}", formatDuration(durationMs))
-        : labels.worked
-      : labels.activities;
+  const summaryLabel =
+    activelyWorking ||
+    (activityItems.length === 0 && durableToolResults.length > 0)
+      ? ""
+      : completedRunSummary
+        ? durationMs !== undefined && durationMs >= 1_000
+          ? labels.workedFor.replace("{{duration}}", formatDuration(durationMs))
+          : labels.worked
+        : hasUsefulActivity
+          ? labels.activities
+          : "";
   const visiblyRunning = activelyWorking;
   return (
     <>
@@ -1282,7 +1370,7 @@ export function AgentActivityGroup({
               const reasoningMessage = reasoningMap.get(activity.id);
               if (reasoningMessage) {
                 return (
-                  <li key={activity.id} className="agentkit-activity-row">
+                  <li key={activity.id}>
                     <AgentReasoningParts
                       message={reasoningMessage}
                       threadId={threadId}
@@ -1295,10 +1383,7 @@ export function AgentActivityGroup({
               }
               if (activities.length > 1) {
                 return (
-                  <li
-                    key={`cluster:${activity.id}`}
-                    className="agentkit-activity-row"
-                  >
+                  <li key={`cluster:${activity.id}`}>
                     <RepeatedActivityCluster
                       activities={activities}
                       threadId={threadId}
@@ -1312,7 +1397,7 @@ export function AgentActivityGroup({
                 : undefined;
               if (sourceTool && ToolRenderer) {
                 return (
-                  <li key={sourceTool.id} className="agentkit-activity-row">
+                  <li key={sourceTool.id}>
                     <ToolRenderer value={sourceTool} threadId={threadId} />
                   </li>
                 );
@@ -1322,7 +1407,7 @@ export function AgentActivityGroup({
                 slots.activity ??
                 AgentActivityItem;
               return (
-                <li key={activity.id} className="agentkit-activity-row">
+                <li key={activity.id}>
                   <Renderer value={activity} threadId={threadId} />
                 </li>
               );
@@ -1466,6 +1551,19 @@ export function AgentCollaborationFeed({
     | { type: "interaction"; value: AgentInteraction }
     | { type: "activity"; value: AgentActivity }
   >();
+  const delegatedAgentIds = new Map<string, string>();
+  for (const event of thread.events) {
+    if (runId && event.runId !== runId) continue;
+    if (
+      event.type === "activity.started" ||
+      event.type === "activity.updated" ||
+      event.type === "activity.completed"
+    ) {
+      const activity = thread.activities[event.activity.id] ?? event.activity;
+      const agentId = event.activity.agentId ?? activity.agentId;
+      if (agentId) delegatedAgentIds.set(event.activity.id, agentId);
+    }
+  }
   const firstSequence = new Map<string, number>();
   const order: string[] = [];
   const remember = (
@@ -1490,14 +1588,16 @@ export function AgentCollaborationFeed({
       });
     }
     if (
-      (event.type === "activity.started" ||
-        event.type === "activity.updated" ||
-        event.type === "activity.completed") &&
-      event.activity.agentId
+      event.type === "activity.started" ||
+      event.type === "activity.updated" ||
+      event.type === "activity.completed"
     ) {
+      const agentId = delegatedAgentIds.get(event.activity.id);
+      if (!agentId) continue;
+      const activity = thread.activities[event.activity.id] ?? event.activity;
       remember(`activity:${event.activity.id}`, event.sequence, {
         type: "activity",
-        value: event.activity,
+        value: { ...activity, agentId },
       });
     }
   }

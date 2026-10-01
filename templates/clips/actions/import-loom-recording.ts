@@ -23,6 +23,7 @@ import {
   requireOrganizationAccess,
   stringifySpaceIds,
 } from "../server/lib/recordings.js";
+import { uploadLeaseExpiry } from "../server/lib/upload-lease.js";
 import { hasRequestVideoStorage } from "../server/lib/video-storage.js";
 import {
   downloadDirectVideo,
@@ -356,9 +357,10 @@ export default defineAction({
     }
 
     if (isLoom) {
-      const recordingValues = buildRecordingValues(
-        existingRecording?.videoSizeBytes ?? 0,
-      );
+      const recordingValues = {
+        ...buildRecordingValues(existingRecording?.videoSizeBytes ?? 0),
+        uploadLeaseExpiresAt: uploadLeaseExpiry(),
+      };
       if (existingRecording) {
         await db
           .update(schema.recordings)

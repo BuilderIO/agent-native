@@ -301,7 +301,11 @@ interface DeckContextType {
   deckListRefreshing: boolean;
   createDeck: (
     title?: string,
-    options?: { noDefaultSlides?: boolean; designSystemId?: string | null },
+    options?: {
+      noDefaultSlides?: boolean;
+      designSystemId?: string | null;
+      deferPersistence?: boolean;
+    },
   ) => Deck;
   ensureDeckPersisted: (id: string) => Promise<DeckPersistenceResult>;
   duplicateDeck: (
@@ -3079,6 +3083,7 @@ export function DeckProvider({
   const pendingCreatePromisesRef = useRef<Map<string, Promise<void>>>(
     new Map(),
   );
+  const deferredCreateDecksRef = useRef<Map<string, Deck>>(new Map());
   const pendingDuplicateSourceIdsRef = useRef<Set<string>>(new Set());
   const dirtyDeckIdsRef = useRef<Set<string>>(new Set());
   const deletedSlideTombstonesRef = useRef<Map<string, Set<string>>>(new Map());
@@ -4188,6 +4193,7 @@ export function DeckProvider({
     openDeckRequestIdByDeckRef.current.clear();
     pendingCreateIdsRef.current.clear();
     pendingCreatePromisesRef.current.clear();
+    deferredCreateDecksRef.current.clear();
     pendingDuplicateSourceIdsRef.current.clear();
     dirtyDeckIdsRef.current.clear();
     deletedSlideTombstonesRef.current.clear();
@@ -4677,7 +4683,11 @@ export function DeckProvider({
   const createDeck = useCallback(
     (
       title?: string,
-      options?: { noDefaultSlides?: boolean; designSystemId?: string | null },
+      options?: {
+        noDefaultSlides?: boolean;
+        designSystemId?: string | null;
+        deferPersistence?: boolean;
+      },
     ): Deck => {
       const insertIndex = decksRef.current.length;
       const newDeck: Deck = {
@@ -4708,20 +4718,24 @@ export function DeckProvider({
       };
       pendingCreateIdsRef.current.add(newDeck.id);
       noteLocalCreate(newDeck.id);
-      const createPromise = createDeckOnAPI(newDeck);
-      pendingCreatePromisesRef.current.set(newDeck.id, createPromise);
-      createPromise
-        .catch((err) => {
-          console.error(`Failed to create deck ${newDeck.id}:`, err);
-        })
-        .finally(() => {
-          pendingCreateIdsRef.current.delete(newDeck.id);
-          if (
-            pendingCreatePromisesRef.current.get(newDeck.id) === createPromise
-          ) {
-            pendingCreatePromisesRef.current.delete(newDeck.id);
-          }
-        });
+      if (options?.deferPersistence) {
+        deferredCreateDecksRef.current.set(newDeck.id, newDeck);
+      } else {
+        const createPromise = createDeckOnAPI(newDeck);
+        pendingCreatePromisesRef.current.set(newDeck.id, createPromise);
+        createPromise
+          .catch((err) => {
+            console.error(`Failed to create deck ${newDeck.id}:`, err);
+          })
+          .finally(() => {
+            pendingCreateIdsRef.current.delete(newDeck.id);
+            if (
+              pendingCreatePromisesRef.current.get(newDeck.id) === createPromise
+            ) {
+              pendingCreatePromisesRef.current.delete(newDeck.id);
+            }
+          });
+      }
       setDecksLocal((prev) => [...prev, newDeck]);
       undoControllerForDeck(newDeck.id).push({
         undo: [{ op: "delete-deck", deckId: newDeck.id }],
@@ -4749,6 +4763,27 @@ export function DeckProvider({
           return { persisted: true };
         } catch (error) {
           return { persisted: false, reason: "request-failed", error };
+        }
+      }
+
+      const deferredDeck = deferredCreateDecksRef.current.get(id);
+      if (deferredDeck) {
+        deferredCreateDecksRef.current.delete(id);
+        const scopeGeneration = deckScopeGenerationRef.current;
+        const createPromise = createDeckOnAPI(deferredDeck);
+        pendingCreatePromisesRef.current.set(id, createPromise);
+        try {
+          await createPromise;
+          return { persisted: true };
+        } catch (error) {
+          return { persisted: false, reason: "request-failed", error };
+        } finally {
+          if (scopeGeneration === deckScopeGenerationRef.current) {
+            pendingCreateIdsRef.current.delete(id);
+            if (pendingCreatePromisesRef.current.get(id) === createPromise) {
+              pendingCreatePromisesRef.current.delete(id);
+            }
+          }
         }
       }
 
@@ -4875,6 +4910,9 @@ export function DeckProvider({
   const deleteDeck = useCallback(
     (id: string) => {
       const scopeGeneration = deckScopeGenerationRef.current;
+      if (deferredCreateDecksRef.current.delete(id)) {
+        pendingCreateIdsRef.current.delete(id);
+      }
       const beforeDeck = decksRef.current.find((deck) => deck.id === id);
       const beforeIndex = decksRef.current.findIndex((deck) => deck.id === id);
       discardPendingDeckOps(id);
@@ -4915,6 +4953,19 @@ export function DeckProvider({
   const updateDeck = useCallback(
     (id: string, updates: Partial<Omit<Deck, "id" | "createdAt">>) => {
       const before = decksRef.current.find((d) => d.id === id);
+      const deferredDeck = deferredCreateDecksRef.current.get(id);
+      if (deferredDeck) {
+        const nextDeck = {
+          ...deferredDeck,
+          ...updates,
+          updatedAt: new Date().toISOString(),
+        };
+        deferredCreateDecksRef.current.set(id, nextDeck);
+        setDecksLocal((prev) =>
+          prev.map((deck) => (deck.id === id ? nextDeck : deck)),
+        );
+        return;
+      }
       const optimisticDeckFitChange = before
         ? deckFitRenderFieldsChanged(before, { ...before, ...updates })
         : false;

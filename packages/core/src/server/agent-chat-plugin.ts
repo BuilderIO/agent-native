@@ -219,6 +219,7 @@ import {
 } from "../shared/analytics-platform.js";
 import { docsUrl } from "../shared/docs-url.js";
 import { stripSqlParams } from "../shared/error-noise.js";
+import { track } from "../tracking/registry.js";
 import { requireAgentChatAiSetup } from "./agent-chat-ai-setup.js";
 import {
   AGENT_CHAT_STREAM_PATH,
@@ -278,6 +279,27 @@ import {
 
 export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
+
+export function trackAgentChatRunLifecycle(
+  event: "run_started" | "run_finished" | "run_no_reply",
+  threadId: string | undefined,
+  attemptId: string | undefined,
+  userId?: string,
+  properties: Record<string, unknown> = {},
+  appId?: string,
+): void {
+  if (!threadId?.trim() || !attemptId?.trim()) return;
+  track(
+    event,
+    {
+      ...properties,
+      ...(appId ? { app_name: appId, template_name: appId } : {}),
+      thread_id: threadId,
+      attempt_id: attemptId,
+    },
+    userId ? { userId } : undefined,
+  );
+}
 
 function withTransientDatabaseFallback(
   route: string,
@@ -3405,11 +3427,59 @@ export function createAgentChatPlugin(
         threadId: string | undefined,
       ) => {
         const runThreadId = String(run?.threadId ?? threadId ?? "");
+        const chatScope = getRequestRunContext()?.chatScope;
+        const assistantMsg = buildAssistantMessage(
+          run.events ?? [],
+          run.runId,
+          {
+            scope: chatScope,
+            suppressInternalContinuation: true,
+            turnId:
+              typeof run.turnId === "string" && run.turnId
+                ? run.turnId
+                : undefined,
+            runDurationMs:
+              typeof run.startedAt === "number" &&
+              Number.isFinite(run.startedAt)
+                ? Math.max(0, Date.now() - run.startedAt)
+                : undefined,
+          },
+        );
+        const runContext = getRequestRunContext();
+        const failureCode =
+          run.status === "errored"
+            ? [...(run.events ?? [])]
+                .reverse()
+                .find(({ event }) => event.type === "error")?.event
+            : undefined;
+        trackAgentChatRunLifecycle(
+          "run_finished",
+          runThreadId || undefined,
+          run.runId,
+          runContext?.owner,
+          {
+            status: run.status,
+            engine: runContext?.engine?.name ?? "unknown",
+            ...(failureCode?.type === "error"
+              ? { failure_code: failureCode.errorCode ?? "unknown" }
+              : {}),
+          },
+          options?.appId,
+        );
+        if (!assistantMsg) {
+          trackAgentChatRunLifecycle(
+            "run_no_reply",
+            runThreadId || undefined,
+            run.runId,
+            getRequestRunContext()?.owner,
+            {},
+            options?.appId,
+          );
+        }
         if (!threadId) {
           if (runThreadId) preRunGitStatusByThread.delete(runThreadId);
           return;
         }
-        const chatScope = getRequestRunContext()?.chatScope;
         // Serialize the read-modify-write against the same thread's other
         // `thread_data` writers (mutateThreadQueuedMessages, setThreadEngineMeta,
         // the frontend-triggered saves below). Without the lock, a concurrent
@@ -3422,23 +3492,6 @@ export function createAgentChatPlugin(
               `Agent chat thread ${threadId} was not found while saving run ${run.runId}.`,
             );
           }
-          const assistantMsg = buildAssistantMessage(
-            run.events ?? [],
-            run.runId,
-            {
-              scope: chatScope,
-              suppressInternalContinuation: true,
-              turnId:
-                typeof run.turnId === "string" && run.turnId
-                  ? run.turnId
-                  : undefined,
-              runDurationMs:
-                typeof run.startedAt === "number" &&
-                Number.isFinite(run.startedAt)
-                  ? Math.max(0, Date.now() - run.startedAt)
-                  : undefined,
-            },
-          );
           // Parse existing thread_data, append assistant message only if
           // the frontend hasn't already saved it (avoids duplicates when
           // the client is still connected during a normal flow).
@@ -4410,6 +4463,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             runCtx.threadId = threadId;
             runCtx.runId = runId;
           }
+          trackAgentChatRunLifecycle(
+            "run_started",
+            threadId,
+            runId,
+            runCtx?.owner,
+            {},
+            options?.appId,
+          );
           await runPreAgentTurnAutosave(
             options?.onAgentTurnStart,
             runCtx?.chatScope,
@@ -4480,6 +4541,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   runCtx.threadId = threadId;
                   runCtx.runId = runId;
                 }
+                trackAgentChatRunLifecycle(
+                  "run_started",
+                  threadId,
+                  runId,
+                  runCtx?.owner,
+                  {},
+                  options?.appId,
+                );
               },
               onRunComplete: async (
                 run: ActiveRun,
@@ -4745,6 +4814,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               runCtx.threadId = threadId;
               runCtx.runId = runId;
             }
+            trackAgentChatRunLifecycle(
+              "run_started",
+              threadId,
+              runId,
+              runCtx?.owner,
+              {},
+              options?.appId,
+            );
             await runPreAgentTurnAutosave(
               options?.onAgentTurnStart,
               runCtx?.chatScope,

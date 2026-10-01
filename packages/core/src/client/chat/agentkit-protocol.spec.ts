@@ -1807,6 +1807,35 @@ describe("createAgentKitProtocolAdapter", () => {
     );
   });
 
+  it("omits a missing runtime turn id from restored run metadata", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const runtime = createRuntime(events, {
+      capabilities: {
+        messages: { streaming: true, history: true, attachments: true },
+        resumableRuns: true,
+      },
+      async resume({ sessionId, runId }) {
+        return { sessionId, runId, events: events() };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+
+    const restoredEvents = await drain(
+      transport.subscribeToRun({
+        threadId: "thread-1",
+        runId: "restored-run",
+      }),
+    );
+
+    expect(restoredEvents.at(-1)?.type).toBe("run.completed");
+    expect(() =>
+      restoredEvents.forEach((event) => parseAgentEvent(event)),
+    ).not.toThrow();
+    await transport.dispose();
+  });
+
   it("cancels a paused Core turn after its approval stream closes", async () => {
     const cancel = vi.fn(async () => ({ status: "cancelled" as const }));
     async function* approvalEvents(): AsyncIterable<AgentChatRuntimeEvent> {

@@ -288,6 +288,7 @@ export const MentionPopover = forwardRef<
       <div className="fixed inset-0 z-[9998]" onClick={onClose} />
       <div
         data-agent-native-composer-popover="true"
+        data-agent-native-mention-popover="true"
         className="fixed z-[9999] overflow-y-auto rounded-lg border border-border/80 bg-popover p-1 shadow-2xl"
         style={{
           bottom: `calc(100vh - ${position.top}px + ${COMPOSER_POPOVER_GAP}px)`,
