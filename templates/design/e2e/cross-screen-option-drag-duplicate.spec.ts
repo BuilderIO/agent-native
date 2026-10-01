@@ -626,6 +626,12 @@ test("late Alt after leaving the source Screen iframe creates a selected cross-s
         };
       });
       expect(sourceHeldGeometry).toEqual(sourceBeforeGeometry);
+      expect(await content(request, design.id, "index.html")).toBe(
+        sourceBefore,
+      );
+      expect(await content(request, design.id, "destination.html")).toBe(
+        destinationBefore,
+      );
     } finally {
       await page.mouse.up();
       await page.keyboard.up("Alt");
@@ -652,12 +658,11 @@ test("late Alt after leaving the source Screen iframe creates a selected cross-s
       .evaluateAll((nodes) =>
         nodes.map((node) => node.getAttribute("data-agent-native-node-id")),
       );
-    expect(destinationOrder.indexOf(copyId)).toBeGreaterThan(
-      destinationOrder.indexOf("destination-first"),
-    );
-    expect(destinationOrder.indexOf(copyId)).toBeLessThan(
-      destinationOrder.indexOf("destination-last"),
-    );
+    expect(destinationOrder).toEqual([
+      "destination-first",
+      copyId,
+      "destination-last",
+    ]);
     await expect
       .poll(() =>
         selectionOverlayMatchesNode(page, design.destinationId, copyId),
