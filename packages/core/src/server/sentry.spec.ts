@@ -212,32 +212,60 @@ describe("server/sentry", () => {
       expect(result.logentry.params).toBeUndefined();
     });
 
-    it("drops serialized SQL errors with bound parameters", async () => {
+    it("redacts nested serialized SQL errors with bound parameters", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
       await initServerSentry();
 
       const privateValue = "example transcript content";
+      const query = "insert into dictations (text) values ($1)";
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
         exception: {
           values: [
             {
               type: "Error",
-              value: "Object captured as exception with keys: query, params",
+              value: "Object captured as exception with keys: cause",
             },
           ],
         },
         extra: {
           __serialized__: {
-            query: "insert into dictations (text) values ($1)",
-            params: [privateValue],
+            cause: { query, params: [privateValue] },
           },
         },
       } as never) as { extra?: Record<string, unknown> };
 
       expect(JSON.stringify(result)).not.toContain(privateValue);
-      expect(result.extra).not.toHaveProperty("__serialized__");
+      expect(
+        (result.extra?.__serialized__ as { cause: { params: unknown } }).cause
+          .params,
+      ).toBe("<redacted>");
+    });
+
+    it("redacts SQL parameters in breadcrumbs and context data", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "example transcript content";
+      const value = `Failed query: insert into dictations (text) values ($1)\nparams: ${privateValue}`;
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        exception: { values: [{ type: "Error", value: "request failed" }] },
+        breadcrumbs: [{ message: value, data: { params: [privateValue] } }],
+        contexts: { database: { lastError: value } },
+      } as never) as {
+        breadcrumbs: Array<{ message: string; data: { params: unknown } }>;
+        contexts: { database: { lastError: string } };
+      };
+
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+      expect(result.breadcrumbs[0]?.message).toContain("params: <redacted>");
+      expect(result.breadcrumbs[0]?.data.params).toBe("<redacted>");
+      expect(result.contexts.database.lastError).toContain(
+        "params: <redacted>",
+      );
     });
 
     it("drops ValidationError exceptions", async () => {

@@ -16,12 +16,57 @@ let Sentry: typeof import("@sentry/node") | undefined;
 let _initPromise: Promise<boolean> | undefined;
 let _initSucceeded = false;
 
+const SQL_QUERY_FAILURE_RE = /\b(?:failed query|query failed):/i;
+
 function parseTracesSampleRate(): number {
   const raw = process.env.SENTRY_SERVER_TRACES_SAMPLE_RATE;
   if (!raw) return 0;
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0 || n > 1) return 0;
   return n;
+}
+
+function containsSqlQueryFailure(
+  value: unknown,
+  seen = new WeakSet<object>(),
+): boolean {
+  if (typeof value === "string") return SQL_QUERY_FAILURE_RE.test(value);
+  if (value == null || typeof value !== "object" || seen.has(value)) {
+    return false;
+  }
+  seen.add(value);
+
+  if (
+    !Array.isArray(value) &&
+    "params" in value &&
+    ("query" in value || "sql" in value)
+  ) {
+    return true;
+  }
+
+  return Object.values(value).some((child) =>
+    containsSqlQueryFailure(child, seen),
+  );
+}
+
+function redactSentryEventPayload(
+  value: unknown,
+  redactSqlParams: boolean,
+  seen = new WeakSet<object>(),
+): void {
+  if (value == null || typeof value !== "object" || seen.has(value)) return;
+  seen.add(value);
+
+  const record = value as Record<string, unknown>;
+  for (const [key, child] of Object.entries(record)) {
+    if (redactSqlParams && key.toLowerCase() === "params") {
+      record[key] = "<redacted>";
+    } else if (typeof child === "string") {
+      record[key] = redact(child);
+    } else {
+      redactSentryEventPayload(child, redactSqlParams, seen);
+    }
+  }
 }
 
 export function initServerSentry(): Promise<boolean> {
@@ -57,45 +102,10 @@ export function initServerSentry(): Promise<boolean> {
             return null;
           }
 
-          const serializedException = event.extra?.__serialized__;
-          const hasSerializedSqlParams =
-            serializedException != null &&
-            typeof serializedException === "object" &&
-            !Array.isArray(serializedException) &&
-            "query" in serializedException &&
-            "params" in serializedException;
-          const hasSqlQueryFailure =
-            [
-              event.message,
-              event.logentry?.message,
-              ...(event.exception?.values ?? []).map(
-                (exception) => exception.value,
-              ),
-              typeof serializedException === "string"
-                ? serializedException
-                : JSON.stringify(serializedException),
-            ].some(
-              (value) =>
-                typeof value === "string" &&
-                /\b(?:failed query|query failed):/i.test(value),
-            ) || hasSerializedSqlParams;
-          if (hasSqlQueryFailure) {
-            if (event.logentry) delete event.logentry.params;
-            if (event.extra) delete event.extra.__serialized__;
-          }
-
-          if (typeof event.message === "string") {
-            event.message = redact(event.message);
-          }
-          if (event.logentry) {
-            if (typeof event.logentry.message === "string") {
-              event.logentry.message = redact(event.logentry.message);
-            }
-          }
-          for (const exception of event.exception?.values ?? []) {
-            if (typeof exception.value === "string") {
-              exception.value = redact(exception.value);
-            }
+          const hasSqlQueryFailure = containsSqlQueryFailure(event);
+          redactSentryEventPayload(event, hasSqlQueryFailure);
+          if (hasSqlQueryFailure && event.logentry) {
+            delete event.logentry.params;
           }
 
           if (event.request) {
