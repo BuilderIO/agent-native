@@ -18,6 +18,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+// A cancelled account creation can still finish on the server, and its late
+// success should finish this card's setup; a connection made long after the
+// cancel belongs to something else.
+const CANCELLED_SETUP_RECOVERY_MS = 60_000;
+
 export interface StorageSetupCardProps {
   onConfigured: () => void | Promise<void>;
   title?: string;
@@ -30,7 +35,7 @@ export interface StorageSetupCardProps {
 export function StorageSetupCard({
   onConfigured,
   title = "Connect storage",
-  description = "Store recorded videos with Builder.io or S3-compatible storage. Builder.io includes free hosting and AI credits.",
+  description,
   connectedDescription = "You're all set. Starting recorder...",
   connectSource = "clips_file_upload_storage_setup_card",
   connectFlow = "file_upload",
@@ -47,6 +52,7 @@ export function StorageSetupCard({
   const inFlightRef = useRef(false);
   const visibilityHandlerRef = useRef<(() => void) | null>(null);
   const connectRequestedRef = useRef(false);
+  const connectIntentExpiresAtRef = useRef<number | null>(null);
 
   const stopVisibilityHandler = useCallback(() => {
     if (visibilityHandlerRef.current) {
@@ -132,7 +138,10 @@ export function StorageSetupCard({
 
   const handleBuilderConnected = useCallback(() => {
     if (!connectRequestedRef.current) return;
+    const expiresAt = connectIntentExpiresAtRef.current;
     connectRequestedRef.current = false;
+    connectIntentExpiresAtRef.current = null;
+    if (expiresAt !== null && Date.now() > expiresAt) return;
     startFileUploadPoll();
   }, [startFileUploadPoll]);
 
@@ -166,6 +175,7 @@ export function StorageSetupCard({
   const handleBuilderConnect = useCallback(
     (provisionAccount: boolean) => {
       connectRequestedRef.current = true;
+      connectIntentExpiresAtRef.current = null;
       builderConnect.start({ provisionAccount });
     },
     [builderConnect.start],
@@ -175,6 +185,8 @@ export function StorageSetupCard({
     builderConnect.statusResolved &&
     builderConnect.agentNativeProvisioningEnabled;
   const handleBuilderCancel = useCallback(() => {
+    connectIntentExpiresAtRef.current =
+      Date.now() + CANCELLED_SETUP_RECOVERY_MS;
     builderConnect.cancel();
   }, [builderConnect.cancel]);
   const builderConnectErrorMessage = builderConnect.error
@@ -202,7 +214,9 @@ export function StorageSetupCard({
       <div>
         <h2 className="text-lg font-semibold">{title}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          {connected ? connectedDescription : description}
+          {connected
+            ? connectedDescription
+            : (description ?? t("storageSetup.description"))}
         </p>
       </div>
 

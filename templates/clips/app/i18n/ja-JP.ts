@@ -1471,6 +1471,8 @@ const messages = {
       "5分以内に Builder から応答がありませんでした。ポップアップを確認してもう一度お試しください。",
     builderConnected: "Builder.io 接続済み",
     waitingForBuilder: "Builder を待機中...",
+    description:
+      "録画した動画を Builder.io または S3 互換ストレージに保存します。Builder.io には無料のホスティングと AI クレジットが含まれています。",
     createBuilderAccount: "Builder.io アカウントを作成",
     signInWithBuilderAccount: "Builder.io アカウントでサインイン",
     free: "無料",

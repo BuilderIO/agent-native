@@ -1389,6 +1389,8 @@ const messages = {
     builderTimeout: "5 分鐘內未收到 Builder 回應。請檢查快顯視窗並重試。",
     builderConnected: "Builder.io 已連線",
     waitingForBuilder: "正在等待 Builder...",
+    description:
+      "使用 Builder.io 或相容 S3 的儲存空間來保存錄製的影片。Builder.io 包含免費代管和 AI 額度。",
     createBuilderAccount: "建立 Builder.io 帳戶",
     signInWithBuilderAccount: "使用 Builder.io 帳戶登入",
     free: "免費",

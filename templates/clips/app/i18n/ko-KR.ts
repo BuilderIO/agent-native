@@ -1452,6 +1452,8 @@ const messages = {
       "5분 동안 Builder 응답이 없습니다. 팝업을 확인하고 다시 시도하세요.",
     builderConnected: "Builder.io 연결됨",
     waitingForBuilder: "Builder 대기 중...",
+    description:
+      "녹화한 동영상을 Builder.io 또는 S3 호환 스토리지에 저장하세요. Builder.io에는 무료 호스팅과 AI 크레딧이 포함되어 있습니다.",
     createBuilderAccount: "Builder.io 계정 만들기",
     signInWithBuilderAccount: "Builder.io 계정으로 로그인",
     free: "무료",
