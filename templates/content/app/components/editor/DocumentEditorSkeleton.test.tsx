@@ -8,6 +8,8 @@ vi.mock("@/components/layout/sidebar-trigger", () => ({
   useSidebarTrigger: () => null,
 }));
 
+import { STARTUP_PAGE_ICON_ROW_ATTRIBUTE } from "@/lib/page-icon-row-hint";
+
 import {
   documentEditorBodyClassName,
   documentEditorTitleRegionClassName,
@@ -81,5 +83,17 @@ describe("DocumentEditorSkeleton optimistic title", () => {
     expect(iconRowHeight()).toBe("h-7");
     expect(iconRowHeight("icon")).toContain("size-14");
     expect(iconRowHeight("none")).toBeUndefined();
+  });
+
+  it("sizes the server-drawn icon row from the startup script's mark", () => {
+    act(() => {
+      root.render(<DocumentEditorSkeleton iconRow="startup" />);
+    });
+    const row = container.querySelector('[data-startup-anchor="title"]')
+      ?.previousElementSibling?.firstElementChild?.className;
+    const mark = `html[${STARTUP_PAGE_ICON_ROW_ATTRIBUTE}`;
+    expect(row).toContain("h-7");
+    expect(row).toContain(`[${mark}=icon]_&]:size-14`);
+    expect(row).toContain(`[${mark}=none]_&]:hidden`);
   });
 });

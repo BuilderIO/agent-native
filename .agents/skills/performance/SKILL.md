@@ -323,7 +323,7 @@ A load that moves things feels slower than it is. When a placeholder gives way
 to the real element and the element starts somewhere else, the reader loses
 their place, even if the data arrived quickly. On Content this jank, more than
 latency, was what made fast loads feel slow: the sidebar's Files rows jumped
-316px, the page title 64px, and the old score never noticed, because the
+316px, the page title 60px, and the old score never noticed, because the
 layout-shift score ignores placeholders that are removed and replaced.
 
 - **A placeholder occupies the final element's box.** Same container classes,
@@ -337,12 +337,18 @@ layout-shift score ignores placeholders that are removed and replaced.
 - **Restore the last layout before the data arrives.** Keep the shape the user
   last saw in local storage, as counts and ids only: rows per section, section
   order, sidebar width, collapsed state. Then draw that shape at once. Content's
-  `sidebar-layout-hint.ts` holds the sidebar's.
+  `sidebar-layout-hint.ts` holds the sidebar's. When the shape depends on the
+  item itself, such as a page's icon or whether this person can edit it,
+  remember it per id. Content's `page-icon-row-hint.ts` holds the row above
+  each page title.
+- **A box whose content loads late keeps its final size.** A library icon
+  draws only once its glyph loads, so a wrapper sized by its content is 8px
+  tall and then 56px. Give the box the size it ends at.
 - **The server-rendered first paint counts.** An app's `clientOnlyFallback`
   must draw the app's own shell, with the same sidebar width, header heights,
   and title position. It must not use a generic skeleton. Anything only the
-  browser knows (saved width, collapsed state) is applied by an inline
-  `<head>` script before the first paint (`ContentStartupShell`).
+  browser knows (saved width, collapsed state, the page's icon row) is applied
+  by an inline `<head>` script before the first paint (`ContentStartupShell`).
 - **Read layout preferences before the first paint.** Use a synchronous read
   or a layout effect. A passive `useEffect` paints the default for a frame
   first, and that frame is a visible jump.
@@ -359,8 +365,9 @@ node templates/content/scripts/trace-startup.mjs --base-url <url>   --email <fix
 ```
 
 Run it on a production build, since a dev server can reload mid-run. Cover a
-hard refresh (`--state hard`), a phone (`--viewport 390x844`), and saved
-sidebar layouts (`--local-storage '{"content.sidebar.collapsed":"true"}'`).
+hard refresh (`--state hard`), a phone (`--viewport 390x844`), saved sidebar
+layouts (`--local-storage '{"content.sidebar.collapsed":"true"}'`), a page
+with an icon, and a page the fixture account can only view.
 Then look at the saved frames: the check proves nothing moved, and the frames
 show whether what appeared looked right.
 

@@ -143,6 +143,10 @@ import {
   isDatabaseChoicePending,
   isDocumentCreationPending,
 } from "@/lib/optimistic-document";
+import {
+  readPageIconRowHint,
+  rememberPageIconRow,
+} from "@/lib/page-icon-row-hint";
 import { startupAnchor } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
 
@@ -176,6 +180,7 @@ import {
   DOCUMENT_EDITOR_TITLE_CLASS_NAME,
   documentEditorBodyClassName,
   documentEditorTitleRegionClassName,
+  type DocumentEditorIconRow,
 } from "./document-editor-layout";
 import { createHistorySession } from "./document-history-session";
 import {
@@ -980,7 +985,12 @@ export function PageEditorSurface({
   }
 
   if (!document || loadState.view === "skeleton") {
-    return <DocumentEditorSkeleton title={optimisticTitle} />;
+    return (
+      <DocumentEditorSkeleton
+        title={optimisticTitle}
+        iconRow={readPageIconRowHint(documentId)}
+      />
+    );
   }
 
   const editor = (
@@ -6312,6 +6322,16 @@ function PageEditorSessionBody({
   );
   const defaultIconKind = documentEditorDefaultIconKind(document);
   const isDatabasePage = Boolean(document.database);
+  const iconRow: DocumentEditorIconRow = document.icon
+    ? "icon"
+    : canEdit && !isSuggesting
+      ? "add"
+      : "none";
+  useEffect(() => {
+    if (host === "page" && !isDatabasePage) {
+      rememberPageIconRow(documentId, iconRow);
+    }
+  }, [documentId, host, iconRow, isDatabasePage]);
   const databaseChoicePending = isDatabaseChoicePending(
     document,
     createDatabase.isPending,
@@ -6796,7 +6816,9 @@ function PageEditorSessionBody({
                         }}
                       />
                     ) : document.icon ? (
-                      <div className="p-1 -ml-1">
+                      // Sized like the picker's button: a library icon draws
+                      // only once its glyph loads.
+                      <div className="flex size-14 items-center justify-center p-1 -ml-1">
                         <ContentIcon value={document.icon} size={48} />
                       </div>
                     ) : defaultIconKind === "database" ? (

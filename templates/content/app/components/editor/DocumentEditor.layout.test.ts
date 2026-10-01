@@ -1647,8 +1647,8 @@ describe("document editor layout", () => {
     expect(source).toContain("isFetchedAfterMount");
     expect(source).toContain("queriedDocument?.id === documentId");
     expect(source).toContain("documentEditorLoadState");
-    expect(source).toContain(
-      "return <DocumentEditorSkeleton title={optimisticTitle} />",
+    expect(source).toMatch(
+      /return \(\s*<DocumentEditorSkeleton\s+title=\{optimisticTitle\}\s+iconRow=\{readPageIconRowHint\(documentId\)\}/,
     );
   });
 

@@ -24,4 +24,4 @@ export const CONTENT_STARTUP_SIDEBAR_SCRIPT = `(function(){try{var r=document.do
   STARTUP_SIDEBAR_COLLAPSED_ATTRIBUTE,
 )},"");w=${COLLAPSED_SIDEBAR_WIDTH}}else if(!(w>=${MIN_SIDEBAR_WIDTH}&&w<=${MAX_SIDEBAR_WIDTH})){return}r.style.setProperty(${JSON.stringify(
   STARTUP_SIDEBAR_WIDTH_PROPERTY,
-)},w+"px")}catch(e){}})();`;
+)},w+"px")}catch(e){}})();`; // coercion-ok: without storage the shell draws the default width.

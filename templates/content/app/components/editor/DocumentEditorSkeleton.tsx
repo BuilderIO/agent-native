@@ -11,6 +11,12 @@ import {
   type DocumentEditorIconRow,
 } from "./document-editor-layout";
 
+// Before the app loads, the startup script marks <html> with the icon row the
+// page last drew; "startup" sizes the row from that mark, since storage is out
+// of reach while the server renders.
+const STARTUP_ICON_ROW_CLASS_NAME =
+  "h-7 w-0 [html[data-content-page-icon-row=icon]_&]:size-14 [html[data-content-page-icon-row=none]_&]:hidden";
+
 // Every box here is the page editor's own box, so the title and the body start
 // where the editor will draw them. While `title` is undefined the title is
 // still unknown, and the body waits for it: a title that wraps would move it.
@@ -19,7 +25,7 @@ export function DocumentEditorSkeleton({
   iconRow = "add",
 }: {
   title?: string | null;
-  iconRow?: DocumentEditorIconRow;
+  iconRow?: DocumentEditorIconRow | "startup";
 }) {
   const sidebarTrigger = useSidebarTrigger();
   return (
@@ -39,7 +45,9 @@ export function DocumentEditorSkeleton({
       <div className="min-h-0 flex-1 overflow-hidden">
         <div className={documentEditorTitleRegionClassName(false)}>
           <div className="mb-1">
-            {iconRow === "icon" ? (
+            {iconRow === "startup" ? (
+              <Skeleton className={STARTUP_ICON_ROW_CLASS_NAME} />
+            ) : iconRow === "icon" ? (
               <Skeleton className="size-14 rounded-md" />
             ) : iconRow === "add" ? (
               <div className="h-7" />
