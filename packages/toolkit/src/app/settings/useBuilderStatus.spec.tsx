@@ -670,6 +670,9 @@ describe("useBuilderConnectFlow", () => {
                 agentNativeProvisioningToken: posts.length
                   ? freshProvisioningToken
                   : provisioningToken,
+                connectUrl: posts.length
+                  ? refreshedConnectUrl
+                  : signedConnectUrl,
               },
         );
       });
@@ -824,6 +827,10 @@ describe("useBuilderConnectFlow", () => {
         provisioningToken,
         freshProvisioningToken,
       ]);
+      expect(posts.map((post) => post.body.connectToken)).toEqual([
+        "signed",
+        "refreshed",
+      ]);
       expect(container.textContent).toContain("configured idle resolved");
     });
 
@@ -849,25 +856,34 @@ describe("useBuilderConnectFlow", () => {
       );
     });
 
-    it("aborts an in-flight activation when cancelled", async () => {
-      let activationSignal: AbortSignal | undefined;
+    it("reconciles a successful activation that finishes after cancel", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+      let resolveActivation: ((response: Response) => void) | null = null;
+      let activationFinished = false;
+      let activationSignal: AbortSignal | null = null;
       vi.mocked(fetch).mockImplementation(async (input, init) => {
         if (String(input).includes("/_agent-native/builder/provision")) {
-          activationSignal = init?.signal ?? undefined;
-          return new Promise<Response>((_resolve, reject) => {
-            activationSignal?.addEventListener("abort", () =>
-              reject(new DOMException("Aborted", "AbortError")),
-            );
+          activationSignal = init?.signal ?? null;
+          return new Promise<Response>((resolve) => {
+            resolveActivation = resolve;
           });
         }
-        return jsonResponse(activationStatus);
+        return jsonResponse(
+          activationFinished ? connectedBuilderStatus : activationStatus,
+        );
       });
 
       await act(async () => {
         root.render(<BuilderConnectProbe provisionAccount />);
       });
-      await flushAfterPaint();
-      await clickConnect();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+      });
+      await act(async () => {
+        container.querySelector("button")?.click();
+        await Promise.resolve();
+      });
       expect(container.textContent).toContain("connecting");
 
       await act(async () => {
@@ -875,10 +891,23 @@ describe("useBuilderConnectFlow", () => {
           .querySelector<HTMLButtonElement>("[data-testid='cancel-connect']")
           ?.click();
       });
-      await flushAfterPaint();
+      await act(async () => {
+        vi.setSystemTime(Date.now() + 21_000);
+      });
 
-      expect(activationSignal?.aborted).toBe(true);
-      expect(container.textContent).not.toContain("Couldn't start Builder");
+      expect(activationSignal).toBeNull();
+      expect(resolveActivation).not.toBeNull();
+
+      await act(async () => {
+        activationFinished = true;
+        resolveActivation?.(
+          activationResponse(200, { ok: true, scope: "user" }),
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(container.textContent).toContain("configured idle resolved");
       expect(openSpy).not.toHaveBeenCalled();
     });
   });
