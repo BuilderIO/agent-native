@@ -497,6 +497,15 @@ Built:
     engine's 11,000). A hash join that reads `documents` once took 81 ms,
     touched 3,700 buffers, and never ran over 200 ms in 200 executions, but
     Postgres doesn't choose it (open question 4).
+  - Long bodies on Neon: 10,000 documents of 400 to 200,000 characters, with
+    "task prio" three times in each body, from the same distant client. The
+    index built in 57 seconds. Over 90 searches per query class, p50 / p95 was
+    151–265 / 182–318 ms for the index and 212–310 / 237–374 ms for the
+    previous engine, which scans every body. Per batch of 30, "task prio" went
+    over 400 ms in 2 of 3 batches on the previous engine and in none on the
+    index. Server time for the main statement fell from 57–133 ms to 4–79 ms.
+    The index matched 6,667 bodies, not 10,000: in a third of them the phrase
+    is spliced into a word ("wiltask prio"), and bodies match from word starts.
 
 Planned:
 
@@ -506,8 +515,7 @@ Planned:
 - AND and negation across chunks, and phrases across chunk boundaries;
 - cursor stability and engine switches;
 - runs on the Postgres service container;
-- latency on Neon with long bodies, and from a function in the database's
-  region.
+- latency from a function in the database's region.
 
 ## Decisions made in revision 2
 
