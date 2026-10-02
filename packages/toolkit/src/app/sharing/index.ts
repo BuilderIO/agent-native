@@ -1,3 +1,4 @@
+export * from "./AccessRequestApprovalPage.js";
 export * from "./AgentShareSection.js";
 export * from "./ResourceAccessScreen.js";
 export * from "./ShareButton.js";

@@ -1222,6 +1222,44 @@ const messages: ToolkitAgentChatTranslation = {
   "accessGate.signIn": "ログイン",
   "accessGate.signedInAs": "ログイン中のアカウント: {{email}}",
   "accessGate.switchAccount": "アカウントを切り替える",
+  "accessGate.requestDescription":
+    "アクセスをリクエストすると、所有者に通知されます。",
+  "accessGate.requestSent":
+    "リクエストを送信しました。所有者に通知されました。",
+  "accessGate.requestAccess": "アクセスをリクエスト",
+  "accessGate.requestNoteLabel": "メモ（任意）",
+  "accessGate.requestNotePlaceholder": "所有者へのメモを追加",
+  "accessGate.sendRequest": "リクエストを送信",
+  "accessGate.cancel": "キャンセル",
+  "accessGate.requestRateLimited":
+    "現在リクエストが多すぎます。しばらくしてからもう一度お試しください。",
+  "accessGate.requestFailed":
+    "リクエストを送信できませんでした。もう一度お試しください。",
+  "accessGate.signedOutRequestDescription":
+    "アクセスをリクエストするにはログインしてください。",
+  "accessRequest.title": "{{name}}がアクセスをリクエストしています",
+  "accessRequest.approvedTitle": "アクセスを許可しました",
+  "accessRequest.declinedTitle": "リクエストを拒否しました",
+  "accessRequest.allow": "許可",
+  "accessRequest.decline": "拒否",
+  "accessRequest.unavailableTitle": "このリクエストを確認できません",
+  "accessRequest.unavailableDescription":
+    "取り下げられたか、このアカウントにアクセス管理の権限がない可能性があります。",
+  "accessRequest.loadFailed": "このリクエストを読み込めませんでした。",
+  "accessRequest.retry": "再試行",
+  "accessRequest.decisionFailed":
+    "決定を保存できませんでした。もう一度お試しください。",
+  "accessRequest.stale":
+    "このリクエストは他のユーザーが処理済みか、内容が変更されています。",
+  "share.accessRequests": "アクセスリクエスト",
+  "share.accessRequestsLoadFailed":
+    "アクセスリクエストを読み込めませんでした。",
+  "share.accessRequestsNewest":
+    "新しい順に{{count}}件のリクエストを表示しています。",
+  "accessRequest.emailFailed":
+    "{{name}}にアクセス権を付与しましたが、メールを送信できませんでした。",
+  "share.allowRequestFrom": "{{name}}のリクエストを許可",
+  "share.declineRequestFrom": "{{name}}のリクエストを拒否",
   "share.add": "追加",
   "share.addPeopleEmail": "メールアドレスでユーザーを追加",
   "share.addPeopleOrganization": "組織からユーザーを追加",

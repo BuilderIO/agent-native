@@ -206,6 +206,11 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "unshare-resource": "sharing",
   "list-resource-shares": "sharing",
   "get-resource-access-status": "sharing",
+  "request-resource-access": "sharing",
+  "get-resource-access-request": "sharing",
+  "list-resource-access-requests": "sharing",
+  "approve-resource-access-request": "sharing",
+  "decline-resource-access-request": "sharing",
   "set-resource-visibility": "sharing",
   "create-agent-resource-link": "sharing",
 

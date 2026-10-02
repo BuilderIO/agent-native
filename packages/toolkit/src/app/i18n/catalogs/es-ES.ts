@@ -1367,6 +1367,42 @@ const messages: ToolkitAgentChatTranslation = {
   "accessGate.signIn": "Iniciar sesión",
   "accessGate.signedInAs": "Has iniciado sesión como {{email}}",
   "accessGate.switchAccount": "Cambiar de cuenta",
+  "accessGate.requestDescription":
+    "Solicita acceso y se avisará al propietario.",
+  "accessGate.requestSent": "Solicitud enviada. Se ha avisado al propietario.",
+  "accessGate.requestAccess": "Solicitar acceso",
+  "accessGate.requestNoteLabel": "Nota (opcional)",
+  "accessGate.requestNotePlaceholder": "Añade una nota para el propietario",
+  "accessGate.sendRequest": "Enviar solicitud",
+  "accessGate.cancel": "Cancelar",
+  "accessGate.requestRateLimited":
+    "Demasiadas solicitudes en este momento. Inténtalo de nuevo más tarde.",
+  "accessGate.requestFailed":
+    "No se pudo enviar tu solicitud. Inténtalo de nuevo.",
+  "accessGate.signedOutRequestDescription":
+    "Inicia sesión para solicitar acceso.",
+  "accessRequest.title": "{{name}} solicita acceso",
+  "accessRequest.approvedTitle": "Acceso permitido",
+  "accessRequest.declinedTitle": "Solicitud rechazada",
+  "accessRequest.allow": "Permitir",
+  "accessRequest.decline": "Rechazar",
+  "accessRequest.unavailableTitle": "No puedes revisar esta solicitud",
+  "accessRequest.unavailableDescription":
+    "Puede que se haya retirado o que esta cuenta no pueda gestionar el acceso.",
+  "accessRequest.loadFailed": "No se pudo cargar esta solicitud.",
+  "accessRequest.retry": "Reintentar",
+  "accessRequest.decisionFailed":
+    "No se pudo guardar tu decisión. Inténtalo de nuevo.",
+  "accessRequest.stale": "Alguien ya gestionó esta solicitud, o ha cambiado.",
+  "share.accessRequests": "Solicitudes de acceso",
+  "share.accessRequestsLoadFailed":
+    "No se pudieron cargar las solicitudes de acceso.",
+  "share.accessRequestsNewest":
+    "Se muestran las {{count}} solicitudes más recientes.",
+  "accessRequest.emailFailed":
+    "{{name}} ya tiene acceso, pero no pudimos enviarle un correo.",
+  "share.allowRequestFrom": "Permitir a {{name}}",
+  "share.declineRequestFrom": "Rechazar a {{name}}",
   "share.add": "Añadir",
   "share.addPeopleEmail": "Añadir personas por correo electrónico",
   "share.addPeopleOrganization": "Añade personas de tu organización",
