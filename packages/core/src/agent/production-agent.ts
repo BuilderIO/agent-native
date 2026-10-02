@@ -118,6 +118,10 @@ import {
 } from "../server/request-context.js";
 import { secretKeyNames } from "../server/secret-key-aliases.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
+import {
+  retryContextFromRequest,
+  type RefusedTurnRetryContext,
+} from "../shared/agent-chat-run-not-started.js";
 import { ANALYTICS_CLIENT_PLATFORM_BODY_FIELD } from "../shared/analytics-platform.js";
 import { stripDiagnosticSnippets } from "../shared/diagnostic-snippet.js";
 import {
@@ -293,6 +297,10 @@ import {
   turnRunLedgerExhausted,
 } from "./run-store.js";
 import { buildCurrentTimeUserContext } from "./runtime-context.js";
+import {
+  claimSetupResume,
+  setupResumeRefusedRunId,
+} from "./setup-resume-claim.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
@@ -1627,6 +1635,7 @@ export interface ProductionAgentOptions {
     message: string;
     attachments?: AgentChatAttachment[];
     queuedMessageId?: string;
+    retryContext: RefusedTurnRetryContext;
     failure: { code: string; message: string };
   }) => Promise<void>;
   prepareRequest?: (details: {
@@ -9211,6 +9220,7 @@ export function createProductionAgentHandler(
           ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
             ? { queuedMessageId: queuedMessageId.trim() }
             : {}),
+          retryContext: retryContextFromRequest(body),
           failure: {
             code: missingCredentialsEvent.errorCode,
             message: missingCredentialsEvent.error,
@@ -9784,6 +9794,20 @@ export function createProductionAgentHandler(
         (await isTurnAborted(threadId, requestTurnId))
       ) {
         return { ok: true, stopped: true };
+      }
+      const setupResumeOfRunId = setupResumeRefusedRunId(body);
+      if (
+        setupResumeOfRunId &&
+        ownerEmail &&
+        !(await claimSetupResume({
+          ownerEmail,
+          threadId,
+          refusedRunId: setupResumeOfRunId,
+          turnId: effectiveTurnId,
+        }))
+      ) {
+        // Another tab already sent this refused prompt again.
+        return { ok: true, stopped: true, resumeAlreadySent: true };
       }
       let slot;
       try {

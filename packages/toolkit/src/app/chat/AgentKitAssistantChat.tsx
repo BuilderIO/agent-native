@@ -217,6 +217,8 @@ type AgentKitInternalSendOptions = AssistantChatSendOptions & {
   recoveryAction?: "continue" | "retry";
   /** The failed run a retry answers; one retry per run. */
   recoveryOfRunId?: string;
+  /** The retry is the automatic resend after AI setup; the server allows one per refused run. */
+  resumeAfterSetup?: boolean;
   recoveryReferences?: Reference[];
   recoveryModel?: string;
   recoveryEngine?: string;
@@ -548,6 +550,7 @@ interface AgentKitSurfaceContextValue {
       | "recoveryEffort"
       | "recoveryRequestMode"
       | "recoveryOfRunId"
+      | "resumeAfterSetup"
     >,
   ) => Promise<AssistantChatSubmitResult>;
   submitSuggestion: (suggestion: AgentSuggestionInput) => void;
@@ -1974,6 +1977,9 @@ const AgentKitAssistantChatBody = forwardRef<
                 ...(options.recoveryOfRunId
                   ? { agentNativeRecoveryOfRunId: options.recoveryOfRunId }
                   : {}),
+                ...(options.resumeAfterSetup
+                  ? { agentNativeResumeAfterSetup: true }
+                  : {}),
                 ...(options.deferredSubmissionId
                   ? {
                       agentNativeDeferredSubmissionId:
@@ -2574,6 +2580,7 @@ const AgentKitAssistantChatBody = forwardRef<
         | "recoveryEffort"
         | "recoveryRequestMode"
         | "recoveryOfRunId"
+        | "resumeAfterSetup"
       >,
     ) => {
       return submit(
@@ -4330,20 +4337,22 @@ function AgentKitRunFailure({
   const lastUserMessage = [...thread.messages]
     .reverse()
     .find((message) => message.role === "user");
-  const retryRequest = retryRequestFrom(lastUserMessage);
+  const failedPrompt = userMessageForRun(thread.messages, runId);
+  const retryRequest = retryRequestFrom(failedPrompt ?? lastUserMessage);
   const alreadyRetried = wasRetried(
     thread.messages,
     runId,
+    failedPrompt?.id,
     lastUserMessage?.id,
   );
   const retryFailedTurn = () => sendRetryRequest(surface, retryRequest, runId);
   const resumeAfterSetup = useResumeAfterAiSetup(
-    `${threadId}:${lastUserMessage?.id ?? runId}`,
+    `${threadId}:${(failedPrompt ?? lastUserMessage)?.id ?? runId}`,
     setupFailure &&
       !superseded &&
       !alreadyRetried &&
       !retryRequest.hasUnavailableAttachment,
-    retryFailedTurn,
+    () => sendRetryRequest(surface, retryRequest, runId, true),
   );
   // A refusal the user already moved past is stale; any other failure keeps
   // its Retry so a reloaded thread never shows an unanswered prompt.
@@ -4482,6 +4491,7 @@ function sendRetryRequest(
   surface: AgentKitSurfaceContextValue,
   request: ReturnType<typeof retryRequestFrom>,
   recoveryOfRunId: string,
+  resumeAfterSetup = false,
 ) {
   return surface.sendRecoveryMessage(
     request.text || "Please retry the last request.",
@@ -4494,11 +4504,56 @@ function sendRetryRequest(
       recoveryEngine: request.engine,
       recoveryEffort: request.effort,
       recoveryOfRunId,
+      ...(resumeAfterSetup ? { resumeAfterSetup } : {}),
       ...(request.requestMode
         ? { recoveryRequestMode: request.requestMode }
         : {}),
     },
   );
+}
+
+/**
+ * The custom-metadata flag the server sets on a prompt it refused before any
+ * run started (`RUN_NOT_STARTED_METADATA_KEY` in core's shared module).
+ */
+const RUN_NOT_STARTED_METADATA_KEY = "agentNativeRunNotStarted";
+
+function submittedRunIdOf(message: AgentMessage): string | undefined {
+  const custom = asRecord(asRecord(message.metadata)?.custom);
+  const id = custom?.submittedRunId ?? custom?.submittedTurnId;
+  return typeof id === "string" ? id : undefined;
+}
+
+/** The user message a run answers, when the server recorded which. */
+function userMessageForRun(
+  messages: readonly AgentMessage[],
+  runId: string,
+): AgentMessage | undefined {
+  return [...messages]
+    .reverse()
+    .find(
+      (message) =>
+        message.role === "user" && submittedRunIdOf(message) === runId,
+    );
+}
+
+/**
+ * The prompt a turn refused before its run started left in the thread: marked
+ * by the server so it survives a reload, or still errored from this session.
+ */
+function refusedPromptFrom(
+  messages: readonly AgentMessage[],
+): AgentMessage | undefined {
+  return [...messages]
+    .reverse()
+    .find(
+      (message) =>
+        message.role === "user" &&
+        (message.status === "error" ||
+          asRecord(asRecord(message.metadata)?.custom)?.[
+            RUN_NOT_STARTED_METADATA_KEY
+          ] === true),
+    );
 }
 
 /** Whether a retry answering one of `ids` was already sent, per its persisted marker. */
@@ -4617,17 +4672,18 @@ function AgentKitConnectionError({
 function AgentKitRefusedPromptSetup({ threadId }: { threadId: string }) {
   const thread = useAgentThread(threadId);
   const surface = useAgentKitSurface();
-  const refused = [...thread.messages]
-    .reverse()
-    .find((message) => message.role === "user" && message.status === "error");
+  const refused = refusedPromptFrom(thread.messages);
+  const refusedRunId = refused
+    ? (submittedRunIdOf(refused) ?? refused.id)
+    : undefined;
   const retryRequest = retryRequestFrom(refused);
-  const alreadyRetried = wasRetried(thread.messages, refused?.id);
+  const alreadyRetried = wasRetried(thread.messages, refusedRunId, refused?.id);
   const resume = useResumeAfterAiSetup(
     `${threadId}:${refused?.id ?? ""}`,
-    Boolean(refused) &&
+    Boolean(refusedRunId) &&
       !alreadyRetried &&
       !retryRequest.hasUnavailableAttachment,
-    () => sendRetryRequest(surface, retryRequest, refused!.id),
+    () => sendRetryRequest(surface, retryRequest, refusedRunId!, true),
   );
   if (alreadyRetried || composerShowsSetupCard(surface)) return null;
   return (

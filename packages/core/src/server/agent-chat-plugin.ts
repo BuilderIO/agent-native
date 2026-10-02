@@ -217,6 +217,10 @@ import { normalizeDatabaseToolsMode } from "../scripts/db/tool-mode.js";
 import type { ResolvedKeyReference } from "../secrets/substitution.js";
 import { getSetting, putSetting } from "../settings/store.js";
 import {
+  retryContextFromRequest,
+  type RefusedTurnRetryContext,
+} from "../shared/agent-chat-run-not-started.js";
+import {
   ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
   normalizeAnalyticsClientPlatform,
 } from "../shared/analytics-platform.js";
@@ -3712,6 +3716,8 @@ export function createAgentChatPlugin(
         queuedMessageId?: string;
         /** The turn was refused before a run started; record why in the thread. */
         failure?: { code: string; message: string };
+        /** What a retry of the refused turn sends besides text and attachments. */
+        retryContext?: RefusedTurnRetryContext;
       }) => {
         const threadId = details.threadId;
         if (!threadId) return;
@@ -3797,6 +3803,9 @@ export function createAgentChatPlugin(
               turnId: details.turnId,
               agentKitMessageId: details.agentKitMessageId,
               queuedMessageId: details.queuedMessageId,
+              ...(details.failure
+                ? { refusedRetry: details.retryContext ?? {} }
+                : {}),
             }),
           );
           if (details.failure) {
@@ -3828,6 +3837,7 @@ export function createAgentChatPlugin(
         message: string;
         attachments?: AgentChatAttachment[];
         queuedMessageId?: string;
+        retryContext: RefusedTurnRetryContext;
         failure: { code: string; message: string };
       }) => {
         trackAgentChatRunLifecycle(
@@ -7385,6 +7395,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           body.queuedMessageId.trim()
             ? { queuedMessageId: body.queuedMessageId.trim() }
             : {}),
+          retryContext: retryContextFromRequest(body),
           failure: {
             code: AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
             message:

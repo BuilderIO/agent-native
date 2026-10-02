@@ -1146,6 +1146,12 @@ describe("createAgentNativeAgentKitTransport", () => {
           text: "Create a pitch deck",
           runId: "turn-1",
           turnId: "turn-1",
+          refusedRetry: {
+            references: [{ id: "reference-1", type: "document" }],
+            model: "model-original",
+            effort: "high",
+            requestMode: "plan",
+          },
         }),
       ),
       {
@@ -1175,6 +1181,17 @@ describe("createAgentNativeAgentKitTransport", () => {
       {
         role: "user",
         parts: [{ type: "text", text: "Create a pitch deck" }],
+        // What a retry after reload resends, and which prompt was refused.
+        metadata: {
+          references: [{ id: "reference-1", type: "document" }],
+          model: "model-original",
+          effort: "high",
+          requestMode: "plan",
+          custom: {
+            submittedRunId: "turn-1",
+            agentNativeRunNotStarted: true,
+          },
+        },
       },
     ]);
     expect(snapshot?.runs).toMatchObject([

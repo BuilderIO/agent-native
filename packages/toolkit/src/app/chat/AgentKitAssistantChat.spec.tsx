@@ -4391,6 +4391,112 @@ describe("AgentKitAssistantChat host behavior", () => {
       });
     });
 
+    // What the server persists for a turn it refused, after a reload: no client
+    // error status, but the refusal marker, the run id and the retry context.
+    const reloadedRefusal = {
+      ...refusedMessage,
+      id: "server-user-turn-1",
+      status: undefined,
+      metadata: {
+        ...refusedMessage.metadata,
+        custom: {
+          submittedRunId: "turn-1",
+          submittedTurnId: "turn-1",
+          agentNativeRunNotStarted: true,
+        },
+      },
+    };
+
+    it("finds the refused prompt after a reload and resends it with its context, once per run", async () => {
+      chatMocks.connectionError = refuse({
+        code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+        message: "Connect Builder AI or a provider API key before chatting.",
+      });
+      chatMocks.failureCopies = 0;
+      chatMocks.thread.messages = [reloadedRefusal];
+      const props = baseProps({ providerStatusChecksEnabled: true });
+      await mount(props);
+
+      await connectAi(props);
+
+      expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+      const request = chatMocks.control.sendMessage.mock.calls[0]?.[0];
+      expect(request.text).toBe("Create a pitch deck");
+      expect(request.metadata).toMatchObject({
+        model: "model-original",
+        engine: "engine-original",
+        effort: "high",
+        requestMode: "plan",
+        references: [reference],
+        custom: {
+          agentNativeRecoveryOfRunId: "turn-1",
+          agentNativeResumeAfterSetup: true,
+        },
+      });
+    });
+
+    it("resends a refused run's own prompt, not the thread's last one, and tags it as the resume", async () => {
+      chatMocks.failureError = refuse({
+        code: "missing_credentials",
+        message: "No LLM provider is connected.",
+      });
+      chatMocks.thread.messages = [
+        {
+          ...reloadedRefusal,
+          custom: undefined,
+          metadata: {
+            ...reloadedRefusal.metadata,
+            custom: {
+              ...reloadedRefusal.metadata.custom,
+              submittedRunId: "run-1",
+            },
+          },
+        },
+        {
+          id: "user-later",
+          role: "user",
+          parts: [{ type: "text", text: "A later prompt" }],
+        },
+      ];
+      chatMocks.thread.runs = {
+        "run-1": {
+          id: "run-1",
+          status: "failed",
+          startedAt: "2026-10-01T00:00:00.000Z",
+        },
+      };
+      const props = baseProps({ providerStatusChecksEnabled: true });
+      await mount(props);
+
+      await connectAi(props);
+
+      const request = chatMocks.control.sendMessage.mock.calls[0]?.[0];
+      expect(request.text).toBe("Create a pitch deck");
+      expect(request.metadata.custom).toMatchObject({
+        agentNativeRecoveryOfRunId: "run-1",
+        agentNativeResumeAfterSetup: true,
+      });
+    });
+
+    it("does not tag a manual Retry as the after-setup resume", async () => {
+      chatMocks.failureError = { code: "test-error", message: "Run failed" };
+      chatMocks.thread.messages = [refusedMessage];
+      await mount(baseProps());
+
+      await act(async () => {
+        chatMocks.failureProps.onRetry();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      const request = chatMocks.control.sendMessage.mock.calls[0]?.[0];
+      expect(request.metadata.custom).toMatchObject({
+        agentNativeRecoveryAction: "retry",
+      });
+      expect(request.metadata.custom).not.toHaveProperty(
+        "agentNativeResumeAfterSetup",
+      );
+    });
+
     it("does not resend an attachment that has nothing to upload", async () => {
       chatMocks.connectionError = refuse({
         code: "AGENT_CHAT_AI_SETUP_REQUIRED",

@@ -327,6 +327,8 @@ export interface AgentChatRequest {
         mode: "default";
       };
   turnId?: string;
+  /** Turn metadata the client forwards; read only for the keys it names. */
+  metadata?: Record<string, unknown>;
   mode?: "act" | "plan";
   model?: string;
   engine?: string;

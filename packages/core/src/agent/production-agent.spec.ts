@@ -121,6 +121,33 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
+const setupResumeClaims = vi.hoisted(() => new Map<string, string>());
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
+  // The claim store, with the compare-and-set retry the real one performs.
+  mutateSetting: async (
+    key: string,
+    updater: (
+      current: Record<string, unknown> | null,
+    ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+  ) => {
+    for (;;) {
+      const raw = setupResumeClaims.get(key) ?? null;
+      const next = await updater(raw === null ? null : JSON.parse(raw));
+      await Promise.resolve();
+      if ((setupResumeClaims.get(key) ?? null) === raw) {
+        setupResumeClaims.set(key, JSON.stringify(next));
+        return next;
+      }
+    }
+  },
+  listSettingsByPrefix: async (prefix: string) =>
+    [...setupResumeClaims]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, value]) => ({ key, value: JSON.parse(value) })),
+  deleteSetting: async (key: string) => setupResumeClaims.delete(key),
+}));
+
 vi.mock("./run-manager.js", async () => ({
   ...(await vi.importActual<typeof import("./run-manager.js")>(
     "./run-manager.js",
@@ -2050,6 +2077,78 @@ describe("createProductionAgentHandler", () => {
     expect(engine.stream).not.toHaveBeenCalled();
   });
 
+  it("starts one run when two tabs resume the same refused prompt after AI setup", async () => {
+    setupResumeClaims.clear();
+    mockTryClaimRunSlot.mockClear();
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: "run-winner",
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: vi.fn(),
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const resume = (metadataOverrides = {}) =>
+      runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () =>
+          handler(
+            mockEvent(
+              new Request("http://app.example.com/_agent-native/agent-chat", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  message: "Create a pitch deck",
+                  threadId: "thread-refused",
+                  metadata: {
+                    custom: {
+                      agentNativeRecoveryAction: "retry",
+                      agentNativeRecoveryOfRunId: "run-refused",
+                      agentNativeResumeAfterSetup: true,
+                      ...metadataOverrides,
+                    },
+                  },
+                }),
+              }),
+            ),
+          ),
+      );
+
+    const results = await Promise.all([resume(), resume()]);
+
+    expect(mockTryClaimRunSlot).toHaveBeenCalledOnce();
+    expect(results).toContainEqual({
+      ok: true,
+      stopped: true,
+      resumeAlreadySent: true,
+    });
+    expect(engine.stream).not.toHaveBeenCalled();
+
+    // A manual retry of the same run is never held back by the claim.
+    mockTryClaimRunSlot.mockClear();
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: "run-winner",
+    });
+    await resume({ agentNativeResumeAfterSetup: undefined });
+    expect(mockTryClaimRunSlot).toHaveBeenCalledOnce();
+  });
+
   it("adds MCP actions for authenticated requests and skips anonymous runs", async () => {
     const seenActionNames: string[][] = [];
     const mcpToolName = `mcp__user_${hashEmail("alice@example.com")}_calendar__list`;
@@ -2165,6 +2264,13 @@ describe("createProductionAgentHandler", () => {
                   message: "Create a pitch deck",
                   threadId: "thread-unconnected",
                   turnId: "turn-unconnected",
+                  model: "model-original",
+                  effort: "high",
+                  mode: "plan",
+                  metadata: {
+                    references: [{ id: "reference-1", type: "document" }],
+                    custom: { ignored: "not kept" },
+                  },
                 }),
               }),
             ),
@@ -2177,6 +2283,12 @@ describe("createProductionAgentHandler", () => {
         threadId: "thread-unconnected",
         message: "Create a pitch deck",
         attachments: [],
+        retryContext: {
+          references: [{ id: "reference-1", type: "document" }],
+          model: "model-original",
+          effort: "high",
+          requestMode: "plan",
+        },
         failure: {
           code: "missing_credentials",
           message: expect.stringContaining("No LLM provider"),

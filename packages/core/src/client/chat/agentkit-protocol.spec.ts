@@ -250,6 +250,44 @@ describe("createAgentKitProtocolAdapter", () => {
     });
   });
 
+  it("forwards the after-setup resume marker to the turn the server claims it from", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield { type: "done", reason: "complete" };
+    }
+    const startTurn = vi.fn(async (_input: AgentChatRuntimeTurnInput) => ({
+      id: "turn-resume",
+      runId: "run-resume",
+      sessionId: "thread-1",
+      events: events(),
+    }));
+    const runtime = createRuntime(events, {
+      async createSession() {
+        return {
+          id: "thread-1",
+          runtimeId: "runtime-test",
+          startTurn,
+        };
+      },
+    });
+    const transport = createAgentKitProtocolAdapter(runtime);
+    const custom = {
+      agentNativeRecoveryAction: "retry",
+      agentNativeRecoveryOfRunId: "run-refused",
+      agentNativeResumeAfterSetup: true,
+    };
+
+    await transport.startRun({
+      threadId: "thread-1",
+      messages: [{ ...userMessage("Create a deck"), metadata: { custom } }],
+      options: { metadata: { custom } },
+    });
+
+    expect(startTurn.mock.calls[0][0].metadata).toMatchObject({
+      agentNativeInternalContinuation: true,
+      custom,
+    });
+  });
+
   it("dispatches completed app and browser tools through the AgentKit transport", async () => {
     const listeners = new Map<string, Set<(event: unknown) => void>>();
     const fakeWindow = {

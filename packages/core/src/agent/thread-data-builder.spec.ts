@@ -70,6 +70,40 @@ describe("foldUnstartedTurnFailure", () => {
   });
 });
 
+describe("buildUserMessage for a refused turn", () => {
+  it("stores what a retry resends and marks the prompt as refused", () => {
+    const message = buildUserMessage({
+      text: "Make a deck",
+      runId: "turn-1",
+      turnId: "turn-1",
+      refusedRetry: {
+        references: [{ id: "reference-1", type: "document" }],
+        model: "model-original",
+        effort: "high",
+        requestMode: "plan",
+      },
+    });
+
+    expect(message.metadata).toEqual({
+      references: [{ id: "reference-1", type: "document" }],
+      model: "model-original",
+      effort: "high",
+      requestMode: "plan",
+      custom: {
+        submittedRunId: "turn-1",
+        submittedTurnId: "turn-1",
+        agentNativeRunNotStarted: true,
+      },
+    });
+  });
+
+  it("leaves an ordinary prompt unmarked", () => {
+    const { metadata } = buildUserMessage({ text: "Hi", runId: "run-1" });
+
+    expect(metadata).toEqual({ custom: { submittedRunId: "run-1" } });
+  });
+});
+
 describe("extractThreadMeta", () => {
   it("prefers a manual title override while keeping the message preview", () => {
     const meta = extractThreadMeta({

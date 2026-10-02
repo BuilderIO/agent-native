@@ -19,7 +19,10 @@ import {
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
-import { RUN_NOT_STARTED_METADATA_KEY } from "../shared/agent-chat-run-not-started.js";
+import {
+  RUN_NOT_STARTED_METADATA_KEY,
+  type RefusedTurnRetryContext,
+} from "../shared/agent-chat-run-not-started.js";
 import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
 import { stringifyToolUseInputForGateway } from "./engine/translate-anthropic.js";
 import type { EngineContentPart, EngineMessage } from "./engine/types.js";
@@ -2030,6 +2033,8 @@ export function buildUserMessage(opts: {
   agentKitMessageId?: string;
   queuedMessageId?: string;
   createdAt?: Date;
+  /** The turn was refused before a run started; its retry reads this back. */
+  refusedRetry?: RefusedTurnRetryContext;
 }): {
   id: string;
   createdAt: Date;
@@ -2046,6 +2051,7 @@ export function buildUserMessage(opts: {
     content: [{ type: "text", text: opts.text }],
     ...(attachments.length > 0 ? { attachments } : {}),
     metadata: {
+      ...opts.refusedRetry,
       custom: {
         submittedRunId: opts.runId,
         ...(opts.turnId ? { submittedTurnId: opts.turnId } : {}),
@@ -2055,6 +2061,7 @@ export function buildUserMessage(opts: {
         ...(opts.queuedMessageId
           ? { agentNativeQueuedMessageId: opts.queuedMessageId }
           : {}),
+        ...(opts.refusedRetry ? { [RUN_NOT_STARTED_METADATA_KEY]: true } : {}),
       },
     },
   };
