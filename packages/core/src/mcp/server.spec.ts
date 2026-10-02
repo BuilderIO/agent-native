@@ -4292,9 +4292,11 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
-  it("keeps foreign open routes external in MCP App metadata", async () => {
+  it("resolves protocol-relative foreign open routes in MCP App metadata", async () => {
     const externalUrl =
       "https://outside.example/_agent-native/open?view=project&id=test";
+    const externalNetworkPath =
+      "//outside.example/_agent-native/open?view=project&id=test";
     const embedConfig = {
       ...config,
       actions: {
@@ -4304,7 +4306,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             app: "mail",
             url: "/_agent-native/embed/start?ticket=test-ticket",
             embedStartUrl: "/_agent-native/embed/start?ticket=test-ticket",
-            deepLinkUrl: externalUrl,
+            deepLinkUrl: externalNetworkPath,
             embed: true,
           }),
           readOnly: true,
