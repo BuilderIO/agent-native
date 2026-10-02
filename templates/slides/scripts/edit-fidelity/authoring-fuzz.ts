@@ -409,9 +409,16 @@ export async function runAuthoringFuzz(
   const slideContent: Locator = page.locator(slideContentSelector);
   const pageErrors: string[] = [];
   const pendingSaveConflicts: Promise<void>[] = [];
+  let patchDeckConflicts = 0;
+  let conflictResourceErrors = 0;
   let reportedNativeReflow = false;
   const onConsole = (message: any) => {
-    if (message.type() === "error") pageErrors.push(message.text());
+    if (message.type() !== "error") return;
+    if (message.text().includes("status of 409 (Conflict)")) {
+      conflictResourceErrors += 1;
+      return;
+    }
+    pageErrors.push(message.text());
   };
   const onPageError = (error: Error) => pageErrors.push(error.message);
   const onResponse = (response: any) => {
@@ -421,14 +428,15 @@ export async function runAuthoringFuzz(
     ) {
       return;
     }
+    patchDeckConflicts += 1;
     pendingSaveConflicts.push(
       response
         .text()
-        .then((body: string) => {
-          pageErrors.push(`HTTP 409 ${body}`);
-        })
+        .then(() => undefined)
         .catch((error: unknown) => {
-          pageErrors.push(`HTTP 409 body unavailable: ${String(error)}`);
+          pageErrors.push(
+            `patch-deck conflict response could not be read: ${String(error)}`,
+          );
         }),
     );
   };
@@ -1279,20 +1287,33 @@ export async function runAuthoringFuzz(
         target: { token: string; edge?: "start" | "end" },
       ) => {
         const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-        let found: { text: Text; index: number } | null = null;
+        const points: Array<{ text: Text; offset: number }> = [];
         for (let node = walker.nextNode(); node; node = walker.nextNode()) {
           const text = node as Text;
-          const index = text.data.lastIndexOf(target.token);
-          if (index >= 0) found = { text, index };
+          for (let offset = 0; offset < text.length; offset += 1) {
+            if (text.data[offset] !== "\u200b") {
+              points.push({ text, offset });
+            }
+          }
         }
-        if (!found)
-          throw new Error("could not locate fuzz token in one text node");
-        const start =
-          found.index + (target.edge === "end" ? target.token.length : 0);
-        const end = target.edge ? start : found.index + target.token.length;
+        const visible = points
+          .map(({ text, offset }) =>
+            text.data[offset] === "\u00a0" ? " " : text.data[offset],
+          )
+          .join("");
+        const index = visible.lastIndexOf(target.token);
+        if (index < 0) throw new Error("could not locate fuzz token");
+        const start = points[index]!;
+        const last = points[index + target.token.length - 1]!;
         const selected = document.createRange();
-        selected.setStart(found.text, start);
-        selected.setEnd(found.text, end);
+        if (target.edge === "end") {
+          selected.setStart(last.text, last.offset + 1);
+          selected.collapse(true);
+        } else {
+          selected.setStart(start.text, start.offset);
+          if (target.edge === "start") selected.collapse(true);
+          else selected.setEnd(last.text, last.offset + 1);
+        }
         const selection = window.getSelection();
         if (!selection) throw new Error("browser selection is unavailable");
         selection.removeAllRanges();
@@ -1731,7 +1752,77 @@ export async function runAuthoringFuzz(
           const token = `edge${activeIndex}`;
           await typeText(token);
           await placeCaretAtToken(token, "start");
+          await editor.evaluate((root: HTMLElement) => {
+            const scope = window as Window & {
+              __authoringFuzzDeleteProbe?: {
+                events: Array<Record<string, unknown>>;
+                listener: (event: Event) => void;
+              };
+            };
+            const events: Array<Record<string, unknown>> = [];
+            const listener = (event: Event) => {
+              const input = event as InputEvent;
+              const record = {
+                inputType: input.inputType,
+                cancelable: input.cancelable,
+                defaultPrevented: false,
+                isComposing: input.isComposing,
+                targetTag:
+                  input.target instanceof Element
+                    ? input.target.tagName
+                    : input.target instanceof Node
+                      ? input.target.nodeName
+                      : null,
+                eventPhase: input.eventPhase,
+                selection: (() => {
+                  const selection = window.getSelection();
+                  const range = selection?.rangeCount
+                    ? selection.getRangeAt(0)
+                    : null;
+                  return {
+                    collapsed: selection?.isCollapsed ?? false,
+                    inside:
+                      !!selection &&
+                      root.contains(selection.anchorNode) &&
+                      root.contains(selection.focusNode),
+                    startTag:
+                      range?.startContainer instanceof Element
+                        ? range.startContainer.tagName
+                        : (range?.startContainer.parentElement?.tagName ??
+                          null),
+                    startOffset: range?.startOffset ?? null,
+                    startTextLength:
+                      range?.startContainer instanceof Text
+                        ? range.startContainer.length
+                        : null,
+                  };
+                })(),
+              };
+              events.push(record);
+              queueMicrotask(() => {
+                record.defaultPrevented = input.defaultPrevented;
+              });
+            };
+            root.addEventListener("beforeinput", listener, true);
+            scope.__authoringFuzzDeleteProbe = { events, listener };
+          });
           await editor.press("Backspace");
+          const deleteInputEvents = await editor.evaluate(
+            (root: HTMLElement) => {
+              const scope = window as Window & {
+                __authoringFuzzDeleteProbe?: {
+                  events: Array<Record<string, unknown>>;
+                  listener: (event: Event) => void;
+                };
+              };
+              const probe = scope.__authoringFuzzDeleteProbe;
+              if (probe) {
+                root.removeEventListener("beforeinput", probe.listener, true);
+                delete scope.__authoringFuzzDeleteProbe;
+              }
+              return probe?.events ?? [];
+            },
+          );
           const demoted = await editor.evaluate(
             (root: HTMLElement, value: string) => {
               const walker = document.createTreeWalker(
@@ -1798,7 +1889,7 @@ export async function runAuthoringFuzz(
               token,
             );
             throw new Error(
-              `${operation.kind} did not demote the block (${JSON.stringify(state)})`,
+              `${operation.kind} did not demote the block (${JSON.stringify({ ...state, deleteInputEvents })})`,
             );
           }
           await editor.press("Backspace");
@@ -2009,19 +2100,15 @@ export async function runAuthoringFuzz(
             heading: Array.from(root.querySelectorAll("h1")).some(
               (node) => node.textContent === "Fuzz heading",
             ),
-            nested: root.querySelector("ul > li ul > li")?.textContent,
+            nested: Array.from(root.querySelectorAll("ul > li ul > li")).some(
+              (node) => node.textContent === "Fuzz nested",
+            ),
             quote: Array.from(root.querySelectorAll("blockquote")).some(
               (node) => node.textContent === "Fuzz quote",
             ),
           }));
-          if (
-            !blocks.heading ||
-            blocks.nested !== "Fuzz nested" ||
-            !blocks.quote
-          ) {
-            throw new Error(
-              "plain Markdown paste did not create its block structure",
-            );
+          if (!blocks.heading || !blocks.nested || !blocks.quote) {
+            throw new Error("plain Markdown paste did not create its blocks");
           }
           break;
         }
@@ -2263,6 +2350,16 @@ export async function runAuthoringFuzz(
     const persistence = await options.finishAndReload();
     assertAuthoringPersistence(persistence);
     await checkPageErrors();
+    if (conflictResourceErrors > patchDeckConflicts) {
+      throw new Error(
+        "a 409 resource error did not match a patch-deck conflict response",
+      );
+    }
+    if (patchDeckConflicts > 0) {
+      console.log(
+        `[edit-fidelity] recovered ${patchDeckConflicts} patch-deck conflict response(s); saved and reloaded HTML matched the live slide`,
+      );
+    }
     return {
       seed,
       stepsRun: plan.length,

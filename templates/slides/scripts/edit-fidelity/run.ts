@@ -3848,8 +3848,8 @@ async function runAuthoringCorpusQa(
         `[edit-fidelity] largest corpus slide keydown-to-first-rAF-plus-layout p95=${frameP95.toFixed(2)}ms (proxy, not paint; n=${sortedFrames.length}, threshold=16ms)`,
       );
       if (frameP95 > 16) {
-        console.warn(
-          `[edit-fidelity] warning: largest corpus slide keydown-to-first-rAF-plus-layout p95 ${frameP95.toFixed(2)}ms exceeds 16ms`,
+        problems.push(
+          `largest corpus slide keydown-to-first-rAF-plus-layout p95 ${frameP95.toFixed(2)}ms exceeds 16ms`,
         );
       }
     } else {

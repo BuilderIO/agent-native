@@ -593,6 +593,10 @@ jobs:
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
 
+      - name: Check typing fidelity across Slides text surfaces in Chromium
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
+
       - name: Check typing fidelity across Slides text surfaces in WebKit
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa --browser webkit
