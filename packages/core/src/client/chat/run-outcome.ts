@@ -86,6 +86,7 @@ export const LEGACY_RUN_CODES = [
   "run_state_unreadable",
   "auto_continue_cap_reached",
   "auto_continue_unavailable",
+  "auto_continue_history_unreadable",
 ] as const;
 
 export type LegacyRunCode = (typeof LEGACY_RUN_CODES)[number];
@@ -136,6 +137,7 @@ const LEGACY_RUN_CODE_OUTCOMES = {
   run_state_unreadable: "unverified",
   auto_continue_cap_reached: "interrupted",
   auto_continue_unavailable: "interrupted",
+  auto_continue_history_unreadable: "interrupted",
 } as const satisfies Record<LegacyRunCode, RunOutcome>;
 
 function isLegacyRunCode(code: string): code is LegacyRunCode {

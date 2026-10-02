@@ -30,7 +30,10 @@ const TIME_LIMIT: Wire = { type: "auto_continue", reason: "run_timeout" };
  * on the server continues.
  */
 function fakeServer(
-  runs: readonly (readonly Wire[] | { status: number; body: Wire })[],
+  runs: readonly (
+    | readonly Wire[]
+    | { status: number; body: Wire; endedClaimedRun?: string }
+  )[],
 ) {
   const posts: Wire[] = [];
   const records = new Map<
@@ -46,7 +49,20 @@ function fakeServer(
       posts.push(body);
       const script = runs[posts.length - 1]!;
       if (!Array.isArray(script)) {
-        const refusal = script as { status: number; body: Wire };
+        const refusal = script as {
+          status: number;
+          body: Wire;
+          endedClaimedRun?: string;
+        };
+        // A run the server claimed before failing is the turn's newest.
+        if (refusal.endedClaimedRun) {
+          newest = `run-${posts.length}`;
+          records.set(newest, {
+            turnId: String(body.turnId),
+            status: "errored",
+            reason: refusal.endedClaimedRun,
+          });
+        }
         return Response.json(refusal.body, { status: refusal.status });
       }
       const runId = `run-${posts.length}`;
@@ -192,6 +208,30 @@ describe("AgentKit continues a turn the server stopped at its time limit", () =>
     expect(events.at(-1)).toMatchObject({
       type: "run.failed",
       error: { code: "auto_continue_cap_reached", retryable: true },
+    });
+  });
+
+  it("ends with Continue available when the server could not read the turn to continue it", async () => {
+    const server = fakeServer([
+      [{ type: "text", text: "Working. " }, TIME_LIMIT],
+      {
+        status: 503,
+        body: {
+          error: "This turn could not be continued.",
+          code: "auto_continue_history_unreadable",
+          retryable: true,
+        },
+        endedClaimedRun: "auto_continue_history_unreadable",
+      },
+    ]);
+
+    const events = await runTurn(server);
+
+    expect(server.posts).toHaveLength(2);
+    expect(runOutcomeOfEvents(events)).toBe("interrupted");
+    expect(events.at(-1)).toMatchObject({
+      type: "run.failed",
+      error: { code: "auto_continue_history_unreadable", retryable: true },
     });
   });
 

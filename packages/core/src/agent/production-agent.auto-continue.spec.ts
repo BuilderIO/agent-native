@@ -11,6 +11,8 @@ import type {
 
 const claimRunSlot = vi.hoisted(() => vi.fn());
 const turnLedger = vi.hoisted(() => vi.fn(async (): Promise<unknown[]> => []));
+const endRun = vi.hoisted(() => vi.fn());
+const setTerminalReason = vi.hoisted(() => vi.fn());
 
 const DELEGATION = {
   agent: "analytics",
@@ -23,10 +25,17 @@ vi.mock("./run-manager.js", async (importOriginal) => ({
   getSlotHoldingRunId: vi.fn(async () => undefined),
 }));
 
-vi.mock("./run-store.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./run-store.js")>()),
-  getCurrentTurnEventsForThread: turnLedger,
-}));
+vi.mock("./run-store.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./run-store.js")>();
+  endRun.mockImplementation(actual.updateRunStatusIfRunning);
+  setTerminalReason.mockImplementation(actual.setRunTerminalReason);
+  return {
+    ...actual,
+    getCurrentTurnEventsForThread: turnLedger,
+    updateRunStatusIfRunning: endRun,
+    setRunTerminalReason: setTerminalReason,
+  };
+});
 
 vi.mock("../chat-threads/store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../chat-threads/store.js")>()),
@@ -67,6 +76,21 @@ const { AGENT_INTERNAL_CONTINUE_PROMPT, createProductionAgentHandler } =
   await import("./production-agent.js");
 const { createCallAgentScriptEntry } =
   await import("../server/agent-chat/script-entries.js");
+const { getThread } = await import("../chat-threads/store.js");
+const actualRunStore =
+  await vi.importActual<typeof import("./run-store.js")>("./run-store.js");
+
+const FINISHED_DELEGATION = [
+  { type: "tool_start", tool: "call-agent", id: "call-1", input: DELEGATION },
+  {
+    type: "tool_done",
+    tool: "call-agent",
+    id: "call-1",
+    input: DELEGATION,
+    result: "412 signups",
+    completedSideEffect: true,
+  },
+];
 
 function repeatingDelegationEngine(seen: EngineMessage[][]): AgentEngine {
   return {
@@ -172,22 +196,7 @@ describe("an automatic continuation request", () => {
   it("resumes with the finished delegation in context and never sends it again", async () => {
     claimRunSlot.mockReset();
     claimRunSlot.mockResolvedValue({ claimed: true, activeRunId: null });
-    turnLedger.mockResolvedValue([
-      {
-        type: "tool_start",
-        tool: "call-agent",
-        id: "call-1",
-        input: DELEGATION,
-      },
-      {
-        type: "tool_done",
-        tool: "call-agent",
-        id: "call-1",
-        input: DELEGATION,
-        result: "412 signups",
-        completedSideEffect: true,
-      },
-    ]);
+    turnLedger.mockResolvedValue(FINISHED_DELEGATION);
     const callAgent = (await createCallAgentScriptEntry())["call-agent"]!;
     const sendAgain = vi.fn(async () => "a second remote task");
     const seen: EngineMessage[][] = [];
@@ -226,5 +235,116 @@ describe("an automatic continuation request", () => {
     expect(sendAgain).not.toHaveBeenCalled();
     expect(stream).toContain('"replayed":true');
     expect(stream).toContain("There were 412 signups.");
+  });
+
+  it.each([
+    [
+      "thread",
+      () => {
+        turnLedger.mockResolvedValue(FINISHED_DELEGATION);
+        vi.mocked(getThread).mockRejectedValueOnce(
+          new Error("Connection terminated"),
+        );
+      },
+    ],
+    [
+      "run journal",
+      () => turnLedger.mockRejectedValue(new Error("Connection terminated")),
+    ],
+  ])(
+    "fails retryably and runs nothing when the stopped turn's %s cannot be read",
+    async (_, breakRead) => {
+      claimRunSlot.mockReset();
+      claimRunSlot.mockResolvedValue({ claimed: true, activeRunId: null });
+      turnLedger.mockReset();
+      breakRead();
+      // The slot claim is mocked, so there is no row for the real update.
+      endRun.mockResolvedValue(true);
+      const callAgent = (await createCallAgentScriptEntry())["call-agent"]!;
+      const sendAgain = vi.fn(async () => "a second remote task");
+      const seen: EngineMessage[][] = [];
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine: repeatingDelegationEngine(seen),
+        actions: { "call-agent": { ...callAgent, run: sendAgain } },
+      });
+      const event = autoContinueRequest();
+
+      const result = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+      endRun.mockImplementation(actualRunStore.updateRunStatusIfRunning);
+      turnLedger.mockReset();
+
+      // The browser reads the turn's newest run, so the claimed run carries
+      // the reason a reload or a second tab is told too.
+      const runId = claimRunSlot.mock.calls[0]![1];
+      expect(event.res.status).toBe(503);
+      expect(result).toEqual({
+        error: expect.any(String),
+        code: "auto_continue_history_unreadable",
+        retryable: true,
+      });
+      expect(seen).toEqual([]);
+      expect(sendAgain).not.toHaveBeenCalled();
+      expect(endRun).toHaveBeenCalledWith(runId, "errored");
+      expect(setTerminalReason).toHaveBeenCalledWith(
+        runId,
+        "auto_continue_history_unreadable",
+      );
+    },
+  );
+
+  it("still resumes a server successor from the request when the thread cannot be read", async () => {
+    vi.mocked(getThread).mockRejectedValueOnce(
+      new Error("Connection terminated"),
+    );
+    const seen: EngineMessage[][] = [];
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: {
+        ...repeatingDelegationEngine([]),
+        async *stream(options): AsyncIterable<EngineEvent> {
+          seen.push(structuredClone(options.messages));
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text", text: "Summarized." }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      },
+      actions: {},
+      // A successor's chunk budget; without one it goes straight to the next.
+      runSoftTimeoutMs: 60_000,
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+    );
+    event.context.__agentChatBackgroundBody = {
+      message: "Summarize the signups.",
+      threadId: "thread-chained",
+      turnId: "turn-chained",
+      __backgroundRun: {
+        runId: "run-chained-2",
+        turnId: "turn-chained",
+        continuationCount: 1,
+      },
+    };
+
+    const response = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(event),
+    );
+    if (response instanceof ReadableStream) {
+      await new Response(response).text();
+    }
+
+    await vi.waitFor(() => expect(seen[0]).toBeDefined());
+    expect(textOf(seen[0]!.at(-1))).toMatch(/^Summarize the signups\./);
   });
 });

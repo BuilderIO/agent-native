@@ -9984,6 +9984,9 @@ export function createProductionAgentHandler(
             effectiveThreadId,
             effectiveTurnId,
           );
+          if (autoContinueOfRunId && journalRead.status === "unreadable") {
+            throw new Error(journalRead.error);
+          }
           const journalNote =
             journalRead.status === "read" && journalRead.toolCallJournal
               ? buildResumeJournalNote(journalRead.toolCallJournal)
@@ -9995,7 +9998,27 @@ export function createProductionAgentHandler(
           messages.length = 0;
           messages.push(...resumed);
         }
-      } catch {
+      } catch (error) {
+        if (autoContinueOfRunId) {
+          // The browser's history lacks the stopped run's tool results, so
+          // continuing from it could repeat a step that already finished.
+          console.warn(
+            `[agent-chat] auto-continue history unreadable for thread ${effectiveThreadId}:`,
+            error,
+          );
+          if (await updateRunStatusIfRunning(runId, "errored")) {
+            await setRunTerminalReason(
+              runId,
+              "auto_continue_history_unreadable",
+            );
+          }
+          setResponseStatus(event, 503);
+          return {
+            error: "This turn's history could not be read to continue it.",
+            code: "auto_continue_history_unreadable",
+            retryable: true,
+          };
+        }
         // Keep the body-derived messages — never drop the run.
       }
     }
