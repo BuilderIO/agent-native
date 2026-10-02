@@ -1069,6 +1069,10 @@ describe("RecorderEngine streaming connection recovery", () => {
     });
     expect(internals.localChunks).toEqual([source]);
     expect(onError).not.toHaveBeenCalled();
-    expect(putRecordingBackupMeta).not.toHaveBeenCalled();
+    // Only the copy's starting metadata; the failed chunk wrote nothing more.
+    expect(putRecordingBackupMeta).toHaveBeenCalledOnce();
+    expect(putRecordingBackupMeta).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec-1", chunkCount: 0 }),
+    );
   });
 });

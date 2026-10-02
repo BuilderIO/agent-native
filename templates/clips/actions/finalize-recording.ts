@@ -1363,12 +1363,21 @@ export default defineAction({
           console.warn("[finalize] failed to delete resumable session:", err),
         );
         await deleteAppState(mediaVerificationStateKey(id)).catch(() => {});
+        const readyState = await readAppState(`recording-upload-${id}`);
         return {
           id,
           status: "ready" as const,
           videoUrl: existing.videoUrl,
           videoSizeBytes: existing.videoSizeBytes ?? 0,
-          sourceSizeBytes: existing.videoSizeBytes ?? 0,
+          // The received bytes, never the served size: a client compares this
+          // with its local copy, and 0 reads as "unverified", not a mismatch.
+          sourceSizeBytes:
+            stateNumber(
+              readyState && typeof readyState === "object"
+                ? (readyState as Record<string, unknown>)
+                : null,
+              "sourceSizeBytes",
+            ) ?? 0,
           durationMs: existing.durationMs ?? 0,
         };
       }

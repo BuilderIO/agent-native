@@ -251,7 +251,7 @@ describe("uploadLocalRecording", () => {
     expect(mocks.deleteRecordingBackup).not.toHaveBeenCalled();
     expect(mocks.updateRecordingBackupMeta).toHaveBeenLastCalledWith(
       "local-1",
-      { state: "uploaded" },
+      { state: "uploaded", uploadedAt: expect.any(String) },
     );
   });
 
@@ -483,6 +483,53 @@ describe("uploadLocalRecording", () => {
     expect(again.recordingId).not.toBe("srv-1");
     expect(again.kept).toBeUndefined();
     expect(mocks.deleteRecordingBackup).toHaveBeenCalledWith("local-1");
+  });
+
+  it("offers to upload again once an earlier upload has processed too long", async () => {
+    const processing = json({
+      recording: { status: "processing", verificationPending: true },
+    });
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(
+      copy({
+        serverRecordingId: "srv-1",
+        state: "uploaded",
+        uploadedAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
+      }),
+    );
+    fetchMock.mockImplementation(async () => processing.clone());
+    mocks.uploadChunkRequest.mockResolvedValue(readyFor(10));
+
+    const kept = await uploadLocalRecording("local-1", ME);
+    expect(kept).toMatchObject({ recordingId: "srv-1", kept: "processing" });
+    expect(mocks.callAction).not.toHaveBeenCalled();
+
+    const again = await uploadLocalRecording("local-1", {
+      ...ME,
+      reuploadMismatched: true,
+    });
+    expect(again.recordingId).not.toBe("srv-1");
+    expect(mocks.deleteRecordingBackup).toHaveBeenCalledWith("local-1");
+  });
+
+  it("keeps waiting on an upload that only started processing recently", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(
+      copy({
+        serverRecordingId: "srv-1",
+        state: "uploaded",
+        uploadedAt: new Date().toISOString(),
+      }),
+    );
+    fetchMock.mockImplementation(async () =>
+      json({ recording: { status: "processing", verificationPending: true } }),
+    );
+
+    const result = await uploadLocalRecording("local-1", {
+      ...ME,
+      reuploadMismatched: true,
+    });
+
+    expect(result).toEqual({ recordingId: "srv-1", status: "processing" });
+    expect(mocks.callAction).not.toHaveBeenCalled();
   });
 
   it("uploads again over a ready clip the server never proved complete", async () => {

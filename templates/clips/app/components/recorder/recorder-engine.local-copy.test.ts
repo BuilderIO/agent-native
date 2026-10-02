@@ -120,19 +120,24 @@ describe("RecorderEngine local copy", () => {
 
     expect(result.localOnly).toBe(true);
     expect(uploadChunkRequest).not.toHaveBeenCalled();
-    expect(putRecordingBackupChunk).toHaveBeenCalledWith(
-      "local-1",
-      0,
-      expect.any(Blob),
-    );
-    expect(putRecordingBackupMeta).toHaveBeenCalledWith(
+    // The copy is findable before its first chunk, with its owner and title.
+    expect(putRecordingBackupMeta).toHaveBeenNthCalledWith(
+      1,
       expect.objectContaining({
         recordingId: "local-1",
         state: "recording",
+        chunkCount: 0,
         localOnly: true,
         ownerEmail: "me@example.com",
         title: "Demo",
       }),
+    );
+    // Each chunk is written together with the metadata that lists it.
+    expect(putRecordingBackupChunk).toHaveBeenCalledWith(
+      "local-1",
+      0,
+      expect.any(Blob),
+      expect.objectContaining({ chunkCount: 1, state: "recording" }),
     );
     expect(putRecordingBackupMeta).toHaveBeenLastCalledWith(
       expect.objectContaining({

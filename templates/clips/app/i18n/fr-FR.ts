@@ -1900,6 +1900,9 @@ const messages = {
       "Clips a conservé la copie d'un enregistrement dans ce navigateur",
     savedRecordingsUnreadable:
       "Clips n'a pas pu lire les enregistrements sauvegardés dans ce navigateur.",
+    remindTomorrow: "Me le rappeler demain",
+    stillProcessingCopyKept:
+      "Cet enregistrement est encore en cours de traitement, donc Clips a conservé votre copie ici. Patientez ou importez-le à nouveau.",
   },
   importRoute: {
     pageTitle: "Importer Loom — Clips",

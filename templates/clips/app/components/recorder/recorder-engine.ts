@@ -49,6 +49,7 @@ import {
   putRecordingBackupMeta,
   updateRecordingBackupMeta,
   verifyServerCopy,
+  type RecordingBackupMeta,
 } from "@/lib/recording-backup";
 import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
 import { uploadChunkRequest } from "@/lib/upload-request";
@@ -504,6 +505,8 @@ export class RecorderEngine {
   private captureComplete = true;
   /** Set once Stop saw the final chunk; a later chunk must not undo it. */
   private backupCompletedAt: string | null = null;
+  /** Settles once a Stop in flight has seen (or given up on) the final chunk. */
+  private finalChunkSettled: Promise<unknown> | null = null;
   private backupDetails: {
     ownerEmail: string | null;
     title: string | null;
@@ -1141,6 +1144,7 @@ export class RecorderEngine {
     }
     this.combinedStream = this.buildCombinedStream();
     this.stopPromise = null;
+    this.finalChunkSettled = null;
     this.recordedCameraVideo = false;
 
     try {
@@ -1201,6 +1205,7 @@ export class RecorderEngine {
     this.discarded = false;
     this.captureComplete = true;
     this.backupCompletedAt = null;
+    this.startRecordingBackup();
     this.uploadAbort = new AbortController();
     this.uploadMode = this.opts.uploadMode ?? "buffered";
     this.uploadAttemptId = null;
@@ -1345,6 +1350,7 @@ export class RecorderEngine {
         this.emitError(err);
         throw err;
       }
+      this.finalChunkSettled = finalDataAvailable;
 
       backupCaptureComplete = await finalDataAvailable;
     }
@@ -1853,13 +1859,13 @@ export class RecorderEngine {
     this.streamingRecoveryGeneration += 1;
     this.streamingRecovery.reset();
     this.streamingUploadGeneration += 1;
-    let stopped: Promise<void> = Promise.resolve();
+    // A Stop already in flight has asked for the final chunk; wait for it.
+    let stopped: Promise<unknown> = this.finalChunkSettled ?? Promise.resolve();
     const recorder = this.recorder;
     try {
       if (recorder && recorder.state !== "inactive") {
         stopped = new Promise<void>((resolve) => {
           recorder.addEventListener("stop", () => resolve(), { once: true });
-          setTimeout(resolve, RELEASE_FINAL_CHUNK_TIMEOUT_MS);
         });
         recorder.stop();
       }
@@ -1867,6 +1873,12 @@ export class RecorderEngine {
       // coercion-ok: a recorder that already stopped has nothing to release.
       stopped = Promise.resolve();
     }
+    stopped = Promise.race([
+      stopped,
+      new Promise((resolve) =>
+        setTimeout(resolve, RELEASE_FINAL_CHUNK_TIMEOUT_MS),
+      ),
+    ]);
     const releaseErr = makeAbortError("Recorder released");
     this.compressionAbort?.abort(releaseErr);
     this.compressionAbort = null;
@@ -2690,42 +2702,55 @@ export class RecorderEngine {
     );
   }
 
+  /** The copy's metadata as of now, read when its write is queued. */
+  private backupMetaNow(
+    recordingId: string,
+    chunkCount: number,
+  ): RecordingBackupMeta {
+    const dimensions = this.readDimensions();
+    // A recorder can deliver one more chunk after Stop's final one; that
+    // chunk extends a finished copy instead of reopening it.
+    const completedAt = this.backupCompletedAt;
+    return {
+      recordingId,
+      mimeType: this.mimeType,
+      durationMs: chunkCount === 0 ? 0 : Math.round(this.getElapsedMs()),
+      width: dimensions.width,
+      height: dimensions.height,
+      hasAudio: this.hasAudioTrack(),
+      hasCamera: this.recordedCameraVideo,
+      bytes: this.totalRecordedBytes,
+      chunkCount,
+      savedAt: new Date().toISOString(),
+      completedAt,
+      state: completedAt ? "recorded-local" : "recording",
+      localOnly: this.localOnly,
+    };
+  }
+
+  /** Recovery can find the copy before its first chunk exists. */
+  private startRecordingBackup(): void {
+    const recordingId = this.opts.recordingId;
+    if (!recordingId || recordingId === "__pending__") return;
+    const meta = {
+      ...this.backupMetaNow(recordingId, 0),
+      ...this.backupDetails,
+    };
+    this.backupMirrorQueue = this.backupMirrorQueue
+      .then(() => retryBackupWrite(() => putRecordingBackupMeta(meta)))
+      .catch((err) => this.rememberBackupFailure(err));
+  }
+
   private mirrorChunkToBackup(blob: Blob): void {
     const recordingId = this.opts.recordingId;
     if (!recordingId || recordingId === "__pending__") return;
     const index = this.backupChunkIndex++;
-    const dimensions = this.readDimensions();
-    const hasCamera = this.recordedCameraVideo;
-    const durationMs = Math.round(this.getElapsedMs());
-    const bytes = this.totalRecordedBytes;
-    // Read now, not when the write runs: only a chunk that arrives after
-    // Stop's final one belongs to an already finished copy.
-    const completedAt = this.backupCompletedAt;
+    const meta = this.backupMetaNow(recordingId, index + 1);
     this.backupMirrorQueue = this.backupMirrorQueue
       .then(async () => {
         if (this.backupError) return;
         await retryBackupWrite(() =>
-          putRecordingBackupChunk(recordingId, index, blob),
-        );
-        await retryBackupWrite(() =>
-          putRecordingBackupMeta({
-            recordingId,
-            mimeType: this.mimeType,
-            durationMs,
-            width: dimensions.width,
-            height: dimensions.height,
-            hasAudio: this.hasAudioTrack(),
-            hasCamera,
-            bytes,
-            chunkCount: index + 1,
-            savedAt: new Date().toISOString(),
-            // A recorder can deliver one more chunk after Stop's final one;
-            // that chunk extends a finished copy instead of reopening it.
-            completedAt,
-            state: completedAt ? "recorded-local" : "recording",
-            localOnly: this.localOnly,
-            ...(this.backupDetails && index === 0 ? this.backupDetails : {}),
-          }),
+          putRecordingBackupChunk(recordingId, index, blob, meta),
         );
       })
       .catch((err) => this.rememberBackupFailure(err));

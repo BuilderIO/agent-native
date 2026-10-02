@@ -1850,6 +1850,9 @@ const messages = {
     keptCopyWaiting: "احتفظ Clips بنسخة من تسجيل في هذا المتصفح",
     savedRecordingsUnreadable:
       "تعذّر على Clips قراءة التسجيلات المحفوظة في هذا المتصفح.",
+    remindTomorrow: "ذكّرني غدًا",
+    stillProcessingCopyKept:
+      "لا يزال هذا التسجيل قيد المعالجة، لذا احتفظ Clips بنسختك هنا. انتظر اكتمالها أو ارفعه مرة أخرى.",
   },
   importRoute: {
     pageTitle: "استيراد Loom — Clips",

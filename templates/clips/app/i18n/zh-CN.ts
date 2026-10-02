@@ -1773,6 +1773,9 @@ const messages = {
     uploadAgain: "重新上传",
     keptCopyWaiting: "Clips 在此浏览器中保留了一份录制副本",
     savedRecordingsUnreadable: "Clips 无法读取此浏览器中保存的录制。",
+    remindTomorrow: "明天提醒我",
+    stillProcessingCopyKept:
+      "此录制仍在处理中，因此 Clips 在这里保留了你的副本。请等待处理完成，或重新上传。",
   },
   importRoute: {
     pageTitle: "导入 Loom — Clips",

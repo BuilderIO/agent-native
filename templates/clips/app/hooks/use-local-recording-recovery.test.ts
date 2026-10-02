@@ -11,7 +11,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("sonner", () => ({
   toast: { warning: mocks.toastWarning, info: mocks.toastInfo },
 }));
-vi.mock("@/lib/local-recording-upload", () => ({
+vi.mock("@/lib/local-recording-upload", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/local-recording-upload")>()),
   fetchServerUploadStatus: mocks.fetchServerUploadStatus,
   trashStaleServerRecordings: mocks.trashStaleServerRecordings,
 }));
@@ -23,50 +24,14 @@ import {
   putRecordingBackupMeta,
   type RecordingBackupMeta,
 } from "@/lib/recording-backup";
+import { FakeLockManager } from "@/lib/testing/fake-lock-manager";
 
 import {
   findLocalRecordingsToFinish,
   offerLocalRecording,
+  remindLaterAboutLocalRecording,
   watchLocalRecordings,
 } from "./use-local-recording-recovery";
-
-/**
- * Web Locks shared by every "tab" in one origin. Grants happen a microtask
- * later, as in browsers, so a caller that does not await sees nothing held.
- */
-class FakeLockManager {
-  readonly held = new Set<string>();
-
-  async request(
-    name: string,
-    optionsOrCallback:
-      | { ifAvailable?: boolean }
-      | ((lock: { name: string } | null) => unknown),
-    maybeCallback?: (lock: { name: string } | null) => unknown,
-  ): Promise<unknown> {
-    const options =
-      typeof optionsOrCallback === "function" ? {} : optionsOrCallback;
-    const callback =
-      typeof optionsOrCallback === "function"
-        ? optionsOrCallback
-        : maybeCallback!;
-    await Promise.resolve();
-    if (this.held.has(name)) {
-      if (options.ifAvailable) return callback(null);
-      throw new Error("FakeLockManager does not model queued waiters");
-    }
-    this.held.add(name);
-    try {
-      return await callback({ name });
-    } finally {
-      this.held.delete(name);
-    }
-  }
-
-  async query() {
-    return { held: [...this.held].map((name) => ({ name })), pending: [] };
-  }
-}
 
 function meta(
   recordingId: string,
@@ -219,11 +184,85 @@ describe("findLocalRecordingsToFinish", () => {
       "fine",
     ]);
   });
+
+  it("re-verifies a copy kept after an unproven upload, never a cut-short one", async () => {
+    await saveCopy(
+      meta("kept", {
+        serverRecordingId: "srv-1",
+        state: "uploaded",
+        keptAfterUpload: "unverified",
+      }),
+    );
+    await saveCopy(
+      meta("partial", {
+        serverRecordingId: "srv-2",
+        state: "uploaded",
+        keptAfterUpload: "partial",
+      }),
+    );
+    mocks.fetchServerUploadStatus.mockResolvedValue(ready(4));
+
+    const scan = await findLocalRecordingsToFinish("me@example.com");
+
+    expect(await getRecordingBackupMeta("kept")).toBeNull();
+    expect(await getRecordingBackupMeta("partial")).not.toBeNull();
+    expect(scan.pending.map((m) => m.recordingId)).toEqual(["partial"]);
+  });
+
+  it("offers a copy whose upload has processed too long instead of waiting forever", async () => {
+    const processing = {
+      found: true,
+      status: "processing",
+      verificationPending: true,
+      sourceSizeBytes: null,
+      durationMs: null,
+    };
+    const now = Date.parse("2026-10-01T12:00:00.000Z");
+    await saveCopy(
+      meta("fresh", {
+        serverRecordingId: "srv-1",
+        uploadedAt: "2026-10-01T11:30:00.000Z",
+      }),
+    );
+    await saveCopy(
+      meta("stuck", {
+        serverRecordingId: "srv-2",
+        uploadedAt: "2026-10-01T10:30:00.000Z",
+      }),
+    );
+    mocks.fetchServerUploadStatus.mockResolvedValue(processing);
+
+    const scan = await findLocalRecordingsToFinish("me@example.com", now);
+
+    expect(scan.waitingOnServer).toBe(1);
+    expect(scan.pending.map((m) => m.recordingId)).toEqual(["stuck"]);
+  });
+
+  it("stops offering a snoozed copy until tomorrow, and keeps it", async () => {
+    const now = Date.parse("2026-10-01T12:00:00.000Z");
+    await saveCopy(meta("snoozed", { localOnly: true }));
+    await remindLaterAboutLocalRecording("snoozed", now);
+
+    const today = await findLocalRecordingsToFinish("me@example.com", now);
+    const tomorrow = await findLocalRecordingsToFinish(
+      "me@example.com",
+      now + 25 * 60 * 60_000,
+    );
+
+    expect(today.pending).toEqual([]);
+    expect(await getRecordingBackupMeta("snoozed")).not.toBeNull();
+    expect(tomorrow.pending.map((m) => m.recordingId)).toEqual(["snoozed"]);
+  });
 });
 
 describe("watchLocalRecordings", () => {
   it("rechecks a processing copy and deletes it only after a proven ready", async () => {
-    await saveCopy(meta("processing", { serverRecordingId: "srv-1" }));
+    await saveCopy(
+      meta("processing", {
+        serverRecordingId: "srv-1",
+        uploadedAt: new Date().toISOString(),
+      }),
+    );
     mocks.fetchServerUploadStatus
       .mockResolvedValueOnce({
         found: true,
@@ -302,6 +341,23 @@ describe("offerLocalRecording", () => {
   it("finishes in place once no other tab holds the copy", async () => {
     const { onFinish } = clickOffer();
     await vi.waitFor(() => expect(onFinish).toHaveBeenCalledWith("rec-1"));
+  });
+
+  it("lets the user snooze the prompt without touching the copy", async () => {
+    await saveCopy(meta("rec-1", { localOnly: true }));
+    clickOffer();
+    const options = mocks.toastWarning.mock.lastCall![1] as {
+      cancel: { label: string; onClick: () => void };
+    };
+    expect(options.cancel.label).toBe("recordRoute.remindTomorrow");
+
+    options.cancel.onClick();
+
+    await vi.waitFor(async () =>
+      expect((await getRecordingBackupMeta("rec-1"))?.remindAfter).toEqual(
+        expect.any(String),
+      ),
+    );
   });
 
   it("sends an ownerless copy to the explicit claim step, never straight to upload", async () => {

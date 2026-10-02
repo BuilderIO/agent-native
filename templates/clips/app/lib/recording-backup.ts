@@ -80,6 +80,10 @@ export interface RecordingBackupMeta {
    * the whole recording, so the copy is kept until the user decides.
    */
   keptAfterUpload?: "partial" | "unverified" | "mismatch" | null;
+  /** When the server accepted the upload and began processing it. */
+  uploadedAt?: string | null;
+  /** The user asked not to be reminded about this copy before then. */
+  remindAfter?: string | null;
 }
 
 export function localRecordingState(
@@ -196,11 +200,16 @@ export async function updateRecordingBackupMeta(
 async function writeRecordingBackupMeta(
   recordingId: string,
   build: (existing: RecordingBackupMeta | undefined) => RecordingBackupMeta,
+  chunk?: RecordingBackupChunk,
 ): Promise<RecordingBackupMeta> {
   const db = await openDb();
   const written: { meta?: RecordingBackupMeta; error?: unknown } = {};
   try {
-    const tx = db.transaction(META_STORE, "readwrite");
+    const tx = db.transaction(
+      chunk ? [META_STORE, CHUNK_STORE] : META_STORE,
+      "readwrite",
+    );
+    if (chunk) tx.objectStore(CHUNK_STORE).put(chunk);
     const store = tx.objectStore(META_STORE);
     const read = store.get(recordingId);
     read.onsuccess = () => {
@@ -274,20 +283,34 @@ export async function getRecordingBackupMeta(
   }
 }
 
+/**
+ * With `meta`, the copy's metadata is merged in the same transaction, so a
+ * stored chunk is never invisible to recovery and a failed write stores
+ * neither.
+ */
 export async function putRecordingBackupChunk(
   recordingId: string,
   index: number,
   blob: Blob,
+  meta?: RecordingBackupMeta,
 ): Promise<void> {
+  const chunk: RecordingBackupChunk = {
+    recordingId,
+    index,
+    blob,
+    bytes: blob.size,
+    createdAt: new Date().toISOString(),
+  };
+  if (meta) {
+    await writeRecordingBackupMeta(
+      recordingId,
+      (existing) => ({ ...existing, ...meta }),
+      chunk,
+    );
+    return;
+  }
   const db = await openDb();
   try {
-    const chunk: RecordingBackupChunk = {
-      recordingId,
-      index,
-      blob,
-      bytes: blob.size,
-      createdAt: new Date().toISOString(),
-    };
     const tx = db.transaction(CHUNK_STORE, "readwrite");
     tx.objectStore(CHUNK_STORE).put(chunk);
     await waitForTransaction(tx);

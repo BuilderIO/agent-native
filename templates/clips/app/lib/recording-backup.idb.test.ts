@@ -95,6 +95,50 @@ describe("recording backup (IndexedDB)", () => {
     expect(await getRecordingBackupChunks("rec-a")).toEqual([]);
   });
 
+  it("stores a chunk together with the metadata that lists it, or neither", async () => {
+    await putRecordingBackupChunk(
+      "rec-a",
+      0,
+      new Blob(["ab"]),
+      meta({ completedAt: null, bytes: 2, chunkCount: 1 }),
+    );
+    expect(await getRecordingBackupMeta("rec-a")).toMatchObject({
+      chunkCount: 1,
+    });
+
+    // The page dies mid-write: the metadata half of chunk 1 fails.
+    const put = IDBObjectStore.prototype.put;
+    vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(function (
+      this: IDBObjectStore,
+      ...args: Parameters<IDBObjectStore["put"]>
+    ) {
+      if (this.name === "recordings") {
+        throw new DOMException("disk full", "QuotaExceededError");
+      }
+      return put.apply(this, args);
+    });
+    await expect(
+      putRecordingBackupChunk(
+        "rec-a",
+        1,
+        new Blob(["cd"]),
+        meta({ completedAt: null, chunkCount: 2 }),
+      ),
+    ).rejects.toMatchObject({ name: "QuotaExceededError" });
+    vi.restoreAllMocks();
+
+    // Recovery still finds the copy, with exactly the chunk its metadata lists.
+    expect(await getRecordingBackupMeta("rec-a")).toMatchObject({
+      chunkCount: 1,
+    });
+    expect(
+      (await getRecordingBackupChunks("rec-a")).map((c) => c.index),
+    ).toEqual([0]);
+    expect(
+      await text((await readRecoverableRecordingBackup("rec-a"))?.blob),
+    ).toBe("ab");
+  });
+
   it("deletes one copy's meta and chunks and leaves other copies alone", async () => {
     await putRecordingBackupMeta(meta());
     await putRecordingBackupChunk("rec-a", 0, new Blob(["ab"]));

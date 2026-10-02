@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import {
   fetchServerUploadStatus,
+  isProcessingStuck,
   trashStaleServerRecordings,
 } from "@/lib/local-recording-upload";
 import {
@@ -16,6 +17,7 @@ import {
   liveRecordingBackupIds,
   recordingBackupAvailable,
   selectRecoverableRecordingBackups,
+  updateRecordingBackupMeta,
   verifyServerCopy,
   type RecordingBackupMeta,
 } from "@/lib/recording-backup";
@@ -24,6 +26,9 @@ const RECOVERY_TOAST_ID = "clips-local-recording-recovery";
 
 /** Rechecks while a copy's server row is still processing; the last repeats. */
 const PROCESSING_RECHECK_MS = [15_000, 30_000, 60_000, 120_000, 300_000];
+
+/** "Remind me tomorrow" hides a copy's prompt this long; the copy stays. */
+const REMIND_LATER_MS = 24 * 60 * 60_000;
 
 export interface LocalRecordingScan {
   /** Copies to offer: unfinished, ownerless, or kept after an upload. */
@@ -54,15 +59,18 @@ async function deleteConfirmedCopy(
 
 /**
  * The local copies that still need the user. A copy the server proves it
- * holds in full (exact bytes, matching duration) is deleted here; one it is
- * still processing is counted so the caller rechecks. A "ready" status with
- * no proof, or a copy that was cut short, is offered rather than deleted. An
- * ownerless copy whose server row this account can read is stamped; any
- * other ownerless copy comes back unstamped for an explicit claim. A copy
- * whose check fails is still offered: a failure never hides a recording.
+ * holds in full (exact bytes, matching duration) is deleted here, including
+ * one kept after an earlier unproven upload; one it is still processing is
+ * counted so the caller rechecks, until it has processed too long and is
+ * offered. A "ready" status with no proof, or a copy that was cut short, is
+ * offered rather than deleted. An ownerless copy whose server row this account
+ * can read is stamped; any other ownerless copy comes back unstamped for an
+ * explicit claim. A copy whose check fails is still offered: a failure never
+ * hides a recording. A copy the user snoozed is left out until its time.
  */
 export async function findLocalRecordingsToFinish(
   ownerEmail: string,
+  nowMs = Date.now(),
 ): Promise<LocalRecordingScan> {
   const [metas, liveIds] = await Promise.all([
     listRecordingBackupMetas(),
@@ -85,12 +93,15 @@ export async function findLocalRecordingsToFinish(
       // coercion-ok: null is "server unreachable" (unlike { found: false }); the copy is still offered.
       const server = await fetchServerUploadStatus(serverId).catch(() => null);
       if (server?.found && server.status === "processing") {
-        waitingOnServer += 1;
+        if (isProcessingStuck(meta, nowMs)) pending.push(meta);
+        else waitingOnServer += 1;
         continue;
       }
       if (server?.found && server.status === "ready") {
         const whole =
-          !!meta.completedAt && !meta.incomplete && !meta.keptAfterUpload;
+          !!meta.completedAt &&
+          !meta.incomplete &&
+          meta.keptAfterUpload !== "partial";
         const proof = verifyServerCopy(server, {
           bytes: meta.bytes,
           durationMs: meta.durationMs,
@@ -120,7 +131,22 @@ export async function findLocalRecordingsToFinish(
       pending.push(meta);
     }
   }
-  return { pending, waitingOnServer };
+  return {
+    pending: pending.filter(
+      (meta) => !(Date.parse(meta.remindAfter ?? "") > nowMs),
+    ),
+    waitingOnServer,
+  };
+}
+
+/** Stop prompting about a copy until tomorrow; the copy itself is kept. */
+export async function remindLaterAboutLocalRecording(
+  recordingId: string,
+  nowMs = Date.now(),
+): Promise<void> {
+  await updateRecordingBackupMeta(recordingId, {
+    remindAfter: new Date(nowMs + REMIND_LATER_MS).toISOString(),
+  });
 }
 
 /**
@@ -190,7 +216,7 @@ export function watchLocalRecordings(
 export function offerLocalRecording(options: {
   meta: Pick<
     RecordingBackupMeta,
-    "recordingId" | "ownerEmail" | "keptAfterUpload"
+    "recordingId" | "ownerEmail" | "keptAfterUpload" | "state"
   >;
   t: ReturnType<typeof useT>;
   navigate: (path: string) => unknown;
@@ -198,7 +224,8 @@ export function offerLocalRecording(options: {
 }): void {
   const { meta, t, navigate, onFinish } = options;
   const unclaimed = !meta.ownerEmail;
-  const kept = !!meta.keptAfterUpload;
+  // Uploaded and kept, or still processing on the server.
+  const kept = !!meta.keptAfterUpload || meta.state === "uploaded";
   toast.warning(
     unclaimed
       ? t("recordRoute.unclaimedRecording")
@@ -209,6 +236,16 @@ export function offerLocalRecording(options: {
       id: RECOVERY_TOAST_ID,
       duration: Infinity,
       closeButton: true,
+      cancel: {
+        label: t("recordRoute.remindTomorrow"),
+        onClick: () => {
+          void remindLaterAboutLocalRecording(meta.recordingId).catch(
+            (err: unknown) => {
+              console.warn("[clips] could not snooze the reminder:", err);
+            },
+          );
+        },
+      },
       action: {
         label:
           unclaimed || kept

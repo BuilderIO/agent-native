@@ -1845,6 +1845,9 @@ const messages = {
     keptCopyWaiting: "Clips가 이 브라우저에 녹화 사본을 보관하고 있습니다",
     savedRecordingsUnreadable:
       "Clips가 이 브라우저에 저장된 녹화를 읽지 못했습니다.",
+    remindTomorrow: "내일 다시 알림",
+    stillProcessingCopyKept:
+      "이 녹화는 아직 처리 중이므로 Clips가 사본을 여기에 보관했습니다. 기다리거나 다시 업로드하세요.",
   },
   importRoute: {
     pageTitle: "Loom 가져오기 — Clips",

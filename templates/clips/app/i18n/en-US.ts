@@ -1836,6 +1836,9 @@ const messages = {
     keptCopyWaiting: "Clips kept a copy of a recording in this browser",
     savedRecordingsUnreadable:
       "Clips couldn't read the recordings saved in this browser.",
+    remindTomorrow: "Remind me tomorrow",
+    stillProcessingCopyKept:
+      "This recording is still processing, so Clips kept your copy here. Wait for it, or upload it again.",
   },
   importRoute: {
     pageTitle: "Import Loom — Clips",

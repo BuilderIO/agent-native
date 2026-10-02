@@ -9,6 +9,7 @@ import {
 
 import {
   deleteRecordingBackup,
+  getRecordingBackupMeta,
   localRecordingState,
   nextLocalRecordingState,
   readRecoverableRecordingBackup,
@@ -32,6 +33,7 @@ export type LocalUploadFailureCode =
   | "owner_mismatch"
   | "lock_unavailable"
   | "copy_kept"
+  | "still_processing"
   | "storage_setup_required"
   | "session_expired"
   | "recording_too_large"
@@ -53,6 +55,7 @@ const SERVER_FAILURE_CODE: Record<LocalUploadFailureCode, string> = {
   owner_mismatch: "upload_failed",
   lock_unavailable: "upload_failed",
   copy_kept: "upload_failed",
+  still_processing: "upload_failed",
   storage_setup_required: "storage_setup_required",
   session_expired: "upload_interrupted",
   recording_too_large: "recording_too_large",
@@ -262,10 +265,24 @@ export type LocalUploadResult = {
   /**
    * Set when the local copy was kept after the upload: "partial" when the
    * copy itself is not the whole recording, "unverified" when the server did
-   * not report what it received, "mismatch" when it reported less.
+   * not report what it received, "mismatch" when it reported less,
+   * "processing" when an earlier upload has been processing for too long.
    */
-  kept?: "partial" | "unverified" | "mismatch";
+  kept?: "partial" | "unverified" | "mismatch" | "processing";
 };
+
+/** After this long, a copy whose upload is still processing is offered again. */
+export const PROCESSING_STUCK_MS = 60 * 60_000;
+
+/** Whether this copy's upload has been processing on the server too long. */
+export function isProcessingStuck(
+  meta: Pick<RecordingBackupMeta, "uploadedAt" | "completedAt" | "savedAt">,
+  nowMs = Date.now(),
+): boolean {
+  // A copy streamed while recording finished uploading when it completed.
+  const ms = Date.parse(meta.uploadedAt ?? meta.completedAt ?? meta.savedAt);
+  return !Number.isFinite(ms) || nowMs - ms >= PROCESSING_STUCK_MS;
+}
 
 const DEFAULT_RETRY_DELAYS_MS = [1_000, 3_000, 8_000, 15_000] as const;
 
@@ -373,8 +390,17 @@ export async function uploadLocalRecording(
       }
     }
     if (previous.found && previous.status === "processing") {
-      await persist({ state: "uploaded" });
-      return { recordingId: previousServerId, status: "processing" };
+      if (!isProcessingStuck(meta)) {
+        await persist({ state: "uploaded" });
+        return { recordingId: previousServerId, status: "processing" };
+      }
+      if (!options.reuploadMismatched) {
+        return {
+          recordingId: previousServerId,
+          status: "processing",
+          kept: "processing",
+        };
+      }
     }
     if (previous.found) staleServerIds.add(previousServerId);
   }
@@ -429,7 +455,10 @@ export async function uploadLocalRecording(
   // The server holds the clip now; bookkeeping below can only leave a stale
   // local copy, which the next recovery scan reconciles once it reads ready.
   if (uploaded.status === "processing") {
-    await persist({ state: "uploaded" }).catch(() => {
+    await persist({
+      state: "uploaded",
+      uploadedAt: new Date().toISOString(),
+    }).catch(() => {
       // coercion-ok: see above; a leftover copy is reconciled, never re-uploaded.
     });
     return { recordingId: serverId, status: "processing" };
@@ -448,6 +477,24 @@ export async function uploadLocalRecording(
       };
     },
   );
+}
+
+/**
+ * Discard a local copy this tab owns. Any in-flight upload of it settles
+ * first, so its bookkeeping cannot race the delete, and the server row that
+ * upload recorded is trashed unless it is already ready.
+ */
+export async function discardLocalRecording(
+  localId: string,
+  options: { afterUpload?: Promise<unknown> | null } = {},
+): Promise<void> {
+  await options.afterUpload;
+  // coercion-ok: an unreadable copy is still deleted; its row times out on its own.
+  const meta = await getRecordingBackupMeta(localId).catch(() => null);
+  if (meta?.serverRecordingId) {
+    await trashStaleServerRecordings([meta.serverRecordingId]);
+  }
+  await deleteRecordingBackup(localId);
 }
 
 /**

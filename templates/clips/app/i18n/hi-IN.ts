@@ -1825,6 +1825,9 @@ const messages = {
     keptCopyWaiting: "Clips ने इस ब्राउज़र में एक रिकॉर्डिंग की कॉपी रखी है",
     savedRecordingsUnreadable:
       "Clips इस ब्राउज़र में सेव की गई रिकॉर्डिंग नहीं पढ़ सका।",
+    remindTomorrow: "कल याद दिलाएँ",
+    stillProcessingCopyKept:
+      "यह रिकॉर्डिंग अभी प्रोसेस हो रही है, इसलिए Clips ने आपकी कॉपी यहाँ रखी है। इंतज़ार करें या इसे फिर से अपलोड करें।",
   },
   importRoute: {
     pageTitle: "Loom आयात करें — Clips",

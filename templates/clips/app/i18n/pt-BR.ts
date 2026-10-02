@@ -1878,6 +1878,9 @@ const messages = {
     keptCopyWaiting: "O Clips manteve a cópia de uma gravação neste navegador",
     savedRecordingsUnreadable:
       "O Clips não conseguiu ler as gravações salvas neste navegador.",
+    remindTomorrow: "Lembrar amanhã",
+    stillProcessingCopyKept:
+      "Esta gravação ainda está sendo processada, então o Clips manteve sua cópia aqui. Aguarde ou envie de novo.",
   },
   importRoute: {
     pageTitle: "Importar Loom — Clips",

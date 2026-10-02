@@ -1898,6 +1898,9 @@ const messages = {
       "Clips hat eine Kopie einer Aufnahme in diesem Browser behalten",
     savedRecordingsUnreadable:
       "Clips konnte die in diesem Browser gespeicherten Aufnahmen nicht lesen.",
+    remindTomorrow: "Morgen erinnern",
+    stillProcessingCopyKept:
+      "Diese Aufnahme wird noch verarbeitet, daher hat Clips deine Kopie hier behalten. Warte darauf oder lade sie erneut hoch.",
   },
   importRoute: {
     pageTitle: "Loom importieren — Clips",

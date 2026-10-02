@@ -285,6 +285,37 @@ describe("finalize-recording chunk completeness", () => {
     expect(mockUploadFile).not.toHaveBeenCalled();
   });
 
+  it.each([
+    [{ status: "ready", sourceSizeBytes: 11 }, 11],
+    [null, 0],
+  ])(
+    "reports the received bytes, never the served size, for an already ready row (%o)",
+    async (uploadState, sourceSizeBytes) => {
+      mockDeleteAppState.mockResolvedValue(undefined);
+      mockState.uploadState = uploadState;
+      mockState.selectRows = [
+        [
+          {
+            ...mockState.existingRecording,
+            status: "ready",
+            videoUrl: "https://cdn.example.com/rec_1",
+            videoSizeBytes: 2,
+          },
+        ],
+      ];
+
+      const result = await finalizeRecording.run({ id: "rec_1" });
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          status: "ready",
+          videoSizeBytes: 2,
+          sourceSizeBytes,
+        }),
+      );
+    },
+  );
+
   it("gives the claimed re-finalize a live upload lease", async () => {
     mockState.existingRecording = {
       ...mockState.existingRecording,

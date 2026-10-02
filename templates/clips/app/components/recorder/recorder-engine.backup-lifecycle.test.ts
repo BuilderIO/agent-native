@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getRecordingBackupChunks,
   getRecordingBackupMeta,
+  listRecordingBackupMetas,
 } from "@/lib/recording-backup";
 
 import { RecorderEngine } from "./recorder-engine";
@@ -129,6 +130,39 @@ describe("RecorderEngine local copy lifecycle (IndexedDB)", () => {
     ]);
     expect(await getRecordingBackupMeta("local-1")).toMatchObject({
       chunkCount: 2,
+    });
+  });
+
+  it("makes the copy findable before its first chunk exists", async () => {
+    const engine = await startedEngine();
+    await written(engine);
+
+    expect(await listRecordingBackupMetas()).toEqual([
+      expect.objectContaining({
+        recordingId: "local-1",
+        state: "recording",
+        chunkCount: 0,
+        ownerEmail: "me@example.com",
+        title: "Demo",
+      }),
+    ]);
+  });
+
+  it("waits for the final chunk of a Stop already in flight before releasing", async () => {
+    const engine = await startedEngine();
+    AsyncFinalChunkRecorder.instance!.emitChunk(new Blob(["head"]));
+
+    void engine.stop();
+    await engine.release();
+
+    const chunks = await getRecordingBackupChunks("local-1");
+    expect(await Promise.all(chunks.map((c) => c.blob.text()))).toEqual([
+      "head",
+      "tail",
+    ]);
+    expect(await getRecordingBackupMeta("local-1")).toMatchObject({
+      chunkCount: 2,
+      completedAt: expect.any(String),
     });
   });
 

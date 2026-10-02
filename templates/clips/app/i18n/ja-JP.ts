@@ -1872,6 +1872,9 @@ const messages = {
     keptCopyWaiting: "Clips がこのブラウザに録画のコピーを残しています",
     savedRecordingsUnreadable:
       "このブラウザに保存された録画を Clips が読み取れませんでした。",
+    remindTomorrow: "明日もう一度通知",
+    stillProcessingCopyKept:
+      "この録画はまだ処理中のため、Clips はコピーをここに残しました。完了を待つか、もう一度アップロードしてください。",
   },
   importRoute: {
     pageTitle: "Loom をインポート — Clips",
