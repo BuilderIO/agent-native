@@ -49,8 +49,16 @@ function isRichText(...items: unknown[]): boolean {
 // collaborator's typing into the copy being saved, so a text merge here could
 // only insert someone's words a second time. Prose is changed on the other side
 // only when it was saved without going through the document.
+// Whether the local copy changed it is a question about the words: the editor
+// rebuilds prose blocks from the document and leaves out block fields it does
+// not edit (`editable`), so comparing whole blocks would call an untouched
+// block changed and let a stale copy overwrite what the other writer saved.
 function mergeRichText(base: unknown, local: unknown, remote: unknown) {
-  return same(base, local) ? remote : local;
+  return markdownOf(base) === markdownOf(local) ? remote : local;
+}
+
+function markdownOf(block: unknown): unknown {
+  return (block as { data?: { markdown?: unknown } }).data?.markdown;
 }
 
 function mergeKeyedArray(

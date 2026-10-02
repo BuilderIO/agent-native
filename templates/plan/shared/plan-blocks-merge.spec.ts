@@ -51,6 +51,17 @@ describe("mergePlanBlocks", () => {
     ]);
   });
 
+  it("treats prose as untouched when only a field the editor does not write differs", () => {
+    // Saved blocks carry `editable`; the blocks the editor sends back do not.
+    const saved = { ...prose("b", "Bravo."), editable: true } as PlanBlock;
+    const merged = mergePlanBlocks(
+      [saved],
+      [prose("b", "Bravo.")],
+      [{ ...saved, data: { markdown: "Bravo. theirs" } } as PlanBlock],
+    );
+    expect(merged).toEqual([{ ...saved, data: { markdown: "Bravo. theirs" } }]);
+  });
+
   it("keeps a block one writer added and a block the other removed", () => {
     const merged = mergePlanBlocks(
       base,
