@@ -1124,12 +1124,12 @@ const frameToken = () => boundToken() || nearestToken(RESP.w);
 const widthMenu = (cur, run) => { const [name, , kind] = (cur === RESP.w ? frameToken() : nearestToken(cur)) || []; return [{ label: "Container" }, ...widthTokens("container").map(([n, px]) => ({ t: n, k: String(px), radio: true, on: kind === "container" && name === n, run: () => run(px, [n, px, "container"]) })), "-", { label: "Breakpoint" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: n, k: String(px), radio: true, on: kind === "breakpoint" && name === n, run: () => run(px, [n, px, "breakpoint"]) }))]; };
 const whenMenu = (r) => [{ label: "Container (this layer's parent)" }, ...widthTokens("container").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), radio: true, on: r.scale === "container" && r.token === n, run: () => { r.scale = "container"; r.token = n; renderPage(); renderInspector(); } })), "-", { label: "Breakpoint (the frame)" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), radio: true, on: r.scale === "breakpoint" && r.token === n, run: () => { r.scale = "breakpoint"; r.token = n; renderPage(); renderInspector(); } }))];
 // A URL screen is like an instance of your app's route. Designers see the route; the app and its host live
-// behind the server icon's status dot and tooltip. Detach from app freezes it as a static copy. Static screens
-// have no source UI at all.
-const SRC = { live: true, name: "Agent-Native Web", host: "localhost:5173", apps: [["Agent-Native Web", "localhost:5173"]] };
+// behind the server icon's status dot and tooltip. There's no detach: edits write back to the app's code, and
+// turning a live screen static is left to the agent (update-screen-source). Static screens have no source UI.
+const SRC = { name: "Agent-Native Web", host: "localhost:5173", apps: [["Agent-Native Web", "localhost:5173"]] };
 const localApp = () => S.scenario === "local" || S.scenario === "local-off";
 const appConnected = () => localApp() || SRC.joined;
-const urlScreen = () => localApp() && SRC.live;
+const urlScreen = localApp;
 const srcUp = () => S.scenario !== "local-off";
 const srcTip = () => srcUp() ? `${SRC.name} · ${SRC.host}` : `Can't reach ${SRC.name} at ${SRC.host}. Is its dev server running?`;
 const sdot = () => `<span class="sdot ${srcUp() ? "" : "off"}" title="${srcTip()}"></span>`;
@@ -1138,8 +1138,7 @@ const routeMenu = () => [...SRC.apps.flatMap(([name]) => [...(SRC.apps.length > 
 const appMenu = () => [{ label: SRC.name },
   ...(srcUp()
     ? [{ icon: "external-link", t: "Open in browser", k: SRC.host, toast: `Opens ${SRC.host}${S.route}` }, { icon: "refresh", t: "Reload screen", run: () => { renderPage(); toast(`Reloaded ${S.route}`); } }]
-    : [{ icon: "refresh", t: "Retry connection", run: () => { S.scenario = "local"; $("#scenario-sel").value = "local"; render(); toast(`Connected to ${SRC.name}`); } }]),
-  "-", { icon: "file-code", t: "Detach from app", disabled: !srcUp(), run: () => { SRC.live = false; render(); toast("Detached. This screen is now a static copy of the page; ⌘Z to undo."); } }];
+    : [{ icon: "refresh", t: "Retry connection", run: () => { S.scenario = "local"; $("#scenario-sel").value = "local"; render(); toast(`Connected to ${SRC.name}`); } }])];
 // Device sizes use the Frame tool's list, so there's one set of presets; a device sets W and a fixed H.
 const deviceMenu = () => FRAME_PRESETS.map(([key, label, icon, list]) => ({ icon, t: label, sub: list.map(([n, w, h]) => ({ t: n, k: `${w}\u2009×\u2009${h}`, radio: true, on: RESP.w === w && RESP.h === h, run: () => { RESP.h = h; setFrameWidth(w); } })) }));
 // The selected screen's frame, in the code's order: Screen, Position (X/Y, size with device presets),
