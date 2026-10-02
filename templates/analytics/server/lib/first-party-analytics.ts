@@ -4,6 +4,7 @@ import {
   runWithRequestContext,
   testIdentitySql,
 } from "@agent-native/core/server";
+import { testIdentityEmailSql } from "@agent-native/core/shared";
 import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 
 import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
@@ -1405,6 +1406,25 @@ function freshnessClause(tableName: string, parameter: number): string {
   return `(substr(started_at, 1, 10) <= $${parameter})`;
 }
 
+/**
+ * Dashboard SQL is stored and interpolated outside the server, so it can only
+ * carry the built-in matcher (`testIdentityEmailSql`). Widen each one to this
+ * deployment's configured identities, so a stored panel excludes the same
+ * people as every other query.
+ */
+function withConfiguredTestIdentities(sql: string): string {
+  const marker = "an_test_identity_column";
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const [head, ...rest] = testIdentityEmailSql(marker).split(marker);
+  const builtIn = new RegExp(
+    `${escape(head!)}([A-Za-z_][\\w.]*)${rest.map(escape).join("\\1")}`,
+    "g",
+  );
+  return sql.replace(builtIn, (_match, column: string) =>
+    testIdentitySql(column),
+  );
+}
+
 export function scopedAnalyticsSql(
   sql: string,
   scope: AnalyticsScope,
@@ -1416,7 +1436,7 @@ export function scopedAnalyticsSql(
     `\\b(from|join)\\s+(${FIRST_PARTY_QUERY_TABLE_PATTERN})\\b(\\s+(?:as\\s+)?(?!where\\b|on\\b|group\\b|order\\b|limit\\b|join\\b|left\\b|right\\b|inner\\b|outer\\b|cross\\b|full\\b|having\\b|union\\b)([a-zA-Z_][a-zA-Z0-9_]*))?`,
     "gi",
   );
-  const rewritten = sql.replace(
+  const rewritten = withConfiguredTestIdentities(sql).replace(
     aliasRe,
     (full, keyword, tableName, aliasPart, alias) => {
       const normalizedTable = String(tableName).toLowerCase();
