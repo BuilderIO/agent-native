@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  crossScreenDragStartedAt,
+  crossScreenIgnoreAutoLayoutAfterWindowBlur,
   crossScreenSKeyHeldFromTimes,
   crossScreenSKeyTimesAfterKeyChange,
   crossScreenReleaseModifiers,
@@ -27,6 +29,11 @@ const timesAfterBlur = (
     : times;
 
 describe("cross-screen Ignore Auto Layout release timing", () => {
+  it("clears an idle S override on blur but preserves an active drag", () => {
+    expect(crossScreenIgnoreAutoLayoutAfterWindowBlur(true, false)).toBe(false);
+    expect(crossScreenIgnoreAutoLayoutAfterWindowBlur(true, true)).toBe(true);
+  });
+
   it("seeds a source-held S before host keyup can be observed", () => {
     expect(seedCrossScreenSKeyTimesAtStart(true, withoutTimes(), 100)).toEqual({
       downAt: 100,
@@ -45,6 +52,20 @@ describe("cross-screen Ignore Auto Layout release timing", () => {
     expect(
       isCrossScreenIgnoreAutoLayoutHeldAtRelease(140, released, true),
     ).toBe(false);
+  });
+
+  it("keeps source keyup timestamps ordered against the source drag start", () => {
+    const startedAt = crossScreenDragStartedAt(100, 150);
+    const seeded = seedCrossScreenSKeyTimesAtStart(
+      true,
+      withoutTimes(),
+      startedAt,
+    );
+    const released = crossScreenSKeyTimesAfterKeyChange(seeded, false, 120);
+
+    expect(released).toEqual({ downAt: 100, upAt: 120 });
+    expect(crossScreenSKeyHeldFromTimes(released)).toBe(false);
+    expect(crossScreenDragStartedAt(undefined, 150)).toBe(150);
   });
 
   it("leaves a source-without-S gesture unchanged", () => {

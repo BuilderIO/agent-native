@@ -16682,6 +16682,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           phase === "start" || phase === "end"
             ? activeCrossScreenSourceHtml
             : undefined,
+        startedAt: phase === "start" ? eventEpochMilliseconds(ev) : undefined,
         releasedAt: phase === "end" ? eventEpochMilliseconds(ev) : undefined,
       },
       "*",

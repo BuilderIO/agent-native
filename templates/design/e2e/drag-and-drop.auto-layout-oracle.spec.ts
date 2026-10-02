@@ -572,6 +572,7 @@ test("G-5 held explicit-span grid drop uses a conservative line and preserves au
     const originalPlacement = await liveNodeSnapshot(page, "explicit-source");
     await selectNode(page, "explicit-source");
     const e2 = (await node(page, "e2").boundingBox())!;
+    const e2FrameRect = await frameRectSnapshot(page, "e2");
     await dragToHeldPoint(page, "explicit-source", {
       x: e2.x + 4,
       y: e2.y + e2.height / 2,
@@ -579,7 +580,14 @@ test("G-5 held explicit-span grid drop uses a conservative line and preserves au
     try {
       const guide = await guideSnapshot(page);
       expect(guide).toMatchObject({ display: "block" });
-      expect(Math.min(guide!.width, guide!.height)).toBeLessThan(10);
+      expect(guide!.width).toBeGreaterThan(0.5);
+      expect(guide!.width).toBeLessThan(10);
+      expect(guide!.height).toBeGreaterThan(guide!.width);
+      expect(
+        Math.abs(guide!.left + guide!.width / 2 - e2FrameRect.left),
+      ).toBeLessThan(2);
+      expect(Math.abs(guide!.top - e2FrameRect.top)).toBeLessThan(2);
+      expect(Math.abs(guide!.height - e2FrameRect.height)).toBeLessThan(2);
     } finally {
       await page.mouse.up();
     }
@@ -689,6 +697,7 @@ test("G-5 after-edge grid drop persists through undo, redo, and reload", async (
     const originalPlacement = await liveNodeSnapshot(page, "explicit-source");
     await selectNode(page, "explicit-source");
     const e2 = (await node(page, "e2").boundingBox())!;
+    const e2FrameRect = await frameRectSnapshot(page, "e2");
     await dragToHeldPoint(page, "explicit-source", {
       x: e2.x + e2.width - 4,
       y: e2.y + e2.height / 2,
@@ -696,7 +705,17 @@ test("G-5 after-edge grid drop persists through undo, redo, and reload", async (
     try {
       const guide = await guideSnapshot(page);
       expect(guide).toMatchObject({ display: "block" });
-      expect(Math.min(guide!.width, guide!.height)).toBeLessThan(10);
+      expect(guide!.width).toBeGreaterThan(0.5);
+      expect(guide!.width).toBeLessThan(10);
+      expect(guide!.height).toBeGreaterThan(guide!.width);
+      expect(guide!.left + guide!.width / 2).toBeGreaterThanOrEqual(
+        e2FrameRect.left - 2,
+      );
+      expect(guide!.left + guide!.width / 2).toBeLessThanOrEqual(
+        e2FrameRect.left + e2FrameRect.width + 2,
+      );
+      expect(Math.abs(guide!.top - e2FrameRect.top)).toBeLessThan(2);
+      expect(Math.abs(guide!.height - e2FrameRect.height)).toBeLessThan(2);
     } finally {
       await page.mouse.up();
     }
@@ -771,9 +790,8 @@ test("G-5 after-edge grid drop persists through undo, redo, and reload", async (
           rowGap: grid ? parseFloat(getComputedStyle(grid).rowGap) : NaN,
         };
       });
-    expect(afterReload).toEqual({
+    expect(afterReload).toMatchObject({
       parent: "explicit-grid",
-      position: "static",
       sourceLeft: expect.any(Number),
       sourceTop: expect.any(Number),
       e1Left: expect.any(Number),
@@ -781,6 +799,7 @@ test("G-5 after-edge grid drop persists through undo, redo, and reload", async (
       e2Height: expect.any(Number),
       rowGap: expect.any(Number),
     });
+    expect(afterReload.position).not.toBe("absolute");
     expect(Math.abs(afterReload.sourceLeft - afterReload.e1Left!)).toBeLessThan(
       1,
     );

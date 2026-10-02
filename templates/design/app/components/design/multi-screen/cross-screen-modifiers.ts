@@ -43,6 +43,15 @@ export function seedCrossScreenSKeyTimesAtStart(
   return { downAt: startedAt, upAt: null };
 }
 
+export function crossScreenDragStartedAt(
+  sourceStartedAt: unknown,
+  hostReceivedAt: number,
+): number {
+  return typeof sourceStartedAt === "number" && Number.isFinite(sourceStartedAt)
+    ? sourceStartedAt
+    : hostReceivedAt;
+}
+
 export function mergeCrossScreenReleaseModifiers(
   cached: CrossScreenModifierState | undefined,
   release: CrossScreenModifierState | undefined,
@@ -112,6 +121,13 @@ export function isCrossScreenIgnoreAutoLayoutHeldAtRelease(
     sKeyTimes.downAt <= releasedAt &&
     (sKeyTimes.upAt === null || releasedAt < sKeyTimes.upAt)
   );
+}
+
+export function crossScreenIgnoreAutoLayoutAfterWindowBlur(
+  ignoreAutoLayout: boolean,
+  crossScreenDragActive: boolean,
+): boolean {
+  return ignoreAutoLayout && crossScreenDragActive;
 }
 
 export function shouldClearCrossScreenSKeyTimesOnWindowBlur(

@@ -13230,6 +13230,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           modifiers: options?.modifiers,
           duplicate: options?.duplicate === true ? true : void 0,
           sourceCloneHtml: phase === "start" || phase === "end" ? activeCrossScreenSourceHtml : void 0,
+          startedAt: phase === "start" ? eventEpochMilliseconds(ev) : void 0,
           releasedAt: phase === "end" ? eventEpochMilliseconds(ev) : void 0
         },
         "*"

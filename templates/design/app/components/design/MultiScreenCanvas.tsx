@@ -295,6 +295,8 @@ import {
   getSelectionBoxTransition,
 } from "./multi-screen/chrome-transitions";
 import {
+  crossScreenDragStartedAt,
+  crossScreenIgnoreAutoLayoutAfterWindowBlur,
   crossScreenReleaseModifiers,
   crossScreenSKeyHeldFromTimes,
   crossScreenSKeyTimesAfterKeyChange,
@@ -3463,6 +3465,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         styleSnapshot?: unknown;
         styleSnapshotCaptureFailed?: boolean;
         sourceComputedSize?: { width?: number; height?: number };
+        startedAt?: number;
         releasedAt?: number;
         duplicate?: boolean;
         sourceCloneHtml?: string;
@@ -3601,7 +3604,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           crossScreenSKeyTimesRef.current = seedCrossScreenSKeyTimesAtStart(
             true,
             crossScreenSKeyTimesRef.current,
-            performance.timeOrigin + performance.now(),
+            crossScreenDragStartedAt(
+              msg.startedAt,
+              performance.timeOrigin + performance.now(),
+            ),
           );
         }
         if (!crossScreenSKeyPressedRef.current) {
@@ -4978,6 +4984,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     };
     const handleBlur = () => {
       crossScreenSKeyPressedRef.current = false;
+      crossScreenIgnoreAutoLayoutRef.current =
+        crossScreenIgnoreAutoLayoutAfterWindowBlur(
+          crossScreenIgnoreAutoLayoutRef.current,
+          crossScreenDragMsgRef.current !== null,
+        );
       if (shouldClearCrossScreenSKeyTimesOnWindowBlur(document.hasFocus())) {
         crossScreenSKeyTimesRef.current = { downAt: null, upAt: null };
       }
