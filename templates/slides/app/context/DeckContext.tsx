@@ -261,6 +261,36 @@ function withStaleSlideFieldDrafts(deck: Deck): Deck {
   };
 }
 
+function restoreStaleSlideFieldDrafts(
+  deck: Deck,
+  drafts: readonly StaleSlideFieldDraft[],
+): Deck {
+  const draftsBySlide = new Map<string, StaleSlideFieldDraft[]>();
+  for (const draft of drafts) {
+    const slideDrafts = draftsBySlide.get(draft.slideId) ?? [];
+    slideDrafts.push(draft);
+    draftsBySlide.set(draft.slideId, slideDrafts);
+  }
+  return {
+    ...deck,
+    slides: deck.slides.map((slide) => {
+      const slideDrafts = draftsBySlide.get(slide.id);
+      if (!slideDrafts) return slide;
+      const restored = { ...slide };
+      for (const draft of slideDrafts) {
+        if (draft.remoteBaseline.present) {
+          Object.assign(restored, {
+            [draft.field]: draft.remoteBaseline.value,
+          });
+        } else {
+          Reflect.deleteProperty(restored, draft.field);
+        }
+      }
+      return restored;
+    }),
+  };
+}
+
 function withSlideFieldBaselines(deck: Deck, op: PatchDeckOp): PatchDeckOp {
   if (op.op !== "patch-slide") return op;
   const slide = deck.slides.find((entry) => entry.id === op.slideId);
@@ -3961,7 +3991,34 @@ export function DeckProvider({
 
       const controller = createLocalOpUndoController<DeckUndoOp>({
         apply: (ops, direction, entry) => {
-          const startingDecks = decksRef.current;
+          let startingDecks = decksRef.current;
+          if (direction === "undo") {
+            const drafts = staleSlideFieldDrafts.get(deckId);
+            if (drafts && startingDecks.some((deck) => deck.id === deckId)) {
+              const draftsToDiscard = new Map<string, StaleSlideFieldDraft>();
+              for (const op of entry.redo) {
+                if (op.op !== "patch-slide" || op.deckId !== deckId) continue;
+                for (const field of Object.keys(op.fields)) {
+                  const key = slideFieldDraftKey(op.slideId, field);
+                  const draft = drafts.get(key);
+                  if (draft) draftsToDiscard.set(key, draft);
+                }
+              }
+              if (draftsToDiscard.size > 0) {
+                for (const key of draftsToDiscard.keys()) drafts.delete(key);
+                if (drafts.size === 0) staleSlideFieldDrafts.delete(deckId);
+                startingDecks = startingDecks.map((deck) =>
+                  deck.id === deckId
+                    ? restoreStaleSlideFieldDrafts(deck, [
+                        ...draftsToDiscard.values(),
+                      ])
+                    : deck,
+                );
+                setDecksLocal(() => startingDecks);
+                notifySaveListeners();
+              }
+            }
+          }
           const applicableOps = undoOpsWithoutRemoteFieldConflicts(
             ops,
             direction === "undo" ? entry.redo : entry.undo,
@@ -4063,6 +4120,7 @@ export function DeckProvider({
       markReplacedSlideOmissions,
       markSlideDeleteTombstone,
       reconcilePersistedLayoutFit,
+      setDecksLocal,
     ],
   );
 
