@@ -7,6 +7,7 @@ import { getDb, schema } from "../db/index.js";
 import {
   EXCEPTION_EVENT_NAME,
   ingestAnalyticsExceptionEvents,
+  recordErrorIngestFailure,
   type DerivedExceptionFields,
 } from "./error-capture.js";
 import {
@@ -33,6 +34,11 @@ import {
 } from "./first-party-analytics-health.js";
 import { upsertFirstPartyAnalyticsRollups } from "./first-party-analytics-rollups.js";
 import { reserveFirstPartyPostgresEventVolume } from "./first-party-analytics-volume.js";
+import {
+  recordEventCatalog,
+  recordSessionEventIndex,
+  type SessionEventIndexInputRow,
+} from "./session-event-index.js";
 
 export interface AnalyticsScope {
   userEmail: string;
@@ -192,12 +198,9 @@ function id(prefix: string): string {
 
 async function persistBigQueryRowsWithMigrationFallback(
   db: any,
-  rows: Array<{
-    id: string;
-    ownerEmail: string;
-    orgId: string | null;
-    [key: string]: unknown;
-  }>,
+  rows: Array<
+    SessionEventIndexInputRow & { id: string; [key: string]: unknown }
+  >,
   table: string | null,
   scope: AnalyticsScope,
   receivedAt: string,
@@ -216,6 +219,7 @@ async function persistBigQueryRowsWithMigrationFallback(
           updatedAt: receivedAt,
         })),
       );
+      await recordSessionEventIndex(tx, rows, receivedAt);
     });
   } catch (error) {
     if (!isFirstPartyAnalyticsDeliveryQueueMissingError(error)) throw error;
@@ -240,6 +244,7 @@ async function persistBigQueryRowsWithMigrationFallback(
               ON CONFLICT (key) DO NOTHING`,
         );
       }
+      await recordSessionEventIndex(tx, rows, receivedAt);
     });
     try {
       const result = await runWithRequestContext(
@@ -473,8 +478,15 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+const LONE_SURROGATE =
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
+// Rollup and index ids encode these values with encodeURIComponent, which
+// throws on a lone surrogate and would reject the batch on every retry.
 function asString(value: unknown): string | null {
-  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "string" && value.trim()) {
+    return value.trim().replace(LONE_SURROGATE, "\uFFFD");
+  }
   if (typeof value === "number" || typeof value === "boolean") {
     return String(value);
   }
@@ -797,11 +809,15 @@ export async function recordAnalyticsEvents(
           }
           await tx.insert(schema.analyticsEvents).values(rows);
           await upsertFirstPartyAnalyticsRollups(rows, tx);
+          await recordSessionEventIndex(tx, rows, receivedAt);
         });
       }
     } catch (error) {
       persistenceError = error;
     }
+  }
+  if (rows.length && !persistenceError) {
+    await recordEventCatalog(rows);
   }
   if (rows.length) {
     await touchPublicKeyLastUsedAt(key.id, receivedAt);
@@ -818,7 +834,9 @@ export async function recordAnalyticsEvents(
         exceptionSources,
       );
     } catch (error) {
-      console.warn("[first-party-analytics] Exception ingest failed:", error);
+      // The raw `$exception` rows above are already stored, but none of these
+      // reached `error_issues`: count them and log at error level.
+      recordErrorIngestFailure(exceptionSources.length, error);
     }
   }
 

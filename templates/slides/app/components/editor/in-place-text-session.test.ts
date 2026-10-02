@@ -644,6 +644,24 @@ describe("in-place text session: typing", () => {
     expect(onInput).toHaveBeenCalled();
   });
 
+  it("keeps leading whitespace while typing a list shortcut on a br line", () => {
+    const el = mount('<div id="t"><p>Previous</p><p><br> text</p></div>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "text"), 0);
+
+    expect(beforeInput(el, "insertText", { data: "-" }).defaultPrevented).toBe(
+      true,
+    );
+    type(el, " ");
+
+    expect(
+      el.querySelector('div[style*="display: flex"] > span:last-child')
+        ?.textContent,
+    ).toBe(" text");
+    expect(el.textContent).toContain("Previous");
+    expect(el.textContent).toContain("text");
+  });
+
   it("replaces a range selection itself, keeping the span it starts in", () => {
     const el = mount('<p id="t">ab<span style="color: red">cd</span>ef</p>');
     session = startInPlaceTextSession(el);
@@ -971,6 +989,17 @@ describe("in-place text session: Enter", () => {
 
     session.end();
     expect(el.innerHTML).toBe("<li>One<br> two</li>");
+  });
+
+  it("normalizes Shift+Enter keydown to a soft line break", () => {
+    const el = mount('<p id="t">one two</p>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "one two"), 3);
+
+    expect(key(el, { key: "Enter", shiftKey: true }).defaultPrevented).toBe(
+      true,
+    );
+    expect(el.innerHTML).toBe("one<br> two");
   });
 
   it("indents and outdents a list item with Tab and Shift+Tab", () => {
@@ -1975,6 +2004,19 @@ describe("in-place text session: commands", () => {
     );
   });
 
+  it("keeps a collapsed caret attached while creating a code run", () => {
+    const el = mount('<p id="t">Hello</p>');
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, 5);
+
+    expect(session.commands.code()).toBe(true);
+    expect(el.contains(window.getSelection()?.anchorNode ?? null)).toBe(true);
+    type(el, "x");
+
+    expect(el.querySelector("code")?.textContent).toContain("x");
+    expect(el.contains(window.getSelection()?.anchorNode ?? null)).toBe(true);
+  });
+
   it("removes code formatting from a selection inside a styled span", () => {
     const el = mount(
       '<p id="t"><span data-slide-inline-style="true" style="color: red;"><code>before selected after</code></span></p>',
@@ -2250,14 +2292,42 @@ describe("in-place text session: commands", () => {
   });
 
   it("turns '- ' after Enter into a bullet on that line", () => {
-    const el = mount('<div id="t">First line</div>');
+    const el = mount('<p id="t">First line</p>');
     session = startInPlaceTextSession(el);
     caret(el.firstChild!, "First line".length);
     beforeInput(el, "insertParagraph");
-    type(el, "- ");
+    type(session.element, "- ");
 
-    expect(el.lastElementChild?.textContent).toContain("●");
-    expect(el.textContent).toBe("First line●");
+    expect(session.element.lastElementChild?.textContent).toContain("●");
+    const row = session.element.querySelector(
+      ':scope > div[style*="display: flex"]',
+    );
+    expect(
+      row?.lastElementChild?.contains(
+        window.getSelection()?.anchorNode ?? null,
+      ),
+    ).toBe(true);
+    type(session.element, "Tail");
+    expect(session.element.textContent).toBe("First line●Tail");
+  });
+
+  it("converts a bullet prefix typed into an inline span after Enter", () => {
+    const el = mount('<p id="t"><span style="color:red">First line</span></p>');
+    session = startInPlaceTextSession(el);
+    const firstLine = textOf(el, "First line");
+    caret(firstLine, firstLine.length);
+    beforeInput(el, "insertParagraph");
+    type(session.element, "- ");
+
+    const root = session.element;
+    expect(root.textContent).toBe("First line●");
+    expect(
+      root.querySelectorAll(':scope > div[style*="display: flex"]'),
+    ).toHaveLength(1);
+    const styledText = Array.from(
+      root.querySelectorAll<HTMLElement>("[style]"),
+    ).find((element) => element.style.color === "red");
+    expect(styledText?.textContent).toContain("First line");
   });
 
   it("turns '---' into a divider without requiring a trailing space", () => {
@@ -4478,6 +4548,153 @@ describe("in-place text session: Content authoring parity", () => {
     beforeInput(quote, "deleteContentBackward");
     expect(quote.children).toHaveLength(1);
     expect(quote.firstElementChild?.textContent).toBe("AboveQuoted");
+  });
+
+  it("demotes a quote when Backspace lands at its parent boundary", () => {
+    const el = mount(
+      '<div id="t"><p>Above</p><blockquote><p>Quoted</p></blockquote></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const quote = el.querySelector("blockquote")!;
+    caret(el, Array.from(el.childNodes).indexOf(quote));
+
+    beforeInput(el, "deleteContentBackward");
+
+    expect(el.querySelector("blockquote")).toBeNull();
+    expect(el.children[1]?.tagName).toBe("P");
+    expect(el.children[1]?.textContent).toBe("Quoted");
+    beforeInput(el, "deleteContentBackward");
+    expect(el.firstElementChild?.textContent).toBe("AboveQuoted");
+  });
+
+  it("keeps a paragraph when Backspace merges into a non-paragraph block", () => {
+    const el = mount(
+      '<div id="t"><div style="display:flex;color:red"><span>Previous</span></div><h2>Title</h2></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Title"), 0);
+
+    beforeInput(el, "deleteContentBackward");
+    beforeInput(el, "deleteContentBackward");
+
+    expect(el.textContent).toBe("PreviousTitle");
+    expect(el.children).toHaveLength(1);
+    expect(el.firstElementChild?.getAttribute("style")).toBe(
+      "display:flex;color:red",
+    );
+    expect(el.firstElementChild?.querySelector(":scope > p")?.textContent).toBe(
+      "Title",
+    );
+  });
+
+  it("flattens a merged paragraph when Backspace joins it to a heading", () => {
+    const el = mount(
+      '<div id="t"><h2>Title</h2><p><strong>Body</strong></p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Body"), 0);
+
+    beforeInput(el, "deleteContentBackward");
+
+    expect(el.innerHTML).toBe("<h2>Title<strong>Body</strong></h2>");
+  });
+
+  it("enters a plain paragraph after a Markdown heading", () => {
+    const el = mount('<p id="t"></p>');
+    session = startInPlaceTextSession(el);
+    caret(el, 0);
+
+    type(el, "# ");
+    expect(session.element.tagName).toBe("H1");
+    type(session.element, "Title");
+    beforeInput(session.element, "insertParagraph");
+
+    const heading = session.element.querySelector("h1");
+    const paragraph = heading?.nextElementSibling;
+    expect(heading?.textContent?.replaceAll(ZWSP, "")).toBe("Title");
+    expect(paragraph?.tagName).toBe("P");
+    expect(paragraph?.textContent?.replaceAll(ZWSP, "")).toBe("");
+    expect(paragraph?.contains(window.getSelection()?.anchorNode ?? null)).toBe(
+      true,
+    );
+  });
+
+  it("enters a plain paragraph after a heading in styled bullet rows", () => {
+    const el = mount(
+      '<div id="t" style="display:flex;flex-direction:column"><div style="display:flex"><span>•</span><div><h1>Title</h1></div></div><div style="display:flex"><span>•</span><div>Next</div></div></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const heading = el.querySelector("h1")!;
+    caret(textOf(heading, "Title"), "Title".length);
+
+    beforeInput(el, "insertParagraph");
+
+    expect(el.children).toHaveLength(3);
+    expect(el.children[0]?.tagName).toBe("DIV");
+    expect(el.children[0]?.getAttribute("style")).toBe("display:flex");
+    expect(el.children[1]?.tagName).toBe("P");
+    expect(el.children[1]?.textContent?.replaceAll(ZWSP, "")).toBe("");
+    expect(el.children[2]?.textContent).toContain("Next");
+    expect(
+      el.children[1]?.contains(window.getSelection()?.anchorNode ?? null),
+    ).toBe(true);
+  });
+
+  it("handles beforeinput before a child can stop it from bubbling", () => {
+    const el = mount('<div id="t"><h2>Title</h2></div>');
+    session = startInPlaceTextSession(el);
+    const heading = el.querySelector("h2")!;
+    caret(heading, 0);
+    heading.addEventListener("beforeinput", (event) => event.stopPropagation());
+
+    expect(beforeInput(heading, "deleteContentBackward").defaultPrevented).toBe(
+      true,
+    );
+    expect(el.firstElementChild?.tagName).toBe("P");
+  });
+
+  it("handles Enter before a child can stop beforeinput from bubbling", () => {
+    const el = mount('<div id="t"><h2>Title</h2></div>');
+    session = startInPlaceTextSession(el);
+    const heading = el.querySelector("h2")!;
+    caret(textOf(heading, "Title"), "Title".length);
+    heading.addEventListener("beforeinput", (event) => event.stopPropagation());
+
+    expect(beforeInput(heading, "insertParagraph").defaultPrevented).toBe(true);
+    expect(heading.nextElementSibling?.tagName).toBe("P");
+    expect(heading.nextElementSibling?.textContent?.replaceAll(ZWSP, "")).toBe(
+      "",
+    );
+  });
+
+  it("demotes a heading when the caret is at its element boundary", () => {
+    const el = mount('<div id="t"><p>Earlier</p><h2>Title</h2></div>');
+    session = startInPlaceTextSession(el);
+    const heading = el.querySelector("h2")!;
+    caret(heading, 0);
+
+    beforeInput(el, "deleteContentBackward");
+
+    expect(heading.isConnected).toBe(false);
+    expect(el.children[1]?.tagName).toBe("P");
+    beforeInput(el, "deleteContentBackward");
+    expect(el.innerHTML).toBe("<p>EarlierTitle</p>");
+  });
+
+  it("demotes a heading before handling its styled row edge", () => {
+    const el = mount(
+      '<div id="t" style="display: flex; flex-direction: column"><div data-slide-plain-row="true" style="display: flex; gap: 14px"><h2 style="margin: 0">Title</h2></div></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const heading = el.querySelector("h2")!;
+    caret(heading, 0);
+
+    beforeInput(el, "deleteContentBackward");
+
+    expect(heading.isConnected).toBe(false);
+    expect(el.querySelector("[data-slide-plain-row] > p")?.textContent).toBe(
+      "Title",
+    );
   });
 
   it("restores a root div when Backspace demotes a Markdown heading", () => {

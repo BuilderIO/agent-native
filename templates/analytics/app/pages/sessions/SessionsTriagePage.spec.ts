@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import { readSessionEventFilters } from "../../../shared/session-events";
 import {
   readHideEmptyFilter,
   withCustomDate,
+  withSessionEventConditions,
   withSessionFilter,
 } from "./SessionsTriagePage";
 
@@ -58,5 +60,47 @@ describe("Sessions filter links", () => {
     expect(preset.has("to")).toBe(false);
     expect(preset.get("app")).toBe("clips");
     expect(preset.has("triage")).toBe(false);
+  });
+});
+
+describe("Sessions event condition links", () => {
+  it("round-trips did and didn't conditions and resets the page", () => {
+    const next = withSessionEventConditions(
+      new URLSearchParams("app=clips&page=4&event=old_event"),
+      {
+        didEvents: ["recording_started", "clip_shared"],
+        didNotEvents: ["clip_viewed"],
+      },
+    );
+
+    expect(next.getAll("event")).toEqual(["recording_started", "clip_shared"]);
+    expect(next.getAll("noEvent")).toEqual(["clip_viewed"]);
+    expect(next.get("app")).toBe("clips");
+    expect(next.has("page")).toBe(false);
+    expect(readSessionEventFilters(next)).toEqual({
+      didEvents: ["recording_started", "clip_shared"],
+      didNotEvents: ["clip_viewed"],
+    });
+
+    const cleared = withSessionEventConditions(next, {
+      didEvents: [],
+      didNotEvents: [],
+    });
+    expect(cleared.has("event")).toBe(false);
+    expect(cleared.has("noEvent")).toBe(false);
+  });
+
+  it("trims, de-duplicates, and caps conditions read from a shared link", () => {
+    const params = new URLSearchParams();
+    for (const name of [" a ", "a", "b", "c", "d", "e", "f", ""]) {
+      params.append("event", name);
+    }
+    expect(readSessionEventFilters(params).didEvents).toEqual([
+      "a",
+      "b",
+      "c",
+      "d",
+      "e",
+    ]);
   });
 });

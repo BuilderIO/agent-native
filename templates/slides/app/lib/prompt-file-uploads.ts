@@ -8,6 +8,11 @@ import {
 } from "@/lib/image-drop-to-agent";
 
 import { MAX_REFERENCE_FILES } from "../../shared/upload-types";
+import {
+  UPLOAD_SERVICE_UNAVAILABLE_CODE,
+  isUploadGatewayStatus,
+  looksLikeMarkup,
+} from "./upload-response";
 
 export interface UploadedFile {
   path: string;
@@ -19,6 +24,42 @@ export interface UploadedFile {
   size: number;
 }
 
+/**
+ * A failure that says "the service did not answer properly", never "this file
+ * is bad": a gateway or timeout status, an error page where JSON should be, a
+ * client-side timeout, or storage that reports it will recover by itself.
+ * Storage that someone must connect or fix is not this; it has its own copy.
+ */
+export function isPromptUploadServiceUnavailableError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const typed = error as {
+    code?: unknown;
+    errorCode?: unknown;
+    status?: unknown;
+    timedOut?: unknown;
+    details?: { whoCanFix?: unknown } | null;
+  };
+  if (
+    typed.code === UPLOAD_SERVICE_UNAVAILABLE_CODE ||
+    typed.errorCode === UPLOAD_SERVICE_UNAVAILABLE_CODE ||
+    typed.timedOut === true
+  ) {
+    return true;
+  }
+  // The uploader already named its own failure (auth, size, storage status);
+  // a status alone must not re-label it.
+  if (typeof typed.code === "string" && typed.code.startsWith("reference_")) {
+    return false;
+  }
+  if (typed.errorCode === "attachment_storage_unavailable") {
+    return typed.details?.whoCanFix === "self_resolving";
+  }
+  if (typeof typed.status === "number" && isUploadGatewayStatus(typed.status)) {
+    return true;
+  }
+  return looksLikeMarkup(error.message);
+}
+
 export function isPromptUploadNetworkError(error: unknown): boolean {
   return (
     error instanceof TypeError ||
@@ -26,7 +67,8 @@ export function isPromptUploadNetworkError(error: unknown): boolean {
       (error.name === "AbortError" ||
         ("code" in error &&
           (error.code === "reference_storage_network_failed" ||
-            error.code === "reference_upload_network_failed"))))
+            error.code === "reference_upload_network_failed")) ||
+        isPromptUploadServiceUnavailableError(error)))
   );
 }
 
@@ -266,7 +308,9 @@ export function promptUploadHttpError(
         ? "reference_storage_auth_required"
         : status === 413
           ? "reference_storage_limit_exceeded"
-          : "reference_storage_http_failed",
+          : status === 408 || status === 502 || status === 504
+            ? UPLOAD_SERVICE_UNAVAILABLE_CODE
+            : "reference_storage_http_failed",
     status,
     ...(fileName ? { fileName } : {}),
     ...(failureReason ? { failureReason } : {}),

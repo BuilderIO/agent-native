@@ -19,6 +19,10 @@ import {
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import {
+  RUN_NOT_STARTED_METADATA_KEY,
+  type RefusedTurnRetryContext,
+} from "../shared/agent-chat-run-not-started.js";
 import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
 import { stringifyToolUseInputForGateway } from "./engine/translate-anthropic.js";
 import type { EngineContentPart, EngineMessage } from "./engine/types.js";
@@ -1378,6 +1382,76 @@ export function claimQueuedMessage(repo: any, messageId: string): any {
   return pruneClaimedQueuedMessages(normalized);
 }
 
+export function applySubmittedUserMessage(
+  repo: any,
+  userMessage: UserMessage,
+  queuedMessage?: { id: string; claimId?: string; now?: number },
+):
+  | { status: "submitted" | "already_submitted"; repo: any }
+  | { status: "already_claimed" | "claim_expired" } {
+  if (!queuedMessage) {
+    return { status: "submitted", repo: upsertUserMessage(repo, userMessage) };
+  }
+
+  const userCustom = userMessage.metadata.custom as
+    | Record<string, unknown>
+    | undefined;
+  const wasSubmitted = Array.isArray(repo?.messages)
+    ? repo.messages.some((entry: unknown) => {
+        const outer = entry as Record<string, unknown> | null;
+        const message = outer?.message ?? outer;
+        if (!message || typeof message !== "object") return false;
+        const metadata = (message as Record<string, unknown>).metadata;
+        if (!metadata || typeof metadata !== "object") return false;
+        const custom = (metadata as Record<string, unknown>).custom;
+        return (
+          custom !== null &&
+          typeof custom === "object" &&
+          (custom as Record<string, unknown>).agentNativeQueuedMessageId ===
+            queuedMessage.id &&
+          (custom as Record<string, unknown>).submittedRunId ===
+            userCustom?.submittedRunId
+        );
+      })
+    : false;
+  if (wasSubmitted) {
+    return {
+      status: "already_submitted",
+      repo: claimQueuedMessage(repo, queuedMessage.id),
+    };
+  }
+  if (hasClaimedQueuedMessage(repo, queuedMessage.id)) {
+    return { status: "already_claimed" };
+  }
+
+  const queued = Array.isArray(repo?.queuedMessages)
+    ? repo.queuedMessages.find(
+        (message: unknown) =>
+          message &&
+          typeof message === "object" &&
+          (message as Record<string, unknown>).id === queuedMessage.id,
+      )
+    : undefined;
+  const claim = queued?.promotionClaim;
+  if (
+    !queued ||
+    typeof queuedMessage.claimId !== "string" ||
+    claim?.id !== queuedMessage.claimId ||
+    typeof claim.expiresAt !== "number" ||
+    claim.expiresAt <= (queuedMessage.now ?? Date.now())
+  ) {
+    return { status: "claim_expired" };
+  }
+
+  return {
+    status: "submitted",
+    repo: upsertUserMessage(
+      claimQueuedMessage(repo, queuedMessage.id),
+      userMessage,
+    ),
+  };
+}
+
 function snapshotEntryId(entry: any, kind: "message" | "toolCall" | "widget") {
   if (!entry || typeof entry !== "object") return undefined;
   if (kind === "widget") {
@@ -2026,8 +2100,11 @@ export function buildUserMessage(opts: {
   attachments?: AgentChatAttachment[];
   runId?: string;
   turnId?: string;
+  agentKitMessageId?: string;
   queuedMessageId?: string;
   createdAt?: Date;
+  /** The turn was refused before a run started; its retry reads this back. */
+  refusedRetry?: RefusedTurnRetryContext;
 }): {
   id: string;
   createdAt: Date;
@@ -2044,12 +2121,17 @@ export function buildUserMessage(opts: {
     content: [{ type: "text", text: opts.text }],
     ...(attachments.length > 0 ? { attachments } : {}),
     metadata: {
+      ...opts.refusedRetry,
       custom: {
         submittedRunId: opts.runId,
         ...(opts.turnId ? { submittedTurnId: opts.turnId } : {}),
+        ...(opts.agentKitMessageId
+          ? { agentKitMessageId: opts.agentKitMessageId }
+          : {}),
         ...(opts.queuedMessageId
           ? { agentNativeQueuedMessageId: opts.queuedMessageId }
           : {}),
+        ...(opts.refusedRetry ? { [RUN_NOT_STARTED_METADATA_KEY]: true } : {}),
       },
     },
   };
@@ -2466,6 +2548,84 @@ export function foldAssistantTurn(
   nextRepo.messages[lastIndex] = { ...lastEntry, message: mergedMessage };
   nextRepo.headId = mergedMessage.id ?? nextRepo.headId;
   return nextRepo;
+}
+
+/**
+ * A turn the server refused before any run started (no usable model
+ * credential, AI setup missing) still answers in the thread: a typed
+ * assistant error in the durable history and a failed AgentKit run, keyed by
+ * the turn id the client already uses as the run id, so the transcript shows
+ * the failure card with a retry instead of an unanswered prompt.
+ */
+export function foldUnstartedTurnFailure(
+  repo: any,
+  failure: {
+    runId: string;
+    threadId: string;
+    turnId?: string;
+    code: string;
+    message: string;
+    at?: Date;
+  },
+): any {
+  const assistant = buildAssistantMessage(
+    [
+      {
+        seq: 0,
+        event: {
+          type: "error",
+          error: failure.message,
+          errorCode: failure.code,
+        },
+      },
+    ],
+    failure.runId,
+    failure.turnId ? { turnId: failure.turnId } : {},
+  );
+  if (assistant) {
+    assistant.metadata.custom = {
+      ...(assistant.metadata.custom as Record<string, unknown> | undefined),
+      [RUN_NOT_STARTED_METADATA_KEY]: true,
+    };
+  }
+  const folded = assistant
+    ? foldAssistantTurn(repo, assistant, {
+        runId: failure.runId,
+        turnId: failure.turnId,
+      })
+    : normalizeThreadRepository(repo);
+  const at = (failure.at ?? new Date()).toISOString();
+  const previous = folded.agentKit ?? {};
+  const runs: AgentRunSnapshot[] = Array.isArray(previous.runs)
+    ? previous.runs.filter(
+        (run: AgentRunSnapshot | null) => run?.id !== failure.runId,
+      )
+    : [];
+  return {
+    ...folded,
+    agentKit: {
+      ...previous,
+      runs: [
+        ...runs,
+        {
+          id: failure.runId,
+          threadId: failure.threadId,
+          status: "failed",
+          lastSequence: 0,
+          startedAt: at,
+          completedAt: at,
+          error: {
+            code: failure.code,
+            message: failure.message,
+            retryable: false,
+          },
+        } satisfies AgentRunSnapshot,
+      ],
+      activeRunIds: Array.isArray(previous.activeRunIds)
+        ? previous.activeRunIds.filter((id: string) => id !== failure.runId)
+        : [],
+    },
+  };
 }
 
 export function normalizeThreadTitle(value: unknown): string {

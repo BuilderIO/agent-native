@@ -29,6 +29,9 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
+vi.mock("@agent-native/core/client/labs", () => ({
+  useLabState: () => ({ enabled: false, isLoading: false }),
+}));
 vi.mock("@agent-native/toolkit/app/blocks", () => ({
   CodeSurface: () => <div data-testid="installation-snippet" />,
 }));
@@ -221,7 +224,7 @@ describe("Sessions empty states", () => {
       root.render(
         <MemoryRouter
           initialEntries={[
-            "/sessions?minDurationMs=60000&hasErrors=true&q=checkout&hideEmpty=false&sort=longest&page=2",
+            "/sessions?minDurationMs=60000&hasErrors=true&q=checkout&hideEmpty=false&event=clip_viewed&noEvent=clip_trimmed&sort=longest&page=2",
           ]}
         >
           <SessionsTriagePage />

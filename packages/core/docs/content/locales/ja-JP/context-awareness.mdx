@@ -410,6 +410,8 @@ export function useNavigationState() {
 | `getNavigationState` — URL をセマンティック状態にマッピングする  | `navigation` は、タブスコープとグローバル フォールバック キーを書き込みます        |
 | `getCommandPath` — `navigate` コマンドをルートにマッピングします | コマンドポーリング、読み取り後の削除、重複コマンド保護、リクエストソースのタグ付け |
 
+文字列で返すパスは、別のワークスペースアプリのマウントパスで始まる場合でも、常にこのアプリ内のパスとして扱われます。兄弟アプリへ明示的に移動するには、完全なマウントパスを指定して `{ type: "workspace-app", path: "/seo-application/settings" }` を返します。
+
 `useAgentRouteState` は React ルーターを想定しています。ナビゲーションが URL (ウィザード ステップ、キャンバス選択、非ルーター シェル) に存在しない場合は、代わりに下位レベルの `useSemanticNavigationState` にドロップダウンします。既製の `state` 値に `navigationKeys`/`commandKeys` および `onCommand` コールバックを加えたものを渡すと、React については完全に認識されなくなります。ルーター。
 
 ## ジッター防止 {#jitter-prevention}

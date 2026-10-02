@@ -1,7 +1,11 @@
 import {
+  ATTACHMENT_ERROR_CODES,
+  attachmentFailureDetails,
   deletePrivateBlob,
+  describeAttachmentFailure,
   putPrivateBlob,
   readPrivateBlob,
+  type StorageUnavailable,
 } from "@agent-native/core/private-blob";
 import {
   defineEventHandler,
@@ -27,6 +31,12 @@ import {
   withSlidesRequestContext,
 } from "./request-auth-context.js";
 import { maxReferenceFileBytes, saveUploadedReferenceFile } from "./uploads.js";
+
+const STORAGE_NOT_CONNECTED: StorageUnavailable = {
+  status: "storageUnavailable",
+  reason: "not_configured",
+  whoCanFix: "workspace_admin",
+};
 
 const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
 const MAX_CHUNKS = 128;
@@ -254,8 +264,10 @@ export const uploadChunkedChunk = defineEventHandler(async (event) => {
       if (!handle) {
         setResponseStatus(event, 503);
         return {
-          error:
-            "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
+          error: describeAttachmentFailure(STORAGE_NOT_CONNECTED, "save")
+            .message,
+          errorCode: ATTACHMENT_ERROR_CODES.storageUnavailable,
+          details: attachmentFailureDetails(STORAGE_NOT_CONNECTED),
         };
       }
       session.chunks[chunkKey] = handle;

@@ -160,6 +160,20 @@ describe("action discovery", () => {
     expect(registry["safe-write"].parallelSafe).toBe(true);
   });
 
+  it("preserves the explicit changeEvents opt-out", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "save-position": {
+        default: {
+          tool: { description: "Save position", parameters: {} },
+          changeEvents: false,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["save-position"].changeEvents).toBe(false);
+  });
+
   it("preserves request-scoped action discovery predicates", () => {
     const available = vi.fn(() => true);
     const registry = loadActionsFromStaticRegistry({

@@ -167,4 +167,33 @@ describe("/api/uploads/:recordingId/status route", () => {
       }),
     );
   });
+
+  it("reports the bytes finalize received so a client can prove its copy uploaded", async () => {
+    mockGetDb.mockReturnValue(
+      createDbWithRows([
+        {
+          id: "rec-1",
+          status: "ready",
+          videoUrl: "s3://private/rec-1.webm",
+          durationMs: 4_000,
+          hasAudio: true,
+          hasCamera: false,
+        },
+      ]),
+    );
+    mockReadAppState.mockResolvedValue({
+      status: "ready",
+      sourceSizeBytes: 123_456,
+    });
+
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({
+        recording: expect.objectContaining({
+          status: "ready",
+          durationMs: 4_000,
+          sourceSizeBytes: 123_456,
+        }),
+      }),
+    );
+  });
 });

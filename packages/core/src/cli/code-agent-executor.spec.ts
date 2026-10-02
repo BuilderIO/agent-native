@@ -46,6 +46,7 @@ const originalProviderEnv = new Map(
 );
 const originalPath = process.env.PATH;
 const originalAgentEngine = process.env.AGENT_ENGINE;
+const originalMcpServers = process.env.MCP_SERVERS;
 
 function restoreEnv(name: string, value: string | undefined): void {
   if (value === undefined) delete process.env[name];
@@ -60,6 +61,7 @@ afterEach(() => {
   process.env.PATH = originalPath;
   if (originalAgentEngine === undefined) delete process.env.AGENT_ENGINE;
   else process.env.AGENT_ENGINE = originalAgentEngine;
+  restoreEnv("MCP_SERVERS", originalMcpServers);
   for (const key of providerEnvKeys) {
     const original = originalProviderEnv.get(key);
     if (original === undefined) delete process.env[key];
@@ -263,6 +265,7 @@ describe("executeCodeAgentRun", () => {
   it("runs a Claude Code CLI-backed session through a Claude subscription", async () => {
     const root = useTempCodeAgentsHome();
     for (const key of providerEnvKeys) delete process.env[key];
+    delete process.env.MCP_SERVERS;
     const binDir = path.join(root, "bin");
     const argsPath = path.join(root, "claude-args.json");
     fs.mkdirSync(binDir, { recursive: true });
@@ -396,6 +399,7 @@ describe("executeCodeAgentRun", () => {
 
       expect(getCodeAgentRunRecord(run.id)?.status).toBe("completed");
       const args = JSON.parse(fs.readFileSync(argsPath, "utf8")) as string[];
+      expect(args[args.indexOf("--model") + 1]).toBe("claude-sonnet-5-5");
       const configPath = args[args.indexOf("--mcp-config") + 1];
       expect(path.isAbsolute(configPath)).toBe(true);
       expect(args).toContain("--strict-mcp-config");

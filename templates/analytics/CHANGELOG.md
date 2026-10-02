@@ -3,6 +3,13 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-01
+
+### Improved
+
+- Error issues in Monitoring link straight to the chat thread that failed, and one underlying error now stays a single issue instead of splitting after each deploy
+- The observability settings tab is now labeled Observability.
+
 ## 2026-09-30
 
 ### Improved

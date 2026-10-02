@@ -8,12 +8,14 @@ const {
   agentSidebarMock,
   navigateChatMock,
   flushDeckSaveMock,
+  toastErrorMock,
   useDecksMock,
   creativeContextLabEnabled,
 } = vi.hoisted(() => ({
   agentSidebarMock: vi.fn(),
   navigateChatMock: vi.fn(),
   flushDeckSaveMock: vi.fn(),
+  toastErrorMock: vi.fn(),
   useDecksMock: vi.fn(),
   creativeContextLabEnabled: { value: false },
 }));
@@ -72,6 +74,7 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   useT: () => (key: string, values?: Record<string, unknown>) =>
     key === "agent.slideNumber" ? `Slide ${values?.number}` : key,
 }));
+vi.mock("sonner", () => ({ toast: { error: toastErrorMock } }));
 vi.mock("@agent-native/toolkit/app/org", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/toolkit/app/org")>()),
   InvitationBanner: () => <div data-testid="invitation-banner" />,
@@ -150,6 +153,7 @@ describe("Slides Layout", () => {
     agentSidebarMock.mockClear();
     navigateChatMock.mockClear();
     flushDeckSaveMock.mockReset().mockResolvedValue(undefined);
+    toastErrorMock.mockReset();
     useDecksMock.mockReturnValue({
       decks: [],
       loading: false,
@@ -270,6 +274,17 @@ describe("Slides Layout", () => {
       screen.queryByRole("button", { name: "sidebar.openNavigation" }),
     ).toBeNull();
     expect(screen.getByTestId("page-content")).toBeTruthy();
+  });
+
+  it("lets deck chat proceed when flushing the save fails", async () => {
+    flushDeckSaveMock.mockRejectedValueOnce(new Error("save failed"));
+    renderLayout("/deck/deck-1");
+
+    const history = agentSidebarMock.mock.lastCall![0].chatHistory as {
+      beforeStart: () => Promise<void>;
+    };
+    await expect(history.beforeStart()).resolves.toBeUndefined();
+    expect(toastErrorMock).toHaveBeenCalledWith("settings.saveFailed");
   });
 
   it("keeps malformed chat history distinct from an empty version list", () => {

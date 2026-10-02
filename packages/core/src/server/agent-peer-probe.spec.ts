@@ -136,6 +136,43 @@ describe("probePeerAgent", () => {
     expect(result.authError).toBe("This operation was aborted");
   });
 
+  it("leaves authorized undefined, with the reason, when the no-op call fails for a non-auth reason", async () => {
+    const deps = makeDeps({
+      createClient: () => ({
+        getTask: async () => {
+          throw new Error("A2A request failed (503): upstream unavailable");
+        },
+      }),
+    });
+
+    const result = await probePeerAgent(agent, deps);
+
+    expect(result.reachable).toBe(true);
+    expect("authorized" in result).toBe(false);
+    expect(result.authError).toBe(
+      "A2A request failed (503): upstream unavailable",
+    );
+  });
+
+  it("leaves authorized undefined, with no reason, for a card that has no JSON-RPC endpoint", async () => {
+    const base = await makeDeps().loadCapabilities(agent);
+    const deps = makeDeps({
+      loadCapabilities: async () => ({ ...base, cardStatus: "no-json-rpc" }),
+      createClient: () => ({
+        getTask: async () => {
+          throw new Error("should never be called without a JSON-RPC endpoint");
+        },
+      }),
+    });
+
+    const result = await probePeerAgent(agent, deps);
+
+    expect(result.reachable).toBe(true);
+    expect(result.cardStatus).toBe("no-json-rpc");
+    expect("authorized" in result).toBe(false);
+    expect(result.authError).toBeUndefined();
+  });
+
   it("probes native provider agents by ID without creating a session", async () => {
     const managed = {
       ...agent,

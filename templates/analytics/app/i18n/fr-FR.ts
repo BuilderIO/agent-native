@@ -994,6 +994,7 @@ export default {
     dataDictionary: "Dictionnaire de données - Analytics",
     dataSources: "Sources de données - Analytics",
     sessions: "Liste des sessions - Analytics",
+    eventCatalog: "Catalogue d'événements - Analytics",
     monitoring: "Surveillance - Analytics",
     agents: "Agents - Analytique",
     session: "Relecture de session - Analytics",
@@ -1312,7 +1313,8 @@ export default {
     rageClickCountSingular: "{{count}} clic répété",
     showingSingular: "{{count}} session",
     labName: "Tri des sessions",
-    labDescription: "Explorez les filtres et le tri des sessions.",
+    labDescription:
+      "Filtrez les sessions par événements suivis, voyez les événements de l'app sur la chronologie du replay et parcourez le catalogue d'événements.",
     allApps: "Toutes les apps",
     customRange: "Plage personnalisée",
     fromDate: "Du",
@@ -1353,6 +1355,44 @@ export default {
     sessionPlaylist: "Liste de sessions",
     userFilters: "Filtres utilisateur",
     eventFilters: "Filtres d'événement",
+    eventFiltersActive: "Événements ({{count}})",
+    eventCatalog: "Catalogue d'événements",
+    removeEventCondition: "Retirer {{event}}",
+    eventConditionLimit: "Jusqu'à {{count}} conditions d'événement.",
+    addEventCondition: "Ajouter une condition",
+    searchEvents: "Rechercher des événements...",
+    eventNamesFailed: "Impossible de charger les événements : {{message}}",
+    noEventNames: "Aucun événement sur cette période.",
+    eventCoverageSince:
+      "Les filtres d'événements couvrent les sessions depuis le {{date}}.",
+    eventCoverageStarting:
+      "Les filtres d'événements couvrent les sessions enregistrées à partir de maintenant.",
+    eventDid: "Avec",
+    eventDidNot: "Sans",
+    eventFiltersNeedLab:
+      "Ce lien contient des filtres d'événements. Activez le Lab Tri des sessions dans les paramètres pour les appliquer.",
+    collapsePageChanges: "Regrouper les changements de page",
+    pageChangesCollapsed: "{{count}} changements de page",
+    catalogDescription:
+      "Tous les événements reçus par Analytics, avec leur volume, leur date de dernière apparition et des exemples de propriétés. Sélectionnez un événement pour voir les sessions qui l'ont envoyé.",
+    catalogNeedsLab:
+      "Le catalogue d'événements fait partie du Lab Tri des sessions.",
+    openLabSettings: "Ouvrir les paramètres du Lab",
+    catalogOnlyAutomatic:
+      "{{app}} n'envoie que des événements automatiques, comme les pages vues. Suivez des événements nommés pour voir ce que les utilisateurs y font.",
+    catalogVolume: "Volume",
+    catalogLastSeen: "Dernière apparition",
+    catalogLoadFailed:
+      "Impossible de charger le catalogue d'événements : {{message}}",
+    catalogNoMatches: "Aucun événement ne correspond à votre recherche.",
+    catalogEmpty: "Aucun événement sur cette période pour le moment.",
+    catalogOpenSessions: "Afficher les sessions avec {{event}}",
+    catalogAutomatic: "Automatique",
+    catalogStoppedFiring: "N'est plus envoyé",
+    catalogPropertyKeys: "Clés de propriétés",
+    catalogMoreKeys: "+{{count}} de plus",
+    catalogTruncated:
+      "Seuls les {{count}} événements apparus le plus récemment sont affichés.",
     anyActivity: "Toute activité",
     filtersDescription:
       "Les filtres sont stockés dans l'URL afin que l'agent et les liens partagés voient la même liste de sessions.",

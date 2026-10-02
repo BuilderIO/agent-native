@@ -1,11 +1,13 @@
 import { getDbExec } from "@agent-native/core/db";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
+import { WAITING_STORAGE_EXPIRED_REASON } from "../../shared/upload-interruption.js";
 import { getDb, schema } from "../db/index.js";
 import {
   normalizeRecordingPlatform,
   trackRecordingFailure,
 } from "./recording-failures.js";
+import { ownerEmailMatches } from "./recordings.js";
 import type { StoredResumableSession } from "./resumable-session.js";
 import { abortResumableUploadSession } from "./resumable-upload-cleanup.js";
 
@@ -24,6 +26,28 @@ const IN_PROGRESS_STATUSES = ["uploading", "processing"] as const;
 
 export function uploadLeaseExpiry(nowMs: number = Date.now()): string {
   return new Date(nowMs + UPLOAD_LEASE_MS).toISOString();
+}
+
+/**
+ * A row parked until storage is connected (dev scratch chunks, a Loom or
+ * video-link import) is not a live upload: it waits this long for setup, then
+ * the reaper fails it as `storage_setup_required` and its scratch is
+ * collected. Resuming it claims a normal lease.
+ */
+export const WAITING_STORAGE_LEASE_MS = 7 * 24 * 60 * 60 * 1000;
+
+export { WAITING_STORAGE_EXPIRED_REASON };
+
+export function waitingStorageLeaseExpiry(nowMs: number = Date.now()): string {
+  return new Date(nowMs + WAITING_STORAGE_LEASE_MS).toISOString();
+}
+
+/** Parked rows are the only `uploading` rows that carry a failure reason. */
+export function isParkedForStorage(row: {
+  status: string | null;
+  failureReason?: string | null;
+}): boolean {
+  return row.status === "uploading" && Boolean(row.failureReason);
 }
 
 export type UploadLeaseResult =
@@ -45,14 +69,23 @@ export async function renewUploadLease(
     uploadProgress?: number;
     attemptId?: string | null;
     generationId?: string | null;
+    ownerEmail?: string;
+    loomImportClaimId?: string;
   } = {},
 ): Promise<UploadLeaseResult> {
   const now = options.now ?? Date.now();
+  const claimScoped = options.loomImportClaimId !== undefined;
   const held = await getDb()
     .update(schema.recordings)
     .set({
       uploadLeaseExpiresAt: uploadLeaseExpiry(now),
+      // A live upload is not parked: a reason left from an earlier pause
+      // would make the reaper call a later lapse storage_setup_required.
+      failureReason: sql`CASE WHEN ${schema.recordings.status} = 'uploading' THEN NULL ELSE ${schema.recordings.failureReason} END`,
       updatedAt: new Date(now).toISOString(),
+      ...(claimScoped
+        ? { loomImportClaimedAt: new Date(now).toISOString() }
+        : {}),
       ...(options.uploadProgress === undefined
         ? {}
         : {
@@ -62,7 +95,25 @@ export async function renewUploadLease(
     .where(
       and(
         eq(schema.recordings.id, recordingId),
-        inArray(schema.recordings.status, [...IN_PROGRESS_STATUSES]),
+        claimScoped
+          ? eq(schema.recordings.status, "processing")
+          : inArray(schema.recordings.status, [...IN_PROGRESS_STATUSES]),
+        ...(options.ownerEmail === undefined
+          ? []
+          : [
+              ownerEmailMatches(
+                schema.recordings.ownerEmail,
+                options.ownerEmail,
+              ),
+            ]),
+        ...(options.loomImportClaimId === undefined
+          ? []
+          : [
+              eq(
+                schema.recordings.loomImportClaimId,
+                options.loomImportClaimId,
+              ),
+            ]),
         ...(options.attemptId === undefined
           ? []
           : [
@@ -99,7 +150,19 @@ export async function renewUploadLease(
       uploadGenerationId: schema.recordings.uploadGenerationId,
     })
     .from(schema.recordings)
-    .where(eq(schema.recordings.id, recordingId));
+    .where(
+      and(
+        eq(schema.recordings.id, recordingId),
+        ...(options.ownerEmail === undefined
+          ? []
+          : [
+              ownerEmailMatches(
+                schema.recordings.ownerEmail,
+                options.ownerEmail,
+              ),
+            ]),
+      ),
+    );
 
   return {
     held: false,
@@ -232,16 +295,28 @@ export async function reapExpiredUploads(
   if (expired.length > 0 && !dryRun) {
     const ids = expired.map((row) => row.id);
     const result = await exec.execute({
+      // A parked row (uploading with a reason) expired waiting for storage;
+      // everything else stopped sending data.
       sql: `UPDATE recordings
             SET status = 'failed',
-                failure_code = 'upload_timed_out',
-                failure_reason = $1,
+                failure_code = CASE
+                  WHEN status = 'uploading' AND failure_reason IS NOT NULL
+                  THEN 'storage_setup_required' ELSE 'upload_timed_out' END,
+                failure_reason = CASE
+                  WHEN status = 'uploading' AND failure_reason IS NOT NULL
+                  THEN $4 ELSE $1 END,
                 updated_at = $2
             WHERE status IN ('uploading', 'processing')
               AND upload_lease_expires_at < $3
-              AND id IN (${ids.map((_, i) => `$${i + 4}`).join(", ")})
-            RETURNING id, owner_email, upload_attempt_id, recording_platform`,
-      args: [UPLOAD_LEASE_EXPIRED_REASON, nowIso, nowIso, ...ids],
+              AND id IN (${ids.map((_, i) => `$${i + 5}`).join(", ")})
+            RETURNING id, owner_email, upload_attempt_id, recording_platform, failure_code`,
+      args: [
+        UPLOAD_LEASE_EXPIRED_REASON,
+        nowIso,
+        nowIso,
+        WAITING_STORAGE_EXPIRED_REASON,
+        ...ids,
+      ],
     });
 
     const terminatedRows =
@@ -262,7 +337,10 @@ export async function reapExpiredUploads(
             ? row.upload_attempt_id
             : null,
         platform: normalizeRecordingPlatform(row.recording_platform),
-        failureCode: "upload_timed_out",
+        failureCode:
+          row.failure_code === "storage_setup_required"
+            ? "storage_setup_required"
+            : "upload_timed_out",
       });
     }
 

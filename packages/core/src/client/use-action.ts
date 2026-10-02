@@ -1,10 +1,29 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  hashKey,
+  useQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import type {
   UseQueryOptions,
   UseMutationOptions,
 } from "@tanstack/react-query";
 
 import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
+import {
+  actionCircuitRemainingMs,
+  actionErrorCode,
+  actionErrorRetryAfterMs,
+  actionErrorStatus,
+  assertActionCircuitClosed,
+  type ActionCircuitTrip,
+  endsActionPolling,
+  isActionCircuitOpenError,
+  isTerminalActionError,
+  recordActionFailure,
+  resetActionFailureCircuit,
+  resetActionFailureCircuits,
+} from "./action-failure-circuit.js";
 import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { trackEvent } from "./analytics.js";
@@ -19,7 +38,6 @@ import {
   clientCompatibilityVersion,
   reloadForClientCompatibilityMismatch,
 } from "./build-compatibility.js";
-import { isTerminalAuthFailure } from "./create-query-client.js";
 import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
 import { recheckSessionAfterUnauthorized } from "./use-session.js";
 
@@ -41,18 +59,18 @@ function isRetryableActionStatus(status: number): boolean {
   return status === 429 || status === 502 || status === 503;
 }
 
-function actionErrorStatus(error: unknown): number | undefined {
-  const status = (error as { status?: unknown } | undefined)?.status;
-  return typeof status === "number" ? status : undefined;
-}
-
 /** @internal exported for tests */
 export function defaultActionQueryRetry(
   failureCount: number,
   error: unknown,
 ): boolean {
+  if (isActionCircuitOpenError(error)) return false;
   if (isActionTimeout(error)) return false;
   if (isBrowserResourceExhaustion(error)) return false;
+  // A named Retry-After is the server's answer; the failure circuit holds the
+  // cooldown, so retrying inside it only repeats the refusal.
+  if (actionErrorRetryAfterMs(error) !== undefined) return false;
+  if (isTerminalActionError(error)) return false;
   if (isNetworkLevelFailure(error)) return failureCount < 1;
 
   const status = actionErrorStatus(error);
@@ -85,12 +103,18 @@ function isNetworkLevelFailure(error: unknown): boolean {
 /**
  * Default retry backoff for action queries. React Query's stock retryDelay
  * (1s → 2s → 4s) makes a failing query sit on a spinner for ~7s before the
- * error surfaces; interactive data fetches want failures visible fast.
+ * error surfaces; interactive data fetches want failures visible fast. The
+ * delay is jittered into the upper half of the step so clients that failed
+ * together do not retry together.
+ *
+ * React Query passes the error as a second argument, so this takes no
+ * randomness parameter.
  *
  * @internal exported for tests
  */
 export function defaultActionQueryRetryDelay(failureCount: number): number {
-  return Math.min(500 * 2 ** failureCount, 2_000);
+  const step = Math.min(500 * 2 ** failureCount, 2_000);
+  return Math.round(step / 2 + (Math.random() * step) / 2);
 }
 
 export function actionErrorMessage(error: unknown): string | undefined {
@@ -349,6 +373,8 @@ async function performActionFetch<T>(
       );
       (error as any).status = 409;
       (error as any).code = "client_build_mismatch";
+      (error as any).serverBuildId = serverBuildId;
+      (error as any).requiredCompatibility = requiredCompatibility;
       throw error;
     }
 
@@ -438,6 +464,10 @@ async function performActionFetch<T>(
     if (typeof data?.errorCode === "string") {
       (error as any).errorCode = data.errorCode;
     }
+    // The id the server stamps on every response; it is also on the server's
+    // own capture of this failure, so a report that quotes it opens that event.
+    const requestId = res.headers.get("x-agent-native-request-id");
+    if (requestId) (error as any).requestId = requestId;
     if (
       data?.details &&
       typeof data.details === "object" &&
@@ -635,6 +665,7 @@ async function actionFetch<T>(
           sample_weight: 1 / sampling.sampleRate,
           sampled: sampling.sampled,
           status_code: statusCode,
+          error_code: actionErrorCode(error),
           status_class:
             statusCode === undefined
               ? "network"
@@ -865,11 +896,13 @@ export function tryCallActionKeepalive<
 
 /**
  * Wraps a caller-supplied `refetchInterval` so polling stops once the query's
- * last error is a terminal auth failure (401/403) instead of reissuing the
- * identical rejection on every tick — the same condition useDbSync's
- * `hasTerminalAuthFailure` already skips sync-driven invalidation for. A
- * remount, a mutation's invalidation, or an explicit `refetch()` still
- * retries: this only gates the interval timer, not the query's error state.
+ * last error says it is over (401/403/410, or a non-retryable typed code such
+ * as `not_found`) instead of reissuing the identical rejection on every tick,
+ * and stretches the interval to the circuit's remaining cooldown after
+ * repeated refusals or a named Retry-After. A plain 404 keeps polling (see
+ * `endsActionPolling`). A remount, a mutation's invalidation, or an explicit
+ * `refetch()` still retries: this only gates the interval timer, not the
+ * query's error state.
  *
  * @internal exported for tests
  */
@@ -877,11 +910,82 @@ export function guardActionQueryRefetchInterval<TData = unknown>(
   refetchInterval: NonNullable<UseQueryOptions<TData>["refetchInterval"]>,
 ): NonNullable<UseQueryOptions<TData>["refetchInterval"]> {
   return (query) => {
-    if (isTerminalAuthFailure(query.state.error)) return false;
-    return typeof refetchInterval === "function"
-      ? refetchInterval(query)
-      : refetchInterval;
+    const error = query.state.error;
+    if (
+      error &&
+      actionErrorRetryAfterMs(error) === undefined &&
+      endsActionPolling(error)
+    ) {
+      return false;
+    }
+    const interval =
+      typeof refetchInterval === "function"
+        ? refetchInterval(query)
+        : refetchInterval;
+    if (typeof interval !== "number") return interval;
+    const cooldown = actionCircuitRemainingMs(query.queryHash);
+    return cooldown > 0 ? Math.max(interval, cooldown + 1) : interval;
   };
+}
+
+/** @internal exported for tests */
+export function resolveActionQueryRetry(
+  retry: unknown,
+  failureCount: number,
+  error: unknown,
+): boolean {
+  if (typeof retry === "function") return Boolean(retry(failureCount, error));
+  if (typeof retry === "number") return failureCount < retry;
+  if (retry === undefined) return defaultActionQueryRetry(failureCount, error);
+  return Boolean(retry);
+}
+
+if (typeof window !== "undefined") {
+  // A freshly connected provider invalidates "no provider" failures that would
+  // otherwise stay paused.
+  window.addEventListener(
+    "agent-engine:configured-changed",
+    resetActionFailureCircuits,
+  );
+  // Coming back online is a new chance for every paused query. This is the
+  // window event rather than React Query's onlineManager so loading this
+  // module never touches a partially mocked `@tanstack/react-query`.
+  window.addEventListener("online", resetActionFailureCircuits);
+}
+
+// A page that keeps failing trips many circuits; a few reports say which
+// actions, a flood of them says nothing more.
+const MAX_CIRCUIT_TRIP_EVENTS_PER_SESSION = 20;
+let circuitTripEventsSent = 0;
+
+/** @internal exported for tests */
+export function resetActionCircuitTripEventsForTests(): void {
+  circuitTripEventsSent = 0;
+}
+
+function trackActionCircuitTrip(
+  actionName: string,
+  error: unknown,
+  trip: ActionCircuitTrip,
+): void {
+  if (
+    !trip.tripped ||
+    circuitTripEventsSent >= MAX_CIRCUIT_TRIP_EVENTS_PER_SESSION
+  ) {
+    return;
+  }
+  circuitTripEventsSent += 1;
+  try {
+    trackEvent("action_circuit_tripped", {
+      action_name: actionName,
+      error_code: actionErrorCode(error) ?? "untyped",
+      status_code: actionErrorStatus(error),
+      failures: trip.failures,
+      cooldown_ms: trip.cooldownMs,
+    });
+  } catch {
+    // coercion-ok: telemetry must never change what the circuit does.
+  }
 }
 
 export function useActionQuery<
@@ -897,12 +1001,33 @@ export function useActionQuery<
 ) {
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
   const apiDisabled = Boolean(agentNativeApiDisabledReason());
-  const { refetchInterval, ...restOptions } = options ?? {};
+  const { refetchInterval, retry: callerRetry, ...restOptions } = options ?? {};
+  const circuitKey = () => hashKey(["action", actionName, params]);
   return useQuery<R>({
     queryKey: ["action", actionName, params],
-    queryFn: ({ signal }) =>
-      actionFetch<R>(actionName, "GET", params, { signal }),
-    retry: defaultActionQueryRetry,
+    queryFn: async ({ signal }) => {
+      const key = circuitKey();
+      assertActionCircuitClosed(key);
+      const result = await actionFetch<R>(actionName, "GET", params, {
+        signal,
+      });
+      resetActionFailureCircuit(key);
+      return result;
+    },
+    // The failure circuit counts fetch cycles, so a cycle is recorded where
+    // React Query gives up on it: the first `retry` call that answers false.
+    retry: (failureCount, error) => {
+      if (isActionCircuitOpenError(error)) return false;
+      const again = resolveActionQueryRetry(callerRetry, failureCount, error);
+      if (!again && !isAbortError(error)) {
+        trackActionCircuitTrip(
+          actionName,
+          error,
+          recordActionFailure(circuitKey(), error),
+        );
+      }
+      return again;
+    },
     retryDelay: defaultActionQueryRetryDelay,
     ...restOptions,
     ...(refetchInterval !== undefined
@@ -951,6 +1076,8 @@ export function useActionMutation<
         timeoutMs,
       }),
     onSuccess: (...args: [any, any, any]) => {
+      // A write that succeeded may have fixed whatever was failing reads.
+      resetActionFailureCircuits();
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("agentNative:syncActivity"));
       }

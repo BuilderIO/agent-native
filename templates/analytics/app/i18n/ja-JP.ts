@@ -973,6 +973,7 @@ export default {
     dataDictionary: "データディクショナリ - Analytics",
     dataSources: "データソース - Analytics",
     sessions: "セッション - Analytics",
+    eventCatalog: "イベントカタログ - Analytics",
     monitoring: "監視 - Analytics",
     agents: "エージェント - Analytics",
     session: "セッションリプレイ - Analytics",
@@ -1286,7 +1287,8 @@ export default {
     rageClickCountSingular: "{{count}} 件の連続クリック",
     showingSingular: "{{count}} 件のセッション",
     labName: "セッションの絞り込み",
-    labDescription: "セッションのフィルターと並べ替えを確認します。",
+    labDescription:
+      "トラッキングしたイベントでセッションを絞り込み、リプレイのタイムラインでアプリのイベントを確認し、イベントカタログを閲覧します。",
     allApps: "すべてのアプリ",
     customRange: "カスタム期間",
     fromDate: "開始",
@@ -1327,6 +1329,43 @@ export default {
     sessionPlaylist: "セッションプレイリスト",
     userFilters: "ユーザーフィルター",
     eventFilters: "イベントフィルター",
+    eventFiltersActive: "イベント ({{count}})",
+    eventCatalog: "イベントカタログ",
+    removeEventCondition: "{{event}} を削除",
+    eventConditionLimit: "イベント条件は最大 {{count}} 件です。",
+    addEventCondition: "条件を追加",
+    searchEvents: "イベントを検索...",
+    eventNamesFailed: "イベントを読み込めませんでした: {{message}}",
+    noEventNames: "この期間にイベントはありません。",
+    eventCoverageSince:
+      "イベントフィルターは {{date}} 以降のセッションが対象です。",
+    eventCoverageStarting:
+      "イベントフィルターはこれから記録されるセッションが対象です。",
+    eventDid: "あり",
+    eventDidNot: "なし",
+    eventFiltersNeedLab:
+      "このリンクにはイベントフィルターが含まれています。適用するには、設定で「セッションの絞り込み」Lab をオンにしてください。",
+    collapsePageChanges: "ページ遷移をまとめる",
+    pageChangesCollapsed: "{{count}} 件のページ遷移",
+    catalogDescription:
+      "Analytics が受信したすべてのイベントと、その件数、最終受信日、プロパティの例を表示します。イベントを選ぶと、それを送信したセッションが表示されます。",
+    catalogNeedsLab:
+      "イベントカタログは「セッションの絞り込み」Lab の機能です。",
+    openLabSettings: "Lab の設定を開く",
+    catalogOnlyAutomatic:
+      "{{app}} はページビューなどの自動イベントしか送信していません。名前付きイベントをトラッキングすると、ユーザーの操作がわかります。",
+    catalogVolume: "件数",
+    catalogLastSeen: "最終受信",
+    catalogLoadFailed: "イベントカタログを読み込めませんでした: {{message}}",
+    catalogNoMatches: "検索に一致するイベントはありません。",
+    catalogEmpty: "この期間にはまだイベントがありません。",
+    catalogOpenSessions: "{{event}} を含むセッションを表示",
+    catalogAutomatic: "自動",
+    catalogStoppedFiring: "送信停止",
+    catalogPropertyKeys: "プロパティキー",
+    catalogMoreKeys: "他 {{count}} 件",
+    catalogTruncated:
+      "最近受信した {{count}} 件のイベントのみを表示しています。",
     anyActivity: "任意のアクティビティ",
     filtersDescription:
       "フィルターは URL に保存されるため、エージェントと共有リンクで同じセッション一覧を表示できます。",

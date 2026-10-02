@@ -9,6 +9,8 @@ import {
   listSessionRecordings,
   listSessionRecordingsPage,
 } from "../server/lib/session-replay.js";
+import { assertSessionsTriageLabEnabled } from "../server/lib/sessions-triage-lab.js";
+import { MAX_SESSION_EVENT_CONDITIONS } from "../shared/session-events.js";
 
 function resolveScope() {
   const userEmail = getRequestUserEmail();
@@ -82,6 +84,20 @@ export default defineAction({
         "Return recordings, total count, and app counts rather than the legacy recordings array",
       ),
     status: z.enum(["active", "completed"]).optional(),
+    didEvents: z
+      .array(z.string().min(1).max(200))
+      .max(MAX_SESSION_EVENT_CONDITIONS)
+      .optional()
+      .describe(
+        "Only sessions that tracked every one of these event names. Requires the Sessions triage Lab; covers sessions recorded after the event index started.",
+      ),
+    didNotEvents: z
+      .array(z.string().min(1).max(200))
+      .max(MAX_SESSION_EVENT_CONDITIONS)
+      .optional()
+      .describe(
+        "Only sessions that tracked none of these event names. Requires the Sessions triage Lab; covers sessions recorded after the event index started.",
+      ),
     limit: z.coerce.number().int().min(1).max(100).optional().default(50),
   }),
   http: { method: "GET" },
@@ -90,6 +106,9 @@ export default defineAction({
   grounding: true,
   run: async (args) => {
     const scope = resolveScope();
+    if (args.didEvents?.length || args.didNotEvents?.length) {
+      await assertSessionsTriageLabEnabled(scope.userEmail, scope.orgId);
+    }
     return args.paginated
       ? listSessionRecordingsPage(scope, args)
       : listSessionRecordings(scope, args);
