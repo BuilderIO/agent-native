@@ -3,6 +3,7 @@ import { agentNativePath } from "@agent-native/core/client/api-path";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
+import { scheduleAfterStartup } from "@agent-native/core/client/use-after-paint";
 import { useSession } from "@agent-native/core/client/use-session";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
@@ -153,11 +154,19 @@ import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 import { SearchBar } from "./SearchBar";
 import { useCommandPaletteFocus } from "./use-command-palette-focus";
 
-const ComposeModal = lazy(() =>
-  import("@/components/email/ComposeModal").then(({ ComposeModal }) => ({
-    default: ComposeModal,
-  })),
-);
+let composeModalModule:
+  | Promise<typeof import("@/components/email/ComposeModal")>
+  | undefined;
+
+function preloadComposeModal() {
+  composeModalModule ??= import("@/components/email/ComposeModal");
+  return composeModalModule;
+}
+
+const ComposeModal = lazy(async () => {
+  const { ComposeModal } = await preloadComposeModal();
+  return { default: ComposeModal };
+});
 
 const BARE_ROUTES = new Set(["/email"]);
 const EMPTY_SAVED_FILTERS: SavedMailFilter[] = [];
@@ -399,6 +408,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   const isMobile = useIsMobile();
   const compose = useComposeState();
   useEffect(() => () => clearThreadCache(), []);
+  // Load the reply window before it's needed: after a deploy the file this
+  // page would ask for is gone, so `r` would replace Mail with the error page.
+  useEffect(() => scheduleAfterStartup(() => void preloadComposeModal()), []);
   useEffect(() => {
     const handleDraftSaveFailed = () => {
       toast.error(t("mail.toasts.failedToSaveDraft"));
