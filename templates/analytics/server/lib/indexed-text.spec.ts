@@ -7,7 +7,9 @@ import {
   MAX_EVENT_NAME_LENGTH,
   MAX_PATH_LENGTH,
   MAX_USER_KEY_LENGTH,
+  boundedIdentity,
   boundedText,
+  indexedRowId,
 } from "./indexed-text.js";
 
 const { PGlite } = createRequire(
@@ -34,6 +36,7 @@ const INDEXES = `
     ON analytics_events (owner_email, event_name, event_date)
     WHERE org_id IS NULL;
   CREATE TABLE analytics_event_daily_rollups (
+    id TEXT PRIMARY KEY,
     tenant_key TEXT NOT NULL,
     event_date TEXT NOT NULL,
     event_name TEXT NOT NULL,
@@ -43,6 +46,14 @@ const INDEXES = `
   CREATE UNIQUE INDEX analytics_event_daily_rollups_key_idx
     ON analytics_event_daily_rollups
     (tenant_key, event_date, event_name, app, template);
+  CREATE TABLE analytics_user_days (
+    id TEXT PRIMARY KEY,
+    tenant_key TEXT NOT NULL,
+    event_date TEXT NOT NULL,
+    user_key TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX analytics_user_days_key_idx
+    ON analytics_user_days (tenant_key, event_date, user_key);
 `;
 
 // Three UTF-8 bytes per code unit, the most any bounded value can take, and
@@ -62,6 +73,28 @@ describe("boundedText", () => {
       "a".repeat(199),
     );
     expect(boundedText(null, 200)).toBe("");
+  });
+});
+
+describe("boundedIdentity", () => {
+  it("keeps distinct long values distinct and short values unchanged", () => {
+    const shared = "u".repeat(300);
+    const first = boundedIdentity(`${shared}-first`, 256);
+    const second = boundedIdentity(`${shared}-second`, 256);
+    expect(first).not.toBe(second);
+    expect(first.length).toBeLessThanOrEqual(256);
+    expect(boundedIdentity(`${shared}-first`, 256)).toBe(first);
+    expect(boundedIdentity("  user-1  ", 256)).toBe("user-1");
+  });
+});
+
+describe("indexedRowId", () => {
+  it("keeps short ids readable and hashes long ones", () => {
+    expect(indexedRowId("aud", ["user:a@b.co", "2026-10-02", "u 1"])).toBe(
+      "aud_user%3Aa%40b.co|2026-10-02|u%201",
+    );
+    const long = indexedRowId("aedr", [WIDEST.slice(0, 200)]);
+    expect(long).toMatch(/^aedr_h_[0-9a-f]{64}$/);
   });
 });
 
@@ -91,11 +124,32 @@ describe("indexed text limits on Postgres", () => {
         [orgId, OWNER, text.eventName, text.path, text.userKey, text.app],
       );
     }
+    const tenantKey = `user:${OWNER}`;
     await client.query(
       `INSERT INTO analytics_event_daily_rollups
-         (tenant_key, event_date, event_name, app, template)
-       VALUES ($1, '2026-10-02', $2, $3, $3)`,
-      [`user:${OWNER}`, text.eventName, text.app],
+         (id, tenant_key, event_date, event_name, app, template)
+       VALUES ($1, $2, '2026-10-02', $3, $4, $4)`,
+      [
+        indexedRowId("aedr", [
+          tenantKey,
+          "2026-10-02",
+          text.eventName,
+          text.app,
+          text.app,
+        ]),
+        tenantKey,
+        text.eventName,
+        text.app,
+      ],
+    );
+    await client.query(
+      `INSERT INTO analytics_user_days (id, tenant_key, event_date, user_key)
+       VALUES ($1, $2, '2026-10-02', $3)`,
+      [
+        indexedRowId("aud", [tenantKey, "2026-10-02", text.userKey]),
+        tenantKey,
+        text.userKey,
+      ],
     );
   }
 
@@ -105,7 +159,7 @@ describe("indexed text limits on Postgres", () => {
         eventName: boundedText(WIDEST, MAX_EVENT_NAME_LENGTH),
         app: boundedText(WIDEST, MAX_APP_LENGTH),
         path: boundedText(WIDEST, MAX_PATH_LENGTH),
-        userKey: boundedText(WIDEST, MAX_USER_KEY_LENGTH),
+        userKey: boundedIdentity(WIDEST, MAX_USER_KEY_LENGTH),
       }),
     ).resolves.toBeUndefined();
   });

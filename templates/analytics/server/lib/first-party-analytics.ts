@@ -39,6 +39,7 @@ import {
   MAX_EVENT_NAME_LENGTH,
   MAX_PATH_LENGTH,
   MAX_USER_KEY_LENGTH,
+  boundedIdentity,
   boundedText,
 } from "./indexed-text.js";
 import { parseJsonBody, requestError } from "./request-errors.js";
@@ -729,7 +730,8 @@ export async function recordAnalyticsEvents(
       asString((properties as any).anonymousId) ??
       asString((properties as any).distinctId);
     const rawUserKey = userId || anonymousId;
-    const userKey = rawUserKey && boundedText(rawUserKey, MAX_USER_KEY_LENGTH);
+    const userKey =
+      rawUserKey && boundedIdentity(rawUserKey, MAX_USER_KEY_LENGTH);
     const timestamp = normalizeAnalyticsTimestamp(event.timestamp, receivedAt);
     const sessionId =
       event.sessionId ??
@@ -751,7 +753,7 @@ export async function recordAnalyticsEvents(
           app,
           template,
           url: parts.url,
-          userId: userId && boundedText(userId, MAX_USER_KEY_LENGTH),
+          userId: userId && boundedIdentity(userId, MAX_USER_KEY_LENGTH),
           anonymousId,
           userKey,
           sessionId,

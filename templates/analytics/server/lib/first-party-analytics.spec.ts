@@ -128,6 +128,7 @@ import {
   MAX_EVENT_NAME_LENGTH,
   MAX_PATH_LENGTH,
   MAX_USER_KEY_LENGTH,
+  boundedIdentity,
 } from "./indexed-text.js";
 
 beforeEach(() => {
@@ -561,10 +562,22 @@ describe("recordAnalyticsEvents", () => {
       app: "中".repeat(MAX_APP_LENGTH),
       template: "中".repeat(MAX_APP_LENGTH),
       path: "中".repeat(MAX_PATH_LENGTH),
-      userKey: "中".repeat(MAX_USER_KEY_LENGTH),
+      userKey: boundedIdentity(long, MAX_USER_KEY_LENGTH),
       userId: long,
     });
     expect(rows[1]).toMatchObject({ eventName: "pageview", userKey: "user_1" });
+  });
+
+  it("keeps two long user ids with the same prefix as two users", async () => {
+    const shared = "u".repeat(MAX_USER_KEY_LENGTH);
+    await recordAnalyticsEvents("anpk_test", [
+      { event: "pageview", userId: `${shared}-first` },
+      { event: "pageview", userId: `${shared}-second` },
+    ]);
+
+    const [rows] = rollupMocks.upsert.mock.calls[0];
+    expect(rows[0].userKey).not.toBe(rows[1].userKey);
+    expect(rows[0].userKey.length).toBeLessThanOrEqual(MAX_USER_KEY_LENGTH);
   });
 
   it("bounds the user id an exception indexes in its error event", async () => {
@@ -573,7 +586,9 @@ describe("recordAnalyticsEvents", () => {
     ]);
 
     const [, sources] = exceptionMocks.ingest.mock.calls[0];
-    expect(sources[0].derived.userId).toBe("中".repeat(MAX_USER_KEY_LENGTH));
+    expect(sources[0].derived.userId).toBe(
+      boundedIdentity("中".repeat(4096), MAX_USER_KEY_LENGTH),
+    );
   });
 
   it("rejects an unknown key as the caller's error", async () => {

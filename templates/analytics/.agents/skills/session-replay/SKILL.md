@@ -90,8 +90,11 @@ agent answers about browser recordings in the Analytics template.
   in the range.
 - Indexes hold caller text raw, and one entry over Postgres's limit fails the
   whole batch. Ingest cuts every indexed value with
-  `server/lib/indexed-text.ts` (event name, app, template, path, user key)
-  before any table sees it, and index rows use hashed ids. Ids are never cut,
+  `server/lib/indexed-text.ts` (event name, app, template, path) before any
+  table sees it. A long user key keeps a prefix plus a hash of the whole value
+  (`boundedIdentity`), so two users never merge into one. Row ids built from
+  caller text go through `indexedRowId`, which hashes an id that
+  percent-encoding made too long. Session and recording ids are never cut,
   because a cut id could merge two sessions: replay ingest rejects session and
   recording ids over 256 characters, and an event's longer session id skips the
   session index. Bound any new indexed caller value there.
