@@ -41,6 +41,7 @@ import type {
   PatchProofState,
   ResponsiveEditScope,
 } from "@/pages/design-editor/command-types";
+import { commitAfterPaint } from "@/pages/design-editor/commit-after-paint";
 import { clearAutoTextColorMarkerOnExplicitColorCommit } from "@/pages/design-editor/cross-screen-text-color";
 import {
   LOCAL_EDIT_ORIGIN,
@@ -139,6 +140,7 @@ export interface CommitVisualStylesArgs {
   ) => PreviewContentReplaceResult;
   responsiveEditScopeRef: RefObject<ResponsiveEditScope>;
   selectedElement: ElementInfo | null;
+  selectedElementRef: RefObject<ElementInfo | null>;
   setCollabContent: Dispatch<SetStateAction<string | null>>;
   setCollabContentFileId: Dispatch<SetStateAction<string | null>>;
   setContentRenderRevision: Dispatch<SetStateAction<number>>;
@@ -202,6 +204,7 @@ export function runCommitVisualStyles(
     replacePreviewContent,
     responsiveEditScopeRef,
     selectedElement,
+    selectedElementRef,
     setCollabContent,
     setCollabContentFileId,
     setContentRenderRevision,
@@ -520,271 +523,281 @@ export function runCommitVisualStyles(
     createdAt: Date.now(),
   });
   sendRuntimeStylePreview();
+  const committedSelection = selectedElementRef.current;
+  commitAfterPaint(() => {
+    const baseContent = getScreenContent(activeFile.id);
 
-  const nextContent = applyInlineStylesToHtml(baseContent, selector, {
-    ...Object.fromEntries(entries),
-  });
-  // §6.4 — Breakpoint-scoped editing (Framer cascade). Reuses the
-  // `projection` and `targetNode` resolved above for the patch-proof
-  // block (same baseContent). When a non-base breakpoint frame is
-  // active, EVERY property routes through the single class-vs-media
-  // decision (planBreakpointStyleWrite):
-  //
-  // - Tailwind-utility values become width-scoped responsive classes
-  //   (`max-[<bound>px]:text-lg`), replacing any same-stem token at the
-  //   same bound.
-  // guard:allow-raw-color - prose naming CSS value kinds, not a color literal
-  // - Raw CSS values (exact px from drags, rgb()/calc(), …) become
-  //   managed `@media (max-width: <bound>px)` rules in the
-  //   `<style data-agent-native-breakpoints>` block, targeting the
-  //   element's stable node id.
-  //
-  // Base edits (no active breakpoint, or the active frame is the widest
-  // context) keep the plain inline-style path and cascade down to every
-  // narrower breakpoint unless overridden there.
-  const stylePatch = entries.reduce<{
-    content: string;
-    failed: string | null;
-  }>(
-    (current, [property, value]) => {
-      if (current.failed) return current;
-      const patch = applyScopedVisualStyleEdit({
-        content: current.content,
-        target: targetNode ? { nodeId: targetNode.id } : { selector },
-        property,
-        value,
-        source: projection.source,
-        upperBoundPx: activeBreakpointUpperBoundPx,
-        lowerBoundPx:
-          responsiveEditScopeRef.current === "only"
-            ? activeBreakpointWidthStateRef.current
-            : null,
-      });
-      if (patch.result.status !== "applied") {
-        return {
+    // §6.4 — Breakpoint-scoped editing (Framer cascade). Reuses the
+    // `projection` and `targetNode` resolved above for the patch-proof
+    // block; the patch targets the node id, so it holds on the latest
+    // content even if a commit landed in between. When a non-base breakpoint frame is
+    // active, EVERY property routes through the single class-vs-media
+    // decision (planBreakpointStyleWrite):
+    //
+    // - Tailwind-utility values become width-scoped responsive classes
+    //   (`max-[<bound>px]:text-lg`), replacing any same-stem token at the
+    //   same bound.
+    // guard:allow-raw-color - prose naming CSS value kinds, not a color literal
+    // - Raw CSS values (exact px from drags, rgb()/calc(), …) become
+    //   managed `@media (max-width: <bound>px)` rules in the
+    //   `<style data-agent-native-breakpoints>` block, targeting the
+    //   element's stable node id.
+    //
+    // Base edits (no active breakpoint, or the active frame is the widest
+    // context) keep the plain inline-style path and cascade down to every
+    // narrower breakpoint unless overridden there.
+    const stylePatch = entries.reduce<{
+      content: string;
+      failed: string | null;
+    }>(
+      (current, [property, value]) => {
+        if (current.failed) return current;
+        const patch = applyScopedVisualStyleEdit({
           content: current.content,
-          failed: codeLayerPatchMessage(
-            patch.result.message,
-            t("designEditor.patchProof.selectorMissing"),
+          target: targetNode ? { nodeId: targetNode.id } : { selector },
+          property,
+          value,
+          source: projection.source,
+          upperBoundPx: activeBreakpointUpperBoundPx,
+          lowerBoundPx:
+            responsiveEditScopeRef.current === "only"
+              ? activeBreakpointWidthStateRef.current
+              : null,
+        });
+        if (patch.result.status !== "applied") {
+          return {
+            content: current.content,
+            failed: codeLayerPatchMessage(
+              patch.result.message,
+              t("designEditor.patchProof.selectorMissing"),
+            ),
+          };
+        }
+        return { content: patch.content, failed: null };
+      },
+      { content: baseContent, failed: null },
+    );
+    const legacyFallbackContent =
+      stylePatch.failed && activeBreakpointUpperBoundPx == null
+        ? applyInlineStylesToHtml(baseContent, selector, {
+            ...Object.fromEntries(entries),
+          })
+        : null;
+    const commitResolution = resolveVisualStyleCommitContent({
+      scopedContent: stylePatch.content,
+      scopedFailure: stylePatch.failed,
+      legacyFallbackContent,
+      breakpointScoped: activeBreakpointUpperBoundPx != null,
+    });
+    if ("error" in commitResolution) {
+      const failureMessage = codeLayerPatchMessage(
+        commitResolution.error,
+        t("designEditor.patchProof.selectorMissing"),
+      );
+      toast.error(failureMessage, { duration: 4000 });
+      setPatchProof((prev) =>
+        prev?.id === proofId
+          ? { ...prev, status: "failed", error: failureMessage }
+          : prev,
+      );
+      return;
+    }
+    const resolvedNextContentBeforeFontLink = commitResolution.content;
+
+    const fontFamilyValue = Object.fromEntries(entries).fontFamily;
+    const resolvedNextContentAfterFontLink = fontFamilyValue
+      ? ensureGoogleFontLinkInHtml(
+          resolvedNextContentBeforeFontLink,
+          fontFamilyValue,
+        )
+      : resolvedNextContentBeforeFontLink;
+
+    const committedNodeId =
+      targetNode?.dataAttributes["data-agent-native-node-id"];
+    const unpreparedNextContent =
+      "color" in Object.fromEntries(entries) && committedNodeId
+        ? clearAutoTextColorMarkerOnExplicitColorCommit(
+            resolvedNextContentAfterFontLink,
+            committedNodeId,
+          )
+        : resolvedNextContentAfterFontLink;
+    const resolvedNextContent = prepareCanonicalSourceContent(
+      unpreparedNextContent,
+      {
+        fileId: activeFile.id,
+        fileType: activeFile.fileType,
+      },
+    ).content;
+
+    try {
+      assertDesignHtmlEditIntegrity({
+        previousContent: baseContent,
+        nextContent: resolvedNextContent,
+        fileType: activeFile.fileType,
+      });
+    } catch (error) {
+      const message = designSaveErrorMessage(error) ?? t("common.genericError");
+      toast.error(message, {
+        id: `design-source-integrity:${activeFile.id}`,
+      });
+      setPatchProof((previous) =>
+        previous?.id === proofId
+          ? { ...previous, status: "failed", error: message }
+          : previous,
+      );
+      return;
+    }
+
+    const nextProjection = buildCodeLayerProjection(resolvedNextContent, {
+      source: projection.source,
+    });
+    const resolvedNode = selectedElement
+      ? nextProjection.nodes.find((node) => {
+          const aliases = codeLayerSelectorAliases(node);
+          return (
+            (selectedElement.sourceId &&
+              (node.id === selectedElement.sourceId ||
+                node.dataAttributes["data-agent-native-node-id"] ===
+                  selectedElement.sourceId ||
+                node.dataAttributes["data-code-layer-id"] ===
+                  selectedElement.sourceId ||
+                node.dataAttributes["data-layer-id"] ===
+                  selectedElement.sourceId ||
+                node.dataAttributes["data-builder-id"] ===
+                  selectedElement.sourceId ||
+                node.dataAttributes["data-loc"] === selectedElement.sourceId ||
+                node.attributes.id === selectedElement.sourceId)) ||
+            aliases.includes(selector) ||
+            codeLayerSelectorMatches(node, selector)
+          );
+        })
+      : null;
+    const liveSnapshotUpdated = activeLiveSnapshot
+      ? updateLiveScreenSnapshotContent(activeFile.id, resolvedNextContent)
+      : false;
+    if (liveSnapshotUpdated) {
+      setPatchProof((prev) =>
+        prev?.id === proofId ? { ...prev, status: "queued" } : prev,
+      );
+      if (!runtimeStyleApplied) {
+        setContentRenderRevision((revision) => revision + 1);
+      }
+    } else {
+      const writeLiveDoc = canWriteCollabText(ydoc, isSynced, baseContent);
+      const yjsHistoryAvailable = Boolean(
+        viewModeRef.current !== "overview" &&
+        writeLiveDoc &&
+        undoManagerRef.current,
+      );
+      if (
+        !yjsHistoryAvailable &&
+        !suppressContentHistoryRef.current &&
+        baseContent !== resolvedNextContent
+      ) {
+        const change = {
+          fileId: activeFile.id,
+          before: baseContent,
+          after: resolvedNextContent,
+        };
+        if (viewModeRef.current === "overview") {
+          recordContentHistoryEntry(change);
+        } else {
+          recordLocalContentHistoryEntry(change);
+        }
+      } else if (
+        yjsHistoryAvailable &&
+        !suppressContentHistoryRef.current &&
+        baseContent !== resolvedNextContent
+      ) {
+        recordLocalContentHistoryChangeFallback({
+          fileId: activeFile.id,
+          before: baseContent,
+          after: resolvedNextContent,
+        });
+      }
+
+      setCollabContent(resolvedNextContent);
+      setCollabContentFileId(activeFile.id);
+      setPatchProof((prev) =>
+        prev?.id === proofId ? { ...prev, status: "queued" } : prev,
+      );
+      lastLocalContentRef.current = resolvedNextContent;
+      latestActiveContentRef.current = resolvedNextContent;
+      if (ydoc && writeLiveDoc) {
+        const ytext = ydoc.getText("content");
+        if (ytext.toJSON() !== resolvedNextContent) {
+          if (!yjsHistoryAvailable) {
+            undoManagerRef.current?.clear(true, false);
+          }
+          writeCollabText(
+            ydoc,
+            ytext,
+            resolvedNextContent,
+            yjsHistoryAvailable ? LOCAL_EDIT_ORIGIN : TAB_ID,
+          );
+        }
+      }
+      queueFileContentSave(activeFile.id, resolvedNextContent, {
+        expectedVersionHash: sourceContentHash(baseContent),
+        syncCollab: !writeLiveDoc,
+      });
+      if (
+        shouldReplacePreviewAfterVisualStyleCommit({
+          runtimeApplied: options.runtimeApplied,
+          runtimeStyleApplied,
+        }) &&
+        previewContentReplaceNeedsRenderFallback(
+          replacePreviewContent(resolvedNextContent, selector),
+        )
+      ) {
+        setContentRenderRevision((revision) => revision + 1);
+      }
+    }
+    if (options.preserveSelection) return;
+    // The user may have selected something else before this commit landed.
+    if (selectedElementRef.current !== committedSelection) return;
+    if (resolvedNode) {
+      setSelectedLayerIdsState((current) =>
+        current.includes(resolvedNode.id) ? current : [resolvedNode.id],
+      );
+    }
+    setSelectedElement((prev) => {
+      const committed = Object.fromEntries(entries);
+      if (options.elementInfo) {
+        return {
+          ...options.elementInfo,
+          computedStyles: {
+            ...options.elementInfo.computedStyles,
+            ...committed,
+          },
+          inlineStyles: patchAuthoredInlineStyles(
+            options.elementInfo.inlineStyles,
+            committed,
+          ),
+          authoredSizeStyles: clearAuthoredSizeStylesForCommit(
+            options.elementInfo.authoredSizeStyles,
+            committed,
           ),
         };
       }
-      return { content: patch.content, failed: null };
-    },
-    { content: baseContent, failed: null },
-  );
-  const commitResolution = resolveVisualStyleCommitContent({
-    scopedContent: stylePatch.content,
-    scopedFailure: stylePatch.failed,
-    legacyFallbackContent: nextContent,
-    breakpointScoped: activeBreakpointUpperBoundPx != null,
-  });
-  if ("error" in commitResolution) {
-    const failureMessage = codeLayerPatchMessage(
-      commitResolution.error,
-      t("designEditor.patchProof.selectorMissing"),
-    );
-    toast.error(failureMessage, { duration: 4000 });
-    setPatchProof((prev) =>
-      prev?.id === proofId
-        ? { ...prev, status: "failed", error: failureMessage }
-        : prev,
-    );
-    return;
-  }
-  const resolvedNextContentBeforeFontLink = commitResolution.content;
-
-  const fontFamilyValue = Object.fromEntries(entries).fontFamily;
-  const resolvedNextContentAfterFontLink = fontFamilyValue
-    ? ensureGoogleFontLinkInHtml(
-        resolvedNextContentBeforeFontLink,
-        fontFamilyValue,
-      )
-    : resolvedNextContentBeforeFontLink;
-
-  const committedNodeId =
-    targetNode?.dataAttributes["data-agent-native-node-id"];
-  const unpreparedNextContent =
-    "color" in Object.fromEntries(entries) && committedNodeId
-      ? clearAutoTextColorMarkerOnExplicitColorCommit(
-          resolvedNextContentAfterFontLink,
-          committedNodeId,
-        )
-      : resolvedNextContentAfterFontLink;
-  const resolvedNextContent = prepareCanonicalSourceContent(
-    unpreparedNextContent,
-    {
-      fileId: activeFile.id,
-      fileType: activeFile.fileType,
-    },
-  ).content;
-
-  try {
-    assertDesignHtmlEditIntegrity({
-      previousContent: baseContent,
-      nextContent: resolvedNextContent,
-      fileType: activeFile.fileType,
-    });
-  } catch (error) {
-    const message = designSaveErrorMessage(error) ?? t("common.genericError");
-    toast.error(message, {
-      id: `design-source-integrity:${activeFile.id}`,
-    });
-    setPatchProof((previous) =>
-      previous?.id === proofId
-        ? { ...previous, status: "failed", error: message }
-        : previous,
-    );
-    return;
-  }
-
-  const nextProjection = buildCodeLayerProjection(resolvedNextContent, {
-    source: projection.source,
-  });
-  const resolvedNode = selectedElement
-    ? nextProjection.nodes.find((node) => {
-        const aliases = codeLayerSelectorAliases(node);
-        return (
-          (selectedElement.sourceId &&
-            (node.id === selectedElement.sourceId ||
-              node.dataAttributes["data-agent-native-node-id"] ===
-                selectedElement.sourceId ||
-              node.dataAttributes["data-code-layer-id"] ===
-                selectedElement.sourceId ||
-              node.dataAttributes["data-layer-id"] ===
-                selectedElement.sourceId ||
-              node.dataAttributes["data-builder-id"] ===
-                selectedElement.sourceId ||
-              node.dataAttributes["data-loc"] === selectedElement.sourceId ||
-              node.attributes.id === selectedElement.sourceId)) ||
-          aliases.includes(selector) ||
-          codeLayerSelectorMatches(node, selector)
-        );
-      })
-    : null;
-  const liveSnapshotUpdated = activeLiveSnapshot
-    ? updateLiveScreenSnapshotContent(activeFile.id, resolvedNextContent)
-    : false;
-  if (liveSnapshotUpdated) {
-    setPatchProof((prev) =>
-      prev?.id === proofId ? { ...prev, status: "queued" } : prev,
-    );
-    if (!runtimeStyleApplied) {
-      setContentRenderRevision((revision) => revision + 1);
-    }
-  } else {
-    const writeLiveDoc = canWriteCollabText(ydoc, isSynced, baseContent);
-    const yjsHistoryAvailable = Boolean(
-      viewModeRef.current !== "overview" &&
-      writeLiveDoc &&
-      undoManagerRef.current,
-    );
-    if (
-      !yjsHistoryAvailable &&
-      !suppressContentHistoryRef.current &&
-      baseContent !== resolvedNextContent
-    ) {
-      const change = {
-        fileId: activeFile.id,
-        before: baseContent,
-        after: resolvedNextContent,
-      };
-      if (viewModeRef.current === "overview") {
-        recordContentHistoryEntry(change);
-      } else {
-        recordLocalContentHistoryEntry(change);
-      }
-    } else if (
-      yjsHistoryAvailable &&
-      !suppressContentHistoryRef.current &&
-      baseContent !== resolvedNextContent
-    ) {
-      recordLocalContentHistoryChangeFallback({
-        fileId: activeFile.id,
-        before: baseContent,
-        after: resolvedNextContent,
-      });
-    }
-
-    setCollabContent(resolvedNextContent);
-    setCollabContentFileId(activeFile.id);
-    setPatchProof((prev) =>
-      prev?.id === proofId ? { ...prev, status: "queued" } : prev,
-    );
-    lastLocalContentRef.current = resolvedNextContent;
-    latestActiveContentRef.current = resolvedNextContent;
-    if (ydoc && writeLiveDoc) {
-      const ytext = ydoc.getText("content");
-      if (ytext.toJSON() !== resolvedNextContent) {
-        if (!yjsHistoryAvailable) {
-          undoManagerRef.current?.clear(true, false);
-        }
-        writeCollabText(
-          ydoc,
-          ytext,
-          resolvedNextContent,
-          yjsHistoryAvailable ? LOCAL_EDIT_ORIGIN : TAB_ID,
-        );
-      }
-    }
-    queueFileContentSave(activeFile.id, resolvedNextContent, {
-      expectedVersionHash: sourceContentHash(baseContent),
-      syncCollab: !writeLiveDoc,
-    });
-    if (
-      shouldReplacePreviewAfterVisualStyleCommit({
-        runtimeApplied: options.runtimeApplied,
-        runtimeStyleApplied,
-      }) &&
-      previewContentReplaceNeedsRenderFallback(
-        replacePreviewContent(resolvedNextContent, selector),
-      )
-    ) {
-      setContentRenderRevision((revision) => revision + 1);
-    }
-  }
-  if (options.preserveSelection) return;
-  if (resolvedNode) {
-    setSelectedLayerIdsState((current) =>
-      current.includes(resolvedNode.id) ? current : [resolvedNode.id],
-    );
-  }
-  setSelectedElement((prev) => {
-    const committed = Object.fromEntries(entries);
-    if (options.elementInfo) {
+      if (!prev) return prev;
+      const stablePatch = resolvedNode
+        ? {
+            sourceId: bridgeSourceIdForCodeLayerNode(resolvedNode),
+            selector: preferredCodeLayerSelector(resolvedNode),
+            classes: resolvedNode.classes,
+          }
+        : {};
       return {
-        ...options.elementInfo,
-        computedStyles: {
-          ...options.elementInfo.computedStyles,
-          ...committed,
-        },
-        inlineStyles: patchAuthoredInlineStyles(
-          options.elementInfo.inlineStyles,
-          committed,
-        ),
+        ...prev,
+        ...stablePatch,
+        computedStyles: { ...prev.computedStyles, ...committed },
+        inlineStyles: patchAuthoredInlineStyles(prev.inlineStyles, committed),
         authoredSizeStyles: clearAuthoredSizeStylesForCommit(
-          options.elementInfo.authoredSizeStyles,
+          prev.authoredSizeStyles,
           committed,
         ),
       };
-    }
-    if (!prev) return prev;
-    const stablePatch = resolvedNode
-      ? {
-          sourceId: bridgeSourceIdForCodeLayerNode(resolvedNode),
-          selector: preferredCodeLayerSelector(resolvedNode),
-          classes: resolvedNode.classes,
-        }
-      : {};
-    return {
-      ...prev,
-      ...stablePatch,
-      computedStyles: { ...prev.computedStyles, ...committed },
-      inlineStyles: patchAuthoredInlineStyles(prev.inlineStyles, committed),
-      authoredSizeStyles: clearAuthoredSizeStylesForCommit(
-        prev.authoredSizeStyles,
-        committed,
-      ),
-    };
+    });
   });
 }

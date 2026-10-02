@@ -16,7 +16,7 @@ import {
   IconMinus,
   IconPlus,
 } from "@tabler/icons-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { DEFAULT_SHAPE_FILL } from "../canvas-primitive-style";
 import {
@@ -359,12 +359,16 @@ export function FillProperties({
     reorderFillLayers,
   );
 
-  const selectionHexes = selectionColorValues(element)
-    .map((c) => {
-      const parsed = parseCssColor(c.value);
-      return parsed ? rgbaToHex(parsed) : null;
-    })
-    .filter((h): h is string => Boolean(h));
+  const selectionHexes = useMemo(
+    () =>
+      selectionColorValues(element)
+        .map((c) => {
+          const parsed = parseCssColor(c.value);
+          return parsed ? rgbaToHex(parsed) : null;
+        })
+        .filter((h): h is string => Boolean(h)),
+    [element],
+  );
   const seenHex = new Set<string>();
   const documentColors = [...selectionHexes, ...documentColorPalette].filter(
     (h) => {

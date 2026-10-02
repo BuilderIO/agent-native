@@ -96,7 +96,7 @@ export interface DeleteSelectionArgs {
   canEditDesign: boolean;
   canEditLiveScreen?: boolean;
   codeLayerOwnerByNodeIdRef: RefObject<
-    Map<
+    ReadonlyMap<
       string,
       {
         fileId: string;

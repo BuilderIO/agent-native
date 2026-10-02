@@ -24,6 +24,7 @@ import {
   DEFAULT_CANVAS_MIN_ZOOM,
   getDraftGeometryFromPoints,
 } from "@shared/canvas-math";
+import { editedStableSourceElement } from "@shared/code-layer";
 import type { InteractionState } from "@shared/interaction-states";
 import {
   appendPenNode,
@@ -77,6 +78,7 @@ import {
 } from "@/lib/desktop-design-preview";
 import { cn } from "@/lib/utils";
 import { penPathScreenContentOffset } from "@/pages/design-editor/clone-and-pen-edit";
+import { commitAfterPaint } from "@/pages/design-editor/commit-after-paint";
 import {
   pendingVisualStyleRouteMatches,
   runtimeStyleTarget,
@@ -448,15 +450,31 @@ const EDITOR_BRIDGE_VAR_NAMES = [
   "--design-editor-measure-color",
 ];
 
+let editorBridgeThemeVarsCache: {
+  rootKey: string;
+  vars: Record<string, string>;
+} | null = null;
+
+// Computed reads force a style recalc of the whole editor, and these vars only
+// change with the root element's class or inline style.
 function readEditorBridgeThemeVars(): Record<string, string> {
   if (typeof window === "undefined") return {};
-  const styles = window.getComputedStyle(document.documentElement);
-  return Object.fromEntries(
+  const root = document.documentElement;
+  const rootKey = `${root.className}\n${root.getAttribute("style") ?? ""}`;
+  if (editorBridgeThemeVarsCache?.rootKey === rootKey) {
+    return editorBridgeThemeVarsCache.vars;
+  }
+  const styles = window.getComputedStyle(root);
+  const vars = Object.fromEntries(
     EDITOR_BRIDGE_VAR_NAMES.map((name) => [
       name,
       styles.getPropertyValue(name).trim(),
     ]).filter(([, value]) => value.length > 0),
   );
+  if (Object.keys(vars).length > 0) {
+    editorBridgeThemeVarsCache = { rootKey, vars };
+  }
+  return vars;
 }
 
 function createEditorBridgeThemeScript(vars: Record<string, string>) {
@@ -1531,6 +1549,7 @@ export function DesignCanvas({
   const runtimeReplacementKeyRef = useRef(runtimeReplacementKey);
   const lastRuntimeReplacementKeyRef = useRef(runtimeReplacementKey);
   const lastRuntimeReplacementContentRef = useRef(runtimeReplacementContent);
+  const resendRuntimeReplacementRef = useRef<(() => void) | null>(null);
   const pinchZoomDeviceRef = useRef<ZoomGestureDevice | null>(null);
   const bridgeReadyRef = useRef(false);
   const editorChromeReadyRef = useRef(false);
@@ -4268,18 +4287,27 @@ export function DesignCanvas({
             ? e.data.relativeOperations
             : undefined;
         if (selector) {
-          onTextContentChange?.(selector, value, e.data.payload, {
-            html,
-            originalValue,
-            originalHtml,
-            relativeOperations,
-            routePath:
-              typeof e.data.routePath === "string"
-                ? e.data.routePath
-                : (liveRoutePathRef.current ?? undefined),
+          const payload = e.data.payload;
+          const routePath =
+            typeof e.data.routePath === "string"
+              ? e.data.routePath
+              : (liveRoutePathRef.current ?? undefined);
+          // The iframe shares this thread, so its ended edit only paints once the commit yields.
+          commitAfterPaint(() => {
+            onTextContentChange?.(selector, value, payload, {
+              html,
+              originalValue,
+              originalHtml,
+              relativeOperations,
+              routePath,
+            });
+            requestSharedSnapshotAfterEdit();
           });
-          requestSharedSnapshotAfterEdit();
         }
+        return;
+      }
+      if (e.data.type === "replace-source-node-rejected") {
+        resendRuntimeReplacementRef.current?.();
         return;
       }
       if (e.data.type === "runtime-structure-insert-rejected") {
@@ -6522,6 +6550,39 @@ export function DesignCanvas({
     ],
   );
 
+  // Sends only the edited subtree when an edit keeps the document's structure;
+  // the bridge answers "replace-source-node-rejected" when it needs the full one.
+  const replaceSourceNodeInPlace = useCallback(
+    (previousContent: string, nextContent: string, sourceContent: string) => {
+      if (
+        externalPreviewUrl ||
+        boardSurface ||
+        sourceContent !== nextContent ||
+        !bridgeReadyRef.current ||
+        !editorChromeReadyRef.current
+      ) {
+        return false;
+      }
+      const node = editedStableSourceElement(previousContent, nextContent);
+      if (!node) return false;
+      return postOneShotBridgeMessage({
+        type: "replace-source-node",
+        nodeId: node.nodeId,
+        html: node.html,
+        sourceProvenance: createSourceDocumentProvenance(sourceContent),
+      });
+    },
+    [boardSurface, externalPreviewUrl, postOneShotBridgeMessage],
+  );
+  resendRuntimeReplacementRef.current = () => {
+    const content = lastRuntimeReplacementContentRef.current;
+    if (content === undefined) return;
+    replaceRuntimeContentInPlace(
+      content,
+      runtimeReplacementSourceRef.current ?? content,
+    );
+  };
+
   useEffect(() => {
     if (
       runtimeReplacementKey === undefined ||
@@ -6539,6 +6600,18 @@ export function DesignCanvas({
     }
     const previousRuntimeContent =
       lastRuntimeReplacementContentRef.current ?? renderedContent;
+    const sourceContent = authoredSourceContent ?? runtimeReplacementContent;
+    if (
+      replaceSourceNodeInPlace(
+        previousRuntimeContent,
+        runtimeReplacementContent,
+        sourceContent,
+      )
+    ) {
+      lastRuntimeReplacementKeyRef.current = runtimeReplacementKey;
+      lastRuntimeReplacementContentRef.current = runtimeReplacementContent;
+      return;
+    }
     if (
       runtimeDocumentNeedsReload(
         previousRuntimeContent,
@@ -6558,16 +6631,14 @@ export function DesignCanvas({
       return;
     }
     if (
-      replaceRuntimeContentInPlace(
-        runtimeReplacementContent,
-        authoredSourceContent ?? runtimeReplacementContent,
-      )
+      replaceRuntimeContentInPlace(runtimeReplacementContent, sourceContent)
     ) {
       lastRuntimeReplacementKeyRef.current = runtimeReplacementKey;
       lastRuntimeReplacementContentRef.current = runtimeReplacementContent;
     }
   }, [
     replaceRuntimeContentInPlace,
+    replaceSourceNodeInPlace,
     renderedContent,
     runtimeReplacementContent,
     runtimeReplacementKey,
@@ -7154,6 +7225,10 @@ export function DesignCanvas({
   );
 
   useEffect(() => resetNativeFileDragState, [resetNativeFileDragState]);
+  const sourceVersionHash = useMemo(
+    () => sourceContentHash(content),
+    [content],
+  );
 
   const iframeElement = (
     <div
@@ -7663,7 +7738,7 @@ export function DesignCanvas({
         onSendThreadToAgent={onSendThreadToAgent}
         sendingThreadId={reviewSendingThreadId}
         sourceType={sourceType ?? (externalPreviewUrl ? "localhost" : "inline")}
-        sourceVersionHash={sourceContentHash(content)}
+        sourceVersionHash={sourceVersionHash}
         repromptDraftRequest={repromptDraftRequest}
         onRepromptDraftConsumed={onRepromptDraftConsumed}
       />
@@ -8459,7 +8534,12 @@ function SingleScreenCreationOverlay({
         : appendPenNode(penPath, createCornerNode(penPointer))
       : penPath);
 
-  const previewScrollOffset = readIframeScrollOffset(iframeRef.current);
+  // Reading the iframe's scroll forces a layout of the whole screen document,
+  // so only pay for it while a draft is actually drawn.
+  const previewScrollOffset =
+    (drag && drag.moved) || displayedPenPath
+      ? readIframeScrollOffset(iframeRef.current)
+      : { left: 0, top: 0 };
   const toOverlayLocal = (point: { x: number; y: number }) => ({
     x: point.x - previewScrollOffset.left,
     y: point.y - previewScrollOffset.top,

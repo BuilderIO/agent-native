@@ -70,6 +70,8 @@ function makeArgs(overrides: {
     createdOverviewLayerSelection: null,
     pendingOverviewLayerSelectionRef: { current: null },
     pendingOverviewScreenSelectionRef: { current: null },
+    revealLayer: () => {},
+    selectedElementRef: { current: null },
     selectedLayerIdsState: overrides.selectedLayerIdsState,
     setActiveFileId: vi.fn(),
     setActiveTool: vi.fn(),

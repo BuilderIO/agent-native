@@ -544,8 +544,10 @@ export function setScreenRootFrameRenderingStyles(
 export function getBodyInlineStyles(content: string): Record<string, string> {
   if (typeof window === "undefined") return {};
   try {
-    const doc = new DOMParser().parseFromString(content, "text/html");
-    const body = doc.body;
+    const body = new DOMParser().parseFromString(
+      findBodyOpenTag(content)?.tag ?? "",
+      "text/html",
+    ).body;
     if (!body) return {};
     return {
       backgroundColor: body.style.backgroundColor,

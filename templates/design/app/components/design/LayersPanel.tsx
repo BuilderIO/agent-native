@@ -113,6 +113,8 @@ export interface LayersPanelNode {
     isGridContainer?: boolean;
   };
   children?: LayersPanelNode[];
+  /** Has layers that are only built once the row is expanded. */
+  childrenPending?: boolean;
   detail?: string;
   badge?: string | number;
   hidden?: boolean;
@@ -465,7 +467,7 @@ export function flattenRows(
   const displayOrder = [...nodes].reverse();
   displayOrder.forEach((node, index) => {
     const children = node.children ?? [];
-    const hasChildren = children.length > 0;
+    const hasChildren = children.length > 0 || node.childrenPending === true;
     const canAcceptChildren = CONTAINER_TYPES.has(node.type);
     const rowKey = `${parentKey}/${node.id}:${index}`;
     rows.push({
@@ -568,28 +570,72 @@ export function nextAutoExpandedIds(args: {
   return changed ? Array.from(next) : null;
 }
 
-function collectAncestorIds(
+type LayerSubtreeIndex = {
+  ids: string[];
+  parentIndexes: number[];
+  indexesById: Map<string, number[]>;
+};
+
+// Keyed by each root's children: file and screen wrappers are rebuilt every
+// render, but the layer nodes under them keep identity for untouched screens.
+const layerSubtreeIndexCache = new WeakMap<
+  LayersPanelNode,
+  LayerSubtreeIndex
+>();
+
+function layerSubtreeIndex(subtree: LayersPanelNode): LayerSubtreeIndex {
+  const cached = layerSubtreeIndexCache.get(subtree);
+  if (cached) return cached;
+  const ids: string[] = [];
+  const parentIndexes: number[] = [];
+  const indexesById = new Map<string, number[]>();
+
+  function visit(node: LayersPanelNode): number {
+    const childIndexes = (node.children ?? []).map(visit);
+    const index = ids.push(node.id) - 1;
+    parentIndexes.push(-1);
+    childIndexes.forEach((childIndex) => {
+      parentIndexes[childIndex] = index;
+    });
+    const sameIdIndexes = indexesById.get(node.id);
+    if (sameIdIndexes) {
+      sameIdIndexes.push(index);
+    } else {
+      indexesById.set(node.id, [index]);
+    }
+    return index;
+  }
+
+  visit(subtree);
+  const built = { ids, parentIndexes, indexesById };
+  layerSubtreeIndexCache.set(subtree, built);
+  return built;
+}
+
+export function collectAncestorIds(
   nodes: LayersPanelNode[],
   targetIds: ReadonlySet<string>,
 ): string[] {
+  if (targetIds.size === 0) return [];
+  const targets = [...targetIds];
   const ancestors = new Set<string>();
 
-  function visit(node: LayersPanelNode, path: string[]): boolean {
-    const children = node.children ?? [];
-    let containsSelectedChild = false;
-    children.forEach((child) => {
-      if (visit(child, [...path, node.id])) {
-        containsSelectedChild = true;
-      }
+  nodes.forEach((root) => {
+    root.children?.forEach((child) => {
+      const { ids, parentIndexes, indexesById } = layerSubtreeIndex(child);
+      const hits = targets
+        .flatMap((id) => indexesById.get(id) ?? [])
+        .sort((a, b) => a - b);
+      hits.forEach((hit) => {
+        const path: string[] = [];
+        for (let i = parentIndexes[hit]; i !== -1; i = parentIndexes[i]) {
+          path.push(ids[i]);
+        }
+        ancestors.add(root.id);
+        path.reverse().forEach((id) => ancestors.add(id));
+      });
     });
-    const containsSelected = targetIds.has(node.id) || containsSelectedChild;
-    if (containsSelected) {
-      path.forEach((id) => ancestors.add(id));
-    }
-    return containsSelected;
-  }
-
-  nodes.forEach((node) => visit(node, []));
+  });
   return Array.from(ancestors);
 }
 

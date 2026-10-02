@@ -126,20 +126,24 @@ export function reassignDuplicatedNodeIds(content: string): string {
     return `${safeNodeId}-vector-marker-${side}`;
   };
 
-  const rewriteReference = (id: string): string => {
-    for (const [oldNodeId, nextNodeId] of nodeIdMap) {
-      if (id === `${oldNodeId}-arrow`) return `${nextNodeId}-arrow`;
-      for (const side of ["start", "end"] as const) {
-        if (
-          id === vectorEndpointMarkerId(oldNodeId, side) ||
-          id === legacyVectorEndpointMarkerId(oldNodeId, side)
-        ) {
-          return vectorEndpointMarkerId(nextNodeId, side);
-        }
-      }
+  // A screen holds thousands of nodes and ids, so references resolve through a
+  // table; the first node to claim a reference wins, as a scan in order would.
+  const rewrittenReferences = new Map<string, string>();
+  const claim = (reference: string, next: string) => {
+    if (!rewrittenReferences.has(reference)) {
+      rewrittenReferences.set(reference, next);
     }
-    return id;
   };
+  for (const [oldNodeId, nextNodeId] of nodeIdMap) {
+    claim(`${oldNodeId}-arrow`, `${nextNodeId}-arrow`);
+    for (const side of ["start", "end"] as const) {
+      const nextMarkerId = vectorEndpointMarkerId(nextNodeId, side);
+      claim(vectorEndpointMarkerId(oldNodeId, side), nextMarkerId);
+      claim(legacyVectorEndpointMarkerId(oldNodeId, side), nextMarkerId);
+    }
+  }
+  const rewriteReference = (id: string): string =>
+    rewrittenReferences.get(id) ?? id;
   return withNewNodeIds
     .replace(
       /\bid=(['"])([^'"]*)\1/g,

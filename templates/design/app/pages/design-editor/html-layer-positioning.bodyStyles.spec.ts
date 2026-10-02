@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
+  getBodyInlineStyles,
   removeAbsolutePositioningFromNodeInHtml,
   rawAbsoluteContainerOffsetFromDrop,
   setAbsolutePositioningForNodeInHtml,
@@ -395,5 +396,32 @@ describe("rawAbsoluteContainerOffsetFromDrop", () => {
         anchorSelector: "html > body",
       }),
     ).toEqual({ x: 260, y: 80 });
+  });
+});
+
+describe("getBodyInlineStyles", () => {
+  it("reads what setBodyInlineStyles wrote by parsing only the body tag", () => {
+    const written = setBodyInlineStyles(
+      `<!DOCTYPE html><html><head></head><body><main>${"<p>x</p>".repeat(500)}</main></body></html>`,
+      { backgroundColor: "rgb(1, 2, 3)", fontSize: "18px" },
+    )!;
+    const parse = vi.spyOn(DOMParser.prototype, "parseFromString");
+    try {
+      expect(getBodyInlineStyles(written)).toMatchObject({
+        backgroundColor: "rgb(1, 2, 3)",
+        fontSize: "18px",
+        backgroundImage: "",
+      });
+      expect(parse).toHaveBeenCalledOnce();
+      expect(parse.mock.calls[0]![0]).toBe(
+        '<body style="background-color: rgb(1, 2, 3); font-size: 18px">',
+      );
+    } finally {
+      parse.mockRestore();
+    }
+  });
+
+  it("reports empty styles for content without a body tag", () => {
+    expect(getBodyInlineStyles("<main>x</main>").backgroundColor).toBe("");
   });
 });

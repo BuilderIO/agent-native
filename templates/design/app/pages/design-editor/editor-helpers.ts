@@ -240,3 +240,31 @@ export function withMeasuredGeometry(
   }
   return info;
 }
+
+// For state setters fed by bridge echoes and re-measurements: returning the
+// previous object when nothing changed keeps the whole editor from re-rendering.
+export function samePlainData(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (
+    typeof a !== "object" ||
+    typeof b !== "object" ||
+    a === null ||
+    b === null ||
+    Array.isArray(a) !== Array.isArray(b)
+  ) {
+    return false;
+  }
+  // An undefined field and a missing one serialize the same, and merges produce both.
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const key of keys) {
+    if (
+      !samePlainData(
+        (a as Record<string, unknown>)[key],
+        (b as Record<string, unknown>)[key],
+      )
+    ) {
+      return false;
+    }
+  }
+  return true;
+}

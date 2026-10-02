@@ -20,7 +20,7 @@ describe("Design session replay iframe wiring", () => {
   it("bootstraps and marks overview and breakpoint srcdoc documents", () => {
     const multiScreenCanvas = source("./MultiScreenCanvas.tsx");
 
-    expect(multiScreenCanvas).toContain("appendHitTestResponder(");
+    expect(multiScreenCanvas).toContain("hitTestResponderMarkup(");
     expect(multiScreenCanvas).toContain("injectSessionReplayIframeBootstrap(");
     expect(multiScreenCanvas).toContain("SESSION_REPLAY_IFRAME_ATTRIBUTE");
   });

@@ -16,7 +16,7 @@ import type { DesignLeftPanel } from "@/pages/design-editor/types";
 
 export interface SendRuntimeLayerSemanticHandoffArgs {
   codeLayerOwnerByNodeIdRef: RefObject<
-    Map<
+    ReadonlyMap<
       string,
       {
         fileId: string;

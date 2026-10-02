@@ -172,15 +172,23 @@ export function codeLayerSelectorMatchTargets(selector: string): string[] {
   );
 }
 
-export function codeLayerSelectorMatches(
-  node: CodeLayerNode | null | undefined,
-  selector: string | undefined,
+const normalizedSelectorAliasesByNode = new WeakMap<CodeLayerNode, string[]>();
+
+function normalizedCodeLayerSelectorAliases(node: CodeLayerNode): string[] {
+  let aliases = normalizedSelectorAliasesByNode.get(node);
+  if (!aliases) {
+    aliases = codeLayerSelectorAliases(node).map(normalizeCodeLayerSelector);
+    normalizedSelectorAliasesByNode.set(node, aliases);
+  }
+  return aliases;
+}
+
+function codeLayerNodeMatchesSelectorTargets(
+  node: CodeLayerNode,
+  targets: readonly string[],
 ): boolean {
-  if (!node || !selector) return false;
-  const targets = codeLayerSelectorMatchTargets(selector);
-  return codeLayerSelectorAliases(node).some((candidate) => {
-    const normalized = normalizeCodeLayerSelector(candidate);
-    return targets.some((target) => {
+  return normalizedCodeLayerSelectorAliases(node).some((normalized) =>
+    targets.some((target) => {
       const targetHasDirectPath = target.includes(" > ");
       return (
         normalized === target ||
@@ -189,8 +197,19 @@ export function codeLayerSelectorMatches(
           (normalized.endsWith(` > ${target}`) ||
             target.endsWith(` > ${normalized}`)))
       );
-    });
-  });
+    }),
+  );
+}
+
+export function codeLayerSelectorMatches(
+  node: CodeLayerNode | null | undefined,
+  selector: string | undefined,
+): boolean {
+  if (!node || !selector) return false;
+  return codeLayerNodeMatchesSelectorTargets(
+    node,
+    codeLayerSelectorMatchTargets(selector),
+  );
 }
 
 export const GENERIC_TAG_DISPLAY_NAMES: Record<string, string> = {
@@ -286,6 +305,29 @@ export function previewCodeLayerTreeMove(
   return sourceInserted ? result : null;
 }
 
+const panelNodesByTree = new WeakMap<
+  CodeLayerTreeNode[],
+  { locked: string; hidden: string; nodes: LayersPanelNode[] }
+>();
+
+// Cached per layer tree, so an edit to one screen rebuilds only that screen's
+// panel rows instead of every screen's.
+export function cachedCodeLayerTreeToPanelNodes(
+  tree: CodeLayerTreeNode[],
+  lockedIds: Set<string>,
+  hiddenIds: Set<string>,
+): LayersPanelNode[] {
+  const locked = [...lockedIds].sort().join("\n");
+  const hidden = [...hiddenIds].sort().join("\n");
+  const cached = panelNodesByTree.get(tree);
+  if (cached && cached.locked === locked && cached.hidden === hidden) {
+    return cached.nodes;
+  }
+  const nodes = codeLayerTreeToPanelNodes(tree, lockedIds, hiddenIds);
+  panelNodesByTree.set(tree, { locked, hidden, nodes });
+  return nodes;
+}
+
 export function codeLayerTreeToPanelNodes(
   nodes: CodeLayerTreeNode[],
   lockedIds: Set<string>,
@@ -354,6 +396,14 @@ export function collectEffectiveCodeLayerState(
   state: EffectiveCodeLayerState,
   ancestors: Set<string> = new Set(),
 ): EffectiveCodeLayerState {
+  if (
+    !inheritedLocked &&
+    !inheritedHidden &&
+    lockedIds.size === 0 &&
+    hiddenIds.size === 0
+  ) {
+    return state;
+  }
   nodes.forEach((node) => {
     if (ancestors.has(node.id)) return;
     const locked = inheritedLocked || lockedIds.has(node.id);
@@ -790,8 +840,9 @@ export function resolveCodeLayerTargetFromBridge(
     }
   }
   if (!selector) return { status: "absent" };
+  const selectorTargets = codeLayerSelectorMatchTargets(selector);
   const selectorMatches = projection.nodes.filter((node) =>
-    codeLayerSelectorMatches(node, selector),
+    codeLayerNodeMatchesSelectorTargets(node, selectorTargets),
   );
   if (selectorMatches.length === 1) {
     return { status: "resolved", node: selectorMatches[0]! };
@@ -1046,6 +1097,103 @@ export function isCodeLayerNodeRuntimeOnly(args: {
   return (
     args.fileIsRuntimeProjected || /^runtime-[a-z0-9]+$/i.test(args.nodeIdAttr)
   );
+}
+
+export interface CodeLayerOwner {
+  fileId: string;
+  node: CodeLayerNode;
+  sourceProjection: CodeLayerProjection;
+  tree: CodeLayerTreeNode[];
+  runtimeOnly: boolean;
+}
+
+interface CodeLayerOwnerModel {
+  fileId: string;
+  projection: CodeLayerProjection;
+  sourceProjection: CodeLayerProjection;
+  sourceNodeIdAttrs: ReadonlySet<string>;
+  runtimeOnly: boolean;
+  tree: CodeLayerTreeNode[];
+}
+
+// A live index is never handed out: memos and callbacks key on the owner map's
+// identity, so each change returns a new view instead of copying the entries.
+class CodeLayerOwnerView implements ReadonlyMap<string, CodeLayerOwner> {
+  constructor(private readonly owners: ReadonlyMap<string, CodeLayerOwner>) {}
+  get size() {
+    return this.owners.size;
+  }
+  get(id: string) {
+    return this.owners.get(id);
+  }
+  has(id: string) {
+    return this.owners.has(id);
+  }
+  forEach(
+    callback: (
+      owner: CodeLayerOwner,
+      id: string,
+      map: ReadonlyMap<string, CodeLayerOwner>,
+    ) => void,
+  ) {
+    this.owners.forEach((owner, id) => callback(owner, id, this));
+  }
+  entries() {
+    return this.owners.entries();
+  }
+  keys() {
+    return this.owners.keys();
+  }
+  values() {
+    return this.owners.values();
+  }
+  [Symbol.iterator]() {
+    return this.owners[Symbol.iterator]();
+  }
+}
+
+// Re-indexes only screens whose model object changed: a large design has
+// hundreds of thousands of layers, too many to re-index on every edit.
+export class CodeLayerOwnerIndex {
+  private readonly owners = new Map<string, CodeLayerOwner>();
+  private indexed = new Map<string, CodeLayerOwnerModel>();
+  private view = new CodeLayerOwnerView(this.owners);
+
+  sync(
+    models: readonly CodeLayerOwnerModel[],
+  ): ReadonlyMap<string, CodeLayerOwner> {
+    const next = new Map(models.map((model) => [model.fileId, model]));
+    let changed = false;
+    for (const [fileId, model] of this.indexed) {
+      if (next.get(fileId) === model) continue;
+      changed = true;
+      for (const node of model.projection.nodes) {
+        if (this.owners.get(node.id)?.fileId === fileId) {
+          this.owners.delete(node.id);
+        }
+      }
+    }
+    for (const model of models) {
+      if (this.indexed.get(model.fileId) === model) continue;
+      changed = true;
+      for (const node of model.projection.nodes) {
+        this.owners.set(node.id, {
+          fileId: model.fileId,
+          node,
+          sourceProjection: model.sourceProjection,
+          tree: model.tree,
+          runtimeOnly: isCodeLayerNodeRuntimeOnly({
+            fileIsRuntimeProjected: model.runtimeOnly,
+            nodeIdAttr: node.dataAttributes["data-agent-native-node-id"],
+            sourceNodeIdAttrs: model.sourceNodeIdAttrs,
+          }),
+        });
+      }
+    }
+    this.indexed = next;
+    if (changed) this.view = new CodeLayerOwnerView(this.owners);
+    return this.view;
+  }
 }
 
 export function codeLayerSourceNodeIdAttrs(

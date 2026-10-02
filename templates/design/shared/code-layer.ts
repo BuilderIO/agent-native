@@ -54,6 +54,7 @@ import {
   utilityStem,
 } from "./responsive-classes.js";
 import type { DesignSourceType } from "./source-mode";
+import { commonPrefixLength, commonSuffixLength } from "./string-diff";
 import { parseSvgPathData } from "./svg-path-data";
 import {
   isVectorEndpointProperty,
@@ -664,6 +665,7 @@ interface ProjectionBuild {
   projection: CodeLayerProjection;
   elementByNodeId: Map<string, ParsedElement>;
   elements: ParsedElement[];
+  html: string;
 }
 
 const STYLE_PROPERTIES = [
@@ -1892,18 +1894,18 @@ function findHtmlTagEnd(
   start: number,
   end = html.length,
 ): number {
-  let quote: '"' | "'" | null = null;
+  let quote = 0;
   for (let index = start; index < end; index += 1) {
-    const char = html[index];
+    const code = html.charCodeAt(index);
     if (quote) {
-      if (char === quote) quote = null;
+      if (code === quote) quote = 0;
       continue;
     }
-    if (char === '"' || char === "'") {
-      quote = char;
+    if (code === 34 || code === 39) {
+      quote = code;
       continue;
     }
-    if (char === ">") return index + 1;
+    if (code === 62) return index + 1;
   }
   return -1;
 }
@@ -1961,7 +1963,31 @@ export function findEnclosingTemplateClose(
   return null;
 }
 
+const PARSED_ELEMENTS_CACHE_MAX_CHARS = 12_000_000;
+const parsedElementsCache = new Map<string, ParsedElement[]>();
+let parsedElementsCacheChars = 0;
+
+// Callers share the cached result, so parsed elements are read-only.
 function parseHtmlElements(html: string): ParsedElement[] {
+  const cached = parsedElementsCache.get(html);
+  if (cached) {
+    parsedElementsCache.delete(html);
+    parsedElementsCache.set(html, cached);
+    return cached;
+  }
+  const elements = parseHtmlElementsUncached(html);
+  parsedElementsCache.set(html, elements);
+  parsedElementsCacheChars += html.length;
+  for (const [cachedHtml] of parsedElementsCache) {
+    if (parsedElementsCacheChars <= PARSED_ELEMENTS_CACHE_MAX_CHARS) break;
+    if (cachedHtml === html) continue;
+    parsedElementsCache.delete(cachedHtml);
+    parsedElementsCacheChars -= cachedHtml.length;
+  }
+  return elements;
+}
+
+function parseHtmlElementsUncached(html: string): ParsedElement[] {
   const elements: ParsedElement[] = [];
   const stack: number[] = [];
   const sameTypeCounts = new Map<string, number>();
@@ -2099,12 +2125,21 @@ function selectorPart(
 ): string {
   const dataSelector = candidateDataSelector(element);
   if (dataSelector) {
-    const sameTypeSibling = elements.some(
-      (sibling) =>
-        sibling.index !== element.index &&
-        sibling.parentIndex === element.parentIndex &&
-        sibling.tag === element.tag,
-    );
+    const siblingIndexes =
+      element.parentIndex === undefined
+        ? undefined
+        : elements[element.parentIndex]?.childIndexes;
+    const sameTypeSibling = siblingIndexes
+      ? siblingIndexes.some(
+          (index) =>
+            index !== element.index && elements[index]?.tag === element.tag,
+        )
+      : elements.some(
+          (sibling) =>
+            sibling.index !== element.index &&
+            sibling.parentIndex === undefined &&
+            sibling.tag === element.tag,
+        );
     const nth = sameTypeSibling ? `:nth-of-type(${element.nthOfType})` : "";
     return `${element.tag}${dataSelector.selector}${nth}`;
   }
@@ -2112,11 +2147,7 @@ function selectorPart(
   const id = attributeValue(element, "id");
   const escapedId = id ? cssIdent(id) : null;
   if (escapedId) {
-    const duplicateId = elements.some(
-      (candidate) =>
-        candidate.index !== element.index &&
-        attributeValue(candidate, "id") === id,
-    );
+    const duplicateId = elementIdCounts(elements).get(id!)! > 1;
     return duplicateId
       ? `${element.tag}#${escapedId}:nth-of-type(${element.nthOfType})`
       : `#${escapedId}`;
@@ -2132,6 +2163,25 @@ function selectorPart(
 }
 
 const pathSelectors = new WeakMap<ParsedElement, string>();
+const idCountsByElements = new WeakMap<
+  readonly ParsedElement[],
+  Map<string, number>
+>();
+
+function elementIdCounts(
+  elements: readonly ParsedElement[],
+): Map<string, number> {
+  let counts = idCountsByElements.get(elements);
+  if (!counts) {
+    counts = new Map();
+    for (const element of elements) {
+      const id = attributeValue(element, "id");
+      if (id !== null) counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    idCountsByElements.set(elements, counts);
+  }
+  return counts;
+}
 
 function pathSelector(
   element: ParsedElement,
@@ -2185,17 +2235,18 @@ function primarySelector(
   return { selector: pathSelector(element, elements), confidence: 0.58 };
 }
 
+function nodeIdentityKey(source: CodeLayerSource): string {
+  return (
+    source.fileId ?? source.filename ?? source.path ?? source.url ?? source.kind
+  );
+}
+
 function nodeIdFor(
   element: ParsedElement,
   elements: ParsedElement[],
   source: CodeLayerSource,
 ): string {
-  const sourceKey =
-    source.fileId ??
-    source.filename ??
-    source.path ??
-    source.url ??
-    source.kind;
+  const sourceKey = nodeIdentityKey(source);
   const codeLayerId = stableSourceIdForElement(element);
   if (codeLayerId) {
     return `html:${hashStable(`${sourceKey}:data:${codeLayerId}`)}`;
@@ -2214,26 +2265,57 @@ function stableSourceIdForElement(element: ParsedElement): string | null {
   return null;
 }
 
-function styleTokensFor(element: ParsedElement): StyleToken[] {
-  const tokens: StyleToken[] = [];
+// Projection nodes share identical tokens and capability lists, so neither may
+// be mutated once built.
+const SHARED_NODE_PART_MAX = 50_000;
+const sharedStyleTokens = new Map<string, StyleToken>();
+const sharedInlineStyleTokenLists = new Map<string, StyleToken[]>();
+const sharedCapabilityLists = new Map<string, EditCapability[]>();
 
-  const parsedInlineStyle = readStyleDeclarations(
+function sharedNodePart<T>(
+  shared: Map<string, T>,
+  key: string,
+  create: () => T,
+): T {
+  let part = shared.get(key);
+  if (part === undefined) {
+    if (shared.size >= SHARED_NODE_PART_MAX) shared.clear();
+    part = create();
+    shared.set(key, part);
+  }
+  return part;
+}
+
+function inlineStyleTokensFor(style: string): StyleToken[] {
+  return sharedNodePart(sharedInlineStyleTokenLists, style, () => {
+    const tokens: StyleToken[] = [];
+    const parsedInlineStyle = readStyleDeclarations(style);
+    for (const declaration of "invalid" in parsedInlineStyle
+      ? []
+      : effectiveStyleDeclarations(parsedInlineStyle)) {
+      const property = normalizeStyleProperty(declaration.prop);
+      if (!property) continue;
+      const value = styleDeclarationValue(declaration);
+      const token = `${declaration.prop}: ${value}`;
+      tokens.push(
+        sharedNodePart(sharedStyleTokens, `inline\n${token}`, () => ({
+          property,
+          value,
+          token,
+          source: "inline-style",
+          confidence: 0.95,
+        })),
+      );
+    }
+    return tokens;
+  });
+}
+
+function styleTokensFor(element: ParsedElement): StyleToken[] {
+  const inlineTokens = inlineStyleTokensFor(
     attributeValue(element, "style") ?? "",
   );
-  for (const declaration of "invalid" in parsedInlineStyle
-    ? []
-    : effectiveStyleDeclarations(parsedInlineStyle)) {
-    const property = normalizeStyleProperty(declaration.prop);
-    if (!property) continue;
-    const value = styleDeclarationValue(declaration);
-    tokens.push({
-      property,
-      value,
-      token: `${declaration.prop}: ${value}`,
-      source: "inline-style",
-      confidence: 0.95,
-    });
-  }
+  const tokens: StyleToken[] = [];
 
   const classValue = attributeValue(element, "class") ?? "";
   const groups = parseClassGroups(classValue);
@@ -2293,18 +2375,28 @@ function styleTokensFor(element: ParsedElement): StyleToken[] {
       (p) => p !== "base",
     ) as TailwindBreakpointPrefix[];
 
-    tokens.push({
-      property: entry.property,
-      value: baseValue || rawBaseToken,
-      token: rawBaseToken,
-      source: "class",
-      confidence: entry.confidence,
-      breakpointValues: { ...entry.breakpointValues },
-      overriddenAtPrefixes: overriddenAt.length > 0 ? overriddenAt : undefined,
-    });
+    const key = [
+      "class",
+      entry.property,
+      rawBaseToken,
+      entry.confidence,
+      ...allPrefixes.map((prefix) => entry.breakpointValues[prefix] ?? "\0"),
+    ].join("\n");
+    tokens.push(
+      sharedNodePart(sharedStyleTokens, key, () => ({
+        property: entry.property,
+        value: baseValue || rawBaseToken,
+        token: rawBaseToken,
+        source: "class",
+        confidence: entry.confidence,
+        breakpointValues: { ...entry.breakpointValues },
+        overriddenAtPrefixes:
+          overriddenAt.length > 0 ? overriddenAt : undefined,
+      })),
+    );
   }
 
-  return tokens;
+  return tokens.length === 0 ? inlineTokens : [...inlineTokens, ...tokens];
 }
 
 function utilityToStyleProperty(
@@ -2747,13 +2839,13 @@ function compactCodeLayerTreeNodes(
   for (const node of nodes) {
     if (ancestors.has(node.id)) continue;
 
-    const nextAncestors = new Set(ancestors);
-    nextAncestors.add(node.id);
+    ancestors.add(node.id);
     const children = compactCodeLayerTreeNodes(
       node.children,
       nodesById,
-      nextAncestors,
+      ancestors,
     );
+    ancestors.delete(node.id);
     const compactedNode: CodeLayerTreeNode = { ...node, children };
     const promotedNodes = isCollapsibleDocumentShellNode(compactedNode)
       ? children
@@ -2770,19 +2862,6 @@ function compactCodeLayerTreeNodes(
 }
 
 function capabilitiesFor(element: ParsedElement): EditCapability[] {
-  const capabilities: EditCapability[] = [
-    {
-      kind: "style",
-      properties: [...STYLE_PROPERTIES],
-      confidence: 0.9,
-    },
-    {
-      kind: "class",
-      operations: ["add", "remove", "replace", "set"],
-      confidence: 0.88,
-    },
-  ];
-
   const classValue = attributeValue(element, "class") ?? "";
   const groups = parseClassGroups(classValue);
   const overriddenProps: string[] = [];
@@ -2802,27 +2881,48 @@ function capabilitiesFor(element: ParsedElement): EditCapability[] {
       }
     }
   }
-  capabilities.push({
-    kind: "responsive-class",
-    prefix: "base",
-    operations: ["add", "remove", "replace"],
-    overriddenProperties: overriddenProps,
-    confidence: 0.87,
-  });
-
-  if (!element.selfClosing) {
-    capabilities.push({
-      kind: "text",
-      operations: ["setTextContent"],
-      confidence: element.childIndexes.length === 0 ? 0.82 : 0.35,
-      reason:
-        element.childIndexes.length === 0
-          ? undefined
-          : "Text edits on mixed-content elements should be escalated.",
-    });
-  }
-
-  return capabilities;
+  const text = element.selfClosing
+    ? "none"
+    : element.childIndexes.length === 0
+      ? "leaf"
+      : "mixed";
+  return sharedNodePart(
+    sharedCapabilityLists,
+    `${text}\n${overriddenProps.join("\n")}`,
+    () => {
+      const capabilities: EditCapability[] = [
+        {
+          kind: "style",
+          properties: [...STYLE_PROPERTIES],
+          confidence: 0.9,
+        },
+        {
+          kind: "class",
+          operations: ["add", "remove", "replace", "set"],
+          confidence: 0.88,
+        },
+        {
+          kind: "responsive-class",
+          prefix: "base",
+          operations: ["add", "remove", "replace"],
+          overriddenProperties: overriddenProps,
+          confidence: 0.87,
+        },
+      ];
+      if (text !== "none") {
+        capabilities.push({
+          kind: "text",
+          operations: ["setTextContent"],
+          confidence: text === "leaf" ? 0.82 : 0.35,
+          reason:
+            text === "leaf"
+              ? undefined
+              : "Text edits on mixed-content elements should be escalated.",
+        });
+      }
+      return capabilities;
+    },
+  );
 }
 
 function hasSvgAncestor(
@@ -2857,6 +2957,125 @@ function hasSvgAncestor(
   return isBooleanOperand ? !insideBoolean : false;
 }
 
+function inlineStyleDiagnostic(
+  element: ParsedElement,
+): ProjectionDiagnostic | null {
+  const styleAttribute = getAttribute(element, "style");
+  if (!styleAttribute || typeof styleAttribute.value !== "string") return null;
+  const parsed = readStyleDeclarations(
+    decodeBasicHtmlEntities(styleAttribute.value),
+  );
+  if (!("invalid" in parsed)) return null;
+  return {
+    severity: "warning",
+    code: "invalid-inline-style",
+    message: parsed.invalid,
+    span: { start: styleAttribute.start, end: styleAttribute.end },
+  };
+}
+
+function projectedParentIndexFor(
+  element: ParsedElement,
+  elements: readonly ParsedElement[],
+  nodeIdByElementIndex: ReadonlyMap<number, string>,
+): number | undefined {
+  let at = element.parentIndex;
+  while (at !== undefined && !nodeIdByElementIndex.has(at)) {
+    at = elements[at]?.parentIndex;
+  }
+  return at;
+}
+
+function buildNodeForElement(
+  html: string,
+  element: ParsedElement,
+  elements: ParsedElement[],
+  nodeId: string,
+  nodeIdByElementIndex: ReadonlyMap<number, string>,
+): CodeLayerNode {
+  const parentIndex = projectedParentIndexFor(
+    element,
+    elements,
+    nodeIdByElementIndex,
+  );
+  const parent = parentIndex === undefined ? undefined : elements[parentIndex];
+  const parentId =
+    parentIndex === undefined
+      ? undefined
+      : nodeIdByElementIndex.get(parentIndex);
+  const selector = primarySelector(element, elements);
+  const path = pathSelector(element, elements);
+  const classes = classList(element);
+  const style = withVectorPaintStyle(
+    element,
+    elements,
+    parseStyle(attributeValue(element, "style")),
+  );
+  const dataAttributes = dataAttributeRecord(element);
+  const layerName = layerNameFor(html, element, elements);
+  // Paths share their ancestors' prefix until hashed; a Set would flatten
+  // every one into a full copy, so dedupe by comparison.
+  const selectors =
+    path === selector.selector ? [path] : [selector.selector, path];
+  for (const name of STABLE_NODE_ID_ATTRIBUTES) {
+    const value = dataAttributes[name];
+    if (!value) continue;
+    const stableSelector = `[${name}="${cssEscape(value)}"]`;
+    if (!selectors.includes(stableSelector)) selectors.push(stableSelector);
+  }
+
+  const node: CodeLayerNode = {
+    id: nodeId,
+    tag: element.tag,
+    layerName: layerName.name,
+    layerNameSource: layerName.source,
+    layerNameAttribute: layerName.attribute,
+    selector: selector.selector,
+    selectors,
+    path,
+    attributes: attributeRecord(element),
+    dataAttributes,
+    classes,
+    textSnippet: textSnippetFor(html, element, elements),
+    paintsOwnText: paintsOwnTextFor(html, element, elements),
+    wholeTextStyleRoot: wholeTextStyleRootFor(html, element, elements),
+    repeatXFor: repeatXForFor(element, elements),
+    style,
+    styleTokens: styleTokensFor(element),
+    parentId,
+    children: [],
+    layout: {
+      parentId,
+      parentSelector: parent
+        ? primarySelector(parent, elements).selector
+        : undefined,
+      ...layoutFor(element, parent),
+    },
+    capabilities: capabilitiesFor(element),
+    confidence: selector.confidence,
+    source: sourceSpanFor(element),
+  };
+
+  if (isComponentInstance(node)) {
+    const instance = instanceFromNode(node);
+    if (instance) node.componentInstance = instance;
+  }
+  return node;
+}
+
+function sourceSpanFor(element: ParsedElement): CodeLayerSourceSpan {
+  return {
+    start: element.start,
+    end: element.end,
+    openStart: element.start,
+    openEnd: element.openEnd,
+    contentStart: element.selfClosing ? undefined : element.contentStart,
+    contentEnd: element.selfClosing ? undefined : element.contentEnd,
+    closeStart: element.closeStart,
+    closeEnd: element.closeEnd,
+  };
+}
+
 function buildProjection(
   html: string,
   source: CodeLayerSource,
@@ -2867,19 +3086,8 @@ function buildProjection(
   const nodes: CodeLayerNode[] = [];
   const diagnostics: ProjectionDiagnostic[] = [];
   for (const element of elements) {
-    const styleAttribute = getAttribute(element, "style");
-    if (!styleAttribute || typeof styleAttribute.value !== "string") continue;
-    const parsed = readStyleDeclarations(
-      decodeBasicHtmlEntities(styleAttribute.value),
-    );
-    if ("invalid" in parsed) {
-      diagnostics.push({
-        severity: "warning",
-        code: "invalid-inline-style",
-        message: parsed.invalid,
-        span: { start: styleAttribute.start, end: styleAttribute.end },
-      });
-    }
+    const diagnostic = inlineStyleDiagnostic(element);
+    if (diagnostic) diagnostics.push(diagnostic);
   }
   const candidateNodeIdByElementIndex = new Map<number, string>();
   const candidateNodeIdCounts = new Map<string, number>();
@@ -2921,94 +3129,20 @@ function buildProjection(
     nodeIdByElementIndex.set(element.index, nodeId);
   }
 
-  const projectedParentIndex = (element: ParsedElement): number | undefined => {
-    let at = element.parentIndex;
-    while (at !== undefined && !nodeIdByElementIndex.has(at)) {
-      at = elements[at]?.parentIndex;
-    }
-    return at;
-  };
-
   const elementByNodeId = new Map<string, ParsedElement>();
 
   for (const element of elements) {
     const nodeId = nodeIdByElementIndex.get(element.index);
     if (!nodeId) continue;
-
-    const parentIndex = projectedParentIndex(element);
-    const parent =
-      parentIndex === undefined ? undefined : elements[parentIndex];
-    const parentId =
-      parentIndex === undefined
-        ? undefined
-        : nodeIdByElementIndex.get(parentIndex);
-    const selector = primarySelector(element, elements);
-    const path = pathSelector(element, elements);
-    const classes = classList(element);
-    const style = withVectorPaintStyle(
-      element,
-      elements,
-      parseStyle(attributeValue(element, "style")),
+    nodes.push(
+      buildNodeForElement(
+        html,
+        element,
+        elements,
+        nodeId,
+        nodeIdByElementIndex,
+      ),
     );
-    const dataAttributes = dataAttributeRecord(element);
-    const layerName = layerNameFor(html, element, elements);
-    const selectors = Array.from(
-      new Set([
-        selector.selector,
-        path,
-        ...STABLE_NODE_ID_ATTRIBUTES.filter((name) => dataAttributes[name]).map(
-          (name) => `[${name}="${cssEscape(dataAttributes[name]!)}"]`,
-        ),
-      ]),
-    );
-
-    const node: CodeLayerNode = {
-      id: nodeId,
-      tag: element.tag,
-      layerName: layerName.name,
-      layerNameSource: layerName.source,
-      layerNameAttribute: layerName.attribute,
-      selector: selector.selector,
-      selectors,
-      path,
-      attributes: attributeRecord(element),
-      dataAttributes,
-      classes,
-      textSnippet: textSnippetFor(html, element, elements),
-      paintsOwnText: paintsOwnTextFor(html, element, elements),
-      wholeTextStyleRoot: wholeTextStyleRootFor(html, element, elements),
-      repeatXFor: repeatXForFor(element, elements),
-      style,
-      styleTokens: styleTokensFor(element),
-      parentId,
-      children: [],
-      layout: {
-        parentId,
-        parentSelector: parent
-          ? primarySelector(parent, elements).selector
-          : undefined,
-        ...layoutFor(element, parent),
-      },
-      capabilities: capabilitiesFor(element),
-      confidence: selector.confidence,
-      source: {
-        start: element.start,
-        end: element.end,
-        openStart: element.start,
-        openEnd: element.openEnd,
-        contentStart: element.selfClosing ? undefined : element.contentStart,
-        contentEnd: element.selfClosing ? undefined : element.contentEnd,
-        closeStart: element.closeStart,
-        closeEnd: element.closeEnd,
-      },
-    };
-
-    if (isComponentInstance(node)) {
-      const instance = instanceFromNode(node);
-      if (instance) node.componentInstance = instance;
-    }
-
-    nodes.push(node);
     elementByNodeId.set(nodeId, element);
   }
 
@@ -3034,7 +3168,7 @@ function buildProjection(
   return {
     projection: {
       version: 1,
-      projectionId: `clp_${hashStable(`${source.kind}:${source.fileId ?? ""}:${source.filename ?? ""}:${html}`)}`,
+      projectionId: projectionIdFor(html, source),
       source,
       rootNodeIds: nodes
         .filter((node) => !node.parentId)
@@ -3044,6 +3178,281 @@ function buildProjection(
     },
     elementByNodeId,
     elements,
+    html,
+  };
+}
+
+function lastIndexStartingBefore(
+  elements: readonly ParsedElement[],
+  offset: number,
+): number {
+  let low = 0;
+  let high = elements.length - 1;
+  let found = -1;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    if (elements[mid]!.start < offset) {
+      found = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return found;
+}
+
+function sameAttributesIgnoringStyle(
+  previous: readonly ParsedAttribute[],
+  next: readonly ParsedAttribute[],
+): boolean {
+  const kept = (attributes: readonly ParsedAttribute[]) =>
+    attributes.filter((attribute) => attribute.lowerName !== "style");
+  const a = kept(previous);
+  const b = kept(next);
+  return (
+    a.length === b.length &&
+    a.every(
+      (attribute, index) =>
+        attribute.name === b[index]!.name &&
+        attribute.value === b[index]!.value,
+    )
+  );
+}
+
+// An edit inside one element's style attribute or one plain text run keeps the
+// element tree, so only the nodes it can reach are re-derived and every later
+// offset shifts by one delta. Anything else returns null for a full parse.
+interface StructurePreservingEdit {
+  prefix: number;
+  removedEnd: number;
+  delta: number;
+  target: ParsedElement;
+  nextAttributes?: ParsedAttribute[];
+}
+
+function classifyStructurePreservingEdit(
+  previous: ProjectionBuild,
+  html: string,
+): StructurePreservingEdit | null {
+  const before = previous.html;
+  if (before === html) return null;
+  const prefix = commonPrefixLength(before, html);
+  const suffix = commonSuffixLength(
+    before,
+    html,
+    Math.min(before.length, html.length) - prefix,
+  );
+  const removedEnd = before.length - suffix;
+  const inserted = html.slice(prefix, html.length - suffix);
+  const removed = before.slice(prefix, removedEnd);
+  if (/[<>]/.test(removed) || /[<>]/.test(inserted)) return null;
+  const delta = inserted.length - removed.length;
+  const elements = previous.elements;
+
+  const candidate = lastIndexStartingBefore(elements, prefix);
+  if (candidate < 0) return null;
+  const opening = elements[candidate]!;
+  let target: ParsedElement | undefined;
+  let nextAttributes: ParsedAttribute[] | undefined;
+  if (removedEnd <= opening.openEnd - 1) {
+    const nextOpenEnd = findHtmlTagEnd(html, opening.start);
+    if (nextOpenEnd !== opening.openEnd + delta) return null;
+    const nextRaw = html.slice(opening.start, nextOpenEnd);
+    const previousRaw = before.slice(opening.start, opening.openEnd);
+    const tagName = (raw: string) =>
+      raw.match(/^<\s*([A-Za-z][A-Za-z0-9:-]*)/)?.[1]?.toLowerCase();
+    if (
+      tagName(nextRaw) !== opening.tag ||
+      tagName(previousRaw) !== opening.tag ||
+      nextRaw.endsWith("/>") !== previousRaw.endsWith("/>") ||
+      opening.tag === "svg" ||
+      hasSvgAncestor(opening, elements)
+    ) {
+      return null;
+    }
+    nextAttributes = parseAttributes(nextRaw, opening.start);
+    if (!sameAttributesIgnoringStyle(opening.attributes, nextAttributes)) {
+      return null;
+    }
+    target = opening;
+  } else {
+    let container: ParsedElement | undefined = opening;
+    while (
+      container &&
+      (container.selfClosing ||
+        container.contentStart > prefix ||
+        container.contentEnd < removedEnd)
+    ) {
+      container =
+        container.parentIndex === undefined
+          ? undefined
+          : elements[container.parentIndex];
+    }
+    if (!container || RAW_TEXT_VISUAL_TAGS.has(container.tag)) return null;
+    let runStart = container.contentStart;
+    let runEnd = container.contentEnd;
+    for (const childIndex of container.childIndexes) {
+      const child = elements[childIndex]!;
+      if (child.end <= prefix) runStart = Math.max(runStart, child.end);
+      else if (child.start >= removedEnd)
+        runEnd = Math.min(runEnd, child.start);
+      else return null;
+    }
+    if (before.slice(runStart, runEnd).includes("<")) return null;
+    target = container;
+  }
+  return { prefix, removedEnd, delta, target, nextAttributes };
+}
+
+function incrementalProjectionBuild(
+  previous: ProjectionBuild,
+  html: string,
+  source: CodeLayerSource,
+): ProjectionBuild | null {
+  const edit = classifyStructurePreservingEdit(previous, html);
+  if (!edit) return null;
+  const { prefix, removedEnd, delta, target, nextAttributes } = edit;
+  const elements = previous.elements;
+
+  const containers = new Set<number>();
+  for (
+    let at: number | undefined = target.index;
+    at !== undefined;
+    at = elements[at]!.parentIndex
+  ) {
+    containers.add(at);
+  }
+  const shift = (offset: number) =>
+    offset >= removedEnd ? offset + delta : offset;
+  const shiftOptional = (offset: number | undefined) =>
+    offset === undefined ? undefined : shift(offset);
+  const nextElements: ParsedElement[] = new Array(elements.length);
+  for (const element of elements) {
+    if (element.end <= prefix && !containers.has(element.index)) {
+      nextElements[element.index] = element;
+      continue;
+    }
+    if (containers.has(element.index)) {
+      const openingEdit = element === target && nextAttributes !== undefined;
+      nextElements[element.index] = {
+        ...element,
+        openEnd: openingEdit ? shift(element.openEnd) : element.openEnd,
+        contentStart: openingEdit
+          ? shift(element.contentStart)
+          : element.contentStart,
+        contentEnd: shift(element.contentEnd),
+        end: shift(element.end),
+        closeStart: shiftOptional(element.closeStart),
+        closeEnd: shiftOptional(element.closeEnd),
+        attributes: openingEdit ? nextAttributes! : element.attributes,
+      };
+      continue;
+    }
+    if (element.start < removedEnd) return null;
+    nextElements[element.index] = {
+      ...element,
+      start: element.start + delta,
+      openEnd: element.openEnd + delta,
+      contentStart: element.contentStart + delta,
+      contentEnd: element.contentEnd + delta,
+      end: element.end + delta,
+      closeStart: shiftOptional(element.closeStart),
+      closeEnd: shiftOptional(element.closeEnd),
+      attributes: element.attributes.map((attribute) => ({
+        ...attribute,
+        start: attribute.start + delta,
+        end: attribute.end + delta,
+      })),
+    };
+  }
+
+  const nodeIdByElementIndex = new Map<number, string>();
+  for (const [nodeId, element] of previous.elementByNodeId) {
+    nodeIdByElementIndex.set(element.index, nodeId);
+  }
+  // A node reads its projected parent's style for layout, so a style edit also
+  // re-derives the target's projected children.
+  const rebuilt = new Set(containers);
+  const targetNodeId = nodeIdByElementIndex.get(target.index);
+  if (nextAttributes && targetNodeId) {
+    const targetNode = previous.projection.nodes.find(
+      (node) => node.id === targetNodeId,
+    );
+    for (const childId of targetNode?.children ?? []) {
+      rebuilt.add(previous.elementByNodeId.get(childId)!.index);
+    }
+  }
+
+  const elementByNodeId = new Map<string, ParsedElement>();
+  const nodes = previous.projection.nodes.map((node) => {
+    const index = previous.elementByNodeId.get(node.id)!.index;
+    const element = nextElements[index]!;
+    elementByNodeId.set(node.id, element);
+    if (rebuilt.has(index)) {
+      const next = buildNodeForElement(
+        html,
+        element,
+        nextElements,
+        node.id,
+        nodeIdByElementIndex,
+      );
+      next.children = node.children;
+      return next;
+    }
+    return element === elements[index]
+      ? node
+      : { ...node, source: sourceSpanFor(element) };
+  });
+
+  const targetDiagnostic = nextAttributes
+    ? inlineStyleDiagnostic(nextElements[target.index]!)
+    : null;
+  const diagnostics: ProjectionDiagnostic[] = [];
+  let placedTarget = !targetDiagnostic;
+  for (const diagnostic of previous.projection.diagnostics) {
+    const span = diagnostic.span;
+    const belongsToTarget =
+      nextAttributes !== undefined &&
+      diagnostic.code === "invalid-inline-style" &&
+      span !== undefined &&
+      span.start >= target.start &&
+      span.end <= target.openEnd;
+    if (belongsToTarget) continue;
+    if (!placedTarget && span && span.start > target.start) {
+      diagnostics.push(targetDiagnostic!);
+      placedTarget = true;
+    }
+    diagnostics.push(
+      span && span.start >= removedEnd
+        ? {
+            ...diagnostic,
+            span: { start: span.start + delta, end: span.end + delta },
+          }
+        : diagnostic,
+    );
+  }
+  if (!placedTarget) {
+    const trailing = diagnostics.findIndex(
+      (diagnostic) => diagnostic.code === "no-projectable-elements",
+    );
+    diagnostics.splice(
+      trailing === -1 ? diagnostics.length : trailing,
+      0,
+      targetDiagnostic!,
+    );
+  }
+
+  return {
+    projection: {
+      ...previous.projection,
+      projectionId: projectionIdFor(html, source),
+      source,
+      nodes,
+      diagnostics,
+    },
+    elementByNodeId,
+    elements: nextElements,
+    html,
   };
 }
 
@@ -3101,17 +3510,17 @@ export function buildCodeLayerProjection(
   return cachedProjectionBuild(html, options.source).projection;
 }
 
-function cachedProjectionBuild(
+// A cached build, one lent by a source with the same node ids, or one patched
+// from a recent revision; null when only a full parse would produce it.
+function reusableProjectionBuild(
   html: string,
-  sourceOption: CodeLayerSource | undefined,
-): ProjectionBuild {
-  const safeHtml = typeof html === "string" ? html : "";
-  const source = sourceOption ?? { kind: "inline-html" };
+  source: CodeLayerSource,
+): ProjectionBuild | null {
   const sourceKey = projectionSourceKey(source);
-  const bySource = projectionCache.get(safeHtml);
+  const bySource = projectionCache.get(html);
   if (bySource) {
-    projectionCache.delete(safeHtml);
-    projectionCache.set(safeHtml, bySource);
+    projectionCache.delete(html);
+    projectionCache.set(html, bySource);
     const cached = bySource.get(sourceKey);
     if (cached) {
       bySource.delete(sourceKey);
@@ -3119,17 +3528,68 @@ function cachedProjectionBuild(
       return cached;
     }
   }
+  const build =
+    projectionBuildForSameNodeIds(bySource, html, source) ??
+    patchedProjectionBuild(nodeIdentityKey(source), html, source);
+  if (build) storeProjectionBuild(html, source, sourceKey, build);
+  return build;
+}
+
+function cachedProjectionBuild(
+  html: string,
+  sourceOption: CodeLayerSource | undefined,
+): ProjectionBuild {
+  const safeHtml = typeof html === "string" ? html : "";
+  const source = sourceOption ?? { kind: "inline-html" };
+  const reused = reusableProjectionBuild(safeHtml, source);
+  if (reused) return reused;
   const build = buildProjection(safeHtml, source);
+  storeProjectionBuild(safeHtml, source, projectionSourceKey(source), build);
+  return build;
+}
+
+const pinnedDocumentsByOwner = new Map<string, ReadonlySet<string>>();
+
+// An open editor re-projects its screens from dozens of call sites and already
+// holds their projections, so evicting their builds frees little and costs a
+// full parse on the next read. The owner replaces its set as screens change.
+export function pinCodeLayerDocuments(
+  owner: string,
+  documents: Iterable<string>,
+): void {
+  const pinned = new Set(documents);
+  if (pinned.size > 0) pinnedDocumentsByOwner.set(owner, pinned);
+  else pinnedDocumentsByOwner.delete(owner);
+}
+
+function isPinnedDocument(html: string): boolean {
+  for (const pinned of pinnedDocumentsByOwner.values()) {
+    if (pinned.has(html)) return true;
+  }
+  return false;
+}
+
+function storeProjectionBuild(
+  html: string,
+  source: CodeLayerSource,
+  sourceKey: string,
+  build: ProjectionBuild,
+): void {
+  rememberRecentHtml(nodeIdentityKey(source), html);
   projectionCache.set(
-    safeHtml,
-    (bySource ?? new Map<string, ProjectionBuild>()).set(sourceKey, build),
+    html,
+    (projectionCache.get(html) ?? new Map<string, ProjectionBuild>()).set(
+      sourceKey,
+      build,
+    ),
   );
-  projectionCacheChars += projectionCacheEntryChars(safeHtml, sourceKey);
+  projectionCacheChars += projectionCacheEntryChars(html, sourceKey);
   evict: for (const [oldestHtml, oldestBySource] of projectionCache) {
+    if (isPinnedDocument(oldestHtml)) continue;
     for (const oldestSourceKey of oldestBySource.keys()) {
       if (
         projectionCacheChars <= PROJECTION_CACHE_MAX_CHARS ||
-        (oldestHtml === safeHtml && oldestSourceKey === sourceKey)
+        (oldestHtml === html && oldestSourceKey === sourceKey)
       ) {
         break evict;
       }
@@ -3140,13 +3600,151 @@ function cachedProjectionBuild(
       );
     }
     projectionCache.delete(oldestHtml);
+    forgetRecentHtml(oldestHtml);
   }
-  return build;
+}
+
+function structurePreservingEditOf(
+  previous: string,
+  next: string,
+): { build: ProjectionBuild; edit: StructurePreservingEdit } | null {
+  const build = projectionCache.get(previous)?.values().next().value as
+    | ProjectionBuild
+    | undefined;
+  const edit = build && classifyStructurePreservingEdit(build, next);
+  return build && edit ? { build, edit } : null;
+}
+
+// True when `next` changes one style value or one plain text run of an already
+// projected `previous`: tags, every other attribute, and scripts are unchanged.
+export function isStructurePreservingEdit(
+  previous: string,
+  next: string,
+): boolean {
+  return structurePreservingEditOf(previous, next) !== null;
+}
+
+// The nearest stable-id element around an edit the patcher accepts, with its
+// markup in `next`, so a live copy of `previous` can re-sync just that subtree.
+export function editedStableSourceElement(
+  previous: string,
+  next: string,
+): { nodeId: string; html: string } | null {
+  const found = structurePreservingEditOf(previous, next);
+  if (!found) return null;
+  const { build, edit } = found;
+  let stable: ParsedElement | undefined;
+  let inBody = false;
+  for (
+    let at: ParsedElement | undefined = edit.target;
+    at;
+    at =
+      at.parentIndex === undefined ? undefined : build.elements[at.parentIndex]
+  ) {
+    if (at.tag === "svg" || at.tag === "math" || at.tag === "template") {
+      return null;
+    }
+    if (at.tag === "body") inBody = true;
+    if (!stable && !inBody && attributeValue(at, "data-agent-native-node-id")) {
+      stable = at;
+    }
+  }
+  if (!stable || !inBody) return null;
+  return {
+    nodeId: attributeValue(stable, "data-agent-native-node-id")!,
+    html: next.slice(stable.start, stable.end + edit.delta),
+  };
+}
+
+// Several bases per identity, because history, snapshots, and edit
+// intermediates project under one file id between two user edits.
+const recentHtmlByIdentity = new Map<string, string[]>();
+const RECENT_HTML_IDENTITY_LIMIT = 64;
+const RECENT_HTML_PER_IDENTITY = 4;
+
+function patchedProjectionBuild(
+  identityKey: string,
+  html: string,
+  source: CodeLayerSource,
+): ProjectionBuild | null {
+  for (const recentHtml of recentHtmlByIdentity.get(identityKey) ?? []) {
+    for (const build of projectionCache.get(recentHtml)?.values() ?? []) {
+      if (nodeIdentityKey(build.projection.source) !== identityKey) continue;
+      const patched = incrementalProjectionBuild(build, html, source);
+      if (patched) return patched;
+      break;
+    }
+  }
+  return null;
+}
+
+// A recent document only helps while its build is cached; otherwise it is a
+// whole screen kept alive for nothing.
+function forgetRecentHtml(html: string): void {
+  for (const [identityKey, recent] of recentHtmlByIdentity) {
+    if (!recent.includes(html)) continue;
+    const kept = recent.filter((item) => item !== html);
+    if (kept.length > 0) recentHtmlByIdentity.set(identityKey, kept);
+    else recentHtmlByIdentity.delete(identityKey);
+  }
+}
+
+/** @internal — documents held for incremental patching, for leak tests. */
+export function _recentProjectionDocumentCountForTests(): number {
+  let count = 0;
+  for (const recent of recentHtmlByIdentity.values()) count += recent.length;
+  return count;
+}
+
+function rememberRecentHtml(identityKey: string, html: string): void {
+  const recent = (recentHtmlByIdentity.get(identityKey) ?? []).filter(
+    (item) => item !== html,
+  );
+  recent.unshift(html);
+  recent.length = Math.min(recent.length, RECENT_HTML_PER_IDENTITY);
+  recentHtmlByIdentity.delete(identityKey);
+  recentHtmlByIdentity.set(identityKey, recent);
+  if (recentHtmlByIdentity.size > RECENT_HTML_IDENTITY_LIMIT) {
+    recentHtmlByIdentity.delete(
+      recentHtmlByIdentity.keys().next().value as string,
+    );
+  }
+}
+
+function projectionIdFor(html: string, source: CodeLayerSource): string {
+  return `clp_${hashStable(`${source.kind}:${source.fileId ?? ""}:${source.filename ?? ""}:${html}`)}`;
+}
+
+// Node ids depend only on the source's identity key, so a build of the same
+// document under other source metadata can lend its parse instead of re-parsing.
+function projectionBuildForSameNodeIds(
+  bySource: Map<string, ProjectionBuild> | undefined,
+  html: string,
+  source: CodeLayerSource,
+): ProjectionBuild | null {
+  if (!bySource) return null;
+  const identityKey = nodeIdentityKey(source);
+  for (const build of bySource.values()) {
+    if (nodeIdentityKey(build.projection.source) !== identityKey) continue;
+    return {
+      ...build,
+      projection: {
+        ...build.projection,
+        projectionId: projectionIdFor(html, source),
+        source,
+      },
+    };
+  }
+  return null;
 }
 
 export function clearCodeLayerProjectionCache(): void {
   projectionCache.clear();
   projectionCacheChars = 0;
+  recentHtmlByIdentity.clear();
+  pinnedDocumentsByOwner.clear();
+  parsedElementsCache.clear();
+  parsedElementsCacheChars = 0;
 }
 
 const TEXT_WRAP_SKIP_TAGS = new Set([
@@ -3218,8 +3816,14 @@ export function wrapBareTextLeavesInHtml(
 const STABLE_NODE_ID_ATTRIBUTE_RE =
   /\sdata-agent-native-node-id\s*=\s*(?:"[^"]*"|'[^']*'|[^\s/>]+)/gi;
 
-export function hasCanonicalCodeLayerNodeIds(html: string): boolean {
-  const elements = parseHtmlElements(typeof html === "string" ? html : "");
+export function hasCanonicalCodeLayerNodeIds(
+  html: string,
+  options: { source?: CodeLayerSource } = {},
+): boolean {
+  const safeHtml = typeof html === "string" ? html : "";
+  const elements =
+    reusableProjectionBuild(safeHtml, options.source ?? { kind: "inline-html" })
+      ?.elements ?? parseHtmlElements(safeHtml);
   const usedIds = new Set<string>();
   for (const element of elements) {
     if (NON_VISUAL_TAGS.has(element.tag)) continue;
@@ -3352,10 +3956,7 @@ export function ensureCodeLayerNodeIdInHtml(
     selector?: string;
   } = {},
 ): { content: string; changed: boolean; nodeId?: string } {
-  const build = buildProjection(
-    html,
-    options.source ?? { kind: "inline-html" },
-  );
+  const build = cachedProjectionBuild(html, options.source);
   const resolution = resolveTarget(build, {
     nodeId: targetNodeId,
     ...(options.selector ? { selector: options.selector } : {}),
@@ -3441,6 +4042,90 @@ export function removeCodeLayerNodeFromHtml(
   return `${html.slice(0, start)}${html.slice(end)}`;
 }
 
+type CodeLayerTreeFields = Omit<CodeLayerTreeNode, "children">;
+
+// Keyed on dataAttributes, which the projection patcher keeps only for nodes
+// whose own data is unchanged; a node's type also reads its children's tags.
+const treeFieldsByNodeData = new WeakMap<object, CodeLayerTreeFields>();
+
+function treeFieldsFor(
+  node: CodeLayerNode,
+  nodesById: ReadonlyMap<string, CodeLayerNode>,
+): CodeLayerTreeFields {
+  const cached = treeFieldsByNodeData.get(node.dataAttributes);
+  if (cached?.id === node.id) return cached;
+  const componentName = node.componentInstance?.name;
+  const explicitLayerName =
+    node.layerNameSource === "attribute" ? node.layerName : undefined;
+  const type = treeTypeForNode(node, nodesById);
+  const fields: CodeLayerTreeFields = {
+    id: node.id,
+    name:
+      explicitLayerName ??
+      componentName ??
+      unnamedLayerName(node, type) ??
+      node.layerName,
+    type,
+    isNativeTextPrimitive: node.dataAttributes["data-an-primitive"] === "text",
+    isComponent: treeNodeIsComponent(node),
+    tag: node.tag,
+    selector: node.selector,
+    detail: `<${node.tag}>`,
+    layout: {
+      display: node.layout.display,
+      flexDirection: node.layout.flexDirection,
+      alignItems: node.layout.alignItems,
+      justifyContent: node.layout.justifyContent,
+      isFlexContainer: node.layout.isFlexContainer,
+      isGridContainer: node.layout.isGridContainer,
+    },
+    badge:
+      node.layerNameSource === "attribute" && node.layerNameAttribute
+        ? node.layerNameAttribute
+        : undefined,
+    renamable: node.source != null,
+  };
+  treeFieldsByNodeData.set(node.dataAttributes, fields);
+  return fields;
+}
+
+const treesByProjection = new WeakMap<
+  CodeLayerProjection,
+  CodeLayerTreeNode[]
+>();
+
+/**
+ * The tree for a projection, shared by every caller that does not mutate it.
+ * Rebuilding an equal tree per render leaves a copy behind in each render a
+ * closure still references.
+ */
+export function cachedCodeLayerTree(
+  projection: CodeLayerProjection,
+): CodeLayerTreeNode[] {
+  let tree = treesByProjection.get(projection);
+  if (!tree) {
+    tree = buildCodeLayerTree(projection);
+    treesByProjection.set(projection, tree);
+  }
+  return tree;
+}
+
+const nodesByIdByProjection = new WeakMap<
+  CodeLayerProjection,
+  ReadonlyMap<string, CodeLayerNode>
+>();
+
+export function cachedCodeLayerNodeById(
+  projection: CodeLayerProjection,
+): ReadonlyMap<string, CodeLayerNode> {
+  let nodeById = nodesByIdByProjection.get(projection);
+  if (!nodeById) {
+    nodeById = new Map(projection.nodes.map((node) => [node.id, node]));
+    nodesByIdByProjection.set(projection, nodeById);
+  }
+  return nodeById;
+}
+
 export function buildCodeLayerTree(
   projection: CodeLayerProjection,
 ): CodeLayerTreeNode[] {
@@ -3448,39 +4133,7 @@ export function buildCodeLayerTree(
   const treeById = new Map<string, CodeLayerTreeNode>();
 
   for (const node of projection.nodes) {
-    const componentName = node.componentInstance?.name;
-    const explicitLayerName =
-      node.layerNameSource === "attribute" ? node.layerName : undefined;
-    const type = treeTypeForNode(node, nodesById);
-    treeById.set(node.id, {
-      id: node.id,
-      name:
-        explicitLayerName ??
-        componentName ??
-        unnamedLayerName(node, type) ??
-        node.layerName,
-      type,
-      isNativeTextPrimitive:
-        node.dataAttributes["data-an-primitive"] === "text",
-      isComponent: treeNodeIsComponent(node),
-      tag: node.tag,
-      selector: node.selector,
-      detail: `<${node.tag}>`,
-      layout: {
-        display: node.layout.display,
-        flexDirection: node.layout.flexDirection,
-        alignItems: node.layout.alignItems,
-        justifyContent: node.layout.justifyContent,
-        isFlexContainer: node.layout.isFlexContainer,
-        isGridContainer: node.layout.isGridContainer,
-      },
-      badge:
-        node.layerNameSource === "attribute" && node.layerNameAttribute
-          ? node.layerNameAttribute
-          : undefined,
-      renamable: node.source != null,
-      children: [],
-    });
+    treeById.set(node.id, { ...treeFieldsFor(node, nodesById), children: [] });
   }
 
   const childIdsByParentId = new Map<string, Set<string>>();
@@ -3663,7 +4316,7 @@ function simpleSelectorMatchesElement(
 function selectorPathMatchesElement(
   element: ParsedElement | undefined,
   selector: string,
-  elementByIndex: Map<number, ParsedElement>,
+  elements: readonly ParsedElement[],
 ): boolean {
   const parts = normalizeSelectorForMatch(selector)
     .split(" > ")
@@ -3683,28 +4336,56 @@ function selectorPathMatchesElement(
     current =
       current.parentIndex === undefined
         ? undefined
-        : elementByIndex.get(current.parentIndex);
+        : elements[current.parentIndex];
   }
   return true;
 }
 
-function nodeMatchesStableSourceId(
-  node: CodeLayerNode,
+const stableSourceIdIndexes = new WeakMap<
+  CodeLayerProjection,
+  Map<string, CodeLayerNode[]>
+>();
+
+// A node the caller's own projection names by stable id, found without a
+// parse; null when the id is missing or ambiguous.
+export function codeLayerNodeWithStableSourceId(
+  projection: CodeLayerProjection,
   sourceId: string,
-): boolean {
-  if (!sourceId) return false;
-  if (node.id === sourceId) return true;
-  for (const attribute of STABLE_NODE_ID_ATTRIBUTES) {
-    if (node.dataAttributes[attribute] === sourceId) return true;
+): CodeLayerNode | null {
+  const matches = nodesWithStableSourceId(projection, sourceId);
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+function nodesWithStableSourceId(
+  projection: CodeLayerProjection,
+  sourceId: string,
+): CodeLayerNode[] {
+  let index = stableSourceIdIndexes.get(projection);
+  if (!index) {
+    index = new Map();
+    for (const node of projection.nodes) {
+      const ids = new Set([
+        node.id,
+        ...STABLE_NODE_ID_ATTRIBUTES.map((name) => node.dataAttributes[name]),
+        node.attributes.id,
+      ]);
+      for (const id of ids) {
+        if (typeof id !== "string" || !id) continue;
+        const nodes = index.get(id);
+        if (nodes) nodes.push(node);
+        else index.set(id, [node]);
+      }
+    }
+    stableSourceIdIndexes.set(projection, index);
   }
-  return node.attributes.id === sourceId;
+  return index.get(sourceId) ?? [];
 }
 
 function selectorMatches(
   node: CodeLayerNode,
   selector: string,
   element: ParsedElement | undefined,
-  elementByIndex: Map<number, ParsedElement>,
+  elements: readonly ParsedElement[],
 ): boolean {
   const normalizedSelector = normalizeSelectorForMatch(selector);
   const normalizedNodeSelectors = [
@@ -3724,7 +4405,7 @@ function selectorMatches(
   }
   if (
     selectorHasDirectPath &&
-    selectorPathMatchesElement(element, normalizedSelector, elementByIndex)
+    selectorPathMatchesElement(element, normalizedSelector, elements)
   ) {
     return true;
   }
@@ -3741,22 +4422,17 @@ function resolveTarget(
   target: EditIntentTarget,
 ): EditIntentResolution {
   const { projection, elementByNodeId } = build;
-  const elementByIndex = new Map(
-    build.elements.map((element) => [element.index, element]),
-  );
   const matchesForSelector = (value: string): CodeLayerNode[] =>
     projection.nodes.filter((node) => {
       return selectorMatches(
         node,
         value,
         elementByNodeId.get(node.id),
-        elementByIndex,
+        build.elements,
       );
     });
   if (target.nodeId) {
-    const matches = projection.nodes.filter((candidate) =>
-      nodeMatchesStableSourceId(candidate, target.nodeId ?? ""),
-    );
+    const matches = nodesWithStableSourceId(projection, target.nodeId);
     if (matches.length === 1 && matches[0]) {
       return { status: "resolved", node: matches[0] };
     }
@@ -9331,7 +10007,7 @@ function applyVisualEditUnsafe(
     };
   }
 
-  const initial = buildProjection(html, source);
+  const initial = cachedProjectionBuild(html, source);
 
   const structureTargets =
     intent.kind === "wrapNodes" || intent.kind === "booleanSubtract"
@@ -9870,7 +10546,7 @@ export function applyOrdinaryVisualStyleBatch(
     return { status: "fallback" };
   }
 
-  const initial = buildProjection(html, source);
+  const initial = cachedProjectionBuild(html, source);
   const updatesByElement = new Map<
     number,
     { element: ParsedElement; style: string; values: Map<string, string> }
@@ -10025,7 +10701,9 @@ export function moveNodeBetweenDocuments(
     };
   }
 
-  const sourceBuild = buildProjection(sourceHtml, { kind: "inline-html" });
+  const sourceBuild = cachedProjectionBuild(sourceHtml, {
+    kind: "inline-html",
+  });
   const sourceResolution = resolveTarget(sourceBuild, {
     ...(nodeId ? { nodeId } : {}),
     ...(sourceSelector ? { selector: sourceSelector } : {}),
@@ -10043,7 +10721,7 @@ export function moveNodeBetweenDocuments(
 
   const hasRequestedAnchor = Boolean(anchorNodeId || anchorSelector);
   const destBuild = hasRequestedAnchor
-    ? buildProjection(destHtml, { kind: "inline-html" })
+    ? cachedProjectionBuild(destHtml, { kind: "inline-html" })
     : null;
   const anchorResolution =
     hasRequestedAnchor && destBuild

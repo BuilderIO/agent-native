@@ -1448,6 +1448,32 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     });
   });
 
+  it("gives a moving screen's iframes their own layer until the drag ends", async () => {
+    const { frame } = await renderSelectedFrame();
+    const iframe = frame.appendChild(document.createElement("iframe"));
+    const dragSurface = container.querySelector<HTMLElement>(
+      "[data-frame-drag-surface]",
+    )!;
+    const leftBefore = frame.style.left;
+
+    await act(async () => {
+      dispatchMouse(dragSurface, "mousedown", 320, 740);
+    });
+    expect(iframe.style.willChange).toBe("");
+
+    await act(async () => {
+      dispatchMouse(window, "mousemove", 355, 765);
+      await nextAnimationFrame();
+    });
+    expect(frame.style.left).not.toBe(leftBefore);
+    expect(iframe.style.willChange).toBe("transform");
+
+    await act(async () => {
+      dispatchMouse(window, "mouseup", 355, 765);
+    });
+    expect(iframe.style.willChange).toBe("");
+  });
+
   it.each([
     "[data-frame-drag-surface]",
     "[data-frame-label]",

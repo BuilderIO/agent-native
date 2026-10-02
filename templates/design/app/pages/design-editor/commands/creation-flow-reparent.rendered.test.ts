@@ -153,7 +153,10 @@ function runSameScreenReparent(
     source: { kind: "design-file", fileId: SCREEN_ID },
   });
   const tree = buildCodeLayerTree(projection);
-  const owners: LayerMoveArgs["codeLayerOwnerByNodeId"] = new Map();
+  const owners = new Map<
+    string,
+    NonNullable<ReturnType<LayerMoveArgs["codeLayerOwnerByNodeId"]["get"]>>
+  >();
   for (const node of projection.nodes) {
     owners.set(node.id, {
       fileId: SCREEN_ID,

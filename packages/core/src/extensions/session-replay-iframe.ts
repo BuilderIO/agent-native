@@ -112,23 +112,32 @@ export function buildSessionReplayIframeBootstrap(): string {
   </script>`;
 }
 
-function maskUnparsedRegions(html: string): string {
+// Searches only the markup between comments and raw-text elements, stopping at
+// the first match: </head> sits near the top of documents that run to megabytes.
+function searchParsedMarkup(html: string, pattern: RegExp): number {
   const regions =
     /<!--[\s\S]*?-->|<(script|style|title|textarea|xmp|noembed|noframes|iframe)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
-  const plaintext = /<plaintext\b[^>]*>[\s\S]*$/i;
-  return html
-    .replace(regions, (region) => " ".repeat(region.length))
-    .replace(plaintext, (region) => " ".repeat(region.length));
+  let cursor = 0;
+  for (;;) {
+    const region = regions.exec(html);
+    const gap = html.slice(cursor, region ? region.index : html.length);
+    const plaintext = gap.search(/<plaintext\b[^>]*>/i);
+    const found = (plaintext === -1 ? gap : gap.slice(0, plaintext)).search(
+      pattern,
+    );
+    if (found !== -1) return cursor + found;
+    if (plaintext !== -1 || !region) return -1;
+    cursor = region.index + region[0].length;
+  }
 }
 
 export function injectSessionReplayIframeBootstrap(html: string): string {
   const bootstrap = buildSessionReplayIframeBootstrap();
-  const markup = maskUnparsedRegions(html);
-  const headClose = markup.search(/<\/head\s*>/i);
+  const headClose = searchParsedMarkup(html, /<\/head\s*>/i);
   if (headClose >= 0) {
     return `${html.slice(0, headClose)}${bootstrap}${html.slice(headClose)}`;
   }
-  const bodyOpen = markup.search(/<body(?:\s[^>]*)?>/i);
+  const bodyOpen = searchParsedMarkup(html, /<body(?:\s[^>]*)?>/i);
   if (bodyOpen >= 0) {
     return `${html.slice(0, bodyOpen)}${bootstrap}${html.slice(bodyOpen)}`;
   }

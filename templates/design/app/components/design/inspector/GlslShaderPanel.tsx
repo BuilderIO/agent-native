@@ -131,6 +131,8 @@ function withShaderWriteLock<T>(
 export interface GlslShaderPanelContext {
   designId?: string;
   fileId?: string;
+  /** The screen source the editor already holds; without it the panel fetches it. */
+  content?: string;
   nodeId?: string;
   selector?: string;
   onApplied?: (fileId: string, content: string, updatedAt?: string) => void;
@@ -157,13 +159,16 @@ export function broadcastShaderMessage(message: Record<string, unknown>): void {
 }
 
 export function useScreenGlslShaders(context: GlslShaderPanelContext) {
-  const enabled = Boolean(context.designId && context.fileId);
+  const enabled =
+    Boolean(context.designId && context.fileId) &&
+    context.content === undefined;
   const query = useActionQuery<SourceFileResult>(
     "read-source-file",
     { designId: context.designId ?? "", fileId: context.fileId ?? "" },
     { enabled },
   );
-  const content = enabled ? (query.data?.content ?? "") : "";
+  const content =
+    context.content ?? (enabled ? (query.data?.content ?? "") : "");
   const shaders = useMemo(() => listShadersInHtml(content), [content]);
   const mounts = useMemo(() => listShaderMounts(content), [content]);
   return { ...query, enabled, content, shaders, mounts };

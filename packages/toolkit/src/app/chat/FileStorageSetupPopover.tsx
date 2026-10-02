@@ -65,7 +65,7 @@ export function FileStorageSetupPopover(props: FileStorageSetupPopoverProps) {
   const title = t("onboarding.fileStorage.title");
   // ponytail: wide home composers open left; add an explicit placement prop if a wide sidebar needs another side.
   const useLeftSide =
-    (anchorRef?.current?.getBoundingClientRect().width ?? 0) >= 500;
+    open && (anchorRef?.current?.getBoundingClientRect().width ?? 0) >= 500;
 
   return (
     <Popover

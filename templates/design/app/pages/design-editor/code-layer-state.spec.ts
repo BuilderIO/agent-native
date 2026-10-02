@@ -13,6 +13,7 @@ import {
 import type { ElementInfo } from "@/components/design/types";
 
 import {
+  CodeLayerOwnerIndex,
   canonicalElementInfoForCodeLayerNode,
   canonicalizeElementInfoFromProjection,
   codeLayerNodeLooksLikeComponent,
@@ -1638,5 +1639,43 @@ describe("codeLayerNodeLooksLikeComponent", () => {
 
   it("still treats a form control tag as a component", () => {
     expect(codeLayerNodeLooksLikeComponent(node([], "input"))).toBe(true);
+  });
+});
+
+describe("CodeLayerOwnerIndex", () => {
+  const model = (fileId: string, html: string) => {
+    const projection = buildCodeLayerProjection(html, {
+      source: { kind: "design-file", fileId },
+    });
+    return {
+      fileId,
+      projection,
+      sourceProjection: projection,
+      sourceNodeIdAttrs: new Set<string>(),
+      runtimeOnly: false,
+      tree: buildCodeLayerTree(projection),
+    };
+  };
+
+  it("re-indexes only the screen whose model changed, under a new identity", () => {
+    const index = new CodeLayerOwnerIndex();
+    const a = model("a", "<main><h1>A</h1></main>");
+    const b = model("b", "<main><p>B</p></main>");
+    const first = index.sync([a, b]);
+    expect(index.sync([a, b])).toBe(first);
+    const ownerOfB = first.get(b.projection.nodes[1]!.id);
+    const removedFromA = a.projection.nodes[1]!.id;
+
+    const nextA = model("a", '<main><h2 id="new">A</h2></main>');
+    const second = index.sync([nextA, b]);
+    expect(second).not.toBe(first);
+    expect(second.get(b.projection.nodes[1]!.id)).toBe(ownerOfB);
+    expect(second.has(removedFromA)).toBe(false);
+    expect(second.get(nextA.projection.nodes[1]!.id)?.fileId).toBe("a");
+    expect(second.size).toBe(
+      nextA.projection.nodes.length + b.projection.nodes.length,
+    );
+
+    expect(index.sync([nextA]).size).toBe(nextA.projection.nodes.length);
   });
 });

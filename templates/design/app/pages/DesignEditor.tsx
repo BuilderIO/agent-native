@@ -107,6 +107,9 @@ import {
   applyVisualEdit,
   buildCodeLayerProjection,
   buildCodeLayerTree,
+  cachedCodeLayerNodeById,
+  cachedCodeLayerTree,
+  pinCodeLayerDocuments,
   removeCodeLayerNodeFromHtml,
   type CodeLayerNode,
   type CodeLayerProjection,
@@ -214,6 +217,7 @@ import {
   useCallback,
   useRef,
   useMemo,
+  useId,
   type Dispatch,
   type PointerEvent as ReactPointerEvent,
   type SetStateAction,
@@ -619,14 +623,15 @@ import {
   codeLayerSelectorAliases,
   codeLayerSelectorMatches,
   previewCodeLayerTreeMove,
-  codeLayerTreeToPanelNodes,
+  cachedCodeLayerTreeToPanelNodes,
+  CodeLayerOwnerIndex,
+  type CodeLayerOwner,
   collectCodeLayerAncestors,
   collectEffectiveCodeLayerState,
   type EffectiveCodeLayerState,
   elementInfoForOwnedCodeLayerNode,
   elementInfoFromCodeLayerNode,
   findCodeLayerSiblingOrder,
-  isCodeLayerNodeRuntimeOnly,
   preferredCodeLayerSelector,
   remapLegacyCodeLayerNodeId,
   resolveCodeLayerNodeFromBridge,
@@ -844,6 +849,7 @@ import {
   runVisualStructureChange,
 } from "./design-editor/commands/visual-structure-change";
 import { runWriteFrameGeometrySnapshot } from "./design-editor/commands/write-frame-geometry-snapshot";
+import { flushCommitsAfterPaint } from "./design-editor/commit-after-paint";
 import { getCreatedScreenNavigationPlan } from "./design-editor/created-screen-navigation";
 import { designPrecedentDirectives } from "./design-editor/creative-context-precedent";
 import {
@@ -862,7 +868,11 @@ import {
   type PendingDesignDataOperations,
 } from "./design-editor/data-operations";
 import { deriveDesignBreakpoints } from "./design-editor/derive/design-breakpoints";
-import { buildNeededLayerModels } from "./design-editor/derive/layer-model-coverage";
+import {
+  buildNeededLayerModels,
+  nextRecentLayerModelFileIds,
+  screenBodyHasElements,
+} from "./design-editor/derive/layer-model-coverage";
 import {
   deriveOverviewScreens,
   reuseUnchangedOverviewScreens,
@@ -907,6 +917,7 @@ import {
   isSupersededSelectionEcho,
   reloadRunningAppPreviewFrames,
   runtimeMultiplicityForElementProvenance,
+  samePlainData,
   withMeasuredGeometry,
 } from "./design-editor/editor-helpers";
 import {
@@ -1005,6 +1016,7 @@ import { createLatestWriteQueue } from "./design-editor/latest-write-queue";
 import {
   layerStateIdsForScreen,
   scopedLayerStateId,
+  sourceLayerStateIds,
 } from "./design-editor/layer-state-scope";
 import {
   type AlignableRect,
@@ -1119,6 +1131,7 @@ import {
 import {
   buildActiveFileNodeIdSet,
   computeOverviewScreenPickSelectionIds,
+  getContentSignature,
   getOverviewScreenContentKey,
   getOverviewScreenExportGeometryById,
   getOverviewScreenRuntimeReplacementKey,
@@ -1141,6 +1154,7 @@ import {
 import {
   resolveSourceBaseForPublication,
   designFileCodeLayerSource,
+  forgetPreparedSourcesExcept,
   prepareCanonicalSourceContent,
   preparedSourceProjection,
 } from "./design-editor/source-publication";
@@ -2147,6 +2161,8 @@ function DesignEditor() {
   const [contentRenderRevision, setContentRenderRevision] = useState(0);
   const [activeInspectorTab, setActiveInspectorTab] =
     useState<InspectorTab>("design");
+  const activeInspectorTabRef = useRef(activeInspectorTab);
+  activeInspectorTabRef.current = activeInspectorTab;
   const [reviewFocusRequest, setReviewFocusRequest] = useState<{
     nonce: number;
     anchor: unknown;
@@ -2157,6 +2173,10 @@ function DesignEditor() {
   const openedReviewHashRef = useRef<string | null>(null);
   const [activeLeftPanel, setActiveLeftPanel] =
     useState<DesignLeftPanel | null>("file");
+  // The workbench loads Monaco and follows the selection with source reads, so
+  // it mounts on first open and then stays mounted to keep its state.
+  const codeWorkbenchOpenedRef = useRef(false);
+  if (activeLeftPanel === "code") codeWorkbenchOpenedRef.current = true;
   const layersRevealedForFirstCreateRef = useRef(false);
   const [activeCodeFile, setActiveCodeFile] =
     useState<CodeWorkbenchActiveFile | null>(null);
@@ -2187,6 +2207,19 @@ function DesignEditor() {
   const rightSidebarContentRef = useRef<HTMLDivElement | null>(null);
   const [layersSearchQuery, setLayersSearchQuery] = useState("");
   const [expandedLayerIds, setExpandedLayerIds] = useState<string[]>([]);
+  const expandedLayerIdsRef = useRef(expandedLayerIds);
+  expandedLayerIdsRef.current = expandedLayerIds;
+  // Reveals run after every selection and every edit; setting an unchanged list
+  // still re-renders the whole editor, so only a real addition sets state.
+  const revealLayerIds = useCallback((ids: Iterable<string>) => {
+    const current = expandedLayerIdsRef.current;
+    const next = new Set(current);
+    for (const id of ids) next.add(id);
+    if (next.size === current.length) return;
+    const expanded = Array.from(next);
+    expandedLayerIdsRef.current = expanded;
+    setExpandedLayerIds(expanded);
+  }, []);
   const [selectedLayerIdsState, setSelectedLayerIdsState] = useState<string[]>(
     [],
   );
@@ -2254,18 +2287,20 @@ function DesignEditor() {
     lockedIds: new Set(),
     hiddenIds: new Set(),
   });
-  const codeLayerOwnerByNodeIdRef = useRef<
-    Map<
-      string,
-      {
-        fileId: string;
-        node: CodeLayerNode;
-        sourceProjection: CodeLayerProjection;
-        tree: CodeLayerTreeNode[];
-        runtimeOnly: boolean;
-      }
-    >
-  >(new Map());
+  const codeLayerOwnerByNodeIdRef = useRef<ReadonlyMap<string, CodeLayerOwner>>(
+    new Map(),
+  );
+  const revealLayer = useCallback(
+    (layerId: string) => {
+      const owner = codeLayerOwnerByNodeIdRef.current.get(layerId);
+      if (!owner) return;
+      revealLayerIds([
+        owner.fileId,
+        ...collectCodeLayerAncestors(owner.tree, layerId),
+      ]);
+    },
+    [revealLayerIds],
+  );
   const [overviewSelectedScreenIds, setOverviewSelectedScreenIds] = useState<
     string[]
   >([]);
@@ -2546,8 +2581,10 @@ function DesignEditor() {
     nodeId?: string;
     css: string;
   } | null>(null);
+  const shaderFillPreviewActiveRef = useRef(false);
+  shaderFillPreviewActiveRef.current = shaderFillPreview !== null;
   const clearShaderFillPreview = useCallback(() => {
-    setShaderFillPreview(null);
+    if (shaderFillPreviewActiveRef.current) setShaderFillPreview(null);
     postShaderFillPreviewClearToPreviewIframes();
   }, []);
 
@@ -2566,6 +2603,8 @@ function DesignEditor() {
 
   const [activeInteractionStateState, setActiveInteractionStateState] =
     useState<InteractionState | null>(null);
+  const activeInteractionStateStateRef = useRef(activeInteractionStateState);
+  activeInteractionStateStateRef.current = activeInteractionStateState;
 
   const [selectedStateId, setSelectedStateId] = useState<string | null>(null);
   const [reviewFileId, setReviewFileId] = useState<string | null>(null);
@@ -2686,7 +2725,9 @@ function DesignEditor() {
   }, [builderHostProtocolActive]);
 
   const focusDesignInspectorForSelection = useCallback(() => {
-    setActiveInspectorTab("design");
+    if (activeInspectorTabRef.current !== "design") {
+      setActiveInspectorTab("design");
+    }
   }, []);
 
   useEffect(() => {
@@ -2866,10 +2907,24 @@ function DesignEditor() {
       schedulePendingOverviewLayerSelectionClear,
     ],
   );
+  // Runs after every history push; same-value sets right after a commit still
+  // re-render the whole editor, so only real changes are published.
+  const publishedUndoRedoRef = useRef({ canUndo: false, canRedo: false });
+  const publishUndoRedo = useCallback(
+    (nextCanUndo: boolean, nextCanRedo: boolean) => {
+      const published = publishedUndoRedoRef.current;
+      if (published.canUndo !== nextCanUndo) setCanUndo(nextCanUndo);
+      if (published.canRedo !== nextCanRedo) setCanRedo(nextCanRedo);
+      publishedUndoRedoRef.current = {
+        canUndo: nextCanUndo,
+        canRedo: nextCanRedo,
+      };
+    },
+    [],
+  );
   const syncUndoRedoState = useCallback(() => {
     if (fileHistoryMutationPendingRef.current) {
-      setCanUndo(false);
-      setCanRedo(false);
+      publishUndoRedo(false, false);
       return;
     }
     if (
@@ -2914,7 +2969,7 @@ function DesignEditor() {
         localContentRedoStackRef.current,
         activeHistoryFileId,
       ) !== -1;
-    setCanUndo(
+    publishUndoRedo(
       Boolean(linkedComponentMutationQueueRef.current?.queue.hasPending()) ||
         contentUndoStackRef.current.some(
           (entry) => "linkedComponent" in entry && entry.linkedComponent,
@@ -2930,8 +2985,6 @@ function DesignEditor() {
             fileCreationUndoStackRef.current.length > 0 ||
             fileDeletionUndoStackRef.current.length > 0 ||
             selectionUndoStackRef.current.length > 0)),
-    );
-    setCanRedo(
       contentRedoStackRef.current.some(
         (entry) => "linkedComponent" in entry && entry.linkedComponent,
       ) ||
@@ -2947,7 +3000,7 @@ function DesignEditor() {
             fileDeletionRedoStackRef.current.length > 0 ||
             selectionRedoStackRef.current.length > 0)),
     );
-  }, []);
+  }, [publishUndoRedo]);
   const pushSelectionHistoryEntry = useCallback(
     (before: GeometryHistorySelection, after: GeometryHistorySelection) => {
       if (selectionHistorySnapshotsEqual(before, after)) return;
@@ -4622,6 +4675,7 @@ function DesignEditor() {
       );
     };
     const handlePageHide = () => {
+      flushCommitsAfterPaint();
       sendPendingKeepaliveSaves();
     };
     window.addEventListener("pagehide", handlePageHide);
@@ -4910,6 +4964,9 @@ function DesignEditor() {
   rawServerFilesByIdRef.current = new Map(
     serverFiles.map((file) => [file.id, file]),
   );
+  useEffect(() => {
+    forgetPreparedSourcesExcept(new Set(serverFiles.map((file) => file.id)));
+  }, [serverFiles]);
   useEffect(() => {
     if (pendingLocalFileContentsRef.current.size === 0) return;
     let changed = false;
@@ -7593,11 +7650,17 @@ function DesignEditor() {
   const [inspectorPopoverOpen, setInspectorPopoverOpen] = useState(false);
   useEffect(() => {
     const ATTR = "data-radix-popper-content-wrapper";
+    // Every editor commit mutates the body; setting an unchanged value here
+    // still re-renders the editor, which mutates the body again.
+    let open: boolean | null = null;
     const update = () => {
       const wrappers = document.body.querySelectorAll(`[${ATTR}]`);
-      setInspectorPopoverOpen(
-        Array.from(wrappers).some((wrapper) => isRadixOverlayOpen(wrapper)),
+      const next = Array.from(wrappers).some((wrapper) =>
+        isRadixOverlayOpen(wrapper),
       );
+      if (next === open) return;
+      open = next;
+      setInspectorPopoverOpen(next);
     };
     const observer = new MutationObserver(update);
     observer.observe(document.body, {
@@ -7771,7 +7834,14 @@ function DesignEditor() {
 
   const othersWithAgentCursor = useMemo<OtherPresence[]>(() => {
     const container = canvasContainerRef.current;
-    if (!container) return othersForOverlays;
+    if (
+      !container ||
+      !othersForOverlays.some(
+        (other) => other.isAgent && !other.presence.cursor,
+      )
+    ) {
+      return othersForOverlays;
+    }
     const containerRect = container.getBoundingClientRect();
     if (containerRect.width === 0 || containerRect.height === 0) {
       return othersForOverlays;
@@ -9224,11 +9294,6 @@ function DesignEditor() {
     selectedComponentLiteralProps,
   ]);
 
-  const selectedElementOuterHtml = useMemo(() => {
-    if (!selectedElement?.selector) return null;
-    return getElementOuterHtml(activeContent, selectedElement.selector);
-  }, [activeContent, selectedElement?.selector]);
-
   const motionSelectedTarget = useMemo<{
     nodeId: string;
     label: string;
@@ -9368,8 +9433,19 @@ function DesignEditor() {
 
   const inspectCodeData = useMemo<InspectCodeData | undefined>(() => {
     if (!selectedElement) return undefined;
-    return inspectCodeDataForElement(selectedElement, selectedElementOuterHtml);
-  }, [selectedElement, selectedElementOuterHtml]);
+    const selector = selectedElement.selector;
+    let html: string | null | undefined;
+    // Parses the whole screen; only the open code popover and Code tab read it.
+    return {
+      ...inspectCodeDataForElement(selectedElement, undefined),
+      get html() {
+        if (html === undefined) {
+          html = selector ? getElementOuterHtml(activeContent, selector) : null;
+        }
+        return html;
+      },
+    };
+  }, [activeContent, selectedElement]);
 
   const handleCreateComponent = useCallback(
     (name: string) => {
@@ -11587,6 +11663,8 @@ function DesignEditor() {
             pendingOverviewLayerSelectionRef,
             pendingOverviewScreenSelectionRef,
             renderedElementInfoByLayerKeyRef,
+            revealLayer,
+            selectedElementRef,
             selectedLayerIdsState,
             setActiveFileId,
             setActiveTool,
@@ -11627,6 +11705,7 @@ function DesignEditor() {
       id,
       liveScreenIds,
       rehydrateRenderedInfoAfterPreview,
+      revealLayer,
       selectedLayerIdsState,
       t,
     ],
@@ -12133,6 +12212,7 @@ function DesignEditor() {
           replacePreviewContent,
           responsiveEditScopeRef,
           selectedElement,
+          selectedElementRef,
           setCollabContent,
           setCollabContentFileId,
           setContentRenderRevision,
@@ -13703,6 +13783,8 @@ function DesignEditor() {
         files,
         getFreshActiveContent,
         getScreenContent,
+        layerOwnerFileId: (layerId) =>
+          codeLayerOwnerByNodeIdRef.current.get(layerId)?.fileId,
         liveScreenSnapshotsById,
         overviewScreens,
         runtimeLayerSnapshotsById,
@@ -20085,13 +20167,11 @@ function DesignEditor() {
     viewMode,
   ]);
   const activeCodeLayerTree = useMemo(
-    () => buildCodeLayerTree(activeCodeLayerProjection),
+    () => cachedCodeLayerTree(activeCodeLayerProjection),
     [activeCodeLayerProjection],
   );
-  const activeCodeLayerNodeById = useMemo(
-    () =>
-      new Map(activeCodeLayerProjection.nodes.map((node) => [node.id, node])),
-    [activeCodeLayerProjection],
+  const activeCodeLayerNodeById = cachedCodeLayerNodeById(
+    activeCodeLayerProjection,
   );
   const overviewScreenById = useMemo(
     () => new Map(overviewScreens.map((screen) => [screen.id, screen])),
@@ -20106,12 +20186,13 @@ function DesignEditor() {
     runtimeOnly: boolean;
     structurePreviewKey: string;
     tree: CodeLayerTreeNode[];
-    nodeById: Map<string, CodeLayerNode>;
+    nodeById: ReadonlyMap<string, CodeLayerNode>;
   };
   const codeLayerModelCacheRef = useRef<Map<string, CodeLayerFileModel>>(
     new Map(),
   );
   const codeLayerModelsArrayRef = useRef<CodeLayerFileModel[]>([]);
+  const recentLayerModelFileIdsRef = useRef<string[]>([]);
   const [coveredLayerModelFileIds, setCoveredLayerModelFileIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
@@ -20123,7 +20204,6 @@ function DesignEditor() {
       layerModelsCoverAll
         ? null
         : {
-            searching: layersSearchQuery.trim() !== "",
             boardFileId,
             expandedIds: new Set(expandedLayerIds),
             lockedLayerIds,
@@ -20150,7 +20230,6 @@ function DesignEditor() {
       initialRouteScreenTarget,
       initialRouteSelectionId,
       layerModelsCoverAll,
-      layersSearchQuery,
       lockedLayerIds,
       selectedLayerIdsState,
     ],
@@ -20173,19 +20252,26 @@ function DesignEditor() {
       sourceLayerStates.set(fileId, { content, present });
       return present;
     };
+    const isFocused = (fileId: string) =>
+      fileId === activeFile?.id ||
+      fileId === demand?.boardFileId ||
+      fileId === demand?.routeSelectionFileId ||
+      Boolean(demand?.expandedIds.has(fileId)) ||
+      Boolean(layerStructurePreviewByFileId[fileId]);
+    const recentFileIds = nextRecentLayerModelFileIds(
+      recentLayerModelFileIdsRef.current,
+      files.map((file) => file.id).filter(isFocused),
+    );
+    recentLayerModelFileIdsRef.current = recentFileIds;
+    // Every other screen's model is rebuilt on demand: keeping each one a
+    // session touched grew a large board's heap past a gigabyte.
     const isNeeded = (fileId: string) =>
       !demand ||
-      demand.searching ||
-      cache.has(fileId) ||
-      fileId === activeFile?.id ||
-      fileId === demand.boardFileId ||
-      fileId === demand.routeSelectionFileId ||
+      coveredLayerModelFileIds.has(fileId) ||
+      isFocused(fileId) ||
+      recentFileIds.includes(fileId) ||
       demand.lockedLayerIds.has(fileId) ||
       demand.hiddenLayerIds.has(fileId) ||
-      demand.expandedIds.has(fileId) ||
-      Boolean(layerStructurePreviewByFileId[fileId]) ||
-      Boolean(runtimeLayerSnapshotsById[fileId]) ||
-      nonActiveProjectionCacheRef.current.has(fileId) ||
       hasSourceLayerState(fileId);
     const buildModel = (file: (typeof files)[number]): CodeLayerFileModel => {
       const sourceContent = getScreenContent(file.id);
@@ -20237,10 +20323,10 @@ function DesignEditor() {
         return cached;
       }
       const baseTree = useRuntimeProjection
-        ? buildCodeLayerTree(projection)
+        ? cachedCodeLayerTree(projection)
         : file.id === activeFile?.id
           ? activeCodeLayerTree
-          : buildCodeLayerTree(projection);
+          : cachedCodeLayerTree(projection);
       const tree = structurePreview
         ? (() => {
             const sourceNode = resolveCodeLayerNodeFromBridge(
@@ -20271,7 +20357,7 @@ function DesignEditor() {
         runtimeOnly: useRuntimeProjection,
         structurePreviewKey,
         tree,
-        nodeById: new Map(projection.nodes.map((node) => [node.id, node])),
+        nodeById: cachedCodeLayerNodeById(projection),
       };
       cache.set(file.id, model);
       return model;
@@ -20305,19 +20391,20 @@ function DesignEditor() {
         );
       },
     });
+    const builtFileIds = new Set(models.map((model) => model.fileId));
     for (const fileId of cache.keys()) {
-      if (!liveFileIds.has(fileId)) cache.delete(fileId);
+      if (!builtFileIds.has(fileId)) cache.delete(fileId);
     }
     for (const fileId of sourceLayerStates.keys()) {
       if (!liveFileIds.has(fileId)) sourceLayerStates.delete(fileId);
     }
     for (const fileId of runtimeProjectionCacheRef.current.keys()) {
-      if (!liveFileIds.has(fileId)) {
+      if (!builtFileIds.has(fileId)) {
         runtimeProjectionCacheRef.current.delete(fileId);
       }
     }
     for (const fileId of nonActiveProjectionCacheRef.current.keys()) {
-      if (!liveFileIds.has(fileId)) {
+      if (!builtFileIds.has(fileId)) {
         nonActiveProjectionCacheRef.current.delete(fileId);
       }
     }
@@ -20334,6 +20421,7 @@ function DesignEditor() {
     activeCodeLayerTree,
     activeFile?.id,
     codeLayerSourceForScreen,
+    coveredLayerModelFileIds,
     designSourceType,
     files,
     getCodeLayerProjectionForScreen,
@@ -20349,60 +20437,94 @@ function DesignEditor() {
     getCodeLayerProjectionForScreen,
   );
   getCodeLayerProjectionForScreenRef.current = getCodeLayerProjectionForScreen;
+  const getProjectionContentForScreenRef = useRef(
+    getProjectionContentForScreen,
+  );
+  getProjectionContentForScreenRef.current = getProjectionContentForScreen;
+  const coveredLayerModelFileIdsRef = useRef(coveredLayerModelFileIds);
+  coveredLayerModelFileIdsRef.current = coveredLayerModelFileIds;
+  // Only a search needs every screen's layers; building them up front holds
+  // hundreds of megabytes on a large board that a session mostly never opens.
+  const layersSearching = layersSearchQuery.trim() !== "";
+  const layersSearchQueryRef = useRef(layersSearchQuery);
+  layersSearchQueryRef.current = layersSearchQuery;
   useEffect(() => {
-    if (layerModelsCoverAll) return;
-    const projected: string[] = [];
+    if (layersSearching) return;
+    setCoveredLayerModelFileIds((covered) =>
+      covered.size === 0 ? covered : new Set(),
+    );
+  }, [layersSearching]);
+  useEffect(() => {
+    if (!layersSearching || layerModelsCoverAll) return;
+    let rankedQuery: string | null = null;
+    let ranked: typeof historyFilesRef.current = [];
     let next = 0;
     return runInIdleSlices((deadline) => {
-      const pending = historyFilesRef.current;
-      do {
-        const file = pending[next];
-        if (!file) {
-          setCoveredLayerModelFileIds(
-            (covered) => new Set([...covered, ...projected]),
-          );
-          return true;
-        }
+      const query = layersSearchQueryRef.current.trim();
+      if (query !== rankedQuery) {
+        rankedQuery = query;
+        next = 0;
+        // Screens whose source contains the query hold most text matches, so
+        // they build first; the rest still build for name and type matches.
+        const pattern = new RegExp(
+          query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+          "i",
+        );
+        const uncovered = historyFilesRef.current.filter(
+          (file) => !coveredLayerModelFileIdsRef.current.has(file.id),
+        );
+        const likely = uncovered.filter((file) =>
+          pattern.test(getProjectionContentForScreenRef.current(file.id)),
+        );
+        ranked = [
+          ...likely,
+          ...uncovered.filter((file) => !likely.includes(file)),
+        ];
+      }
+      const projected: string[] = [];
+      while (next < ranked.length) {
+        const file = ranked[next]!;
         next += 1;
-        if (coveredLayerModelFileIds.has(file.id)) continue;
+        if (coveredLayerModelFileIdsRef.current.has(file.id)) continue;
         getCodeLayerProjectionForScreenRef.current(file.id);
         projected.push(file.id);
-      } while (performance.now() < deadline);
-      return false;
+        if (performance.now() >= deadline) break;
+      }
+      if (projected.length > 0) {
+        setCoveredLayerModelFileIds(
+          (covered) => new Set([...covered, ...projected]),
+        );
+      }
+      return next >= ranked.length;
     });
-  }, [coveredLayerModelFileIds, layerModelsCoverAll]);
+  }, [files.length, layerModelsCoverAll, layersSearching]);
   const codeLayerModelByFileId = useMemo(
     () => new Map(codeLayerModelsByFile.map((model) => [model.fileId, model])),
     [codeLayerModelsByFile],
   );
-  const codeLayerOwnerByNodeId = useMemo(() => {
-    const owners = new Map<
-      string,
-      {
-        fileId: string;
-        node: CodeLayerNode;
-        sourceProjection: CodeLayerProjection;
-        tree: CodeLayerTreeNode[];
-        runtimeOnly: boolean;
-      }
-    >();
-    codeLayerModelsByFile.forEach((model) => {
-      model.projection.nodes.forEach((node) => {
-        owners.set(node.id, {
-          fileId: model.fileId,
-          node,
-          sourceProjection: model.sourceProjection,
-          tree: model.tree,
-          runtimeOnly: isCodeLayerNodeRuntimeOnly({
-            fileIsRuntimeProjected: model.runtimeOnly,
-            nodeIdAttr: node.dataAttributes["data-agent-native-node-id"],
-            sourceNodeIdAttrs: model.sourceNodeIdAttrs,
-          }),
-        });
-      });
-    });
-    return owners;
-  }, [codeLayerModelsByFile]);
+  const projectionPinOwner = useId();
+  useEffect(() => {
+    pinCodeLayerDocuments(projectionPinOwner, [
+      activeContent,
+      ...codeLayerModelsByFile.map((model) =>
+        getProjectionContentForScreen(model.fileId),
+      ),
+    ]);
+    return () => pinCodeLayerDocuments(projectionPinOwner, []);
+  }, [
+    activeContent,
+    codeLayerModelsByFile,
+    getProjectionContentForScreen,
+    projectionPinOwner,
+  ]);
+  const codeLayerOwnerIndexRef = useRef<CodeLayerOwnerIndex | null>(null);
+  const codeLayerOwnerByNodeId = useMemo(
+    () =>
+      (codeLayerOwnerIndexRef.current ??= new CodeLayerOwnerIndex()).sync(
+        codeLayerModelsByFile,
+      ),
+    [codeLayerModelsByFile],
+  );
   const resolvedInitialRouteSelectionId = useMemo(() => {
     if (!initialRouteSelectionId) return null;
     const targetFile = initialRouteScreenTarget
@@ -20579,34 +20701,17 @@ function DesignEditor() {
   }, [codeLayerOwnerByNodeId, effectiveCodeLayerState, selectedLayerIdsState]);
   useEffect(() => {
     const fileIds = new Set(files.map((file) => file.id));
+    const sourceStates = codeLayerModelsByFile.map((model) =>
+      sourceLayerStateIds(model.fileId, model.projection),
+    );
     const lockedFromSource = new Set(
-      codeLayerModelsByFile.flatMap((model) =>
-        model.projection.nodes
-          .filter(
-            (node) =>
-              node.dataAttributes["data-agent-native-locked"] === "true",
-          )
-          .map((node) => scopedLayerStateId(model.fileId, node.id)),
-      ),
+      sourceStates.flatMap((state) => state.locked),
     );
     const hiddenFromSource = new Set(
-      codeLayerModelsByFile.flatMap((model) =>
-        model.projection.nodes
-          .filter(
-            (node) =>
-              node.dataAttributes["data-agent-native-hidden"] === "true",
-          )
-          .map((node) => scopedLayerStateId(model.fileId, node.id)),
-      ),
+      sourceStates.flatMap((state) => state.hidden),
     );
-    const allLayerIds = new Set([
-      ...fileIds,
-      ...codeLayerModelsByFile.flatMap((model) =>
-        model.projection.nodes.map((node) =>
-          scopedLayerStateId(model.fileId, node.id),
-        ),
-      ),
-    ]);
+    const isKnownLayerId = (id: string) =>
+      fileIds.has(id) || sourceStates.some((state) => state.all.has(id));
     const reconcile = (
       current: Set<string>,
       sourceIds: Set<string>,
@@ -20617,7 +20722,7 @@ function DesignEditor() {
         if (fileIds.has(id)) next.add(id);
       });
       layerStateOverridesRef.current.forEach((override, id) => {
-        if (!allLayerIds.has(id)) {
+        if (!isKnownLayerId(id)) {
           layerStateOverridesRef.current.delete(id);
           return;
         }
@@ -20762,7 +20867,8 @@ function DesignEditor() {
           lockable: true,
           hideable: true,
           renamable: true,
-          layers: codeLayerTreeToPanelNodes(
+          childrenPending: !model && screenBodyHasElements(file.content ?? ""),
+          layers: cachedCodeLayerTreeToPanelNodes(
             model?.tree ?? [],
             layerStateIdsForScreen(lockedLayerIds, file.id),
             layerStateIdsForScreen(hiddenLayerIds, file.id),
@@ -20781,7 +20887,7 @@ function DesignEditor() {
     if (!boardFileId) return undefined;
     const model = codeLayerModelByFileId.get(boardFileId);
     if (!model?.tree?.length) return undefined;
-    const nodes = codeLayerTreeToPanelNodes(
+    const nodes = cachedCodeLayerTreeToPanelNodes(
       model.tree,
       layerStateIdsForScreen(lockedLayerIds, boardFileId),
       layerStateIdsForScreen(hiddenLayerIds, boardFileId),
@@ -20872,7 +20978,7 @@ function DesignEditor() {
     const activeTree = activeFile?.id
       ? (codeLayerModelByFileId.get(activeFile.id)?.tree ?? activeCodeLayerTree)
       : activeCodeLayerTree;
-    return codeLayerTreeToPanelNodes(
+    return cachedCodeLayerTreeToPanelNodes(
       activeTree,
       activeFile?.id
         ? layerStateIdsForScreen(lockedLayerIds, activeFile.id)
@@ -20900,30 +21006,36 @@ function DesignEditor() {
   }, [activeFile?.id, activeLayerPanelNodes.length, layerPanelFiles, viewMode]);
 
   const selectedLayerIds = useMemo(() => {
-    const validIds = new Set(
-      (viewMode === "overview"
-        ? codeLayerModelsByFile.flatMap((model) => model.projection.nodes)
-        : activeFile?.id
-          ? (codeLayerModelByFileId.get(activeFile.id)?.projection.nodes ??
-            activeCodeLayerProjection.nodes)
-          : activeCodeLayerProjection.nodes
-      ).map((node) => node.id),
-    );
+    const activeNodeById = activeFile?.id
+      ? codeLayerModelByFileId.get(activeFile.id)?.nodeById
+      : undefined;
+    const isProjectedLayerId = (layerId: string) =>
+      viewMode === "overview"
+        ? codeLayerModelsByFile.some((model) => model.nodeById.has(layerId))
+        : activeNodeById
+          ? activeNodeById.has(layerId)
+          : activeCodeLayerProjection.nodes.some((node) => node.id === layerId);
+    const extraValidIds = new Set<string>();
     const fileIds = new Set(files.map((file) => file.id));
     const pendingOverviewScreenId = pendingOverviewScreenSelectionRef.current;
     const pendingOverviewLayerId = pendingOverviewLayerSelectionRef.current;
     if (pendingOverviewScreenId) {
-      validIds.add(pendingOverviewScreenId);
+      extraValidIds.add(pendingOverviewScreenId);
       fileIds.add(pendingOverviewScreenId);
     }
     if (pendingOverviewLayerId) {
-      validIds.add(pendingOverviewLayerId);
+      extraValidIds.add(pendingOverviewLayerId);
     }
     if (createdOverviewLayerSelection) {
-      validIds.add(createdOverviewLayerSelection.layerId);
+      extraValidIds.add(createdOverviewLayerSelection.layerId);
     }
-    if (selectedElementLayerId) validIds.add(selectedElementLayerId);
-    files.forEach((file) => validIds.add(file.id));
+    if (selectedElementLayerId) extraValidIds.add(selectedElementLayerId);
+    const validIds = {
+      has: (layerId: string) =>
+        extraValidIds.has(layerId) ||
+        fileIds.has(layerId) ||
+        isProjectedLayerId(layerId),
+    };
     const selectedStateIds = selectedLayerIdsState.filter((layerId) =>
       validIds.has(layerId),
     );
@@ -21983,6 +22095,11 @@ function DesignEditor() {
       externalPreviewUrlForContent(getScreenContent(fileId)) === null &&
       externalPreviewUrlForContent(content) === null;
 
+    const projectionOf = (fileId: string, content: string) =>
+      content === getProjectionContentForScreen(fileId)
+        ? (getCodeLayerProjectionForScreen(fileId) ?? undefined)
+        : undefined;
+
     if (selectedLayerTargets.length > 0) {
       return selectedLayerTargets.flatMap((target) => {
         const content =
@@ -21994,6 +22111,7 @@ function DesignEditor() {
               {
                 fileId: target.fileId,
                 content,
+                projection: projectionOf(target.fileId, content),
                 source: codeLayerSourceForScreen(target.fileId),
                 sourceId: bridgeSourceIdForCodeLayerNode(target.node),
                 selector: target.node.selector,
@@ -22008,6 +22126,7 @@ function DesignEditor() {
         {
           fileId: activeFile.id,
           content: activeContent,
+          projection: projectionOf(activeFile.id, activeContent),
           source: codeLayerSourceForScreen(activeFile.id),
           sourceId: selectedElement.sourceId,
           selector: selectedElement.selector,
@@ -22022,6 +22141,7 @@ function DesignEditor() {
             {
               fileId: screenId,
               content,
+              projection: projectionOf(screenId, content),
               source: codeLayerSourceForScreen(screenId),
               wholeDocument: true,
             },
@@ -22033,6 +22153,7 @@ function DesignEditor() {
     codeLayerSourceForScreen,
     designSourceType,
     activeFile?.id,
+    getCodeLayerProjectionForScreen,
     getProjectionContentForScreen,
     getScreenContent,
     overviewScreens,
@@ -22365,10 +22486,13 @@ function DesignEditor() {
   }, [files]);
 
   useEffect(() => {
+    if (
+      !selectedElementLayerId ||
+      selectedLayerIdsStateRef.current.includes(selectedElementLayerId)
+    ) {
+      return;
+    }
     setSelectedLayerIdsState((current) => {
-      if (!selectedElementLayerId) {
-        return current;
-      }
       if (current.includes(selectedElementLayerId)) return current;
       if (current.length > 1) return [...current, selectedElementLayerId];
       return [selectedElementLayerId];
@@ -22383,32 +22507,25 @@ function DesignEditor() {
       selectedElementLayerId,
     );
     if (ancestorIds.length === 0) return;
-    setExpandedLayerIds((current) => {
-      const next = new Set(current);
-      if (owner?.fileId) next.add(owner.fileId);
-      ancestorIds.forEach((ancestorId) => next.add(ancestorId));
-      return next.size === current.length ? current : Array.from(next);
-    });
-  }, [activeCodeLayerTree, codeLayerOwnerByNodeId, selectedElementLayerId]);
+    revealLayerIds(
+      owner?.fileId ? [owner.fileId, ...ancestorIds] : ancestorIds,
+    );
+  }, [
+    activeCodeLayerTree,
+    codeLayerOwnerByNodeId,
+    revealLayerIds,
+    selectedElementLayerId,
+  ]);
 
   useEffect(() => {
-    const selectedCodeLayerIds = selectedLayerIds.filter((layerId) =>
-      codeLayerOwnerByNodeId.has(layerId),
-    );
-    if (selectedCodeLayerIds.length === 0) return;
-    setExpandedLayerIds((current) => {
-      const next = new Set(current);
-      selectedCodeLayerIds.forEach((layerId) => {
-        const owner = codeLayerOwnerByNodeId.get(layerId);
-        if (!owner) return;
-        next.add(owner.fileId);
-        collectCodeLayerAncestors(owner.tree, layerId).forEach((ancestorId) =>
-          next.add(ancestorId),
-        );
-      });
-      return next.size === current.length ? current : Array.from(next);
-    });
-  }, [codeLayerOwnerByNodeId, selectedLayerIds]);
+    const ids: string[] = [];
+    for (const layerId of selectedLayerIds) {
+      const owner = codeLayerOwnerByNodeId.get(layerId);
+      if (!owner) continue;
+      ids.push(owner.fileId, ...collectCodeLayerAncestors(owner.tree, layerId));
+    }
+    if (ids.length > 0) revealLayerIds(ids);
+  }, [codeLayerOwnerByNodeId, revealLayerIds, selectedLayerIds]);
 
   useEffect(() => {
     if (!selectedElementLayerId) return;
@@ -22801,7 +22918,9 @@ function DesignEditor() {
   ]);
   const handleInteractionStateChange = useCallback(
     (next: InteractionState | null) => {
-      setActiveInteractionStateState(next);
+      if (activeInteractionStateStateRef.current !== next) {
+        setActiveInteractionStateState(next);
+      }
     },
     [],
   );
@@ -23142,8 +23261,11 @@ function DesignEditor() {
     (id) => !id.startsWith("__") && !fileIdSet.has(id),
   );
   const selectedActiveFileNodeIds = useMemo(
-    () => getActiveFileSelectedNodeIds(activeContent),
-    [activeContent, getActiveFileSelectedNodeIds],
+    () =>
+      selectedLayerIdsState.length >= 2
+        ? getActiveFileSelectedNodeIds(activeContent)
+        : [],
+    [activeContent, getActiveFileSelectedNodeIds, selectedLayerIdsState.length],
   );
   const canOfferBooleanSubtract =
     canEditDesign &&
@@ -23439,27 +23561,36 @@ function DesignEditor() {
         );
       }
       if (selectedLayerIdsStateRef.current.includes(layerId)) {
-        setSelectedElement((current) => {
+        const ownerId =
+          owner.node.dataAttributes["data-agent-native-node-id"] ??
+          bridgeSourceIdForCodeLayerNode(owner.node);
+        const mergeMeasured = (current: ElementInfo | null) => {
           if (!current) return measured;
           const currentId = current.sourceId ?? current.runtimeSourceId;
-          const ownerId =
-            owner.node.dataAttributes["data-agent-native-node-id"] ??
-            bridgeSourceIdForCodeLayerNode(owner.node);
-          return currentId === ownerId
-            ? {
-                ...measured,
-                ...current,
-                sourceLayerIdentity: measured.sourceLayerIdentity,
-                boundingRect: measured.boundingRect,
-                parentBoundingRect:
-                  measured.parentBoundingRect ?? current.parentBoundingRect,
-                computedStyles: {
-                  ...measured.computedStyles,
-                  ...current.computedStyles,
-                },
-              }
-            : current;
-        });
+          if (currentId !== ownerId) return current;
+          const merged = {
+            ...measured,
+            ...current,
+            sourceLayerIdentity: measured.sourceLayerIdentity,
+            boundingRect: measured.boundingRect,
+            parentBoundingRect:
+              measured.parentBoundingRect ?? current.parentBoundingRect,
+            computedStyles: {
+              ...measured.computedStyles,
+              ...current.computedStyles,
+            },
+          };
+          return samePlainData(merged, current) ? current : merged;
+        };
+        const rendered = selectedElementRef.current;
+        // The ref lags a selection set earlier in the same handler, so only a
+        // no-op merge into the element it already holds is safe to skip.
+        if (
+          (rendered?.sourceId ?? rendered?.runtimeSourceId) !== ownerId ||
+          mergeMeasured(rendered) !== rendered
+        ) {
+          setSelectedElement(mergeMeasured);
+        }
       }
       if (
         measured.boundingRect.width <= 0 ||
@@ -24197,7 +24328,7 @@ function DesignEditor() {
               ? previewUrlAtLiveRoute(screenPreviewUrl, currentLiveRoutePath)
               : undefined
           }
-          previewUrlSourceKey={`${screen.id}:${screenPreviewUrl ?? screenContent}`}
+          previewUrlSourceKey={`${screen.id}:${screenPreviewUrl ?? getContentSignature(screenContent)}`}
           previewFrameId={
             breakpointWidthPx === undefined
               ? undefined
@@ -26553,7 +26684,7 @@ function DesignEditor() {
                         activeLeftPanel === "code" ? "flex" : "hidden",
                       )}
                     >
-                      {id && !shellMode ? (
+                      {id && !shellMode && codeWorkbenchOpenedRef.current ? (
                         <CodeWorkbenchLoader
                           designId={id}
                           activeFileId={routeCodeFileId}

@@ -205,6 +205,7 @@ import { IconText } from "./inspector/design-icons";
 import { type GlslShaderPanelContext } from "./inspector/GlslShaderPanel";
 import type { LocalhostWriteConsentPayload } from "./LocalhostWriteConsentDialog";
 import { getActiveScreenIframeId } from "./multi-screen/iframe-targeting";
+import { requestDocumentColorCounts } from "./multi-screen/preview-parse-warmer";
 import type { ScreenHeightMode } from "./multi-screen/screen-height";
 import {
   clampScreenDimension,
@@ -1801,6 +1802,8 @@ function ExportPreviewDisclosure({
   );
 }
 
+const NO_SELECTION_ELEMENTS: ElementInfo[] = [];
+
 export function SelectionColorsProperties({
   elements,
   scopes,
@@ -1822,7 +1825,12 @@ export function SelectionColorsProperties({
 }) {
   const [expanded, setExpanded] = useState(false);
   const t = useT();
-  const colors = providedColors ?? selectionColorValues(elements, scopes);
+  // Scoped reads never look at elements, which some callers rebuild per render.
+  const colorElements = scopes?.length ? NO_SELECTION_ELEMENTS : elements;
+  const colors = useMemo(
+    () => providedColors ?? selectionColorValues(colorElements, scopes),
+    [providedColors, colorElements, scopes],
+  );
   const onColorPickerOpenChangeRef = useRef(onColorPickerOpenChange);
   onColorPickerOpenChangeRef.current = onColorPickerOpenChange;
   const scopeIdentity = JSON.stringify({
@@ -2134,25 +2142,47 @@ function useDocumentColorPalette(files?: DocumentColorSourceFile[]) {
       setPalette(NO_DOCUMENT_COLORS);
       return;
     }
-    let next = 0;
-    return runInIdleSlices((deadline) => {
-      do {
-        const file = files[next];
-        if (!file) {
-          const read = extractDocumentColorPalette(files, undefined, cache);
-          setPalette((current) =>
-            current.length === read.length &&
-            current.every((color, index) => color === read[index])
-              ? current
-              : read,
-          );
-          return true;
-        }
-        next += 1;
-        documentFileColorCounts(file, cache);
-      } while (performance.now() < deadline);
-      return false;
+    const publish = () => {
+      const read = extractDocumentColorPalette(files, undefined, cache);
+      setPalette((current) =>
+        current.length === read.length &&
+        current.every((color, index) => color === read[index])
+          ? current
+          : read,
+      );
+    };
+    const uncounted = files.filter(
+      (file) => cache.get(file.id)?.content !== file.content,
+    );
+    let active = true;
+    let stopIdleScan: (() => void) | undefined;
+    // A large screen takes ~100ms to scan, so workers count colors off the
+    // main thread; anything they cannot answer is scanned here when idle.
+    void requestDocumentColorCounts(uncounted).then((results) => {
+      if (!active) return;
+      const unscanned = uncounted.filter((file, index) => {
+        const counts = results[index];
+        if (counts) cache.set(file.id, { content: file.content, counts });
+        return !counts;
+      });
+      let next = 0;
+      stopIdleScan = runInIdleSlices((deadline) => {
+        do {
+          const file = unscanned[next];
+          if (!file) {
+            publish();
+            return true;
+          }
+          next += 1;
+          documentFileColorCounts(file, cache);
+        } while (performance.now() < deadline);
+        return false;
+      });
     });
+    return () => {
+      active = false;
+      stopIdleScan?.();
+    };
   }, [files]);
   return palette;
 }
@@ -2348,12 +2378,15 @@ export const EditPanel = memo(function EditPanel({
     return {
       designId,
       fileId,
+      content: fileId === boardFileId ? undefined : activeContent,
       nodeId,
       selector: inspectorElement?.selector,
       onApplied: onShaderSourceApplied,
       onEditCode,
     };
   }, [
+    activeContent,
+    boardFileId,
     designId,
     fileId,
     selectedCount,
@@ -2363,6 +2396,10 @@ export const EditPanel = memo(function EditPanel({
     onEditCode,
   ]);
   const documentColorPalette = useDocumentColorPalette(files);
+  const selectedScreenElements = useMemo(
+    () => (selectedScreenElement ? [selectedScreenElement] : []),
+    [selectedScreenElement],
+  );
   const selectionAlreadyComponent =
     selectedCount === 1 &&
     (selectedElementAlreadyComponent ||
@@ -2899,7 +2936,7 @@ export const EditPanel = memo(function EditPanel({
                         onStylesChange={onSelectedScreenStylesChange}
                       />
                       <SelectionColorsProperties
-                        elements={[selectedScreenElement]}
+                        elements={selectedScreenElements}
                         scopes={selectionColorScopes}
                         onColorTarget={onSelectionColorTarget}
                         canSelectColorTarget={canSelectSelectionColorTarget}

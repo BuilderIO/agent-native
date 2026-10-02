@@ -7,6 +7,7 @@ import parseCss from "postcss/lib/parse";
 // @ts-expect-error PostCSS exports its tokenizer without TypeScript declarations.
 import tokenizeCss from "postcss/lib/tokenize";
 
+import { isStructurePreservingEdit } from "./code-layer.js";
 import { isStandaloneHttpUrl } from "./html-content.js";
 
 export const DESIGN_HTML_INTEGRITY_ERROR_CODE = "DESIGN_HTML_INTEGRITY";
@@ -1028,6 +1029,21 @@ function isDocumentHtml(value: string, parsed = parseDocument(value)): boolean {
   return hasDoctype(parsed) || authoredRoot(parsed, "html") !== undefined;
 }
 
+// Each edit's previous content is the last edit's next content, so remembering
+// the verdict spares a full parse of the previous document on every commit.
+const DOCUMENT_VERDICT_LIMIT = 64;
+const documentVerdicts = new Map<string, boolean>();
+function documentHtmlVerdict(value: string, parsed?: ParsedDocument): boolean {
+  const known = documentVerdicts.get(value);
+  if (known !== undefined) return known;
+  const verdict = isDocumentHtml(value, parsed ?? parseDocument(value));
+  documentVerdicts.set(value, verdict);
+  if (documentVerdicts.size > DOCUMENT_VERDICT_LIMIT) {
+    documentVerdicts.delete(documentVerdicts.keys().next().value as string);
+  }
+  return verdict;
+}
+
 function collectDocumentShapeIssue(
   parsed: ParsedDocument,
 ): DesignHtmlIntegrityIssue | null {
@@ -1281,8 +1297,8 @@ function collectTailwindRuntimeAdvisory(
 
 export function inspectDesignHtmlDocumentIntegrity(
   value: string,
+  parsed: ParsedDocument = parseDocument(value),
 ): DesignHtmlIntegrityResult {
-  const parsed = parseDocument(value);
   const locate = createLocator(value);
 
   const structural = collectStructuralIssues(value, parsed);
@@ -1336,6 +1352,11 @@ function introducedRuntimeIssues(
   return next.filter((entry) => !inherited.has(entry.issue));
 }
 
+// An edit the code-layer patcher accepts (one style value or one text run)
+// cannot introduce any issue reported here, so it inherits the previous verdict.
+const VALIDATED_CONTENT_LIMIT = 64;
+const validatedContents = new Set<string>();
+
 export function assertDesignHtmlEditIntegrity(args: {
   previousContent: string;
   nextContent: string;
@@ -1351,10 +1372,29 @@ export function assertDesignHtmlEditIntegrity(args: {
     });
   }
   if (args.fileType.toLowerCase() !== "html") return;
-  const previousIsDocument = isDocumentHtml(args.previousContent);
-  const nextIsDocument = isDocumentHtml(args.nextContent);
+  if (
+    !validatedContents.has(args.previousContent) ||
+    !isStructurePreservingEdit(args.previousContent, args.nextContent)
+  ) {
+    assertDesignHtmlEditIntegrityOfHtml(args);
+  }
+  validatedContents.delete(args.nextContent);
+  validatedContents.add(args.nextContent);
+  if (validatedContents.size > VALIDATED_CONTENT_LIMIT) {
+    validatedContents.delete(validatedContents.values().next().value as string);
+  }
+}
+
+function assertDesignHtmlEditIntegrityOfHtml(args: {
+  previousContent: string;
+  nextContent: string;
+  filename?: string;
+}): void {
+  const nextParsed = parseDocument(args.nextContent);
+  const previousIsDocument = documentHtmlVerdict(args.previousContent);
+  const nextIsDocument = documentHtmlVerdict(args.nextContent, nextParsed);
   if (!previousIsDocument && !nextIsDocument) {
-    const structural = collectStructuralIssues(args.nextContent);
+    const structural = collectStructuralIssues(args.nextContent, nextParsed);
     if (structural.length > 0) {
       throw new DesignHtmlIntegrityError(structural[0]!.issue, {
         filename: args.filename,
@@ -1363,7 +1403,7 @@ export function assertDesignHtmlEditIntegrity(args: {
     }
     const interactiveRuntime = introducedRuntimeIssues(
       collectInteractiveRuntimeIssues(
-        parseDocument(args.nextContent),
+        nextParsed,
         createLocator(args.nextContent),
         "host",
       ),
@@ -1383,7 +1423,10 @@ export function assertDesignHtmlEditIntegrity(args: {
       filename: args.filename,
     });
   }
-  const result = inspectDesignHtmlDocumentIntegrity(args.nextContent);
+  const result = inspectDesignHtmlDocumentIntegrity(
+    args.nextContent,
+    nextParsed,
+  );
   if (!result.valid) {
     if (result.issue && RUNTIME_ISSUES.has(result.issue)) {
       const introduced = introducedRuntimeIssues(

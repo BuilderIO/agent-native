@@ -252,7 +252,10 @@ describe("duplicate authored IDs through publication, Layers move, and render", 
 
     const sourceProjection = sourceLookup.projection;
     const targetProjection = targetAnchorLookup.projection;
-    const owners: LayerMoveArgs["codeLayerOwnerByNodeId"] = new Map();
+    const owners = new Map<
+      string,
+      NonNullable<ReturnType<LayerMoveArgs["codeLayerOwnerByNodeId"]["get"]>>
+    >();
     for (const node of sourceProjection.nodes) {
       owners.set(node.id, {
         fileId: SOURCE_ID,

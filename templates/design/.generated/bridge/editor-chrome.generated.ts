@@ -1488,7 +1488,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         "data-agent-native-editor-chrome-style",
         ""
       );
-      chromeTransitionStyle.textContent = 'html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-drawn-caret]{caret-color:transparent!important}[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:calc(1px * var(--agent-native-editor-chrome-line-scale, 1)) dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
+      chromeTransitionStyle.textContent = // The scale vars live on the root; left inheritable, every write
+      // restyles the whole document, deferred into the next time it scrolls in.
+      '@property --agent-native-editor-chrome-scale-x{syntax:"<number>";inherits:false;initial-value:1}@property --agent-native-editor-chrome-scale-y{syntax:"<number>";inherits:false;initial-value:1}@property --agent-native-editor-chrome-line-scale{syntax:"<number>";inherits:false;initial-value:1}html{overflow:clip}[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}[data-agent-native-drawn-caret]{caret-color:transparent!important}[data-agent-native-inspector-styling-range] ::selection{background:transparent!important}[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}[data-agent-native-suppress-handle-transition] [data-agent-native-edge-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-edit-handle],[data-agent-native-suppress-handle-transition] [data-agent-native-rotate-handle]{transition:none!important}[data-agent-native-runtime-locked="true"]{outline:1px dashed rgba(148,163,184,0.9)!important;outline-offset:0!important;cursor:not-allowed!important}[data-agent-native-spacing-line]{position:absolute;display:none;pointer-events:none;border-radius:999px}[data-agent-native-spacing-region]{position:absolute;display:none;box-sizing:border-box;pointer-events:auto;background-size:6px 6px}[data-agent-native-spacing-region][data-orientation="vertical"]{cursor:ew-resize}[data-agent-native-spacing-region][data-orientation="horizontal"]{cursor:ns-resize}';
       (document.head || document.documentElement).appendChild(
         chromeTransitionStyle
       );
@@ -1680,19 +1682,40 @@ export const editorChromeBridgeScript: string = `"use strict";
     function chromeLineScale() {
       return 1 / Math.max(0.05, Math.max(editorChromeScaleX, editorChromeScaleY));
     }
+    function syncEditorChromeScaleVar(name, value) {
+      var style = document.documentElement.style;
+      if (style.getPropertyValue(name) !== value) style.setProperty(name, value);
+    }
+    var chromeLineStyle = null;
+    function syncEditorChromeLineStyle(lineScale) {
+      if (!chromeLineStyle || !chromeLineStyle.isConnected) {
+        chromeLineStyle = document.createElement("style");
+        chromeLineStyle.setAttribute(
+          "data-agent-native-editor-chrome-line-style",
+          ""
+        );
+        (document.head || document.documentElement).appendChild(chromeLineStyle);
+      }
+      var text = '[data-agent-native-runtime-locked="true"]{outline-width:calc(1px * ' + lineScale + ")!important}";
+      if (chromeLineStyle.textContent !== text) {
+        chromeLineStyle.textContent = text;
+      }
+    }
     function syncEditorChromeScaleVars() {
-      document.documentElement.style.setProperty(
+      syncEditorChromeScaleVar(
         "--agent-native-editor-chrome-scale-x",
         String(chromeScaleX())
       );
-      document.documentElement.style.setProperty(
+      syncEditorChromeScaleVar(
         "--agent-native-editor-chrome-scale-y",
         String(chromeScaleY())
       );
-      document.documentElement.style.setProperty(
+      var lineScale = String(chromeLineScale());
+      syncEditorChromeScaleVar(
         "--agent-native-editor-chrome-line-scale",
-        String(chromeLineScale())
+        lineScale
       );
+      syncEditorChromeLineStyle(lineScale);
     }
     function escapeIdent(value) {
       if (window.CSS && typeof window.CSS.escape === "function") {
@@ -2665,6 +2688,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
     }
     function scheduleRuntimeLayerSnapshot() {
+      if (!runtimeLayerSnapshotEnabled) return;
       if (runtimeLayerSnapshotTimer !== null) {
         window.clearTimeout(runtimeLayerSnapshotTimer);
       }
@@ -6012,21 +6036,31 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
     }
     function recordSourceSubtree(root) {
+      if (root.nodeType === 1 && isTemplateCloneElement(root)) return;
+      recordSourceTree(root);
+    }
+    function recordSourceTree(root) {
       if (root.nodeType === 1 && root.hasAttribute("data-agent-native-edit-overlay")) {
         return;
       }
-      if (root.nodeType === 1 && isTemplateCloneElement(root)) return;
       recordSourceOwnership(root);
       if (root.nodeType !== 1) return;
       var template = templateContentOf(root);
       if (template) {
         var held = template.childNodes;
-        for (var t = 0; t < held.length; t += 1) recordSourceSubtree(held[t]);
+        for (var t = 0; t < held.length; t += 1) recordSourceTree(held[t]);
         return;
       }
+      var hasTemplateChild = !!root.querySelector(
+        ":scope > template"
+      );
       var children = root.childNodes;
       for (var i = 0; i < children.length; i += 1) {
-        recordSourceSubtree(children[i]);
+        var child = children[i];
+        if (hasTemplateChild && child.nodeType === 1 && repeatTemplateOwning(child)) {
+          continue;
+        }
+        recordSourceTree(child);
       }
     }
     function templateContentOf(element) {
@@ -6097,6 +6131,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       return out;
     }
     function applyStyleAttribute(live, previousSource, nextSource) {
+      if (previousSource === nextSource) return;
       var previousOwned = {};
       styleDeclarations(previousSource).forEach(function(entry) {
         previousOwned[entry[0]] = entry[1];
@@ -6677,6 +6712,34 @@ export const editorChromeBridgeScript: string = `"use strict";
       highlightOverlay.style.display = "none";
       hideMeasurements();
       refreshOverlays();
+    }
+    function replaceSourceNode(nodeId, html, sourceProvenanceValue) {
+      var sourceProvenance = normalizeSourceDocumentProvenance(
+        sourceProvenanceValue
+      );
+      if (typeof nodeId !== "string" || typeof html !== "string" || !sourceProvenance || activeTextEditEl || suspendedTextEditRange || pendingRuntimeDocumentUpdate || activeNodeHtmlPreview || lastSourceHeadHtml === null) {
+        return false;
+      }
+      var matches = document.querySelectorAll(
+        '[data-agent-native-node-id="' + escapeAttribute(nodeId) + '"]'
+      );
+      var template = document.createElement("template");
+      template.innerHTML = html;
+      var current = matches.length === 1 ? matches[0] : null;
+      var next = template.content.firstElementChild;
+      if (!current || !next || template.content.childElementCount !== 1 || isOverlayElement(current) || !isSourceOwned(current) || current.nodeName !== next.nodeName || current.namespaceURI !== next.namespaceURI || scopeDirectiveChanged(current, next)) {
+        return false;
+      }
+      morphElement(current, next, scopedMorphContext(current, next));
+      hydrateVectorEndpointMarkers();
+      applyLayerStateSelectors();
+      publishSourceDocumentProvenance(sourceProvenance);
+      if (selectedEl && selectedEl.isConnected) {
+        positionOverlay(selectionOverlay, selectedEl);
+        postElementSelect(selectedEl);
+      }
+      refreshOverlays();
+      return true;
     }
     function hideSpacingOverlay() {
       spacingOverlay.style.display = "none";
@@ -21330,6 +21393,15 @@ export const editorChromeBridgeScript: string = `"use strict";
         );
         return;
       }
+      if (e.data.type === "replace-source-node") {
+        if (!replaceSourceNode(e.data.nodeId, e.data.html, e.data.sourceProvenance)) {
+          window.parent.postMessage(
+            { type: "replace-source-node-rejected" },
+            "*"
+          );
+        }
+        return;
+      }
       if (e.data.type === "node-html-preview") {
         if (e.data.operation === "restore") {
           if (typeof e.data.proposalId === "string") {
@@ -21693,7 +21765,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     refreshFrameNameLabels();
     hydrateVectorEndpointMarkers();
     captureInitialSourceOwnership();
-    if (runtimeLayerSnapshotEnabled) scheduleRuntimeLayerSnapshot();
+    scheduleRuntimeLayerSnapshot();
     if (document.readyState === "complete") {
       scheduleScreenRootStyleSnapshot();
     } else {

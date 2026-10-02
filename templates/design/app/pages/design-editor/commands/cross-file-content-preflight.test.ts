@@ -131,7 +131,10 @@ it.each(["layers-panel move", "move-to-screen", "overview reparent"] as const)(
     });
     const draggedNode = nodeById(sourceProjection.nodes, "moving");
     const targetNode = nodeById(targetProjection.nodes, "target");
-    const owners: LayerMoveArgs["codeLayerOwnerByNodeId"] = new Map();
+    const owners = new Map<
+      string,
+      NonNullable<ReturnType<LayerMoveArgs["codeLayerOwnerByNodeId"]["get"]>>
+    >();
     for (const node of sourceProjection.nodes) {
       owners.set(node.id, {
         fileId: SOURCE_ID,
@@ -287,7 +290,10 @@ it("does not record a move-to-screen when a real writer rejects a stale permissi
   });
   const moving = nodeById(sourceProjection.nodes, "moving");
   const targetNode = nodeById(targetProjection.nodes, "target");
-  const owners: LayerMoveArgs["codeLayerOwnerByNodeId"] = new Map();
+  const owners = new Map<
+    string,
+    NonNullable<ReturnType<LayerMoveArgs["codeLayerOwnerByNodeId"]["get"]>>
+  >();
   for (const [fileId, projection] of [
     [SOURCE_ID, sourceProjection],
     [TARGET_ID, targetProjection],

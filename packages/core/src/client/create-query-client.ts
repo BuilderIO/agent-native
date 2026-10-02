@@ -27,6 +27,12 @@ const HOUSE_DEFAULTS: QueryClientConfig = {
         failureCount < 1,
       refetchOnWindowFocus: false,
     },
+    // A settled mutation keeps the options of the render that started it, and
+    // with them that render's whole scope: on a large document, megabytes per
+    // save held for the default five minutes.
+    mutations: {
+      gcTime: 0,
+    },
   },
 };
 
