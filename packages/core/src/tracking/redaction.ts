@@ -9,8 +9,7 @@ const SQL_PARAMS_RE = /^([\s\S]*?)(\r?\n[ \t]*params:\s*)[\s\S]*$/i;
 const SQL_QUERY_FAILURE_RE = /\b(?:failed query|query failed):\s*/i;
 const SQL_STATEMENT_RE =
   /^(?:select|insert|update|delete|merge|values|explain|call|execute|copy|declare)\b/i;
-const SQL_CTE_HEADER_RE =
-  /^(?:"(?:[^"]|"")+"|[a-z_][\w$]*)(?:\s*\([^)]*\))?\s+as\s+(?:(?:not\s+)?materialized\s+)?\(/i;
+const SQL_CTE_NAME_RE = /^(?:"(?:[^"]|"")+"|[a-z_][\w$]*)/i;
 const SQL_CTE_QUERY_RE =
   /^(?:select|insert|update|delete|merge|values|with|table)\b/i;
 const SQL_CTE_SEARCH_CLAUSE_RE = /^search\s+(?:breadth|depth)\s+first\s+by\b/i;
@@ -133,12 +132,40 @@ function isSqlCteStatement(value: string): boolean {
   }
 
   while (true) {
-    const header = SQL_CTE_HEADER_RE.exec(statement);
-    if (!header) return false;
+    const name = SQL_CTE_NAME_RE.exec(statement);
+    if (!name) return false;
 
-    const afterBody = afterSqlParenthesizedBody(
-      statement.slice(header[0].length - 1),
-    );
+    let header = afterLeadingSqlComments(statement.slice(name[0].length));
+    if (header.startsWith("(")) {
+      const afterColumns = afterSqlParenthesizedBody(header);
+      if (afterColumns === undefined) return false;
+      header = afterLeadingSqlComments(afterColumns);
+    }
+
+    const asPrefix = /^as\b/i.exec(header);
+    if (!asPrefix) return false;
+    header = afterLeadingSqlComments(header.slice(asPrefix[0].length));
+
+    const notPrefix = /^not\b/i.exec(header);
+    if (notPrefix) {
+      header = afterLeadingSqlComments(header.slice(notPrefix[0].length));
+      const requiredMaterialized = /^materialized\b/i.exec(header);
+      if (!requiredMaterialized) return false;
+      header = afterLeadingSqlComments(
+        header.slice(requiredMaterialized[0].length),
+      );
+    } else {
+      const materializedPrefix = /^materialized\b/i.exec(header);
+      if (materializedPrefix) {
+        header = afterLeadingSqlComments(
+          header.slice(materializedPrefix[0].length),
+        );
+      }
+    }
+
+    if (!header.startsWith("(")) return false;
+
+    const afterBody = afterSqlParenthesizedBody(header);
     if (afterBody === undefined) return false;
 
     const remainder = afterLeadingSqlComments(afterBody);

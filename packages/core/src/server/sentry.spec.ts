@@ -586,6 +586,10 @@ describe("server/sentry", () => {
         "WITH RECURSIVE customer AS (SELECT email FROM users WHERE email = $1) SELECT * FROM customer";
       const commentedCteQuery =
         "WITH /* customer lookup */ customer AS (SELECT email FROM users WHERE email = $1) SELECT * FROM customer";
+      const commentedNameQuery =
+        "WITH customer /* customer name */ AS (SELECT email FROM users WHERE email = $1) SELECT * FROM customer";
+      const commentedAsQuery =
+        "WITH customer AS /* CTE body */ (SELECT email FROM users WHERE email = $1) SELECT * FROM customer";
       const searchQuery =
         "WITH RECURSIVE /* customer traversal */ customer AS (SELECT email FROM users WHERE email = $1) SEARCH DEPTH FIRST BY email SET search_order SELECT * FROM customer";
       const cycleQuery =
@@ -597,6 +601,8 @@ describe("server/sentry", () => {
         withQuery,
         recursiveQuery,
         commentedCteQuery,
+        commentedNameQuery,
+        commentedAsQuery,
         searchQuery,
         cycleQuery,
         multiCteQuery,
@@ -616,6 +622,8 @@ describe("server/sentry", () => {
       } as never) as { logentry: { params: unknown[] } };
 
       expect(cteResults.map((result) => result.logentry.params)).toEqual([
+        undefined,
+        undefined,
         undefined,
         undefined,
         undefined,
