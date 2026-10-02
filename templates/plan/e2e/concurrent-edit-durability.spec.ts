@@ -190,6 +190,15 @@ async function openPair(
 ): Promise<Pair> {
   const ctxA = await browser.newContext({ storageState: STATE_FILE });
   const ctxB = await browser.newContext();
+  if (process.env.PLAN_E2E_REFUSE_EVENTS === "1") {
+    // Serverless hosts answer the realtime stream with 204, leaving /poll as
+    // the only channel between the two editors.
+    for (const ctx of [ctxA, ctxB]) {
+      await ctx.route("**/_agent-native/events**", (route) =>
+        route.fulfill({ status: 204, body: "" }),
+      );
+    }
+  }
   const pageA = await ctxA.newPage();
   const pageB = await ctxB.newPage();
   const planId = await createPlan(pageA, blocks);
