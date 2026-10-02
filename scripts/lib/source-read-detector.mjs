@@ -67,6 +67,13 @@ function isTempName(name) {
     .some((word) => TEMP_WORDS.has(word.toLowerCase()));
 }
 
+// A string literal rooted in the OS temp directory: POSIX /tmp or /var/tmp,
+// macOS /var/folders (also under /private), or a Windows drive path with a
+// Temp segment, like C:\Users\x\AppData\Local\Temp\gen.ts. A repo-relative
+// `src/tmp/` or `temp/` does not count.
+const TEMP_LITERAL_RE =
+  /^(?:\/(?:private\/)?(?:tmp|var\/tmp|var\/folders)(?:\/|$)|[A-Za-z]:[\\/](?:.*[\\/])?temp(?:[\\/]|$))/i;
+
 // Names that mean "the repo checkout" (REPO_ROOT, workspaceRoot, cwd, HERE,
 // or an ALL_CAPS ...ROOT/...DIR constant). Only used for identifiers that are
 // imported rather than declared in the file: a local `root` is resolved, and
@@ -151,37 +158,121 @@ function stringValue(node) {
   return null;
 }
 
-function commentBlockHasPragma(lines, lineNo) {
-  // Walk up through the contiguous comment block directly above `lineNo`.
-  for (let index = lineNo - 2; index >= 0; index -= 1) {
-    const line = (lines[index] ?? "").trim();
-    if (!/^(?:\/\/|\/\*|\*)/.test(line)) return null;
-    const match = PRAGMA_RE.exec(line);
-    if (match) return match;
+/**
+ * Offsets [start, end) of every comment in the file. Only the text outside
+ * string, template, regex and JSX-text tokens is scanned, so a
+ * "// source-read-ok:" that lives inside one of those is never a comment.
+ */
+function collectCommentRanges(sf) {
+  const literals = [];
+  const visit = (node) => {
+    if (node.kind === ts.SyntaxKind.JsxText) {
+      literals.push([node.pos, node.end]);
+    } else if (
+      ts.isStringLiteral(node) ||
+      ts.isNoSubstitutionTemplateLiteral(node) ||
+      ts.isTemplateHead(node) ||
+      ts.isTemplateMiddle(node) ||
+      ts.isTemplateTail(node) ||
+      ts.isRegularExpressionLiteral(node)
+    ) {
+      literals.push([node.getStart(sf), node.end]);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
+  literals.sort((a, b) => a[0] - b[0]);
+
+  const scanner = ts.createScanner(
+    sf.languageVersion,
+    false, // keep comments as tokens instead of skipping them
+    sf.languageVariant,
+  );
+  const ranges = [];
+  const scanCode = (start, end) => {
+    if (end <= start) return;
+    scanner.setText(sf.text, start, end - start);
+    for (
+      let kind = scanner.scan();
+      kind !== ts.SyntaxKind.EndOfFileToken;
+      kind = scanner.scan()
+    ) {
+      if (
+        kind === ts.SyntaxKind.SingleLineCommentTrivia ||
+        kind === ts.SyntaxKind.MultiLineCommentTrivia
+      ) {
+        ranges.push([scanner.getTokenStart(), scanner.getTokenEnd()]);
+      }
+    }
+  };
+  let cursor = 0;
+  for (const [start, end] of literals) {
+    scanCode(cursor, start);
+    cursor = Math.max(cursor, end);
   }
-  return null;
+  scanCode(cursor, sf.text.length);
+  return ranges;
 }
 
 /**
- * Returns "ok" (a pragma with a reason), "empty" (a pragma with no reason),
- * or null (no pragma) for a flagged span.
+ * Reads `source-read-ok` pragmas from the lines of `sf`. A pragma only counts
+ * when it is inside a real comment; the same characters in a string, template,
+ * regex or JSX text do not allow a read.
  */
-function pragmaStatus(lines, startLine, endLine) {
-  let sawEmpty = false;
-  const candidates = [];
-  for (let line = startLine; line <= endLine; line += 1) {
-    candidates.push(PRAGMA_RE.exec(lines[line - 1] ?? ""));
-  }
-  // The comment block directly above (a trailing comment on the previous
-  // code line belongs to that line, not this one).
-  candidates.push(commentBlockHasPragma(lines, startLine));
-  for (const match of candidates) {
-    if (!match) continue;
-    const reason = match[1].replace(/\*\/\s*$/, "").trim();
-    if (reason) return "ok";
-    sawEmpty = true;
-  }
-  return sawEmpty ? "empty" : null;
+function createPragmaReader(sf, lines) {
+  const lineStarts = sf.getLineStarts();
+  let comments = null; // found on first use: most files never need them
+  const inComment = (position) => {
+    comments ??= collectCommentRanges(sf);
+    return comments.some(([start, end]) => position >= start && position < end);
+  };
+
+  // The first PRAGMA_RE match on 1-based line `lineNo` that is inside a
+  // comment (an earlier look-alike inside a string is skipped over).
+  const pragmaOnLine = (lineNo) => {
+    const line = lines[lineNo - 1] ?? "";
+    for (let from = 0; from < line.length; ) {
+      const match = PRAGMA_RE.exec(line.slice(from));
+      if (!match) return null;
+      const at = from + match.index;
+      if (inComment(lineStarts[lineNo - 1] + at)) return match;
+      from = at + 2; // past this `//` or `/*`
+    }
+    return null;
+  };
+
+  const commentBlockHasPragma = (lineNo) => {
+    // Walk up through the contiguous comment block directly above `lineNo`.
+    for (let index = lineNo - 2; index >= 0; index -= 1) {
+      const line = (lines[index] ?? "").trim();
+      if (!/^(?:\/\/|\/\*|\*)/.test(line)) return null;
+      const match = pragmaOnLine(index + 1);
+      if (match) return match;
+    }
+    return null;
+  };
+
+  /**
+   * Returns "ok" (a pragma with a reason), "empty" (a pragma with no reason),
+   * or null (no pragma) for a flagged span.
+   */
+  return (startLine, endLine) => {
+    let sawEmpty = false;
+    const candidates = [];
+    for (let line = startLine; line <= endLine; line += 1) {
+      candidates.push(pragmaOnLine(line));
+    }
+    // The comment block directly above (a trailing comment on the previous
+    // code line belongs to that line, not this one).
+    candidates.push(commentBlockHasPragma(startLine));
+    for (const match of candidates) {
+      if (!match) continue;
+      const reason = match[1].replace(/\*\/\s*$/, "").trim();
+      if (reason) return "ok";
+      sawEmpty = true;
+    }
+    return sawEmpty ? "empty" : null;
+  };
 }
 
 // The expression of every `return x;` in a function, not counting returns
@@ -219,23 +310,31 @@ function objectProperty(node, key) {
   return null;
 }
 
+// `null` or `undefined`: no encoding, which Node reads as a Buffer.
+const isNullish = (node) => {
+  const inner = unwrap(node);
+  return (
+    inner.kind === ts.SyntaxKind.NullKeyword ||
+    (ts.isIdentifier(inner) && inner.text === "undefined")
+  );
+};
+
 // A read that yields text: it names an encoding, or the result is turned
 // into a string on the spot. A bare readFileSync(path) is a Buffer, which
-// is how tests copy, compare, serve, or existence-check a file.
+// is how tests copy, compare, serve, or existence-check a file, and so is
+// one with `{ encoding: null }` or `{ encoding: undefined }`.
 const isTextRead = (call) => {
   const options = call.arguments[1] && unwrap(call.arguments[1]);
   if (options) {
     if (stringValue(options) !== null) return true;
     if (ts.isObjectLiteralExpression(options)) {
-      return (
-        objectProperty(options, "encoding") !== null ||
-        options.properties.some((property) => ts.isSpreadAssignment(property))
+      const encoding = objectProperty(options, "encoding");
+      if (encoding) return !isNullish(encoding);
+      return options.properties.some((property) =>
+        ts.isSpreadAssignment(property),
       );
     }
-    return !(
-      options.kind === ts.SyntaxKind.NullKeyword ||
-      (ts.isIdentifier(options) && options.text === "undefined")
-    );
+    return !isNullish(options);
   }
   let current = call;
   while (
@@ -288,6 +387,11 @@ function collectModel(sf) {
   const decls = new Map();
   const fsReceivers = new Set();
   const fsReaders = new Set();
+  // Names the file binds to something other than the fs module (a variable,
+  // parameter, function, class, or a non-fs import). A name that looks like fs
+  // (`fs`, `fsp`) or is `readFileSync` only stands for the real thing when the
+  // file does not define it itself, like `const fs = { readFileSync: vi.fn() }`.
+  const localBindings = new Set();
   const calls = [];
   const rawSpecifiers = [];
 
@@ -333,7 +437,8 @@ function collectModel(sf) {
     const inner = unwrap(expr);
     if (ts.isIdentifier(inner)) {
       return (
-        fsReceivers.has(inner.text) || FS_RECEIVER_NAME_RE.test(inner.text)
+        fsReceivers.has(inner.text) ||
+        (FS_RECEIVER_NAME_RE.test(inner.text) && !localBindings.has(inner.text))
       );
     }
     if (
@@ -392,7 +497,16 @@ function collectModel(sf) {
     }
   }
 
+  // Every identifier a binding name or destructuring pattern introduces.
+  function bindingNames(nameNode) {
+    if (ts.isIdentifier(nameNode)) return [nameNode.text];
+    return nameNode.elements.flatMap((element) =>
+      ts.isBindingElement(element) ? bindingNames(element.name) : [],
+    );
+  }
+
   function bindParameterNames(nameNode, scope) {
+    for (const name of bindingNames(nameNode)) localBindings.add(name);
     if (ts.isIdentifier(nameNode)) {
       addDecl(nameNode.text, scope, { param: scope });
     } else {
@@ -431,6 +545,22 @@ function collectModel(sf) {
     }
   }
 
+  // import("node:fs").then((fs) => ...): the callback gets the fs module.
+  function bindFsCallbackParameter(call) {
+    const callee = call.expression;
+    if (
+      !ts.isPropertyAccessExpression(callee) ||
+      callee.name.text !== "then" ||
+      !isFsExpression(callee.expression)
+    ) {
+      return;
+    }
+    const fn = call.arguments[0] && unwrap(call.arguments[0]);
+    if (fn && isFunctionLike(fn) && fn.parameters[0]) {
+      bindFsBinding(fn.parameters[0].name);
+    }
+  }
+
   const visit = (node) => {
     if (
       ts.isImportDeclaration(node) &&
@@ -439,6 +569,17 @@ function collectModel(sf) {
       const spec = node.moduleSpecifier.text;
       if (RAW_SOURCE_RE.test(spec)) rawSpecifiers.push(node.moduleSpecifier);
       const clause = node.importClause;
+      if (clause && !FS_MODULE_RE.test(spec)) {
+        if (clause.name) localBindings.add(clause.name.text);
+        const bindings = clause.namedBindings;
+        if (bindings && ts.isNamespaceImport(bindings)) {
+          localBindings.add(bindings.name.text);
+        } else if (bindings && ts.isNamedImports(bindings)) {
+          for (const element of bindings.elements) {
+            localBindings.add(element.name.text);
+          }
+        }
+      }
       if (clause && FS_MODULE_RE.test(spec)) {
         if (clause.name) fsReceivers.add(clause.name.text);
         const bindings = clause.namedBindings;
@@ -453,9 +594,17 @@ function collectModel(sf) {
           }
         }
       }
-    } else if (ts.isFunctionDeclaration(node) && node.name && node.body) {
-      addDecl(node.name.text, declarationScope(node), { init: node });
+    } else if (ts.isFunctionDeclaration(node) && node.name) {
+      localBindings.add(node.name.text);
+      if (node.body) {
+        addDecl(node.name.text, declarationScope(node), { init: node });
+      }
+    } else if (ts.isClassDeclaration(node) && node.name) {
+      localBindings.add(node.name.text);
     } else if (ts.isVariableDeclaration(node)) {
+      if (!node.initializer || !isFsExpression(node.initializer)) {
+        for (const name of bindingNames(node.name)) localBindings.add(name);
+      }
       if (ts.isIdentifier(node.name)) {
         // A bare `let x;` still declares x here, so a later assignment lands
         // in this scope instead of leaking to same-named variables elsewhere.
@@ -480,6 +629,8 @@ function collectModel(sf) {
       addDecl(node.left.text, declared ? declared.scope : sf, {
         init: node.right,
       });
+      // `let fs; fs = await import("node:fs")` is still the fs module.
+      if (isFsExpression(node.right)) bindFsBinding(node.left);
     } else if (
       ts.isForOfStatement(node) &&
       ts.isVariableDeclarationList(node.initializer)
@@ -496,12 +647,20 @@ function collectModel(sf) {
     if (ts.isCallExpression(node)) {
       calls.push(node);
       bindCallbackParameters(node);
+      bindFsCallbackParameter(node);
     }
     ts.forEachChild(node, visit);
   };
   visit(sf);
 
-  return { visibleDecls, isFsExpression, fsReaders, calls, rawSpecifiers };
+  return {
+    visibleDecls,
+    isFsExpression,
+    isLocalBinding: (name) => localBindings.has(name),
+    fsReaders,
+    calls,
+    rawSpecifiers,
+  };
 }
 
 /**
@@ -519,18 +678,32 @@ function createPathAnalyzer({ visibleDecls }) {
   // Only a "source" tail that is anchored (or literal-only) and neither
   // fixture nor temp counts: reads of generated output under a build or temp
   // directory are testing what the code produced, not what it says.
-  const merge = (a, b) => ({
-    tail:
-      a.tail === "source" || b.tail === "source"
-        ? "source"
-        : a.tail === "other" || b.tail === "other"
-          ? "other"
-          : "unknown",
-    fixture: a.fixture || b.fixture,
-    temp: a.temp || b.temp,
-    anchored: a.anchored || b.anchored,
-    literalOnly: a.literalOnly && b.literalOnly,
-  });
+  //
+  // merge() combines the alternatives a loop, table, ternary or helper can
+  // resolve to. A fixture or temp alternative is test data, so next to a
+  // source path it is dropped and the read is judged by the source path (a
+  // list of ["src/Editor.tsx", "fixtures/sample.tsx"] still reads source).
+  // Only a source-tailed alternative outranks it: a directory or a `let dir =
+  // ""` placeholder next to a scratch directory is still the scratch directory.
+  const isTestData = (facts) => facts.fixture || facts.temp;
+  const merge = (a, b) => {
+    if (isTestData(a) !== isTestData(b)) {
+      const real = isTestData(a) ? b : a;
+      if (real.tail === "source") return real;
+    }
+    return {
+      tail:
+        a.tail === "source" || b.tail === "source"
+          ? "source"
+          : a.tail === "other" || b.tail === "other"
+            ? "other"
+            : "unknown",
+      fixture: a.fixture || b.fixture,
+      temp: a.temp || b.temp,
+      anchored: a.anchored || b.anchored,
+      literalOnly: a.literalOnly && b.literalOnly,
+    };
+  };
   const UNKNOWN = {
     tail: "unknown",
     fixture: false,
@@ -543,7 +716,7 @@ function createPathAnalyzer({ visibleDecls }) {
   const literalFacts = (text) => ({
     tail: SOURCE_EXT_RE.test(text) ? "source" : "other",
     fixture: FIXTURE_RE.test(text),
-    temp: false,
+    temp: TEMP_LITERAL_RE.test(text),
     anchored: false,
     literalOnly: true,
   });
@@ -854,16 +1027,27 @@ export function findSourceReadViolations(file, source, addedLines = null) {
     true,
     scriptKindFor(rel),
   );
-  // Split on CRLF as well, so a checkout with Windows line endings still
-  // sees the pragma text without a trailing carriage return.
-  const lines = source.split(/\r\n|\r|\n/u);
+  // Lines as the compiler counts them (so offsets line up), without their
+  // terminators: a checkout with Windows line endings still sees the pragma
+  // text without a trailing carriage return.
+  const lineStarts = sf.getLineStarts();
+  const lines = lineStarts.map((start, index) =>
+    source
+      .slice(start, lineStarts[index + 1] ?? source.length)
+      .replace(/[\r\n\u2028\u2029]+$/u, ""),
+  );
+  const pragmaStatus = createPragmaReader(sf, lines);
   const model = collectModel(sf);
   const { analyze, mentionsParam, UNKNOWN } = createPathAnalyzer(model);
-  const { isFsExpression, fsReaders, calls, rawSpecifiers } = model;
+  const { isFsExpression, isLocalBinding, fsReaders, calls, rawSpecifiers } =
+    model;
 
   const readReceiverIsFs = (callee) => {
     if (ts.isIdentifier(callee)) {
-      return callee.text === "readFileSync" || fsReaders.has(callee.text);
+      return (
+        fsReaders.has(callee.text) ||
+        (callee.text === "readFileSync" && !isLocalBinding(callee.text))
+      );
     }
     if (
       ts.isPropertyAccessExpression(callee) &&
@@ -971,7 +1155,7 @@ export function findSourceReadViolations(file, source, addedLines = null) {
       }
       if (!touched) continue;
     }
-    const status = pragmaStatus(lines, startLine, endLine);
+    const status = pragmaStatus(startLine, endLine);
     if (status === "ok") continue;
     const key = `${startLine}:${reason}`;
     if (seenReports.has(key)) continue;

@@ -171,6 +171,88 @@ for (const file of ["src/a.ts", "src/b.ts"]) {
   );
 });
 
+test("flags a read when any alternative path is a real source file", () => {
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+import path from "node:path";
+for (const file of ["src/Editor.tsx", "fixtures/sample.tsx"]) {
+  readFileSync(path.join(__dirname, file), "utf8");
+}
+`),
+    [5],
+  );
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+const target = process.env.CI ? "fixtures/sample.ts" : "src/Editor.ts";
+readFileSync(target, "utf8");
+`),
+    [4],
+  );
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+const targets = [path.join(os.tmpdir(), "gen.ts"), "src/a.ts"];
+for (const file of targets) readFileSync(file, "utf8");
+`),
+    [6],
+  );
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+import path from "node:path";
+it.each([["a", "fixtures/a.tsx"], ["b", "src/b.tsx"]])("%s", (_name, file) => {
+  readFileSync(path.join(__dirname, file), "utf8");
+});
+`),
+    [5],
+  );
+});
+
+test("a scratch directory assigned over an empty placeholder stays temp", () => {
+  assert.deepEqual(
+    flagged(`
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+let rootPath = "";
+beforeAll(() => {
+  rootPath = fs.mkdtempSync(path.join(os.tmpdir(), "work-"));
+});
+it("reads what the build wrote", () => {
+  fs.readFileSync(path.join(rootPath, "src", "App.tsx"), "utf8");
+});
+`),
+    [],
+  );
+});
+
+test("does not flag a read when every alternative path is a fixture or non-source", () => {
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+import path from "node:path";
+for (const file of ["fixtures/a.tsx", "__fixtures__/b.tsx"]) {
+  readFileSync(path.join(__dirname, file), "utf8");
+}
+`),
+    [],
+  );
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+import path from "node:path";
+for (const file of ["data.json", "fixtures/sample.tsx"]) {
+  readFileSync(path.join(__dirname, file), "utf8");
+}
+`),
+    [],
+  );
+});
+
 test("flags a call to a same-file helper that reads source", () => {
   assert.deepEqual(
     flagged(`
@@ -253,6 +335,79 @@ const generated = readFileSync(path.join(dir, "server.mjs"), "utf8");
   );
 });
 
+test("does not flag a read of a literal temp path", () => {
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+readFileSync("/tmp/generated.ts", "utf8");
+readFileSync("/var/tmp/generated.ts", "utf8");
+readFileSync("/var/folders/ab/cd/T/generated.ts", "utf8");
+readFileSync("/private/var/folders/ab/cd/T/generated.ts", "utf8");
+`),
+    [],
+  );
+  assert.deepEqual(
+    flagged(String.raw`
+import { readFileSync } from "node:fs";
+readFileSync("C:\\Users\\x\\AppData\\Local\\Temp\\gen.ts", "utf8");
+readFileSync("c:/users/x/appdata/local/temp/gen.ts", "utf8");
+readFileSync("C:\\Temp\\gen.ts", "utf8");
+`),
+    [],
+  );
+  // A temp root joined to a source file name is still temp output.
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+import path from "node:path";
+readFileSync(path.join("/tmp", "generated.ts"), "utf8");
+const out = "/tmp/out";
+readFileSync(out + "/generated.ts", "utf8");
+`),
+    [],
+  );
+});
+
+test("a temp-looking literal inside the repo is still flagged", () => {
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+readFileSync("src/tmp/Editor.ts", "utf8");
+readFileSync("tmp.ts", "utf8");
+readFileSync("packages/temp/Editor.ts", "utf8");
+`),
+    [3, 4, 5],
+  );
+});
+
+test("does not flag a read with a null or undefined encoding", () => {
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+readFileSync("src/a.ts", { encoding: null });
+readFileSync("src/a.ts", { encoding: undefined });
+readFileSync("src/a.ts", { encoding: null, flag: "r" });
+await readFile("src/a.ts", { encoding: undefined });
+`),
+    [],
+  );
+});
+
+test("flags a read whose encoding is any other value", () => {
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+const encoding = "utf8";
+readFileSync("src/a.ts", { encoding: "utf8" });
+readFileSync("src/a.ts", { encoding });
+readFileSync("src/a.ts", { encoding: encoding });
+readFileSync("src/a.ts", { ...options });
+`),
+    [4, 5, 6, 7],
+  );
+});
+
 test("does not flag a read that yields a Buffer instead of text", () => {
   assert.deepEqual(
     flagged(`
@@ -280,6 +435,189 @@ const store = { readFileSync(_file: string, _enc: string) { return ""; } };
 const value = store.readFileSync("src/a.ts", "utf8");
 `),
     [],
+  );
+});
+
+test("flags a read through an fs-named receiver the file does not declare", () => {
+  assert.deepEqual(
+    flagged(`
+fs.readFileSync("src/a.ts", "utf8");
+`),
+    [2],
+  );
+  assert.deepEqual(
+    flagged(`
+const fs = require("node:fs");
+fs.readFileSync("src/a.ts", "utf8");
+`),
+    [3],
+  );
+  assert.deepEqual(
+    flagged(`
+const fs = await vi.importActual<typeof import("node:fs")>("node:fs");
+fs.readFileSync("src/a.ts", "utf8");
+`),
+    [3],
+  );
+  assert.deepEqual(
+    flagged(`
+import fs from "node:fs";
+const alias = fs;
+alias.readFileSync("src/a.ts", "utf8");
+`),
+    [4],
+  );
+  assert.deepEqual(
+    flagged(`
+let fs: typeof import("node:fs");
+beforeAll(async () => {
+  fs = await import("node:fs");
+});
+fs.readFileSync("src/a.ts", "utf8");
+`),
+    [6],
+  );
+});
+
+test("flags a read through the fs module a dynamic import hands to .then", () => {
+  assert.deepEqual(
+    flagged(`
+const source = await import("node:fs").then((fs) =>
+  fs.readFileSync("src/a.ts", "utf8"),
+);
+`),
+    [3],
+  );
+  assert.deepEqual(
+    flagged(`
+const source = await import("node:fs").then(({ readFileSync }) =>
+  readFileSync("src/a.ts", "utf8"),
+);
+`),
+    [3],
+  );
+  assert.deepEqual(
+    flagged(`
+const source = await loadFake().then((fs) =>
+  fs.readFileSync("src/a.ts", "utf8"),
+);
+`),
+    [],
+  );
+});
+
+test("does not flag a read on a local mock that is only named fs", () => {
+  assert.deepEqual(
+    flagged(`
+const fs = { readFileSync: vi.fn(() => "x") };
+fs.readFileSync("./Editor.tsx", "utf8");
+`),
+    [],
+  );
+  assert.deepEqual(
+    flagged(`
+function run(fs: FakeFs) {
+  return fs.readFileSync("./Editor.tsx", "utf8");
+}
+`),
+    [],
+  );
+  assert.deepEqual(
+    flagged(`
+const run = ({ fs }: { fs: FakeFs }) => fs.readFileSync("./Editor.tsx", "utf8");
+`),
+    [],
+  );
+  assert.deepEqual(
+    flagged(`
+function fsp() {}
+fsp.readFile("./Editor.tsx", "utf8");
+`),
+    [],
+  );
+  assert.deepEqual(
+    flagged(`
+class FS {}
+const fakeFs = new FS();
+for (const fs of [fakeFs]) fs.readFileSync("./Editor.tsx", "utf8");
+`),
+    [],
+  );
+  assert.deepEqual(
+    flagged(`
+import { fs } from "memfs";
+fs.readFileSync("./Editor.tsx", "utf8");
+`),
+    [],
+  );
+  assert.deepEqual(
+    flagged(`
+import fs from "./fake-fs";
+fs.readFileSync("./Editor.tsx", "utf8");
+`),
+    [],
+  );
+  assert.deepEqual(
+    flagged(`
+const { fs } = makeSandbox();
+await fs.promises.readFile("./Editor.tsx", "utf8");
+`),
+    [],
+  );
+});
+
+test("does not flag a bare readFileSync the file defines itself", () => {
+  assert.deepEqual(
+    flagged(`
+function readFileSync(file: string) { return fixtures[file]; }
+readFileSync("./Editor.tsx", "utf8");
+`),
+    [],
+  );
+  assert.deepEqual(
+    flagged(`
+function check(readFileSync: (file: string, enc: string) => string) {
+  return readFileSync("./Editor.tsx", "utf8");
+}
+`),
+    [],
+  );
+  assert.deepEqual(
+    flagged(`
+const readFileSync = vi.fn(() => "x");
+readFileSync("./Editor.tsx", "utf8");
+`),
+    [],
+  );
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "./helpers";
+readFileSync("./Editor.tsx", "utf8");
+`),
+    [],
+  );
+});
+
+test("flags a bare readFileSync that is imported from fs or not declared", () => {
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+readFileSync("./Editor.tsx", "utf8");
+`),
+    [3],
+  );
+  assert.deepEqual(
+    flagged(`
+const { readFileSync } = require("node:fs");
+readFileSync("./Editor.tsx", "utf8");
+`),
+    [3],
+  );
+  assert.deepEqual(
+    flagged(`
+readFileSync("./Editor.tsx", "utf8");
+`),
+    [2],
   );
 });
 
@@ -366,6 +704,72 @@ test("a pragma works in a file with Windows line endings", () => {
     'const c = readFileSync("src/c.ts", "utf8");',
   ].join("\r\n");
   assert.deepEqual(flagged(source), [5]);
+});
+
+test("pragma text inside a string, template or regex is not a pragma", () => {
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+const a = readFileSync("src/a.ts", "utf8"); const note = "// source-read-ok: nope";
+`),
+    [3],
+  );
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+const note = "/* source-read-ok: nope */"; readFileSync("src/a.ts", "utf8");
+`),
+    [3],
+  );
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+const doc = \`intro
+// source-read-ok: nope\`;
+const a = readFileSync("src/a.ts", "utf8");
+`),
+    [5],
+  );
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+const a = readFileSync(
+  "src/a.ts", // not a pragma, and the call spans lines
+  "// source-read-ok: nope",
+);
+`),
+    [3],
+  );
+  assert.deepEqual(
+    flagged(
+      `
+import { readFileSync } from "node:fs";
+const el = <p>// source-read-ok: nope</p>; readFileSync("src/a.ts", "utf8");
+`,
+      "app/Editor.test.tsx",
+    ),
+    [3],
+  );
+});
+
+test("a real pragma comment still counts after a string that looks like one", () => {
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+const note = "// source-read-ok: nope"; readFileSync("src/a.ts", "utf8"); // source-read-ok: real reason
+const re = /\\/\\//; readFileSync("src/b.ts", "utf8"); // source-read-ok: after a regex with slashes
+const t = \`\${1}\`; readFileSync("src/c.ts", "utf8"); /* source-read-ok: block comment after a template */
+`),
+    [],
+  );
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+/* source-read-ok: block comment above */
+const a = readFileSync("src/a.ts", "utf8");
+`),
+    [],
+  );
 });
 
 test("only lines the branch added are reported", () => {
