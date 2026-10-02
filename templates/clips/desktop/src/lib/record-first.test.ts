@@ -14,6 +14,7 @@ import {
   recordFirstFilesToQueue,
   saveRecordFirstFiles,
   stageRecordFirstFile,
+  transferRecordFirstFiles,
   type RecordFirstChunk,
   type RecordFirstFile,
 } from "./record-first";
@@ -117,6 +118,110 @@ describe("record-first file list", () => {
       ["/later.webm", undefined],
     ]);
     expect(loadRecordFirstFiles(storage, "k")).toEqual(next);
+  });
+
+  describe("moving unclaimed files to an account", () => {
+    const a = { ...file, path: "/a.webm", fileName: "a.webm" };
+    const b = { ...file, path: "/b.webm", fileName: "b.webm" };
+    const mine = { ...file, path: "/mine.webm", fileName: "mine.webm" };
+
+    function paths(storage: ReturnType<typeof memoryStorage>, key: string) {
+      return loadRecordFirstFiles(storage, key).map((f) => f.path);
+    }
+
+    /** Every moving file is in exactly one list, never neither or both. */
+    function expectEachListedOnce(storage: ReturnType<typeof memoryStorage>) {
+      const all = [...paths(storage, "acct"), ...paths(storage, "unclaimed")];
+      for (const path of ["/a.webm", "/b.webm", "/mine.webm"]) {
+        expect(all.filter((p) => p === path)).toHaveLength(1);
+      }
+    }
+
+    function seeded() {
+      const storage = memoryStorage();
+      saveRecordFirstFiles(storage, "acct", [mine]);
+      saveRecordFirstFiles(storage, "unclaimed", [a, b]);
+      return storage;
+    }
+
+    it("adds them to the account and only then empties the unclaimed list", () => {
+      const storage = seeded();
+
+      transferRecordFirstFiles(storage, "unclaimed", "acct");
+
+      expect(paths(storage, "acct")).toEqual([
+        "/mine.webm",
+        "/a.webm",
+        "/b.webm",
+      ]);
+      expect(paths(storage, "unclaimed")).toEqual([]);
+    });
+
+    it("keeps the unclaimed list untouched when the account write fails", () => {
+      const storage = seeded();
+      const setItem = storage.setItem;
+      storage.setItem = (key: string, value: string) => {
+        if (key === "acct")
+          throw new DOMException("full", "QuotaExceededError");
+        setItem(key, value);
+      };
+
+      expect(() =>
+        transferRecordFirstFiles(storage, "unclaimed", "acct"),
+      ).toThrow("full");
+      expect(paths(storage, "unclaimed")).toEqual(["/a.webm", "/b.webm"]);
+      expect(paths(storage, "acct")).toEqual(["/mine.webm"]);
+    });
+
+    it("keeps the unclaimed list when the account write does not read back", () => {
+      const storage = seeded();
+      const setItem = storage.setItem;
+      storage.setItem = (key: string, value: string) =>
+        // The write appears to succeed but does not hold.
+        key === "acct" ? undefined : setItem(key, value);
+
+      expect(() =>
+        transferRecordFirstFiles(storage, "unclaimed", "acct"),
+      ).toThrow("couldn't add");
+      expect(paths(storage, "unclaimed")).toEqual(["/a.webm", "/b.webm"]);
+    });
+
+    it("never duplicates a file when a crash hit before the unclaimed list was cleared", () => {
+      const storage = seeded();
+      const setItem = storage.setItem;
+      const removeItem = storage.removeItem;
+      storage.removeItem = (key: string) => {
+        if (key === "unclaimed") throw new Error("app quit");
+        removeItem(key);
+      };
+
+      expect(() =>
+        transferRecordFirstFiles(storage, "unclaimed", "acct"),
+      ).toThrow("app quit");
+      // After the "crash" the files are in both lists, never in neither.
+      expect(paths(storage, "acct")).toEqual([
+        "/mine.webm",
+        "/a.webm",
+        "/b.webm",
+      ]);
+      expect(paths(storage, "unclaimed")).toEqual(["/a.webm", "/b.webm"]);
+
+      storage.setItem = setItem;
+      storage.removeItem = removeItem;
+      transferRecordFirstFiles(storage, "unclaimed", "acct");
+      expectEachListedOnce(storage);
+    });
+
+    it("refuses an unreadable unclaimed list without touching either list", () => {
+      const storage = seeded();
+      storage.setItem("unclaimed", "{not json");
+
+      expect(() =>
+        transferRecordFirstFiles(storage, "unclaimed", "acct"),
+      ).toThrow();
+      expect(storage.getItem("unclaimed")).toBe("{not json");
+      expect(paths(storage, "acct")).toEqual(["/mine.webm"]);
+    });
   });
 
   it("queues the composed file, or every file when a capture wrote none", () => {

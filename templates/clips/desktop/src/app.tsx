@@ -139,6 +139,7 @@ import {
   RecordFirstFileMissingError,
   recordFirstFilesKey,
   recordFirstFilesToQueue,
+  transferRecordFirstFiles,
   type RecordFirstFile,
   type VideoStorageStatus,
 } from "./lib/record-first";
@@ -3327,15 +3328,28 @@ export function App({
     // the user clicks Upload now, never automatically.
     let files = changeQueuedFiles(recordFirstKey, (own) => own);
     if (options.includeUnclaimed && unclaimedRecordFirstFiles.length > 0) {
-      let unclaimed: RecordFirstFile[] = [];
-      changeQueuedFiles(unclaimedRecordFirstKey, (stored) => {
-        unclaimed = stored;
-        return [];
-      });
-      files = changeQueuedFiles(recordFirstKey, (own) => [
-        ...own,
-        ...unclaimed.filter((f) => !own.some((mine) => mine.path === f.path)),
-      ]);
+      try {
+        files = transferRecordFirstFiles(
+          localStorage,
+          unclaimedRecordFirstKey,
+          recordFirstKey,
+        );
+      } catch (err) {
+        // Every file is still in at least one list; show both as stored.
+        setRecordFirstError(err instanceof Error ? err.message : String(err));
+        files = [];
+      }
+      for (const [key, setFiles] of [
+        [recordFirstKey, setRecordFirstFiles],
+        [unclaimedRecordFirstKey, setUnclaimedRecordFirstFiles],
+      ] as const) {
+        try {
+          setFiles(loadRecordFirstFiles(localStorage, key));
+        } catch {
+          // coercion-ok: an unreadable list keeps its last state; the transfer error is shown above.
+        }
+      }
+      if (files.length === 0) return;
     }
     setRecordFirstUploading(true);
     setRecordFirstError(null);

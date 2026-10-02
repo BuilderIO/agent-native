@@ -165,6 +165,36 @@ export function changeRecordFirstFiles(
   return next;
 }
 
+/**
+ * Move every entry of one stored list into another. The destination is
+ * written and read back before anything leaves the source, so a failed write
+ * or a crash at any point leaves each file in at least one list, and running
+ * it again never duplicates one (entries are matched by path). Throws, with
+ * the source untouched, when the source is unreadable or the destination
+ * write does not hold.
+ */
+export function transferRecordFirstFiles(
+  storage: Pick<Storage, "getItem" | "setItem" | "removeItem">,
+  fromKey: string,
+  toKey: string,
+): RecordFirstFile[] {
+  const moving = loadRecordFirstFiles(storage, fromKey);
+  if (moving.length === 0) return loadRecordFirstFiles(storage, toKey);
+  changeRecordFirstFiles(storage, toKey, (own) => [
+    ...own,
+    ...moving.filter((f) => !own.some((mine) => mine.path === f.path)),
+  ]);
+  const landed = loadRecordFirstFiles(storage, toKey);
+  const landedPaths = new Set(landed.map((f) => f.path));
+  if (!moving.every((f) => landedPaths.has(f.path))) {
+    throw new Error("Clips couldn't add those recordings to your account.");
+  }
+  changeRecordFirstFiles(storage, fromKey, (source) =>
+    source.filter((f) => !landedPaths.has(f.path)),
+  );
+  return landed;
+}
+
 export interface RecordFirstChunk {
   recordingId: string;
   index: number;
