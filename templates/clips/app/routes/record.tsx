@@ -772,7 +772,7 @@ export function RecordingLeaveChoices({
             : t("recordRoute.leaveConfirmDescription")}
         </AlertDialogDescription>
       </AlertDialogHeader>
-      <AlertDialogFooter>
+      <AlertDialogFooter className="flex-wrap gap-2 sm:space-x-0">
         <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
         <Button
           type="button"
@@ -2447,6 +2447,24 @@ export default function RecordRoute() {
         return;
       }
       try {
+        // Ownership comes before storage setup: an ownerless copy is claimed
+        // first, and another account's copy never reaches the upload step.
+        // coercion-ok: an unreadable copy is reported by the upload itself.
+        const meta = await getRecordingBackupMeta(recordingId).catch(
+          () => undefined,
+        );
+        if (!isCurrent() || abort.signal.aborted) return;
+        if (meta && !meta.ownerEmail) {
+          update({ uploading: false, needsOwner: true });
+          return;
+        }
+        if (
+          meta?.ownerEmail &&
+          meta.ownerEmail.toLowerCase() !== ownerEmail.toLowerCase()
+        ) {
+          update({ uploading: false, error: { code: "owner_mismatch" } });
+          return;
+        }
         // coercion-ok: null surfaces as the "network" state with Retry below.
         const status = await fetchVideoStorageStatus().catch(() => null);
         if (!isCurrent() || abort.signal.aborted) return;
@@ -3857,7 +3875,7 @@ export default function RecordRoute() {
       <AlertDialog open={leavePromptOpen} onOpenChange={onDialogOpenChange}>
         <AlertDialogContent
           onCloseAutoFocus={onCloseAutoFocus}
-          className="max-w-sm"
+          className="max-w-md"
         >
           <RecordingLeaveChoices
             canKeep={leaveCanKeep}
