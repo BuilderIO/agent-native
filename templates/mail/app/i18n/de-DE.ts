@@ -482,7 +482,7 @@ const messages = {
         "Füge den Empfänger hinzu oder lösche den Text, bevor du sendest.",
       pleaseAddRecipient: "Añade al menos un destinatario",
       aiEngineRequired:
-        "Conecta Builder u otro motor de IA antes de usar Generar.",
+        "Verwende vor dem Generieren Builder.io (kostenloser Tarif verfügbar) oder eine andere KI-Engine.",
       couldNotUnsubscribe: "No se pudo cancelar la suscripción",
       unsubscribeSent: "Solicitud de baja enviada",
       draftQueued: "Borrador en cola.",
@@ -745,7 +745,7 @@ const messages = {
         "Kostenlos mit Builder.io oder füge einen API-Schlüssel hinzu.",
       jevAvailabilityFailed:
         "Die Verfügbarkeit von Jev konnte nicht geprüft werden.",
-      connectBuilder: "Builder.io verbinden",
+      connectBuilder: "Builder.io verwenden",
       addJevApiKey: "API-Schlüssel hinzufügen",
     },
     draftQueue: {

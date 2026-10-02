@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -149,9 +149,10 @@ export default defineAction({
 
     const caps = resolveCapabilities(design.data);
     if (!hasCapability(caps, "captureState")) {
-      throw new Error(
+      fail(
         "The design's source does not support captureState. " +
-          "Connect Builder (free tier available) or a localhost bridge to enable live captures.",
+          "Use Builder.io (free tier available) or a localhost bridge to enable live captures.",
+        { errorCode: "capture_state_not_supported", statusCode: 422 },
       );
     }
 

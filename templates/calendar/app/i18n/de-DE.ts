@@ -247,7 +247,7 @@ export default {
     eventRulesConnectJev: "Verbinde Jev, um Einladungsregeln auszuführen",
     eventRulesFreeBuilderOrApiKey:
       "Kostenlos mit Builder.io oder füge einen API-Schlüssel hinzu.",
-    eventRulesConnectBuilder: "Builder.io verbinden",
+    eventRulesConnectBuilder: "Builder.io verwenden",
     eventRulesAddJevApiKey: "API-Schlüssel hinzufügen",
     eventRulesTabRules: "Regeln",
     eventRulesHelpLabel: "Hinweise zu Einladungsregeln",

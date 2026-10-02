@@ -962,8 +962,8 @@ const messages = {
           "제공된 회사 웹사이트를 읽고 회사 소개 프레젠테이션을 만드세요. 사실을 지어내지 말고 접근 오류를 보고하세요.",
       },
     },
-    connectBuilderIo: "Builder.io 연결",
-    connectingBuilder: "Builder.io 연결 중…",
+    connectBuilderIo: "Builder.io 사용",
+    connectingBuilder: "Builder.io 설정 중…",
     recent: "최근 항목",
     starters: {
       pitch: {

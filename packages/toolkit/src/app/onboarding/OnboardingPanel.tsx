@@ -1,5 +1,6 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   trackOnboardingEvent,
   useOnboarding,
@@ -703,6 +704,7 @@ function BuilderCliAuthMethod({
   primary?: boolean;
   onClick: () => void;
 }) {
+  const t = useT();
   const connectFlow = useBuilderConnectFlow({
     provisionAccount: true,
     trackingSource: "onboarding_builder_cli_auth",
@@ -726,19 +728,13 @@ function BuilderCliAuthMethod({
                 style={{ marginInlineEnd: 4 }}
                 className="animate-spin"
               />
-              Waiting for Builder...
+              {t("agentChat.onboarding.builderConnecting")}
             </>
           ) : (
-            "Connect Builder"
+            t("agentChat.setup.connectBuilder")
           )}
         </button>
       </BuilderConnectPopover>
-      {connecting && (
-        <p style={styles.methodHint}>
-          A Builder tab opened. Choose your team or app space there; setup will
-          continue here automatically.
-        </p>
-      )}
       {error && <p style={styles.errText}>{error}</p>}
     </>
   );

@@ -60,16 +60,16 @@ describe("BuilderConnectCard", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     viewModel = {
-      title: "Builder connect",
+      title: "Use Builder.io",
       description:
-        "Connect Builder.io for managed model access, browser automation, and workspace identity. Free tier available.",
+        "Model access, browser automation, file storage, and workspace identity. Free tier available.",
       status: { kind: "ready", label: "Ready to connect" },
       configured: false,
       pending: false,
       error: null,
       orgName: null,
       action: {
-        label: "Connect Builder.io",
+        label: "Use Builder.io",
         pending: false,
         disabled: false,
         onPress: vi.fn(),
@@ -111,7 +111,7 @@ describe("BuilderConnectCard", () => {
     expect(mocks.useBuilderConnectCardController).toHaveBeenCalledWith(
       expect.objectContaining({ trackingSource: "settings" }),
     );
-    expect(container.textContent).toContain("Builder connect");
+    expect(container.textContent).toContain("Use Builder.io");
     expect(container.textContent).toContain("Ready to connect");
     expect(container.querySelector("[data-semantic-action]")).not.toBeNull();
     expect(container.querySelector("[data-semantic-status]")).not.toBeNull();
@@ -257,7 +257,7 @@ describe("BuilderConnectCard", () => {
       ).click();
     });
     const reconnect = Array.from(document.body.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Reconnect Builder.io"),
+      (button) => button.textContent?.includes("Use Builder.io"),
     );
     act(() => reconnect?.click());
 
@@ -312,7 +312,7 @@ describe("BuilderConnectCard", () => {
       ).click();
     });
 
-    expect(document.body.textContent).toContain("Reconnect Builder.io");
+    expect(document.body.textContent).toContain("Use Builder.io");
     expect(document.body.textContent).not.toContain("Disconnect");
   });
 
@@ -403,7 +403,7 @@ describe("BuilderConnectCard", () => {
       renderManaged(flow);
 
       openMenu();
-      act(() => menuButton("Reconnect Builder.io")?.click());
+      act(() => menuButton("Use Builder.io")?.click());
       expect(flow.start).toHaveBeenCalledWith(
         expect.objectContaining({ scope: "org", provisionAccount: false }),
       );
@@ -442,7 +442,7 @@ describe("BuilderConnectCard", () => {
       renderManaged(flow, "personal");
 
       openMenu();
-      act(() => menuButton("Reconnect Builder.io")?.click());
+      act(() => menuButton("Use Builder.io")?.click());
       expect(flow.start).toHaveBeenCalledWith(
         expect.objectContaining({ scope: "personal" }),
       );
@@ -482,7 +482,7 @@ describe("BuilderConnectCard", () => {
       renderManaged(flow);
 
       openMenu();
-      act(() => menuButton("Reconnect Builder.io")?.click());
+      act(() => menuButton("Use Builder.io")?.click());
       expect(flow.start).toHaveBeenCalledWith(
         expect.objectContaining({ scope: "org", provisionAccount: false }),
       );
@@ -517,7 +517,7 @@ describe("BuilderConnectCard", () => {
       renderManaged(flow);
 
       openMenu();
-      act(() => menuButton("Reconnect Builder.io")?.click());
+      act(() => menuButton("Use Builder.io")?.click());
       expect(flow.start).toHaveBeenCalledWith(
         expect.not.objectContaining({ scope: expect.anything() }),
       );
@@ -547,7 +547,7 @@ describe("BuilderConnectCard", () => {
       ),
     );
 
-    expect(container.textContent).toContain("Builder connect");
+    expect(container.textContent).toContain("Use Builder.io");
     expect(container.textContent).toContain("Ready to connect");
   });
 });

@@ -96,7 +96,7 @@ export function classifyLocalUploadFailure(input: {
     input.errorCode === "builder_oauth_reauthorization_required" ||
     input.errorCode === "builder_credentials_rejected" ||
     isStorageSetupFailureReason(message) ||
-    /reconnect builder|builder\.io access/i.test(message)
+    /(?:reconnect|use) builder|builder\.io access/i.test(message)
   ) {
     return "storage_setup_required";
   }

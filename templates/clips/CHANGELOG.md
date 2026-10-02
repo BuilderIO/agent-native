@@ -120,7 +120,7 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 - Clips settings are reorganized in the new Settings: General with Recordings and Meetings tabs, Notifications, and Slack link previews under Channels.
 - The account menu at the bottom of the sidebar shows your photo, name, and organization, and holds Settings, Usage, Get apps and extensions, and Log out
 - Video storage now uses the shared storage form, and Clear credentials asks before it removes your storage keys
-- Connect Builder storage by creating an account in one click.
+- Use Builder storage by creating an account in one click.
 - Public clip embeds and meeting notes show richer link previews.
 - The no-comments sidebar gives viewers a concise reason to try Clips and a clear path to sign up.
 - Shared clips remember your sidebar choice and help new viewers understand why to sign up.

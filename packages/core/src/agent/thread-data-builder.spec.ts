@@ -25,7 +25,7 @@ describe("foldUnstartedTurnFailure", () => {
       threadId: "thread-1",
       turnId: "turn-1",
       code: "AGENT_CHAT_AI_SETUP_REQUIRED",
-      message: "Connect Builder AI or a provider API key before chatting.",
+      message: "Use Builder.io or a provider API key before chatting.",
     };
     const withPrompt = upsertUserMessage(
       {},

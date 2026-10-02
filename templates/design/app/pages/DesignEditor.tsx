@@ -28816,7 +28816,7 @@ function DesignEditor() {
           1. Idle — confirm prompt with description of what will happen.
           2. Migrating — spinner while the Builder cloud agent accepts the job.
           3. Success — branchName + url; sourceType already flipped to fusion.
-          4. Not-configured — CTA to connect Builder.io.
+          4. Not-configured — CTA to use Builder.io.
       */}
       <MakeRealDialog
         open={makeRealDialogOpen}

@@ -81,7 +81,7 @@ export default defineAction({
   description:
     "Start or link a Builder-hosted branch for a fusion-backed design. " +
     "Requires the design's source to advertise the 'branch' capability (fusion tier) " +
-    "AND Builder.io to be connected. " +
+    "AND use Builder.io. " +
     "For inline/localhost designs without Builder, returns a ctaRequired response " +
     "with a 'Make it real' upgrade message — never fakes a branch call. " +
     "On success, persists branch metadata (branchName, url, status, projectId) " +
@@ -139,7 +139,7 @@ export default defineAction({
           ? ("connect-builder" as const)
           : ("make-it-real" as const),
         ctaMessage: isFusion
-          ? "Builder is not yet connected. Connect Builder.io (free tier available) to create branches for this design."
+          ? "Builder is not yet connected. Use Builder.io (free tier available) to create branches for this design."
           : "Branching requires a Builder-hosted app. Use 'Make it real' to upgrade this inline design to a real-app source, then create branches.",
         branch: null,
         versionId: null,
