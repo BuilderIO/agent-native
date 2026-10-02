@@ -1206,6 +1206,24 @@ describe("parsePptxPresentation", () => {
     expect(presentation.hiddenSlideCount).toBe(1);
   });
 
+  it("can include slides skipped during slideshow playback", async () => {
+    const presentation = await parsePptxPresentation(
+      await buildPptxBufferWithParts({
+        slides: [
+          textSlideXml("Kept"),
+          textSlideXml("Skipped", { attributes: ` show="0"` }),
+          textSlideXml("Also kept"),
+        ],
+      }),
+      { includeHiddenSlides: true },
+    );
+
+    expect(presentation.slides.map((slide) => slide.texts[0]?.content)).toEqual(
+      ["Kept", "Skipped", "Also kept"],
+    );
+    expect(presentation.hiddenSlideCount).toBeUndefined();
+  });
+
   it("fails loudly instead of importing short when a p:sldId resolves to no slide part", async () => {
     await expect(
       parsePptxPresentation(

@@ -373,7 +373,9 @@ export default defineAction({
       presentationId,
       connection.accessToken,
     );
-    const parsedPresentation = await parsePptx(fileBuffer);
+    const parsedPresentation = await parsePptx(fileBuffer, {
+      includeHiddenSlides: true,
+    });
     const imageFallbacks = await fetchGoogleSlidesImageFallbacks(
       presentationId,
       connection.accessToken,
