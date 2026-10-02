@@ -396,6 +396,9 @@ export function useChatThreads(
       : new Set(),
   );
   const explicitlyOpenedThreadIdsRef = useRef<Set<string>>(new Set());
+  // Bumped when a thread's scope is changed on purpose (detach), so a save
+  // response that was in flight across the change cannot restore the old scope.
+  const scopeMutationsRef = useRef<Map<string, number>>(new Map());
   const optimisticThreadScopesRef = useRef<Map<string, ChatThreadScope | null>>(
     new Map(),
   );
@@ -988,6 +991,12 @@ export function useChatThreads(
 
   const detachThread = useCallback(
     async (threadId: string): Promise<void> => {
+      const bumpScopeMutation = () =>
+        scopeMutationsRef.current.set(
+          threadId,
+          (scopeMutationsRef.current.get(threadId) ?? 0) + 1,
+        );
+      bumpScopeMutation();
       try {
         const res = await fetch(
           withChatThreadScope(
@@ -1004,6 +1013,7 @@ export function useChatThreads(
           await fetchThreads();
           return;
         }
+        bumpScopeMutation();
         knownThreadScopesRef.current.set(threadId, null);
         optimisticThreadScopesRef.current.set(threadId, null);
         const wasActive = activeThreadIdRef.current === threadId;
@@ -1338,6 +1348,7 @@ export function useChatThreads(
         titleSource?: ThreadTitleSource;
       },
     ) => {
+      const scopeEpoch = scopeMutationsRef.current.get(id) ?? 0;
       try {
         const { titleSource, ...threadDataPayload } = data;
         const localThread = threadsRef.current.find((t) => t.id === id);
@@ -1393,10 +1404,16 @@ export function useChatThreads(
           response = await putThread();
         }
         if (!response.ok) return;
-        const savedScope = savedThreadScope(
+        const reportedScope = savedThreadScope(
           // coercion-ok: a save response without a readable body carries no scope, and the local scope stays as it was.
           await response.json().catch(() => null),
         );
+        // A response that was in flight across a detach describes the thread
+        // as it was before it, so it must not put the old scope back.
+        const savedScope =
+          (scopeMutationsRef.current.get(id) ?? 0) === scopeEpoch
+            ? reportedScope
+            : undefined;
         serverConfirmedThreadIdsRef.current.add(id);
         clearClientDraftThreadMarker(id);
         newlyCreatedRef.current.delete(id);
