@@ -107,6 +107,18 @@ const META_CROSS_SCREEN_SECOND_HTML = `<!doctype html>
     style="position:absolute;left:80px;top:120px;width:360px;height:180px;display:flex;flex-direction:row;background:#374151"></section>
 </body></html>`;
 
+const RELEASE_STATE_CROSS_SCREEN_PRIMARY_HTML = `<!doctype html>
+<html><body style="margin:0;position:relative;width:1000px;height:780px;background:#0f172a">
+  <div data-agent-native-node-id="release-source" data-agent-native-layer-name="Release Source"
+    style="position:absolute;left:500px;top:300px;width:120px;height:48px;background:#ea580c">Source</div>
+</body></html>`;
+
+const RELEASE_STATE_CROSS_SCREEN_SECOND_HTML = `<!doctype html>
+<html><body style="margin:0;position:relative;width:1000px;height:780px;background:#111827">
+  <section data-agent-native-node-id="release-target" data-agent-native-layer-name="Release Flow"
+    style="position:absolute;left:80px;top:120px;width:360px;height:180px;display:flex;flex-direction:row;background:#374151"></section>
+</body></html>`;
+
 const FREEFORM_CROSS_SCREEN_PRIMARY_HTML = `<!doctype html>
 <html><body style="margin:0;position:relative;width:1000px;height:780px;background:#0f172a">
   <div data-agent-native-node-id="freeform-source" data-agent-native-layer-name="Freeform Source"
@@ -2840,6 +2852,126 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       await expect
         .poll(() => parentId(page, design.secondId!, "meta-source"))
         .not.toBe("meta-target");
+    } finally {
+      await deleteDesign(request, design.id);
+    }
+  });
+
+  test("source-frame Ignore Auto Layout keyup is honored before host mouseup", async ({
+    page,
+    request,
+  }) => {
+    const design = await createDesign(request, {
+      secondScreen: true,
+      primaryHtml: RELEASE_STATE_CROSS_SCREEN_PRIMARY_HTML,
+      secondHtml: RELEASE_STATE_CROSS_SCREEN_SECOND_HTML,
+    });
+    try {
+      await page.addInitScript(() => {
+        Object.defineProperty(navigator, "platform", {
+          configurable: true,
+          value: "Linux x86_64",
+        });
+        if (window !== window.top) return;
+        const modifierStates: boolean[] = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          if (event.data?.type !== "agent-native:cross-screen-modifiers") {
+            return;
+          }
+          modifierStates.push(event.data.ignoreAutoLayout === true);
+          document.documentElement.dataset.crossScreenModifierStates =
+            JSON.stringify(modifierStates);
+        });
+      });
+      await gotoEditor(page, design.id);
+      await page.keyboard.press("Shift+1");
+      const source = await boxFor(page, design.primaryId, "release-source");
+      const target = await boxFor(page, design.secondId!, "release-target");
+      await page.mouse.click(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await expect
+        .poll(() => selectionSourceId(request))
+        .toBe("release-source");
+      const sourceIframe = page.locator(
+        `iframe[data-screen-iframe-id="${design.primaryId}"]`,
+      );
+      await sourceIframe.focus();
+      await expect
+        .poll(() =>
+          sourceIframe.evaluate((iframe) => document.activeElement === iframe),
+        )
+        .toBe(true);
+      await page.mouse.move(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(source.x + 12, source.y + 8, { steps: 5 });
+      await page.mouse.move(
+        target.x + target.width / 2,
+        target.y + target.height / 2,
+        { steps: 30 },
+      );
+      await expect
+        .poll(() => page.locator("[data-cross-screen-drag-ghost]").count())
+        .toBeGreaterThan(0);
+      await sourceIframe.focus();
+      await expect
+        .poll(() =>
+          sourceIframe.evaluate((iframe) => document.activeElement === iframe),
+        )
+        .toBe(true);
+
+      await page.keyboard.down("s");
+      await page.mouse.move(
+        target.x + target.width / 2 + 1,
+        target.y + target.height / 2 + 1,
+        { steps: 3 },
+      );
+      await expect
+        .poll(() => page.locator("[data-cross-screen-drop-guide]").count())
+        .toBeGreaterThan(0);
+      await expect
+        .poll(() =>
+          page
+            .locator("html")
+            .getAttribute("data-cross-screen-modifier-states"),
+        )
+        .toBe("[true]");
+      await page.keyboard.up("s");
+      await expect
+        .poll(() =>
+          page
+            .locator("html")
+            .getAttribute("data-cross-screen-modifier-states"),
+        )
+        .toBe("[true,false]");
+      await page.mouse.up();
+      await expect
+        .poll(async () => {
+          const [from, to] = await Promise.all([
+            fileHtml(request, design.id, design.primaryId),
+            fileHtml(request, design.id, design.secondId!),
+          ]);
+          return {
+            from: hasNode(from, "release-source"),
+            destination: hasNode(to, "release-source"),
+          };
+        })
+        .toEqual({ from: false, destination: true });
+      await settleReload(page, design.secondId!);
+      await expect
+        .poll(() => parentId(page, design.secondId!, "release-source"))
+        .toBe("release-target");
+      await expect
+        .poll(() =>
+          designFrame(page, design.secondId!)
+            .locator('[data-agent-native-node-id="release-source"]')
+            .evaluate((node) => getComputedStyle(node).position),
+        )
+        .toBe("static");
     } finally {
       await deleteDesign(request, design.id);
     }
