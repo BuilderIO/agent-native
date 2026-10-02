@@ -290,6 +290,7 @@ production deployment:
 | `CORE_SHARD`                  | Vitest shard selector for the Core fast-test job.                                                                                                                                       |
 | `CORE_TEST_FILES`             | JSON list of changed Core test files selected for a targeted fast-test shard.                                                                                                           |
 | `CORE_TEST_MODE`              | Selects the full or changed-file mode for a Core fast-test shard.                                                                                                                       |
+| `PACKAGE_SHARDS`              | JSON list of `{ name, shard }` Vitest shards of large workspace packages that one fast-test lane runs.                                                                                  |
 | `TARGETED_WORKSPACE_FILTERS`  | Change-scope test selectors the lane planner receives as `CI_WORKSPACE_FILTERS` on a targeted run.                                                                                      |
 | `FAST_TESTS`                  | Change-scope output the `Fast tests` gate reads to tell a targeted selection from one with no workspace fast tests.                                                                     |
 | `SCRIPT_TESTS`                | JSON list of changed root script tests, plus sibling tests of changed guards, that the `Security guards` job runs.                                                                      |
