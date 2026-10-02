@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEFAULT_CHAT_SETTINGS,
   formatMobileModelLabel,
   getMobileAgentId,
   getMobileModelGroups,
@@ -34,7 +35,17 @@ describe("mobile model picker", () => {
       "Haiku 4.5",
     );
     expect(formatMobileModelLabel("openai/gpt-6-luna")).toBe("GPT-6 Luna");
+    expect(formatMobileModelLabel("gpt-5-1-codex-mini")).toBe(
+      "GPT-5.1 Codex Mini",
+    );
     expect(formatMobileModelLabel("gemini-3-8-flash")).toBe("Gemini 3.8 Flash");
+    expect(formatMobileModelLabel("gemini-3-1-flash-lite")).toBe(
+      "Gemini 3.1 Flash Lite",
+    );
+  });
+
+  it("defaults new chats to the current hosted model", () => {
+    expect(DEFAULT_CHAT_SETTINGS.model).toBe("gpt-6-luna");
   });
 
   it("keeps hosted model groups on Default and selects a local model by agent", () => {

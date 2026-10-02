@@ -33,6 +33,11 @@ export const MOBILE_AGENT_OPTIONS = [
   },
 ] as const;
 
+export const DEFAULT_CHAT_SETTINGS: AgentChatSettings = {
+  model: "gpt-6-luna",
+  effort: "high",
+};
+
 export const MOBILE_LOCAL_AGENT_ENGINES: Set<string> = new Set(
   MOBILE_AGENT_OPTIONS.flatMap((agent) =>
     "engine" in agent && agent.engine ? [agent.engine] : [],
@@ -73,16 +78,20 @@ export function formatMobileModelLabel(model: string | undefined): string {
   );
   if (gpt) {
     const version = gpt[2] ? `${gpt[1]}.${gpt[2]}` : gpt[1];
-    const suffix = gpt[3]?.replaceAll("-", " ");
-    return `GPT-${version}${suffix ? ` ${suffix[0]!.toUpperCase()}${suffix.slice(1)}` : ""}`;
+    const suffix = gpt[3]
+      ?.replaceAll("-", " ")
+      .replace(/\b\w/g, (letter) => letter.toUpperCase());
+    return `GPT-${version}${suffix ? ` ${suffix}` : ""}`;
   }
   const gemini = raw.match(
     /^gemini-(\d+)(?:[.-](\d+))?-(flash(?:-lite)?|pro)(?:-preview)?$/i,
   );
   if (gemini) {
     const version = gemini[2] ? `${gemini[1]}.${gemini[2]}` : gemini[1];
-    const variant = gemini[3]!.replaceAll("-", " ");
-    return `Gemini ${version} ${variant[0]!.toUpperCase()}${variant.slice(1)}`;
+    const variant = gemini[3]!
+      .replaceAll("-", " ")
+      .replace(/\b\w/g, (letter) => letter.toUpperCase());
+    return `Gemini ${version} ${variant}`;
   }
   return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
