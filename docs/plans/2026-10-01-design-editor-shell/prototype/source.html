@@ -387,7 +387,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .sdot { width: 6px; height: 6px; border-radius: 50%; background: var(--live); flex: none; }
 .sdot.off { background: var(--muted-fg); }
 .sdot.warn { background: var(--warn); }
-.select .unsaved { flex: none; color: var(--muted-fg); font-size: 11px; font-weight: 400; }
+.topbar #unsaved-btn { padding-inline: 8px; }
 .row .sdot { margin-right: 4px; }
 .sync-list { display: flex; flex-direction: column; margin: -8px -8px 0; }
 .sync-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 40px; padding: 4px 8px; border-radius: 6px; font-size: 12px; }
@@ -1153,8 +1153,23 @@ const srcTip = () => {
   return srcUp() ? `${SRC.name} · ${SRC.host}.${left || " Edits save to your code as you make them."}` : `Can't reach ${SRC.name} at ${SRC.host}. Is its dev server running?${left}`;
 };
 const sdot = () => `<span class="sdot ${!srcUp() ? "off" : unsaved() ? "warn" : ""}" title="${srcTip()}"></span>`;
-const routeMenu = () => [...SRC.apps.flatMap(([name]) => [...(SRC.apps.length > 1 ? [{ label: name }] : []), ...ROUTES.map(r => ({ t: r.path, radio: true, on: S.route === r.path, run: () => go(r.path) }))]),
-  "-", { t: "Custom path…", toast: "Type a path on this app, like /plans" }];
+// The route menu answers one question, which route this frame shows. Its search box filters the routes and
+// takes any path on the app (/plans/42), which replaces Custom path…. App actions sit beside it on the toolbar.
+const routeMenu = () => [{ search: "Search or type a path" }, ...SRC.apps.flatMap(([name]) => [...(SRC.apps.length > 1 ? [{ label: name }] : []), ...ROUTES.map(r => ({ t: r.path, radio: true, on: S.route === r.path, run: () => go(r.path) }))])];
+function openRouteMenu(anchor) {
+  openMenu(anchor, routeMenu(), { minWidth: Math.max(220, anchor.offsetWidth) });
+  const m = document.querySelector('.menu[data-depth="0"]'), input = m.querySelector(".search input");
+  const filter = () => {
+    const q = input.value.trim().toLowerCase();
+    m.querySelectorAll("button[data-i]").forEach(b => b.hidden = !!q && !b.textContent.toLowerCase().includes(q));
+    m.querySelector("[data-path]")?.remove();
+    if (q.startsWith("/") && !ROUTES.some(r => r.path === q)) m.insertAdjacentHTML("beforeend", `<button role="menuitem" data-path="${q}"><span class="ck"></span><span>Show ${q}</span></button>`);
+  };
+  input.addEventListener("input", filter);
+  input.addEventListener("keydown", e => { if (e.key === "Enter") m.querySelector("[data-path], button[data-i]:not([hidden])")?.click(); });
+  m.addEventListener("click", e => { const b = e.target.closest("[data-path]"); if (b) { closeMenu?.(); toast(`${screenName()} now shows ${b.dataset.path}`); } });
+  input.focus();
+}
 const retryConnection = () => { SRC.down = false; render(); toast(unsaved() ? `Connected. ${changes(unsaved())} are ready to save.` : `Connected to ${SRC.name}`); };
 const routeFile = (path = S.route) => path === "/home" ? "_index.tsx" : `${path.slice(1)}.tsx`;
 // Save to your app writes every unsaved change whose file hasn't moved on disk; the rest wait for a merge.
@@ -1170,11 +1185,6 @@ function mergeWithAgent(path) {
   toast(`The agent is merging ${changes(SYNC.pending[path])} into ${routeFile(path)}`);
   setTimeout(() => { delete SYNC.pending[path]; SYNC.conflict.delete(path); render(); document.querySelector("#sync-dlg")?._paint?.(); toast(`Merged into ${routeFile(path)}`); }, 1500);
 }
-const screenMenu = () => [...routeMenu(), "-", { label: SRC.name },
-  ...(srcUp()
-    ? [{ icon: "external-link", t: "Open in browser", k: SRC.host, toast: `Opens ${SRC.host}${S.route}` }, { icon: "refresh", t: "Reload screen", run: () => { renderPage(); toast(`Reloaded ${S.route}`); } }]
-    : [{ icon: "refresh", t: "Retry connection", run: retryConnection }]),
-  ...(unsaved() ? ["-", { label: `${changes(unsaved())} not in your code` }, { icon: "device-floppy", t: "Save to your app", disabled: !srcUp(), run: saveUnsaved }, { icon: "list-details", t: "Review changes…", run: syncDialog }] : [])];
 function syncDialog() {
   dialog(`<div class="dlg-h">Unsaved changes<span class="grow"></span><button class="icon-btn xs" data-close aria-label="Close">${ic("x")}</button></div><div class="dlg-b"><div class="sync-list" id="sync-dlg"></div></div><div class="dlg-f" id="sync-f"></div>`, (sc, close) => {
     const list = sc.querySelector("#sync-dlg"), foot = sc.querySelector("#sync-f");
@@ -1227,7 +1237,10 @@ document.addEventListener("click", e => {
   const t = e.target;
   if (t.closest?.("[data-select-screen]")) { S.screenSel = true; S.multi = []; renderTree(); renderPage(); renderInspector(); return; }
   const dm = t.closest?.("[data-device-menu]"); if (dm) return openMenu(dm, deviceMenu(), { align: "right" });
-  const rm = t.closest?.("[data-route-menu]"); if (rm) return openMenu(rm, screenMenu(), { minWidth: 240 });
+  const rm = t.closest?.("[data-route-menu]"); if (rm) return openRouteMenu(rm);
+  if (t.closest?.("#screen-reload")) { if (!srcUp()) return retryConnection(); renderPage(); return toast(`Reloaded ${S.route}`); }
+  if (t.closest?.("#screen-open")) return toast(`Opens ${SRC.host}${S.route}`);
+  if (t.closest?.("#unsaved-btn")) return syncDialog();
   if (t.closest?.("[data-app-retry]")) return retryConnection();
   const as = t.closest?.("[data-add-screen]");
   if (as) return openMenu(as, [{ icon: "frame", t: "Blank screen", toast: "Adds a blank screen; press F for device sizes" }, { icon: "world", t: "From your app…", run: appDialog }], { align: "right" });
@@ -1333,7 +1346,9 @@ function renderTopbar() {
       ${interact ? `<span class="nav-btns"><button class="icon-btn" id="nav-back" title="Back" ${S.hIndex === 0 ? "disabled" : ""}>${ic("arrow-left")}</button><button class="icon-btn" id="nav-fwd" title="Forward" ${S.hIndex >= S.history.length - 1 ? "disabled" : ""}>${ic("arrow-right")}</button></span>
       <button class="select route" id="route-btn" aria-haspopup="menu" title="Go to a route">${localApp() ? sdot() : ic("circle-dashed")}<span class="v">${r.path}</span>${ic("chevron-down", "chev")}</button>
       <span class="nav-btns"><button class="icon-btn" id="nav-reload" title="Reload">${ic("refresh")}</button></span>`
-      : urlScreen() && S.route !== "*" ? `<button class="select route" data-route-menu aria-haspopup="menu" title="${srcTip()}">${sdot()}<span class="v">${S.route}</span>${unsaved() ? `<span class="unsaved">${unsaved()} unsaved</span>` : ""}${ic("chevron-down", "chev")}</button>` : ""}
+      : urlScreen() && S.route !== "*" ? `<button class="select route" data-route-menu aria-haspopup="menu" title="${srcTip()}">${sdot()}<span class="v">${S.route}</span>${ic("chevron-down", "chev")}</button>
+      <span class="nav-btns"><button class="icon-btn" id="screen-reload" title="${srcUp() ? "Reload screen" : "Retry connection"}">${ic("refresh")}</button><button class="icon-btn" id="screen-open" title="Open in browser (${SRC.host})" ${srcUp() ? "" : "disabled"}>${ic("external-link")}</button></span>
+      ${unsaved() ? `<button class="select" id="unsaved-btn" aria-haspopup="dialog" title="${changes(unsaved())} aren't in your code yet">${unsaved()} unsaved</button>` : ""}` : ""}
     </div>
     <div class="tb-zone tb-right">
       ${S.scenario === "rewrite" ? `<button class="btn secondary" style="height:28px;font-size:13px;border-radius:8px" id="review-changes" aria-haspopup="menu">${ic("stack-2", "s14")}Review changes · 2</button>` : ""}
