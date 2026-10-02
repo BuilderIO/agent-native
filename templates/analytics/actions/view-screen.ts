@@ -17,12 +17,14 @@ import {
   type ReplayRange,
   type SessionReplayListFilters,
 } from "../server/lib/session-replay.js";
+import { isSessionsTriageLabEnabled } from "../server/lib/sessions-triage-lab.js";
 import {
   getStatusPagePreview,
   listStatusPages,
 } from "../server/lib/status-pages.js";
 import { getMonitor, listMonitors } from "../server/lib/uptime-monitors.js";
 import { sessionDateBound } from "../shared/session-date-bounds";
+import { readSessionEventFilters } from "../shared/session-events";
 import { readSessionPage, SESSION_PAGE_SIZE } from "../shared/session-page";
 
 const SESSION_FILTER_KEYS = new Set([
@@ -273,6 +275,24 @@ export default defineAction({
                 : ("newest" as const),
               offset,
             };
+            const urlEventConditions = readSessionEventFilters(
+              new URLSearchParams(url?.search ?? ""),
+            );
+            const urlHasEventConditions =
+              urlEventConditions.didEvents.length > 0 ||
+              urlEventConditions.didNotEvents.length > 0;
+            // Match the page: event conditions apply only with the Lab on.
+            const eventsLabEnabled =
+              urlHasEventConditions &&
+              (await isSessionsTriageLabEnabled(email, scope.orgId));
+            if (eventsLabEnabled) {
+              if (urlEventConditions.didEvents.length) {
+                filters.didEvents = urlEventConditions.didEvents;
+              }
+              if (urlEventConditions.didNotEvents.length) {
+                filters.didNotEvents = urlEventConditions.didNotEvents;
+              }
+            }
             const result = await listSessionRecordingsPage(scope, {
               ...filters,
               limit: SESSION_EXCERPT_SIZE,
@@ -289,6 +309,9 @@ export default defineAction({
               total: result.total,
               returnedCount: result.recordings.length,
               excerptLimit: SESSION_EXCERPT_SIZE,
+              ...(urlHasEventConditions && !eventsLabEnabled
+                ? { eventConditionsNotApplied: urlEventConditions }
+                : {}),
               truncated:
                 result.recordings.length <
                 Math.min(SESSION_PAGE_SIZE, Math.max(0, result.total - offset)),
@@ -306,6 +329,30 @@ export default defineAction({
           screen.sessionReplayError = error?.message || String(error);
         }
       }
+    } else if (nav?.view === "event-catalog") {
+      screen.page = "event-catalog";
+      const email = getRequestUserEmail();
+      const orgId = getRequestOrgId() || null;
+      const labEnabled = email
+        ? await isSessionsTriageLabEnabled(email, orgId)
+        : false;
+      const params = url?.searchParams ?? {};
+      const range = ["7d", "30d", "90d"].includes(params.range ?? "")
+        ? params.range!
+        : "30d";
+      screen.eventCatalog = labEnabled
+        ? {
+            range,
+            app: params.app || null,
+            fullPageAction: {
+              name: "list-event-catalog",
+              args: {
+                from: replayRangeToIso(readReplayRange(range)) ?? undefined,
+                ...(params.app ? { app: params.app } : {}),
+              },
+            },
+          }
+        : { labEnabled: false };
     } else if (nav?.view === "monitoring") {
       screen.page = "monitoring";
       const monitoringView =

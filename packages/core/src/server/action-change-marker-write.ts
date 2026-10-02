@@ -6,7 +6,12 @@ import {
   type ActionChangeTarget,
 } from "../action-change-marker.js";
 import { appStatePut } from "../application-state/store.js";
-import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
+import { runAfterWriteDrains } from "../resource-changes/store.js";
+import {
+  getRequestOrgId,
+  getRequestRunContext,
+  getRequestUserEmail,
+} from "./request-context.js";
 
 export interface NotifyActionChangeOptions {
   actionName: string;
@@ -41,6 +46,9 @@ export async function writeActionChangeMarker(
     nonce: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
   };
   const sessionId = actionChangeMarkerSession(target);
+  // The action changed data, so the database is awake: let change-feed
+  // consumers such as the search index catch up without delaying the caller.
+  runAfterWriteDrains(getRequestRunContext()?.waitUntil);
   if (!sessionId) return;
   publishActionChangeFastPath(target);
   await appStatePut(

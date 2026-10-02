@@ -130,8 +130,13 @@ function flushErrorType(error: unknown): string {
   return error instanceof Error && error.name ? error.name : "unknown";
 }
 
-function recordFlushFailure(errorType: string): void {
-  instruments()?.flushFailures.add(1, { "error.type": errorType });
+type TelemetrySignal = "metrics" | "traces";
+
+function recordFlushFailure(signal: TelemetrySignal, errorType: string): void {
+  instruments()?.flushFailures.add(1, {
+    "agent_native.telemetry.signal": signal,
+    "error.type": errorType,
+  });
 }
 
 /**
@@ -154,20 +159,24 @@ export async function flushObservability(): Promise<void> {
   try {
     // One provider failing must not end the wait for the other: the response
     // hook returning early lets the runtime freeze mid-export.
+    const flushes = [
+      ["metrics", provider.meterProvider],
+      ["traces", provider.tracerProvider],
+    ] as const;
     const failures = await Promise.all(
-      [provider.meterProvider, provider.tracerProvider].map((signal) =>
+      flushes.map(([, signalProvider]) =>
         Promise.race([
           (async () => {
-            await signal?.forceFlush?.();
+            await signalProvider?.forceFlush?.();
             return undefined;
           })().catch(flushErrorType),
           timeout,
         ]),
       ),
     );
-    for (const failure of failures) {
-      if (failure) recordFlushFailure(failure);
-    }
+    failures.forEach((failure, index) => {
+      if (failure) recordFlushFailure(flushes[index][0], failure);
+    });
   } finally {
     clearTimeout(timer);
   }

@@ -2028,6 +2028,16 @@ export function startInPlaceTextSession(
 
   function deleteAtBlockEdge(caret: Range, direction: DeleteDirection) {
     if (direction !== "backward") return false;
+    const next =
+      caret.collapsed && caret.startContainer instanceof HTMLElement
+        ? caret.startContainer.childNodes[caret.startOffset]
+        : null;
+    if (next instanceof HTMLElement && next.tagName === "BLOCKQUOTE") {
+      if (el.contains(next)) {
+        placeCaret(...textPoint(next, 0));
+        caret = selectionRange() ?? caret;
+      }
+    }
     let blockquote: HTMLElement | null = null;
     for (
       let current =
@@ -2763,6 +2773,23 @@ export function startInPlaceTextSession(
         return;
       }
     }
+    const block = nearestBlock(caret.startContainer, el);
+    if (/^H[1-6]$/.test(block.tagName)) {
+      const after = document.createRange();
+      after.setStart(caret.startContainer, caret.startOffset);
+      after.setEnd(block, block.childNodes.length);
+      if (!hasRenderedContent(after.cloneContents())) {
+        const row = legacyRowAt(caret.startContainer);
+        let heading = block;
+        if (row && row !== el && row.contains(heading)) heading = row;
+        else if (heading === el) heading = promoteRootLines(caret);
+        const paragraph = document.createElement("p");
+        paragraph.append(ZERO_WIDTH_SPACE);
+        heading.after(paragraph);
+        placeCaret(...textPoint(paragraph, Infinity));
+        return;
+      }
+    }
     const row = legacyRowAt(caret.startContainer);
     if (row) {
       const list = row.parentElement!;
@@ -2778,23 +2805,6 @@ export function startInPlaceTextSession(
         return;
       }
       if (insertBulletAfterCaret(list)) return;
-    }
-    const block = nearestBlock(caret.startContainer, el);
-    if (/^H[1-6]$/.test(block.tagName)) {
-      const after = document.createRange();
-      after.setStart(caret.startContainer, caret.startOffset);
-      after.setEnd(block, block.childNodes.length);
-      if (!hasRenderedContent(after.cloneContents())) {
-        let heading = block;
-        if (heading === el) {
-          heading = promoteRootLines(caret);
-        }
-        const paragraph = document.createElement("p");
-        paragraph.append(ZERO_WIDTH_SPACE);
-        heading.after(paragraph);
-        placeCaret(...textPoint(paragraph, Infinity));
-        return;
-      }
     }
     if (block === el || STRUCTURAL_BLOCK_TAGS.has(block.tagName)) {
       insertLineBreak(caret);
@@ -3832,7 +3842,8 @@ export function startInPlaceTextSession(
         }
         applyBlockMargins(target, margins);
         keepTextLook(target, look);
-        return convertMarkdownPrefixToBullet(target);
+        const converted = convertMarkdownPrefixToBullet(target);
+        return converted;
       });
       return;
     }
@@ -4027,8 +4038,14 @@ export function startInPlaceTextSession(
       select.selectNodeContents(pending);
       selection.removeAllRanges();
       selection.addRange(select);
-      apply();
-      placeCaret(pending, (pending as Text).length);
+      const formatted = apply();
+      if (formatted.range && el.contains(formatted.range.endContainer)) {
+        placeCaret(formatted.range.endContainer, formatted.range.endOffset);
+      } else if (pending instanceof Text && el.contains(pending)) {
+        placeCaret(pending, pending.length);
+      } else {
+        throw new Error("in-place text session: style command lost its caret");
+      }
       return true;
     });
   }
@@ -4252,11 +4269,23 @@ export function startInPlaceTextSession(
   }
 
   function onBeforeInputCapture(event: InputEvent) {
-    if (event.inputType.startsWith("delete")) onBeforeInput(event);
+    if (
+      event.inputType.startsWith("delete") ||
+      event.inputType === "insertParagraph" ||
+      event.inputType === "insertLineBreak"
+    ) {
+      onBeforeInput(event);
+    }
   }
 
   function onBeforeInputBubble(event: InputEvent) {
-    if (!event.inputType.startsWith("delete")) onBeforeInput(event);
+    if (
+      !event.inputType.startsWith("delete") &&
+      event.inputType !== "insertParagraph" &&
+      event.inputType !== "insertLineBreak"
+    ) {
+      onBeforeInput(event);
+    }
   }
 
   function onInput(event: Event) {
@@ -4279,6 +4308,20 @@ export function startInPlaceTextSession(
 
   function onKeyDown(event: KeyboardEvent) {
     if (event.isComposing || event.keyCode === 229) return;
+    if (
+      event.key === "Enter" &&
+      event.shiftKey &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey
+    ) {
+      const range = selectionRange();
+      if (range) {
+        event.preventDefault();
+        edit("command", () => insertLineBreak(range));
+      }
+      return;
+    }
     const key = event.key.toLowerCase();
     const macControl =
       event.ctrlKey &&

@@ -1958,23 +1958,31 @@ async function runTextSurfaceQa(
     await page.getByRole("button", { name: "Speaker Notes" }).click();
     const notes = page.getByPlaceholder("Add speaker notes...");
     const expectedNotes = await exerciseControl(notes, "speaker notes", true);
-    await sleep(900);
-    const notesDeck = await action<any>(
-      page,
-      "get-deck",
-      {
-        id: deckId,
-        slideId: slideTwo,
-        compact: "false",
+    let notesSlide: { notes?: string } | undefined;
+    const notesSaved = await waitFor(
+      async () => {
+        const notesDeck = await action<any>(
+          page,
+          "get-deck",
+          {
+            id: deckId,
+            slideId: slideTwo,
+            compact: "false",
+          },
+          "GET",
+        );
+        notesSlide = notesDeck.slides?.find(
+          (slide: any) => slide.id === slideTwo,
+        );
+        return (
+          normalizeText(notesSlide?.notes ?? "") ===
+          normalizeText(expectedNotes)
+        );
       },
-      "GET",
+      5000,
+      100,
     );
-    const notesSlide = notesDeck.slides?.find(
-      (slide: any) => slide.id === slideTwo,
-    );
-    if (
-      normalizeText(notesSlide?.notes ?? "") !== normalizeText(expectedNotes)
-    ) {
+    if (!notesSaved) {
       problems.push(
         `speaker notes: saved ${JSON.stringify(notesSlide?.notes)}, expected ${JSON.stringify(expectedNotes)}`,
       );
@@ -1999,10 +2007,20 @@ async function runTextSurfaceQa(
       exact: true,
     });
     await rootComment.waitFor({ state: "visible", timeout: 5000 });
-    await page.getByRole("button", { name: "Reply", exact: true }).click();
+    const threadCard = page
+      .locator("[data-slide-comment-thread]")
+      .filter({ has: rootComment });
+    await threadCard.waitFor({ state: "visible", timeout: 5000 });
+    await threadCard.hover();
+    const replyButton = threadCard.getByRole("button", {
+      name: "Reply",
+      exact: true,
+    });
+    await replyButton.waitFor({ state: "visible", timeout: 5000 });
+    await replyButton.click();
     const reply = page.getByPlaceholder("Reply...");
     if (!(await composingEscape(reply, "comment reply"))) {
-      await page.getByRole("button", { name: "Reply", exact: true }).click();
+      await replyButton.click();
       await reply.waitFor({ state: "visible", timeout: 5000 });
     }
     await exerciseControl(reply, "comment reply", true);

@@ -171,7 +171,10 @@ export function isMarkdownBulletPrefixInMarker(
     .toString()
     .replaceAll(ZERO_WIDTH_SPACE, "")
     .replaceAll("\u00a0", " ");
-  return /^[-*+] ?$/.test(typed) && marker.textContent === typed;
+  const markerText = (marker.textContent ?? "")
+    .replaceAll(ZERO_WIDTH_SPACE, "")
+    .replaceAll("\u00a0", " ");
+  return /^[-*+] ?$/.test(typed) && markerText === typed;
 }
 
 /** Count the styled bullet rows directly inside a container. */

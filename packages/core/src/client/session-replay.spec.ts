@@ -392,6 +392,98 @@ describe("session replay", () => {
     );
   });
 
+  it("marks tracked app events on the replay with only their name", async () => {
+    installBrowser("https://clips.agent-native.com/library");
+    const addCustomEvent = vi.fn();
+    (
+      recordMock as typeof recordMock & {
+        addCustomEvent: typeof addCustomEvent;
+      }
+    ).addCustomEvent = addCustomEvent;
+    recordMock.mockReturnValue(vi.fn());
+    const {
+      emitSessionReplayAnalyticsEvent,
+      startSessionReplay,
+      SESSION_REPLAY_ANALYTICS_EVENT_TAG,
+    } = await freshSessionReplay();
+
+    emitSessionReplayAnalyticsEvent("before_start");
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+    });
+    emitSessionReplayAnalyticsEvent("  recording_started  ");
+    emitSessionReplayAnalyticsEvent("   ");
+    emitSessionReplayAnalyticsEvent("x".repeat(300));
+
+    expect(addCustomEvent).toHaveBeenCalledTimes(2);
+    expect(addCustomEvent).toHaveBeenNthCalledWith(
+      1,
+      SESSION_REPLAY_ANALYTICS_EVENT_TAG,
+      { name: "recording_started" },
+    );
+    expect(addCustomEvent).toHaveBeenNthCalledWith(
+      2,
+      SESSION_REPLAY_ANALYTICS_EVENT_TAG,
+      { name: "x".repeat(120) },
+    );
+  });
+
+  it("caps app event markers per replay, across restarts and reloads", async () => {
+    const { storage, fetchMock } = installBrowser(
+      "https://clips.agent-native.com/library",
+    );
+    const addCustomEvent = vi.fn();
+    (
+      recordMock as typeof recordMock & {
+        addCustomEvent: typeof addCustomEvent;
+      }
+    ).addCustomEvent = addCustomEvent;
+    const recordOptions: any[] = [];
+    recordMock.mockImplementation((options) => {
+      recordOptions.push(options);
+      return vi.fn();
+    });
+    const {
+      emitSessionReplayAnalyticsEvent,
+      startSessionReplay,
+      stopSessionReplay,
+    } = await freshSessionReplay();
+    const options = {
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    };
+
+    await startSessionReplay(options);
+    for (let index = 0; index < 1_005; index += 1) {
+      emitSessionReplayAnalyticsEvent("clip_viewed");
+    }
+    expect(addCustomEvent).toHaveBeenCalledTimes(1_000);
+    // An upload rewrites the stored replay session; the count must survive it.
+    recordOptions[0].emit({ type: 3, data: { href: "/library" } });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    await stopSessionReplay();
+    await startSessionReplay(options);
+    emitSessionReplayAnalyticsEvent("clip_viewed");
+    expect(addCustomEvent).toHaveBeenCalledTimes(1_000);
+
+    await stopSessionReplay();
+    delete (globalThis as any)[replayStateKey];
+    const reloaded = await freshSessionReplay();
+    await reloaded.startSessionReplay(options);
+    reloaded.emitSessionReplayAnalyticsEvent("clip_viewed");
+    expect(addCustomEvent).toHaveBeenCalledTimes(1_000);
+
+    await reloaded.stopSessionReplay();
+    storage.delete("agent-native.session_replay_id");
+    await reloaded.startSessionReplay(options);
+    reloaded.emitSessionReplayAnalyticsEvent("clip_viewed");
+    expect(addCustomEvent).toHaveBeenCalledTimes(1_001);
+  });
+
   it("keeps numeric agent-chat marker metadata usable", async () => {
     installBrowser("https://analytics.agent-native.com/ask");
     const addCustomEvent = vi.fn();
