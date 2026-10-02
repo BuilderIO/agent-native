@@ -1899,7 +1899,92 @@ describe("mergeThreadDataForClientSave", () => {
     expect(merged.queuedMessages).toBeUndefined();
   });
 
-  it("does not restore a queued message after the server claimed it", () => {
+  // The chat UI saves AgentKit messages into `messages` under their own ids and
+  // without a runId; only the AgentKit events say which run produced them.
+  const clientSavedReply = (status: string, text: string) => ({
+    message: {
+      id: "agentkit-reply",
+      role: "assistant",
+      status,
+      content: [{ type: "text", text }],
+    },
+    parentId: "user-1",
+  });
+  const userEntry = {
+    message: {
+      id: "user-1",
+      role: "user",
+      content: [{ type: "text", text: "Write forty lines" }],
+    },
+    parentId: null,
+  };
+  const replyEvents = {
+    events: [
+      {
+        type: "message.completed",
+        runId: "run-1",
+        message: { id: "agentkit-reply", role: "assistant" },
+      },
+    ],
+  };
+
+  it("folds a finished run into the reply the chat UI already saved for it", () => {
+    const serverReply = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "L1 one\nL40 forty" } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-1",
+      { turnId: "turn-1" },
+    );
+
+    const folded = foldAssistantTurn(
+      {
+        messages: [userEntry, clientSavedReply("streaming", "L1 one")],
+        agentKit: replyEvents,
+      },
+      serverReply!,
+      { turnId: "turn-1", runId: "run-1" },
+    );
+
+    const replies = folded.messages.filter(
+      (entry: any) => entry.message.role === "assistant",
+    );
+    expect(replies).toHaveLength(1);
+    expect(replies[0].message.status).toMatchObject({ type: "complete" });
+    expect(replies[0].message.content).toEqual([
+      { type: "text", text: "L1 one\nL40 forty" },
+    ]);
+  });
+
+  it("drops a stale mid-stream copy the chat UI saves after the server folded the run", () => {
+    const serverReply = {
+      message: {
+        id: "server-run-1",
+        role: "assistant",
+        status: { type: "complete", reason: "stop" },
+        content: [{ type: "text", text: "L1 one\nL40 forty" }],
+        metadata: { runId: "run-1", custom: { foldedRunIds: ["run-1"] } },
+      },
+      parentId: "user-1",
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      { messages: [userEntry, serverReply] },
+      {
+        messages: [userEntry, clientSavedReply("streaming", "L1 one")],
+        agentKit: replyEvents,
+      },
+    );
+
+    expect(
+      merged.messages.filter(
+        (entry: any) => entry.message.role === "assistant",
+      ),
+    ).toEqual([serverReply]);
+  });
+
+  it("keeps the durable queue over a stale save's copy of it", () => {
     const existing = {
       _claimedQueuedMessageIds: ["queued-1"],
       queuedMessages: [],
@@ -1922,9 +2007,7 @@ describe("mergeThreadDataForClientSave", () => {
     const merged = mergeThreadDataForClientSave(existing, staleIncoming);
 
     expect(merged._claimedQueuedMessageIds).toEqual(["queued-1"]);
-    expect(merged.queuedMessages).toEqual([
-      { id: "queued-2", text: "send the summary" },
-    ]);
+    expect(merged.queuedMessages).toEqual([]);
   });
 
   it("dedupes a client-save user message against the server's submittedRunId copy of the same prompt", () => {

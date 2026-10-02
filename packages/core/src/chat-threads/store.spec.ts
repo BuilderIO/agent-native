@@ -581,6 +581,40 @@ describe("chat thread store", () => {
     expect(JSON.parse(row!.thread_data).queuedMessages).toEqual([queued]);
   });
 
+  it("keeps a promotion claim taken while a full-thread save was in flight", async () => {
+    const queued = { id: "queued-in-flight-save", text: "Answer me next" };
+    const messages = [
+      { id: "user-1", role: "user", content: [{ type: "text", text: "Go" }] },
+    ];
+    row!.thread_data = JSON.stringify({ messages, queuedMessages: [queued] });
+    // A thread save (PUT pre-merge or run completion) read this copy...
+    const staleSave = JSON.stringify({
+      messages,
+      queuedMessages: [queued],
+      title: "stale",
+    });
+    // ...then the queue promotion claimed the item before the save landed.
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: queued.id,
+      claimId: "tab-1",
+    });
+
+    await updateThreadData("thread-1", staleSave, "", "", 1);
+
+    const userMessage = buildUserMessage({
+      text: queued.text,
+      runId: "run-promoted",
+      queuedMessageId: queued.id,
+    });
+    expect(
+      applySubmittedUserMessage(JSON.parse(row!.thread_data), userMessage, {
+        id: queued.id,
+        claimId: "tab-1",
+      }).status,
+    ).toBe("submitted");
+  });
+
   it("lets a new tab take over an expired queue promotion lease", async () => {
     const queued = {
       id: "queued-expired-lease",
