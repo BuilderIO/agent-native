@@ -1400,6 +1400,10 @@ export function useChatThreads(
                       ...(data.messageCount != null && {
                         messageCount: data.messageCount,
                       }),
+                      // Mirror the run adopting the visible scope
+                      // (resolveRunThreadScope), or the active pointer stays
+                      // under the unscoped key and a reload here starts fresh.
+                      scope: t.scope ?? scopeRef.current ?? null,
                       updatedAt: Date.now(),
                     }
                   : t,

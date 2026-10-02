@@ -1613,6 +1613,88 @@ describe("useChatThreads", () => {
     expect(hook!.activeThreadId).toBe("general-thread");
   });
 
+  it("restores a chat first sent inside a resource after a reload with a new tab id", async () => {
+    let draftCount = 0;
+    vi.stubGlobal("crypto", { randomUUID: () => `draft-${++draftCount}` });
+    const page: ChatThreadScope = { type: "document", id: "page-1" };
+    let serverThreads: ChatThreadSummary[] = [];
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: serverThreads });
+      }
+      if (url === "/chat/threads/draft-1" && init?.method === "PUT") {
+        return jsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness({
+      scope,
+      browserTabId,
+    }: {
+      scope: ChatThreadScope | null;
+      browserTabId: string;
+    }) {
+      hook = useChatThreads("/chat", undefined, scope, { browserTabId });
+      return null;
+    }
+
+    // The sidebar mounts on an unscoped landing route, then the app redirects
+    // to a page once the chat list has already loaded.
+    await act(async () => {
+      root.render(<Harness scope={null} browserTabId="tab-1" />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      root.render(<Harness scope={page} browserTabId="tab-1" />);
+    });
+    expect(hook!.activeThreadId).toBe("draft-1");
+
+    await act(async () => {
+      await hook!.saveThreadData("draft-1", {
+        threadData: JSON.stringify({
+          messages: [{ id: "m-1" }, { id: "m-2" }],
+        }),
+        title: "",
+        preview: "Reply with exactly AN1",
+        messageCount: 2,
+      });
+    });
+
+    // The run adopted the page's scope on the server.
+    serverThreads = [
+      {
+        id: "draft-1",
+        title: "",
+        preview: "Reply with exactly AN1",
+        messageCount: 2,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        scope: page,
+      },
+    ];
+    act(() => {
+      root.unmount();
+    });
+    root = createRoot(container);
+
+    // A navigation (not a reload) mints a fresh browser tab id.
+    await act(async () => {
+      root.render(<Harness scope={page} browserTabId="tab-2" />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("draft-1");
+  });
+
   it("rejects an older thread the list page missed once its scope resolves elsewhere", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:design-app:scope:design:design-b",
