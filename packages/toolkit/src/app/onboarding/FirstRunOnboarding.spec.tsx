@@ -89,7 +89,7 @@ describe("FirstRunOnboarding", () => {
       hasFetchedStatus: false,
       statusResolved: true,
       configured: false,
-      agentNativeProvisioningEnabled: false,
+      agentNativeProvisioningEnabled: true,
       error: null,
       start: vi.fn(),
       retry: vi.fn(),
@@ -331,7 +331,7 @@ describe("FirstRunOnboarding", () => {
     });
     await act(async () => {
       document.body
-        .querySelector('[data-testid="first-run-builder-create-account"]')
+        .querySelector('[data-testid="first-run-builder-sign-in"]')
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
@@ -394,7 +394,7 @@ describe("FirstRunOnboarding", () => {
     });
     await act(async () => {
       document.body
-        .querySelector('[data-testid="first-run-builder-create-account"]')
+        .querySelector('[data-testid="first-run-builder-sign-in"]')
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
@@ -456,7 +456,7 @@ describe("FirstRunOnboarding", () => {
     });
     await act(async () => {
       document.body
-        .querySelector('[data-testid="first-run-builder-create-account"]')
+        .querySelector('[data-testid="first-run-builder-sign-in"]')
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
@@ -469,7 +469,16 @@ describe("FirstRunOnboarding", () => {
     );
   });
 
-  it("renders the create-account and sign-in Builder buttons", () => {
+  it("hides create-account when one-click provisioning is unavailable", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: false,
+      agentNativeProvisioningEnabled: false,
+      error: null,
+      start: vi.fn(),
+      retry: vi.fn(),
+    });
     act(() => {
       root.render(
         <TooltipProvider>
@@ -488,14 +497,14 @@ describe("FirstRunOnboarding", () => {
       document.body.querySelector(
         '[data-testid="first-run-builder-create-account"]',
       )?.textContent,
-    ).toBe("Create Builder.io account");
+    ).toBeUndefined();
     expect(
       document.body.querySelector('[data-testid="first-run-builder-sign-in"]')
         ?.textContent,
     ).toBe("Sign in with Builder.io account");
   });
 
-  it("starts the Builder connection directly when no provisioning choice is needed", () => {
+  it("keeps existing-account sign-in available when provisioning is unavailable", () => {
     const start = vi.fn();
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: true,
@@ -524,11 +533,14 @@ describe("FirstRunOnboarding", () => {
 
     act(() => {
       document.body
-        .querySelector("[data-testid='first-run-builder-create-account']")
+        .querySelector("[data-testid='first-run-builder-sign-in']")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(start).toHaveBeenCalledOnce();
+    expect(start).toHaveBeenCalledWith(
+      expect.objectContaining({ provisionAccount: false }),
+    );
   });
 
   it("lets users cancel a direct Builder connect during first run", () => {
@@ -536,7 +548,7 @@ describe("FirstRunOnboarding", () => {
       hasFetchedStatus: true,
       statusResolved: true,
       configured: false,
-      agentNativeProvisioningEnabled: false,
+      agentNativeProvisioningEnabled: true,
       connecting: false,
       error: null,
       start: vi.fn(),
@@ -1106,7 +1118,7 @@ describe("FirstRunOnboarding", () => {
     });
     act(() => {
       document.body
-        .querySelector("[data-testid='first-run-builder-create-account']")
+        .querySelector("[data-testid='first-run-builder-sign-in']")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
@@ -1436,7 +1448,7 @@ describe("FirstRunOnboarding", () => {
     });
     act(() => {
       document.body
-        .querySelector("[data-testid='first-run-builder-create-account']")
+        .querySelector("[data-testid='first-run-builder-sign-in']")
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 

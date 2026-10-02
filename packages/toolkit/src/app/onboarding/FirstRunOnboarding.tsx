@@ -768,15 +768,17 @@ export function FirstRunOnboarding({
                   })}
                 </div>
                 <div className="flex flex-col gap-2">
-                  <button
-                    type="button"
-                    data-testid="first-run-builder-create-account"
-                    className={cn(ONBOARDING_PRIMARY_BUTTON_CLASS, "w-full")}
-                    onClick={() => handleBuilder(true)}
-                    disabled={connectFlow.connecting}
-                  >
-                    {t("agentChat.onboarding.builderCreateAccount")}
-                  </button>
+                  {canActivateBuilderFreeCredits && (
+                    <button
+                      type="button"
+                      data-testid="first-run-builder-create-account"
+                      className={cn(ONBOARDING_PRIMARY_BUTTON_CLASS, "w-full")}
+                      onClick={() => handleBuilder(true)}
+                      disabled={connectFlow.connecting}
+                    >
+                      {t("agentChat.onboarding.builderCreateAccount")}
+                    </button>
+                  )}
                   <button
                     type="button"
                     data-testid="first-run-builder-sign-in"
