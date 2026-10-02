@@ -127,12 +127,12 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
 - **MENU-02** · decided
   - Change: Design file menu on the file name (Figma 1309:32834), minus Move to folder… until folders exist. Zoom menu (1693:1945) holds the view toggles.
 - **MENU-03** · decided
-  - Change: Single layer (Figma 1834:719, shortcuts from `CanvasContextMenu.tsx`): Edit with Agent…, Send to ›, Copy, Paste to replace, Copy/Paste as › (Copy link to selection first), Rename, Frame selection, Add auto layout, Create component, Hide, Lock, Arrange ›, Transform ›. A component instance swaps the creation actions for Go to main component, Swap instance ›, Detach instance.
+  - Change: Single layer (Figma 1834:719, shortcuts from `CanvasContextMenu.tsx`): Edit with Agent…, Send to ›, Copy link, Copy, Paste to replace, Copy/Paste as ›, Rename, Frame selection, Add auto layout, Create component, Hide, Lock, Arrange ›, Transform ›. A component instance swaps the creation actions for Go to main component, Swap instance ›, Detach instance.
 - **MENU-04** · decided
   - Today: Boolean operations: only Subtract (⌥⇧S) is implemented.
-  - Change: Multiple layers (Shift-click): Edit with Agent…, Send to ›, Copy, Paste to replace, Copy/Paste as ›, Group selection, Frame selection, Add auto layout, Boolean operations › (Subtract only), Hide, Lock, Arrange ›, Transform ›.
+  - Change: Multiple layers (Shift-click): Edit with Agent…, Send to ›, Copy link, Copy, Paste to replace, Copy/Paste as ›, Group selection, Frame selection, Add auto layout, Boolean operations › (Subtract only), Hide, Lock, Arrange ›, Transform ›.
 - **MENU-05** · decided
-  - Change: Empty canvas (Figma 1826:562), the agent and sharing group first, as on layers: Explore with Agent…, Send to › (the screen), Copy link to screen; then Paste here; then Hide UI and Hide comments, which flip to Show UI and Show comments while hidden, as `CanvasContextMenu` does. Layer row: Copy, Copy link to selection, Rename (in place), Hide, Lock, Arrange ›, Transform ›, with LayersPanel's shortcuts.
+  - Change: Empty canvas (Figma 1826:562), the agent and sharing group first, as on layers: Explore with Agent…, Send to › (the screen), Copy link; then Paste here; then Hide UI and Hide comments, which flip to Show UI and Show comments while hidden, as `CanvasContextMenu` does. Layer row: Copy, Copy link, Rename (in place), Hide, Lock, Arrange ›, Transform ›, with LayersPanel's shortcuts.
 - **MENU-06** · decided
   - Change: Edit with Agent… is the first row, styled like every other row (no tinted agent row). Clicking it opens the agent composer; its submenu is the Agent actions card (Figma 1826:562): Inspiration, Polish, Debug, Generate states, Make responsive, each with a one-line outcome.
 - **MENU-07** · context
@@ -350,7 +350,7 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
   - Today: Every Agent-Native app mounts a remote MCP server at `/mcp` (OAuth 2.1); calls run as the signed-in user under the design's sharing rules, so a link works from any machine. Design's connector allowlist is `EXTERNAL_CONNECTOR_TOOL_NAMES`.
 - **AGT-02** · proposed
   - Today: Nothing copies a link to a layer or screen.
-  - Change: Copy link to selection is the first item in Copy/Paste as › on a layer or multi-selection and sits after Copy on instances and layer rows; the empty canvas gets Copy link to screen, in its top group after Send to ›. Links carry scope: `/design/<id>?screen=home&node=hero-title` (comma-separated nodes). Opening one selects the layers and zooms to them.
+  - Change: One item, Copy link (the code's `copyLink` and `linkCopied` strings), right after Send to › in every canvas menu, and after Copy on a layer row (which has no agent group). Like Send to, it links what you right-clicked: the screen from empty canvas, the layer or layers otherwise. The toast names it (Link to Hero title copied), so the label never needs a scope. Links carry scope: `/design/<id>?screen=home&node=hero-title` (comma-separated nodes). Opening one selects the layers and zooms to them.
 - **AGT-03** · decided
   - Today: Content's share popover has People and Agents tabs (`peopleTabLabel` / `agentsTabLabel`); the toolkit `ShareButton` popover takes `agentTabContent`.
   - Change: Share is that popover with People and Agents. Both panes share one grid cell, so switching tabs never resizes it. 24px controls, 32px rows, 12/16 text. No Social, Embed, password, or expiry (Clips-only).

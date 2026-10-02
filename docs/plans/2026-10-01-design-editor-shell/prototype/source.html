@@ -2111,26 +2111,27 @@ function linkTo(scope) {
   return scope === "screen" ? screen : `${screen}&node=${((S.multi || []).length > 1 ? S.multi : [S.selected]).join(",")}`;
 }
 function copyText(text, msg) { (navigator.clipboard?.writeText(text) || Promise.reject()).then(() => toast(msg), () => toast(msg)); }
-const copyLinkToSelection = () => ({ t: "Copy link to selection", run: () => copyText(linkTo("selection"), `Link to ${(S.multi || []).length > 1 ? `${S.multi.length} layers` : (n => n && n.length > 28 ? n.slice(0, 28) + "…" : n)(FLAT[S.selected]?.name) || "selection"} copied`) });
-const COPY_PASTE_AS = () => [copyLinkToSelection(), "-", { t: "Copy as PNG", k: "⇧⌘C" }, { t: "Copy properties", k: "⌥⌘C" }, { t: "Paste properties", k: "⌥⌘V" }, "-", { t: "Paste over selection", k: "⇧⌘V" }];
+// One Copy link, like Send to: it links what you right-clicked, and the toast names it.
+const copyLink = (scope, icon = "link") => ({ icon, t: "Copy link", run: () => copyText(linkTo(scope), `Link to ${scopeName(scope)} copied`) });
+const COPY_PASTE_AS = () => [{ t: "Copy as PNG", k: "⇧⌘C" }, { t: "Copy properties", k: "⌥⌘C" }, { t: "Paste properties", k: "⌥⌘V" }, "-", { t: "Paste over selection", k: "⇧⌘V" }];
 const ARRANGE = () => [{ t: "Bring to front", k: "]" }, { t: "Bring forward", k: "⌘]" }, { t: "Send backward", k: "⌘[" }, { t: "Send to back", k: "[" }, "-", { t: "Align left", k: "⌥A" }, { t: "Align right", k: "⌥D" }, { t: "Align top", k: "⌥W" }, { t: "Align bottom", k: "⌥S" }, "-", { t: "Tidy up", k: "⌃⌥T" }];
 const TRANSFORM = () => [{ t: "Flip horizontal", k: "⇧H" }, { t: "Flip vertical", k: "⇧V" }, { t: "Swap fill and stroke", k: "⇧X" }];
 const tail = () => ["-", { t: "Hide", k: "⇧⌘H" }, { t: "Lock", k: "⇧⌘L" }, "-", { t: "Arrange", sub: ARRANGE() }, { t: "Transform", sub: TRANSFORM() }];
 const CTX = {
   // The agent and sharing group (as on layers), then Paste here, then CanvasContextMenu's view toggles, which
   // name what they'll do (Hide UI while it's showing).
-  none: () => [{ icon: "sparkles", t: "Explore with Agent…", run: () => { setPanel("agents"); $("#ask")?.focus(); } }, sendToItem("screen"), { icon: "link", t: "Copy link to screen", run: () => copyText(linkTo("screen"), `Link to ${screenOf(S.route).screen} copied`) }, "-",
+  none: () => [{ icon: "sparkles", t: "Explore with Agent…", run: () => { setPanel("agents"); $("#ask")?.focus(); } }, sendToItem("screen"), copyLink("screen"), "-",
     { t: "Paste here", k: "⌘V" }, "-",
     { t: app.classList.contains("no-panel") ? "Show UI" : "Hide UI", k: "⌘\\", run: () => app.classList.toggle("no-panel") },
     { t: S.showPins === false ? "Show comments" : "Hide comments", k: "⇧C", run: () => { S.showPins = S.showPins === false; renderPins(); } }],
-  layer: id => [editWithAgent(), sendToItem("selection"), "-", { t: "Copy", k: "⌘C" }, { t: "Paste to replace", k: "⇧⌘R" }, { t: "Copy/Paste as", sub: COPY_PASTE_AS() }, "-",
+  layer: id => [editWithAgent(), sendToItem("selection"), copyLink("selection"), "-", { t: "Copy", k: "⌘C" }, { t: "Paste to replace", k: "⇧⌘R" }, { t: "Copy/Paste as", sub: COPY_PASTE_AS() }, "-",
     { t: "Rename", k: "⌘R", run: () => { S.selected = id; renderTree(); startLayerRename(id); } }, { t: "Frame selection", k: "⌥⌘G" }, { t: "Add auto layout", k: "⇧A" }, { t: "Create component", k: "⌥⌘K" }, ...tail()],
-  instance: id => [editWithAgent(), sendToItem("selection"), "-", { t: "Copy", k: "⌘C" }, { t: "Paste to replace", k: "⇧⌘R" }, copyLinkToSelection(), "-",
+  instance: id => [editWithAgent(), sendToItem("selection"), copyLink("selection"), "-", { t: "Copy", k: "⌘C" }, { t: "Paste to replace", k: "⇧⌘R" }, "-",
     { t: "Go to main component", toast: "Opens Button in the design system" }, { t: "Swap instance", sub: [{ t: "Button / Primary" }, { t: "Button / Secondary" }, { t: "Button / Ghost" }] }, { t: "Detach instance", k: "⌥⌘B" }, { t: "Frame selection", k: "⌥⌘G" }, ...tail()],
   // Multiple layers (1834:719). Boolean operations offers only Subtract, the one the code implements (⌥⇧S).
-  multi: () => [editWithAgent(), sendToItem("selection"), "-", { t: "Copy", k: "⌘C" }, { t: "Paste to replace", k: "⇧⌘R" }, { t: "Copy/Paste as", sub: COPY_PASTE_AS() }, "-",
+  multi: () => [editWithAgent(), sendToItem("selection"), copyLink("selection"), "-", { t: "Copy", k: "⌘C" }, { t: "Paste to replace", k: "⇧⌘R" }, { t: "Copy/Paste as", sub: COPY_PASTE_AS() }, "-",
     { t: "Group selection", k: "⌘G" }, { t: "Frame selection", k: "⌥⌘G" }, { t: "Add auto layout", k: "⇧A" }, { t: "Boolean operations", sub: [{ t: "Subtract", k: "⌥⇧S" }] }, ...tail()],
-  row: id => [{ t: "Copy", k: "⌘C" }, copyLinkToSelection(), { t: "Rename", k: "⌘R", run: () => startLayerRename(id) }, "-", { t: "Hide", k: "⇧⌘H" }, { t: "Lock", k: "⇧⌘L" }, "-", { t: "Arrange", sub: ARRANGE() }, { t: "Transform", sub: TRANSFORM() }],
+  row: id => [{ t: "Copy", k: "⌘C" }, copyLink("selection", null), { t: "Rename", k: "⌘R", run: () => startLayerRename(id) }, "-", { t: "Hide", k: "⇧⌘H" }, { t: "Lock", k: "⇧⌘L" }, "-", { t: "Arrange", sub: ARRANGE() }, { t: "Transform", sub: TRANSFORM() }],
 };
 const INSTANCES = new Set(["cta-primary", "cta-docs"]);
 function startLayerRename(id) {

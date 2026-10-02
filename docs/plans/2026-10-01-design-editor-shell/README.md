@@ -208,7 +208,7 @@ so it needs a changeset.
 
 Not started · AGT · PR —
 
-Copy link to selection, the share popover's People and Agents tabs, Send to ›,
+Copy link, the share popover's People and Agents tabs, Send to ›,
 and the URL-taking MCP tools. Opening a scoped link selects and zooms to its
 layers.
 
