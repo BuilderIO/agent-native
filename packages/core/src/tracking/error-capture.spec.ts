@@ -97,6 +97,13 @@ describe("tracking captureException", () => {
     expect(stack).toMatch(/\n\s+at /);
   });
 
+  it("preserves parameters in SQL-looking diagnostic prose", () => {
+    const diagnostic =
+      "Select a customer before retrying\n\tparams: report lookup details";
+
+    expect(redact(diagnostic)).toBe(diagnostic);
+  });
+
   it("redacts raw SQL params behind a custom error name", () => {
     const privateValue = "private customer value";
     const message = `SELECT email FROM users WHERE email = $1\n\tparams: ${privateValue}`;

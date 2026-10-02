@@ -340,7 +340,7 @@ describe("server/sentry", () => {
       const privateValue = "private customer value";
       const message =
         `Failed query: /* plan */\n-- analyze the plan\n` +
-        `EXPLAIN ANALYZE SELECT id FROM customers\n\tparams: ${privateValue}`;
+        `EXPLAIN ANALYZE SELECT id FROM customers WHERE id = $1\n\tparams: ${privateValue}`;
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
       const result = beforeSend({
         exception: { values: [{ type: "DrizzleQueryError", value: message }] },

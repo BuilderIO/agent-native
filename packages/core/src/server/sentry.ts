@@ -117,6 +117,11 @@ function redactSentryEventPayload(
             redact(child))
           : redact(child);
     } else {
+      const breadcrumbDataSqlAssociation =
+        !eventRoot &&
+        key.toLowerCase() === "data" &&
+        typeof record.message === "string" &&
+        isSqlStatementText(record.message);
       const childNestedSqlAssociation =
         nestedSqlAssociation ||
         (eventRoot &&
@@ -125,7 +130,7 @@ function redactSentryEventPayload(
           ));
       redactSentryEventPayload(
         child,
-        eventRoot ? false : directlySqlAssociated,
+        breadcrumbDataSqlAssociation,
         false,
         seen,
         childNestedSqlAssociation,
@@ -188,7 +193,8 @@ export function initServerSentry(): Promise<boolean> {
           if (
             hasSqlExceptionValue &&
             serialized !== null &&
-            typeof serialized === "object"
+            typeof serialized === "object" &&
+            !Array.isArray(serialized)
           ) {
             redactSerializedCauseParams(
               (serialized as Record<string, unknown>).cause,
