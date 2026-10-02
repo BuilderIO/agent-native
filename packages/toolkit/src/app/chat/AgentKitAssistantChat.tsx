@@ -552,6 +552,8 @@ interface AgentKitSurfaceContextValue {
   ) => Promise<AssistantChatSubmitResult>;
   submitSuggestion: (suggestion: AgentSuggestionInput) => void;
   suggestionSubmitRef: AgentKitSuggestionSubmitRef;
+  /** Prompts already sent again after AI setup, shared by every card in this chat. */
+  resumedAfterSetup: Set<string>;
   onImplementPlan: () => boolean;
 }
 
@@ -1126,6 +1128,7 @@ const AgentKitAssistantChatBody = forwardRef<
   const history = useOptionalAgentKitHistory();
   const suggestionSubmitRef =
     useRef<AgentKitSuggestionSubmitRef["current"]>(null);
+  const resumedAfterSetupRef = useRef(new Set<string>());
   const t = useT();
   const providerChecksEnabled = props.providerStatusChecksEnabled !== false;
   const readiness = useAgentEngineConfigured(providerChecksEnabled, {
@@ -2824,6 +2827,7 @@ const AgentKitAssistantChatBody = forwardRef<
     sendRecoveryMessage,
     submitSuggestion,
     suggestionSubmitRef,
+    resumedAfterSetup: resumedAfterSetupRef.current,
     onImplementPlan: implementPlan,
   };
 
@@ -4326,51 +4330,28 @@ function AgentKitRunFailure({
   const lastUserMessage = [...thread.messages]
     .reverse()
     .find((message) => message.role === "user");
-  const retryText = lastUserMessage ? agentMessageText(lastUserMessage) : "";
-  const retryMetadata = asRecord(lastUserMessage?.metadata);
-  const retryCustomMetadata = asRecord(retryMetadata?.custom);
-  const metadataString = (key: string) => {
-    const value = retryMetadata?.[key] ?? retryCustomMetadata?.[key];
-    return typeof value === "string" && value.trim() ? value : undefined;
-  };
-  const retryFileParts =
-    lastUserMessage?.parts.filter((part) => part.type === "file") ?? [];
-  const retryHasUnavailableAttachment = retryFileParts.some(
-    (part) => !part.url && !part.fileId,
+  const retryRequest = retryRequestFrom(lastUserMessage);
+  const alreadyRetried = wasRetried(
+    thread.messages,
+    runId,
+    lastUserMessage?.id,
   );
-  const retryReferences = Array.isArray(retryMetadata?.references)
-    ? (retryMetadata.references as Reference[])
-    : [];
-  const retryRequestMode = metadataString("requestMode");
-  const alreadyRetried = thread.messages.some(
-    (message) =>
-      asRecord(asRecord(message.metadata)?.custom)
-        ?.agentNativeRecoveryOfRunId === runId,
-  );
-  const retryFailedTurn = () =>
-    surface.sendRecoveryMessage(
-      retryText || "Please retry the last request.",
-      "retry",
-      undefined,
-      retryFileParts,
-      retryReferences,
-      {
-        recoveryModel: metadataString("model"),
-        recoveryEngine: metadataString("engine"),
-        recoveryEffort: metadataString("effort"),
-        recoveryOfRunId: runId,
-        ...(retryRequestMode === "plan" || retryRequestMode === "act"
-          ? { recoveryRequestMode: retryRequestMode }
-          : {}),
-      },
-    );
+  const retryFailedTurn = () => sendRetryRequest(surface, retryRequest, runId);
   const resumeAfterSetup = useResumeAfterAiSetup(
-    setupFailure && !superseded && !alreadyRetried,
+    `${threadId}:${lastUserMessage?.id ?? runId}`,
+    setupFailure &&
+      !superseded &&
+      !alreadyRetried &&
+      !retryRequest.hasUnavailableAttachment,
     retryFailedTurn,
   );
-  if (dismissed === runId || superseded) return null;
+  // A refusal the user already moved past is stale; any other failure keeps
+  // its Retry so a reloaded thread never shows an unanswered prompt.
+  if (dismissed === runId) return null;
   if (setupFailure) {
-    if (composerShowsSetupCard(surface)) return null;
+    if (superseded || alreadyRetried || composerShowsSetupCard(surface)) {
+      return null;
+    }
     return (
       <BuilderSetupCard
         fullWidth
@@ -4380,7 +4361,9 @@ function AgentKitRunFailure({
           window.dispatchEvent(new Event("agent-engine:configured-changed"));
           resumeAfterSetup();
         }}
-        onRetry={alreadyRetried ? undefined : resumeAfterSetup}
+        onRetry={
+          retryRequest.hasUnavailableAttachment ? undefined : resumeAfterSetup
+        }
       />
     );
   }
@@ -4413,7 +4396,7 @@ function AgentKitRunFailure({
         void surface.sendRecoveryMessage(RECOVERY_CONTINUE_PROMPT, "continue")
       }
       onRetry={() => void retryFailedTurn()}
-      retryHasUnavailableAttachment={retryHasUnavailableAttachment}
+      retryHasUnavailableAttachment={retryRequest.hasUnavailableAttachment}
       onFork={async () => {
         if (!lastUserMessage) return surface.props.onForkChat?.();
         const fork = await control.fork(lastUserMessage.id);
@@ -4428,34 +4411,107 @@ function AgentKitRunFailure({
 /**
  * Sends a prompt that missing AI setup refused again, once: when setup goes
  * from missing to ready while the refusal is on screen, or through the
- * returned callback (the setup card's connect or retry). A thread reopened
- * after connecting elsewhere keeps its Retry button instead of replaying.
+ * returned callback (the setup card's connect or retry). `resendKey` names the
+ * prompt, so every card showing the same refusal sends it one time; another
+ * tab learns it was sent from the retry's persisted marker (`enabled`). A
+ * thread reopened after connecting elsewhere keeps its Retry button instead of
+ * replaying.
  */
 function useResumeAfterAiSetup(
+  resendKey: string,
   enabled: boolean,
   resend: () => Promise<AssistantChatSubmitResult>,
 ): () => void {
   const surface = useAgentKitSurface();
-  const sentRef = useRef(false);
   const sawSetupMissingRef = useRef(false);
   if (surface.setupMissing) sawSetupMissingRef.current = true;
-  const resendRef = useRef(resend);
-  resendRef.current = resend;
+  const latestRef = useRef({ resendKey, enabled, resend });
+  latestRef.current = { resendKey, enabled, resend };
+  const resumed = surface.resumedAfterSetup;
   const resume = useCallback(() => {
-    if (sentRef.current) return;
-    sentRef.current = true;
+    const {
+      resendKey: key,
+      enabled: canResend,
+      resend: send,
+    } = latestRef.current;
+    if (!canResend || resumed.has(key)) return;
+    resumed.add(key);
     const release = () => {
-      sentRef.current = false;
+      resumed.delete(key);
     };
-    void resendRef.current().then((result) => {
+    void send().then((result) => {
       if (result.status === "rejected") release();
     }, release);
-  }, []);
+  }, [resumed]);
   const setupReady = surface.canChat && !surface.setupMissing;
   useEffect(() => {
     if (enabled && setupReady && sawSetupMissingRef.current) resume();
   }, [enabled, resume, setupReady]);
   return resume;
+}
+
+/** What retrying a failed or refused prompt sends again, read from its user message. */
+function retryRequestFrom(message: AgentMessage | undefined) {
+  const metadata = asRecord(message?.metadata);
+  const custom = asRecord(metadata?.custom);
+  const metadataString = (key: string) => {
+    const value = metadata?.[key] ?? custom?.[key];
+    return typeof value === "string" && value.trim() ? value : undefined;
+  };
+  const fileParts = message?.parts.filter((part) => part.type === "file") ?? [];
+  const mode = metadataString("requestMode");
+  const requestMode: "plan" | "act" | undefined =
+    mode === "plan" || mode === "act" ? mode : undefined;
+  return {
+    text: message ? agentMessageText(message) : "",
+    fileParts,
+    hasUnavailableAttachment: fileParts.some(
+      (part) => !part.url && !part.fileId,
+    ),
+    references: Array.isArray(metadata?.references)
+      ? (metadata.references as Reference[])
+      : [],
+    model: metadataString("model"),
+    engine: metadataString("engine"),
+    effort: metadataString("effort"),
+    requestMode,
+  };
+}
+
+function sendRetryRequest(
+  surface: AgentKitSurfaceContextValue,
+  request: ReturnType<typeof retryRequestFrom>,
+  recoveryOfRunId: string,
+) {
+  return surface.sendRecoveryMessage(
+    request.text || "Please retry the last request.",
+    "retry",
+    undefined,
+    request.fileParts,
+    request.references,
+    {
+      recoveryModel: request.model,
+      recoveryEngine: request.engine,
+      recoveryEffort: request.effort,
+      recoveryOfRunId,
+      ...(request.requestMode
+        ? { recoveryRequestMode: request.requestMode }
+        : {}),
+    },
+  );
+}
+
+/** Whether a retry answering one of `ids` was already sent, per its persisted marker. */
+function wasRetried(
+  messages: readonly AgentMessage[],
+  ...ids: Array<string | undefined>
+): boolean {
+  return messages.some((message) => {
+    const marker = asRecord(
+      asRecord(message.metadata)?.custom,
+    )?.agentNativeRecoveryOfRunId;
+    return typeof marker === "string" && ids.includes(marker);
+  });
 }
 
 /**
@@ -4564,15 +4620,16 @@ function AgentKitRefusedPromptSetup({ threadId }: { threadId: string }) {
   const refused = [...thread.messages]
     .reverse()
     .find((message) => message.role === "user" && message.status === "error");
-  const resume = useResumeAfterAiSetup(Boolean(refused), () =>
-    surface.sendRecoveryMessage(
-      refused ? agentMessageText(refused) : "",
-      "retry",
-      undefined,
-      refused?.parts.filter((part) => part.type === "file") ?? [],
-    ),
+  const retryRequest = retryRequestFrom(refused);
+  const alreadyRetried = wasRetried(thread.messages, refused?.id);
+  const resume = useResumeAfterAiSetup(
+    `${threadId}:${refused?.id ?? ""}`,
+    Boolean(refused) &&
+      !alreadyRetried &&
+      !retryRequest.hasUnavailableAttachment,
+    () => sendRetryRequest(surface, retryRequest, refused!.id),
   );
-  if (composerShowsSetupCard(surface)) return null;
+  if (alreadyRetried || composerShowsSetupCard(surface)) return null;
   return (
     <BuilderSetupCard
       fullWidth
@@ -4580,9 +4637,11 @@ function AgentKitRefusedPromptSetup({ threadId }: { threadId: string }) {
       layout={surface.props.missingApiKeySetupLayout ?? "default"}
       onConnected={() => {
         window.dispatchEvent(new Event("agent-engine:configured-changed"));
-        if (refused) resume();
+        resume();
       }}
-      onRetry={refused ? resume : undefined}
+      onRetry={
+        refused && !retryRequest.hasUnavailableAttachment ? resume : undefined
+      }
     />
   );
 }

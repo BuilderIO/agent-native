@@ -7637,7 +7637,8 @@ export async function runAgentLoopWithMainChatInternalContinuations(
   return usage;
 }
 
-function endsAtContinuationBoundary(run: ActiveRun): boolean {
+/** True when the run stopped where its turn carries on in a continuation run. */
+export function endsAtContinuationBoundary(run: ActiveRun): boolean {
   return (
     endsAtInternalContinuationBoundary(run) ||
     endsAfterToolResultWithoutAssistantFinal(run) ||

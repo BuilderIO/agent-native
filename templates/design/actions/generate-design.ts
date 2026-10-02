@@ -1401,6 +1401,7 @@ const generateDesignAction = defineAction({
           output_id: designId,
           output_type: "design",
           file_count: savedFiles.length,
+          outcome: fileErrors.length > 0 ? "partial" : "completed",
           source: "generate_design_action",
         },
         context,

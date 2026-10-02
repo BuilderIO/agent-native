@@ -619,10 +619,27 @@ function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
     }),
     ...(message.createdAt ? { createdAt: message.createdAt } : {}),
     ...(message.status ? { status: message.status } : {}),
-    ...(asRecord(message.metadata)?.hideUserMessage === true
-      ? { metadata: { hideUserMessage: true } }
-      : {}),
+    ...persistedMessageMetadata(message.metadata),
   }));
+}
+
+/**
+ * Only the markers a reloaded or second tab needs: a hidden recovery message,
+ * and which failed run a recovery message already answered, so the same
+ * failure is never sent again from another tab or after a reload.
+ */
+function persistedMessageMetadata(
+  value: unknown,
+): { metadata: Record<string, unknown> } | Record<string, never> {
+  const metadata = asRecord(value);
+  const answeredRunId = asRecord(metadata?.custom)?.agentNativeRecoveryOfRunId;
+  const kept = {
+    ...(metadata?.hideUserMessage === true ? { hideUserMessage: true } : {}),
+    ...(typeof answeredRunId === "string" && answeredRunId
+      ? { custom: { agentNativeRecoveryOfRunId: answeredRunId } }
+      : {}),
+  };
+  return Object.keys(kept).length > 0 ? { metadata: kept } : {};
 }
 
 function mergeStoredAndIncomingMessages(

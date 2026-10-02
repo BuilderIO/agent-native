@@ -557,7 +557,7 @@ export default defineAction({
         generationAttemptId &&
         generationContext?.generationMode !== "action"
       ) {
-        noteGenerationFirstOutput(ctx?.runId, {
+        noteGenerationFirstOutput(ctx?.turnId || ctx?.runId, {
           deckId,
           generationAttemptId,
           targetSlideCount,

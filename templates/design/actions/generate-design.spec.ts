@@ -468,6 +468,7 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
         output_id: "design-1",
         output_type: "design",
         file_count: 1,
+        outcome: "completed",
         source: "generate_design_action",
       }),
       undefined,
@@ -515,6 +516,9 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
 
     expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
     expect(result.savedFiles).toEqual([]);
+    expect(
+      track.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(false);
     expect(result.fileErrors).toEqual([
       {
         filename: "index.html",

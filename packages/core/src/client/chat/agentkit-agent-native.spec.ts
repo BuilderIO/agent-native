@@ -658,6 +658,10 @@ describe("createAgentNativeAgentKitTransport", () => {
             metadata: {
               hideUserMessage: true,
               privatePrompt: "do not persist this metadata",
+              custom: {
+                agentNativeRecoveryOfRunId: "run-refused",
+                privateNote: "do not persist custom metadata",
+              },
             },
           },
           {
@@ -886,7 +890,10 @@ describe("createAgentNativeAgentKitTransport", () => {
             url: "https://files.example.test/remote.txt",
           },
         ],
-        metadata: { hideUserMessage: true },
+        metadata: {
+          hideUserMessage: true,
+          custom: { agentNativeRecoveryOfRunId: "run-refused" },
+        },
       },
       {
         id: "assistant-history",
@@ -894,6 +901,9 @@ describe("createAgentNativeAgentKitTransport", () => {
         parts: [{ type: "text", text: "Release created." }],
       },
     ]);
+    expect(JSON.stringify(saved.agentKit.messages)).not.toContain(
+      "do not persist custom metadata",
+    );
     expect(JSON.stringify(saved.agentKit.messages)).not.toContain(
       "do not persist raw data",
     );
@@ -1025,7 +1035,10 @@ describe("createAgentNativeAgentKitTransport", () => {
             url: "https://files.example.test/remote.txt",
           },
         ],
-        metadata: { hideUserMessage: true },
+        metadata: {
+          hideUserMessage: true,
+          custom: { agentNativeRecoveryOfRunId: "run-refused" },
+        },
       },
       {
         id: "assistant-history",

@@ -79,6 +79,7 @@ import type { EngineMessage } from "../agent/engine/types.js";
 import { hostedHarnessSystemPrompt } from "../agent/harness/hosted.js";
 import {
   createProductionAgentHandler,
+  endsAtContinuationBoundary,
   normalizeChatScope,
   actionsToEngineTools,
   executeAgentToolCall,
@@ -572,10 +573,11 @@ export async function runPostAgentRunComplete(
   callback: AgentChatPluginOptions["onAgentRunComplete"] | undefined,
   scope: AgentChatScope | null | undefined,
   run: ActiveRun,
+  outcome: { turnContinues: boolean } = { turnContinues: false },
 ): Promise<void> {
   if (!callback) return;
   try {
-    await callback(scope, run);
+    await callback(scope, run, outcome);
   } catch (error) {
     captureError(error, {
       route: "agent-chat",
@@ -3564,6 +3566,7 @@ export function createAgentChatPlugin(
           options?.onAgentRunComplete,
           chatScope,
           run,
+          { turnContinues: endsAtContinuationBoundary(run) },
         );
 
         // Event triggers and local git checkpoints remain best effort and do

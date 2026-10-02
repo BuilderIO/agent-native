@@ -166,6 +166,8 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 import { trackGenerationCompletedForRun } from "../server/lib/generation-completion";
 import action from "./add-slide";
 
+const finished = { turnContinues: false };
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetGenerationCreativeContext.mockResolvedValue(null);
@@ -213,7 +215,7 @@ describe("add-slide", () => {
       slides: [],
       generationContext: { targetSlideCount: 2, generationAttemptId: "a-1" },
     };
-    const ctx = { caller: "tool", runId: "run-1" } as never;
+    const ctx = { caller: "tool", runId: "run-1", turnId: "turn-1" } as never;
 
     await action.run(
       { deckId: "deck-1", slideId: "s-1", content: "<div>One</div>" },
@@ -228,9 +230,14 @@ describe("add-slide", () => {
       mockTrack.mock.calls.some(([name]) => name === "generation_completed"),
     ).toBe(false);
 
-    const run = { runId: "run-1", threadId: "thread-1", status: "completed" };
-    await trackGenerationCompletedForRun(run, async () => 2);
-    await trackGenerationCompletedForRun(run, async () => 2);
+    const run = {
+      runId: "run-1",
+      turnId: "turn-1",
+      threadId: "thread-1",
+      status: "completed",
+    };
+    await trackGenerationCompletedForRun(run, finished, async () => 2);
+    await trackGenerationCompletedForRun(run, finished, async () => 2);
 
     const completed = mockTrack.mock.calls.filter(
       ([name]) => name === "generation_completed",
@@ -242,8 +249,98 @@ describe("add-slide", () => {
       slide_count: 2,
       target_slide_count: 2,
       outcome: "completed",
-      run_status: "completed",
       source: "agent_run",
+    });
+  });
+
+  describe("generation_completed only for a finished turn", () => {
+    async function writeFirstSlide(turnId: string, runId: string) {
+      deckData = {
+        title: "Untitled",
+        slides: [],
+        generationContext: { targetSlideCount: 5, generationAttemptId: "a-1" },
+      };
+      await action.run(
+        { deckId: "deck-1", slideId: "s-1", content: "<div>One</div>" },
+        { caller: "tool", runId, turnId } as never,
+      );
+    }
+    const reported = () =>
+      mockTrack.mock.calls.filter(([name]) => name === "generation_completed");
+
+    it.each(["errored", "aborted"])(
+      "reports nothing for a %s run",
+      async (status) => {
+        await writeFirstSlide("turn-fail", "run-fail");
+
+        await trackGenerationCompletedForRun(
+          { runId: "run-fail", turnId: "turn-fail", status },
+          finished,
+          async () => 1,
+        );
+
+        expect(reported()).toHaveLength(0);
+      },
+    );
+
+    it("waits for the final chunk of a chained turn and reports its slide count", async () => {
+      await writeFirstSlide("turn-chain", "run-chunk-1");
+
+      await trackGenerationCompletedForRun(
+        { runId: "run-chunk-1", turnId: "turn-chain", status: "completed" },
+        { turnContinues: true },
+        async () => 2,
+      );
+      expect(reported()).toHaveLength(0);
+
+      await trackGenerationCompletedForRun(
+        { runId: "run-chunk-2", turnId: "turn-chain", status: "completed" },
+        finished,
+        async () => 5,
+      );
+      expect(reported()).toHaveLength(1);
+      expect(reported()[0]?.[1]).toMatchObject({
+        slide_count: 5,
+        outcome: "completed",
+        run_id: "run-chunk-2",
+      });
+    });
+
+    it("keeps waiting when an errored chunk chains a continuation, and drops the turn if that fails", async () => {
+      await writeFirstSlide("turn-retry", "run-chunk-1");
+
+      await trackGenerationCompletedForRun(
+        { runId: "run-chunk-1", turnId: "turn-retry", status: "errored" },
+        { turnContinues: true },
+        async () => 1,
+      );
+      await trackGenerationCompletedForRun(
+        { runId: "run-chunk-2", turnId: "turn-retry", status: "errored" },
+        finished,
+        async () => 1,
+      );
+      await trackGenerationCompletedForRun(
+        { runId: "run-chunk-3", turnId: "turn-retry", status: "completed" },
+        finished,
+        async () => 5,
+      );
+
+      expect(reported()).toHaveLength(0);
+    });
+
+    it("surfaces a slide-count read failure instead of reporting nothing", async () => {
+      await writeFirstSlide("turn-read", "run-read");
+
+      await expect(
+        trackGenerationCompletedForRun(
+          { runId: "run-read", turnId: "turn-read", status: "completed" },
+          finished,
+          async () => {
+            throw new Error("database unavailable");
+          },
+        ),
+      ).rejects.toThrow("database unavailable");
+      expect(reported()).toHaveLength(0);
     });
   });
 
@@ -256,6 +353,7 @@ describe("add-slide", () => {
     );
     await trackGenerationCompletedForRun(
       { runId: "run-2", status: "completed" },
+      finished,
       async () => 3,
     );
 
