@@ -1029,6 +1029,71 @@ export function ownConfirmedContentBase(args: {
   return null;
 }
 
+// A browser save attempt ID names one exact payload. A hidden tab sends a
+// keepalive copy of the pending save under its ID before the ordinary flush,
+// so a flush moved onto this editor's newer base is a different payload and
+// needs its own ID. The server then accepts both deliveries as the same edit
+// generation instead of rejecting the second as a reused attempt. Page
+// recovery keeps checking the earlier ID too, as long as that copy sent
+// everything the new one does.
+export function adoptOwnConfirmedBases(
+  options: DocumentSaveOptions,
+  content: string,
+  ownBase: (captured: DocumentContentBase) => ContentSaveWatermark | null,
+): DocumentSaveOptions {
+  const ownContentBase = options.contentBase && ownBase(options.contentBase);
+  // The keepalive copy leaves out a body that matches its captured base, so
+  // its receipt cannot confirm a body that the newer base turns into a change,
+  // such as a revert of this editor's own earlier save.
+  const earlierCopySentBody =
+    !ownContentBase ||
+    content !== options.contentBase?.content ||
+    content === ownContentBase.content;
+  const intent = options.authoredContentIntent;
+  const ownIntentBase =
+    intent &&
+    ownBase({
+      content: intent.baseContent,
+      updatedAt: null,
+      revision: intent.baseRevision,
+    });
+  if (!ownContentBase && !ownIntentBase) return options;
+  return {
+    ...options,
+    ...(ownContentBase ? { contentBase: { ...ownContentBase } } : {}),
+    ...(intent && ownIntentBase
+      ? {
+          authoredContentIntent: {
+            ...intent,
+            baseRevision: ownIntentBase.revision,
+            baseContent: ownIntentBase.content,
+          },
+        }
+      : {}),
+    ...(options.saveAttemptId
+      ? {
+          saveAttemptId: crypto.randomUUID(),
+          equivalentSaveAttemptIds: earlierCopySentBody
+            ? [
+                options.saveAttemptId,
+                ...(options.equivalentSaveAttemptIds ?? []),
+              ]
+            : undefined,
+        }
+      : {}),
+  };
+}
+
+// The keepalive copy and the ordinary flush of one pending save share its
+// attempt ID, so they must derive this field the same way, including for a
+// title-only save.
+export function loadedUpdatedAtForSave(
+  contentBase: { updatedAt: string | null } | undefined,
+  documentUpdatedAt: string | null,
+): string | undefined {
+  return contentBase?.updatedAt ?? documentUpdatedAt ?? undefined;
+}
+
 function adoptConfirmedSaveWatermarks({
   saved,
   savedAt,
@@ -1702,6 +1767,7 @@ type DocumentSaveOptions = {
   authoredContentIntent?: AuthoredContentIntent;
   contentObservationEpoch?: number;
   saveAttemptId?: string;
+  equivalentSaveAttemptIds?: string[];
   editorSnapshotTitle?: string;
   editorSnapshotContent?: string;
 };
@@ -2892,6 +2958,7 @@ function PageEditorSessionBody({
       editGeneration: number,
       prepared?: {
         saveAttemptId: string;
+        equivalentSaveAttemptIds?: string[];
         contentBase: ContentSaveWatermark;
         titleBase: string;
         authoredContentIntent?: AuthoredContentIntent;
@@ -2924,6 +2991,9 @@ function PageEditorSessionBody({
               lastSavedContentRef.current.revision,
             editGeneration,
             saveAttemptId: prepared?.saveAttemptId,
+            ...(prepared?.equivalentSaveAttemptIds?.length
+              ? { equivalentSaveAttemptIds: prepared.equivalentSaveAttemptIds }
+              : {}),
             ...(authored?.baseRevision &&
             authoredCandidateMatchesContent(content, authored.candidateContent)
               ? {
@@ -3299,10 +3369,10 @@ function PageEditorSessionBody({
             : undefined;
         return await updateDocument.mutateAsync({
           id: documentId,
-          loadedUpdatedAt:
-            options.contentBase?.updatedAt ??
-            documentUpdatedAtRef.current ??
-            undefined,
+          loadedUpdatedAt: loadedUpdatedAtForSave(
+            options.contentBase,
+            documentUpdatedAtRef.current,
+          ),
           loadedContentWasEmpty:
             updates.content !== undefined
               ? isEffectivelyEmptyDocumentContent(
@@ -3595,36 +3665,32 @@ function PageEditorSessionBody({
         serverUpdatedAt: documentUpdatedAtRef.current,
         lastSaved: lastSavedContentRef.current,
       });
-      const ownBase = (captured: DocumentContentBase) =>
+      const adopted = adoptOwnConfirmedBases(options, content, (captured) =>
         ownConfirmedContentBase({
           captured,
           latest: lastSavedContentRef.current,
           lineage: ownContentSaveLineageRef.current,
           editGeneration: editorEditGeneration,
+        }),
+      );
+      // Page recovery looks up the journaled attempt ID, so record a minted
+      // replacement before any branch below can send it.
+      if (
+        adopted.saveAttemptId &&
+        adopted.saveAttemptId !== options.saveAttemptId &&
+        contentEditVersionRef.current === contentEditVersion &&
+        contentObservationEpochRef.current === contentObservationEpoch &&
+        editorEditGenerationRef.current === editorEditGeneration
+      ) {
+        journalCurrentDraft(title, content, editorEditGeneration, {
+          saveAttemptId: adopted.saveAttemptId,
+          equivalentSaveAttemptIds: adopted.equivalentSaveAttemptIds,
+          contentBase: adopted.contentBase ?? lastSavedContentRef.current,
+          titleBase: adopted.titleBase ?? lastSavedTitleRef.current.title,
+          authoredContentIntent: adopted.authoredContentIntent,
         });
-      const ownContentBase =
-        options.contentBase && ownBase(options.contentBase);
-      const intent = options.authoredContentIntent;
-      const ownIntentBase =
-        intent &&
-        ownBase({
-          content: intent.baseContent,
-          updatedAt: null,
-          revision: intent.baseRevision,
-        });
-      options = {
-        ...options,
-        ...(ownContentBase ? { contentBase: { ...ownContentBase } } : {}),
-        ...(intent && ownIntentBase
-          ? {
-              authoredContentIntent: {
-                ...intent,
-                baseRevision: ownIntentBase.revision,
-                baseContent: ownIntentBase.content,
-              },
-            }
-          : {}),
-      };
+      }
+      options = adopted;
       const titleIsStale =
         !isLinkedLocalSourceDocument &&
         options.titleBase === undefined &&
@@ -3722,10 +3788,9 @@ function PageEditorSessionBody({
             confirmsWrite: (winner) =>
               updates.title === undefined || winner.title === updates.title,
             persist: (nextContent, contentBase) => {
-              const saveAttemptId =
-                rebaseAttempt++ === 0 && options.saveAttemptId
-                  ? options.saveAttemptId
-                  : crypto.randomUUID();
+              const reusedAttemptId =
+                rebaseAttempt++ === 0 ? options.saveAttemptId : undefined;
+              const saveAttemptId = reusedAttemptId ?? crypto.randomUUID();
               if (
                 contentEditVersionRef.current === contentEditVersion &&
                 contentObservationEpochRef.current ===
@@ -3734,6 +3799,12 @@ function PageEditorSessionBody({
               ) {
                 journalCurrentDraft(title, nextContent, editorEditGeneration, {
                   saveAttemptId,
+                  ...(reusedAttemptId
+                    ? {
+                        equivalentSaveAttemptIds:
+                          options.equivalentSaveAttemptIds,
+                      }
+                    : {}),
                   contentBase,
                   titleBase:
                     options.titleBase ?? lastSavedTitleRef.current.title,
@@ -4435,10 +4506,10 @@ function PageEditorSessionBody({
           updates.content !== undefined
             ? isEffectivelyEmptyDocumentContent(pending.contentBase.content)
             : undefined;
-        const loadedUpdatedAt =
-          updates.content !== undefined
-            ? (pending.contentBase.updatedAt ?? undefined)
-            : undefined;
+        const loadedUpdatedAt = loadedUpdatedAtForSave(
+          pending.contentBase,
+          documentUpdatedAtRef.current,
+        );
         const attempt = tryCallActionKeepalive(
           "update-document",
           {
