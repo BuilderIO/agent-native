@@ -1191,6 +1191,7 @@ import {
   SHOW_DESIGN_CODE_LEFT_PANEL,
   SHOW_DESIGN_SECONDARY_LEFT_PANELS,
 } from "./design-editor/types";
+import { useViewerPresence } from "./design-editor/use-viewer-presence";
 import {
   VisualEditWebMcp,
   hasNativeWebMcpHost,
@@ -7211,6 +7212,15 @@ function DesignEditor() {
       isSignedIn && canEditDesign && overviewPresenceFileId
         ? overviewPresenceFileId
         : null,
+    requestSource: TAB_ID,
+    user: currentUser,
+  });
+
+  useViewerPresence({
+    isSignedIn,
+    canEditDesign,
+    accessRole: designAccessRole,
+    fileId: viewMode === "single" ? activeFileId : overviewPresenceFileId,
     requestSource: TAB_ID,
     user: currentUser,
   });
