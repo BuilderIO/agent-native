@@ -13119,8 +13119,14 @@ export const editorChromeBridgeScript: string = `"use strict";
     function dropFitsContainer(container, sourceWidth, sourceHeight) {
       var size = dropContentSize(container);
       var style = window.getComputedStyle(container);
-      var singleRowFlex = (style.display === "flex" || style.display === "inline-flex") && style.flexDirection.indexOf("row") === 0 && style.flexWrap !== "wrap" && style.flexWrap !== "wrap-reverse";
-      return singleRowFlex ? size.width >= sourceWidth : size.width >= sourceWidth && size.height >= sourceHeight;
+      var singleLineFlex = (style.display === "flex" || style.display === "inline-flex") && style.flexWrap !== "wrap" && style.flexWrap !== "wrap-reverse";
+      if (singleLineFlex && style.flexDirection.indexOf("row") === 0) {
+        return size.width >= sourceWidth;
+      }
+      if (singleLineFlex && style.flexDirection.indexOf("column") === 0) {
+        return size.height >= sourceHeight;
+      }
+      return size.width >= sourceWidth && size.height >= sourceHeight;
     }
     function isOutsideIframeViewport(clientX, clientY) {
       return clientX < 0 || clientY < 0 || clientX > window.innerWidth || clientY > window.innerHeight;
@@ -16993,35 +16999,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         var pointerX = ev ? ev.clientX : crect.left + crect.width / 2;
         var pointerY = ev ? ev.clientY : crect.top + crect.height / 2;
         var excluded = [dragEl].concat(groupOthers || []);
-        var rootContainer = container;
-        while (rootContainer.parentElement && rootContainer.parentElement !== document.body) {
-          rootContainer = rootContainer.parentElement;
-        }
-        var boardRootReceiver = rootContainer.parentElement === document.body && (isAutoLayoutElement(rootContainer) || isAbsolutePrimitiveContainer(rootContainer) || isFreeformRelativeContainer(rootContainer));
         var parent = container.parentElement;
-        while (parent && parent !== document.documentElement) {
+        while (parent && parent !== document.documentElement && parent !== document.body) {
           var parentIsFlow = isAutoLayoutElement(parent);
           var parentIsAbsolute = isAbsolutePrimitiveContainer(parent) || isFreeformRelativeContainer(parent);
-          if ((parent === document.body ? boardRootReceiver : isContainerDropTarget(parent)) && parent !== dragEl && (parentIsFlow || parentIsAbsolute || parent === document.body && boardRootReceiver)) {
+          if (isContainerDropTarget(parent) && parent !== dragEl && (parentIsFlow || parentIsAbsolute)) {
             if (dropFitsContainer(
               parent,
               dragElStartRect.width,
               dragElStartRect.height
             )) {
               if (parentIsFlow) {
-                return nearestChildInsertionTarget(
-                  parent,
-                  pointerX,
-                  pointerY,
-                  excluded
-                ) || {
-                  anchor: parent,
-                  placement: "inside",
-                  axis: parentFlowAxis(parent),
-                  dropMode: "flow-insert"
-                };
-              }
-              if (parent === document.body) {
                 return nearestChildInsertionTarget(
                   parent,
                   pointerX,

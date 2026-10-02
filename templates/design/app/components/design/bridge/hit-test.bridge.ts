@@ -225,14 +225,17 @@
   ): boolean {
     var size = dropContentSize(container);
     var style = window.getComputedStyle(container);
-    var singleRowFlex =
+    var singleLineFlex =
       (style.display === "flex" || style.display === "inline-flex") &&
-      style.flexDirection.indexOf("row") === 0 &&
       style.flexWrap !== "wrap" &&
       style.flexWrap !== "wrap-reverse";
-    return singleRowFlex
-      ? size.width >= sourceWidth
-      : size.width >= sourceWidth && size.height >= sourceHeight;
+    if (singleLineFlex && style.flexDirection.indexOf("row") === 0) {
+      return size.width >= sourceWidth;
+    }
+    if (singleLineFlex && style.flexDirection.indexOf("column") === 0) {
+      return size.height >= sourceHeight;
+    }
+    return size.width >= sourceWidth && size.height >= sourceHeight;
   }
 
   function elementFromEditorPoint(
@@ -280,6 +283,17 @@
     return cs.flexDirection && cs.flexDirection.indexOf("row") === 0
       ? "x"
       : "y";
+  }
+
+  function isReverseFlexFlow(styles: CSSStyleDeclaration, axis: string) {
+    return (
+      (axis === "x" &&
+        (styles.flexDirection === "row" ||
+          styles.flexDirection === "row-reverse") &&
+        (styles.flexDirection === "row-reverse") !==
+          (styles.direction === "rtl")) ||
+      (axis === "y" && styles.flexDirection === "column-reverse")
+    );
   }
 
   function isAutoLayoutElement(el: Element | null): boolean {
@@ -679,6 +693,8 @@
         containerStyles.display === "inline-grid") &&
       (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean)
         .length > 1;
+    var reverseFlow =
+      !multiTrackGrid && isReverseFlexFlow(containerStyles, axis);
     var best: Element | null = null;
     var bestDistance = Infinity;
     var placement = "after";
@@ -699,14 +715,9 @@
         bestDistance = distance;
         best = children[j];
         var placementPointer = axis === "x" ? clientX : clientY;
-        placement =
-          multiTrackGrid || wrappedFlexAxis
-            ? placementPointer < center
-              ? "before"
-              : "after"
-            : pointer < center
-              ? "before"
-              : "after";
+        var before = placementPointer < center;
+        if (reverseFlow) before = !before;
+        placement = before ? "before" : "after";
       }
     }
     if (!best) return null;
@@ -798,15 +809,19 @@
           if (wrappedParentSlot) return wrappedParentSlot;
         }
         var parentAxis = parentFlowAxis(parent);
+        var parentStyles = window.getComputedStyle(parent);
+        var reverseFlow = isReverseFlexFlow(parentStyles, parentAxis);
         var childRect = cursor.getBoundingClientRect();
         var childCenter =
           parentAxis === "x"
             ? childRect.left + childRect.width / 2
             : childRect.top + childRect.height / 2;
         var childPointer = parentAxis === "x" ? clientX : clientY;
+        var before = childPointer < childCenter;
+        if (reverseFlow) before = !before;
         return {
           anchor: cursor,
-          placement: childPointer < childCenter ? "before" : "after",
+          placement: before ? "before" : "after",
           axis: parentAxis,
           dropMode: "flow-insert",
         };
@@ -946,18 +961,6 @@
     ) {
       return target;
     }
-    var rootContainer = container;
-    while (
-      rootContainer.parentElement &&
-      rootContainer.parentElement !== document.body
-    ) {
-      rootContainer = rootContainer.parentElement;
-    }
-    var boardRootReceiver =
-      rootContainer.parentElement === document.body &&
-      (isAutoLayoutElement(rootContainer) ||
-        isAbsolutePrimitiveContainer(rootContainer) ||
-        isFreeformRelativeContainer(rootContainer));
     if (
       dropFitsContainer(
         container,
@@ -967,20 +970,21 @@
     ) {
       return target;
     }
+    // A screen's body is the board boundary, not another fitting ancestor.
     var parent = container.parentElement;
-    while (parent && parent !== document.documentElement) {
+    while (
+      parent &&
+      parent !== document.documentElement &&
+      parent !== document.body
+    ) {
       var parentIsFlow = isAutoLayoutElement(parent);
       var parentIsAbsolute =
         isAbsolutePrimitiveContainer(parent) ||
         isFreeformRelativeContainer(parent);
       if (
-        (parent === document.body
-          ? boardRootReceiver
-          : isContainerDropTarget(parent)) &&
+        isContainerDropTarget(parent) &&
         parent !== container &&
-        (parentIsFlow ||
-          parentIsAbsolute ||
-          (parent === document.body && boardRootReceiver))
+        (parentIsFlow || parentIsAbsolute)
       ) {
         if (
           dropFitsContainer(
@@ -990,16 +994,6 @@
           )
         ) {
           if (parentIsFlow) {
-            return (
-              nearestChildInsertionTarget(parent, clientX, clientY) || {
-                anchor: parent,
-                placement: "inside",
-                axis: parentFlowAxis(parent),
-                dropMode: "flow-insert",
-              }
-            );
-          }
-          if (parent === document.body) {
             return (
               nearestChildInsertionTarget(parent, clientX, clientY) || {
                 anchor: parent,

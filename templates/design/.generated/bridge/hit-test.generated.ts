@@ -137,8 +137,14 @@ export const hitTestBridgeScript: string = `"use strict";
     function dropFitsContainer(container, sourceWidth, sourceHeight) {
       var size = dropContentSize(container);
       var style = window.getComputedStyle(container);
-      var singleRowFlex = (style.display === "flex" || style.display === "inline-flex") && style.flexDirection.indexOf("row") === 0 && style.flexWrap !== "wrap" && style.flexWrap !== "wrap-reverse";
-      return singleRowFlex ? size.width >= sourceWidth : size.width >= sourceWidth && size.height >= sourceHeight;
+      var singleLineFlex = (style.display === "flex" || style.display === "inline-flex") && style.flexWrap !== "wrap" && style.flexWrap !== "wrap-reverse";
+      if (singleLineFlex && style.flexDirection.indexOf("row") === 0) {
+        return size.width >= sourceWidth;
+      }
+      if (singleLineFlex && style.flexDirection.indexOf("column") === 0) {
+        return size.height >= sourceHeight;
+      }
+      return size.width >= sourceWidth && size.height >= sourceHeight;
     }
     function elementFromEditorPoint(clientX, clientY) {
       var targets = document.elementsFromPoint ? document.elementsFromPoint(clientX, clientY) : [document.elementFromPoint(clientX, clientY)];
@@ -174,6 +180,9 @@ export const hitTestBridgeScript: string = `"use strict";
         return null;
       }
       return cs.flexDirection && cs.flexDirection.indexOf("row") === 0 ? "x" : "y";
+    }
+    function isReverseFlexFlow(styles, axis) {
+      return axis === "x" && (styles.flexDirection === "row" || styles.flexDirection === "row-reverse") && styles.flexDirection === "row-reverse" !== (styles.direction === "rtl") || axis === "y" && styles.flexDirection === "column-reverse";
     }
     function isAutoLayoutElement(el) {
       if (!el) return false;
@@ -450,6 +459,7 @@ export const hitTestBridgeScript: string = `"use strict";
       var axis = wrappedFlexAxis || parentFlowAxis(container);
       var containerStyles = window.getComputedStyle(container);
       var multiTrackGrid = (containerStyles.display === "grid" || containerStyles.display === "inline-grid") && (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
+      var reverseFlow = !multiTrackGrid && isReverseFlexFlow(containerStyles, axis);
       var best = null;
       var bestDistance = Infinity;
       var placement = "after";
@@ -466,7 +476,9 @@ export const hitTestBridgeScript: string = `"use strict";
           bestDistance = distance;
           best = children[j];
           var placementPointer = axis === "x" ? clientX : clientY;
-          placement = multiTrackGrid || wrappedFlexAxis ? placementPointer < center ? "before" : "after" : pointer < center ? "before" : "after";
+          var before = placementPointer < center;
+          if (reverseFlow) before = !before;
+          placement = before ? "before" : "after";
         }
       }
       if (!best) return null;
@@ -535,12 +547,16 @@ export const hitTestBridgeScript: string = `"use strict";
             if (wrappedParentSlot) return wrappedParentSlot;
           }
           var parentAxis = parentFlowAxis(parent);
+          var parentStyles = window.getComputedStyle(parent);
+          var reverseFlow = isReverseFlexFlow(parentStyles, parentAxis);
           var childRect = cursor.getBoundingClientRect();
           var childCenter = parentAxis === "x" ? childRect.left + childRect.width / 2 : childRect.top + childRect.height / 2;
           var childPointer = parentAxis === "x" ? clientX : clientY;
+          var before = childPointer < childCenter;
+          if (reverseFlow) before = !before;
           return {
             anchor: cursor,
-            placement: childPointer < childCenter ? "before" : "after",
+            placement: before ? "before" : "after",
             axis: parentAxis,
             dropMode: "flow-insert"
           };
@@ -630,11 +646,6 @@ export const hitTestBridgeScript: string = `"use strict";
       if (!container || container === document.body || container === document.documentElement || !isContainerDropTarget(container)) {
         return target;
       }
-      var rootContainer = container;
-      while (rootContainer.parentElement && rootContainer.parentElement !== document.body) {
-        rootContainer = rootContainer.parentElement;
-      }
-      var boardRootReceiver = rootContainer.parentElement === document.body && (isAutoLayoutElement(rootContainer) || isAbsolutePrimitiveContainer(rootContainer) || isFreeformRelativeContainer(rootContainer));
       if (dropFitsContainer(
         container,
         sourceElementSize.width,
@@ -643,24 +654,16 @@ export const hitTestBridgeScript: string = `"use strict";
         return target;
       }
       var parent = container.parentElement;
-      while (parent && parent !== document.documentElement) {
+      while (parent && parent !== document.documentElement && parent !== document.body) {
         var parentIsFlow = isAutoLayoutElement(parent);
         var parentIsAbsolute = isAbsolutePrimitiveContainer(parent) || isFreeformRelativeContainer(parent);
-        if ((parent === document.body ? boardRootReceiver : isContainerDropTarget(parent)) && parent !== container && (parentIsFlow || parentIsAbsolute || parent === document.body && boardRootReceiver)) {
+        if (isContainerDropTarget(parent) && parent !== container && (parentIsFlow || parentIsAbsolute)) {
           if (dropFitsContainer(
             parent,
             sourceElementSize.width,
             sourceElementSize.height
           )) {
             if (parentIsFlow) {
-              return nearestChildInsertionTarget(parent, clientX, clientY) || {
-                anchor: parent,
-                placement: "inside",
-                axis: parentFlowAxis(parent),
-                dropMode: "flow-insert"
-              };
-            }
-            if (parent === document.body) {
               return nearestChildInsertionTarget(parent, clientX, clientY) || {
                 anchor: parent,
                 placement: "inside",

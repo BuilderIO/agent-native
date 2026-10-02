@@ -16531,14 +16531,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   ): boolean {
     var size = dropContentSize(container);
     var style = window.getComputedStyle(container);
-    var singleRowFlex =
+    var singleLineFlex =
       (style.display === "flex" || style.display === "inline-flex") &&
-      style.flexDirection.indexOf("row") === 0 &&
       style.flexWrap !== "wrap" &&
       style.flexWrap !== "wrap-reverse";
-    return singleRowFlex
-      ? size.width >= sourceWidth
-      : size.width >= sourceWidth && size.height >= sourceHeight;
+    if (singleLineFlex && style.flexDirection.indexOf("row") === 0) {
+      return size.width >= sourceWidth;
+    }
+    if (singleLineFlex && style.flexDirection.indexOf("column") === 0) {
+      return size.height >= sourceHeight;
+    }
+    return size.width >= sourceWidth && size.height >= sourceHeight;
   }
 
   function isOutsideIframeViewport(clientX: number, clientY: number): boolean {
@@ -21975,32 +21978,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var pointerX = ev ? ev.clientX : crect.left + crect.width / 2;
       var pointerY = ev ? ev.clientY : crect.top + crect.height / 2;
       var excluded = [dragEl].concat(groupOthers || []);
-      var rootContainer = container;
-      while (
-        rootContainer.parentElement &&
-        rootContainer.parentElement !== document.body
-      ) {
-        rootContainer = rootContainer.parentElement;
-      }
-      var boardRootReceiver =
-        rootContainer.parentElement === document.body &&
-        (isAutoLayoutElement(rootContainer) ||
-          isAbsolutePrimitiveContainer(rootContainer) ||
-          isFreeformRelativeContainer(rootContainer));
       var parent = container.parentElement;
-      while (parent && parent !== document.documentElement) {
+      // A screen's body is the board boundary, not another fitting ancestor.
+      while (
+        parent &&
+        parent !== document.documentElement &&
+        parent !== document.body
+      ) {
         var parentIsFlow = isAutoLayoutElement(parent);
         var parentIsAbsolute =
           isAbsolutePrimitiveContainer(parent) ||
           isFreeformRelativeContainer(parent);
         if (
-          (parent === document.body
-            ? boardRootReceiver
-            : isContainerDropTarget(parent)) &&
+          isContainerDropTarget(parent) &&
           parent !== dragEl &&
-          (parentIsFlow ||
-            parentIsAbsolute ||
-            (parent === document.body && boardRootReceiver))
+          (parentIsFlow || parentIsAbsolute)
         ) {
           if (
             dropFitsContainer(
@@ -22010,21 +22002,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             )
           ) {
             if (parentIsFlow) {
-              return (
-                nearestChildInsertionTarget(
-                  parent,
-                  pointerX,
-                  pointerY,
-                  excluded,
-                ) || {
-                  anchor: parent,
-                  placement: "inside",
-                  axis: parentFlowAxis(parent),
-                  dropMode: "flow-insert",
-                }
-              );
-            }
-            if (parent === document.body) {
               return (
                 nearestChildInsertionTarget(
                   parent,

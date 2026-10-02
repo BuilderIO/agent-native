@@ -247,9 +247,9 @@ describe("Screen-root auto-layout hit testing", () => {
     const browser = await chromium.launch({ headless: true });
     try {
       const page = await browser.newPage({
-        viewport: { width: 640, height: 480 },
+        viewport: { width: 640, height: 900 },
       });
-      await page.setContent(`<!doctype html><html><body style="margin:0;width:640px;height:480px;position:relative">
+      await page.setContent(`<!doctype html><html><body style="margin:0;width:640px;height:900px;position:relative">
         <section data-agent-native-node-id="row" style="position:absolute;left:40px;top:40px;box-sizing:border-box;width:420px;height:70px;padding:20px;display:flex;flex-direction:row;gap:12px">
           <section data-agent-native-node-id="nested-row" style="flex:none;width:120px;height:40px;display:flex;flex-direction:row">
             <div data-agent-native-node-id="marker" style="flex:none;width:110px;height:36px">Marker</div>
@@ -258,6 +258,21 @@ describe("Screen-root auto-layout hit testing", () => {
         </section>
         <section data-agent-native-node-id="padded-rect" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:200px;box-sizing:border-box;width:250px;height:180px;padding:20px">
           <section data-agent-native-node-id="padded-inner" data-an-primitive="frame" style="position:absolute;left:20px;top:20px;width:100px;height:80px"></section>
+        </section>
+        <section data-agent-native-node-id="reverse-row" style="position:absolute;left:40px;top:400px;width:420px;height:120px;display:flex;flex-direction:row-reverse">
+          <section data-agent-native-node-id="reverse-row-nested" data-an-primitive="frame" style="flex:none;width:120px;height:80px;display:flex;flex-direction:column">
+            <div data-agent-native-node-id="reverse-row-anchor" style="flex:none;width:80px;height:32px"></div>
+          </section>
+        </section>
+        <section data-agent-native-node-id="column" style="position:absolute;left:40px;top:540px;width:180px;height:160px;display:flex;flex-direction:column">
+          <section data-agent-native-node-id="column-nested" data-an-primitive="frame" style="flex:none;width:120px;height:80px;display:flex;flex-direction:column">
+            <div data-agent-native-node-id="column-anchor" style="flex:none;width:80px;height:32px"></div>
+          </section>
+        </section>
+        <section data-agent-native-node-id="reverse-column" style="position:absolute;left:40px;top:720px;width:280px;height:160px;display:flex;flex-direction:column-reverse">
+          <section data-agent-native-node-id="reverse-column-nested" data-an-primitive="frame" style="flex:none;width:120px;height:80px;display:flex;flex-direction:column">
+            <div data-agent-native-node-id="reverse-column-anchor" style="flex:none;width:80px;height:32px"></div>
+          </section>
         </section>
       </body></html>`);
       await page.addScriptTag({ content: hitTestBridgeScript });
@@ -288,9 +303,39 @@ describe("Screen-root auto-layout hit testing", () => {
           },
           "*",
         );
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "reverse-row-fallback",
+            x: 450,
+            y: 440,
+            sourceElementSize: { width: 220, height: 96 },
+          },
+          "*",
+        );
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "column-main-axis-fallback",
+            x: 100,
+            y: 580,
+            sourceElementSize: { width: 220, height: 96 },
+          },
+          "*",
+        );
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "reverse-column-fallback",
+            x: 100,
+            y: 810,
+            sourceElementSize: { width: 220, height: 96 },
+          },
+          "*",
+        );
       });
       await page.waitForFunction(
-        () => (window as any).__hitTestResults.length === 2,
+        () => (window as any).__hitTestResults.length === 5,
       );
 
       const packets = await page.evaluate(
@@ -305,10 +350,148 @@ describe("Screen-root auto-layout hit testing", () => {
       });
       expect(packets[1]).toMatchObject({
         correlationId: "content-box-fallback",
-        anchorNodeId: "padded-rect",
-        placement: "before",
+        anchorNodeId: "",
+        placement: "inside",
         dropMode: "flow-insert",
       });
+      expect(packets[1].anchorRect).toBeUndefined();
+      expect(packets[2]).toMatchObject({
+        correlationId: "reverse-row-fallback",
+        anchorNodeId: "reverse-row-nested",
+        placement: "before",
+        axis: "x",
+        dropMode: "flow-insert",
+      });
+      expect(packets[3]).toMatchObject({
+        correlationId: "column-main-axis-fallback",
+        anchorNodeId: "column-nested",
+        axis: "y",
+        dropMode: "flow-insert",
+      });
+      expect(packets[4]).toMatchObject({
+        correlationId: "reverse-column-fallback",
+        anchorNodeId: "reverse-column-nested",
+        placement: "after",
+        axis: "y",
+        dropMode: "flow-insert",
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("uses reverse-flex visual order for direct child insertion", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 640, height: 640 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0;width:640px;height:640px;position:relative">
+        <section style="position:absolute;left:40px;top:40px;width:420px;height:100px;display:flex;flex-direction:row-reverse">
+          <div data-agent-native-node-id="row-reverse-first" style="flex:none;width:100px;height:80px"></div>
+          <div data-agent-native-node-id="row-reverse-second" style="flex:none;width:100px;height:80px"></div>
+        </section>
+        <section style="position:absolute;left:40px;top:200px;width:120px;height:300px;display:flex;flex-direction:column-reverse">
+          <div data-agent-native-node-id="column-reverse-first" style="flex:none;width:100px;height:80px"></div>
+          <div data-agent-native-node-id="column-reverse-second" style="flex:none;width:100px;height:80px"></div>
+        </section>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "direct-row-reverse",
+            x: 365,
+            y: 60,
+            sourceElementSize: { width: 20, height: 20 },
+          },
+          "*",
+        );
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "direct-column-reverse",
+            x: 60,
+            y: 425,
+            sourceElementSize: { width: 20, height: 20 },
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 2,
+      );
+      const packets = await page.evaluate(
+        () => (window as any).__hitTestResults,
+      );
+      expect(packets[0]).toMatchObject({
+        correlationId: "direct-row-reverse",
+        anchorNodeId: "row-reverse-first",
+        placement: "after",
+        axis: "x",
+      });
+      expect(packets[1]).toMatchObject({
+        correlationId: "direct-column-reverse",
+        anchorNodeId: "column-reverse-first",
+        placement: "after",
+        axis: "y",
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("does not promote an oversized drop beyond a too-small board root", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 640, height: 480 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0;width:640px;height:480px;position:relative">
+        <section data-agent-native-node-id="screen-root" data-an-primitive="frame" style="position:absolute;left:40px;top:40px;width:160px;height:120px;display:flex;flex-direction:row">
+          <section data-agent-native-node-id="nested-root" data-an-primitive="frame" style="flex:none;width:100px;height:80px;display:flex;flex-direction:column">
+            <div data-agent-native-node-id="root-anchor" style="flex:none;width:60px;height:32px"></div>
+          </section>
+        </section>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "undersized-board-root",
+            x: 80,
+            y: 80,
+            preview: true,
+            sourceElementSize: { width: 220, height: 96 },
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+      const packet = await page.evaluate(
+        () => (window as any).__hitTestResults[0],
+      );
+      expect(packet).toMatchObject({
+        correlationId: "undersized-board-root",
+        anchorNodeId: "",
+      });
+      expect(packet.anchorNodeId).not.toBe("screen-root");
     } finally {
       await browser.close();
     }
