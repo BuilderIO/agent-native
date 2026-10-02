@@ -16,6 +16,14 @@ no step changes saving, sharing, auth, or billing writes.
 | `prototype/build.ts` | `node docs/plans/2026-10-01-design-editor-shell/prototype/build.ts` writes `prototype/dist/index.html` (gitignored). |
 | `prototype/check-refs.ts` | `node docs/plans/2026-10-01-design-editor-shell/prototype/check-refs.ts` checks that every file and `file:line` reference still exists. Exit 1 lists the stale ones. |
 
+To keep prototyping: edit `prototype/source.html` (or the data files), run
+`build.ts`, open `prototype/dist/index.html`, and publish that file. In Claude
+Code, ask it to publish `prototype/dist/index.html` as an artifact, passing
+the plan's artifact URL (in the PR description) so the link stays the same;
+without edit access to that artifact, publishing makes a new one. The source
+lives here, not in the artifact, so every change goes through this folder and
+its git history.
+
 Requirement statuses: `exists` describes what the code does today (with
 `file:line`), `new` is net-new work, `question` needs a decision, `decided`
 records an answered question, `in-pr` and `shipped` track delivery. A PR that
