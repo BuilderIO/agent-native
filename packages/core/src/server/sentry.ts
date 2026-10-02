@@ -130,7 +130,8 @@ function redactSentryEventPayload(
           ));
       redactSentryEventPayload(
         child,
-        breadcrumbDataSqlAssociation,
+        breadcrumbDataSqlAssociation ||
+          (directlySqlAssociated && key.toLowerCase() === "data"),
         false,
         seen,
         childNestedSqlAssociation,
@@ -178,11 +179,13 @@ export function initServerSentry(): Promise<boolean> {
               typeof exception.value === "string" &&
               isSqlStatementText(exception.value),
           );
-          const hasSqlFailure =
+          const hasSqlRootFailure =
             (typeof event.message === "string" &&
               isSqlStatementText(event.message)) ||
             hasSqlExceptionValue ||
-            hasSqlLogEntryFailure ||
+            hasSqlLogEntryFailure;
+          const hasSqlFailure =
+            hasSqlRootFailure ||
             hasSqlFailureSignal([
               event.contexts,
               event.breadcrumbs,
@@ -191,7 +194,7 @@ export function initServerSentry(): Promise<boolean> {
           redactSentryEventPayload(event, false, true);
           const serialized = event.extra?.__serialized__;
           if (
-            hasSqlExceptionValue &&
+            hasSqlRootFailure &&
             serialized !== null &&
             typeof serialized === "object" &&
             !Array.isArray(serialized)

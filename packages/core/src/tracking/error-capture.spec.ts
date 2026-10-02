@@ -252,6 +252,7 @@ describe("tracking captureException", () => {
 
   it.each([
     ["EXECUTE", "EXECUTE prepared_statement($1)"],
+    ["EXECUTE quoted name", 'EXECUTE "customer lookup"($1)'],
     ["COPY", "COPY (SELECT email FROM users WHERE email = $1) TO STDOUT"],
     [
       "EXPLAIN ANALYZE FALSE",
@@ -268,6 +269,26 @@ describe("tracking captureException", () => {
     [
       "DECLARE NO SCROLL CURSOR",
       "DECLARE customer_cursor NO SCROLL CURSOR FOR SELECT email FROM users WHERE email = $1",
+    ],
+    [
+      "DECLARE ASENSITIVE WITH HOLD",
+      "DECLARE customer_cursor ASENSITIVE BINARY NO SCROLL CURSOR WITH HOLD FOR SELECT email FROM users WHERE email = $1",
+    ],
+    [
+      "DECLARE WITHOUT HOLD",
+      "DECLARE customer_cursor CURSOR WITHOUT HOLD FOR SELECT email FROM users WHERE email = $1",
+    ],
+    [
+      "UPDATE with an inter-token comment",
+      "UPDATE users /* audit */ SET email = $1",
+    ],
+    [
+      "CALL with a Unicode escape identifier",
+      String.raw`CALL U&"process!005Fuser" UESCAPE '!'($1)`,
+    ],
+    [
+      "CALL with a comment before the schema separator",
+      "CALL schema /* tenant */ . procedure($1)",
     ],
   ])("redacts PostgreSQL %s bind parameters", (_statement, query) => {
     const track = vi.fn();

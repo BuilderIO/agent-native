@@ -13,18 +13,6 @@ const SQL_CTE_QUERY_RE =
   /^(?:select|insert|update|delete|merge|values|with|table)\b/i;
 const SQL_CTE_IDENTIFIER = String.raw`(?:[uU]&"(?:[^"]|"")*"|"(?:[^"]|"")+"|[_\p{ID_Start}][$\p{ID_Continue}]*)`;
 const SQL_CTE_IDENTIFIER_RE = new RegExp(`^${SQL_CTE_IDENTIFIER}`, "iu");
-const SQL_CALL_TARGET_RE = new RegExp(
-  `^${SQL_CTE_IDENTIFIER}(?:\\s*\\.\\s*${SQL_CTE_IDENTIFIER})*\\s*\\(`,
-  "iu",
-);
-const SQL_UPDATE_STATEMENT_RE = new RegExp(
-  `^(?:only\\s+)?${SQL_CTE_IDENTIFIER}(?:\\s*\\.\\s*${SQL_CTE_IDENTIFIER})*\\s*\\*?(?:\\s+(?:as\\s+)?${SQL_CTE_IDENTIFIER})?\\s+set\\b`,
-  "iu",
-);
-const SQL_DECLARE_CURSOR_RE = new RegExp(
-  `^${SQL_CTE_IDENTIFIER}(?:\\s+binary)?(?:\\s+insensitive)?(?:\\s+(?:no\\s+)?scroll)?\\s+cursor\\b`,
-  "iu",
-);
 const SQL_DOLLAR_QUOTE_RE =
   /^\$(?:[_\p{ID_Start}](?:(?!\$)\p{ID_Continue})*)?\$/u;
 
@@ -302,6 +290,89 @@ function afterSqlIdentifier(value: string): string | undefined {
   return afterLeadingSqlComments(escapeClause.remainder);
 }
 
+function afterSqlQualifiedIdentifier(value: string): string | undefined {
+  let remainder = afterSqlIdentifier(value);
+  if (remainder === undefined) return undefined;
+
+  while (true) {
+    const statement = afterLeadingSqlComments(remainder);
+    if (!statement.startsWith(".")) return statement;
+    remainder = afterSqlIdentifier(statement.slice(1));
+    if (remainder === undefined) return undefined;
+  }
+}
+
+function hasSqlCallStructure(value: string): boolean {
+  const afterName = afterSqlQualifiedIdentifier(value);
+  return (
+    afterName !== undefined &&
+    afterLeadingSqlComments(afterName).startsWith("(")
+  );
+}
+
+function hasSqlExecuteStructure(value: string): boolean {
+  const afterName = afterSqlIdentifier(value);
+  return (
+    afterName !== undefined &&
+    (afterLeadingSqlComments(afterName).startsWith("(") ||
+      afterSqlToken(afterName, /^using\b/i) !== undefined)
+  );
+}
+
+function hasSqlUpdateStructure(value: string): boolean {
+  let statement =
+    afterSqlToken(value, /^only\b/i) ?? afterLeadingSqlComments(value);
+  statement = afterSqlQualifiedIdentifier(statement) ?? "";
+  if (!statement) return false;
+  statement =
+    afterSqlToken(statement, /^\*/u) ?? afterLeadingSqlComments(statement);
+  if (afterSqlToken(statement, /^set\b/i) !== undefined) return true;
+
+  const afterAs = afterSqlToken(statement, /^as\b/i);
+  const afterAlias = afterSqlIdentifier(afterAs ?? statement);
+  return (
+    afterAlias !== undefined &&
+    afterSqlToken(afterAlias, /^set\b/i) !== undefined
+  );
+}
+
+function hasSqlDeclareCursorStructure(value: string): boolean {
+  let statement = afterSqlIdentifier(value);
+  if (statement === undefined) return false;
+
+  while (true) {
+    const option = afterSqlToken(
+      statement,
+      /^(?:binary|asensitive|insensitive|scroll)\b/i,
+    );
+    if (option !== undefined) {
+      statement = option;
+      continue;
+    }
+
+    const no = afterSqlToken(statement, /^no\b/i);
+    if (no !== undefined) {
+      const scroll = afterSqlToken(no, /^scroll\b/i);
+      if (scroll === undefined) return false;
+      statement = scroll;
+      continue;
+    }
+    break;
+  }
+
+  statement = afterSqlToken(statement, /^cursor\b/i) ?? "";
+  if (!statement) return false;
+
+  const hold = afterSqlToken(statement, /^(?:with|without)\b/i);
+  if (hold !== undefined) {
+    statement = afterSqlToken(hold, /^hold\b/i) ?? "";
+    if (!statement) return false;
+  }
+
+  const query = afterSqlToken(statement, /^for\b/i);
+  return query !== undefined && startsWithSqlStatement(query);
+}
+
 function afterSqlKeywordOutsideQuotedText(
   value: string,
   keyword: string,
@@ -480,7 +551,7 @@ function hasSqlStatementStructure(statement: string): boolean {
         /\b(?:values|select|default\s+values)\b/i.test(body)
       );
     case "update":
-      return SQL_UPDATE_STATEMENT_RE.test(body);
+      return hasSqlUpdateStructure(body);
     case "delete":
       return /^from\b/i.test(body);
     case "merge":
@@ -488,13 +559,13 @@ function hasSqlStatementStructure(statement: string): boolean {
     case "values":
       return /^\s*\(/u.test(body);
     case "call":
-      return SQL_CALL_TARGET_RE.test(body);
+      return hasSqlCallStructure(body);
     case "execute":
-      return /^[\w.$"]+(?:\s*\(|\s+using\b)/iu.test(body);
+      return hasSqlExecuteStructure(body);
     case "copy":
       return /\b(?:from|to)\b/i.test(body);
     case "declare":
-      return SQL_DECLARE_CURSOR_RE.test(body) && /\bfor\b/i.test(body);
+      return hasSqlDeclareCursorStructure(body);
     case "explain": {
       let statement = afterLeadingSqlComments(body);
       if (statement.startsWith("(")) {

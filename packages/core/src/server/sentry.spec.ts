@@ -380,8 +380,13 @@ describe("server/sentry", () => {
 
     it.each([
       ["EXECUTE", "EXECUTE prepared_statement($1)"],
+      ["EXECUTE quoted name", 'EXECUTE "customer lookup"($1)'],
       ["UPDATE with an alias", "UPDATE users AS u SET email = $1"],
       ["UPDATE ONLY", "UPDATE ONLY users SET email = $1"],
+      [
+        "UPDATE with an inter-token comment",
+        "UPDATE users /* audit */ SET email = $1",
+      ],
       [
         "EXPLAIN EXECUTE",
         "EXPLAIN (ANALYZE, FORMAT JSON) EXECUTE prepared_lookup($1)",
@@ -396,6 +401,14 @@ describe("server/sentry", () => {
       ],
       ["CALL with a Unicode name", "CALL procéss_user($1)"],
       ["CALL with a quoted name", 'CALL "process user"($1)'],
+      [
+        "CALL with a Unicode escape identifier",
+        String.raw`CALL U&"process!005Fuser" UESCAPE '!'($1)`,
+      ],
+      [
+        "CALL with a comment before the schema separator",
+        "CALL schema /* tenant */ . procedure($1)",
+      ],
       ["COPY", "COPY (SELECT email FROM users WHERE email = $1) TO STDOUT"],
       [
         "DECLARE CURSOR",
@@ -404,6 +417,14 @@ describe("server/sentry", () => {
       [
         "DECLARE NO SCROLL CURSOR",
         "DECLARE customer_cursor NO SCROLL CURSOR FOR SELECT email FROM users WHERE email = $1",
+      ],
+      [
+        "DECLARE ASENSITIVE WITH HOLD",
+        "DECLARE customer_cursor ASENSITIVE BINARY NO SCROLL CURSOR WITH HOLD FOR SELECT email FROM users WHERE email = $1",
+      ],
+      [
+        "DECLARE WITHOUT HOLD",
+        "DECLARE customer_cursor CURSOR WITHOUT HOLD FOR SELECT email FROM users WHERE email = $1",
       ],
     ])(
       "redacts parameterized PostgreSQL %s statements",
@@ -878,6 +899,90 @@ describe("server/sentry", () => {
       expect(cause.stack).toContain("params: <redacted>");
       expect(cause.stack).toContain("at loadTranscript");
       expect(JSON.stringify(result)).not.toContain(privateValue);
+    });
+
+    it.each(["message", "logentry"])(
+      "redacts serialized cause params when root SQL evidence is in the %s",
+      async (source) => {
+        process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+        const { initServerSentry } = await import("./sentry.js");
+        await initServerSentry();
+
+        const privateValue = "private customer value";
+        const message = `Failed query: select id from users where id = $1\n\tparams: ${privateValue}`;
+        const event: Record<string, unknown> = {
+          exception: {
+            values: [
+              {
+                type: "Error",
+                value: "Object captured as exception with keys: cause",
+              },
+            ],
+          },
+          extra: {
+            __serialized__: {
+              cause: {
+                params: [privateValue],
+                cause: { params: [privateValue] },
+              },
+            },
+          },
+        };
+        if (source === "message") event.message = message;
+        else event.logentry = { message, params: [privateValue] };
+
+        const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+        const result = beforeSend(event as never) as {
+          extra: {
+            __serialized__: {
+              cause: { params: unknown; cause: { params: unknown } };
+            };
+          };
+        };
+
+        expect(JSON.stringify(result)).not.toContain(privateValue);
+        expect(result.extra.__serialized__.cause.params).toBe("<redacted>");
+        expect(result.extra.__serialized__.cause.cause.params).toBe(
+          "<redacted>",
+        );
+      },
+    );
+
+    it("redacts params in data nested under a SQL-associated Sentry record", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        exception: {
+          values: [{ type: "Error", value: "database operation failed" }],
+        },
+        contexts: {
+          database: {
+            query: "SELECT id FROM users WHERE id = $1",
+            data: { params: [privateValue], diagnostics: { params: ["safe"] } },
+            diagnostics: { params: ["unrelated sibling"] },
+          },
+        },
+      } as never) as {
+        contexts: {
+          database: {
+            data: { params: unknown; diagnostics: { params: string[] } };
+            diagnostics: { params: string[] };
+          };
+        };
+      };
+
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+      expect(result.contexts.database.data.params).toBe("<redacted>");
+      expect(result.contexts.database.data.diagnostics.params).toEqual([
+        "safe",
+      ]);
+      expect(result.contexts.database.diagnostics.params).toEqual([
+        "unrelated sibling",
+      ]);
     });
 
     it("redacts SQL parameters in breadcrumbs and context data", async () => {
