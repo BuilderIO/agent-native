@@ -14,6 +14,7 @@ import {
 } from "../agent/engine/error-detail.js";
 import { organizationIdFromResourceOwner } from "../resources/store.js";
 import { resolveDeployEnvironment } from "../server/deploy-environment.js";
+import { isTestIdentity } from "../server/test-identity.js";
 import type { JobFrontmatter, JobFrontmatterPatch } from "./frontmatter.js";
 
 /**
@@ -179,34 +180,12 @@ export function isPseudoOwner(owner: string): boolean {
 const MISSING_TOOLS_MESSAGE =
   /^Configured MCP tools are unavailable in this run\b/;
 
-const RESERVED_TEST_TLDS = ["test", "invalid", "example"];
-const RESERVED_TEST_DOMAINS = ["example.com", "example.org", "example.net"];
-
-export function isReservedTestIdentity(email: string): boolean {
-  const at = email.lastIndexOf("@");
-  if (at < 1) return false;
-  const domain = email
-    .slice(at + 1)
-    .trim()
-    .toLowerCase();
-  return (
-    RESERVED_TEST_TLDS.some(
-      (tld) => domain === tld || domain.endsWith(`.${tld}`),
-    ) ||
-    RESERVED_TEST_DOMAINS.some(
-      (reserved) => domain === reserved || domain.endsWith(`.${reserved}`),
-    )
-  );
-}
-
 /**
  * QA fixtures such as `qa-*@local.test` are expected on local and beta
  * deployments; in production they only burn LLM runs against real sinks.
  */
 export function isReservedIdentityBlocked(email: string): boolean {
-  return (
-    isReservedTestIdentity(email) && resolveDeployEnvironment() === "production"
-  );
+  return isTestIdentity(email) && resolveDeployEnvironment() === "production";
 }
 
 export function reservedIdentityMessage(email: string): string {

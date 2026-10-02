@@ -14,7 +14,6 @@ import {
   isPausedByFramework,
   isPseudoOwner,
   isReservedIdentityBlocked,
-  isReservedTestIdentity,
   pauseNow,
   PRECONDITION_PAUSE_AFTER,
   RUNTIME_PAUSE_AFTER,
@@ -257,11 +256,10 @@ describe("reserved test identities", () => {
     "dev@agent-native.test",
     "x@something.invalid",
     "x@host.example",
-    "a@example.com",
-    "a@Example.ORG",
-    "a@mail.example.net",
-  ])("treats %s as reserved", (email) => {
-    expect(isReservedTestIdentity(email)).toBe(true);
+    "qa+autoz-run@builder.io",
+  ])("blocks %s in production", (email) => {
+    deployEnvironmentMock.mockReturnValue("production");
+    expect(isReservedIdentityBlocked(email)).toBe(true);
   });
 
   it.each([
@@ -271,8 +269,9 @@ describe("reserved test identities", () => {
     "__shared__",
     "__organization__:acme",
     "",
-  ])("treats %s as a real identity", (email) => {
-    expect(isReservedTestIdentity(email)).toBe(false);
+  ])("never blocks %s", (email) => {
+    deployEnvironmentMock.mockReturnValue("production");
+    expect(isReservedIdentityBlocked(email)).toBe(false);
   });
 
   it("only blocks them in production", () => {

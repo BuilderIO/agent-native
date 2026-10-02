@@ -16,10 +16,7 @@ import {
 import listResourceShares from "./actions/list-resource-shares.js";
 import setResourceVisibility from "./actions/set-resource-visibility.js";
 import shareResource from "./actions/share-resource.js";
-import {
-  isSyntheticQaEmail,
-  resolveShareNotificationUrl,
-} from "./actions/share-resource.js";
+import { resolveShareNotificationUrl } from "./actions/share-resource.js";
 import unshareResource from "./actions/unshare-resource.js";
 import { registerShareableResource } from "./registry.js";
 import {
@@ -317,14 +314,6 @@ describe("shareable resource access helpers", () => {
     expect(roleSatisfies("viewer", "commenter")).toBe(false);
     expect(roleSatisfies("commenter", "commenter")).toBe(true);
     expect(roleSatisfies("commenter", "editor")).toBe(false);
-  });
-
-  it("recognizes reserved synthetic QA emails so share notifications can be suppressed", () => {
-    expect(isSyntheticQaEmail("steve+autoz-run-123@example.com")).toBe(true);
-    expect(isSyntheticQaEmail("steve+qa-tools-123@example.test")).toBe(true);
-    expect(isSyntheticQaEmail("codex+qa-lane@example.invalid")).toBe(true);
-    expect(isSyntheticQaEmail("steve+qa-tools-123@example.com")).toBe(false);
-    expect(isSyntheticQaEmail("steve@example.test")).toBe(false);
   });
 
   it("builds safe share notification URLs", () => {

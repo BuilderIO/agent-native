@@ -1,6 +1,6 @@
 import { getAppConfig } from "../app-config/index.js";
 import { getRequestContext } from "../server/request-context.js";
-import { isQaTestEmail } from "../shared/qa-test-email.js";
+import { isTestIdentity } from "../server/test-identity.js";
 import { reshapeTrackedExceptionProperties } from "./posthog-exception.js";
 import { registerTrackingProvider } from "./registry.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
@@ -245,11 +245,13 @@ export function sendPostHogEvent(
   const requestContext = getRequestContext();
   if (
     requestContext?.isSyntheticTraffic === true ||
-    isQaTestEmail(distinctId) ||
-    isQaTestEmail(requestContext?.userEmail) ||
-    isQaTestEmail(properties.email) ||
-    isQaTestEmail(properties.userEmail) ||
-    isQaTestEmail(properties.user_email)
+    [
+      distinctId,
+      requestContext?.userEmail,
+      properties.email,
+      properties.userEmail,
+      properties.user_email,
+    ].some(isTestIdentity)
   ) {
     return false;
   }
@@ -410,6 +412,7 @@ function createAgentNativeAnalyticsProvider(
   const flushImmediately = agentNativeAnalyticsFlushesImmediately();
   return {
     name: "agent-native-analytics",
+    acceptsTestIdentityExceptions: true,
     track(event: TrackingEvent) {
       enqueue(
         endpoint,

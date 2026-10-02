@@ -54,7 +54,7 @@ describe("emitAiFeedbackSurveyEvent", () => {
   const base = {
     runId: "run-1",
     threadId: "thread-1",
-    userId: "alice@example.test",
+    userId: "alice@example.com",
     feedbackType: "thumbs_down" as const,
     value: "thumbs_down",
     submissionId: "sub-1",
@@ -107,7 +107,7 @@ describe("emitAiFeedbackSurveyEvent", () => {
     expect(url).toBe("https://us.i.posthog.com/capture/");
     const body = JSON.parse(init.body);
     expect(body.event).toBe("survey sent");
-    expect(body.distinct_id).toBe("alice@example.test");
+    expect(body.distinct_id).toBe("alice@example.com");
     expect(body.properties).toMatchObject({
       $survey_id: "survey-abc",
       $survey_response_1: "the answer cited the wrong doc",
@@ -148,7 +148,7 @@ describe("emitAiFeedbackSurveyEvent", () => {
       expect(
         mod.emitAiFeedbackSurveyEvent({
           ...base,
-          userId: "alice@example.test",
+          userId: "alice@example.com",
         }),
       ).toBe(false),
     );

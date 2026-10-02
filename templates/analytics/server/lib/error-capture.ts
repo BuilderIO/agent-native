@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { notifyWithDelivery } from "@agent-native/core/notifications";
-import { recordChange } from "@agent-native/core/server";
+import { isTestIdentity, recordChange } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import {
   classifyErrorNoise,
@@ -580,6 +580,8 @@ export interface DerivedExceptionFields {
   userKey: string | null;
   sessionId: string | null;
   timestamp: string;
+  /** Occurrence came from a QA/E2E identity: kept, but never alerted or listed by default. */
+  testIdentity: boolean;
 }
 
 export interface RawExceptionInput {
@@ -755,6 +757,7 @@ async function pruneAndCountUsers(
     .where(
       and(
         eq(schema.errorEvents.issueId, issueId),
+        eq(schema.errorEvents.testIdentity, false),
         eq(schema.errorEvents.ownerEmail, scope.ownerEmail),
         scope.orgId
           ? eq(schema.errorEvents.orgId, scope.orgId)
@@ -915,6 +918,27 @@ async function findIssueForFingerprint(
   return issue;
 }
 
+/**
+ * Flip a test-identity-only issue to a real one. Conditional, so concurrent
+ * real occurrences race for one alert instead of each sending one.
+ */
+async function claimFirstRealOccurrence(
+  db: any,
+  issueId: string,
+): Promise<boolean> {
+  const claimed = await db
+    .update(schema.errorIssues)
+    .set({ testIdentityOnly: false })
+    .where(
+      and(
+        eq(schema.errorIssues.id, issueId),
+        eq(schema.errorIssues.testIdentityOnly, true),
+      ),
+    )
+    .returning({ id: schema.errorIssues.id });
+  return claimed.length > 0;
+}
+
 async function updateIssueForOccurrence(
   db: any,
   existing: any,
@@ -1000,11 +1024,13 @@ export async function ingestException(
   const now = nowIso();
 
   const existing = await findIssueForFingerprint(db, scope, fp);
+  const testIdentity = derived.testIdentity;
 
   const samplerKey = `${scope.ownerEmail}|${scope.orgId ?? ""}|${fp}`;
   const storeSample =
     options.forceStore === true ||
     !existing ||
+    (existing.testIdentityOnly === true && !testIdentity) ||
     Number(existing.eventCount ?? 0) < FULL_CAPTURE_EVENTS ||
     shouldStoreSample(samplerKey, derived.userKey, Date.now());
   if (existing && !storeSample) {
@@ -1047,6 +1073,8 @@ export async function ingestException(
   const eventId = newId("errev");
   let isNewIssue = !existing;
   let issueId: string;
+  // The issue as it stood before this occurrence, for the first-real-user alert.
+  let priorIssue = existing;
 
   if (existing) {
     issueId = await updateIssueForOccurrence(db, existing, {
@@ -1079,6 +1107,7 @@ export async function ingestException(
         assignee: null,
         app: derived.app,
         template: derived.template,
+        testIdentityOnly: testIdentity,
         createdAt: now,
         updatedAt: now,
         ownerEmail: scope.ownerEmail,
@@ -1089,6 +1118,7 @@ export async function ingestException(
       const racedIssue = await findIssueForFingerprint(db, scope, fp);
       if (!racedIssue) throw err;
       isNewIssue = false;
+      priorIssue = racedIssue;
       issueId = await updateIssueForOccurrence(db, racedIssue, {
         raw,
         derived,
@@ -1126,10 +1156,17 @@ export async function ingestException(
     extra: JSON.stringify(raw.extra ?? {}),
     breadcrumbs: JSON.stringify(raw.breadcrumbs ?? []),
     occurredAt,
+    testIdentity,
     createdAt: now,
     ownerEmail: scope.ownerEmail,
     orgId: scope.orgId,
   });
+
+  const firstRealOccurrence =
+    !testIdentity &&
+    (isNewIssue ||
+      (priorIssue?.testIdentityOnly === true &&
+        (await claimFirstRealOccurrence(db, issueId))));
 
   const { usersAffected } = await pruneAndCountUsers(issueId, scope);
   await db
@@ -1144,7 +1181,7 @@ export async function ingestException(
     ...changeScope(scope),
   });
 
-  if (isNewIssue) {
+  if (firstRealOccurrence) {
     const emailEnabled = await errorEmailNotificationsEnabled(scope);
     await notifyNewIssue(
       scope,
@@ -1363,6 +1400,11 @@ export interface ListErrorIssuesFilters {
   userId?: string;
   sort?: "lastSeen" | "eventCount" | "firstSeen";
   limit?: number;
+  /**
+   * Include issues only test identities have hit. Defaults to false, except
+   * for a test-identity viewer, whose own QA flows must see their errors.
+   */
+  includeTestIdentities?: boolean;
 }
 
 export interface ErrorIssueSummary {
@@ -1382,6 +1424,7 @@ export interface ErrorIssueSummary {
   assignee: string | null;
   app: string | null;
   template: string | null;
+  testIdentityOnly: boolean;
   sparkline: number[];
 }
 
@@ -1464,6 +1507,9 @@ export async function listErrorIssues(
     Math.max(1, filters.limit ?? DEFAULT_ISSUE_LIMIT),
   );
   const conditions: any[] = [issuesAccessFilter(scope)];
+  if (!(filters.includeTestIdentities ?? isTestIdentity(scope.userEmail))) {
+    conditions.push(eq(schema.errorIssues.testIdentityOnly, false));
+  }
   if (filters.status && filters.status !== "all") {
     conditions.push(eq(schema.errorIssues.status, filters.status));
   }
@@ -1570,6 +1616,7 @@ export async function listErrorIssues(
     assignee: row.assignee ?? null,
     app: row.app ?? null,
     template: row.template ?? null,
+    testIdentityOnly: row.testIdentityOnly === true,
     sparkline: sparklines.get(row.id) ?? new Array(SPARKLINE_DAYS).fill(0),
   }));
   return issues;
@@ -1597,6 +1644,7 @@ export interface ErrorEventDetail {
   extra: Record<string, unknown>;
   breadcrumbs: unknown[];
   occurredAt: string;
+  testIdentity: boolean;
 }
 
 export interface ErrorIssueDetail {
@@ -1764,6 +1812,7 @@ export async function getErrorIssue(
           extra: parseJson<Record<string, unknown>>(row.extra, {}),
           breadcrumbs: parseJson<unknown[]>(row.breadcrumbs, []),
           occurredAt: row.occurredAt,
+          testIdentity: row.testIdentity === true,
         };
       },
     ),
@@ -1796,6 +1845,7 @@ export async function getErrorIssue(
     assignee: issueRow.assignee ?? null,
     app: issueRow.app ?? null,
     template: issueRow.template ?? null,
+    testIdentityOnly: issueRow.testIdentityOnly === true,
     sparkline: sparklines.get(issueId) ?? new Array(SPARKLINE_DAYS).fill(0),
   };
 
@@ -1901,6 +1951,7 @@ export async function captureTestError(
       userKey: scope.userEmail,
       sessionId: null,
       timestamp: nowIso(),
+      testIdentity: isTestIdentity(scope.userEmail),
     },
     { forceStore: true },
   );

@@ -592,6 +592,94 @@ describe("sendEmail", () => {
   });
 });
 
+describe("sendEmail to test identities", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    recordEmailSend.mockClear();
+  });
+
+  function stubProvider() {
+    vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent-Native <reports@example.com>");
+    const fetchMock = vi.fn(async () =>
+      Response.json({ id: "email_123" }, { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("suppresses non-auth mail with a typed, logged outcome", async () => {
+    const fetchMock = stubProvider();
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+
+    const result = await sendEmail({
+      to: "qa-owner@example.test",
+      subject: "Weekly digest",
+      html: "<p>Digest</p>",
+      templateId: "clips.weekly-digest",
+    });
+
+    expect(result).toEqual({ status: "suppressed", reason: "test-identity" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(recordEmailSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "suppressed",
+        recipient: "qa-owner@example.test",
+        provider: "none",
+        error: "suppressed: test identity",
+        templateId: "clips.weekly-digest",
+      }),
+    );
+    expect(String(info.mock.calls[0]?.[0])).toContain(
+      "suppressed: test identity",
+    );
+  });
+
+  it("suppresses identities declared by the deployment", async () => {
+    const fetchMock = stubProvider();
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.stubEnv("AGENT_NATIVE_TEST_IDENTITY_EMAILS", "@example.com");
+
+    const result = await sendEmail({
+      to: "reader@example.com",
+      subject: "Reminder",
+      html: "<p>Soon</p>",
+    });
+
+    expect(result.status).toBe("suppressed");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("still delivers auth-critical mail so test identities can sign in", async () => {
+    const fetchMock = stubProvider();
+
+    const result = await sendEmail({
+      to: "signup+autoz-run@inbox.example.test",
+      subject: "Your sign-in link",
+      html: "<p>Sign in</p>",
+      authCritical: true,
+    });
+
+    expect(result).toEqual({ status: "sent", provider: "resend" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("delivers to real recipients unchanged", async () => {
+    const fetchMock = stubProvider();
+
+    const result = await sendEmail({
+      to: "reader@example.com",
+      subject: "Weekly digest",
+      html: "<p>Digest</p>",
+    });
+
+    expect(result).toEqual({ status: "sent", provider: "resend" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("sendEmail audit logging", () => {
   afterEach(() => {
     vi.restoreAllMocks();

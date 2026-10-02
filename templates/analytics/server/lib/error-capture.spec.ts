@@ -487,6 +487,7 @@ function derivedFor(
     userKey: "anon-1",
     sessionId: "sess-1",
     timestamp: "2026-07-08T12:00:00.000Z",
+    testIdentity: false,
     ...overrides,
   };
 }
@@ -514,6 +515,7 @@ async function createTables(client: PGliteClient): Promise<void> {
       assignee text,
       app text,
       template text,
+      test_identity_only boolean NOT NULL DEFAULT false,
       created_at text NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at text NOT NULL DEFAULT CURRENT_TIMESTAMP,
       owner_email text NOT NULL DEFAULT 'local@localhost',
@@ -564,6 +566,7 @@ async function createTables(client: PGliteClient): Promise<void> {
       extra text NOT NULL DEFAULT '{}',
       breadcrumbs text NOT NULL DEFAULT '[]',
       occurred_at text NOT NULL,
+      test_identity boolean NOT NULL DEFAULT false,
       created_at text NOT NULL DEFAULT CURRENT_TIMESTAMP,
       owner_email text NOT NULL DEFAULT 'local@localhost',
       org_id text
@@ -892,6 +895,120 @@ describe("ingestException", () => {
       tags: { reporter: "support@example.com" },
       extra: { accountEmail: "customer@example.com" },
     });
+  });
+
+  it("keeps a test identity's error queryable without alerting or counting the user", async () => {
+    const result = await ingestException(
+      SCOPE,
+      baseRaw(),
+      derivedFor({ userKey: "qa+autoz@builder.io", testIdentity: true }),
+    );
+
+    expect(result).toMatchObject({ isNewIssue: true, stored: true });
+    expect(notifyWithDeliveryMock).not.toHaveBeenCalled();
+    const [issue] = await loadIssues();
+    expect(issue).toMatchObject({ testIdentityOnly: true, usersAffected: 0 });
+    const detail = await getErrorIssue(
+      { userEmail: SCOPE.ownerEmail, orgId: null },
+      result.issueId,
+    );
+    expect(detail.issue.testIdentityOnly).toBe(true);
+    expect(detail.events[0]?.testIdentity).toBe(true);
+  });
+
+  it("alerts once, on the first real occurrence of an issue a test identity found first", async () => {
+    const qa = derivedFor({
+      userKey: "qa+autoz@builder.io",
+      testIdentity: true,
+    });
+    const first = await ingestException(SCOPE, baseRaw(), qa);
+    await ingestException(SCOPE, baseRaw(), qa);
+    expect(notifyWithDeliveryMock).not.toHaveBeenCalled();
+
+    const real = await ingestException(
+      SCOPE,
+      baseRaw(),
+      derivedFor({ userKey: "customer@example.com" }),
+    );
+    await ingestException(
+      SCOPE,
+      baseRaw(),
+      derivedFor({ userKey: "other@example.com" }),
+    );
+
+    expect(real.issueId).toBe(first.issueId);
+    expect(notifyWithDeliveryMock).toHaveBeenCalledTimes(1);
+    expect(notifyWithDeliveryMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({ issueId: first.issueId }),
+      }),
+      expect.anything(),
+    );
+    const [issue] = await loadIssues();
+    expect(issue).toMatchObject({
+      testIdentityOnly: false,
+      eventCount: 4,
+      usersAffected: 2,
+    });
+  });
+
+  it("stores and alerts the first real occurrence even when the issue is already sampled", async () => {
+    resetErrorIngestStateForTests();
+    const qaDerived = derivedFor({
+      userKey: "qa+autoz@builder.io",
+      testIdentity: true,
+    });
+    const qa = await ingestException(SCOPE, baseRaw(), qaDerived);
+    await (drizzle(client, { schema }) as any)
+      .update(schema.errorIssues)
+      .set({ eventCount: 500 })
+      .where(eq(schema.errorIssues.id, qa.issueId));
+    // Primes the sampler, so an anonymous occurrence would only be counted.
+    await ingestException(SCOPE, baseRaw(), qaDerived);
+
+    const real = await ingestException(
+      SCOPE,
+      baseRaw(),
+      derivedFor({ userKey: null, anonymousId: null, sessionId: null }),
+    );
+
+    expect(real.stored).toBe(true);
+    expect(notifyWithDeliveryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("lists issues only test identities have hit just when asked, or to a test-identity viewer", async () => {
+    const qa = await ingestException(
+      SCOPE,
+      baseRaw({ type: "RangeError" }),
+      derivedFor({ userKey: "qa+autoz@builder.io", testIdentity: true }),
+    );
+    const real = await ingestException(SCOPE, baseRaw(), derivedFor());
+    const reader = { userEmail: SCOPE.ownerEmail, orgId: null };
+
+    expect((await listErrorIssues(reader)).map((issue) => issue.id)).toEqual([
+      real.issueId,
+    ]);
+    const all = await listErrorIssues(reader, { includeTestIdentities: true });
+    expect(
+      all.map((issue) => [issue.id, issue.testIdentityOnly]).sort(),
+    ).toEqual(
+      [
+        [qa.issueId, true],
+        [real.issueId, false],
+      ].sort(),
+    );
+
+    const qaOwner = { ownerEmail: "e2e+autoz@builder.io", orgId: null };
+    const own = await captureTestError(
+      { userEmail: qaOwner.ownerEmail, orgId: null },
+      {},
+    );
+    expect(notifyWithDeliveryMock).toHaveBeenCalledTimes(1);
+    expect(
+      (
+        await listErrorIssues({ userEmail: qaOwner.ownerEmail, orgId: null })
+      ).map((issue) => issue.id),
+    ).toEqual([own.issueId]);
   });
 
   it("does not expose private replay links through an org-shared issue", async () => {

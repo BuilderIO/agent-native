@@ -258,6 +258,12 @@ diagnostics shaping, and access policy inside the Analytics template.
 
 Pour le développement local uniquement, Analytics peut se replier sur des blocs SQL en ligne plafonnés lorsque le stockage blob privé n'est pas disponible. Les déploiements en production doivent configurer un stockage blob privé ou chiffré plutôt que de s'appuyer sur Postgres pour les charges utiles de relecture.
 
+## Identités de test {#test-identities}
+
+Les comptes QA et E2E continuent de fonctionner partout, mais ne sont jamais comptés. `track()`, `identify()`, le suivi navigateur et le replay de session ignorent les événements d'une identité de test avant qu'un fournisseur ne les voie. Les exceptions serveur d'une identité de test sont conservées, marquées `test_identity: true` et transmises uniquement aux fournisseurs qui définissent `acceptsTestIdentityExceptions` (Agent-Native Analytics) : elles restent interrogeables sans alerter personne. Les e-mails sans lien avec l'authentification adressés à une identité de test sont aussi supprimés : `sendEmail()` renvoie `{ status: "suppressed", reason: "test-identity" }` et journalise la tentative, tandis que les e-mails de connexion, de vérification, de réinitialisation de mot de passe et d'invitation partent toujours.
+
+`isTestIdentity(email)` de `@agent-native/core/server` est l'unique règle. Elle reconnaît les domaines réservés `.test`, `.invalid`, `.localhost` et `.example` ainsi que le marqueur QA `+autoz`. Ajoutez-en d'autres par déploiement avec `AGENT_NATIVE_TEST_IDENTITY_EMAILS`, une liste séparée par des virgules d'adresses exactes (`qa@corp.com`) ou d'entrées `@domaine` (`@example.com`). `testIdentitySql(column)` est la même règle sous forme d'expression PostgreSQL/BigQuery pour les requêtes de métriques. Les navigateurs n'appliquent que les règles intégrées ; l'ingestion d'Agent-Native Analytics applique aussi la liste du déploiement.
+
 ## Avancé : fournisseurs personnalisés et éléments internes {#advanced}
 
 La plupart des applications n'ont besoin que de `track()` / `identify()` et d'un fournisseur intégré. Le reste de la surface (enregistrement des fournisseurs personnalisés, de l'interface `TrackingProvider`, des éléments internes de traitement par lots et de la propre télémétrie du navigateur du framework) se trouve ci-dessous.

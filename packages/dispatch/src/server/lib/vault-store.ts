@@ -1532,9 +1532,12 @@ async function notifyAdminsOfRequest(
   const appUrl = process.env.APP_URL;
   if (!apiKey || !from || !appUrl) return;
 
-  const { getApprovalPolicy } = await import("./dispatch-store.js");
-  const policy = await getApprovalPolicy();
-  if (policy.approverEmails.length === 0) return;
+  const { approverRecipients, getApprovalPolicy } =
+    await import("./dispatch-store.js");
+  const recipients = approverRecipients(
+    (await getApprovalPolicy()).approverEmails,
+  );
+  if (recipients.length === 0) return;
 
   const body = [
     `Secret request: ${input.credentialKey} for ${input.appId}`,
@@ -1555,7 +1558,7 @@ async function notifyAdminsOfRequest(
     body: JSON.stringify({
       personalizations: [
         {
-          to: policy.approverEmails.map((email) => ({ email })),
+          to: recipients.map((email) => ({ email })),
           subject: `Vault request: ${input.credentialKey} for ${input.appId}`,
         },
       ],

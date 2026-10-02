@@ -8,7 +8,7 @@ export const emailLog = table("email_log", {
   recipient: text("recipient").notNull(),
   sender: text("sender").notNull(),
   subject: text("subject").notNull(),
-  status: text("status", { enum: ["sent", "failed"] }).notNull(),
+  status: text("status", { enum: ["sent", "failed", "suppressed"] }).notNull(),
   /**
    * Error text when the call never reached the provider or threw before/
    * outside getting an HTTP response (network error, timeout/abort, credential

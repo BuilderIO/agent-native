@@ -258,6 +258,12 @@ diagnostics shaping, and access policy inside the Analytics template.
 
 Nur für die lokale Entwicklung kann Analytics auf begrenzte SQL-Inline-Chunks zurückgreifen, wenn kein privater Blob-Speicher verfügbar ist. Produktions-Deployments sollten privaten oder verschlüsselten Blob-Speicher konfigurieren, anstatt sich für Replay-Payloads auf Postgres zu verlassen.
 
+## Testidentitäten {#test-identities}
+
+QA- und E2E-Konten funktionieren überall weiter, werden aber nie mitgezählt. `track()`, `identify()`, Browser-Tracking und Session Replay verwerfen Ereignisse einer Testidentität, bevor ein Anbieter sie sieht. Server-Exceptions einer Testidentität bleiben erhalten, werden mit `test_identity: true` markiert und nur an Anbieter geliefert, die `acceptsTestIdentityExceptions` setzen (Agent-Native Analytics). So bleiben sie abfragbar, ohne jemanden zu alarmieren. Auch E-Mails ohne Anmeldebezug an eine Testidentität werden unterdrückt: `sendEmail()` gibt `{ status: "suppressed", reason: "test-identity" }` zurück und protokolliert den Versuch, während Anmelde-, Bestätigungs-, Passwort-Reset- und Einladungs-E-Mails weiterhin versendet werden.
+
+`isTestIdentity(email)` aus `@agent-native/core/server` ist die einzige Regel. Sie erkennt die reservierten Domains `.test`, `.invalid`, `.localhost` und `.example` sowie die QA-Markierung `+autoz`. Weitere Identitäten legst du pro Deployment mit `AGENT_NATIVE_TEST_IDENTITY_EMAILS` fest, einer kommagetrennten Liste exakter Adressen (`qa@corp.com`) oder `@domain`-Einträge (`@example.com`). `testIdentitySql(column)` ist dieselbe Regel als PostgreSQL/BigQuery-Ausdruck für Metrikabfragen. Browser wenden nur die eingebauten Regeln an; die Ingest-Seite von Agent-Native Analytics wendet zusätzlich die Deployment-Liste an.
+
 ## Erweitert: benutzerdefinierte Anbieter und Interna {#advanced}
 
 Die meisten Apps benötigen nur `track()` / `identify()` und einen integrierten Anbieter. Der Rest der Oberfläche – Registrierung benutzerdefinierter Anbieter, die `TrackingProvider`-Schnittstelle, Batch-Interna und die eigene Browser-Telemetrie des Frameworks – finden Sie unten.

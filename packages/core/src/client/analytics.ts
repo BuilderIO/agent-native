@@ -23,7 +23,7 @@ import {
   type LlmConnectionStatus,
 } from "../shared/llm-connection.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
-import { isQaTestEmail } from "../shared/qa-test-email.js";
+import { isTestIdentityEmail } from "../shared/qa-test-email.js";
 import { isSyntheticTrafficValue } from "../shared/test-traffic.js";
 import { toPostHogExceptionProperties } from "../tracking/posthog-exception.js";
 import { getAnalyticsClientPlatform } from "./analytics-platform.js";
@@ -393,12 +393,15 @@ function readTrackingString(value: unknown): string | undefined {
 function isQaTrackingIdentity(identity: TrackingIdentity | null): boolean {
   return Boolean(
     identity &&
-    (isQaTestEmail(identity.userId) || isQaTestEmail(identity.userEmail)),
+    (isTestIdentityEmail(identity.userId) ||
+      isTestIdentityEmail(identity.userEmail)),
   );
 }
 
 function isQaTrackingUser(user: TrackingIdentityUser | null): boolean {
-  return Boolean(user && (isQaTestEmail(user.id) || isQaTestEmail(user.email)));
+  return Boolean(
+    user && (isTestIdentityEmail(user.id) || isTestIdentityEmail(user.email)),
+  );
 }
 
 function stopSessionReplayForAuthClear(

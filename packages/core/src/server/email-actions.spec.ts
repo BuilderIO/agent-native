@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const sendEmail = vi.hoisted(() => vi.fn());
+vi.mock("./email.js", () => ({ sendEmail }));
 
 import { createCoreEmailActionEntries } from "./email-actions.js";
 
@@ -23,5 +26,21 @@ describe("core-send-email action guidance", () => {
       "without asking for an interactive confirmation",
     );
     expect(description).not.toContain("DRAFT-FIRST SAFETY RULE");
+  });
+});
+
+describe("core-send-email delivery outcome", () => {
+  it("tells the agent a test-identity send was suppressed, not sent", async () => {
+    sendEmail.mockResolvedValueOnce({
+      status: "suppressed",
+      reason: "test-identity",
+    });
+    const result = await createCoreEmailActionEntries()["core-send-email"].run({
+      to: "qa-owner@example.test",
+      subject: "Hi",
+      body: "Hello",
+    });
+    expect(result).toContain("Not sent");
+    expect(result).not.toContain("Email sent");
   });
 });

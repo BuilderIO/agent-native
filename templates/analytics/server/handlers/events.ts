@@ -1,4 +1,4 @@
-import { readBody } from "@agent-native/core/server";
+import { isTestIdentity, readBody } from "@agent-native/core/server";
 import {
   SYNTHETIC_TRAFFIC_HEADER,
   isSyntheticTrafficValue,
@@ -22,6 +22,18 @@ export const handleTrackEvent = defineEventHandler(async (event) => {
     if (!eventName || typeof eventName !== "string") {
       setResponseStatus(event, 400);
       return { error: "Missing or invalid 'event' field" };
+    }
+
+    // `$exception` stays: this table is the only place it is queryable.
+    const props = data && typeof data === "object" ? data : {};
+    if (
+      eventName !== "$exception" &&
+      [userId, props.user_email, props.userEmail, props.email].some(
+        isTestIdentity,
+      )
+    ) {
+      setResponseStatus(event, 202);
+      return { success: true, accepted: 0, suppressedTestIdentity: 1 };
     }
 
     let authenticatedUserId: string | null = null;

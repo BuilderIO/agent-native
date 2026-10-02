@@ -291,6 +291,12 @@ diagnostics shaping, and access policy inside the Analytics template.
 
 For local development only, Analytics can fall back to capped SQL inline chunks when private blob storage is unavailable. Production deployments should configure private or encrypted blob storage rather than relying on Postgres for replay payloads.
 
+## Test identities {#test-identities}
+
+QA and E2E accounts keep working everywhere, but they never count. `track()`, `identify()`, browser tracking, and session replay drop events from a test identity before any provider sees them. A test identity's server exceptions are kept, flagged `test_identity: true`, and delivered only to providers that set `acceptsTestIdentityExceptions` (Agent-Native Analytics), so they stay queryable without paging anyone. Non-auth email to a test identity is suppressed too: `sendEmail()` returns `{ status: "suppressed", reason: "test-identity" }` and logs the attempt, while sign-in, verification, password reset, and invitation mail still goes out.
+
+`isTestIdentity(email)` from `@agent-native/core/server` is the one rule. It matches the reserved `.test`, `.invalid`, `.localhost`, and `.example` domains and the `+autoz` QA marker. Add more per deployment with `AGENT_NATIVE_TEST_IDENTITY_EMAILS`, a comma-separated list of exact addresses (`qa@corp.com`) or `@domain` entries (`@example.com`). `testIdentitySql(column)` is the same rule as a PostgreSQL/BigQuery expression for metric queries. Browsers apply only the built-in rules; Agent-Native Analytics ingest applies the deployment list as well.
+
 ## Advanced: custom providers & internals {#advanced}
 
 Most apps only need `track()` / `identify()` and a built-in provider. The rest of the surface — registering custom providers, the `TrackingProvider` interface, batching internals, and the framework's own browser telemetry — is below.

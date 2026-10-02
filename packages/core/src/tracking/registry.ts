@@ -5,13 +5,13 @@ import {
 } from "../observability/tracing.js";
 import { resolveDeployEnvironment } from "../server/deploy-environment.js";
 import { getRequestContext } from "../server/request-context.js";
+import { isTestIdentity } from "../server/test-identity.js";
 import {
   canonicalTrackingEvent,
   legacyLifecycleEvent,
   withCanonicalTrackingProperties,
 } from "../shared/analytics-events.js";
 import { ANALYTICS_CLIENT_PLATFORM_PROPERTY } from "../shared/analytics-platform.js";
-import { isQaTestEmail } from "../shared/qa-test-email.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
 
 export { isQaTestEmail } from "../shared/qa-test-email.js";
@@ -21,18 +21,26 @@ interface GlobalWithRegistry {
   [REGISTRY_KEY]?: Map<string, TrackingProvider>;
 }
 
+function isTestIdentityTracking(
+  userId: string | undefined,
+  properties?: Record<string, unknown>,
+): boolean {
+  return [
+    getRequestContext()?.userEmail,
+    userId,
+    properties?.email,
+    properties?.userEmail,
+    properties?.user_email,
+  ].some(isTestIdentity);
+}
+
 function isTrackingSuppressed(
   userId: string | undefined,
   properties?: Record<string, unknown>,
 ): boolean {
-  const requestContext = getRequestContext();
   return (
-    requestContext?.isSyntheticTraffic === true ||
-    isQaTestEmail(requestContext?.userEmail) ||
-    isQaTestEmail(userId) ||
-    isQaTestEmail(properties?.email) ||
-    isQaTestEmail(properties?.userEmail) ||
-    isQaTestEmail(properties?.user_email)
+    getRequestContext()?.isSyntheticTraffic === true ||
+    isTestIdentityTracking(userId, properties)
   );
 }
 
@@ -139,7 +147,9 @@ export function track(
     occurredAt,
     telemetryOrigin,
   } = resolveTrackingSource(source);
-  if (isTrackingSuppressed(userId, properties)) return;
+  if (getRequestContext()?.isSyntheticTraffic === true) return;
+  const testIdentity = isTestIdentityTracking(userId, properties);
+  if (testIdentity && name !== "$exception") return;
   const clientPlatform = getRequestContext()?.clientPlatform;
   const actionContext =
     source && isActionRunContext(source) ? source : undefined;
@@ -159,6 +169,7 @@ export function track(
     ...(clientPlatform
       ? { [ANALYTICS_CLIENT_PLATFORM_PROPERTY]: clientPlatform }
       : {}),
+    ...(testIdentity ? { test_identity: true } : {}),
   });
 
   emitTrackingEvent(name, trackedProperties, {
@@ -167,6 +178,7 @@ export function track(
     sessionId,
     occurredAt,
   });
+  if (testIdentity) return;
   const trackingScope = getRequestContext()?.trackingScope;
   if (trackingScope) {
     queueTrackingEvent(name, trackedProperties, telemetryOrigin, trackingScope);
@@ -210,6 +222,11 @@ function emitTrackingEvent(
   };
 
   for (const provider of getRegistry().values()) {
+    if (
+      properties.test_identity === true &&
+      !provider.acceptsTestIdentityExceptions
+    )
+      continue;
     try {
       const result = provider.track(event);
       if (result && typeof (result as Promise<void>).catch === "function") {

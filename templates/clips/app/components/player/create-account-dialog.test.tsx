@@ -29,7 +29,7 @@ vi.mock("@agent-native/core/client/oauth-popup", () => ({
 }));
 
 vi.mock("@agent-native/core/shared", () => ({
-  isQaTestEmail: () => false,
+  isTestIdentityEmail: () => false,
 }));
 
 vi.mock("@agent-native/core/shared/auth-copy", () => ({

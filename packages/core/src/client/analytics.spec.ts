@@ -473,7 +473,7 @@ describe("browser analytics pageviews", () => {
     resolveSession(
       new Response(
         JSON.stringify({
-          email: "owner@example.test",
+          email: "owner@example.com",
           userId: "auth-user-1",
           orgId: "org-1",
         }),
@@ -488,7 +488,7 @@ describe("browser analytics pageviews", () => {
     expect(appEntries).toHaveLength(1);
     expect(appEntries[0].properties).toMatchObject({
       app_name: "mail",
-      user_email: "owner@example.test",
+      user_email: "owner@example.com",
       workspace_id: "org-1",
     });
   });
@@ -945,7 +945,7 @@ describe("browser analytics pageviews", () => {
     });
     setSentryUser({
       id: "provider-subject-1",
-      email: "person@example.test",
+      email: "person@example.com",
       authUserId: "canonical-user-1",
     });
     trackEvent("recording_started");
@@ -955,7 +955,7 @@ describe("browser analytics pageviews", () => {
       .map(([, init]) => JSON.parse(String(init.body)))
       .find((entry) => entry.event === "recording_started");
     expect(event?.properties).toMatchObject({
-      user_id: "person@example.test",
+      user_id: "person@example.com",
       auth_user_id: "canonical-user-1",
     });
   });
@@ -976,11 +976,11 @@ describe("browser analytics pageviews", () => {
     });
     setSentryUser({
       id: "provider-subject-1",
-      email: "person@example.test",
+      email: "person@example.com",
       authUserId: "canonical-user-1",
     });
     trackEvent("before_session_refresh");
-    setSentryUser({ id: "provider-subject-1", email: "person@example.test" });
+    setSentryUser({ id: "provider-subject-1", email: "person@example.com" });
     trackEvent("after_session_refresh");
     await tick();
 
@@ -1003,7 +1003,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking, setTrackingIdentity, trackAnonymousEvent } =
       await freshAnalytics();
     setTrackingIdentity({
-      email: "private@example.test",
+      email: "private@example.com",
       userId: "auth-user-1",
       authUserId: "canonical-auth-user-1",
     });
@@ -1029,13 +1029,13 @@ describe("browser analytics pageviews", () => {
 
   it("tracks replay attempts without email, URL, or replay content", async () => {
     installBrowser("https://app.agent-native.com/private?token=private-url", {
-      email: "private@example.test",
+      email: "private@example.com",
       userId: "auth-user-1",
       authUserId: "canonical-auth-user-1",
     });
     const { analyticsCalls } = installFetch({
       session: {
-        email: "private@example.test",
+        email: "private@example.com",
         userId: "auth-user-1",
         authUserId: "canonical-auth-user-1",
       },
@@ -1051,7 +1051,7 @@ describe("browser analytics pageviews", () => {
       getDefaultProps: (_name, properties) => ({
         ...properties,
         auth_user_id: "spoofed-auth-user",
-        user_email: "private@example.test",
+        user_email: "private@example.com",
         url: "https://app.agent-native.com/private?token=private-url",
         replay_content: "private-replay-content",
       }),
@@ -1112,7 +1112,7 @@ describe("browser analytics pageviews", () => {
     installBrowser();
     const { analyticsCalls } = installFetch({
       session: {
-        email: "owner@example.test",
+        email: "owner@example.com",
         userId: "owner-id",
         authUserId: "owner-id",
       },
@@ -1163,7 +1163,7 @@ describe("browser analytics pageviews", () => {
     const { gtag } = installBrowser();
     const { analyticsCalls } = installFetch({
       session: {
-        email: "owner@example.test",
+        email: "owner@example.com",
         userId: "owner-id",
         authUserId: "owner-id",
       },
