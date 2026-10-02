@@ -1365,12 +1365,8 @@ export async function updateThreadData(
           parseThreadData(current.threadData),
           parseThreadData(incomingThreadData),
           {
-            // A transform starts from the current data, so what it returns
-            // already carries the latest queue and any removal it made on
-            // purpose; only a caller-supplied blob can hold a stale queue.
             preserveExistingQueuedMessages:
-              options.preserveExistingQueuedMessages ??
-              !options.transformThreadData,
+              options.preserveExistingQueuedMessages ?? true,
             preserveExistingTopLevelKeys:
               options.preserveExistingTopLevelKeys ?? true,
           },
