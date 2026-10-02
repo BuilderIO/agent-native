@@ -113,7 +113,10 @@ scope, and why it is not a clear bug fix. Wait for Steve's explicit go-ahead on
 that PR before continuing. Invoking or scheduling `review-prs`, approving a
 different PR, or prior approval of another external contribution does not
 authorize it. If membership is unknown, use the existing unknown-membership
-policy; do not classify the author as external.
+policy; do not classify the author as external. The scope gate does not apply
+solely because membership could not be verified. Keep the no-approval outcome,
+report the missing membership check, and assess merge readiness under the
+existing unknown-membership policy.
 
 ## Liamdebeasi approval policy
 
@@ -291,10 +294,12 @@ merge scope and must remain completely untouched.
 For a PR that fails an approval gate, do not submit an approval. Flag the exact
 concern and the evidence needed to resolve it. External or unverified authors
 never receive an approval review, but their PRs can still be merged when they
-pass the external-contribution scope gate and meet the readiness gate below;
-external non-bug work remains stopped at Steve's approval gate. If GitHub or
-organization membership is unavailable, preserve the no-approval outcome and
-name the missing check.
+meet the readiness gate below. Confirmed external bug fixes must also pass the
+external-contribution scope gate; confirmed external non-bug work remains
+stopped at Steve's approval gate. For unknown membership, do not apply the
+external scope gate solely because verification failed; preserve the
+no-approval outcome, assess readiness under the existing unknown-membership
+policy, and name the missing check.
 
 ## Merge-ready disposition and handoff
 
