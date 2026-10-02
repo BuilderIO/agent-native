@@ -57,6 +57,30 @@ function trigger() {
 }
 
 describe("BuilderConnectPopover before the status read resolves", () => {
+  it("keeps the one-click provisioning path when the popover is unavailable", () => {
+    const onConnect = vi.fn();
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      provisionAccount: true,
+      statusResolved: true,
+      agentNativeProvisioningEnabled: false,
+    };
+
+    render(
+      React.createElement(
+        BuilderConnectPopover,
+        { flow, onConnect },
+        trigger(),
+      ),
+    );
+
+    click(connectButton());
+
+    expect(onConnect).toHaveBeenCalledWith(true);
+    expect(flow.start).not.toHaveBeenCalled();
+  });
+
   it("never replays a queued click into the popup path", () => {
     const onConnect = vi.fn();
     const retry = vi.fn(() => true);

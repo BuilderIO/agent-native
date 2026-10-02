@@ -26,6 +26,7 @@ export interface BuilderConnectPopoverProps {
     statusResolved?: boolean;
     statusReadSettledCount?: number;
     canConnect?: BuilderConnectFlow["canConnect"];
+    provisionAccount?: boolean;
   };
   children: BuilderConnectTrigger;
   onConnect?: (provisionAccount: boolean) => void;
@@ -66,14 +67,17 @@ export function BuilderConnectPopover({
     }
   }, [accountExists]);
 
-  const start = (provisionAccount: boolean) => {
+  const start = (provisionAccount?: boolean) => {
+    const shouldProvision =
+      provisionAccount ??
+      (defaultProvisionAccount || flow.provisionAccount || false);
     initiatedByThisTriggerRef.current = true;
     setOpen(false);
     if (onConnect) {
-      onConnect(provisionAccount);
+      onConnect(shouldProvision);
       return;
     }
-    flow.start({ provisionAccount });
+    flow.start({ provisionAccount: shouldProvision });
   };
 
   const openQueuedPopoverRef = useRef<() => void>(() => {});
@@ -114,7 +118,7 @@ export function BuilderConnectPopover({
       }
       children.props.onClick?.(event);
       onTriggerClick?.(event);
-      if (!showPopover && !event.defaultPrevented) start(false);
+      if (!showPopover && !event.defaultPrevented) start();
     },
   });
 

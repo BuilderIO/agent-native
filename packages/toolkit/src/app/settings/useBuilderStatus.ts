@@ -217,6 +217,7 @@ export interface BuilderConnectStartOptions {
 
 export interface BuilderConnectFlow {
   configured: boolean;
+  provisionAccount?: boolean;
   statusResolved: boolean;
   statusReadSettledCount: number;
   envManaged: boolean;
@@ -1866,6 +1867,7 @@ export function useBuilderConnectFlow(
 
   return {
     configured,
+    provisionAccount,
     codeChangeConfigured,
     statusResolved,
     statusReadSettledCount,

@@ -6343,6 +6343,8 @@ function Setup({
   const [providerStatus, setProviderStatus] =
     useState<VoiceProviderStatus | null>(null);
   const [providerStatusLoading, setProviderStatusLoading] = useState(true);
+  const [providerStatusRefreshVersion, setProviderStatusRefreshVersion] =
+    useState(0);
   const [builderConnecting, setBuilderConnecting] = useState(false);
   const [builderConnectMessage, setBuilderConnectMessage] = useState<{
     kind: "ok" | "error";
@@ -6843,7 +6845,14 @@ function Setup({
     return () => {
       cancelled = true;
     };
-  }, [serverUrl, initial]);
+  }, [providerStatusRefreshVersion, serverUrl, initial]);
+
+  useEffect(() => {
+    const refreshOnFocus = () =>
+      setProviderStatusRefreshVersion((version) => version + 1);
+    window.addEventListener("focus", refreshOnFocus);
+    return () => window.removeEventListener("focus", refreshOnFocus);
+  }, []);
 
   const [serverUrlError, setServerUrlError] = useState<string | null>(null);
 
