@@ -10,9 +10,12 @@ const SQL_QUERY_FAILURE_RE = /\b(?:failed query|query failed):\s*/i;
 const SQL_STATEMENT_RE =
   /^(?:select|insert|update|delete|merge|values|explain|call|execute|copy|declare)\b/i;
 const SQL_CTE_HEADER_RE =
-  /^(?:with\s+(?:recursive\s+)?)?(?:"(?:[^"]|"")+"|[a-z_][\w$]*)(?:\s*\([^)]*\))?\s+as\s+(?:(?:not\s+)?materialized\s+)?\(/i;
+  /^(?:"(?:[^"]|"")+"|[a-z_][\w$]*)(?:\s*\([^)]*\))?\s+as\s+(?:(?:not\s+)?materialized\s+)?\(/i;
 const SQL_CTE_QUERY_RE =
   /^(?:select|insert|update|delete|merge|values|with|table)\b/i;
+const SQL_CTE_SEARCH_CLAUSE_RE = /^search\s+(?:breadth|depth)\s+first\s+by\b/i;
+const SQL_CTE_CYCLE_CLAUSE_RE =
+  /^cycle\s+(?:"(?:[^"]|"")+"|[a-z_][\w$]*)(?:\s*,\s*(?:"(?:[^"]|"")+"|[a-z_][\w$]*))*\s+set\b/i;
 
 export const SECRET_KEY_RE =
   /(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|credential)/i;
@@ -117,7 +120,18 @@ function afterSqlParenthesizedBody(value: string): string | undefined {
 }
 
 function isSqlCteStatement(value: string): boolean {
-  let statement = value;
+  let statement = afterLeadingSqlComments(value);
+  const withPrefix = /^with\b/i.exec(statement);
+  if (!withPrefix) return false;
+  statement = afterLeadingSqlComments(statement.slice(withPrefix[0].length));
+
+  const recursivePrefix = /^recursive\b/i.exec(statement);
+  if (recursivePrefix) {
+    statement = afterLeadingSqlComments(
+      statement.slice(recursivePrefix[0].length),
+    );
+  }
+
   while (true) {
     const header = SQL_CTE_HEADER_RE.exec(statement);
     if (!header) return false;
@@ -128,6 +142,12 @@ function isSqlCteStatement(value: string): boolean {
     if (afterBody === undefined) return false;
 
     const remainder = afterLeadingSqlComments(afterBody);
+    if (
+      SQL_CTE_SEARCH_CLAUSE_RE.test(remainder) ||
+      SQL_CTE_CYCLE_CLAUSE_RE.test(remainder)
+    ) {
+      return true;
+    }
     if (remainder.startsWith(",")) {
       statement = afterLeadingSqlComments(remainder.slice(1));
       continue;

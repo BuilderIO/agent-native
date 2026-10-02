@@ -574,7 +574,7 @@ describe("server/sentry", () => {
       expect(JSON.stringify(result)).not.toContain(privateValue);
     });
 
-    it("distinguishes CTE queries from diagnostics beginning with with", async () => {
+    it("redacts commented CTEs and preserves diagnostics beginning with with", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
       await initServerSentry();
@@ -584,14 +584,28 @@ describe("server/sentry", () => {
         "WITH customer AS (SELECT email FROM users WHERE email = $1) SELECT * FROM customer";
       const recursiveQuery =
         "WITH RECURSIVE customer AS (SELECT email FROM users WHERE email = $1) SELECT * FROM customer";
+      const commentedCteQuery =
+        "WITH /* customer lookup */ customer AS (SELECT email FROM users WHERE email = $1) SELECT * FROM customer";
+      const searchQuery =
+        "WITH RECURSIVE /* customer traversal */ customer AS (SELECT email FROM users WHERE email = $1) SEARCH DEPTH FIRST BY email SET search_order SELECT * FROM customer";
+      const cycleQuery =
+        "WITH RECURSIVE customer AS (SELECT email FROM users WHERE email = $1) CYCLE email SET is_cycle USING cycle_path SELECT * FROM customer";
       const multiCteQuery =
         "WITH first_customer AS (SELECT email FROM users WHERE email = $1 AND display_name = 'customer (active)'), second_customer AS (SELECT email FROM users WHERE email = $2 AND nickname = 'close )') SELECT * FROM first_customer JOIN second_customer USING (email)";
       const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
-      const cteResults = [withQuery, recursiveQuery, multiCteQuery].map(
+      const cteResults = [
+        withQuery,
+        recursiveQuery,
+        commentedCteQuery,
+        searchQuery,
+        cycleQuery,
+        multiCteQuery,
+      ].map(
         (query) =>
           beforeSend({
+            message: `Failed query: ${query}\nparams: ${privateValue}`,
             logentry: { query, params: [privateValue] },
-          } as never) as { logentry: { params?: unknown[] } },
+          } as never) as { message: string; logentry: { params?: unknown[] } },
       );
       const diagnosticParams = ["report lookup details"];
       const diagnostic = beforeSend({
@@ -605,7 +619,13 @@ describe("server/sentry", () => {
         undefined,
         undefined,
         undefined,
+        undefined,
+        undefined,
+        undefined,
       ]);
+      expect(
+        cteResults.every((result) => result.message.includes("<redacted>")),
+      ).toBe(true);
       expect(diagnostic.logentry.params).toEqual(diagnosticParams);
     });
 
