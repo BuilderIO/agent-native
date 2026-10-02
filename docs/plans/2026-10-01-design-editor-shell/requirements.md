@@ -132,7 +132,7 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
   - Today: Boolean operations: only Subtract (⌥⇧S) is implemented.
   - Change: Multiple layers (Shift-click): Edit with Agent…, Send to ›, Copy, Paste to replace, Copy/Paste as ›, Group selection, Frame selection, Add auto layout, Boolean operations › (Subtract only), Hide, Lock, Arrange ›, Transform ›.
 - **MENU-05** · decided
-  - Change: Empty canvas (Figma 1826:562): Paste here, Explore with Agent…, Send to › (the screen), Copy link to screen, Show UI, Show comments. Layer row: Copy, Copy link to selection, Rename (in place), Hide, Lock, Arrange ›, Transform ›, with LayersPanel's shortcuts.
+  - Change: Empty canvas (Figma 1826:562), in the layer menus' order: Explore with Agent… and Send to › (the screen); Paste here and Copy link to screen; then Hide UI and Hide comments, which flip to Show UI and Show comments while hidden, as `CanvasContextMenu` does. Layer row: Copy, Copy link to selection, Rename (in place), Hide, Lock, Arrange ›, Transform ›, with LayersPanel's shortcuts.
 - **MENU-06** · decided
   - Change: Edit with Agent… is the first row, styled like every other row (no tinted agent row). Clicking it opens the agent composer; its submenu is the Agent actions card (Figma 1826:562): Inspiration, Polish, Debug, Generate states, Make responsive, each with a one-line outcome.
 - **MENU-07** · context

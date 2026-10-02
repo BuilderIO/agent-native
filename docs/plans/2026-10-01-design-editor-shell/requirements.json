@@ -339,7 +339,7 @@
         {
           "id": "MENU-05",
           "status": "decided",
-          "change": "Empty canvas (Figma 1826:562): Paste here, Explore with Agent…, Send to › (the screen), Copy link to screen, Show UI, Show comments. Layer row: Copy, Copy link to selection, Rename (in place), Hide, Lock, Arrange ›, Transform ›, with LayersPanel's shortcuts."
+          "change": "Empty canvas (Figma 1826:562), in the layer menus' order: Explore with Agent… and Send to › (the screen); Paste here and Copy link to screen; then Hide UI and Hide comments, which flip to Show UI and Show comments while hidden, as `CanvasContextMenu` does. Layer row: Copy, Copy link to selection, Rename (in place), Hide, Lock, Arrange ›, Transform ›, with LayersPanel's shortcuts."
         },
         {
           "id": "MENU-06",

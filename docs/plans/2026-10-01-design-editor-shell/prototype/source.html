@@ -2117,7 +2117,12 @@ const ARRANGE = () => [{ t: "Bring to front", k: "]" }, { t: "Bring forward", k:
 const TRANSFORM = () => [{ t: "Flip horizontal", k: "⇧H" }, { t: "Flip vertical", k: "⇧V" }, { t: "Swap fill and stroke", k: "⇧X" }];
 const tail = () => ["-", { t: "Hide", k: "⇧⌘H" }, { t: "Lock", k: "⇧⌘L" }, "-", { t: "Arrange", sub: ARRANGE() }, { t: "Transform", sub: TRANSFORM() }];
 const CTX = {
-  none: () => [{ t: "Paste here", k: "⌘V" }, { icon: "sparkles", t: "Explore with Agent…", k: "", run: () => { setPanel("agents"); $("#ask")?.focus(); } }, sendToItem("screen"), "-", { t: "Copy link to screen", run: () => copyText(linkTo("screen"), `Link to ${screenOf(S.route).screen} copied`) }, "-", { t: "Show UI", k: "⌘\\", run: () => app.classList.remove("no-panel") }, { t: "Show comments", k: "⇧C", run: () => { S.showPins = true; renderPins(); } }],
+  // Same order as the layer menus: the agent group, then the clipboard, then CanvasContextMenu's view toggles,
+  // which name what they'll do (Hide UI while it's showing).
+  none: () => [{ icon: "sparkles", t: "Explore with Agent…", run: () => { setPanel("agents"); $("#ask")?.focus(); } }, sendToItem("screen"), "-",
+    { t: "Paste here", k: "⌘V" }, { t: "Copy link to screen", run: () => copyText(linkTo("screen"), `Link to ${screenOf(S.route).screen} copied`) }, "-",
+    { t: app.classList.contains("no-panel") ? "Show UI" : "Hide UI", k: "⌘\\", run: () => app.classList.toggle("no-panel") },
+    { t: S.showPins === false ? "Show comments" : "Hide comments", k: "⇧C", run: () => { S.showPins = S.showPins === false; renderPins(); } }],
   layer: id => [editWithAgent(), sendToItem("selection"), "-", { t: "Copy", k: "⌘C" }, { t: "Paste to replace", k: "⇧⌘R" }, { t: "Copy/Paste as", sub: COPY_PASTE_AS() }, "-",
     { t: "Rename", k: "⌘R", run: () => { S.selected = id; renderTree(); startLayerRename(id); } }, { t: "Frame selection", k: "⌥⌘G" }, { t: "Add auto layout", k: "⇧A" }, { t: "Create component", k: "⌥⌘K" }, ...tail()],
   instance: id => [editWithAgent(), sendToItem("selection"), "-", { t: "Copy", k: "⌘C" }, { t: "Paste to replace", k: "⇧⌘R" }, copyLinkToSelection(), "-",
