@@ -1249,6 +1249,76 @@ describe("browser analytics pageviews", () => {
     expect(replayMock.emitSessionReplayAgentChatEvent).not.toHaveBeenCalled();
   });
 
+  it("keeps a session-flagged test identity out of every browser provider", async () => {
+    const { gtag } = installBrowser();
+    const { analyticsCalls } = installFetch({
+      session: {
+        email: "lead@qa.acme.co",
+        userId: "auth-user-qa",
+        orgId: "org_qa",
+        testIdentity: true,
+      },
+    });
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amplitude_test");
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+    };
+    const { captureClientException, configureTracking, trackEvent } =
+      await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      sessionReplay: { requireSignedInUser: true },
+    });
+    await tick();
+    trackEvent("signup_completed");
+    expect(
+      captureClientException(new Error("configured QA failure")),
+    ).toBeUndefined();
+    await tick();
+
+    expect(analyticsCalls).toHaveLength(0);
+    expect(gtag).not.toHaveBeenCalledWith(
+      "event",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(amplitudeMock.track).not.toHaveBeenCalled();
+    expect(sentryMock.captureException).not.toHaveBeenCalled();
+    expect(replayMock.startSessionReplay).not.toHaveBeenCalled();
+  });
+
+  it("suppresses a published identity on the session's test-identity flag", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { configureTracking, setTrackingIdentity, trackEvent } =
+      await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      pageviewTracking: false,
+      authSessionRefresh: false,
+      llmConnectionStatus: false,
+      errorCapture: false,
+    });
+    setTrackingIdentity({ id: "auth-user-qa", email: "lead@qa.acme.co" });
+    trackEvent("tracked_before_flag");
+    setTrackingIdentity({
+      id: "auth-user-qa",
+      email: "lead@qa.acme.co",
+      testIdentity: true,
+    });
+    trackEvent("suppressed_after_flag");
+    await tick();
+
+    const events = analyticsCalls.map(
+      ([, init]) => JSON.parse(String(init.body)).event,
+    );
+    expect(events).toEqual(["tracked_before_flag"]);
+  });
+
   it("tracks client-side URL changes once per URL", async () => {
     const { history } = installBrowser();
     const { analyticsCalls } = installFetch();

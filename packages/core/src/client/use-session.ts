@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-import type { AuthSession } from "../server/auth.js";
+import type { AuthSession, AuthSessionResponse } from "../server/auth.js";
 import { navigateForSession as navigateForSessionOnce } from "../shared/ssr-session-bootstrap.js";
 import { setSentryUser, trackEvent, trackSessionStatus } from "./analytics.js";
 import { agentNativeApiDisabledReason } from "./api-surface.js";
@@ -167,7 +167,7 @@ function hasFreshSessionCache(): boolean {
   );
 }
 
-function publishSessionIdentity(session: AuthSession | null): void {
+function publishSessionIdentity(session: AuthSessionResponse | null): void {
   const identity = session?.userId ?? session?.email ?? null;
   const authUserId = session?.authUserId;
   if (
@@ -183,6 +183,7 @@ function publishSessionIdentity(session: AuthSession | null): void {
           email: session.email,
           username: session.name,
           authUserId,
+          testIdentity: session.testIdentity,
         },
         session.orgId ?? null,
       );
@@ -395,13 +396,15 @@ function fetchSharedSession(): Promise<SessionRead> {
       }
       const data =
         result.state === "available"
-          ? (result.value as AuthSession & { error?: unknown })
+          ? (result.value as AuthSessionResponse & { error?: unknown })
           : { error: "Not authenticated" };
       if (data.error !== undefined && data.error !== "Not authenticated") {
         return { state: "unreadable" };
       }
       const session =
-        data.error === "Not authenticated" ? null : (data as AuthSession);
+        data.error === "Not authenticated"
+          ? null
+          : (data as AuthSessionResponse);
       cachedSession = session;
       cachedSessionAt = Date.now();
       cachedEvidence = session

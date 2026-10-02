@@ -262,7 +262,7 @@ diagnostics shaping, and access policy inside the Analytics template.
 
 QA や E2E のアカウントはどこでも動作し続けますが、集計には含まれません。`track()`、`identify()`、ブラウザのトラッキング、セッションリプレイは、テスト用アイデンティティのイベントをどのプロバイダーにも渡す前に破棄します。テスト用アイデンティティのサーバー例外は保持され、`test_identity: true` が付与されて、`acceptsTestIdentityExceptions` を設定したプロバイダー (Agent-Native Analytics) にのみ配信されます。そのため誰にもアラートを送らずに検索できます。テスト用アイデンティティ宛ての認証以外のメールも抑止されます。`sendEmail()` は `{ status: "suppressed", reason: "test-identity" }` を返して試行を記録しますが、サインイン、確認、パスワードリセット、招待のメールは引き続き送信されます。これはすべての宛先欄に適用されます。`cc` と `bcc` のテスト用アイデンティティも除外されて記録されます。`to` がテスト用アイデンティティの場合は、実在する `cc` の宛先がその代わりになります。`bcc` の宛先が代わりになることはありません。残りの `bcc` の宛先から見えてしまうためです。`to` にも `cc` にも宛先が残らない場合は送信全体が抑止され、除外された各アドレスが記録されます。
 
-`@agent-native/core/server` の `isTestIdentity(email)` が唯一のルールです。予約済みドメイン `.test`、`.invalid`、`.localhost`、`.example` と QA マーカー `+autoz` に一致します。デプロイごとに追加するには `AGENT_NATIVE_TEST_IDENTITY_EMAILS` に、完全一致のアドレス (`qa@corp.com`) または `@domain` 形式のエントリ (`@example.com`) をカンマ区切りで指定します。`testIdentitySql(column)` は同じルールをメトリクスクエリ用の PostgreSQL/BigQuery 式にしたものです。ブラウザーは組み込みルールのみを適用し、Agent-Native Analytics の取り込み側ではデプロイのリストも適用します。
+`@agent-native/core/server` の `isTestIdentity(email)` が唯一のルールです。予約済みドメイン `.test`、`.invalid`、`.localhost`、`.example` と QA マーカー `+autoz` に一致します。デプロイごとに追加するには `AGENT_NATIVE_TEST_IDENTITY_EMAILS` に、完全一致のアドレス (`qa@corp.com`) または `@domain` 形式のエントリ (`@example.com`) をカンマ区切りで指定します。`testIdentitySql(column)` は同じルールをメトリクスクエリ用の PostgreSQL/BigQuery 式にしたものです。ブラウザーがこのリストを受け取ることはありません。セッションのレスポンスにはサーバー側で判定した `testIdentity` フラグが含まれ、ブラウザーのトラッキング、セッションリプレイ、例外キャプチャは組み込みルールに加えてこのフラグに従います。Agent-Native Analytics の取り込み側ではデプロイのリストも適用します。
 
 ## 上級: カスタムプロバイダーと内部 {#advanced}
 

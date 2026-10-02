@@ -6310,6 +6310,32 @@ describe("server/auth", () => {
       expect(result).toEqual({ error: "Not authenticated" });
     });
 
+    it("marks configured test identities on the session without exposing the list", async () => {
+      defineAppConfig({
+        testIdentity: { emails: ["@qa.acme.co", "release-bot@acme.co"] },
+      });
+      let email = "lead@qa.acme.co";
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app, { getSession: async () => ({ email }) });
+      const sessionHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/session",
+      )?.[1];
+
+      const flagged = await sessionHandler(
+        createMockEvent({ path: "/_agent-native/auth/session" }),
+      );
+      expect(flagged).toMatchObject({ email, testIdentity: true });
+      expect(JSON.stringify(flagged)).not.toContain("release-bot");
+
+      email = "person@acme.co";
+      const regular = await sessionHandler(
+        createMockEvent({ path: "/_agent-native/auth/session" }),
+      );
+      expect(regular).toMatchObject({ email, testIdentity: false });
+      expect(JSON.stringify(regular)).not.toContain("qa.acme.co");
+    });
+
     it("returns a retryable status when session resolution is unavailable", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;

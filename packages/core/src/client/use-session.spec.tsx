@@ -117,6 +117,30 @@ describe("useSession", () => {
     );
   });
 
+  it("publishes the server's test-identity flag with the session identity", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              userId: "user-qa",
+              email: "lead@qa.acme.co",
+              testIdentity: true,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+
+    await renderConsumers(["only"]);
+
+    expect(analyticsMocks.setSentryUser).toHaveBeenCalledWith(
+      expect.objectContaining({ email: "lead@qa.acme.co", testIdentity: true }),
+      null,
+    );
+  });
+
   it("reports the definitive session state to an embedding host", async () => {
     const postMessage = vi.fn();
     const parentWindow = { postMessage };

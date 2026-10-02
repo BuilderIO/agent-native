@@ -50,7 +50,8 @@ function normalizedExtras(extraEmails: readonly string[]): {
  * addresses or `@domain` entries). Test identities keep working everywhere;
  * they are excluded from metrics and non-auth email. Server code calls
  * `isTestIdentity` from `@agent-native/core/server`, which supplies the
- * configured extras; browser code gets the built-in rules only.
+ * configured extras. Browser code never sees the extras; it pairs this with
+ * the session response's server-resolved `testIdentity` flag.
  */
 export function isTestIdentityEmail(
   value: unknown,
