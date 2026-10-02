@@ -3814,6 +3814,15 @@ export async function startDesignConnectBridge(
       sendJson(res, 404, { ok: false, error: "not found" });
     },
   );
+  const terminateHmrClients = () => {
+    for (const client of hmrWebSocketServer.clients) client.terminate();
+  };
+  // noServer upgrades are not closed by http.Server.close().
+  const closeHttpServer = server.close.bind(server);
+  server.close = (callback?: (error?: Error) => void) => {
+    terminateHmrClients();
+    return closeHttpServer(callback);
+  };
   // Vite's proxied /@vite/client derives its HMR socket from the document's
   // bridge origin. Tunnel WebSocket upgrades to the one connected dev-server
   // origin so Fast Refresh remains live inside URL-backed screens. The target
@@ -3983,7 +3992,7 @@ export async function startDesignConnectBridge(
   let closePromise: Promise<void> | undefined;
   const close = () => {
     closePromise ??= (async () => {
-      for (const client of hmrWebSocketServer.clients) client.terminate();
+      terminateHmrClients();
       await new Promise<void>((resolve) => hmrWebSocketServer.close(resolve));
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));

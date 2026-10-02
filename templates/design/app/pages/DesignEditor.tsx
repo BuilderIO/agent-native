@@ -19172,34 +19172,6 @@ function DesignEditor() {
       pendingVisualEditHadPendingRef.current = id;
     }
     const publish = async () => {
-      if (
-        bridgeRevisionSyncKey &&
-        pendingVisualEditBridgeRevisionSyncKeyRef.current !==
-          bridgeRevisionSyncKey
-      ) {
-        try {
-          const bridgeState = await readLocalVisualEditPendingState({
-            activeScreenBridgeUrl: activeScreenBridgeUrl!,
-            activeScreenPreviewToken: activeScreenPreviewToken!,
-            activeScreenLiveEditCapability: activeScreenLiveEditCapability!,
-            designId: id,
-            fetchImpl: fetch,
-          });
-          pendingVisualEditPublicationRevisionRef.current = Math.max(
-            pendingVisualEditPublicationRevisionRef.current,
-            bridgeState.revision,
-          );
-          pendingVisualEditBridgeRevisionSyncKeyRef.current =
-            bridgeRevisionSyncKey;
-        } catch (error) {
-          console.warn(
-            "[design:visual-edit] local bridge revision read failed",
-            error,
-          );
-          setPendingVisualEditPublicationFailed(true);
-          return;
-        }
-      }
       const revision = pendingVisualEditPublicationRevisionRef.current + 1;
       pendingVisualEditPublicationRevisionRef.current = revision;
       const pending =
@@ -19240,6 +19212,30 @@ function DesignEditor() {
         pending,
         pendingVisualEditClearRequestedRef,
         pendingVisualEditHadPendingRef,
+        prepareLocalBridgeRevision:
+          bridgeRevisionSyncKey &&
+          pendingVisualEditBridgeRevisionSyncKeyRef.current !==
+            bridgeRevisionSyncKey
+            ? async () => {
+                const bridgeState = await readLocalVisualEditPendingState({
+                  activeScreenBridgeUrl: activeScreenBridgeUrl!,
+                  activeScreenPreviewToken: activeScreenPreviewToken!,
+                  activeScreenLiveEditCapability:
+                    activeScreenLiveEditCapability!,
+                  designId: id,
+                  fetchImpl: fetch,
+                });
+                const localRevision =
+                  Math.max(revision - 1, bridgeState.revision) + 1;
+                pendingVisualEditPublicationRevisionRef.current = Math.max(
+                  pendingVisualEditPublicationRevisionRef.current,
+                  localRevision,
+                );
+                pendingVisualEditBridgeRevisionSyncKeyRef.current =
+                  bridgeRevisionSyncKey;
+                return localRevision;
+              }
+            : undefined,
         onLocalRevisionConflict: () => {
           if (
             pendingVisualEditBridgeRevisionSyncKeyRef.current ===

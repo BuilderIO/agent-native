@@ -165,9 +165,11 @@ describe("runPublishVisualEditPending", () => {
 
   it("surfaces the handoff error only when an editor's durable publish itself fails", async () => {
     const error = new Error("editor access");
+    const setFailed = vi.fn();
     const args = makeArgs({
       canPublishDurableHandoff: true,
       callAction: vi.fn().mockRejectedValue(error),
+      setPendingVisualEditPublicationFailed: setFailed,
     });
 
     await runPublishVisualEditPending(args);
@@ -175,6 +177,7 @@ describe("runPublishVisualEditPending", () => {
     expect(args.setPendingVisualEditPublicationFailed).toHaveBeenCalledWith(
       true,
     );
+    expect(setFailed.mock.lastCall).toEqual([true]);
     expect(args.onHandoffPublicationStatusChange).toHaveBeenCalledWith(
       "failed",
       1,
@@ -185,6 +188,68 @@ describe("runPublishVisualEditPending", () => {
     );
     expect(args.showHandoffErrorToast).toHaveBeenCalledWith(error);
     expect(args.fetchImpl).toHaveBeenCalled();
+  });
+
+  it("publishes the durable handoff when local revision synchronization fails", async () => {
+    const setFailed = vi.fn();
+    const order: string[] = [];
+    const args = makeArgs({
+      callAction: vi.fn(async (_name, payload) => {
+        order.push("durable");
+        return {
+          designId: payload.designId,
+          revision: payload.revision,
+          status: "ready",
+        };
+      }),
+      prepareLocalBridgeRevision: vi.fn(async () => {
+        order.push("local");
+        throw new Error("bridge unavailable");
+      }),
+      setPendingVisualEditPublicationFailed: setFailed,
+    });
+
+    await runPublishVisualEditPending(args);
+
+    expect(args.callAction).toHaveBeenCalledWith(
+      "publish-visual-edit-pending",
+      args.pending,
+    );
+    expect(order).toEqual(["durable", "local"]);
+    expect(args.fetchImpl).not.toHaveBeenCalled();
+    expect(args.onHandoffPublicationStatusChange).toHaveBeenCalledWith(
+      "ready",
+      1,
+      1,
+    );
+    expect(args.onHandoffPublicationStatusChange).not.toHaveBeenCalledWith(
+      "failed",
+      1,
+    );
+    expect(setFailed.mock.lastCall).toEqual([true]);
+  });
+
+  it("preserves durable success when the optional local bridge publish fails", async () => {
+    const error = new Error("bridge unavailable");
+    const setFailed = vi.fn();
+    const args = makeArgs({
+      fetchImpl: vi.fn().mockRejectedValue(error),
+      setPendingVisualEditPublicationFailed: setFailed,
+    });
+
+    await runPublishVisualEditPending(args);
+
+    expect(args.onHandoffPublicationStatusChange).toHaveBeenCalledWith(
+      "ready",
+      1,
+      1,
+    );
+    expect(args.onHandoffPublicationStatusChange).not.toHaveBeenCalledWith(
+      "failed",
+      1,
+    );
+    expect(setFailed.mock.lastCall).toEqual([true]);
+    expect(args.showHandoffErrorToast).toHaveBeenCalledWith(error);
   });
 
   it("does not clear local pending state when the durable clear is stale", async () => {

@@ -3533,6 +3533,8 @@ describe("design connect bridge endpoints", () => {
     });
     const bridge = await startDesignConnectBridge(manifest);
     let client: WebSocket | null = null;
+    let rawServerClose: Promise<void> | null = null;
+    let socketCloseTimeout: NodeJS.Timeout | undefined;
     try {
       const bridgeOrigin = `http://127.0.0.1:${port}`;
       client = new WebSocket(
@@ -3578,14 +3580,36 @@ describe("design connect bridge endpoints", () => {
         "/app/components/library/empty-state.tsx?import&t=123",
       ]);
       expect(upstreamWebSocketExtensions).toEqual([undefined]);
+      const upstreamClient = [...upstreamWebSockets.clients][0];
+      expect(upstreamClient).toBeDefined();
+      const socketsClosed = Promise.all([
+        new Promise<void>((resolve) => client!.once("close", resolve)),
+        new Promise<void>((resolve) => upstreamClient!.once("close", resolve)),
+      ]);
+      rawServerClose = new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await Promise.race([
+        Promise.all([rawServerClose, socketsClosed]),
+        new Promise<never>((_resolve, reject) => {
+          socketCloseTimeout = setTimeout(
+            () => reject(new Error("HMR sockets survived server.close()")),
+            2_000,
+          );
+        }),
+      ]);
+      expect(upstreamWebSockets.clients.size).toBe(0);
     } finally {
+      if (socketCloseTimeout) clearTimeout(socketCloseTimeout);
       client?.terminate();
+      for (const upstreamClient of upstreamWebSockets.clients) {
+        upstreamClient.terminate();
+      }
       await new Promise<void>((resolve) =>
         upstreamWebSockets.close(() => resolve()),
       );
-      await new Promise<void>((resolve) =>
-        bridge.server.close(() => resolve()),
-      );
+      if (rawServerClose) await rawServerClose;
+      else await bridge.close();
       await new Promise<void>((resolve) => devServer.close(() => resolve()));
     }
   });

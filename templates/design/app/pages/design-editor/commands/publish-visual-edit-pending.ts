@@ -33,6 +33,7 @@ export interface PublishVisualEditPendingArgs {
   pending: PendingVisualEditHandoff;
   pendingVisualEditClearRequestedRef: RefObject<string | null>;
   pendingVisualEditHadPendingRef: RefObject<string | null>;
+  prepareLocalBridgeRevision?: () => Promise<number>;
   onHandoffPublicationStatusChange: (
     status: "empty" | "failed" | "ready" | "local-ready",
     publicationRevision: number,
@@ -126,6 +127,7 @@ export async function runPublishVisualEditPending(
     pending,
     pendingVisualEditClearRequestedRef,
     pendingVisualEditHadPendingRef,
+    prepareLocalBridgeRevision,
     onHandoffPublicationStatusChange,
     onLocalRevisionConflict,
     setPendingVisualEditPublicationFailed,
@@ -177,8 +179,23 @@ export async function runPublishVisualEditPending(
     !activeScreenLiveEditCapability
   )
     return;
+  let localRevision = pending.revision;
+  if (prepareLocalBridgeRevision) {
+    try {
+      localRevision = await prepareLocalBridgeRevision();
+    } catch (error) {
+      console.warn(
+        "[design:visual-edit] local bridge revision read failed",
+        error,
+      );
+      if (!canPublishDurableHandoff) {
+        onHandoffPublicationStatusChange("failed", pending.revision);
+      }
+      setPendingVisualEditPublicationFailed(true);
+      return;
+    }
+  }
   try {
-    let localRevision = pending.revision;
     const response = await fetchImpl(
       `${activeScreenBridgeUrl.replace(/\/$/, "")}/live-edit-pending`,
       {
@@ -211,11 +228,12 @@ export async function runPublishVisualEditPending(
     } else if (!response.ok) {
       throw new Error(`Bridge returned HTTP ${response.status}`);
     }
-    setPendingVisualEditPublicationFailed(false);
-    if (!clearRequested && !canPublishDurableHandoff) {
-      onHandoffPublicationStatusChange("local-ready", localRevision);
-    } else if (!canPublishDurableHandoff) {
-      onHandoffPublicationStatusChange("empty", localRevision);
+    if (!canPublishDurableHandoff) {
+      setPendingVisualEditPublicationFailed(false);
+      onHandoffPublicationStatusChange(
+        clearRequested ? "empty" : "local-ready",
+        localRevision,
+      );
     }
     if (
       clearRequested &&
@@ -226,7 +244,9 @@ export async function runPublishVisualEditPending(
       pendingVisualEditHadPendingRef.current = null;
     }
   } catch (error) {
-    onHandoffPublicationStatusChange("failed", pending.revision);
+    if (!canPublishDurableHandoff) {
+      onHandoffPublicationStatusChange("failed", pending.revision);
+    }
     setPendingVisualEditPublicationFailed(true);
     showHandoffErrorToast(error);
     console.warn(
