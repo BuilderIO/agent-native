@@ -7016,15 +7016,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 // Scope updates piggyback on the PUT — the client uses this
                 // path for detach and for claiming a legacy unscoped thread.
                 // A scoped thread cannot be retagged across resources here.
-                let savedScope = thread.scope ?? null;
                 if (Object.prototype.hasOwnProperty.call(body, "scope")) {
                   const incomingScope = parseScopeFromBody(body.scope);
                   await setThreadScope(threadId, owner, incomingScope);
-                  savedScope = incomingScope;
                 }
-                // The scope the thread really has, so the client records what
-                // the server holds instead of guessing from the visible page.
-                return { ok: true, scope: savedScope };
+                // The scope the thread really has now (a detach can land
+                // between the read above and this save), so the client records
+                // what the server holds instead of guessing from the page.
+                const saved = await resolveThreadAccess(
+                  owner,
+                  threadId,
+                  "editor",
+                  { orgId },
+                );
+                return { ok: true, scope: saved?.scope ?? null };
               });
             }
 

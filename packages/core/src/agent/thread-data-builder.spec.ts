@@ -1984,7 +1984,7 @@ describe("mergeThreadDataForClientSave", () => {
     ).toEqual([serverReply]);
   });
 
-  it("refreshes the chat UI's own stored copy of a reply instead of letting the server's reply take its save", () => {
+  it("leaves one reply for a run whose server and chat UI copies are both already stored", () => {
     const serverReply = {
       message: {
         id: "server-run-1",
@@ -1996,8 +1996,6 @@ describe("mergeThreadDataForClientSave", () => {
       parentId: "user-1",
     };
 
-    // A thread that already holds both copies: the server's reply and the chat
-    // UI's mid-stream one.
     const merged = mergeThreadDataForClientSave(
       {
         messages: [
@@ -2015,10 +2013,11 @@ describe("mergeThreadDataForClientSave", () => {
       },
     );
 
-    const uiCopy = merged.messages.find(
-      (entry: any) => entry.message.id === "agentkit-reply",
-    );
-    expect(uiCopy.message.status).not.toBe("streaming");
+    expect(
+      merged.messages.filter(
+        (entry: any) => entry.message.role === "assistant",
+      ),
+    ).toEqual([serverReply]);
   });
 
   it("keeps the durable queue over a stale save's copy of it", () => {

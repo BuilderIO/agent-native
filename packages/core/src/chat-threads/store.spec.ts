@@ -615,6 +615,44 @@ describe("chat thread store", () => {
     ).toBe("submitted");
   });
 
+  it("drops the promoted item from the queue when the run-start save accepts it", async () => {
+    const queued = { id: "queued-promoted", text: "Answer me next" };
+    row!.thread_data = JSON.stringify({
+      messages: [
+        { id: "user-1", role: "user", content: [{ type: "text", text: "Go" }] },
+      ],
+      queuedMessages: [queued],
+    });
+    await mutateThreadQueuedMessages("thread-1", {
+      type: "claim",
+      messageId: queued.id,
+      claimId: "tab-1",
+    });
+
+    // What the run start does: derive the submission from the current data.
+    const userMessage = buildUserMessage({
+      text: queued.text,
+      runId: "run-promoted",
+      queuedMessageId: queued.id,
+    });
+    await updateThreadData("thread-1", "{}", "", "", 1, {
+      transformThreadData: (threadData) => {
+        const result = applySubmittedUserMessage(
+          JSON.parse(threadData),
+          userMessage,
+          { id: queued.id, claimId: "tab-1" },
+        );
+        if (!("repo" in result)) throw new Error(result.status);
+        return JSON.stringify(result.repo);
+      },
+    });
+
+    const stored = JSON.parse(row!.thread_data);
+    expect(
+      (stored.queuedMessages ?? []).map((item: { id: string }) => item.id),
+    ).not.toContain(queued.id);
+  });
+
   it("lets a new tab take over an expired queue promotion lease", async () => {
     const queued = {
       id: "queued-expired-lease",

@@ -1980,7 +1980,33 @@ export function mergeThreadDataForClientSave(
     nextMessages.push(incomingMessages[index]);
   }
 
-  merged.messages = nextMessages.map((entry) =>
+  // One reply per run: the server's folded reply carries the run in its
+  // metadata, and the chat UI's own copy of it (saved under an AgentKit id,
+  // tied to the run only by events) is dropped wherever both ended up stored.
+  const serverReplyRuns = new Set<string>();
+  for (const entry of nextMessages) {
+    const message = getStoredMessage(entry);
+    const runId =
+      message?.role === "assistant" ? getMessageRunId(message) : null;
+    if (runId) serverReplyRuns.add(runId);
+  }
+  const keptMessages = nextMessages.filter((entry) => {
+    const message = getStoredMessage(entry);
+    if (message?.role !== "assistant" || getMessageRunId(message)) return true;
+    const runId =
+      typeof message.id === "string" ? eventRunIds.get(message.id) : undefined;
+    if (!runId || !serverReplyRuns.has(runId)) return true;
+    const kept = nextMessages.find((candidate) => {
+      const other = getStoredMessage(candidate);
+      return other?.role === "assistant" && getMessageRunId(other) === runId;
+    });
+    const keptId = messageId(getStoredMessage(kept));
+    const droppedId = messageId(message);
+    if (keptId && droppedId) idRewrites.set(droppedId, keptId);
+    return false;
+  });
+
+  merged.messages = keptMessages.map((entry) =>
     rewriteEntryParentId(entry, idRewrites),
   );
   const normalizedMerged = normalizeThreadRepository(
