@@ -2,4 +2,4 @@
 "@agent-native/toolkit": patch
 ---
 
-Clear stale queue action menus when the queue no longer supports them.
+Keep one queued message action menu open at a time and clear stale selections when rows or actions disappear.
