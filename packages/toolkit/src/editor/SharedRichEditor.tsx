@@ -234,6 +234,7 @@ export function SharedRichEditor({
     shouldSeed,
     initialAppliedUpdatedAt,
     requestInitialSeed,
+    quietSeedEditability: Boolean(requestInitialSeed),
     requestCollabSync,
     onInitialSeedError,
   });

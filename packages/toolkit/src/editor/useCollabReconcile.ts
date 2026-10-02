@@ -94,6 +94,13 @@ export interface UseCollabReconcileOptions {
   }) => void;
   onRemoteSnapshotChange?: (markdown: string) => void;
   requestInitialSeed?: (editor: Editor, value: string) => Promise<Uint8Array>;
+  /**
+   * Flipping editability around the initial seed emits `update` unless this is
+   * set. Set it when `update` saves the document, so that the flip is not
+   * mistaken for an edit. Editors that leave it off rely on the emission to
+   * report edits typed before the seed settled, which were ignored until then.
+   */
+  quietSeedEditability?: boolean;
   onInitialSeedError?: (error: unknown) => void;
   overlapPolicy?: "conflict" | "prefer-live";
   editable: boolean;
@@ -181,6 +188,7 @@ export function useCollabReconcile({
   onBaseAwareReconcile,
   onRemoteSnapshotChange,
   requestInitialSeed,
+  quietSeedEditability = false,
   onInitialSeedError,
   overlapPolicy = "conflict",
   editable,
@@ -359,7 +367,8 @@ export function useCollabReconcile({
     if (!collabSynced) return;
     if (collabBackedSnapshot) {
       markSeeded();
-      if (requestInitialSeed) editor.setEditable(editable, false);
+      if (requestInitialSeed)
+        editor.setEditable(editable, !quietSeedEditability);
       return;
     }
     if (contentRevision) {
@@ -423,11 +432,12 @@ export function useCollabReconcile({
         })
       ) {
         markSeeded();
-        if (requestInitialSeed) editor.setEditable(editable, false);
+        if (requestInitialSeed)
+          editor.setEditable(editable, !quietSeedEditability);
         return;
       }
       if (requestInitialSeed) {
-        editor.setEditable(false, false);
+        editor.setEditable(false, !quietSeedEditability);
         const initialNodes = fragment.toArray().map((node) => ({
           node,
           serialized: node.toString(),
@@ -451,7 +461,7 @@ export function useCollabReconcile({
                 lastAppliedUpdatedAtRef.current = contentUpdatedAt;
               markSeeded();
               setInitialSeedFailed(false);
-              editor.setEditable(editable, false);
+              editor.setEditable(editable, !quietSeedEditability);
             })
             .catch((error: unknown) => {
               if (cancelled || editor.isDestroyed) return;
@@ -496,7 +506,7 @@ export function useCollabReconcile({
       clearTimeout(seedTimer);
       if (retryTimer) clearTimeout(retryTimer);
       if (requestInitialSeed && !editor.isDestroyed)
-        editor.setEditable(editable, false);
+        editor.setEditable(editable, !quietSeedEditability);
     };
   }, [
     collab,

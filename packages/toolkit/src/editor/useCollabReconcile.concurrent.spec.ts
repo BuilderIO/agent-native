@@ -233,6 +233,8 @@ function makePeerReconcileHarness(initialContent = "original body") {
     collabContentRevision,
     requestCollabSync,
     baseAware = false,
+    requestInitialSeed,
+    quietSeedEditability,
   }: {
     value?: string;
     revision?: string | null;
@@ -244,6 +246,8 @@ function makePeerReconcileHarness(initialContent = "original body") {
       status: "synced" | "failed" | "unavailable";
     }>;
     baseAware?: boolean;
+    requestInitialSeed?: () => Promise<Uint8Array>;
+    quietSeedEditability?: boolean;
   }) {
     editor = useEditor({
       extensions: createRichMarkdownExtensions({ dialect: "gfm", ydoc }),
@@ -258,6 +262,8 @@ function makePeerReconcileHarness(initialContent = "original body") {
       contentRevision: revision ?? undefined,
       collabContentRevision,
       requestCollabSync,
+      requestInitialSeed,
+      quietSeedEditability,
       initialAppliedUpdatedAt: null,
       editable: true,
       parseValue: baseAware ? undefined : false,
@@ -426,6 +432,33 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
       harness.dispose();
     }
   });
+
+  it.each([
+    [false, true],
+    [true, false],
+  ])(
+    "an editor that saves on update opts out of the update emitted when the seed settles (quiet: %s)",
+    async (quiet, emits) => {
+      vi.useFakeTimers();
+      const harness = makePeerReconcileHarness("original body");
+      const props = {
+        requestInitialSeed: async () => new Uint8Array(),
+        quietSeedEditability: quiet,
+      };
+      try {
+        act(() => root.render(React.createElement(harness.Harness, props)));
+        // The editor exists after the first render; count from there.
+        let updates = 0;
+        harness.editor().on("update", () => {
+          updates += 1;
+        });
+        await act(async () => vi.advanceTimersByTimeAsync(30));
+        expect(updates > 0).toBe(emits);
+      } finally {
+        harness.dispose();
+      }
+    },
+  );
 
   it("catches the live document up before adopting a snapshot that carries a peer's text", async () => {
     vi.useFakeTimers();
