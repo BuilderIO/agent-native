@@ -1897,7 +1897,12 @@ describe("DeckContext deck creation persistence", () => {
     const requestsBeforeReplacement = fetchMock.mock.calls.length;
     act(() => {
       result.current.setDeckSlides(deckId, [
-        { id: "slide-1", content: "Replacement", notes: "Local notes" },
+        {
+          id: "slide-1",
+          content: "Replacement",
+          notes: "Local notes",
+          layout: "title",
+        },
       ]);
     });
     expect(fetchMock.mock.calls).toHaveLength(requestsBeforeReplacement);
