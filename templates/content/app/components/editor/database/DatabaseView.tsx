@@ -286,6 +286,8 @@ import {
   ContentTableSurface,
   ContentTableToolbar,
   ContentTableToolbarButton,
+  useContentTableLongPress,
+  useContentTableSelectionGutter,
 } from "./ContentTable";
 import { databaseCanCreateItems, databaseCreateTarget } from "./create-target";
 import {
@@ -3033,7 +3035,7 @@ function DatabaseTable({
   }
 
   return (
-    <div className="mt-4 min-w-0 w-full max-w-[calc(100vw-var(--content-sidebar-width,0px)-1.5rem)]">
+    <div className="mt-4 min-w-0 w-full max-w-full">
       <div className="mb-1 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-1">
         <DatabaseViewTabs
           assetScopeDocumentId={databaseDocumentId}
@@ -3043,7 +3045,7 @@ function DatabaseTable({
           onViewIconChange={handleViewIconChange}
           onViewSelect={selectPersonalView}
         />
-        <ContentTableToolbar>
+        <ContentTableToolbar className="ms-auto">
           <ContentTableSearch
             open={searchOpen}
             value={searchQuery}
@@ -5283,6 +5285,10 @@ function DatabaseTableView({
     observer.observe(surface);
     return () => observer.disconnect();
   }, []);
+  const selectionGutter = useContentTableSelectionGutter(
+    selectedItemIds.length > 0,
+  );
+  const { gutterWidth } = selectionGutter;
   const observedFrozenIds = databaseFrozenColumnIds(
     { frozenThroughColumnId },
     databaseTableColumnIds(
@@ -5296,6 +5302,7 @@ function DatabaseTableView({
         ),
       ),
       viewportWidth,
+      gutterWidth,
     },
   );
   const observedFrozenKey = JSON.stringify(observedFrozenIds);
@@ -5839,12 +5846,14 @@ function DatabaseTableView({
       }}
     >
       <DatabaseTableLayout.Provider
-        value={{ frozenThroughColumnId, viewportWidth }}
+        value={{ frozenThroughColumnId, viewportWidth, gutterWidth }}
       >
         <DatabaseTableColumnOrder.Provider value={columnOrderIds}>
           <div
             ref={tableViewportRef}
             className="relative w-full min-w-0 max-w-full"
+            data-table-selecting={selectedCount > 0 ? "" : undefined}
+            {...selectionGutter.containerProps}
           >
             <DatabaseDragPreview preview={dragPreview} />
             {selectedCount > 0 ? (
@@ -5882,12 +5891,15 @@ function DatabaseTableView({
               columnOrder={columnOrderIds}
               frozenThroughColumnId={frozenThroughColumnId}
               viewportWidth={viewportWidth}
+              gutterWidth={gutterWidth}
               rows={items}
               columns={dataGridColumns}
               getRowId={(item) => item.id}
               columnWidths={columnWidths}
+              // Below `md` the page owns vertical scrolling: a nested 70vh
+              // scroller traps the swipe and leaves the table a short window.
               scrollContainerProps={{
-                className: "max-h-[70vh] overflow-auto",
+                className: "overflow-auto md:max-h-[70vh]",
               }}
               renderHeader={() => (
                 <DatabaseTableGrid
@@ -5956,6 +5968,10 @@ function DatabaseTableView({
                         {...columnMoves(property.definition.id)}
                         key={property.definition.id}
                         property={property}
+                        width={columnWidth(
+                          property.definition.id,
+                          columnWidths,
+                        )}
                         documentId={databaseDocumentId}
                         source={source}
                         canEdit={canEdit}
@@ -15291,8 +15307,10 @@ function DatabaseViewTabs({
     globalThis.document.addEventListener("pointerup", handlePointerUp);
   }
 
+  // `flex-auto`, not `flex-1`: a zero basis let the toolbar keep the tabs'
+  // line on phones and squeezed every view into a ~150px scroller.
   return (
-    <div className="group/viewtabs relative flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+    <div className="group/viewtabs relative flex min-w-0 flex-auto items-center gap-1 overflow-x-auto">
       <DatabaseDragPreview preview={dragPreview} />
       {normalized.views.map((view) => {
         const active = view.id === normalized.activeViewId;
@@ -16335,8 +16353,33 @@ function DatabaseBulkOptionPill({
   );
 }
 
+// Below this width a type icon leaves a column room for one or two letters of
+// its name, so the name takes the icon's space.
+const NARROW_PROPERTY_HEADER_WIDTH = 128;
+
+/** Shows a column's full name while its header label is cut off. */
+function useTruncatedHeaderTooltip() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  return {
+    ref,
+    open,
+    onOpenChange: (next: boolean) => {
+      const header = ref.current;
+      const label = header?.querySelector<HTMLElement>("[data-property-label]");
+      setOpen(
+        next &&
+          !!label &&
+          label.scrollWidth > label.clientWidth &&
+          !header?.querySelector('[aria-expanded="true"]'),
+      );
+    },
+  };
+}
+
 function DatabasePropertyHeader({
   property,
+  width,
   documentId,
   source,
   canEdit,
@@ -16353,6 +16396,7 @@ function DatabasePropertyHeader({
   onMoveRight,
 }: {
   property: DocumentProperty;
+  width: number;
   documentId: string;
   source: ContentDatabaseSource | null;
   canEdit: boolean;
@@ -16371,6 +16415,8 @@ function DatabasePropertyHeader({
   const t = useT();
   const Icon = TYPE_ICONS[property.definition.type];
   const canReorder = canEdit;
+  const narrow = width < NARROW_PROPERTY_HEADER_WIDTH;
+  const nameTooltip = useTruncatedHeaderTooltip();
   const columnState = databaseColumnHeaderState(
     sorts,
     filters,
@@ -16378,82 +16424,102 @@ function DatabasePropertyHeader({
   );
 
   return (
-    <div
-      data-database-property-id={property.definition.id}
-      className={cn(
-        "group relative flex h-8 min-w-0 items-center px-1 transition-colors",
-        canReorder && "cursor-grab active:cursor-grabbing",
-        isDragging && "opacity-45",
-        dropSide && "bg-accent/40",
-      )}
-    >
-      <DatabaseDropIndicator side={dropSide} />
-      {canReorder && (
-        <span
-          aria-hidden="true"
-          className="flex size-4 shrink-0 cursor-grab items-center justify-center text-muted-foreground/50 active:cursor-grabbing"
-          onPointerDown={onPointerDown}
-        >
-          <IconGripVertical className="size-3.5" />
-        </span>
-      )}
-      {canEdit && !property.definition.systemRole ? (
-        <PropertyManagementPopover
-          property={property}
-          onMoveLeft={onMoveLeft}
-          onMoveRight={onMoveRight}
-          documentId={documentId}
-          databaseId={property.definition.databaseId!}
-          icon={Icon}
-          triggerClassName="h-full min-w-0 flex-1 rounded-none text-xs text-muted-foreground"
-          triggerTrailing={
-            <DatabaseColumnStateIndicators state={columnState} />
-          }
-          sourceField={sourceFieldMappingForColumn(
-            source,
-            property.definition.id,
+    <Tooltip open={nameTooltip.open} onOpenChange={nameTooltip.onOpenChange}>
+      <TooltipTrigger asChild>
+        <div
+          ref={nameTooltip.ref}
+          data-database-property-id={property.definition.id}
+          className={cn(
+            "group relative flex h-8 min-w-0 items-center px-1 transition-colors",
+            canReorder && "cursor-grab active:cursor-grabbing",
+            isDragging && "opacity-45",
+            dropSide && "bg-accent/40",
           )}
-          sourceAttached={!!source}
-          sorts={sorts}
-          filters={filters}
-          onSortsChange={onSortsChange}
-          onFiltersChange={onFiltersChange}
-          onHide={() => onPropertyHiddenChange(property.definition.id, true)}
-        />
-      ) : (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              aria-label={t("editor.properties.propertyMenuFor", {
-                name: property.definition.name,
-              })}
-              className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded px-1 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <DatabaseDropIndicator side={dropSide} />
+          {canReorder && (
+            <span
+              aria-hidden="true"
+              className="flex size-4 shrink-0 cursor-grab items-center justify-center text-muted-foreground/50 active:cursor-grabbing"
+              onPointerDown={onPointerDown}
             >
-              <Icon className="size-4 shrink-0" />
-              <span className="truncate">{property.definition.name}</span>
-              <DatabaseColumnStateIndicators state={columnState} />
-            </button>
-          </DropdownMenuTrigger>
-          <ColumnHeaderMenuContent
-            columnKey={property.definition.id}
-            label={property.definition.name}
-            propertyType={property.definition.type}
-            sorts={sorts}
-            filters={filters}
-            onSortsChange={onSortsChange}
-            onFiltersChange={onFiltersChange}
-            canMove={canEdit}
-            onMoveLeft={onMoveLeft}
-            onMoveRight={onMoveRight}
+              <IconGripVertical className="size-3.5" />
+            </span>
+          )}
+          {canEdit && !property.definition.systemRole ? (
+            <PropertyManagementPopover
+              property={property}
+              onMoveLeft={onMoveLeft}
+              onMoveRight={onMoveRight}
+              documentId={documentId}
+              databaseId={property.definition.databaseId!}
+              icon={Icon}
+              triggerClassName={cn(
+                "h-full min-w-0 flex-1 rounded-none text-xs text-muted-foreground",
+                narrow && "gap-1",
+              )}
+              iconClassName={narrow ? "hidden" : undefined}
+              triggerTrailing={
+                <DatabaseColumnStateIndicators state={columnState} />
+              }
+              sourceField={sourceFieldMappingForColumn(
+                source,
+                property.definition.id,
+              )}
+              sourceAttached={!!source}
+              sorts={sorts}
+              filters={filters}
+              onSortsChange={onSortsChange}
+              onFiltersChange={onFiltersChange}
+              onHide={() =>
+                onPropertyHiddenChange(property.definition.id, true)
+              }
+            />
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={t("editor.properties.propertyMenuFor", {
+                    name: property.definition.name,
+                  })}
+                  className={cn(
+                    "flex h-7 min-w-0 flex-1 items-center gap-2 rounded px-1 text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    narrow && "gap-1",
+                  )}
+                >
+                  <Icon className={cn("size-4 shrink-0", narrow && "hidden")} />
+                  <span className="truncate" data-property-label="">
+                    {property.definition.name}
+                  </span>
+                  <DatabaseColumnStateIndicators state={columnState} />
+                </button>
+              </DropdownMenuTrigger>
+              <ColumnHeaderMenuContent
+                columnKey={property.definition.id}
+                label={property.definition.name}
+                propertyType={property.definition.type}
+                sorts={sorts}
+                filters={filters}
+                onSortsChange={onSortsChange}
+                onFiltersChange={onFiltersChange}
+                canMove={canEdit}
+                onMoveLeft={onMoveLeft}
+                onMoveRight={onMoveRight}
+              />
+            </DropdownMenu>
+          )}
+          <ColumnResizeHandle
+            label={`Resize ${property.definition.name} column`}
+            onPointerDown={onResize}
           />
-        </DropdownMenu>
-      )}
-      <ColumnResizeHandle
-        label={`Resize ${property.definition.name} column`}
-        onPointerDown={onResize}
-      />
-    </div>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="top" align="start">
+        {/* Not a bare string: tooltip text normalization would rewrite it. */}
+        <span>{property.definition.name}</span>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -18274,12 +18340,14 @@ function DatabaseTableRow({
   onOpenPage: () => void;
 }) {
   const presentation = useDatabaseColumnPresentation();
+  const longPress = useContentTableLongPress(onToggleSelected);
   const columnWrap = (id: string) =>
     presentation?.columnWrapOverrides[id] ?? wrapCells;
   return (
     <DatabaseTableGrid
+      {...longPress}
       className={cn(
-        "group grid border-t border-border/35 transition-colors",
+        "group grid border-t border-border/35 transition-colors [@media(any-hover:none)]:select-none [@media(any-hover:none)]:[-webkit-touch-callout:none] [&_input]:select-text",
         databaseTableRowDensityClass(rowDensity),
         selected && "bg-muted",
         isDragging && "opacity-50",

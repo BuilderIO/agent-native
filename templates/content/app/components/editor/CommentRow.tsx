@@ -108,7 +108,11 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-/** "3 days ago" for recent activity, a short date beyond a few weeks. */
+/**
+ * "3d ago" for recent activity, a short date beyond a few weeks. Every comment
+ * surface is a column of about 320px, where the long form ("7 minutes ago")
+ * clipped beside a name and its actions; `title` keeps the full date.
+ */
 export function useCommentTimestamp() {
   const formatters = useFormatters();
   const formatDate = (
@@ -130,17 +134,26 @@ export function useCommentTimestamp() {
     if (Number.isNaN(time)) return { label: "", title: "" };
     const title = formatDate(date, { dateStyle: "medium", timeStyle: "short" });
     const elapsed = Date.now() - time;
-    const numeric = { numeric: "auto" } as const;
+    const narrow = { style: "narrow" } as const;
+    const numeric = { ...narrow, numeric: "auto" } as const;
     let label: string;
     if (elapsed < MINUTE) label = formatRelativeTime(0, "second", numeric);
     else if (elapsed < HOUR)
-      label = formatRelativeTime(-Math.floor(elapsed / MINUTE), "minute");
+      label = formatRelativeTime(
+        -Math.floor(elapsed / MINUTE),
+        "minute",
+        narrow,
+      );
     else if (elapsed < DAY)
-      label = formatRelativeTime(-Math.floor(elapsed / HOUR), "hour");
+      label = formatRelativeTime(-Math.floor(elapsed / HOUR), "hour", narrow);
     else if (elapsed < 7 * DAY)
       label = formatRelativeTime(-Math.floor(elapsed / DAY), "day", numeric);
     else if (elapsed < 28 * DAY)
-      label = formatRelativeTime(-Math.floor(elapsed / (7 * DAY)), "week");
+      label = formatRelativeTime(
+        -Math.floor(elapsed / (7 * DAY)),
+        "week",
+        narrow,
+      );
     else
       label = formatDate(date, {
         month: "short",
@@ -213,6 +226,11 @@ export const CommentIconButton = forwardRef<
  * One comment: avatar, author line, body, and an optional footer for
  * reactions, AI progress, or save status. `actions` sits at the end of the
  * author line; `revealActions="hover"` keeps reply rows quiet until focused.
+ *
+ * The author line wraps instead of clipping: the name keeps the first line and
+ * the badge, time, and status move below it when the column is too narrow.
+ * Hover-revealed actions keep their width while hidden, because a header that
+ * re-wraps on hover changes the card height the margin rail stacks by.
  */
 export function CommentRow({
   avatar,
@@ -246,35 +264,39 @@ export function CommentRow({
       <div className="min-w-0 flex-1">
         <div
           className={cn(
-            "flex min-h-7 min-w-0 items-center gap-1.5",
+            "flex min-h-7 min-w-0 items-start gap-1.5",
             headerClassName,
           )}
         >
-          <span className="min-w-0 max-w-3/5 truncate text-sm font-semibold text-foreground">
-            {name}
-          </span>
-          {badge}
-          {timestamp?.label ? (
-            <time
-              className="min-w-0 truncate whitespace-nowrap text-sm text-muted-foreground"
-              title={timestamp.title}
-              dateTime={timestamp.dateTime}
-            >
-              {timestamp.label}
-            </time>
-          ) : null}
-          {status ? (
-            <span className="flex min-w-0 gap-1 truncate text-xs text-muted-foreground">
-              {status}
+          <div
+            className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 py-1"
+            data-comment-row-identity
+          >
+            <span className="min-w-0 max-w-full truncate text-sm font-semibold text-foreground">
+              {name}
             </span>
-          ) : null}
+            {badge}
+            {timestamp?.label ? (
+              <time
+                className="min-w-0 truncate whitespace-nowrap text-sm text-muted-foreground"
+                title={timestamp.title}
+                dateTime={timestamp.dateTime}
+              >
+                {timestamp.label}
+              </time>
+            ) : null}
+            {status ? (
+              <span className="flex min-w-0 gap-1 truncate text-xs text-muted-foreground">
+                {status}
+              </span>
+            ) : null}
+          </div>
           {actions ? (
             <div
               className={cn(
-                "-me-1 ms-auto shrink-0 items-center gap-0.5",
-                revealActions === "hover"
-                  ? "hidden focus-within:flex group-hover/comment:flex group-focus-within/comment:flex has-[[data-state=open]]:flex pointer-coarse:flex"
-                  : "flex",
+                "-me-1 flex shrink-0 items-center gap-0.5",
+                revealActions === "hover" &&
+                  "invisible focus-within:visible group-hover/comment:visible group-focus-within/comment:visible has-[[data-state=open]]:visible pointer-coarse:visible",
               )}
               data-comment-row-actions
             >

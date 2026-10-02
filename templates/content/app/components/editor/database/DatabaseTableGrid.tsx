@@ -18,6 +18,7 @@ export const DatabaseTableColumnOrder = createContext<readonly string[]>([]);
 export type DatabaseTableLayoutValue = {
   frozenThroughColumnId: string | null | undefined;
   viewportWidth: number | undefined;
+  gutterWidth?: number;
 };
 
 export const DatabaseTableLayout = createContext<DatabaseTableLayoutValue>({
@@ -31,7 +32,7 @@ export function DatabaseTableGrid({
   widths,
   className,
   selectionCell,
-  gutterWidth = DATABASE_TABLE_GUTTER_WIDTH,
+  gutterWidth: gutterWidthProp,
   nameCell,
   propertyCells,
   actions,
@@ -55,8 +56,10 @@ export function DatabaseTableGrid({
     propertyIds,
     useContext(DatabaseTableColumnOrder),
   );
-  const { frozenThroughColumnId, viewportWidth } =
-    useContext(DatabaseTableLayout);
+  const layout = useContext(DatabaseTableLayout);
+  const { frozenThroughColumnId, viewportWidth } = layout;
+  const gutterWidth =
+    gutterWidthProp ?? layout.gutterWidth ?? DATABASE_TABLE_GUTTER_WIDTH;
   const frozenColumnIds = new Set(
     databaseFrozenColumnIds({ frozenThroughColumnId }, order, {
       widths,
@@ -85,7 +88,10 @@ export function DatabaseTableGrid({
     <Cell
       key="selection-gutter"
       data-table-selection-gutter=""
-      className="sticky start-0 z-20 flex min-w-0 items-center justify-start border-r border-border/35 bg-inherit"
+      className={cn(
+        "sticky start-0 z-20 flex min-w-0 items-center justify-start border-r border-border/35 bg-inherit",
+        gutterWidth === 0 && "overflow-hidden border-r-0",
+      )}
     >
       {selectionCell}
     </Cell>,
