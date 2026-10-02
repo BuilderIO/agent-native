@@ -11,7 +11,8 @@ const calls = vi.hoisted(() => ({
   streamingEnabled: false,
 }));
 
-vi.mock("@agent-native/core/action", () => ({
+vi.mock("@agent-native/core/action", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/action")>()),
   defineAction: (action: unknown) => action,
 }));
 vi.mock("@agent-native/core/application-state", () => ({
@@ -127,6 +128,32 @@ describe("create-recording policy", () => {
       expect(calls.writeState).not.toHaveBeenCalled();
     },
   );
+
+  it("refuses to create a recording for an account other than the expected owner", async () => {
+    const action = createRecording as unknown as {
+      run: (
+        args: Record<string, unknown>,
+        context: { userEmail: string },
+      ) => Promise<unknown>;
+    };
+
+    await expect(
+      action.run(
+        { id: "rec-1", expectedOwnerEmail: "someone-else@example.com" },
+        { userEmail: "owner@example.com" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "recording_owner_mismatch",
+      statusCode: 409,
+    });
+    expect(calls.insert).not.toHaveBeenCalled();
+
+    await action.run(
+      { id: "rec-1", expectedOwnerEmail: "Owner@Example.com" },
+      { userEmail: "owner@example.com" },
+    );
+    expect(calls.insert).toHaveBeenCalledOnce();
+  });
 
   it("preserves an insert failure without publishing upload state", async () => {
     const error = new Error("recording insert failed");

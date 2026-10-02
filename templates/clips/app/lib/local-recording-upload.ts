@@ -18,10 +18,17 @@ import {
 } from "./recording-backup";
 import { isStorageSetupFailureReason } from "./storage-failures";
 import { uploadVideoBlobThumbnail } from "./thumbnail-capture";
-import { uploadChunkRequest } from "./upload-request";
+import {
+  fetchUploadStatus,
+  postUploadAbort,
+  uploadChunkRequest,
+} from "./upload-request";
 
 export type LocalUploadFailureCode =
   | "missing_local_copy"
+  | "unreadable_local_copy"
+  | "owner_unconfirmed"
+  | "owner_mismatch"
   | "storage_setup_required"
   | "session_expired"
   | "recording_too_large"
@@ -38,6 +45,9 @@ const RETRYABLE_FAILURES = new Set<LocalUploadFailureCode>([
 /** Server-side failure codes a failed attempt is recorded under. */
 const SERVER_FAILURE_CODE: Record<LocalUploadFailureCode, string> = {
   missing_local_copy: "upload_failed",
+  unreadable_local_copy: "upload_failed",
+  owner_unconfirmed: "upload_failed",
+  owner_mismatch: "upload_failed",
   storage_setup_required: "storage_setup_required",
   session_expired: "upload_interrupted",
   recording_too_large: "recording_too_large",
@@ -61,6 +71,9 @@ export class LocalRecordingUploadError extends Error {
   }
 }
 
+/** The create-recording refusal when the signed-in account is not the copy's owner. */
+export const RECORDING_OWNER_MISMATCH = "recording_owner_mismatch";
+
 export function classifyLocalUploadFailure(input: {
   status?: number;
   message?: string;
@@ -70,6 +83,7 @@ export function classifyLocalUploadFailure(input: {
 }): LocalUploadFailureCode {
   const message = input.message ?? "";
   if (input.networkError) return "network";
+  if (input.errorCode === RECORDING_OWNER_MISMATCH) return "owner_mismatch";
   if (
     input.errorCode === "builder_oauth_reauthorization_required" ||
     isStorageSetupFailureReason(message) ||
@@ -155,10 +169,7 @@ export async function fetchServerUploadStatus(
   recordingId: string,
   signal?: AbortSignal,
 ): Promise<ServerUploadStatus> {
-  const response = await fetch(
-    `${appBasePath()}/api/uploads/${encodeURIComponent(recordingId)}/status`,
-    { cache: "no-store", credentials: "include", signal },
-  );
+  const response = await fetchUploadStatus(recordingId, signal);
   if (response.status === 404) return { found: false };
   if (!response.ok) {
     throw new LocalRecordingUploadError(
@@ -184,6 +195,11 @@ export async function fetchServerUploadStatus(
 }
 
 export interface LocalUploadOptions {
+  /**
+   * The signed-in account. A copy uploads only into its own owner's account;
+   * the server re-checks this against the live session.
+   */
+  ownerEmail: string;
   signal?: AbortSignal;
   /**
    * The recording held in memory, used instead of the local copy when that
@@ -198,6 +214,8 @@ export interface LocalUploadOptions {
     hasAudio: boolean;
     hasCamera: boolean;
     title?: string | null;
+    /** The account that recorded it; the stored copy's owner wins. */
+    ownerEmail?: string | null;
   };
   onProgress?: (fraction: number) => void;
   /** Delays between attempts of one chunk; one attempt more than entries. */
@@ -224,13 +242,16 @@ const DEFAULT_RETRY_DELAYS_MS = [1_000, 3_000, 8_000, 15_000] as const;
  */
 export async function uploadLocalRecording(
   localId: string,
-  options: LocalUploadOptions = {},
+  options: LocalUploadOptions,
 ): Promise<LocalUploadResult> {
   const { signal, memorySource } = options;
   const stored = await readRecoverableRecordingBackup(localId).catch(
     (error: unknown) => {
       if (memorySource) return null;
-      throw error;
+      throw new LocalRecordingUploadError(
+        "unreadable_local_copy",
+        `This recording's local copy could not be read: ${errorDetails(error).message}`,
+      );
     },
   );
   const copy = memorySource
@@ -238,6 +259,7 @@ export async function uploadLocalRecording(
         meta: {
           ...stored?.meta,
           ...memorySource,
+          ownerEmail: stored?.meta.ownerEmail ?? memorySource.ownerEmail,
           recordingId: localId,
           localOnly: stored?.meta.localOnly ?? true,
           bytes: memorySource.blob.size,
@@ -257,8 +279,20 @@ export async function uploadLocalRecording(
   const { meta, blob } = copy;
   if (!blob) {
     throw new LocalRecordingUploadError(
-      "missing_local_copy",
-      "This recording's local copy is unreadable.",
+      "unreadable_local_copy",
+      "This recording's local copy is incomplete.",
+    );
+  }
+  if (!meta.ownerEmail) {
+    throw new LocalRecordingUploadError(
+      "owner_unconfirmed",
+      "This recording isn't linked to an account yet.",
+    );
+  }
+  if (meta.ownerEmail.toLowerCase() !== options.ownerEmail.toLowerCase()) {
+    throw new LocalRecordingUploadError(
+      "owner_mismatch",
+      "This recording belongs to another account.",
     );
   }
   const persist = (
@@ -323,16 +357,10 @@ export async function uploadLocalRecording(
     });
     const failedAbortUrl = (error as { abortUrl?: string } | null)?.abortUrl;
     if (failure && failedAbortUrl) {
-      void fetch(failedAbortUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        keepalive: true,
-        body: JSON.stringify({
-          reason: failure.message,
-          failureCode: SERVER_FAILURE_CODE[failure.code],
-          ...(failure.status ? { httpStatus: failure.status } : {}),
-        }),
+      void postUploadAbort(failedAbortUrl, {
+        reason: failure.message,
+        failureCode: SERVER_FAILURE_CODE[failure.code],
+        ...(failure.status ? { httpStatus: failure.status } : {}),
       }).catch(() => {
         // coercion-ok: a lost abort leaves the row to the upload reaper.
       });
@@ -395,6 +423,7 @@ async function createAndUpload(
       "create-recording" as any,
       {
         id: serverId,
+        expectedOwnerEmail: meta.ownerEmail,
         title: meta.title ?? undefined,
         titleSource: meta.title ? "context" : undefined,
         recordingPlatform: "web",

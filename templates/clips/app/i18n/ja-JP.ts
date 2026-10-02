@@ -1226,14 +1226,14 @@ const messages = {
     elapsed: "経過時間",
     cancel: "録画を破棄",
     cancelShortcut: "破棄 (⌥⇧C)",
-    discardConfirmTitle: "この録画を破棄しますか?",
+    discardConfirmTitle: "この録画を削除しますか？",
     discardConfirmDescription:
       "この操作は元に戻せません。これまでの録画内容は完全に削除されます。",
     resume: "再開",
     discardRecording: "録画を破棄",
     restart: "録画をやり直す",
     restartShortcut: "やり直す (⌥⇧R)",
-    restartQuestion: "新しい録画を開始しますか?",
+    restartQuestion: "この録画を削除してやり直しますか？",
     restartConfirm: "やり直す",
   },
   countdownOverlay: {
@@ -1817,26 +1817,45 @@ const messages = {
       "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips が保存を完了します。",
     connectStorageToRetryLoom:
       "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips がインポートを再試行します。",
-    leaveConfirmTitle: "このページを離れて録画を破棄しますか?",
+    leaveConfirmTitle: "この録画から離れますか？",
     leaveConfirmDescription:
-      "録画中のデータはまだ保存が完了していません。今このページを離れると破棄されます。",
+      "この録画はこのタブにしかありません。先にコピーをダウンロードしない限り、離れると削除されます。",
     leaveAndDiscard: "離れて破棄する",
     recordingWithoutSound:
       "音声なしで録画しています。文字起こしを作成するにはマイクをオンにしてください。",
     pendingStorageTitle: "録画を保存するにはストレージを接続してください",
     pendingStorageDescription:
-      "録画はこのブラウザに安全に保存されています。ストレージを接続すると、すぐにアップロードします。",
+      "ストレージを接続すると、Clips がすぐにアップロードします。",
     storageConnectedUploading:
       "ストレージを接続しました。録画をアップロードしています…",
     downloadCopy: "コピーをダウンロード",
     localRecordingOpenElsewhere:
       "その録画は別の Clips タブでまだ開いています。",
     uploadWaitingForConnection:
-      "アップロードを一時停止しました。オンラインに戻ると再試行します。録画はこのブラウザに安全に保存されています。",
-    uploadDidNotFinish:
-      "アップロードが完了しませんでした。録画は引き続きこのブラウザに安全に保存されています。",
+      "アップロードを一時停止しました。Clips が自動で再試行します。",
+    uploadDidNotFinish: "アップロードが完了しませんでした。",
     unfinishedRecording: "アップロードが完了していない録画があります",
     finishUpload: "アップロードを完了",
+    leaveKeepDescription:
+      "Clips はこのブラウザに保存し、次に戻ったときにアップロードの完了を案内します。「離れて破棄する」を選ぶと完全に削除されます。",
+    leaveAndKeep: "保存して離れる",
+    copySafeInBrowser: "録画はこのブラウザに安全に保存されています。",
+    copyOnlyInThisTab:
+      "この録画はこのタブにしかありません。タブを開いたままにするか、コピーをダウンロードしてください。",
+    localCopyFull:
+      "このブラウザの空き容量が不足しているため、Clips は予備コピーを保存できません。アップロードが終わるまでこのタブを開いたままにするか、コピーをダウンロードしてください。",
+    localCopyFailed:
+      "Clips はこのブラウザに予備コピーを保存できませんでした。アップロードが終わるまでこのタブを開いたままにするか、コピーをダウンロードしてください。",
+    localCopyUnreadable:
+      "このブラウザにある録画のコピーを読み取れませんでした。",
+    recordingOwnedByAnotherAccount:
+      "この録画は別のアカウントのものです。アップロードするには、このブラウザでそのアカウントにログインしてください。",
+    unclaimedRecording:
+      "このブラウザに、どのアカウントにも紐づいていない録画があります",
+    reviewRecording: "確認",
+    claimRecordingPrompt:
+      "この録画はまだどのアカウントにも紐づいていません。{{email}} にアップロードしますか？",
+    claimRecording: "自分のアカウントにアップロード",
   },
   importRoute: {
     pageTitle: "Loom をインポート — Clips",

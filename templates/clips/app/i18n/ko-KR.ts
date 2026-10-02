@@ -1215,7 +1215,7 @@ const messages = {
     discardRecording: "녹화 삭제",
     restart: "녹화 다시 시작",
     restartShortcut: "다시 시작 (⌥⇧R)",
-    restartQuestion: "새 녹화를 시작할까요?",
+    restartQuestion: "이 녹화를 삭제하고 다시 시작할까요?",
     restartConfirm: "다시 시작",
   },
   countdownOverlay: {
@@ -1794,25 +1794,41 @@ const messages = {
       "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 저장을 완료합니다.",
     connectStorageToRetryLoom:
       "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 가져오기를 다시 시도합니다.",
-    leaveConfirmTitle: "나가서 이 녹화를 삭제하시겠습니까?",
+    leaveConfirmTitle: "이 녹화에서 나갈까요?",
     leaveConfirmDescription:
-      "진행 중인 녹화가 아직 저장되지 않았습니다. 지금 이 페이지를 나가면 삭제됩니다.",
+      "이 녹화는 이 탭에만 있습니다. 먼저 사본을 다운로드하지 않으면 나갈 때 삭제됩니다.",
     leaveAndDiscard: "나가서 삭제",
     recordingWithoutSound:
       "소리 없이 녹화 중입니다. 대본을 받으려면 마이크를 켜세요.",
     pendingStorageTitle: "녹화를 저장하려면 저장소를 연결하세요",
-    pendingStorageDescription:
-      "녹화는 이 브라우저에 안전하게 보관되어 있습니다. 저장소를 연결하면 Clips가 바로 업로드합니다.",
+    pendingStorageDescription: "스토리지를 연결하면 Clips가 바로 업로드합니다.",
     storageConnectedUploading: "저장소가 연결되었습니다. 녹화를 업로드하는 중…",
     downloadCopy: "사본 다운로드",
     localRecordingOpenElsewhere:
       "이 녹화는 아직 다른 Clips 탭에서 열려 있습니다.",
     uploadWaitingForConnection:
-      "업로드가 일시 중지되었습니다. 다시 온라인이 되면 Clips가 재시도하며, 녹화는 이 브라우저에 안전하게 보관되어 있습니다.",
-    uploadDidNotFinish:
-      "업로드가 완료되지 않았습니다. 녹화는 여전히 이 브라우저에 안전하게 보관되어 있습니다.",
+      "업로드가 일시 중지되었습니다. Clips가 자동으로 다시 시도합니다.",
+    uploadDidNotFinish: "업로드가 완료되지 않았습니다.",
     unfinishedRecording: "업로드가 끝나지 않은 녹화가 있습니다",
     finishUpload: "업로드 완료하기",
+    leaveKeepDescription:
+      "Clips가 이 브라우저에 보관하고, 다시 돌아오면 업로드를 마치도록 안내합니다. '나가서 삭제'를 선택하면 영구적으로 삭제됩니다.",
+    leaveAndKeep: "보관하고 나가기",
+    copySafeInBrowser: "녹화는 이 브라우저에 안전하게 보관되어 있습니다.",
+    copyOnlyInThisTab:
+      "이 녹화는 이 탭에만 있습니다. 탭을 열어 두거나 사본을 다운로드하세요.",
+    localCopyFull:
+      "이 브라우저의 저장 공간이 부족해 Clips가 안전 사본을 보관할 수 없습니다. 업로드가 끝날 때까지 이 탭을 열어 두거나 사본을 다운로드하세요.",
+    localCopyFailed:
+      "Clips가 이 브라우저에 안전 사본을 보관하지 못했습니다. 업로드가 끝날 때까지 이 탭을 열어 두거나 사본을 다운로드하세요.",
+    localCopyUnreadable: "이 브라우저에 있는 녹화 사본을 읽을 수 없습니다.",
+    recordingOwnedByAnotherAccount:
+      "이 녹화는 다른 계정의 것입니다. 업로드하려면 이 브라우저에서 해당 계정으로 로그인하세요.",
+    unclaimedRecording: "이 브라우저에 계정과 연결되지 않은 녹화가 있습니다",
+    reviewRecording: "검토",
+    claimRecordingPrompt:
+      "이 녹화는 아직 어떤 계정과도 연결되지 않았습니다. {{email}}에 업로드할까요?",
+    claimRecording: "내 계정에 업로드",
   },
   importRoute: {
     pageTitle: "Loom 가져오기 — Clips",

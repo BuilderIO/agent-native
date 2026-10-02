@@ -1196,14 +1196,14 @@ const messages = {
     elapsed: "बीता समय",
     cancel: "रिकॉर्डिंग हटाएं",
     cancelShortcut: "हटाएं (⌥⇧C)",
-    discardConfirmTitle: "क्या इस रिकॉर्डिंग को हटाना है?",
+    discardConfirmTitle: "यह रिकॉर्डिंग मिटाएँ?",
     discardConfirmDescription:
       "इसे पूर्ववत नहीं किया जा सकता। अब तक की आपकी रिकॉर्डिंग स्थायी रूप से हटा दी जाएगी।",
     resume: "फिर शुरू करें",
     discardRecording: "रिकॉर्डिंग हटाएं",
     restart: "रिकॉर्डिंग फिर से शुरू करें",
     restartShortcut: "फिर से शुरू करें (⌥⇧R)",
-    restartQuestion: "क्या नई रिकॉर्डिंग शुरू करें?",
+    restartQuestion: "यह रिकॉर्डिंग मिटाकर फिर से शुरू करें?",
     restartConfirm: "फिर से शुरू करें",
   },
   countdownOverlay: {
@@ -1773,26 +1773,42 @@ const messages = {
       "अगली स्क्रीन पर स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज. Clips सेव पूरा करेगा.",
     connectStorageToRetryLoom:
       "अगली स्क्रीन पर स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज. Clips इंपोर्ट फिर से करेगा.",
-    leaveConfirmTitle: "इस रिकॉर्डिंग को छोड़कर हटाएं?",
+    leaveConfirmTitle: "इस रिकॉर्डिंग से बाहर जाएँ?",
     leaveConfirmDescription:
-      "आपकी चल रही रिकॉर्डिंग अभी पूरी तरह सेव नहीं हुई है. अभी इस पेज से बाहर जाने पर यह हट जाएगी.",
+      "यह रिकॉर्डिंग सिर्फ़ इस टैब में है। पहले कॉपी डाउनलोड न करने पर बाहर जाते ही यह मिट जाएगी।",
     leaveAndDiscard: "बाहर जाएं और हटाएं",
     recordingWithoutSound:
       "बिना आवाज़ के रिकॉर्ड हो रहा है। ट्रांसक्रिप्ट पाने के लिए माइक्रोफ़ोन चालू करें।",
     pendingStorageTitle: "अपनी रिकॉर्डिंग सहेजने के लिए स्टोरेज कनेक्ट करें",
-    pendingStorageDescription:
-      "आपकी रिकॉर्डिंग इस ब्राउज़र में सुरक्षित है। स्टोरेज कनेक्ट करें और Clips उसे तुरंत अपलोड कर देगा।",
+    pendingStorageDescription: "स्टोरेज कनेक्ट करें, Clips इसे तुरंत अपलोड कर देगा।",
     storageConnectedUploading:
       "स्टोरेज कनेक्ट हो गया। आपकी रिकॉर्डिंग अपलोड हो रही है…",
     downloadCopy: "एक कॉपी डाउनलोड करें",
     localRecordingOpenElsewhere:
       "वह रिकॉर्डिंग अभी भी किसी दूसरे Clips टैब में खुली है।",
     uploadWaitingForConnection:
-      "अपलोड रुका हुआ है। ऑनलाइन लौटते ही Clips फिर से कोशिश करेगा, और आपकी रिकॉर्डिंग इस ब्राउज़र में सुरक्षित है।",
-    uploadDidNotFinish:
-      "अपलोड पूरा नहीं हुआ। आपकी रिकॉर्डिंग अब भी इस ब्राउज़र में सुरक्षित है।",
+      "अपलोड रुका हुआ है। Clips अपने-आप फिर से कोशिश करता है।",
+    uploadDidNotFinish: "अपलोड पूरा नहीं हुआ।",
     unfinishedRecording: "एक रिकॉर्डिंग का अपलोड अभी पूरा नहीं हुआ है",
     finishUpload: "अपलोड पूरा करें",
+    leaveKeepDescription:
+      'Clips इसे इस ब्राउज़र में रखता है और आपके लौटने पर अपलोड पूरा करने का विकल्प देगा। "बाहर जाएं और हटाएं" इसे हमेशा के लिए मिटा देता है।',
+    leaveAndKeep: "रखकर बाहर जाएँ",
+    copySafeInBrowser: "आपकी रिकॉर्डिंग इस ब्राउज़र में सुरक्षित है।",
+    copyOnlyInThisTab:
+      "यह रिकॉर्डिंग सिर्फ़ इस टैब में है। इसे खुला रखें या एक कॉपी डाउनलोड करें।",
+    localCopyFull:
+      "इस ब्राउज़र में जगह नहीं बची है, इसलिए Clips सुरक्षा कॉपी नहीं रख सकता। अपलोड पूरा होने तक यह टैब खुला रखें या एक कॉपी डाउनलोड करें।",
+    localCopyFailed:
+      "Clips इस ब्राउज़र में सुरक्षा कॉपी नहीं रख सका। अपलोड पूरा होने तक यह टैब खुला रखें या एक कॉपी डाउनलोड करें।",
+    localCopyUnreadable: "इस ब्राउज़र में रिकॉर्डिंग की कॉपी पढ़ी नहीं जा सकी।",
+    recordingOwnedByAnotherAccount:
+      "यह रिकॉर्डिंग किसी दूसरे खाते की है। इसे अपलोड करने के लिए इस ब्राउज़र में उस खाते से साइन इन करें।",
+    unclaimedRecording: "इस ब्राउज़र में एक रिकॉर्डिंग किसी खाते से जुड़ी नहीं है",
+    reviewRecording: "देखें",
+    claimRecordingPrompt:
+      "यह रिकॉर्डिंग अभी किसी खाते से जुड़ी नहीं है। इसे {{email}} में अपलोड करें?",
+    claimRecording: "मेरे खाते में अपलोड करें",
   },
   importRoute: {
     pageTitle: "Loom आयात करें — Clips",

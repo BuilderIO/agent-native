@@ -15,7 +15,8 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("@agent-native/core/client/api-path", () => ({
   appBasePath: () => "",
 }));
-vi.mock("./upload-request", () => ({
+vi.mock("./upload-request", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./upload-request")>()),
   uploadChunkRequest: mocks.uploadChunkRequest,
 }));
 vi.mock("./thumbnail-capture", () => ({
@@ -39,6 +40,7 @@ import {
 import type { RecordingBackupMeta } from "./recording-backup";
 
 const fetchMock = vi.fn();
+const ME = { ownerEmail: "me@example.com" };
 
 function copy(overrides: Partial<RecordingBackupMeta> = {}, bytes = 10) {
   return {
@@ -82,6 +84,7 @@ function json(body: unknown, status = 200) {
 
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
+  mocks.updateRecordingBackupMeta.mockResolvedValue({});
   fetchMock.mockResolvedValue(json({}));
   mocks.callAction.mockImplementation(
     async (name: string, args: { id?: string }) =>
@@ -139,7 +142,7 @@ describe("uploadLocalRecording", () => {
       .mockResolvedValueOnce(json({ ok: true }))
       .mockResolvedValueOnce(json({ ok: true, status: "ready" }));
 
-    const result = await uploadLocalRecording("local-1");
+    const result = await uploadLocalRecording("local-1", ME);
 
     expect(result).toEqual({ recordingId: "local-1", status: "ready" });
     expect(mocks.callAction).toHaveBeenCalledWith(
@@ -170,6 +173,7 @@ describe("uploadLocalRecording", () => {
       .mockResolvedValueOnce(json({ ok: true, status: "ready" }));
 
     const result = await uploadLocalRecording("local-1", {
+      ...ME,
       retryDelaysMs: [0, 0, 0],
     });
 
@@ -190,6 +194,7 @@ describe("uploadLocalRecording", () => {
     );
 
     const error = await uploadLocalRecording("local-1", {
+      ...ME,
       retryDelaysMs: [0],
     }).catch((e: unknown) => e);
 
@@ -215,7 +220,7 @@ describe("uploadLocalRecording", () => {
     mocks.readRecoverableRecordingBackup.mockResolvedValue(copy());
     mocks.uploadChunkRequest.mockResolvedValue(json({ error: "nope" }, 401));
 
-    const error = await uploadLocalRecording("local-1").catch(
+    const error = await uploadLocalRecording("local-1", ME).catch(
       (e: unknown) => e,
     );
 
@@ -229,7 +234,7 @@ describe("uploadLocalRecording", () => {
       json({ ok: true, status: "processing", verificationPending: true }, 202),
     );
 
-    const result = await uploadLocalRecording("local-1");
+    const result = await uploadLocalRecording("local-1", ME);
 
     expect(result.status).toBe("processing");
     expect(mocks.deleteRecordingBackup).not.toHaveBeenCalled();
@@ -247,7 +252,7 @@ describe("uploadLocalRecording", () => {
       json({ recording: { status: "ready", verificationPending: false } }),
     );
 
-    const result = await uploadLocalRecording("local-1");
+    const result = await uploadLocalRecording("local-1", ME);
 
     expect(result).toEqual({ recordingId: "srv-1", status: "ready" });
     expect(mocks.callAction).not.toHaveBeenCalled();
@@ -272,7 +277,7 @@ describe("uploadLocalRecording", () => {
       json({ ok: true, status: "ready" }),
     );
 
-    const result = await uploadLocalRecording("srv-old");
+    const result = await uploadLocalRecording("srv-old", ME);
 
     expect(result.recordingId).not.toMatch(/^(srv-old|retry-1)$/);
     expect(mocks.updateRecordingBackupMeta).toHaveBeenCalledWith(
@@ -301,6 +306,7 @@ describe("uploadLocalRecording", () => {
     );
 
     const result = await uploadLocalRecording("local-9", {
+      ...ME,
       memorySource: {
         blob: new Blob([new Uint8Array(4)], { type: "video/webm" }),
         mimeType: "video/webm",
@@ -309,9 +315,91 @@ describe("uploadLocalRecording", () => {
         height: 360,
         hasAudio: false,
         hasCamera: false,
+        ownerEmail: "me@example.com",
       },
     });
 
     expect(result).toEqual({ recordingId: "local-9", status: "ready" });
+  });
+
+  it("asks the server to confirm the copy's owner when it creates the clip", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(copy());
+    mocks.uploadChunkRequest.mockResolvedValue(
+      json({ ok: true, status: "ready" }),
+    );
+
+    await uploadLocalRecording("local-1", ME);
+
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "create-recording",
+      expect.objectContaining({ expectedOwnerEmail: "me@example.com" }),
+      expect.anything(),
+    );
+  });
+
+  it("never uploads another account's copy into the signed-in account", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(
+      copy({ ownerEmail: "other@example.com" }),
+    );
+
+    const error = await uploadLocalRecording("local-1", ME).catch(
+      (e: unknown) => e,
+    );
+
+    expect((error as LocalRecordingUploadError).code).toBe("owner_mismatch");
+    expect(mocks.callAction).not.toHaveBeenCalled();
+    expect(mocks.uploadChunkRequest).not.toHaveBeenCalled();
+    expect(mocks.updateRecordingBackupMeta).not.toHaveBeenCalled();
+    expect(mocks.deleteRecordingBackup).not.toHaveBeenCalled();
+  });
+
+  it("waits for an explicit claim before uploading an ownerless copy", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(
+      copy({ ownerEmail: null }),
+    );
+
+    const error = await uploadLocalRecording("local-1", ME).catch(
+      (e: unknown) => e,
+    );
+
+    expect((error as LocalRecordingUploadError).code).toBe("owner_unconfirmed");
+    expect(mocks.callAction).not.toHaveBeenCalled();
+    expect(mocks.deleteRecordingBackup).not.toHaveBeenCalled();
+  });
+
+  it("keeps the copy when the live session turns out to be another account", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(copy());
+    mocks.callAction.mockRejectedValue(
+      Object.assign(new Error("Action create-recording failed"), {
+        status: 409,
+        errorCode: "recording_owner_mismatch",
+      }),
+    );
+
+    const error = await uploadLocalRecording("local-1", ME).catch(
+      (e: unknown) => e,
+    );
+
+    expect((error as LocalRecordingUploadError).code).toBe("owner_mismatch");
+    expect(mocks.uploadChunkRequest).not.toHaveBeenCalled();
+    expect(mocks.deleteRecordingBackup).not.toHaveBeenCalled();
+    expect(mocks.updateRecordingBackupMeta).toHaveBeenLastCalledWith(
+      "local-1",
+      expect.objectContaining({ state: "recorded-local" }),
+    );
+  });
+
+  it("reports an unreadable copy apart from a missing one", async () => {
+    mocks.readRecoverableRecordingBackup.mockRejectedValue(
+      new DOMException("read failed", "UnknownError"),
+    );
+
+    const error = await uploadLocalRecording("local-1", ME).catch(
+      (e: unknown) => e,
+    );
+
+    expect((error as LocalRecordingUploadError).code).toBe(
+      "unreadable_local_copy",
+    );
   });
 });

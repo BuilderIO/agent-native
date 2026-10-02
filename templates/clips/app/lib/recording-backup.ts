@@ -216,6 +216,28 @@ async function writeRecordingBackupMeta(
   return written.meta;
 }
 
+/**
+ * Stamp the account a copy belongs to. Only an ownerless copy takes an owner;
+ * a copy already owned by another account is never reassigned.
+ */
+export async function claimRecordingBackupOwner(
+  recordingId: string,
+  ownerEmail: string,
+): Promise<RecordingBackupMeta> {
+  return writeRecordingBackupMeta(recordingId, (existing) => {
+    if (!existing) {
+      throw new Error("This recording's local copy is missing.");
+    }
+    if (
+      existing.ownerEmail &&
+      existing.ownerEmail.toLowerCase() !== ownerEmail.toLowerCase()
+    ) {
+      throw new Error("This recording belongs to another account.");
+    }
+    return { ...existing, ownerEmail: existing.ownerEmail ?? ownerEmail };
+  });
+}
+
 export async function listRecordingBackupMetas(): Promise<
   RecordingBackupMeta[]
 > {
@@ -422,8 +444,11 @@ const UNLOCKED_LIVENESS_MS = 30_000;
 
 /**
  * The local copies this signed-in user can finish uploading from this tab.
- * Copies owned by another account, or still owned by a live tab, are left
- * alone; without Web Locks, a copy written in the last 30s counts as live.
+ * Copies owned by another account stay in this browser, untouched, until that
+ * account signs in here again; they are never uploaded anywhere else. An
+ * ownerless copy (recorded before the session loaded) is returned so the user
+ * can claim it explicitly. A copy still owned by a live tab is left alone;
+ * without Web Locks, a copy written in the last 30s counts as live.
  */
 export function selectRecoverableRecordingBackups(
   metas: RecordingBackupMeta[],
@@ -436,10 +461,10 @@ export function selectRecoverableRecordingBackups(
   const nowMs = options.nowMs ?? Date.now();
   return metas
     .filter((meta) => meta.bytes > 0 || meta.chunkCount > 0)
-    .filter((meta) =>
-      meta.ownerEmail
-        ? meta.ownerEmail.toLowerCase() === options.ownerEmail?.toLowerCase()
-        : !meta.localOnly,
+    .filter(
+      (meta) =>
+        !meta.ownerEmail ||
+        meta.ownerEmail.toLowerCase() === options.ownerEmail?.toLowerCase(),
     )
     .filter((meta) =>
       options.liveIds

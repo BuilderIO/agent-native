@@ -11,7 +11,13 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-import { RecorderRouteStatus, RecordingErrorCard } from "./record";
+import { AlertDialog, AlertDialogContent } from "@/components/ui/alert-dialog";
+
+import {
+  RecorderRouteStatus,
+  RecordingErrorCard,
+  RecordingLeaveChoices,
+} from "./record";
 
 describe("record route lifecycle shell", () => {
   let container: HTMLDivElement;
@@ -47,27 +53,50 @@ describe("record route lifecycle shell", () => {
     expect(uploadFlow).toContain("...uploadAbortMetadata(err)");
   });
 
-  it("records before storage exists and never discards on page close", () => {
-    const source = readFileSync(
-      resolve(process.cwd(), "app/routes/record.tsx"),
-      "utf8",
-    );
-    const startFlow = source.slice(
-      source.indexOf("const startFlow = useCallback"),
-      source.indexOf("const UPLOAD_PARALLELISM"),
-    );
-    // No storage gate before capture: a missing provider records locally.
-    expect(startFlow).not.toContain("No video storage configured");
-    expect(startFlow).toContain("engine.setLocalOnlyTarget(localId)");
+  it.each([true, false])(
+    "keeps the recording unless Leave and discard is chosen (canKeep=%s)",
+    (canKeep) => {
+      const onKeep = vi.fn();
+      const onDiscard = vi.fn();
+      const onDownload = vi.fn();
+      act(() => {
+        root.render(
+          <AlertDialog open>
+            <AlertDialogContent>
+              <RecordingLeaveChoices
+                canKeep={canKeep}
+                onKeep={onKeep}
+                onDiscard={onDiscard}
+                onDownload={onDownload}
+              />
+            </AlertDialogContent>
+          </AlertDialog>,
+        );
+      });
+      const button = (label: string) =>
+        Array.from(document.body.querySelectorAll("button")).find(
+          (el) => el.textContent?.trim() === label,
+        );
 
-    const pageHide = source.slice(
-      source.indexOf("const releaseCapture = () =>"),
-      source.indexOf('window.addEventListener("pagehide", releaseCapture)'),
-    );
-    expect(pageHide).toContain("engine.release()");
-    expect(pageHide).not.toContain("engine?.cancel(");
-    expect(pageHide).toContain('failureCode: "recording_interrupted"');
-  });
+      expect(document.body.textContent).toContain(
+        canKeep
+          ? "recordRoute.leaveKeepDescription"
+          : "recordRoute.leaveConfirmDescription",
+      );
+      if (canKeep) {
+        act(() => button("recordRoute.leaveAndKeep")!.click());
+        expect(onKeep).toHaveBeenCalledOnce();
+      } else {
+        expect(button("recordRoute.leaveAndKeep")).toBeUndefined();
+        act(() => button("recordRoute.downloadCopy")!.click());
+        expect(onDownload).toHaveBeenCalledOnce();
+      }
+      expect(onDiscard).not.toHaveBeenCalled();
+
+      act(() => button("recordRoute.leaveAndDiscard")!.click());
+      expect(onDiscard).toHaveBeenCalledOnce();
+    },
+  );
 
   it("announces real progress without including action controls", () => {
     act(() => {

@@ -73,13 +73,13 @@ class FakeMediaRecorder extends EventTarget {
   }
 }
 
-async function startedEngine(onWarning = vi.fn()) {
+async function startedEngine(onLocalCopyFailed = vi.fn()) {
   const engine = new RecorderEngine({
     recordingId: "__pending__",
     mode: "screen",
     uploadUrl: "",
     abortUrl: "",
-    onWarning,
+    onLocalCopyFailed,
   });
   engine.setLocalOnlyTarget("local-1");
   engine.setBackupDetails({ ownerEmail: "me@example.com", title: "Demo" });
@@ -165,18 +165,61 @@ describe("RecorderEngine local copy", () => {
     vi.mocked(putRecordingBackupChunk).mockRejectedValue(
       new DOMException("The quota has been exceeded.", "QuotaExceededError"),
     );
-    const onWarning = vi.fn();
-    const engine = await startedEngine(onWarning);
+    const onLocalCopyFailed = vi.fn();
+    const engine = await startedEngine(onLocalCopyFailed);
     FakeMediaRecorder.instance!.emitChunk(new Blob(["a"]));
     FakeMediaRecorder.instance!.emitChunk(new Blob(["b"]));
     await flush(engine);
 
-    expect(onWarning).toHaveBeenCalledOnce();
-    expect(onWarning.mock.calls[0]![0]).toMatch(/out of storage/);
+    expect(onLocalCopyFailed).toHaveBeenCalledOnce();
+    expect(onLocalCopyFailed).toHaveBeenCalledWith("quota");
+    expect(putRecordingBackupChunk).toHaveBeenCalledOnce();
     expect(engine.getBackupError()?.name).toBe("QuotaExceededError");
     await engine.stop();
+    expect(engine.getBufferedRecordingSource()).toMatchObject({
+      ownerEmail: "me@example.com",
+    });
     expect(engine.getBufferedRecordingSource()?.blob.size).toBe(
       "a".length + "b".length + "tail".length,
     );
+  });
+
+  it("retries a transient local-copy write instead of giving up on it", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(putRecordingBackupChunk)
+        .mockRejectedValueOnce(new DOMException("busy", "UnknownError"))
+        .mockResolvedValue(undefined);
+      const onLocalCopyFailed = vi.fn();
+      const engine = await startedEngine(onLocalCopyFailed);
+      FakeMediaRecorder.instance!.emitChunk(new Blob(["a"]));
+      await vi.advanceTimersByTimeAsync(5_000);
+      await flush(engine);
+
+      expect(putRecordingBackupChunk).toHaveBeenCalledTimes(2);
+      expect(onLocalCopyFailed).not.toHaveBeenCalled();
+      expect(engine.getBackupError()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("warns once it runs out of retries for a failing local copy", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(putRecordingBackupChunk).mockRejectedValue(
+        new DOMException("broken", "UnknownError"),
+      );
+      const onLocalCopyFailed = vi.fn();
+      const engine = await startedEngine(onLocalCopyFailed);
+      FakeMediaRecorder.instance!.emitChunk(new Blob(["a"]));
+      await vi.advanceTimersByTimeAsync(10_000);
+      await flush(engine);
+
+      expect(putRecordingBackupChunk).toHaveBeenCalledTimes(4);
+      expect(onLocalCopyFailed).toHaveBeenCalledWith("unavailable");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

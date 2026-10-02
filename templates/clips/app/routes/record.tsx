@@ -51,7 +51,10 @@ import { useLocation, useNavigate } from "react-router";
 
 import { Kbd } from "@/components/ui/kbd";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
-import { useLocalRecordingRecovery } from "@/hooks/use-local-recording-recovery";
+import {
+  offerLocalRecording,
+  useLocalRecordingRecovery,
+} from "@/hooks/use-local-recording-recovery";
 import {
   useRecordingLeaveGuard,
   useUnsavedRecordingUnloadWarning,
@@ -98,6 +101,7 @@ import {
   saveRecorderPreferences,
 } from "@/lib/recorder-preferences";
 import {
+  claimRecordingBackupOwner,
   deleteRecordingBackup,
   getRecordingBackupMeta,
   holdRecordingBackupLock,
@@ -163,6 +167,10 @@ import {
   type RecorderFinalizeResult,
   type RecordingMode,
 } from "@/components/recorder/recorder-engine";
+import {
+  recorderShortcutAction,
+  type RecorderUiState,
+} from "@/components/recorder/recorder-shortcuts";
 import { RecordingToolbar } from "@/components/recorder/recording-toolbar";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
 import {
@@ -196,21 +204,14 @@ export function headers() {
   };
 }
 
-type UiState =
-  | "idle"
-  | "pickingSources"
-  | "countdown"
-  | "recording"
-  | "compressing"
-  | "uploading"
-  | "pendingUpload"
-  | "complete"
-  | "error";
+type UiState = RecorderUiState;
 
 /** A stopped recording whose bytes live only in this browser's local copy. */
 interface PendingLocalUpload {
   id: string;
   needsStorage: boolean;
+  /** Ownerless copy: uploads only after the user claims it for this account. */
+  needsOwner: boolean;
   uploading: boolean;
   progress: number | null;
   /** The detail stays on the local copy's `lastError`; the UI shows the code. */
@@ -702,23 +703,103 @@ async function createRecordingRequest(
   }
 }
 
+/** Where the recording lives now: the persisted copy, or only this tab. */
+function localCopyNote(t: ReturnType<typeof useT>, memoryOnly: boolean) {
+  return memoryOnly
+    ? t("recordRoute.copyOnlyInThisTab")
+    : t("recordRoute.copySafeInBrowser");
+}
+
 function localUploadFailureLabel(
   code: LocalUploadFailureCode,
   t: ReturnType<typeof useT>,
+  options: { autoRetrying: boolean; memoryOnly: boolean },
 ): string {
+  const withNote = (message: string) =>
+    `${message} ${localCopyNote(t, options.memoryOnly)}`;
   switch (code) {
     case "session_expired":
-      return t("recordRoute.sessionExpired");
+      return withNote(t("recordRoute.sessionExpired"));
     case "recording_too_large":
-      return t("recordRoute.videoTooLarge");
+      return withNote(t("recordRoute.videoTooLarge"));
     case "missing_local_copy":
       return t("recordRoute.noLocalRecordingData");
+    case "unreadable_local_copy":
+      return t("recordRoute.localCopyUnreadable");
+    case "owner_mismatch":
+      return t("recordRoute.recordingOwnedByAnotherAccount");
     case "network":
     case "server_unavailable":
-      return t("recordRoute.uploadWaitingForConnection");
+      return withNote(
+        options.autoRetrying
+          ? t("recordRoute.uploadWaitingForConnection")
+          : t("recordRoute.uploadDidNotFinish"),
+      );
     default:
-      return t("recordRoute.uploadDidNotFinish");
+      return withNote(t("recordRoute.uploadDidNotFinish"));
   }
+}
+
+/** Waits between automatic retries of a network or 5xx failure while online. */
+const LOCAL_UPLOAD_AUTO_RETRY_MS = [5_000, 15_000, 30_000, 60_000, 120_000];
+
+/**
+ * The in-app leave prompt. Keeping is the default; deleting is a separate,
+ * explicit choice. A memory-only recording cannot be kept, so it offers a
+ * download instead.
+ */
+export function RecordingLeaveChoices({
+  canKeep,
+  onKeep,
+  onDiscard,
+  onDownload,
+}: {
+  canKeep: boolean;
+  onKeep: () => void;
+  onDiscard: () => void;
+  onDownload: () => void;
+}) {
+  const t = useT();
+  return (
+    <>
+      <AlertDialogHeader>
+        <AlertDialogTitle>
+          {t("recordRoute.leaveConfirmTitle")}
+        </AlertDialogTitle>
+        <AlertDialogDescription>
+          {canKeep
+            ? t("recordRoute.leaveKeepDescription")
+            : t("recordRoute.leaveConfirmDescription")}
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+        <Button
+          type="button"
+          variant="outline"
+          className="text-destructive hover:text-destructive"
+          onClick={onDiscard}
+        >
+          {t("recordRoute.leaveAndDiscard")}
+        </Button>
+        {canKeep ? (
+          <AlertDialogAction
+            onClick={(event) => {
+              event.preventDefault();
+              onKeep();
+            }}
+          >
+            {t("recordRoute.leaveAndKeep")}
+          </AlertDialogAction>
+        ) : (
+          <Button type="button" className="gap-2" onClick={onDownload}>
+            <IconDownload className="size-4" />
+            {t("recordRoute.downloadCopy")}
+          </Button>
+        )}
+      </AlertDialogFooter>
+    </>
+  );
 }
 
 function DesktopRecorderCallout() {
@@ -1013,7 +1094,10 @@ export default function RecordRoute() {
   const [error, setError] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const visibilityAutoPausedRef = useRef(false);
-  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
+  const [discardPrompt, setDiscardPrompt] = useState<
+    "discard" | "restart" | null
+  >(null);
+  const discardConfirmOpen = discardPrompt !== null;
   const playheadConfirmOpenRef = useRef(false);
   const discardAutoPausedRef = useRef(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
@@ -1152,6 +1236,7 @@ export default function RecordRoute() {
     null,
   );
   const localUploadAbortRef = useRef<AbortController | null>(null);
+  const localAutoRetryRef = useRef(0);
   const holdLocalCopy = useCallback((recordingId: string) => {
     if (localCopyLockRef.current?.id === recordingId) return;
     localCopyLockRef.current?.release();
@@ -1281,6 +1366,14 @@ export default function RecordRoute() {
           onWarning: (message) => {
             toast.warning(message);
           },
+          onLocalCopyFailed: (reason) => {
+            toast.warning(
+              reason === "quota"
+                ? t("recordRoute.localCopyFull")
+                : t("recordRoute.localCopyFailed"),
+              { duration: 12_000 },
+            );
+          },
           onCameraEnded: () => {
             setCameraStream(null);
           },
@@ -1404,6 +1497,16 @@ export default function RecordRoute() {
               : { ...recordingPayload, id: serverId },
           ).catch((err: unknown) => {
             if (intake) throw err;
+            // Recording continues locally; the cause must still be visible.
+            console.warn(
+              "[recorder] create-recording failed; recording locally:",
+              err,
+            );
+            trackEvent("clips_recording_create_failed", {
+              app_name: "clips",
+              cause: "network",
+              message: err instanceof Error ? err.message : String(err),
+            });
             return null;
           });
           if (res?.ok) {
@@ -1430,6 +1533,16 @@ export default function RecordRoute() {
             // upload (an expired Builder grant, a provider outage, a lost
             // session). Keep recording locally; the failure surfaces after
             // Stop with the bytes already safe. Drop any row it left behind.
+            if (res) {
+              console.warn(
+                `[recorder] create-recording returned ${res.status}; recording locally`,
+              );
+              trackEvent("clips_recording_create_failed", {
+                app_name: "clips",
+                cause: "http",
+                status: res.status,
+              });
+            }
             void callAction(
               "trash-recording" as any,
               { id: serverId, skipIfReady: true } as any,
@@ -2327,6 +2440,12 @@ export default function RecordRoute() {
       const abort = new AbortController();
       localUploadAbortRef.current = abort;
       update({ uploading: true, progress: null, error: null });
+      const ownerEmail = authSessionEmailRef.current;
+      if (!ownerEmail) {
+        update({ uploading: false, error: { code: "session_expired" } });
+        localUploadAbortRef.current = null;
+        return;
+      }
       try {
         // coercion-ok: null surfaces as the "network" state with Retry below.
         const status = await fetchVideoStorageStatus().catch(() => null);
@@ -2344,6 +2463,7 @@ export default function RecordRoute() {
         startUploadToast(t("recordRoute.savingRecording"));
         const memory = bufferedEngineRef.current?.getBufferedRecordingSource();
         const result = await uploadLocalRecording(recordingId, {
+          ownerEmail,
           signal: abort.signal,
           memorySource: memory ?? undefined,
           folderId: folderIdFromUrl,
@@ -2353,6 +2473,7 @@ export default function RecordRoute() {
           },
         });
         if (abort.signal.aborted) return;
+        localAutoRetryRef.current = 0;
         trackEvent("clips_local_recording_uploaded", {
           app_name: "clips",
           output_id: result.recordingId,
@@ -2391,14 +2512,15 @@ export default function RecordRoute() {
             queryKey: VIDEO_STORAGE_STATUS_KEY,
           });
         }
+        const setupStep =
+          failure.code === "storage_setup_required" ||
+          failure.code === "owner_unconfirmed";
         update({
           uploading: false,
           progress: null,
           needsStorage: failure.code === "storage_setup_required",
-          error:
-            failure.code === "storage_setup_required"
-              ? null
-              : { code: failure.code },
+          needsOwner: failure.code === "owner_unconfirmed",
+          error: setupStep ? null : { code: failure.code },
         });
       } finally {
         if (localUploadAbortRef.current === abort) {
@@ -2420,7 +2542,11 @@ export default function RecordRoute() {
   );
 
   const enterPendingUpload = useCallback(
-    (recordingId: string, engine?: RecorderEngine) => {
+    (
+      recordingId: string,
+      options: { engine?: RecorderEngine; recordedHere?: boolean } = {},
+    ) => {
+      const { engine, recordedHere = false } = options;
       pendingRef.current = null;
       engineRef.current = null;
       // Keep the stopped engine only when its memory is the sole full copy.
@@ -2437,6 +2563,7 @@ export default function RecordRoute() {
       const next: PendingLocalUpload = {
         id: recordingId,
         needsStorage: false,
+        needsOwner: false,
         uploading: true,
         progress: null,
         error: null,
@@ -2444,10 +2571,46 @@ export default function RecordRoute() {
       pendingLocalRef.current = next;
       setPendingLocal(next);
       setUiState("pendingUpload");
-      void uploadPendingLocal(recordingId);
+      localAutoRetryRef.current = 0;
+      // A copy recorded in this tab belongs to whoever is signed in at Stop;
+      // the session may have loaded after recording started. A recovered
+      // copy is never stamped here: an ownerless one needs an explicit claim.
+      const ownerEmail = authSessionEmailRef.current;
+      void (async () => {
+        if (recordedHere && ownerEmail) {
+          await claimRecordingBackupOwner(recordingId, ownerEmail).catch(
+            (err) => {
+              // coercion-ok: a memory-only copy has no stored meta; the upload re-checks the owner.
+              console.warn("[recorder] could not stamp the copy's owner:", err);
+            },
+          );
+        }
+        await uploadPendingLocal(recordingId);
+      })();
     },
     [dismissUploadToast, holdLocalCopy, uploadPendingLocal],
   );
+
+  const claimPendingLocal = useCallback(async () => {
+    const pending = pendingLocalRef.current;
+    const ownerEmail = authSessionEmailRef.current;
+    if (!pending || !ownerEmail) return;
+    try {
+      await claimRecordingBackupOwner(pending.id, ownerEmail);
+    } catch (err) {
+      console.warn("[recorder] claiming the local copy failed:", err);
+      setPendingLocal((prev) =>
+        prev?.id === pending.id
+          ? { ...prev, needsOwner: false, error: { code: "owner_mismatch" } }
+          : prev,
+      );
+      return;
+    }
+    setPendingLocal((prev) =>
+      prev?.id === pending.id ? { ...prev, needsOwner: false } : prev,
+    );
+    await uploadPendingLocal(pending.id);
+  }, [uploadPendingLocal]);
   const enterPendingUploadRef = useRef(enterPendingUpload);
   enterPendingUploadRef.current = enterPendingUpload;
 
@@ -2473,13 +2636,17 @@ export default function RecordRoute() {
       // coercion-ok: null is "liveness unknown"; this tab then takes the copy.
       const liveIds = await liveRecordingBackupIds().catch(() => null);
       if (cancelled) return;
+      if (!meta) {
+        // Already uploaded: the copy is deleted once the clip reads ready.
+        void navigate("/record", { replace: true });
+        return;
+      }
       if (
-        !meta ||
-        (meta.ownerEmail &&
-          meta.ownerEmail.toLowerCase() !== sessionEmail.toLowerCase())
+        meta.ownerEmail &&
+        meta.ownerEmail.toLowerCase() !== sessionEmail.toLowerCase()
       ) {
-        // Already uploaded (the copy is deleted once ready) or not this
-        // account's: there is nothing left to finish here.
+        // Kept for its owner's next sign-in here; never uploaded elsewhere.
+        toast.info(t("recordRoute.recordingOwnedByAnotherAccount"));
         void navigate("/record", { replace: true });
         return;
       }
@@ -2521,12 +2688,36 @@ export default function RecordRoute() {
   const pendingRetryOnline =
     pendingLocal?.error?.code === "network" ||
     pendingLocal?.error?.code === "server_unavailable";
+  const pendingLocalId = pendingLocal?.id ?? null;
+  const [localAutoRetryExhausted, setLocalAutoRetryExhausted] = useState(false);
   useEffect(() => {
-    if (!pendingRetryOnline || !pendingLocal) return;
-    const retry = () => void uploadPendingLocal(pendingLocal.id);
-    window.addEventListener("online", retry);
-    return () => window.removeEventListener("online", retry);
-  }, [pendingLocal, pendingRetryOnline, uploadPendingLocal]);
+    if (!pendingRetryOnline || !pendingLocalId) {
+      setLocalAutoRetryExhausted(false);
+      return;
+    }
+    const retry = () => void uploadPendingLocal(pendingLocalId);
+    // Coming back online always retries; while online, a bounded backoff
+    // retries a dropped connection or a 5xx without the user.
+    const onOnline = () => {
+      localAutoRetryRef.current = 0;
+      retry();
+    };
+    window.addEventListener("online", onOnline);
+    const delay = LOCAL_UPLOAD_AUTO_RETRY_MS[localAutoRetryRef.current];
+    setLocalAutoRetryExhausted(delay === undefined);
+    const timer =
+      delay !== undefined
+        ? window.setTimeout(() => {
+            if (!navigator.onLine) return;
+            localAutoRetryRef.current += 1;
+            retry();
+          }, delay)
+        : undefined;
+    return () => {
+      window.removeEventListener("online", onOnline);
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [pendingLocalId, pendingRetryOnline, uploadPendingLocal]);
 
   const doStop = useCallback(async () => {
     const engine = engineRef.current;
@@ -2570,7 +2761,10 @@ export default function RecordRoute() {
         }).catch(() => {
           // coercion-ok: without a local copy the transcript falls back to cloud transcription.
         });
-        enterPendingUploadRef.current(pending.id, engine);
+        enterPendingUploadRef.current(pending.id, {
+          engine,
+          recordedHere: true,
+        });
         return;
       }
       if (trimmedTranscript) {
@@ -2640,7 +2834,10 @@ export default function RecordRoute() {
       if (pending.localOnly) {
         // Stopping failed, but every chunk recorded so far is in the local
         // copy; hand that to the same finish-upload step.
-        enterPendingUploadRef.current(pending.id, engine);
+        enterPendingUploadRef.current(pending.id, {
+          engine,
+          recordedHere: true,
+        });
         return;
       }
       if (!isStoredButUnservableFinalizeError(message)) {
@@ -2733,11 +2930,22 @@ export default function RecordRoute() {
       toast.success(t("recordRoute.recordingDownloadStarted"));
       return;
     }
-    const read = recordingId && readRecoverableRecordingBackup(recordingId);
-    // coercion-ok: an unreadable copy reports "no local data" just below.
-    const copy = read ? await read.catch(() => null) : null;
-    if (!copy?.blob) {
+    let copy: Awaited<ReturnType<typeof readRecoverableRecordingBackup>> = null;
+    try {
+      copy = recordingId
+        ? await readRecoverableRecordingBackup(recordingId)
+        : null;
+    } catch (err) {
+      console.warn("[recorder] reading the local copy failed:", err);
+      toast.error(t("recordRoute.localCopyUnreadable"));
+      return;
+    }
+    if (!copy) {
       toast.error(t("recordRoute.noLocalRecordingData"));
+      return;
+    }
+    if (!copy.blob) {
+      toast.error(t("recordRoute.localCopyUnreadable"));
       return;
     }
     saveBlobToDisk(copy.blob, recordingBackupFilename(copy.meta));
@@ -2882,19 +3090,33 @@ export default function RecordRoute() {
     }
   }, [liveTranscription]);
 
-  const requestDiscard = useCallback(() => {
-    const engine = engineRef.current;
-    if (uiState === "recording" && engine && engine.getState() !== "paused") {
-      engine.pause();
-      liveTranscription.pause();
-      setIsPaused(true);
-      discardAutoPausedRef.current = true;
-    }
-    setDiscardConfirmOpen(true);
-  }, [uiState, liveTranscription]);
+  // Anything a discard would delete: live or stopped engine bytes, a pending
+  // or memory-only copy, or the local copy this tab still holds a lock on.
+  const hasRecordingToLose = useCallback(
+    () =>
+      !!engineRef.current?.hasRecordingAtRisk() ||
+      !!pendingLocalRef.current ||
+      !!bufferedEngineRef.current ||
+      !!localCopyLockRef.current,
+    [],
+  );
+
+  const requestDiscard = useCallback(
+    (intent: "discard" | "restart" = "discard") => {
+      const engine = engineRef.current;
+      if (uiState === "recording" && engine && engine.getState() !== "paused") {
+        engine.pause();
+        liveTranscription.pause();
+        setIsPaused(true);
+        discardAutoPausedRef.current = true;
+      }
+      setDiscardPrompt(intent);
+    },
+    [uiState, liveTranscription],
+  );
 
   const resumeFromDiscardPrompt = useCallback(() => {
-    setDiscardConfirmOpen(false);
+    setDiscardPrompt(null);
     if (!discardAutoPausedRef.current) return;
     discardAutoPausedRef.current = false;
     const engine = engineRef.current;
@@ -2904,24 +3126,19 @@ export default function RecordRoute() {
     setIsPaused(false);
   }, [liveTranscription]);
 
-  const confirmDiscard = useCallback(() => {
-    discardAutoPausedRef.current = false;
-    setDiscardConfirmOpen(false);
-    void doCancel();
-  }, [doCancel]);
-
   useEffect(() => {
     if (!discardConfirmOpen) return;
     if (
       uiState === "recording" ||
       uiState === "uploading" ||
       uiState === "compressing" ||
-      uiState === "pendingUpload"
+      uiState === "pendingUpload" ||
+      uiState === "error"
     ) {
       return;
     }
     discardAutoPausedRef.current = false;
-    setDiscardConfirmOpen(false);
+    setDiscardPrompt(null);
   }, [uiState, discardConfirmOpen]);
 
   useEffect(() => {
@@ -3002,6 +3219,47 @@ export default function RecordRoute() {
     return run;
   }, [doCancel, startFlow]);
 
+  const confirmDiscard = useCallback(() => {
+    discardAutoPausedRef.current = false;
+    const intent = discardPrompt;
+    setDiscardPrompt(null);
+    if (intent === "restart") void restart();
+    else void doCancel();
+  }, [discardPrompt, doCancel, restart]);
+
+  // "Try again" after a failure never deletes a copy that may still exist:
+  // a stored copy goes to the finish-upload step, a memory-only one asks.
+  const tryAgainAfterError = useCallback(async () => {
+    const engine = engineRef.current;
+    if (engine?.canRetryUpload()) {
+      void retryFailedUpload();
+      return;
+    }
+    const heldId = localCopyLockRef.current?.id;
+    let stored = false;
+    if (heldId) {
+      try {
+        const meta = await getRecordingBackupMeta(heldId);
+        stored = !!meta && (meta.bytes > 0 || meta.chunkCount > 0);
+      } catch {
+        // An unreadable store may still hold the copy; the finish step reports it.
+        stored = true;
+      }
+    }
+    if (heldId && stored) {
+      enterPendingUploadRef.current(heldId, {
+        engine: engine ?? undefined,
+        recordedHere: true,
+      });
+      return;
+    }
+    if (engine?.canDownloadBufferedRecording()) {
+      requestDiscard("restart");
+      return;
+    }
+    void restart();
+  }, [requestDiscard, restart, retryFailedUpload]);
+
   const handlePlayheadConfirmChange = useCallback(
     (
       change: import("@shared/recording-playhead").RecordingPlayheadConfirmChange,
@@ -3047,73 +3305,38 @@ export default function RecordRoute() {
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (discardConfirmOpen || playheadConfirmOpenRef.current) return;
-      const alt = e.altKey;
-      const shift = e.shiftKey;
-      const meta = e.metaKey;
-      const ctrl = e.ctrlKey;
-      const k = e.key.toLowerCase();
-
-      const isEscape =
-        e.key === "Escape" || e.key === "Esc" || e.code === "Escape";
-      if (isEscape) {
-        if (uiState === "countdown") {
-          e.preventDefault();
-          e.stopPropagation();
-          void doCancel();
-          return;
-        }
-        const engineState = engineRef.current?.getState();
-        if (
-          uiState === "recording" ||
-          engineState === "recording" ||
-          engineState === "paused"
-        ) {
-          e.preventDefault();
-          e.stopPropagation();
+      const action = recorderShortcutAction(e, {
+        uiState,
+        engineState: engineRef.current?.getState(),
+        hasRecordingToLose: hasRecordingToLose(),
+      });
+      if (!action) return;
+      e.preventDefault();
+      if (action === "stop" || action === "cancel-setup") {
+        e.stopPropagation();
+      }
+      switch (action) {
+        case "stop":
           void doStopRef.current();
           return;
-        }
-      }
-
-      if (alt && shift && k === "p") {
-        if (uiState === "recording") {
-          e.preventDefault();
+        case "pause":
           togglePause();
           return;
-        }
-      }
-
-      if (alt && shift && k === "c") {
-        if (
-          uiState === "recording" ||
-          uiState === "uploading" ||
-          uiState === "compressing"
-        ) {
-          e.preventDefault();
-          requestDiscard();
+        case "confirm-discard":
+          requestDiscard("discard");
           return;
-        }
-        if (uiState !== "idle") {
-          e.preventDefault();
+        case "confirm-restart":
+          requestDiscard("restart");
+          return;
+        case "cancel-setup":
           void doCancel();
           return;
-        }
-      }
-
-      if (alt && shift && k === "r") {
-        if (uiState === "recording" || uiState === "countdown") {
-          e.preventDefault();
+        case "restart":
           void restart();
           return;
-        }
-      }
-
-      if ((ctrl && meta && k === "c") || (ctrl && alt && k === "c")) {
-        if (uiState === "recording") {
-          e.preventDefault();
+        case "confetti":
           fireConfetti();
           return;
-        }
       }
     }
     window.addEventListener("keydown", onKey);
@@ -3121,6 +3344,7 @@ export default function RecordRoute() {
   }, [
     uiState,
     discardConfirmOpen,
+    hasRecordingToLose,
     togglePause,
     doCancel,
     requestDiscard,
@@ -3134,6 +3358,10 @@ export default function RecordRoute() {
   // effect loses Chrome's transient user activation and looks like a fake
   // permission failure even when Camera and Microphone are already allowed.
 
+  // Read at unmount, so a new `t` or `navigate` never re-runs (and releases)
+  // the capture effect below.
+  const offerContextRef = useRef({ t, navigate });
+  offerContextRef.current = { t, navigate };
   useEffect(() => {
     let released = false;
     const releaseCapture = () => {
@@ -3185,12 +3413,50 @@ export default function RecordRoute() {
       }
     };
 
+    // Back/forward cache: the page returns with the upload pagehide aborted
+    // still marked in flight. Re-take the copy's lock and show Retry.
+    const restoreFromCache = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      released = false;
+      const pending = pendingLocalRef.current;
+      if (!pending) return;
+      holdLocalCopy(pending.id);
+      setPendingLocal((prev) =>
+        prev?.id === pending.id && prev.uploading
+          ? {
+              ...prev,
+              uploading: false,
+              progress: null,
+              error: { code: "network" },
+            }
+          : prev,
+      );
+    };
+    // Leaving in-app keeps the copy; offer it where the user lands.
+    const offerKeptCopy = () => {
+      const keptId =
+        localCopyLockRef.current?.id ?? pendingLocalRef.current?.id;
+      if (!keptId) return;
+      void getRecordingBackupMeta(keptId)
+        .then((meta) => {
+          if (meta && (meta.bytes > 0 || meta.chunkCount > 0)) {
+            offerLocalRecording({ meta, ...offerContextRef.current });
+          }
+        })
+        .catch((err) => {
+          console.warn("[recorder] could not offer the kept copy:", err);
+        });
+    };
+
     window.addEventListener("pagehide", releaseCapture);
+    window.addEventListener("pageshow", restoreFromCache);
     return () => {
       window.removeEventListener("pagehide", releaseCapture);
+      window.removeEventListener("pageshow", restoreFromCache);
+      offerKeptCopy();
       releaseCapture();
     };
-  }, [extensionCapture, stopLiveTranscription]);
+  }, [extensionCapture, holdLocalCopy, stopLiveTranscription]);
 
   const hasUnsavedRecording = useCallback(
     () =>
@@ -3214,6 +3480,11 @@ export default function RecordRoute() {
       [],
     ),
   );
+
+  // Leaving keeps a copy that is written to this browser; a memory-only one
+  // (the local copy failed) would be lost, so that prompt offers Download.
+  const leaveCanKeep =
+    !bufferedEngineRef.current && !engineRef.current?.getBackupError();
 
   const showRecordingUi = uiState === "recording";
   const showSavingUi =
@@ -3257,7 +3528,7 @@ export default function RecordRoute() {
                 size="icon"
                 aria-label={t("recordRoute.backToLibrary")}
                 onClick={() => {
-                  if (uiState !== "pendingUpload") void doCancel();
+                  if (!hasRecordingToLose()) void doCancel();
                   void navigate("/library");
                 }}
                 className="absolute start-3 top-3 z-30 rounded-full text-muted-foreground sm:start-4 sm:top-4"
@@ -3306,14 +3577,34 @@ export default function RecordRoute() {
       {uiState === "pendingUpload" && pendingLocal && (
         <RecorderRouteViewport>
           <div className="mx-auto grid w-full max-w-md gap-2">
-            {pendingLocal.needsStorage ? (
+            {pendingLocal.needsOwner ? (
+              <RecorderRouteStatus
+                role="status"
+                icon={<IconAlertTriangle className="size-4" />}
+                label={t("recordRoute.claimRecordingPrompt", {
+                  email: authSession?.email ?? "",
+                })}
+              >
+                <Button
+                  type="button"
+                  className="w-full"
+                  disabled={!authSession?.email}
+                  onClick={() => void claimPendingLocal()}
+                >
+                  {t("recordRoute.claimRecording")}
+                </Button>
+              </RecorderRouteStatus>
+            ) : pendingLocal.needsStorage ? (
               <StorageSetupCard
                 onConfigured={() => {
                   markStorageConfigured();
                   void uploadPendingLocal(pendingLocal.id);
                 }}
                 title={t("recordRoute.pendingStorageTitle")}
-                description={t("recordRoute.pendingStorageDescription")}
+                description={`${t("recordRoute.pendingStorageDescription")} ${localCopyNote(
+                  t,
+                  !!bufferedEngineRef.current,
+                )}`}
                 connectedDescription={t(
                   "recordRoute.storageConnectedUploading",
                 )}
@@ -3329,19 +3620,38 @@ export default function RecordRoute() {
                 progress={pendingLocal.uploading ? pendingLocal.progress : null}
                 label={
                   pendingLocal.error
-                    ? localUploadFailureLabel(pendingLocal.error.code, t)
+                    ? localUploadFailureLabel(pendingLocal.error.code, t, {
+                        autoRetrying: !localAutoRetryExhausted,
+                        memoryOnly: !!bufferedEngineRef.current,
+                      })
                     : t("recordRoute.savingRecording")
                 }
               >
                 {pendingLocal.error ? (
                   pendingLocal.error.code === "session_expired" ? (
-                    <Button
-                      type="button"
-                      className="w-full"
-                      onClick={() => window.location.reload()}
-                    >
-                      {t("recordRoute.logIn")}
-                    </Button>
+                    // Never reload this page: it may hold the only copy in
+                    // memory. Sign in elsewhere, then retry from here.
+                    <div className="grid gap-2">
+                      <Button asChild className="w-full gap-2">
+                        <a
+                          href={`${appBasePath()}/`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <IconExternalLink className="size-4" />
+                          {t("recordRoute.logIn")}
+                        </a>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full gap-2"
+                        onClick={() => void uploadPendingLocal(pendingLocal.id)}
+                      >
+                        <IconRefresh className="size-4" />
+                        {t("recordRoute.retryUpload")}
+                      </Button>
+                    </div>
                   ) : (
                     <Button
                       type="button"
@@ -3371,7 +3681,7 @@ export default function RecordRoute() {
                 variant="ghost"
                 size="sm"
                 className="text-muted-foreground hover:text-destructive"
-                onClick={requestDiscard}
+                onClick={() => requestDiscard()}
               >
                 {t("recordingToolbar.discardRecording")}
               </Button>
@@ -3500,7 +3810,7 @@ export default function RecordRoute() {
           isPaused={isPaused}
           onTogglePause={togglePause}
           onStop={() => void doStop()}
-          onCancel={requestDiscard}
+          onCancel={() => requestDiscard()}
           onConfirmAction={handlePlayheadConfirmAction}
           onConfirmChange={handlePlayheadConfirmChange}
         />
@@ -3515,7 +3825,9 @@ export default function RecordRoute() {
         <AlertDialogContent className="max-w-sm">
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {t("recordingToolbar.discardConfirmTitle")}
+              {discardPrompt === "restart"
+                ? t("recordingToolbar.restartQuestion")
+                : t("recordingToolbar.discardConfirmTitle")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {t("recordingToolbar.discardConfirmDescription")}
@@ -3523,7 +3835,9 @@ export default function RecordRoute() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>
-              {t("recordingToolbar.resume")}
+              {uiState === "recording"
+                ? t("recordingToolbar.resume")
+                : t("common.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={(event) => {
@@ -3532,7 +3846,9 @@ export default function RecordRoute() {
               }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {t("recordingToolbar.discardRecording")}
+              {discardPrompt === "restart"
+                ? t("recordingToolbar.restartConfirm")
+                : t("recordingToolbar.discardRecording")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -3543,29 +3859,18 @@ export default function RecordRoute() {
           onCloseAutoFocus={onCloseAutoFocus}
           className="max-w-sm"
         >
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t("recordRoute.leaveConfirmTitle")}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("recordRoute.leaveConfirmDescription")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(event) => {
-                event.preventDefault();
-                // Unmounting only releases capture and keeps the local copy;
-                // this choice is the explicit discard.
-                void doCancel();
-                confirmLeave();
-              }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {t("recordRoute.leaveAndDiscard")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
+          <RecordingLeaveChoices
+            canKeep={leaveCanKeep}
+            onDownload={() => {
+              if (bufferedEngineRef.current) void downloadPendingLocal();
+              else downloadBufferedRecording();
+            }}
+            onKeep={confirmLeave}
+            onDiscard={() => {
+              void doCancel();
+              confirmLeave();
+            }}
+          />
         </AlertDialogContent>
       </AlertDialog>
 
@@ -3591,7 +3896,7 @@ export default function RecordRoute() {
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={requestDiscard}
+                onClick={() => requestDiscard()}
                 className="w-full text-muted-foreground hover:text-destructive"
               >
                 {t("recordingToolbar.cancel")}
@@ -3668,13 +3973,7 @@ export default function RecordRoute() {
                 !!engineRef.current?.canDownloadBufferedRecording()
               }
               onDownloadRecording={downloadBufferedRecording}
-              onTryAgain={() => {
-                if (engineRef.current?.canRetryUpload()) {
-                  void retryFailedUpload();
-                } else {
-                  void restart();
-                }
-              }}
+              onTryAgain={() => void tryAgainAfterError()}
             />
           )}
         </RecorderRouteViewport>

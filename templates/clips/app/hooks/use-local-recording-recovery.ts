@@ -9,6 +9,7 @@ import {
   trashStaleServerRecordings,
 } from "@/lib/local-recording-upload";
 import {
+  claimRecordingBackupOwner,
   deleteRecordingBackup,
   listRecordingBackupMetas,
   liveRecordingBackupIds,
@@ -22,8 +23,9 @@ const RECOVERY_TOAST_ID = "clips-local-recording-recovery";
 /**
  * The local copies that still need an upload. Copies the server already has
  * as `ready` are deleted here; ones it is still processing wait for a later
- * scan; a copy whose server row this account cannot see was never offered
- * to this account and is left alone.
+ * scan. An ownerless copy whose server row this account can read is this
+ * account's and is stamped; any other ownerless copy comes back unstamped, so
+ * the user must claim it explicitly before it uploads.
  */
 export async function findLocalRecordingsToFinish(
   ownerEmail: string,
@@ -50,11 +52,65 @@ export async function findLocalRecordingsToFinish(
         continue;
       }
       if (server?.found && server.status === "processing") continue;
-      if (server && !server.found && !meta.ownerEmail) continue;
+      if (server?.found && !meta.ownerEmail) {
+        // The status route is owner-scoped, so reading the row proves the
+        // copy was recorded under this account.
+        pending.push(
+          await claimRecordingBackupOwner(meta.recordingId, ownerEmail),
+        );
+        continue;
+      }
     }
     pending.push(meta);
   }
   return pending;
+}
+
+/**
+ * Offer one local copy for upload. The action re-checks the copy's Web Lock
+ * when clicked, because the prompt can stay open while another tab takes the
+ * copy. An ownerless copy always opens the recorder's explicit claim step.
+ */
+export function offerLocalRecording(options: {
+  meta: Pick<RecordingBackupMeta, "recordingId" | "ownerEmail">;
+  t: ReturnType<typeof useT>;
+  navigate: (path: string) => unknown;
+  onFinish?: (recordingId: string) => void;
+}): void {
+  const { meta, t, navigate, onFinish } = options;
+  const unclaimed = !meta.ownerEmail;
+  toast.warning(
+    unclaimed
+      ? t("recordRoute.unclaimedRecording")
+      : t("recordRoute.unfinishedRecording"),
+    {
+      id: RECOVERY_TOAST_ID,
+      duration: Infinity,
+      closeButton: true,
+      action: {
+        label: unclaimed
+          ? t("recordRoute.reviewRecording")
+          : t("recordRoute.finishUpload"),
+        onClick: () => {
+          void (async () => {
+            // coercion-ok: null is "liveness unknown"; the recorder re-checks when it opens the copy.
+            const live = await liveRecordingBackupIds().catch(() => null);
+            if (live?.has(meta.recordingId)) {
+              toast.info(t("recordRoute.localRecordingOpenElsewhere"));
+              return;
+            }
+            if (onFinish && !unclaimed) {
+              onFinish(meta.recordingId);
+              return;
+            }
+            void navigate(
+              `/record?localRecording=${encodeURIComponent(meta.recordingId)}`,
+            );
+          })();
+        },
+      },
+    },
+  );
 }
 
 /**
@@ -81,22 +137,13 @@ export function useLocalRecordingRecovery(
         const newest = pending[0];
         if (cancelled || !newest) return;
         // One prompt for the newest; finishing it rescans on the next load.
-        toast.warning(t("recordRoute.unfinishedRecording"), {
-          id: RECOVERY_TOAST_ID,
-          duration: Infinity,
-          closeButton: true,
-          action: {
-            label: t("recordRoute.finishUpload"),
-            onClick: () => {
-              if (onFinishRef.current) {
-                onFinishRef.current(newest.recordingId);
-                return;
-              }
-              void navigate(
-                `/record?localRecording=${encodeURIComponent(newest.recordingId)}`,
-              );
-            },
-          },
+        offerLocalRecording({
+          meta: newest,
+          t,
+          navigate,
+          onFinish: onFinishRef.current
+            ? (recordingId) => onFinishRef.current?.(recordingId)
+            : undefined,
         });
       })
       .catch((err) => {

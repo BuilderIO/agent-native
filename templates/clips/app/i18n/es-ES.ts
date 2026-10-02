@@ -1244,14 +1244,14 @@ const messages = {
     elapsed: "Tiempo transcurrido",
     cancel: "Descartar grabación",
     cancelShortcut: "Descartar (⌥⇧C)",
-    discardConfirmTitle: "¿Descartar esta grabación?",
+    discardConfirmTitle: "¿Eliminar esta grabación?",
     discardConfirmDescription:
       "Esta acción no se puede deshacer. Tu grabación hasta ahora se eliminará permanentemente.",
     resume: "Reanudar",
     discardRecording: "Descartar grabación",
     restart: "Reiniciar grabación",
     restartShortcut: "Reiniciar (⌥⇧R)",
-    restartQuestion: "¿Iniciar una nueva grabación?",
+    restartQuestion: "¿Eliminar esta grabación y empezar de nuevo?",
     restartConfirm: "Reiniciar",
   },
   countdownOverlay: {
@@ -1835,26 +1835,45 @@ const messages = {
       "Conecta almacenamiento en la siguiente pantalla: Builder.io (almacenamiento + IA en el plan gratuito) o almacenamiento compatible con S3. Clips terminará de guardarlo.",
     connectStorageToRetryLoom:
       "Conecta almacenamiento en la siguiente pantalla: Builder.io (almacenamiento + IA en el plan gratuito) o almacenamiento compatible con S3. Clips reintentará la importación.",
-    leaveConfirmTitle: "¿Salir y descartar esta grabación?",
+    leaveConfirmTitle: "¿Salir de esta grabación?",
     leaveConfirmDescription:
-      "Tu grabación en curso aún no ha terminado de guardarse. Si sales de esta página ahora, se descartará.",
+      "Esta grabación solo está en esta pestaña. Si sales, se eliminará a menos que descargues una copia antes.",
     leaveAndDiscard: "Salir y descartar",
     recordingWithoutSound:
       "Grabando sin sonido. Activa un micrófono para obtener una transcripción.",
     pendingStorageTitle: "Conecta almacenamiento para guardar tu grabación",
     pendingStorageDescription:
-      "Tu grabación está a salvo en este navegador. Conecta almacenamiento y Clips la subirá de inmediato.",
+      "Conecta un almacenamiento y Clips la subirá de inmediato.",
     storageConnectedUploading:
       "Almacenamiento conectado. Subiendo tu grabación…",
     downloadCopy: "Descargar una copia",
     localRecordingOpenElsewhere:
       "Esa grabación sigue abierta en otra pestaña de Clips.",
     uploadWaitingForConnection:
-      "Subida en pausa. Clips lo reintentará cuando vuelvas a tener conexión; tu grabación está a salvo en este navegador.",
-    uploadDidNotFinish:
-      "La subida no terminó. Tu grabación sigue a salvo en este navegador.",
+      "Subida en pausa. Clips lo reintenta automáticamente.",
+    uploadDidNotFinish: "La subida no se completó.",
     unfinishedRecording: "Una grabación no ha terminado de subirse",
     finishUpload: "Terminar la subida",
+    leaveKeepDescription:
+      "Clips la guarda en este navegador y te ofrecerá terminar la subida cuando vuelvas. «Salir y descartar» la elimina para siempre.",
+    leaveAndKeep: "Salir y conservar",
+    copySafeInBrowser: "Tu grabación está a salvo en este navegador.",
+    copyOnlyInThisTab:
+      "Esta grabación solo está en esta pestaña. Mantenla abierta o descarga una copia.",
+    localCopyFull:
+      "Este navegador no tiene espacio, así que Clips no puede guardar una copia de seguridad. Mantén esta pestaña abierta hasta que termine la subida o descarga una copia.",
+    localCopyFailed:
+      "Clips no pudo guardar una copia de seguridad en este navegador. Mantén esta pestaña abierta hasta que termine la subida o descarga una copia.",
+    localCopyUnreadable:
+      "No se pudo leer la copia de la grabación guardada en este navegador.",
+    recordingOwnedByAnotherAccount:
+      "Esta grabación pertenece a otra cuenta. Inicia sesión con esa cuenta en este navegador para subirla.",
+    unclaimedRecording:
+      "Hay una grabación en este navegador que no está vinculada a ninguna cuenta",
+    reviewRecording: "Revisar",
+    claimRecordingPrompt:
+      "Esta grabación aún no está vinculada a ninguna cuenta. ¿Subirla a {{email}}?",
+    claimRecording: "Subir a mi cuenta",
   },
   importRoute: {
     pageTitle: "Importar Loom — Clips",

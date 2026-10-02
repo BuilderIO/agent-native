@@ -1253,7 +1253,7 @@ const messages = {
     discardRecording: "Supprimer l’enregistrement",
     restart: "Redémarrer l’enregistrement",
     restartShortcut: "Redémarrer (⌥⇧R)",
-    restartQuestion: "Démarrer un nouvel enregistrement ?",
+    restartQuestion: "Supprimer cet enregistrement et recommencer ?",
     restartConfirm: "Redémarrer",
   },
   countdownOverlay: {
@@ -1842,27 +1842,47 @@ const messages = {
       "Connectez le stockage sur l’écran suivant : Builder.io (stockage + IA sur l’offre gratuite) ou stockage compatible S3. Clips terminera l’enregistrement.",
     connectStorageToRetryLoom:
       "Connectez le stockage sur l’écran suivant : Builder.io (stockage + IA sur l’offre gratuite) ou stockage compatible S3. Clips relancera l’import.",
-    leaveConfirmTitle: "Quitter et abandonner cet enregistrement ?",
+    leaveConfirmTitle: "Quitter cet enregistrement ?",
     leaveConfirmDescription:
-      "Votre enregistrement en cours n’a pas fini d’être sauvegardé. Si vous quittez cette page maintenant, il sera abandonné.",
+      "Cet enregistrement n'existe que dans cet onglet. Le quitter le supprime, sauf si vous téléchargez d'abord une copie.",
     leaveAndDiscard: "Quitter et abandonner",
     recordingWithoutSound:
       "Enregistrement sans son. Activez un micro pour obtenir une transcription.",
     pendingStorageTitle:
       "Connectez un stockage pour sauvegarder votre enregistrement",
     pendingStorageDescription:
-      "Votre enregistrement est en sécurité dans ce navigateur. Connectez un stockage et Clips l’envoie aussitôt.",
+      "Connectez un stockage et Clips l'importe aussitôt.",
     storageConnectedUploading:
       "Stockage connecté. Envoi de votre enregistrement…",
     downloadCopy: "Télécharger une copie",
     localRecordingOpenElsewhere:
       "Cet enregistrement est encore ouvert dans un autre onglet Clips.",
     uploadWaitingForConnection:
-      "Envoi en pause. Clips réessaiera dès que vous serez de nouveau en ligne ; votre enregistrement est en sécurité dans ce navigateur.",
-    uploadDidNotFinish:
-      "L’envoi n’a pas abouti. Votre enregistrement est toujours en sécurité dans ce navigateur.",
+      "Importation en pause. Clips réessaie automatiquement.",
+    uploadDidNotFinish: "L'importation n'a pas abouti.",
     unfinishedRecording: "Un enregistrement n’a pas fini d’être envoyé",
     finishUpload: "Terminer l’envoi",
+    leaveKeepDescription:
+      "Clips le conserve dans ce navigateur et vous proposera de terminer l'importation à votre retour. « Quitter et abandonner » le supprime définitivement.",
+    leaveAndKeep: "Quitter et conserver",
+    copySafeInBrowser:
+      "Votre enregistrement est en sécurité dans ce navigateur.",
+    copyOnlyInThisTab:
+      "Cet enregistrement n'existe que dans cet onglet. Gardez-le ouvert ou téléchargez une copie.",
+    localCopyFull:
+      "Ce navigateur n'a plus d'espace : Clips ne peut pas conserver de copie de secours. Gardez cet onglet ouvert jusqu'à la fin de l'importation ou téléchargez une copie.",
+    localCopyFailed:
+      "Clips n'a pas pu conserver de copie de secours dans ce navigateur. Gardez cet onglet ouvert jusqu'à la fin de l'importation ou téléchargez une copie.",
+    localCopyUnreadable:
+      "La copie de l'enregistrement dans ce navigateur est illisible.",
+    recordingOwnedByAnotherAccount:
+      "Cet enregistrement appartient à un autre compte. Connectez-vous à ce compte dans ce navigateur pour l'importer.",
+    unclaimedRecording:
+      "Un enregistrement de ce navigateur n'est lié à aucun compte",
+    reviewRecording: "Examiner",
+    claimRecordingPrompt:
+      "Cet enregistrement n'est encore lié à aucun compte. L'importer dans {{email}} ?",
+    claimRecording: "Importer dans mon compte",
   },
   importRoute: {
     pageTitle: "Importer Loom — Clips",

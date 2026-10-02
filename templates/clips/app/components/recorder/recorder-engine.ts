@@ -110,6 +110,30 @@ export type RecorderState =
   | "complete"
   | "error";
 
+/** Waits before retrying a failed local-copy write; a full disk never retries. */
+const BACKUP_WRITE_RETRY_DELAYS_MS = [250, 1_000, 3_000] as const;
+
+function isQuotaError(error: Error): boolean {
+  return (
+    error.name === "QuotaExceededError" ||
+    /quota|disk|space/i.test(error.message)
+  );
+}
+
+async function retryBackupWrite(write: () => Promise<unknown>): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await write();
+      return;
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(errorMessage(err));
+      const delay = BACKUP_WRITE_RETRY_DELAYS_MS[attempt];
+      if (isQuotaError(error) || delay === undefined) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
 const RECORDING_AT_RISK_STATES = new Set<RecorderState>([
   "recording",
   "paused",
@@ -141,6 +165,11 @@ export interface RecorderEngineOptions {
   }) => void;
   onError?: (err: Error) => void;
   onWarning?: (message: string) => void;
+  /**
+   * The local copy stopped being written (after retries). The recording is
+   * still in memory; the UI warns once, in the user's language.
+   */
+  onLocalCopyFailed?: (reason: "quota" | "unavailable") => void;
   onCameraEnded?: () => void;
   onDisplayTrackEnded?: () => void;
   onResolvedDisplaySurface?: (surface: DisplaySurface | null) => void;
@@ -760,6 +789,7 @@ export class RecorderEngine {
     height: number;
     hasAudio: boolean;
     hasCamera: boolean;
+    ownerEmail: string | null;
   } | null {
     const meta = this.lastFinalizeMeta;
     if (!meta || this.localChunks.length === 0) return null;
@@ -772,6 +802,7 @@ export class RecorderEngine {
       height: meta.dimensions.height,
       hasAudio: meta.hasAudio,
       hasCamera: meta.hasCamera,
+      ownerEmail: this.backupDetails?.ownerEmail ?? null,
     };
   }
 
@@ -2605,23 +2636,27 @@ export class RecorderEngine {
     this.backupMirrorQueue = this.backupMirrorQueue
       .then(async () => {
         if (this.backupError) return;
-        await putRecordingBackupChunk(recordingId, index, blob);
-        await putRecordingBackupMeta({
-          recordingId,
-          mimeType: this.mimeType,
-          durationMs,
-          width: dimensions.width,
-          height: dimensions.height,
-          hasAudio: this.hasAudioTrack(),
-          hasCamera,
-          bytes,
-          chunkCount: index + 1,
-          savedAt: new Date().toISOString(),
-          completedAt: null,
-          state: "recording",
-          localOnly: this.localOnly,
-          ...(this.backupDetails && index === 0 ? this.backupDetails : {}),
-        });
+        await retryBackupWrite(() =>
+          putRecordingBackupChunk(recordingId, index, blob),
+        );
+        await retryBackupWrite(() =>
+          putRecordingBackupMeta({
+            recordingId,
+            mimeType: this.mimeType,
+            durationMs,
+            width: dimensions.width,
+            height: dimensions.height,
+            hasAudio: this.hasAudioTrack(),
+            hasCamera,
+            bytes,
+            chunkCount: index + 1,
+            savedAt: new Date().toISOString(),
+            completedAt: null,
+            state: "recording",
+            localOnly: this.localOnly,
+            ...(this.backupDetails && index === 0 ? this.backupDetails : {}),
+          }),
+        );
       })
       .catch((err) => this.rememberBackupFailure(err));
   }
@@ -2633,20 +2668,22 @@ export class RecorderEngine {
       .then(() => {
         if (this.backupError) return;
         const completedAt = new Date().toISOString();
-        return putRecordingBackupMeta({
-          recordingId,
-          mimeType: this.mimeType,
-          durationMs: meta.durationMs,
-          width: meta.dimensions.width,
-          height: meta.dimensions.height,
-          hasAudio: meta.hasAudio,
-          hasCamera: meta.hasCamera,
-          bytes: this.totalRecordedBytes,
-          chunkCount: this.backupChunkIndex,
-          savedAt: completedAt,
-          completedAt,
-          state: "recorded-local",
-        });
+        return retryBackupWrite(() =>
+          putRecordingBackupMeta({
+            recordingId,
+            mimeType: this.mimeType,
+            durationMs: meta.durationMs,
+            width: meta.dimensions.width,
+            height: meta.dimensions.height,
+            hasAudio: meta.hasAudio,
+            hasCamera: meta.hasCamera,
+            bytes: this.totalRecordedBytes,
+            chunkCount: this.backupChunkIndex,
+            savedAt: completedAt,
+            completedAt,
+            state: "recorded-local",
+          }),
+        );
       })
       .catch((err) => this.rememberBackupFailure(err));
   }
@@ -2659,7 +2696,9 @@ export class RecorderEngine {
     this.backupMirrorQueue = this.backupMirrorQueue
       .then(async () => {
         if (this.backupError) return;
-        await updateRecordingBackupMeta(recordingId, patch);
+        await retryBackupWrite(() =>
+          updateRecordingBackupMeta(recordingId, patch),
+        );
       })
       .catch((err) => this.rememberBackupFailure(err));
   }
@@ -2668,13 +2707,9 @@ export class RecorderEngine {
     if (this.backupError) return;
     const error = err instanceof Error ? err : new Error(errorMessage(err));
     this.backupError = error;
-    const quota =
-      error.name === "QuotaExceededError" ||
-      /quota|disk|space/i.test(error.message);
-    this.emitWarning(
-      quota
-        ? "This browser is out of storage, so Clips can't keep a local safety copy. Keep this tab open until the upload finishes, or download a copy."
-        : "Clips couldn't keep a local safety copy of this recording. Keep this tab open until the upload finishes, or download a copy.",
+    console.warn("[recorder] local copy write failed:", error);
+    this.opts.onLocalCopyFailed?.(
+      isQuotaError(error) ? "quota" : "unavailable",
     );
   }
 

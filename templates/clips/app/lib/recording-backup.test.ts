@@ -102,7 +102,7 @@ describe("recoverableBackupChunks", () => {
 describe("selectRecoverableRecordingBackups", () => {
   const now = Date.parse("2026-10-01T12:00:00.000Z");
 
-  it("offers only this account's copies that no tab still owns", () => {
+  it("offers this account's copies and ownerless ones to claim, never another account's", () => {
     const picked = selectRecoverableRecordingBackups(
       [
         meta({ recordingId: "mine", ownerEmail: "Me@Example.com" }),
@@ -121,6 +121,7 @@ describe("selectRecoverableRecordingBackups", () => {
     );
     expect(picked.map((m) => m.recordingId)).toEqual([
       "mine",
+      "anonymous-local",
       "legacy-server-backed",
     ]);
   });

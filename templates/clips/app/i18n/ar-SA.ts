@@ -1222,14 +1222,14 @@ const messages = {
     elapsed: "الوقت المنقضي",
     cancel: "حذف التسجيل",
     cancelShortcut: "حذف (⌥⇧C)",
-    discardConfirmTitle: "هل تريد حذف هذا التسجيل؟",
+    discardConfirmTitle: "حذف هذا التسجيل؟",
     discardConfirmDescription:
       "لا يمكن التراجع عن هذا الإجراء. سيتم حذف تسجيلك حتى الآن نهائيًا.",
     resume: "استئناف",
     discardRecording: "حذف التسجيل",
     restart: "إعادة بدء التسجيل",
     restartShortcut: "إعادة البدء (⌥⇧R)",
-    restartQuestion: "هل تريد بدء تسجيل جديد؟",
+    restartQuestion: "حذف هذا التسجيل والبدء من جديد؟",
     restartConfirm: "إعادة البدء",
   },
   countdownOverlay: {
@@ -1799,25 +1799,41 @@ const messages = {
       "صِل التخزين في الشاشة التالية: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3. سيكمل Clips الحفظ.",
     connectStorageToRetryLoom:
       "صِل التخزين في الشاشة التالية: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3. سيعيد Clips محاولة الاستيراد.",
-    leaveConfirmTitle: "مغادرة هذه الصفحة وحذف التسجيل؟",
+    leaveConfirmTitle: "مغادرة هذا التسجيل؟",
     leaveConfirmDescription:
-      "لم يكتمل حفظ التسجيل الجاري بعد. مغادرة هذه الصفحة الآن ستؤدي إلى حذفه.",
+      "هذا التسجيل موجود في علامة التبويب هذه فقط. ستحذفه المغادرة ما لم تنزّل نسخة منه أولًا.",
     leaveAndDiscard: "مغادرة وحذف",
     recordingWithoutSound:
       "يتم التسجيل بدون صوت. شغّل الميكروفون للحصول على نص مكتوب.",
     pendingStorageTitle: "اربط التخزين لحفظ تسجيلك",
-    pendingStorageDescription:
-      "تسجيلك محفوظ بأمان في هذا المتصفح. اربط التخزين وسيرفعه Clips فورًا.",
+    pendingStorageDescription: "اربط مساحة تخزين وسيرفعه Clips فورًا.",
     storageConnectedUploading: "تم ربط التخزين. جارٍ رفع تسجيلك…",
     downloadCopy: "تنزيل نسخة",
     localRecordingOpenElsewhere:
       "هذا التسجيل لا يزال مفتوحًا في علامة تبويب أخرى من Clips.",
     uploadWaitingForConnection:
-      "تم إيقاف الرفع مؤقتًا. سيعيد Clips المحاولة عند عودتك إلى الاتصال، وتسجيلك محفوظ بأمان في هذا المتصفح.",
-    uploadDidNotFinish:
-      "لم يكتمل الرفع. لا يزال تسجيلك محفوظًا بأمان في هذا المتصفح.",
+      "الرفع متوقف مؤقتًا. يعيد Clips المحاولة تلقائيًا.",
+    uploadDidNotFinish: "لم يكتمل الرفع.",
     unfinishedRecording: "هناك تسجيل لم يكتمل رفعه",
     finishUpload: "إكمال الرفع",
+    leaveKeepDescription:
+      'يحتفظ Clips به في هذا المتصفح ويعرض عليك إكمال الرفع عند عودتك. خيار "مغادرة وحذف" يحذفه نهائيًا.',
+    leaveAndKeep: "المغادرة مع الاحتفاظ",
+    copySafeInBrowser: "تسجيلك محفوظ بأمان في هذا المتصفح.",
+    copyOnlyInThisTab:
+      "هذا التسجيل موجود في علامة التبويب هذه فقط. أبقها مفتوحة أو نزّل نسخة.",
+    localCopyFull:
+      "مساحة هذا المتصفح ممتلئة، لذا لا يستطيع Clips الاحتفاظ بنسخة احتياطية. أبقِ علامة التبويب مفتوحة حتى ينتهي الرفع، أو نزّل نسخة.",
+    localCopyFailed:
+      "تعذّر على Clips الاحتفاظ بنسخة احتياطية في هذا المتصفح. أبقِ علامة التبويب مفتوحة حتى ينتهي الرفع، أو نزّل نسخة.",
+    localCopyUnreadable: "تعذّرت قراءة نسخة التسجيل الموجودة في هذا المتصفح.",
+    recordingOwnedByAnotherAccount:
+      "هذا التسجيل يخص حسابًا آخر. سجّل الدخول إلى ذلك الحساب في هذا المتصفح لرفعه.",
+    unclaimedRecording: "يوجد تسجيل في هذا المتصفح غير مرتبط بأي حساب",
+    reviewRecording: "مراجعة",
+    claimRecordingPrompt:
+      "هذا التسجيل غير مرتبط بأي حساب بعد. هل تريد رفعه إلى {{email}}؟",
+    claimRecording: "الرفع إلى حسابي",
   },
   importRoute: {
     pageTitle: "استيراد Loom — Clips",
