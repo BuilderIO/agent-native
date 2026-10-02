@@ -80,6 +80,7 @@ describe("Sessions empty states", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
@@ -245,6 +246,47 @@ describe("Sessions empty states", () => {
       )?.value,
     ).toBe("");
     expect(clearAllButton(container)).toBeUndefined();
+  });
+
+  it("drops a search still waiting to commit when Clear all is clicked", async () => {
+    vi.useFakeTimers();
+    mocks.total = 285;
+    function LocationProbe() {
+      const location = useLocation();
+      return <span data-testid="location">{location.search}</span>;
+    }
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions?hasErrors=true"]}>
+          <SessionsTriagePage />
+          <LocationProbe />
+        </MemoryRouter>,
+      );
+    });
+    const search = container.querySelector<HTMLInputElement>(
+      'input[aria-label="sessions.searchPlaceholder"]',
+    );
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(search, "checkout");
+      search?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      clearAllButton(container)?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+    });
+
+    expect(
+      container.querySelector('[data-testid="location"]')?.textContent,
+    ).toBe("");
+    expect(search?.value).toBe("");
   });
 
   it("normalizes an unsafe page before querying any large offset", async () => {

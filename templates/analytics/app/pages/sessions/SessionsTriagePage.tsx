@@ -208,17 +208,6 @@ export function SessionsTriagePage() {
   const hasActiveFilters = [...params.keys()].some(
     (key) => !NON_FILTER_PARAMS.has(key),
   );
-  const clearFilters = useCallback(() => {
-    setParams(
-      (current) => {
-        const next = new URLSearchParams();
-        const currentSort = current.get("sort");
-        if (currentSort) next.set("sort", currentSort);
-        return next;
-      },
-      { replace: true },
-    );
-  }, [setParams]);
   const commitQuery = useCallback(
     (value: string) => setFilter("q", value),
     [setFilter],
@@ -232,6 +221,21 @@ export function SessionsTriagePage() {
     domain,
     commitDomain,
   );
+  const clearFilters = useCallback(() => {
+    // A draft that never reached the URL survives the URL reset, and its
+    // pending debounce would write it back, so empty the drafts too.
+    setQueryInput("");
+    setDomainInput("");
+    setParams(
+      (current) => {
+        const next = new URLSearchParams();
+        const currentSort = current.get("sort");
+        if (currentSort) next.set("sort", currentSort);
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setParams, setQueryInput, setDomainInput]);
   const dateBounds = useMemo(
     () => ({
       from:
