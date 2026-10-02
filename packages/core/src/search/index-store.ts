@@ -59,12 +59,13 @@ export function ensureSearchIndexTables(
 /**
  * Raises an index's target version, leaving the rebuild for the first drain
  * at that version to claim. A process on a lower version reads the index as
- * outdated from then on and serves its previous search.
+ * outdated from then on and serves its previous search. Returns the target
+ * now in force, which is higher than `version` when a newer build raised it.
  */
 export async function raiseSearchIndexTarget(
   exec: DbExec,
   target: { app: string; type: string; version: number },
-): Promise<void> {
+): Promise<number> {
   await exec.execute({
     sql: `INSERT INTO ${SEARCH_INDEX_STATE_TABLE} (app, resource_type, target_version)
           VALUES (?, ?, ?)
@@ -75,6 +76,34 @@ export async function raiseSearchIndexTarget(
             rebuild_completed_at = NULL
           WHERE ${SEARCH_INDEX_STATE_TABLE}.target_version < EXCLUDED.target_version`,
     args: [target.app, target.type, target.version],
+  });
+  const { rows } = await exec.execute({
+    sql: `SELECT target_version FROM ${SEARCH_INDEX_STATE_TABLE} WHERE app = ? AND resource_type = ?`,
+    args: [target.app, target.type],
+  });
+  const [row] = rows;
+  if (!row) throw new Error("Raising the search index target left no row.");
+  return Number(row.target_version);
+}
+
+/**
+ * Marks the index as needing a rebuild at its current version. Nothing to do
+ * before the search tables exist: there is no index yet.
+ */
+export async function invalidateSearchIndex(
+  exec: DbExec,
+  target: { app: string; type: string },
+): Promise<void> {
+  const { rows } = await exec.execute({
+    sql: `SELECT 1 AS present WHERE to_regclass(?) IS NOT NULL`,
+    args: [SEARCH_INDEX_STATE_TABLE],
+  });
+  if (!rows.length) return;
+  await exec.execute({
+    sql: `UPDATE ${SEARCH_INDEX_STATE_TABLE}
+          SET rebuild_high_seq = NULL, rebuild_started_at = NULL, rebuild_completed_at = NULL
+          WHERE app = ? AND resource_type = ? AND rebuild_high_seq IS NOT NULL`,
+    args: [target.app, target.type],
   });
 }
 

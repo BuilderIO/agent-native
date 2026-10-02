@@ -29,6 +29,7 @@ import { getRequestRunContext } from "../server/request-context.js";
 import {
   SEARCH_INDEX_STATE_TABLE,
   SEARCH_RESOURCES_TABLE,
+  invalidateSearchIndex,
 } from "./index-store.js";
 import {
   SEARCH_CHANGE_CONSUMER,
@@ -366,7 +367,7 @@ async function captureInstalled(
   const source = searchableResourceSource(registration);
   const installed = await resourceChangeCaptureInstalled(exec, source);
   if (!installed) {
-    await invalidateIndex(exec, registration);
+    await invalidateSearchIndex(exec, registration);
     if (runtime.captureInstalled !== false) {
       console.error(
         `[search] Change capture for ${registration.app}/${registration.type} is missing or disabled on table "${source.table}". ` +
@@ -380,30 +381,6 @@ async function captureInstalled(
   runtime.captureInstalled = installed;
   runtime.captureVerifiedAt = Date.now();
   return installed;
-}
-
-/**
- * Marks the index as needing a rebuild at its current version. Nothing to do
- * before the search tables exist: there is no index yet.
- */
-async function invalidateIndex(
-  exec: DbExec,
-  registration: SearchableResourceRegistration,
-): Promise<void> {
-  const { rows } = await exec.execute({
-    sql: `SELECT to_regclass(?) IS NOT NULL AS present`,
-    args: [SEARCH_INDEX_STATE_TABLE],
-  });
-  const [table] = rows;
-  if (!table)
-    throw new Error("Looking up the search index table returned no row.");
-  if (!flag(table.present)) return;
-  await exec.execute({
-    sql: `UPDATE ${SEARCH_INDEX_STATE_TABLE}
-          SET rebuild_high_seq = NULL, rebuild_started_at = NULL, rebuild_completed_at = NULL
-          WHERE app = ? AND resource_type = ? AND rebuild_high_seq IS NOT NULL`,
-    args: [registration.app, registration.type],
-  });
 }
 
 function flag(value: unknown): boolean {

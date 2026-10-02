@@ -254,7 +254,13 @@ Instead:
    installing anything, it raises the index's target to the registration's
    version. A release migrates before its code deploys, so the build still
    serving would otherwise find capture in place and finish a rebuild at its
-   own, lower version.
+   own, lower version. If a newer version already holds the index, the
+   migration installs nothing, since its older SQL would replace the newer
+   build's. Two builds at the same version aren't ordered: whichever migrates
+   last installs its SQL. If the migration finds capture missing, it discards
+   the finished index, because writes made in the meantime were never
+   recorded. A release that renames the triggers therefore rebuilds the index
+   once.
 
    Search checks at most once a minute that the triggers exist and are
    enabled. If they're missing or disabled, search reports

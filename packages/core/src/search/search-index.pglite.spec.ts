@@ -482,6 +482,19 @@ async function indexedIds(type: string) {
   return rows.map((row: any) => String(row.resource_id));
 }
 
+async function dropCapture(
+  source: import("../resource-changes/store.js").ResourceChangeSource,
+) {
+  const names = feed.resourceChangeTriggerNames(source);
+  for (const trigger of [
+    names.insertDeleteTrigger,
+    names.updateTrigger,
+    names.truncateTrigger,
+  ]) {
+    await run(`DROP TRIGGER "${trigger}" ON ${source.table}`);
+  }
+}
+
 /** Makes every backed-off change claimable now. */
 async function skipBackoff(type: string) {
   await run(
@@ -1152,6 +1165,53 @@ describe("change capture", () => {
     search.resetSearchIndexRuntime();
     expect(await prepareFully(newer)).toEqual({ ready: true });
     expect(await indexedVersions("handover")).toEqual(["2/v2"]);
+  });
+
+  it("rebuilds the index when a release reinstalls capture no search saw missing", async () => {
+    search.resetSearchIndexRuntime();
+    const { registered, tableName } = await isolatedRegistration("unseen");
+    await run(`INSERT INTO ${tableName} (id, title) VALUES ('kept', 'Kept')`);
+    expect(await prepareFully(registered)).toEqual({ ready: true });
+    await dropCapture({
+      app: "isolated",
+      resourceType: "unseen",
+      table: tableName,
+      idColumn: "id",
+    });
+    await run(
+      `INSERT INTO ${tableName} (id, title) VALUES ('missed', 'Missed')`,
+    );
+    await search.searchIndexMigration(registered, {
+      version: 1,
+      name: "capture-unseen-again",
+    }).run!(exec());
+    search.resetSearchIndexRuntime();
+    expect(await prepareFully(registered)).toEqual({ ready: true });
+    expect(await indexedIds("unseen")).toEqual(["kept", "missed"]);
+  });
+
+  it("is left to the newer version when an older release migrates later", async () => {
+    const { registered, tableName } = await isolatedRegistration("superseded");
+    await search.searchIndexMigration(
+      { ...registered, version: 2 },
+      { version: 1, name: "capture-superseded-newer" },
+    ).run!(exec());
+    const source = {
+      app: "isolated",
+      resourceType: "superseded",
+      table: tableName,
+      idColumn: "id",
+    };
+    // With the newer build's triggers gone, anything the older release
+    // installs shows up as capture.
+    await dropCapture(source);
+    await search.searchIndexMigration(registered, {
+      version: 1,
+      name: "capture-superseded-older",
+    }).run!(exec());
+    expect(await feed.resourceChangeCaptureInstalled(exec(), source)).toBe(
+      false,
+    );
   });
 });
 

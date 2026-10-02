@@ -7,11 +7,13 @@ import {
   installResourceChangeCapture,
   registerAfterWriteDrain,
   resourceChangeCaptureFingerprint,
+  resourceChangeCaptureInstalled,
   resourceChangeTriggerNames,
   type ResourceChangeSource,
 } from "../resource-changes/store.js";
 import {
   ensureSearchIndexTables,
+  invalidateSearchIndex,
   raiseSearchIndexTarget,
 } from "./index-store.js";
 
@@ -166,7 +168,11 @@ export function searchIndexMigration(
       // Before capture exists: a build still running a lower version would
       // otherwise see this capture, finish a rebuild at its own version, and
       // answer from rows it didn't write.
-      await raiseSearchIndexTarget(exec, registration);
+      const target = await raiseSearchIndexTarget(exec, registration);
+      // A newer build owns the index and its capture, which this build's
+      // older SQL would replace.
+      if (target > registration.version) return;
+      const hadCapture = await resourceChangeCaptureInstalled(exec, source);
       const installed = await installResourceChangeCapture(
         exec,
         source,
@@ -175,6 +181,10 @@ export function searchIndexMigration(
       // A busy table: try again at the next migration run, which serverless
       // hosts reach only at their next release, rather than block writes.
       if (!installed) return deferMigration();
+      // Writes made while capture was missing were never recorded. A search
+      // that saw it missing has already discarded the finished index, but
+      // nothing guarantees one ran.
+      if (!hadCapture) await invalidateSearchIndex(exec, registration);
     },
   };
 }
