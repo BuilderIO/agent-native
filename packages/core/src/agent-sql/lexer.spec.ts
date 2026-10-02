@@ -70,6 +70,24 @@ describe("lexAgentSql (postgres)", () => {
     expect(tokens.filter((t) => t.kind === "word")).toHaveLength(1);
   });
 
+  it.each(["\n", "\r", " /* continuation */\n", " -- continuation\n"])(
+    "refuses escape-string continuation across %j",
+    (separator) => {
+      expect(() => pg(`SELECT E'first'${separator}'second'`)).toThrow(
+        /Continuation after an escape string/,
+      );
+    },
+  );
+
+  it("allows separate escape and ordinary strings in expressions", () => {
+    expect(
+      pg("SELECT E'first', 'second'").filter((t) => t.kind === "string"),
+    ).toHaveLength(2);
+    expect(
+      pg("SELECT 'first'\n'second'").filter((t) => t.kind === "string"),
+    ).toHaveLength(2);
+  });
+
   it("keeps a dotted reference visible through comments and quoting", () => {
     expect(qualifiedPairs('SELECT * FROM "Sch" /* c */ . -- c\n "T"')).toEqual([
       "Sch.T",

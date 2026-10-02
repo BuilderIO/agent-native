@@ -93,6 +93,87 @@ export function agentSqlCalledNames(tokens: AgentSqlToken[]): string[] {
   return names;
 }
 
+/**
+ * Type-conversion candidates in Postgres expressions. Calls are included
+ * because `name(value)` can resolve as a cast instead of a function.
+ */
+export function agentSqlTypeNames(tokens: AgentSqlToken[]): Set<string> {
+  const names = new Set<string>();
+  const declarationNames = new Set<number>();
+  const closingParentheses = new Map<number, number>();
+  const openingParentheses: number[] = [];
+  const parentheses: Array<{ cast: boolean }> = [];
+
+  function nameEnd(index: number): number | null {
+    if (!isName(tokens[index])) return null;
+    while (isPunctuation(tokens[index + 1], ".") && isName(tokens[index + 2])) {
+      index += 2;
+    }
+    return index;
+  }
+
+  function addType(index: number): void {
+    const end = nameEnd(index);
+    if (end !== null) names.add(tokens[end].value);
+  }
+
+  // INSERT target column lists are declarations, even though their target
+  // name followed by `(` otherwise looks like a type-conversion call.
+  for (let index = 0; index < tokens.length; index++) {
+    if (isPunctuation(tokens[index], "(")) openingParentheses.push(index);
+    else if (isPunctuation(tokens[index], ")")) {
+      const open = openingParentheses.pop();
+      if (open !== undefined) closingParentheses.set(open, index);
+    }
+    if (tokens[index].kind !== "word" || tokens[index].value !== "into")
+      continue;
+    const end = nameEnd(index + 1);
+    if (end === null) continue;
+    declarationNames.add(end);
+  }
+
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
+    if (isPunctuation(token, "::")) addType(index + 1);
+    if (
+      token.kind === "word" &&
+      token.value === "as" &&
+      parentheses.at(-1)?.cast
+    ) {
+      addType(index + 1);
+    }
+    if (isPunctuation(token, "(")) {
+      const previous = tokens[index - 1];
+      parentheses.push({
+        cast: previous?.kind === "word" && previous.value === "cast",
+      });
+    } else if (isPunctuation(token, ")")) {
+      parentheses.pop();
+    }
+
+    if (!isName(token)) continue;
+    if (tokens[index + 1]?.kind === "string") names.add(token.value);
+    if (!isPunctuation(tokens[index + 1], "(")) continue;
+    if (declarationNames.has(index)) continue;
+    const previous = tokens[index - 1];
+    if (previous?.kind === "word" && previous.value === "as") continue;
+
+    const close = closingParentheses.get(index + 1);
+    if (
+      close !== undefined &&
+      tokens[close + 1]?.kind === "word" &&
+      tokens[close + 1].value === "as" &&
+      (isPunctuation(tokens[close + 2], "(") ||
+        (tokens[close + 2]?.kind === "word" &&
+          ["materialized", "not"].includes(tokens[close + 2].value)))
+    ) {
+      continue;
+    }
+    names.add(token.value);
+  }
+  return names;
+}
+
 /** Every unquoted and quoted identifier value in the statement. */
 export function agentSqlIdentifierNames(tokens: AgentSqlToken[]): Set<string> {
   const names = new Set<string>();

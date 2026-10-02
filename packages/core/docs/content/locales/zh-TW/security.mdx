@@ -244,7 +244,7 @@ CREATE TEMPORARY VIEW "notes" AS
 
 當該列尚不存在時，INSERT 語句會自動注入 `owner_email`。
 
-`db-query`、`db-exec` 和 `db-patch` 工具依照 Postgres 的方式讀取每條陳述式，並在交易內檢查每個名稱都解析為上述臨時檢視之一。它們會拒絕帶有結構描述或資料庫限定的名稱（`public.<table>`）、檢視未涵蓋的關聯、應用程式定義的 SQL 或 PL/pgSQL 函式與運算子，以及執行 SQL 文字或變更工作階段設定的內建函式。`db-query` 以唯讀方式執行。代理使用裸表名稱；範圍會自動套用。當你的應用程式自行執行代理撰寫的 SQL 時，請使用 `@agent-native/core/agent-sql` 套用相同的檢查。
+`db-query`、`db-exec` 和 `db-patch` 工具檢查 SQL 詞元邊界，並在交易內驗證每個關聯名稱都解析為上述臨時檢視之一。它們會拒絕帶有結構描述或資料庫限定的名稱（`public.<table>`）、檢視未涵蓋的關聯、與 `pg_catalog` 以外的函式或運算子相符的名稱（包含擴充套件），以及執行 SQL 文字或存取伺服器、工作階段或序列狀態的特定內建函式。PostgreSQL 跳脫字串的接續語法不受支援，會被拒絕。`db-query` 以唯讀方式執行。代理使用裸表名稱。範圍會自動套用。這些檢查限定直接 SQL 讀取和寫入的範圍，並拒絕未經核准的明確常式呼叫和型別轉換。經過審查的結構描述預設值、條件約束、觸發程序、型別強制轉換和型別輸入/輸出仍屬於受信任的資料庫行為。應用程式可以透過 `@agent-native/core/agent-sql` 重用這些檢查。其中的 `readAgentSqlQuery()` 會識別受支援的 `SELECT`/`WITH` 查詢中的資料表來源及其精確文字範圍，`rewriteAgentSqlQuerySources()` 則替換這些範圍。呼叫端必須限制允許的來源並確保唯讀執行。
 
 ### 每個組織範圍界定 (`org_id`)
 
