@@ -42,7 +42,12 @@ summaries for the visible rows, plus row count and total row count, so agents
 can tell whether the user is looking at the full collection or a constrained
 slice and can refer to the same rows and cells the user can currently scan;
 for calendar and timeline views this summary is limited to rows in the
-current visible date window plus rows shown in the "No date" section. When
+current visible date window plus rows shown in the "No date" section. Each
+cell summary carries display `text` (cut at 200 characters with
+`textTruncated: true`) and carries `value` only when it differs from that
+text; read the row with `get-content-database` for full values. The row cap
+shrinks to keep the whole navigation state under 48 KB, and
+`databaseVisibleItemLimit` reports the cap actually applied. When
 footer calculations are active, navigation state also includes
 `databaseCalculationResults` with the visible result text for each calculated
 column. When table rows are selected, navigation state also includes

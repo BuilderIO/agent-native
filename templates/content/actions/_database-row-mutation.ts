@@ -291,22 +291,38 @@ export function systemDatabaseMutationMessage(systemRole: string) {
   }
 }
 
+/** Database state the caller already read in this request. */
+export type LoadedDatabaseSchema = {
+  database: DatabaseRow;
+  definitions: DefinitionRow[];
+  sourceManagedPropertyIds: Set<string>;
+};
+
 export async function loadContext(
   target: DatabaseMutationTargetInput,
   role: "viewer" | "editor",
   db: Db = getDb(),
   accessAlreadyResolved = false,
   includeDeleted = false,
+  loaded?: LoadedDatabaseSchema,
 ): Promise<MutationContext> {
-  const [database] = await db
-    .select()
-    .from(schema.contentDatabases)
-    .where(
-      and(
-        eq(schema.contentDatabases.id, target.databaseId),
-        includeDeleted ? undefined : isNull(schema.contentDatabases.deletedAt),
-      ),
-    );
+  const [database] = loaded
+    ? [loaded.database].filter(
+        (candidate) =>
+          candidate.id === target.databaseId &&
+          (includeDeleted || !candidate.deletedAt),
+      )
+    : await db
+        .select()
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            eq(schema.contentDatabases.id, target.databaseId),
+            includeDeleted
+              ? undefined
+              : isNull(schema.contentDatabases.deletedAt),
+          ),
+        );
   if (!database) {
     throw new ActionContractError("Content database not found.", {
       errorCode: "DATABASE_NOT_FOUND",
@@ -360,6 +376,19 @@ export async function loadContext(
       { errorCode: "SYSTEM_DATABASE_UNSUPPORTED", statusCode: 400 },
     );
   }
+  if (loaded) {
+    return {
+      database,
+      databaseDocument,
+      definitions: loaded.definitions,
+      sourceManagedPropertyIds: loaded.sourceManagedPropertyIds,
+      schemaRevision: schemaRevisionFor(
+        database,
+        loaded.definitions,
+        loaded.sourceManagedPropertyIds,
+      ),
+    };
+  }
   const definitions = await db
     .select()
     .from(schema.documentPropertyDefinitions)
@@ -396,13 +425,18 @@ export async function loadContext(
 
 export async function getDatabaseMutationContract(
   target: DatabaseMutationTarget,
-  options: { accessAlreadyResolved?: boolean } = {},
+  options: {
+    accessAlreadyResolved?: boolean;
+    loaded?: LoadedDatabaseSchema;
+  } = {},
 ): Promise<ContentDatabaseMutationContract> {
   const context = await loadContext(
     target,
     "viewer",
     getDb(),
     options.accessAlreadyResolved,
+    false,
+    options.loaded,
   );
   return {
     target: {

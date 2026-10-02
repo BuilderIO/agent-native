@@ -77,27 +77,59 @@ type ContentDatabaseItemRow = InferSelectModel<
   typeof schema.contentDatabaseItems
 >;
 type DbClient = ReturnType<typeof getDb>;
+type PropertyDefinitionRow = InferSelectModel<
+  typeof schema.documentPropertyDefinitions
+>;
 
-async function sourceManagedPropertyIdsForDatabase(
+/**
+ * A database's property definitions (in display order) and its source field
+ * bindings. Read once per request and pass it down; every list helper below
+ * would otherwise re-read both.
+ */
+export type DatabasePropertySchema = {
+  definitions: PropertyDefinitionRow[];
+  sourceFields: Array<{
+    propertyId: string | null;
+    writeOwner: string;
+    readOnly: number;
+    sourceMetadataJson: string;
+  }>;
+  sourceManagedPropertyIds: Set<string>;
+};
+
+export async function readDatabasePropertySchema(
   db: DbClient,
   databaseId: string,
-) {
-  const fields = await db
-    .select({
-      propertyId: schema.contentDatabaseSourceFields.propertyId,
-      writeOwner: schema.contentDatabaseSourceFields.writeOwner,
-      readOnly: schema.contentDatabaseSourceFields.readOnly,
-    })
-    .from(schema.contentDatabaseSourceFields)
-    .innerJoin(
-      schema.contentDatabaseSources,
-      eq(
-        schema.contentDatabaseSources.id,
-        schema.contentDatabaseSourceFields.sourceId,
-      ),
-    )
-    .where(eq(schema.contentDatabaseSources.databaseId, databaseId));
-  return contentDatabaseSourceManagedPropertyIds(fields);
+): Promise<DatabasePropertySchema> {
+  const [definitions, sourceFields] = await Promise.all([
+    db
+      .select()
+      .from(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.databaseId, databaseId))
+      .orderBy(asc(schema.documentPropertyDefinitions.position)),
+    db
+      .select({
+        propertyId: schema.contentDatabaseSourceFields.propertyId,
+        writeOwner: schema.contentDatabaseSourceFields.writeOwner,
+        readOnly: schema.contentDatabaseSourceFields.readOnly,
+        sourceMetadataJson: schema.contentDatabaseSources.metadataJson,
+      })
+      .from(schema.contentDatabaseSourceFields)
+      .innerJoin(
+        schema.contentDatabaseSources,
+        eq(
+          schema.contentDatabaseSources.id,
+          schema.contentDatabaseSourceFields.sourceId,
+        ),
+      )
+      .where(eq(schema.contentDatabaseSources.databaseId, databaseId)),
+  ]);
+  return {
+    definitions,
+    sourceFields,
+    sourceManagedPropertyIds:
+      contentDatabaseSourceManagedPropertyIds(sourceFields),
+  };
 }
 
 export function nanoid(size = 12): string {
@@ -650,40 +682,38 @@ export async function listPropertiesForAllDocumentDatabases(
 export async function listPropertiesForDatabase(
   databaseId: string,
   valueDocument?: DocumentRow,
-  options: { includeContainerDerivedValues?: boolean } = {},
+  options: {
+    includeContainerDerivedValues?: boolean;
+    propertySchema?: DatabasePropertySchema;
+  } = {},
 ) {
   const db = getDb();
-  const definitions = await db
-    .select()
-    .from(schema.documentPropertyDefinitions)
-    .where(eq(schema.documentPropertyDefinitions.databaseId, databaseId))
-    .orderBy(asc(schema.documentPropertyDefinitions.position));
+  const { definitions, sourceManagedPropertyIds } =
+    options.propertySchema ??
+    (await readDatabasePropertySchema(db, databaseId));
 
   if (definitions.length === 0) return [];
   const includeContainerDerivedValues =
     options.includeContainerDerivedValues !== false;
-  const [
-    sourceManagedPropertyIds,
-    values,
-    databaseRowNumber,
-    blockContentByPropertyId,
-  ] = await Promise.all([
-    sourceManagedPropertyIdsForDatabase(db, databaseId),
-    valueDocument
-      ? db
-          .select()
-          .from(schema.documentPropertyValues)
-          .where(eq(schema.documentPropertyValues.documentId, valueDocument.id))
-      : [],
-    valueDocument &&
-    includeContainerDerivedValues &&
-    definitions.some((definition) => definition.type === "id")
-      ? databaseRowNumberForDocument(databaseId, valueDocument.id)
-      : undefined,
-    valueDocument
-      ? blockFieldContentsForDocument(valueDocument.id)
-      : new Map<string, string>(),
-  ]);
+  const [values, databaseRowNumber, blockContentByPropertyId] =
+    await Promise.all([
+      valueDocument
+        ? db
+            .select()
+            .from(schema.documentPropertyValues)
+            .where(
+              eq(schema.documentPropertyValues.documentId, valueDocument.id),
+            )
+        : [],
+      valueDocument &&
+      includeContainerDerivedValues &&
+      definitions.some((definition) => definition.type === "id")
+        ? databaseRowNumberForDocument(databaseId, valueDocument.id)
+        : undefined,
+      valueDocument
+        ? blockFieldContentsForDocument(valueDocument.id)
+        : new Map<string, string>(),
+    ]);
 
   const valueByPropertyId = new Map(
     values.map((value) => [value.propertyId, value]),
@@ -794,25 +824,15 @@ export async function listPropertiesForDatabase(
       : property,
   );
 
-  const nextProperties = [];
-  for (const property of evaluatedProperties) {
-    if (
-      property.definition.type === "rollup" &&
-      includeContainerDerivedValues
-    ) {
-      nextProperties.push({
-        ...property,
-        value: await evaluatePropertyRollup(property, evaluatedProperties),
-      });
-    } else if (property.definition.type === "rollup") {
-      nextProperties.push({ ...property, value: null });
-    } else {
-      nextProperties.push(property);
-    }
+  if (!includeContainerDerivedValues) {
+    return evaluatedProperties.map((property) =>
+      property.definition.type === "rollup"
+        ? { ...property, value: null }
+        : property,
+    );
   }
-
-  if (!includeContainerDerivedValues) return nextProperties;
-  const [withTargets] = await withRelationTargets(db, [nextProperties]);
+  const [withRollups] = await withRollupValues([evaluatedProperties]);
+  const [withTargets] = await withRelationTargets(db, [withRollups]);
   return withTargets;
 }
 
@@ -844,62 +864,30 @@ function propertyValueKey(documentId: string, propertyId: string) {
 export async function listPropertiesForDatabaseDocuments(
   databaseId: string,
   valueDocuments: DocumentRow[],
+  options: {
+    /**
+     * Blocks field identities need each document's full body: the primary
+     * field is the body itself. List reads project documents without
+     * `content`, so asking for identities there would report every field as
+     * stale against an empty body (and reconcile one diff per row).
+     */
+    includeBlocksFieldIdentity: boolean;
+    propertySchema?: DatabasePropertySchema;
+  },
 ): Promise<Map<string, DocumentProperty[]>> {
   const db = getDb();
-  const definitions = await db
-    .select()
-    .from(schema.documentPropertyDefinitions)
-    .where(eq(schema.documentPropertyDefinitions.databaseId, databaseId))
-    .orderBy(asc(schema.documentPropertyDefinitions.position));
   const result = new Map<string, DocumentProperty[]>();
   if (valueDocuments.length === 0) return result;
+  const { definitions, sourceManagedPropertyIds } =
+    options.propertySchema ??
+    (await readDatabasePropertySchema(db, databaseId));
   if (definitions.length === 0) {
     for (const document of valueDocuments) result.set(document.id, []);
     return result;
   }
-  const sourceManagedPropertyIds = await sourceManagedPropertyIdsForDatabase(
-    db,
-    databaseId,
-  );
 
   const documentIds = valueDocuments.map((document) => document.id);
   const propertyIds = definitions.map((definition) => definition.id);
-  const values: Array<typeof schema.documentPropertyValues.$inferSelect> = [];
-  for (const documentIdChunk of chunks(documentIds, 200)) {
-    for (const propertyIdChunk of chunks(propertyIds, 200)) {
-      values.push(
-        ...(await db
-          .select()
-          .from(schema.documentPropertyValues)
-          .where(
-            and(
-              inArray(
-                schema.documentPropertyValues.documentId,
-                documentIdChunk,
-              ),
-              inArray(
-                schema.documentPropertyValues.propertyId,
-                propertyIdChunk,
-              ),
-            ),
-          )),
-      );
-    }
-  }
-  const valueByDocumentAndProperty = new Map(
-    values.map((value) => [
-      propertyValueKey(value.documentId, value.propertyId),
-      value,
-    ]),
-  );
-
-  const rowNumberByDocumentId = definitions.some(
-    (definition) => definition.type === "id",
-  )
-    ? await databaseRowNumbersByDocumentId(databaseId)
-    : new Map<string, number>();
-
-  const blockContentByDocumentAndProperty = new Map<string, string>();
   const hasAdditionalBlocksFields = definitions.some((definition) => {
     const type = definition.type as DocumentPropertyType;
     return (
@@ -907,55 +895,91 @@ export async function listPropertiesForDatabaseDocuments(
       !isPrimaryBlocksField(parsePropertyOptions(definition.optionsJson))
     );
   });
-  if (hasAdditionalBlocksFields) {
-    for (const documentIdChunk of chunks(documentIds, 200)) {
-      const rows = await db
-        .select({
-          documentId: schema.documentBlockFieldContents.documentId,
-          propertyId: schema.documentBlockFieldContents.propertyId,
-          content: schema.documentBlockFieldContents.content,
-        })
-        .from(schema.documentBlockFieldContents)
-        .where(
-          inArray(
-            schema.documentBlockFieldContents.documentId,
-            documentIdChunk,
-          ),
-        );
-      for (const row of rows) {
-        blockContentByDocumentAndProperty.set(
-          propertyValueKey(row.documentId, row.propertyId),
-          row.content ?? "",
-        );
-      }
-    }
-  }
-
-  const blocksFieldIdentityById = await readBlocksFieldIdentities({
-    db,
-    fields: valueDocuments.flatMap((document) =>
-      definitions.flatMap((definition) => {
-        const type = definition.type as DocumentPropertyType;
-        if (!isBlocksPropertyType(type)) return [];
-        const options = parsePropertyOptions(definition.optionsJson);
-        return [
-          {
-            documentId: document.id,
-            propertyId: definition.id,
-            markdown: resolveBlocksFieldValue({
-              options,
-              documentBody: document.content,
-              blockFieldContent: blockContentByDocumentAndProperty.get(
-                propertyValueKey(document.id, definition.id),
+  const [values, rowNumberByDocumentId, blockContentRows] = await Promise.all([
+    Promise.all(
+      chunks(documentIds, 200).flatMap((documentIdChunk) =>
+        chunks(propertyIds, 200).map((propertyIdChunk) =>
+          db
+            .select()
+            .from(schema.documentPropertyValues)
+            .where(
+              and(
+                inArray(
+                  schema.documentPropertyValues.documentId,
+                  documentIdChunk,
+                ),
+                inArray(
+                  schema.documentPropertyValues.propertyId,
+                  propertyIdChunk,
+                ),
               ),
-            }),
-          },
-        ];
-      }),
-    ),
-  });
+            ),
+        ),
+      ),
+    ).then((groups) => groups.flat()),
+    definitions.some((definition) => definition.type === "id")
+      ? databaseRowNumbersByDocumentId(databaseId)
+      : new Map<string, number>(),
+    hasAdditionalBlocksFields
+      ? Promise.all(
+          chunks(documentIds, 200).map((documentIdChunk) =>
+            db
+              .select({
+                documentId: schema.documentBlockFieldContents.documentId,
+                propertyId: schema.documentBlockFieldContents.propertyId,
+                content: schema.documentBlockFieldContents.content,
+              })
+              .from(schema.documentBlockFieldContents)
+              .where(
+                inArray(
+                  schema.documentBlockFieldContents.documentId,
+                  documentIdChunk,
+                ),
+              ),
+          ),
+        ).then((groups) => groups.flat())
+      : [],
+  ]);
+  const valueByDocumentAndProperty = new Map(
+    values.map((value) => [
+      propertyValueKey(value.documentId, value.propertyId),
+      value,
+    ]),
+  );
+  const blockContentByDocumentAndProperty = new Map(
+    blockContentRows.map((row) => [
+      propertyValueKey(row.documentId, row.propertyId),
+      row.content ?? "",
+    ]),
+  );
 
-  for (const document of valueDocuments) {
+  const blocksFieldIdentityById = options.includeBlocksFieldIdentity
+    ? await readBlocksFieldIdentities({
+        db,
+        fields: valueDocuments.flatMap((document) =>
+          definitions.flatMap((definition) => {
+            const type = definition.type as DocumentPropertyType;
+            if (!isBlocksPropertyType(type)) return [];
+            const options = parsePropertyOptions(definition.optionsJson);
+            return [
+              {
+                documentId: document.id,
+                propertyId: definition.id,
+                markdown: resolveBlocksFieldValue({
+                  options,
+                  documentBody: document.content,
+                  blockFieldContent: blockContentByDocumentAndProperty.get(
+                    propertyValueKey(document.id, definition.id),
+                  ),
+                }),
+              },
+            ];
+          }),
+        ),
+      })
+    : null;
+
+  const propertyLists = valueDocuments.map((document) => {
     const properties = definitions.map((definition) => {
       const propertyDefinition = serializePropertyDefinition(definition);
       const storedValue = valueByDocumentAndProperty.get(
@@ -983,7 +1007,8 @@ export async function listPropertiesForDatabaseDocuments(
           !definition.systemRole &&
           !isComputedPropertyType(propertyDefinition.type) &&
           !sourceManagedPropertyIds.has(definition.id),
-        ...(isBlocksPropertyType(propertyDefinition.type)
+        ...(blocksFieldIdentityById &&
+        isBlocksPropertyType(propertyDefinition.type)
           ? {
               blocksField: blocksFieldIdentityById.get(
                 blocksFieldId(document.id, definition.id),
@@ -998,7 +1023,7 @@ export async function listPropertiesForDatabaseDocuments(
         .filter((property) => property.definition.type !== "formula")
         .map((property) => [property.definition.name, property.value]),
     );
-    const evaluatedProperties = properties.map((property) =>
+    return properties.map((property) =>
       property.definition.type === "formula"
         ? {
             ...property,
@@ -1009,58 +1034,136 @@ export async function listPropertiesForDatabaseDocuments(
           }
         : property,
     );
-    const nextProperties = [];
-    for (const property of evaluatedProperties) {
-      if (property.definition.type === "rollup") {
-        nextProperties.push({
-          ...property,
-          value: await evaluatePropertyRollup(property, evaluatedProperties),
-        });
-      } else {
-        nextProperties.push(property);
-      }
-    }
-    result.set(document.id, nextProperties);
-  }
+  });
 
-  const documentIdsInOrder = [...result.keys()];
-  const withTargets = await withRelationTargets(db, [...result.values()]);
-  documentIdsInOrder.forEach((documentId, index) => {
-    result.set(documentId, withTargets[index]!);
+  const withTargets = await withRelationTargets(
+    db,
+    await withRollupValues(propertyLists),
+  );
+  valueDocuments.forEach((document, index) => {
+    result.set(document.id, withTargets[index]!);
   });
   return result;
 }
 
-async function evaluatePropertyRollup(
+type RollupPlan = {
+  aggregation: string;
+  linkedDocumentIds: string[];
+  targetProperty: DocumentProperty | null;
+};
+
+function rollupPlan(
   property: DocumentProperty,
   properties: DocumentProperty[],
-): Promise<DocumentPropertyValue> {
+): RollupPlan {
   const config = property.definition.options.rollup;
   const relationPropertyId = config?.relationPropertyId ?? null;
   const targetPropertyId = config?.targetPropertyId ?? null;
-  const aggregation = config?.aggregation ?? "count";
   const relationProperty = relationPropertyId
     ? properties.find(
         (candidate) => candidate.definition.id === relationPropertyId,
       )
     : null;
-  const linkedDocumentIds = relationValueIds(relationProperty?.value);
+  return {
+    aggregation: config?.aggregation ?? "count",
+    linkedDocumentIds: relationValueIds(relationProperty?.value),
+    targetProperty: targetPropertyId
+      ? (properties.find(
+          (candidate) => candidate.definition.id === targetPropertyId,
+        ) ?? null)
+      : null,
+  };
+}
 
-  if (aggregation === "count") return linkedDocumentIds.length;
-  if (linkedDocumentIds.length === 0) return null;
-
-  const targetProperty = targetPropertyId
-    ? properties.find(
-        (candidate) => candidate.definition.id === targetPropertyId,
-      )
-    : null;
-  if (!targetProperty) return null;
-
-  const values = await propertyValuesForLinkedDocuments(
-    linkedDocumentIds,
-    targetProperty,
+function rollupReadsLinkedValues(plan: RollupPlan) {
+  return (
+    plan.aggregation !== "count" &&
+    plan.linkedDocumentIds.length > 0 &&
+    plan.targetProperty !== null
   );
-  const filledValues = values.filter((value) => !isEmptyPropertyValue(value));
+}
+
+/**
+ * Evaluate every rollup in `propertyLists` (one list per row) with one
+ * linked-value read per rollup property across all rows, not one per row.
+ */
+async function withRollupValues(
+  propertyLists: DocumentProperty[][],
+): Promise<DocumentProperty[][]> {
+  if (
+    !propertyLists.some((properties) =>
+      properties.some((property) => property.definition.type === "rollup"),
+    )
+  ) {
+    return propertyLists;
+  }
+  const requests = new Map<
+    string,
+    { targetProperty: DocumentProperty; documentIds: Set<string> }
+  >();
+  for (const properties of propertyLists) {
+    for (const property of properties) {
+      if (property.definition.type !== "rollup") continue;
+      const plan = rollupPlan(property, properties);
+      if (!rollupReadsLinkedValues(plan)) continue;
+      let request = requests.get(property.definition.id);
+      if (!request) {
+        request = {
+          targetProperty: plan.targetProperty!,
+          documentIds: new Set(),
+        };
+        requests.set(property.definition.id, request);
+      }
+      for (const id of plan.linkedDocumentIds) request.documentIds.add(id);
+    }
+  }
+  const linkedValuesByRollupId = new Map(
+    await Promise.all(
+      [...requests].map(async ([rollupId, request]) => {
+        const valueByDocumentId = new Map<string, DocumentPropertyValue>();
+        for (const ids of chunks([...request.documentIds], 500)) {
+          const values = await propertyValuesForLinkedDocuments(
+            ids,
+            request.targetProperty,
+          );
+          ids.forEach((id, index) => {
+            valueByDocumentId.set(id, values[index] ?? null);
+          });
+        }
+        return [rollupId, valueByDocumentId] as const;
+      }),
+    ),
+  );
+  return propertyLists.map((properties) =>
+    properties.map((property) => {
+      if (property.definition.type !== "rollup") return property;
+      const plan = rollupPlan(property, properties);
+      const valueByDocumentId = linkedValuesByRollupId.get(
+        property.definition.id,
+      );
+      return {
+        ...property,
+        value: aggregateRollup(
+          plan,
+          plan.linkedDocumentIds.map(
+            (id) => valueByDocumentId?.get(id) ?? null,
+          ),
+        ),
+      };
+    }),
+  );
+}
+
+function aggregateRollup(
+  plan: RollupPlan,
+  linkedValues: DocumentPropertyValue[],
+): DocumentPropertyValue {
+  const { aggregation } = plan;
+  if (aggregation === "count") return plan.linkedDocumentIds.length;
+  if (!rollupReadsLinkedValues(plan)) return null;
+  const filledValues = linkedValues.filter(
+    (value) => !isEmptyPropertyValue(value),
+  );
 
   if (aggregation === "count_values") return filledValues.length;
   if (aggregation === "count_unique") {

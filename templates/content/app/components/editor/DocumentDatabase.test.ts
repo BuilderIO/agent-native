@@ -14,6 +14,11 @@ import type {
 import { describe, expect, it } from "vitest";
 
 import {
+  DATABASE_NAVIGATION_STATE_MAX_BYTES,
+  DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
+  fitDatabaseNavigationState,
+} from "./database/navigation-state";
+import {
   addDatabaseView,
   appendDatabaseFilter,
   applyDatabaseView,
@@ -2149,7 +2154,6 @@ describe("database item preview", () => {
             propertyId: "number",
             name: "Priority",
             type: "number",
-            value: 3,
             text: "3",
           },
           {
@@ -2162,6 +2166,115 @@ describe("database item preview", () => {
         ],
       },
     ]);
+  });
+
+  it("sends a cell's text once and marks text it cuts", () => {
+    const notes = property("notes", "Notes", "text");
+    const status = property("status", "Status", "status", null, {
+      options: [{ id: "opt-doing", name: "Doing", color: "blue" }],
+    });
+    const waiting = property("waiting", "Waiting on", "text");
+    const row: ContentDatabaseItem = {
+      ...item("alpha", "Alpha", {}),
+      properties: [
+        { ...notes, value: "x".repeat(250) },
+        { ...status, value: "opt-doing" },
+        { ...waiting, value: null },
+      ],
+    };
+
+    const [summary] = databaseVisibleItemSummaries(
+      [row],
+      [notes, status, waiting],
+    );
+
+    expect(summary?.properties).toEqual([
+      {
+        propertyId: "notes",
+        name: "Notes",
+        type: "text",
+        text: `${"x".repeat(200)}…`,
+        textTruncated: true,
+      },
+      {
+        propertyId: "status",
+        name: "Status",
+        type: "status",
+        value: "opt-doing",
+        text: "Doing",
+      },
+      { propertyId: "waiting", name: "Waiting on", type: "text", text: "" },
+    ]);
+  });
+
+  it("keeps navigation state for a wide database under the keepalive cap", () => {
+    const options = ["Not started", "In progress", "Waiting", "Done"].map(
+      (name, index) => ({ id: `opt-${index}`, name, color: "gray" as const }),
+    );
+    const columns = [
+      property("status", "Status", "status", null, { options }),
+      property("area", "Area", "select", null, { options }),
+      property("tags", "Tags", "multi_select", null, { options }),
+      property("rank", "Rank", "number"),
+      property("effort", "Effort", "number"),
+      property("due", "Due", "date"),
+      property("touched", "Last touched", "date"),
+      property("link", "Link", "url"),
+      ...["Next action", "Waiting on", "Notes", "Context", "Outcome"].map(
+        (name, index) => property(`text-${index}`, name, "text"),
+      ),
+    ];
+    const rows = Array.from({ length: 60 }, (_, index) => ({
+      ...item(`row-${index}`, `Task ${index} with a descriptive title`, {}),
+      properties: columns.map((column) => ({
+        ...column,
+        value:
+          column.definition.type === "text"
+            ? `Row ${index} ${"long free-form note text ".repeat(12)}`
+            : column.definition.type === "multi_select"
+              ? ["opt-0", "opt-2"]
+              : column.definition.type === "number"
+                ? index
+                : column.definition.type === "date"
+                  ? { start: "2026-06-01", includeTime: false }
+                  : column.definition.type === "url"
+                    ? `https://example.com/tasks/${index}`
+                    : "opt-1",
+      })),
+    }));
+    const state = databaseNavigationState({
+      document: { id: "database-doc", title: "Tasks" },
+      databaseId: "database",
+      activeView: { id: "default", name: "Table", type: "table" },
+      visibleItems: rows,
+      visibleProperties: columns,
+      visibleItemCount: rows.length,
+      totalItemCount: 230,
+      selectedItems: rows.slice(0, 40),
+      previewItem: null,
+    });
+    const bytes = (value: unknown) =>
+      new TextEncoder().encode(JSON.stringify(value)).length;
+    expect(bytes(state)).toBeGreaterThan(64 * 1024);
+
+    const fitted = fitDatabaseNavigationState(state);
+
+    expect(bytes(fitted)).toBeLessThanOrEqual(
+      DATABASE_NAVIGATION_STATE_MAX_BYTES,
+    );
+    expect(DATABASE_NAVIGATION_STATE_MAX_BYTES).toBeLessThan(64 * 1024);
+    expect(fitted.databaseVisibleItems.length).toBeGreaterThan(0);
+    expect(fitted.databaseVisibleItems.length).toBeLessThan(
+      DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
+    );
+    expect(fitted.databaseVisibleItemLimit).toBe(
+      fitted.databaseVisibleItems.length,
+    );
+    expect(fitted.databaseVisibleItems).toEqual(
+      state.databaseVisibleItems.slice(0, fitted.databaseVisibleItemLimit),
+    );
+    expect(fitted.databaseVisibleItemCount).toBe(60);
+    expect(fitDatabaseNavigationState(fitted)).toBe(fitted);
   });
 
   it("omits preview row ids from navigation state when no row is open", () => {

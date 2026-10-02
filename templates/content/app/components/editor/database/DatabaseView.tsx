@@ -1,5 +1,4 @@
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
-import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   getBrowserTabId,
   setClientAppState,
@@ -302,6 +301,11 @@ import {
 import { DatabaseFormView } from "./FormView";
 import { DatabaseGalleryView } from "./GalleryView";
 import { DatabaseListView } from "./ListView";
+import {
+  DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
+  databaseVisibleItemSummaries,
+  fitDatabaseNavigationState,
+} from "./navigation-state";
 import {
   databaseItemCanDuplicate,
   databaseItemCanRemoveFromDatabase,
@@ -1786,17 +1790,12 @@ function DatabaseTable({
       selectedItems,
       previewItem,
     });
-    fetch(
-      agentNativePath(
-        `/_agent-native/application-state/navigation:${getBrowserTabId()}`,
-      ),
-      {
-        method: "PUT",
-        keepalive: true,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(state),
-      },
-    ).catch(() => {});
+    void setClientAppState(
+      `navigation:${getBrowserTabId()}`,
+      fitDatabaseNavigationState(state),
+    ).catch(() => {
+      // Navigation sync is best-effort; the next view change rewrites it.
+    });
   }, [
     activeView,
     effectiveFrozenColumnIds,
@@ -4056,33 +4055,7 @@ export function databaseViewSummaries(
   }));
 }
 
-export const DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT = 50;
-
-export function databaseVisibleItemSummaries(
-  items: ContentDatabaseItem[],
-  visibleProperties: DocumentProperty[] = [],
-  limit = DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
-) {
-  return items.slice(0, limit).map((item) => ({
-    itemId: item.id,
-    documentId: item.document.id,
-    title: databaseItemPreviewTitle(item),
-    position: item.position,
-    properties: visibleProperties.map((property) => {
-      const itemProperty =
-        item.properties.find(
-          (candidate) => candidate.definition.id === property.definition.id,
-        ) ?? property;
-      return {
-        propertyId: property.definition.id,
-        name: property.definition.name,
-        type: property.definition.type,
-        value: itemProperty.value,
-        text: propertyValueText(itemProperty),
-      };
-    }),
-  }));
-}
+export { DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT, databaseVisibleItemSummaries };
 
 export function databaseCalculationSummaries(
   calculations: Record<string, DatabaseColumnCalculation> | undefined,
