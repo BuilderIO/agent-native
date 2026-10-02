@@ -48,6 +48,7 @@
   --page-muted: hsl(0 0% 40%);
   --page-card: hsl(0 0% 97%);
   --page-bg: hsl(0 0% 100%);
+  --live: hsl(145 63% 42%);
   --font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
 }
@@ -378,10 +379,16 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .inp.tokfield { padding-right: 0; }
 .tok-chip { display: inline-flex; align-items: center; gap: 4px; height: 18px; margin-right: auto; padding: 0 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font: 500 11px/18px var(--font); }
 .tok-chip svg.i { width: 12px; height: 12px; }
-.src-row { display: flex; align-items: center; gap: 8px; padding: 0 16px 12px; }
-.src-row .flabel { flex: none; width: 48px; }
-.src-row .inp.sel { flex: 1; min-width: 0; gap: 6px; padding: 0 4px 0 8px; }
-.src-row .inp.sel span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+/* A URL screen's connection: a status dot on the plug icon, green when the app answers, grey when it doesn't. */
+.sdot { width: 6px; height: 6px; border-radius: 50%; background: var(--live); flex: none; }
+.sdot.off { background: var(--muted-fg); }
+.src-ind { position: relative; }
+.src-ind .sdot { position: absolute; right: 4px; bottom: 4px; box-shadow: 0 0 0 1.5px var(--bg); }
+.inp.sel .v { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.src-offline { position: absolute; left: 50%; top: 24px; translate: -50% 0; z-index: 3; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 4px 0 12px; border-radius: 8px; background: var(--popover); box-shadow: var(--shadow); font-size: 12px; white-space: nowrap; }
+.src-offline button { height: 24px; padding: 0 8px; border-radius: 6px; background: var(--muted); font-weight: 500; }
+.src-offline button:hover { background: var(--border); }
+.page.stale { filter: grayscale(1); opacity: .55; }
 .segt { display: flex; padding: 2px; border-radius: 6px; background: var(--muted); }
 .segt button { flex: 1; height: 20px; border-radius: 4px; font-size: 12px; color: var(--muted-fg); }
 .segt button[aria-pressed="true"] { background: var(--bg); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / 10%); }
@@ -886,7 +893,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
   <button class="chip" id="labs-btn" aria-pressed="false" title="Annotate mode moves behind a Labs flag">Labs: Annotate</button>
   <button class="chip" id="labs-tokens" aria-pressed="true" title="Tokens ships behind a Labs flag">Labs: Tokens</button>
   <label class="chip" title="Compare history as a mode (timeline in the inspector) or today's sheet">History <select id="hist-style"><option value="mode">Mode</option><option value="sheet">Sheet (today)</option></select></label>
-  <label class="chip" title="Show the controls that only appear in some states">Scenario <select id="scenario-sel"><option value="none">Default</option><option value="feedback">Feedback queued</option><option value="rewrite">Changes to review</option><option value="local">Local app screen</option></select></label>
+  <label class="chip" title="Show the controls that only appear in some states">Scenario <select id="scenario-sel"><option value="none">Default</option><option value="feedback">Feedback queued</option><option value="rewrite">Changes to review</option><option value="local">Local app screen</option><option value="local-off">Local app stopped</option></select></label>
   <button class="chip" id="spec-grid-btn" aria-pressed="false" title="Show the indent spacers and the inspector's 88 / 8 / 88 / 8 / 32 grid">Spacing <span class="k">G</span></button>
   <button class="chip" id="theme-btn">Theme</button>
   <button class="chip" id="spec-btn" aria-pressed="false">Spec</button>
@@ -1091,13 +1098,22 @@ const boundToken = () => RESP.tok && RESP.tok[1] === RESP.w ? RESP.tok : null;
 const frameToken = () => boundToken() || nearestToken(RESP.w);
 const widthMenu = (cur, run) => { const [name, , kind] = (cur === RESP.w ? frameToken() : nearestToken(cur)) || []; return [{ label: "Container" }, ...widthTokens("container").map(([n, px]) => ({ t: n, k: String(px), radio: true, on: kind === "container" && name === n, run: () => run(px, [n, px, "container"]) })), "-", { label: "Breakpoint" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: n, k: String(px), radio: true, on: kind === "breakpoint" && name === n, run: () => run(px, [n, px, "breakpoint"]) }))]; };
 const whenMenu = (r) => [{ label: "Container (this layer's parent)" }, ...widthTokens("container").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), radio: true, on: r.scale === "container" && r.token === n, run: () => { r.scale = "container"; r.token = n; renderPage(); renderInspector(); } })), "-", { label: "Breakpoint (the frame)" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), radio: true, on: r.scale === "breakpoint" && r.token === n, run: () => { r.scale = "breakpoint"; r.token = n; renderPage(); renderInspector(); } }))];
-// A URL screen is like an instance of your app's route: it shows where it comes from, its Route row swaps the
-// route, and Detach from app freezes it as a static copy. Static screens have no source UI at all.
-const SRC = { live: true, app: "localhost:5173", apps: [["Agent-Native Web", "localhost:5173"]] };
-const urlScreen = () => S.scenario === "local" && SRC.live;
-const routeMenu = () => [...SRC.apps.flatMap(([name, host]) => [{ label: `${name} · ${host}` }, ...ROUTES.map(r => ({ icon: "world", t: r.path, k: r.screen, radio: true, on: S.route === r.path, run: () => { S.screenSel = true; go(r.path); } }))]),
-  { t: "Custom path…", toast: "Type a path on this app, like /plans" }, "-",
-  { icon: "file-code", t: "Detach from app", run: () => { SRC.live = false; render(); toast("Detached. This screen is now a static copy of the page; ⌘Z to undo."); } }];
+// A URL screen is like an instance of your app's route. Designers see the route; the app and its host live
+// behind the plug icon's status dot and tooltip. Detach from app freezes it as a static copy. Static screens
+// have no source UI at all.
+const SRC = { live: true, name: "Agent-Native Web", host: "localhost:5173", apps: [["Agent-Native Web", "localhost:5173"]] };
+const localApp = () => S.scenario === "local" || S.scenario === "local-off";
+const urlScreen = () => localApp() && SRC.live;
+const srcUp = () => S.scenario !== "local-off";
+const srcTip = () => srcUp() ? `${SRC.name} · ${SRC.host}` : `Can't reach ${SRC.name} at ${SRC.host}. Is its dev server running?`;
+const sdot = () => `<span class="sdot ${srcUp() ? "" : "off"}" title="${srcTip()}"></span>`;
+const routeMenu = () => [...SRC.apps.flatMap(([name]) => [...(SRC.apps.length > 1 ? [{ label: name }] : []), ...ROUTES.map(r => ({ t: r.path, radio: true, on: S.route === r.path, run: () => { S.screenSel = true; go(r.path); } }))]),
+  "-", { t: "Custom path…", toast: "Type a path on this app, like /plans" }];
+const appMenu = () => [{ label: SRC.name },
+  ...(srcUp()
+    ? [{ icon: "external-link", t: "Open in browser", k: SRC.host, toast: `Opens ${SRC.host}${S.route}` }, { icon: "refresh", t: "Reload screen", run: () => { renderPage(); toast(`Reloaded ${S.route}`); } }]
+    : [{ icon: "refresh", t: "Retry connection", run: () => { S.scenario = "local"; $("#scenario-sel").value = "local"; render(); toast(`Connected to ${SRC.name}`); } }]),
+  "-", { icon: "file-code", t: "Detach from app", disabled: !srcUp(), run: () => { SRC.live = false; render(); toast("Detached. This screen is now a static copy of the page; ⌘Z to undo."); } }];
 // Device sizes use the Frame tool's list, so there's one set of presets; a device sets W and a fixed H.
 const deviceMenu = () => FRAME_PRESETS.map(([key, label, icon, list]) => ({ icon, t: label, sub: list.map(([n, w, h]) => ({ t: n, k: `${w}\u2009×\u2009${h}`, radio: true, on: RESP.w === w && RESP.h === h, run: () => { RESP.h = h; setFrameWidth(w); } })) }));
 // The selected screen's frame, in the code's order: Screen, Position (X/Y, size with device presets),
@@ -1107,9 +1123,9 @@ function renderScreenInspector(el) {
   const wField = tok
     ? `<label class="inp tokfield"><span class="pre">W</span><button class="tok-chip" data-w-menu title="${tok[2] === "breakpoint" ? "Breakpoint" : "Container"} ${tok[0]} · ${tok[1]}px">${ic("assembly", "s12")}${tok[0]}</button><button class="post" data-w-menu aria-haspopup="menu" title="Width tokens">${ic("chevron-down", "s12")}</button></label>`
     : `<label class="inp"><span class="pre">W</span><input id="screen-w" value="${RESP.w}" aria-label="Frame width" inputmode="numeric"><button class="post" data-w-menu aria-haspopup="menu" title="Width tokens">${ic("chevron-down", "s12")}</button></label>`;
-  el.innerHTML = `<div class="sel-head"><div class="g"><span class="nm">${ic("frame", "s14")}<span>${screenName()}</span></span><span class="muted" style="font-size:12px" title="${urlScreen() ? "Live route from your connected app" : ""}">${urlScreen() ? SRC.app : S.route}</span></div></div>
+  el.innerHTML = `<div class="sel-head"><div class="g"><span class="nm">${ic("frame", "s14")}<span>${screenName()}</span></span><span class="muted" style="font-size:12px">${S.route}</span></div></div>
     <div class="insp-scroll">
-    ${urlScreen() ? sec("screen", "Screen", "", `<div class="src-row"><span class="flabel">Route</span><button class="inp sel" data-route-menu aria-haspopup="menu">${ic("world", "s12")}<span>${S.route}</span>${ic("chevron-down", "s12")}</button></div>`) : ""}
+    ${urlScreen() ? sec("screen", "Screen", `<button class="icon-btn xs src-ind" data-app-menu aria-haspopup="menu" title="${srcTip()}">${ic("plug-connected")}${sdot()}</button>`, `<div class="g5">${field("Route", `<button class="inp sel" data-route-menu aria-haspopup="menu"><span class="v">${S.route}</span>${ic("chevron-down", "s12")}</button>`, "c13")}</div>`) : ""}
     ${sec("position", "Position", `<button class="icon-btn xs" data-device-menu aria-haspopup="menu" title="Device sizes">${ic("devices")}</button>`, `
       <div class="g5">${field("Position", inp("X", "0px"))}${field("&nbsp;", inp("Y", "0px"), "c3")}</div>
       <div class="g5">${field("Size", wField)}${field("&nbsp;", `<label class="inp"><span class="pre">H</span><input id="screen-h" value="${RESP.h ? RESP.h : "Hug"}" aria-label="Frame height"></label>`, "c3")}</div>`)}
@@ -1131,9 +1147,11 @@ document.addEventListener("click", e => {
   const t = e.target;
   if (t.closest?.("[data-select-screen]")) { S.screenSel = true; S.multi = []; renderTree(); renderPage(); renderInspector(); return; }
   const dm = t.closest?.("[data-device-menu]"); if (dm) return openMenu(dm, deviceMenu(), { align: "right" });
-  const rm = t.closest?.("[data-route-menu]"); if (rm) return openMenu(rm, routeMenu(), { minWidth: 220 });
+  const rm = t.closest?.("[data-route-menu]"); if (rm) return openMenu(rm, routeMenu(), { minWidth: 184 });
+  if (t.closest?.("[data-app-retry]")) return appMenu().find(i => i.t === "Retry connection").run();
+  const am = t.closest?.("[data-app-menu]"); if (am) return openMenu(am, appMenu(), { align: "right", minWidth: 220 });
   const as = t.closest?.("[data-add-screen]");
-  if (as) return openMenu(as, [{ icon: "frame", t: "Blank screen", toast: "Adds a blank screen; press F for device sizes" }, ...(S.scenario === "local" ? [{ icon: "world", t: "From your app…", toast: "Lists your app's routes to add as live screens (Add a screen from your app)" }] : [{ icon: "world", t: "From your app…", toast: "Connect your app first: run agent-native design connect in its repo" }])], { align: "right" });
+  if (as) return openMenu(as, [{ icon: "frame", t: "Blank screen", toast: "Adds a blank screen; press F for device sizes" }, ...(localApp() ? [{ icon: "world", t: "From your app…", toast: "Lists your app's routes to add as live screens (Add a screen from your app)" }] : [{ icon: "world", t: "From your app…", toast: "Connect your app first: run agent-native design connect in its repo" }])], { align: "right" });
   const wm = t.closest?.("[data-w-menu]");
   if (wm) return openMenu(wm.closest(".inp") || wm, [...widthMenu(RESP.w, (px, tok) => setFrameWidth(px, false, tok)), ...(boundToken() ? ["-", { t: "Detach token", run: () => setFrameWidth(RESP.w) }] : [])]);
   if (t.closest?.("[data-resp-add]")) { const root = !FLAT[S.selected]?.parent; RESP.rules.push({ id: RESP.nextId++, node: S.selected, scale: root ? "breakpoint" : "container", token: root ? "md" : "md", change: respChoices(S.selected)[0] }); renderPage(); renderInspector(); return; }
@@ -1234,12 +1252,12 @@ function renderTopbar() {
     </div>
     <div class="tb-zone tb-center">
       ${interact ? `<span class="nav-btns"><button class="icon-btn" id="nav-back" title="Back" ${S.hIndex === 0 ? "disabled" : ""}>${ic("arrow-left")}</button><button class="icon-btn" id="nav-fwd" title="Forward" ${S.hIndex >= S.history.length - 1 ? "disabled" : ""}>${ic("arrow-right")}</button></span>
-      <button class="select route" id="route-btn" aria-haspopup="menu" title="Go to a route">${ic(S.scenario === "local" ? "world" : "circle-dashed")}<span class="v">${S.scenario === "local" ? "localhost:5173" + r.path : r.path}</span>${ic("chevron-down", "chev")}</button>
+      <button class="select route" id="route-btn" aria-haspopup="menu" title="Go to a route">${localApp() ? sdot() : ic("circle-dashed")}<span class="v">${r.path}</span>${ic("chevron-down", "chev")}</button>
       <span class="nav-btns"><button class="icon-btn" id="nav-reload" title="Reload">${ic("refresh")}</button></span>` : ""}
     </div>
     <div class="tb-zone tb-right">
       ${S.scenario === "rewrite" ? `<button class="btn secondary" style="height:28px;font-size:13px;border-radius:8px" id="review-changes" aria-haspopup="menu">${ic("stack-2", "s14")}Review changes · 2</button>` : ""}
-      ${!interact && S.scenario === "local" ? `<button class="icon-btn" id="apply-source" style="width:28px;height:28px" title="Apply to source (app/routes/_index.tsx)">${ic("device-floppy")}</button>` : ""}
+      ${!interact && localApp() ? `<button class="icon-btn" id="apply-source" style="width:28px;height:28px" title="Apply to source (app/routes/_index.tsx)">${ic("device-floppy")}</button>` : ""}
       <button class="select" id="zoom-btn" aria-haspopup="menu" title="Zoom (same in both modes)"><span class="v">${S.zoom}%</span>${ic("chevron-down", "chev")}</button>
     </div>
     <div class="tb-insp">
@@ -1314,6 +1332,10 @@ function renderPage() {
   $("#frame-label").innerHTML = `${S.route === "/docs" ? "Screen 2" : "Screen 1"} <span>${dev.w}</span>`;
   p.innerHTML = screenHTML(S.route, viewDesign());
   p.classList.toggle("readonly", H.active);
+  const off = urlScreen() && !srcUp();
+  p.classList.toggle("stale", off);
+  p.parentElement.querySelector(".src-offline")?.remove();
+  if (off) p.insertAdjacentHTML("afterend", `<div class="src-offline">${sdot()}<span>Can't reach ${SRC.name}</span><button data-app-retry>Retry connection</button></div>`);
   applyTokens();
   const scale = S.zoom / 100;
   p.style.transform = scale === 1 ? "" : `scale(${scale})`;
