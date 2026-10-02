@@ -293,6 +293,11 @@ import {
 export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
 
+type AgentChatRunTrackingSource = Pick<
+  TrackingMeta,
+  "userId" | "authUserId" | "anonymousId" | "sessionId"
+> & { isSyntheticTraffic?: boolean };
+
 export function trackAgentChatRunLifecycle(
   event: "run_started" | "run_finished" | "run_no_reply",
   threadId: string | undefined,
@@ -300,8 +305,15 @@ export function trackAgentChatRunLifecycle(
   userId?: string,
   properties: Record<string, unknown> = {},
   appId?: string,
+  trackingSource?: AgentChatRunTrackingSource,
 ): void {
-  if (!threadId?.trim() || !attemptId?.trim()) return;
+  if (
+    !threadId?.trim() ||
+    !attemptId?.trim() ||
+    trackingSource?.isSyntheticTraffic === true
+  ) {
+    return;
+  }
   track(
     event,
     {
@@ -310,7 +322,7 @@ export function trackAgentChatRunLifecycle(
       thread_id: threadId,
       attempt_id: attemptId,
     },
-    runLifecycleTrackingSource(userId),
+    trackingSource ?? runLifecycleTrackingSource(userId),
   );
 }
 
@@ -1038,11 +1050,11 @@ export function resolveHostedBuilderHandoff(
 
 /** Setup CTAs that must be callable on the very first request.
  *
- *  Both are recovery actions: the agent should answer "connect Builder for me"
+ *  Both are recovery actions: the agent should answer "use Builder.io for me"
  *  or a failed upload by rendering the inline card, not by spending a turn in
  *  `tool-search` first. `connect-builder` is registered in every registry that
  *  receives `browserTools`, local dev included, so naming it only through the
- *  hosted-only handoff left local dev advertising "Connect Builder.io" in the
+ *  hosted-only handoff left local dev advertising "Use Builder.io" in the
  *  UI while the agent was never told the tool existed. Names the registry does
  *  not have are dropped by `filterInitialEngineTools`, so listing both here is
  *  safe for lean registries. */
@@ -2006,6 +2018,7 @@ export function createAgentChatPlugin(
           {
             bridgeTools: options?.codeExecution?.bridgeTools,
             evaluator: productionEvaluator,
+            appActionNames: Object.keys(templateScriptsAll),
           },
         );
       const leanRunCodeTool: Record<string, ActionEntry> =
@@ -2016,6 +2029,7 @@ export function createAgentChatPlugin(
           {
             bridgeTools: options?.codeExecution?.bridgeTools,
             evaluator: productionEvaluator,
+            appActionNames: Object.keys(templateScriptsAll),
           },
         );
 
@@ -2054,6 +2068,7 @@ export function createAgentChatPlugin(
             {
               bridgeTools: options?.codeExecution?.bridgeTools,
               evaluator: "node",
+              appActionNames: Object.keys(templateScriptsAll),
             },
           )
         : {};
@@ -3497,6 +3512,7 @@ export function createAgentChatPlugin(
       const onRunComplete = async (
         run: ActiveRun,
         threadId: string | undefined,
+        trackingSource?: AgentChatRunTrackingSource,
       ) => {
         const runThreadId = String(run?.threadId ?? threadId ?? "");
         const chatScope = getRequestRunContext()?.chatScope;
@@ -3537,6 +3553,7 @@ export function createAgentChatPlugin(
               : {}),
           },
           options?.appId,
+          trackingSource,
         );
         if (!assistantMsg) {
           trackAgentChatRunLifecycle(
@@ -3546,6 +3563,7 @@ export function createAgentChatPlugin(
             getRequestRunContext()?.owner,
             {},
             options?.appId,
+            trackingSource,
           );
         }
         if (!threadId) {
@@ -4646,9 +4664,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             { threadId, runId },
           );
         },
-        onRunComplete: async (run: ActiveRun, threadId: string | undefined) => {
+        onRunComplete: async (
+          run: ActiveRun,
+          threadId: string | undefined,
+          trackingSource?: AgentChatRunTrackingSource,
+        ) => {
           if (threadId) _runSendByThread.delete(threadId);
-          await onRunComplete(run, threadId);
+          await onRunComplete(run, threadId, trackingSource);
         },
         resolveAdditionalActions: ({ ownerEmail, orgId }) =>
           getMcpActionEntriesForPrincipal(ownerEmail, orgId),
@@ -4723,9 +4745,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               onRunComplete: async (
                 run: ActiveRun,
                 threadId: string | undefined,
+                trackingSource?: AgentChatRunTrackingSource,
               ) => {
                 if (threadId) _runSendByThread.delete(threadId);
-                await onRunComplete(run, threadId);
+                await onRunComplete(run, threadId, trackingSource);
               },
               resolveOwnerEmail: getOwnerFromEvent,
             })
@@ -5002,9 +5025,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           onRunComplete: async (
             run: ActiveRun,
             threadId: string | undefined,
+            trackingSource?: AgentChatRunTrackingSource,
           ) => {
             if (threadId) _runSendByThread.delete(threadId);
-            await onRunComplete(run, threadId);
+            await onRunComplete(run, threadId, trackingSource);
           },
         });
       }
@@ -6613,7 +6637,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               await import("./credential-provider.js");
 
             return {
-              active: true,
+              active: run.inFlight,
               runId: run.runId,
               threadId: run.threadId,
               turnId: run.turnId,
@@ -7020,7 +7044,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   const incomingScope = parseScopeFromBody(body.scope);
                   await setThreadScope(threadId, owner, incomingScope);
                 }
-                return { ok: true };
+                // The scope the thread really has now (a detach can land
+                // between the read above and this save), so the client records
+                // what the server holds instead of guessing from the page.
+                const saved = await resolveThreadAccess(
+                  owner,
+                  threadId,
+                  "editor",
+                  { orgId },
+                );
+                return { ok: true, scope: saved?.scope ?? null };
               });
             }
 
@@ -7490,7 +7523,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             message:
               error.statusMessage ??
               error.message ??
-              "Connect Builder AI or a provider API key before chatting.",
+              "Use Builder.io or a provider API key before chatting.",
           },
         });
       };

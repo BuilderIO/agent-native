@@ -135,6 +135,8 @@ import {
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
 import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
 import { rememberLandingTitleHint } from "@/lib/document-title-hint";
+import { filesRootHintScope } from "@/lib/files-root-hint";
+import { rememberLastLocationHint } from "@/lib/last-location-hint";
 import {
   canWriteLinkedLocalSource,
   readDocumentFromLinkedLocalSource,
@@ -2263,8 +2265,11 @@ function PageEditorSessionBody({
     databaseDocumentId,
   });
   const queryClient = useQueryClient();
+  const { session } = useSession();
+  const lastLocationScope = filesRootHintScope(session?.email, session?.orgId);
   useEffect(() => {
     if (host !== "page" || document.database?.systemRole) return;
+    rememberLastLocationHint(lastLocationScope, documentId);
     const target = {
       documentId,
       ...(currentDocumentRef.current?.title?.trim()
@@ -2289,6 +2294,7 @@ function PageEditorSessionBody({
     document.spaceId,
     documentId,
     host,
+    lastLocationScope,
     queryClient,
     viewId,
     t,
@@ -2932,7 +2938,6 @@ function PageEditorSessionBody({
     };
   }, []);
 
-  const { session } = useSession();
   const journalWriteErrorShownRef = useRef(false);
   const journalScope = useCallback(
     () =>

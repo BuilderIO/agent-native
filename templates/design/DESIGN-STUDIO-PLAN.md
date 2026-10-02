@@ -48,7 +48,7 @@ A design is backed by a real React/TS codebase.
 
 - **`localhost`** — the bridge talks to a dev server on the user's machine
   (`designLocalhostConnections`, `connect-localhost.ts`).
-- **`fusion`** _(the new hosted tier)_ — connect Builder.io (free tier available) and run the app as a
+- **`fusion`** _(the new hosted tier)_ — use Builder.io (free tier available) and run the app as a
   Builder-hosted branch (today) or, later, our own durable container. Same
   capabilities as localhost but hosted, collaborative, and deployable.
 
@@ -91,18 +91,18 @@ matrix is defined in §5.
 **The one-line rule:** if a feature only needs the **rendered DOM or the design's
 own HTML/CSS+SQL**, it ships in Alpine. If it needs the **module graph, TS types,
 a real build, real routes, server data, or git/deploy**, it's a **real-app**
-feature behind a Connect-Builder CTA. _Motion crosses into Alpine because we make
+feature behind a Use Builder.io CTA. _Motion crosses into Alpine because we make
 it CSS-first._
 
 ---
 
-## 3. The "Make it real" upgrade flow (Connect Builder)
+## 3. The "Make it real" upgrade flow (Use Builder.io)
 
 Advanced panels are never dead ends; they are CTAs. On an inline design, the
 gated controls render an inline upgrade card (progressive disclosure — only when
 the user reaches for a real-app feature):
 
-> **Make this a real app** — connect Builder.io (free tier available) to unlock components, props, data
+> **Make this a real app** — use Builder.io (free tier available) to unlock components, props, data
 > states, branches, and deploys.
 
 ### 3.1 What already exists vs. what's new
@@ -609,7 +609,7 @@ motion edits safely, use review outputs, and offer Builder migration CTAs.
    the new `kind: "responsive-class"` edit capability) so editing one frame writes a
    scoped class; then real-app data captures.
 4. **Accessibility + version diff (read-only Review panel).**
-5. **Connect Builder / real-app tier.** Harden bridge writes, implement `fusion`,
+5. **Use Builder.io / real-app tier.** Harden bridge writes, implement `fusion`,
    wire migration; unlock full components / tokens-as-code / branches / deploy.
 6. **Shaders & plugins (gated, last).** Preview-first; apply/export only after
    runtime + source-write + fallback + diff proof.

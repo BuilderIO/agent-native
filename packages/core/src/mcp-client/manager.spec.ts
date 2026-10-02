@@ -63,6 +63,7 @@ function headersFromUnknown(value: unknown): Record<string, string> {
 
 class FakeClient {
   onerror?: (error: unknown) => void;
+  negotiatedProtocolVersion?: string;
   private transport: FakeTransport | null = null;
   constructor(
     public info: any,
@@ -78,6 +79,9 @@ class FakeClient {
   }
   getTransport() {
     return this.transport;
+  }
+  getNegotiatedProtocolVersion() {
+    return this.negotiatedProtocolVersion;
   }
   async listTools() {
     const spec = serverFixtures[this.transport!.key];
@@ -898,10 +902,82 @@ describe("McpClientManager", () => {
     }
   });
 
-  it("records transport errors delivered during the MCP handshake", async () => {
+  it("keeps HTTP 400 handshake errors fatal without a negotiated protocol version", async () => {
     const origConnect = FakeClient.prototype.connect;
     FakeClient.prototype.connect = async function (transport: FakeTransport) {
-      transport.onerror?.(new Error("handshake transport failed"));
+      transport.onerror?.(
+        Object.assign(new Error("Unsupported protocol version"), {
+          status: 400,
+        }),
+      );
+      return origConnect.call(this, transport);
+    };
+
+    try {
+      serverFixtures["http https://example.com/mcp"] = {
+        tools: [{ name: "ping" }],
+        callImpl: () => ({ content: [] }),
+      };
+      const mgr = new McpClientManager({
+        servers: {
+          remote: { type: "http", url: "https://example.com/mcp" },
+        },
+      });
+      await mgr.start();
+
+      expect(mgr.getStatus().errors.remote).toBeTruthy();
+      expect(mgr.connectedServers).toEqual([]);
+    } finally {
+      FakeClient.prototype.connect = origConnect;
+    }
+  });
+
+  it("keeps HTTP servers connected when auto negotiation falls back after a 400 probe", async () => {
+    const origConnect = FakeClient.prototype.connect;
+    FakeClient.prototype.connect = async function (transport: FakeTransport) {
+      this.negotiatedProtocolVersion = "2025-11-25";
+      transport.onerror?.(
+        Object.assign(new Error("Unsupported protocol version"), {
+          status: 400,
+        }),
+      );
+      return origConnect.call(this, transport);
+    };
+
+    try {
+      serverFixtures["http https://example.com/mcp"] = {
+        tools: [{ name: "ping" }],
+        callImpl: () => ({ content: [] }),
+      };
+      const mgr = new McpClientManager({
+        servers: {
+          remote: { type: "http", url: "https://example.com/mcp" },
+        },
+      });
+      await mgr.start();
+
+      expect(mgr.connectedServers).toEqual(["remote"]);
+      expect(mgr.getStatus().errors.remote).toBeUndefined();
+      expect(mgr.getTools().map((tool) => tool.name)).toEqual([
+        "mcp__remote__ping",
+      ]);
+    } finally {
+      FakeClient.prototype.connect = origConnect;
+    }
+  });
+
+  it("keeps later transport failures fatal after a 400 negotiation probe", async () => {
+    const origConnect = FakeClient.prototype.connect;
+    FakeClient.prototype.connect = async function (transport: FakeTransport) {
+      this.negotiatedProtocolVersion = "2025-11-25";
+      transport.onerror?.(
+        Object.assign(new Error("Unsupported protocol version"), {
+          status: 400,
+        }),
+      );
+      transport.onerror?.(
+        Object.assign(new Error("Server unavailable"), { status: 503 }),
+      );
       return origConnect.call(this, transport);
     };
 

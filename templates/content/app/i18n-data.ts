@@ -220,7 +220,7 @@ const databaseMessages = {
   attached: "Attached",
   bodyDiff: "Body diff",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder isn’t connected. Go back to connect your account first.",
+    "Builder isn’t connected. Go back and use Builder.io first.",
   calculate: "Calculate",
   calendarBy: "Calendar by",
   cancel: "Cancel",
@@ -237,7 +237,7 @@ const databaseMessages = {
   collapseAllGroups: "Collapse all groups",
   color: "Color",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "Connect your Builder account (free tier available) to browse its spaces and models.",
+    "Use your Builder account (free tier available) to browse its spaces and models.",
   connectedSources: "Connected sources",
   couldntSyncRetry: "Couldn’t sync · Retry",
   databasePagePreview: "Collection page preview",

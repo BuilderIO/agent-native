@@ -84,7 +84,7 @@ jobs:
         env:
           CI_FULL: ${{ steps.scope.outputs.full }}
           TARGETED_WORKSPACE_FILTERS: ${{ steps.scope.outputs.test_workspace_filters }}
-          LANES: 2
+          LANES: 8
         run: |
           set -euo pipefail
           if [ "$CI_FULL" = "true" ]; then
@@ -253,6 +253,35 @@ jobs:
           --exclude "**/*.perf.test.ts"
           --exclude "**/create-e2e.spec.ts"
 
+      - name: Run package fast-test shards for lane
+        if: toJSON(matrix.packageShards) != '[]'
+        env:
+          PACKAGE_SHARDS: ${{ toJSON(matrix.packageShards) }}
+        run: |
+          set -uo pipefail
+          excludes=(
+            --exclude "**/*.db.test.ts"
+            --exclude "**/*.integration.spec.ts"
+            --exclude "**/*.integration.test.ts"
+            --exclude "**/*.e2e.spec.ts"
+            --exclude "**/*.e2e.test.ts"
+            --exclude "**/e2e/**"
+            --exclude "**/*.live.spec.ts"
+            --exclude "**/*.live.test.ts"
+            --exclude "**/*.perf.spec.ts"
+            --exclude "**/*.perf.test.ts"
+            --exclude "**/create-e2e.spec.ts"
+          )
+          status=0
+          while IFS=$'\t' read -r name shard; do
+            echo "::group::$name ($shard)"
+            pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            echo "::endgroup::"
+          done < <(
+            node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(`${name}\t${shard}`)'
+          )
+          exit "$status"
+
   test-targeted:
     name: Fast tests targeted ${{ matrix.lane }}
     needs: change-scope
@@ -336,6 +365,35 @@ jobs:
           --exclude "**/*.perf.spec.ts"
           --exclude "**/*.perf.test.ts"
           --exclude "**/create-e2e.spec.ts"
+
+      - name: Run package fast-test shards for lane
+        if: toJSON(matrix.packageShards) != '[]'
+        env:
+          PACKAGE_SHARDS: ${{ toJSON(matrix.packageShards) }}
+        run: |
+          set -uo pipefail
+          excludes=(
+            --exclude "**/*.db.test.ts"
+            --exclude "**/*.integration.spec.ts"
+            --exclude "**/*.integration.test.ts"
+            --exclude "**/*.e2e.spec.ts"
+            --exclude "**/*.e2e.test.ts"
+            --exclude "**/e2e/**"
+            --exclude "**/*.live.spec.ts"
+            --exclude "**/*.live.test.ts"
+            --exclude "**/*.perf.spec.ts"
+            --exclude "**/*.perf.test.ts"
+            --exclude "**/create-e2e.spec.ts"
+          )
+          status=0
+          while IFS=$'\t' read -r name shard; do
+            echo "::group::$name ($shard)"
+            pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            echo "::endgroup::"
+          done < <(
+            node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(`${name}\t${shard}`)'
+          )
+          exit "$status"
 
   design-canvas-interaction-acceptance:
     name: Design canvas interaction acceptance
