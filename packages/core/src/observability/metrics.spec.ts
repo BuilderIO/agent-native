@@ -185,7 +185,10 @@ describe("flushObservability", () => {
     expect(meterProvider.recorded).toContainEqual({
       instrument: "agent_native.telemetry.flush_failures",
       value: 1,
-      attributes: { "error.type": "timeout" },
+      attributes: {
+        "agent_native.telemetry.signal": "metrics",
+        "error.type": "timeout",
+      },
     });
   });
 
@@ -200,7 +203,10 @@ describe("flushObservability", () => {
     expect(meterProvider.recorded).toContainEqual({
       instrument: "agent_native.telemetry.flush_failures",
       value: 1,
-      attributes: { "error.type": "TypeError" },
+      attributes: {
+        "agent_native.telemetry.signal": "metrics",
+        "error.type": "TypeError",
+      },
     });
   });
 
@@ -238,7 +244,10 @@ describe("flushObservability", () => {
       {
         instrument: "agent_native.telemetry.flush_failures",
         value: 1,
-        attributes: { "error.type": "TypeError" },
+        attributes: {
+          "agent_native.telemetry.signal": "metrics",
+          "error.type": "TypeError",
+        },
       },
     ]);
   });
@@ -264,12 +273,18 @@ describe("flushObservability", () => {
       {
         instrument: "agent_native.telemetry.flush_failures",
         value: 1,
-        attributes: { "error.type": "TypeError" },
+        attributes: {
+          "agent_native.telemetry.signal": "metrics",
+          "error.type": "TypeError",
+        },
       },
       {
         instrument: "agent_native.telemetry.flush_failures",
         value: 1,
-        attributes: { "error.type": "timeout" },
+        attributes: {
+          "agent_native.telemetry.signal": "traces",
+          "error.type": "timeout",
+        },
       },
     ]);
   });
