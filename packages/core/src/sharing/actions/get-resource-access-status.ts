@@ -1,11 +1,11 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
-import { resolveAccessStatus } from "../access.js";
+import { resolveLinkStatus } from "../access-requests.js";
 
 export default defineAction({
   description:
-    "Say whether the current viewer can open a shareable resource, and if not, whether the link points at something that exists. Returns only the state and the viewer's own role; never the title, owner, visibility, or workspace.",
+    "Say whether the current viewer can open a shareable resource, and if not, whether the link points at something that exists and whether they can ask for access. Returns only the state, the viewer's own role, and their own request; never the title, owner, visibility, or workspace.",
   schema: z.object({
     resourceType: z.string().min(1),
     resourceId: z.string().min(1),
@@ -19,5 +19,5 @@ export default defineAction({
   mcpTool: false,
   toolCallable: false,
   run: async ({ resourceType, resourceId }) =>
-    resolveAccessStatus(resourceType, resourceId),
+    resolveLinkStatus(resourceType, resourceId),
 });

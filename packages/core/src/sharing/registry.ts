@@ -100,6 +100,12 @@ export interface ShareableResourceRegistration {
     columns: readonly string[];
     isAvailable: (resource: any) => boolean;
   };
+  /**
+   * Lets signed-in people who can't open a resource of this type ask its
+   * owner and admins for access. Off by default, so an app only starts
+   * emailing owners once its access screen offers the request.
+   */
+  accessRequests?: boolean;
   agentReadable?:
     | false
     | {

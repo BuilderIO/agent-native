@@ -32,6 +32,21 @@ export {
 } from "./access.js";
 
 export {
+  ACCESS_REQUEST_NOTE_MAX_LENGTH,
+  accessRequestReviewPath,
+  approveAccessRequest,
+  declineAccessRequest,
+  getAccessRequestReview,
+  listResourceAccessRequests,
+  requestResourceAccess,
+  resolveLinkStatus,
+  type AccessRequestReview,
+  type RequestResourceAccessResult,
+  type ResourceLinkStatus,
+  type ViewerAccessRequest,
+} from "./access-requests.js";
+
+export {
   filterRecipientsByResourceAccess,
   type FilterRecipientsInput,
 } from "./recipients.js";
