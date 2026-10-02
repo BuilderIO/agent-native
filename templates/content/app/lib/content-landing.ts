@@ -7,6 +7,18 @@ import {
 
 export const CONTENT_LANDING_PATH = "/home";
 
+// /home with no space returns to the last page opened anywhere, which is the
+// page a last-location hint names.
+export function isPersonalLanding(location: {
+  pathname: string;
+  search: string;
+}) {
+  return (
+    location.pathname === CONTENT_LANDING_PATH &&
+    !new URLSearchParams(location.search).get("spaceId")
+  );
+}
+
 let landingWriteQueue = Promise.resolve();
 
 export function rememberContentLandingDocument(

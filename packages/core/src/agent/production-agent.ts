@@ -134,6 +134,7 @@ import {
   SYNTHETIC_TRAFFIC_BETA_E2E,
   SYNTHETIC_TRAFFIC_HEADER,
 } from "../shared/test-traffic.js";
+import type { TrackingMeta } from "../tracking/registry.js";
 import { actionPreparationContinuationNote } from "./action-continuation-guidance.js";
 import {
   drainAgentWarnings,
@@ -1594,6 +1595,11 @@ export function createPlanModeActionRegistry(
   return filtered;
 }
 
+type AgentRunTrackingSource = Pick<
+  TrackingMeta,
+  "userId" | "authUserId" | "anonymousId" | "sessionId"
+> & { isSyntheticTraffic?: boolean };
+
 export interface ProductionAgentOptions {
   actions?: Record<string, ActionEntry>;
   /** @deprecated Use `actions` instead */
@@ -1614,7 +1620,11 @@ export interface ProductionAgentOptions {
   hostedHarnessConfig?: AgentNativeHarnessSetting;
   reasoningEffort?: ReasoningEffort;
   providerOptions?: EngineMessage extends never ? never : any;
-  onRunComplete?: (run: ActiveRun, threadId: string | undefined) => void;
+  onRunComplete?: (
+    run: ActiveRun,
+    threadId: string | undefined,
+    trackingSource?: AgentRunTrackingSource,
+  ) => void;
   onRunPrepared?: (details: {
     runId: string;
     turnId: string;
@@ -1717,6 +1727,35 @@ export async function resolveAgentOwnerEmail(
     }
   }
   return ownerEmail ?? getRequestUserEmail() ?? null;
+}
+
+function snapshotAgentRunTrackingSource(): AgentRunTrackingSource | undefined {
+  const requestContext = getRequestContext();
+  if (!requestContext) return undefined;
+  const source = requestContext.agentRunAnonymous
+    ? {
+        ...(requestContext.userEmail
+          ? { anonymousId: requestContext.userEmail }
+          : {}),
+        ...(requestContext.browserSessionId
+          ? { sessionId: requestContext.browserSessionId }
+          : {}),
+      }
+    : {
+        ...(requestContext.userEmail
+          ? { userId: requestContext.userEmail }
+          : {}),
+        ...(requestContext.authUserId
+          ? { authUserId: requestContext.authUserId }
+          : {}),
+        ...(requestContext.browserSessionId
+          ? { sessionId: requestContext.browserSessionId }
+          : {}),
+      };
+  const isSyntheticTraffic = requestContext.isSyntheticTraffic === true;
+  return Object.keys(source).length > 0 || isSyntheticTraffic
+    ? { ...source, ...(isSyntheticTraffic ? { isSyntheticTraffic: true } : {}) }
+    : undefined;
 }
 
 const MAX_RETRIES = 3;
@@ -3986,7 +4025,7 @@ export function permanentPreconditionRemedy(message: string): string | null {
 const PERMANENT_PRECONDITION_PATTERNS: readonly RegExp[] = [
   /\b(?:api[ -]?keys?|access tokens?|credentials?|secrets?)\b[^.]{0,60}\bnot (?:configured|set|connected|available)\b/i,
   /\bsave [A-Z][A-Z0-9_]{3,} in (?:the )?settings\b/i,
-  /(?:^|[.:!?]\s+)Connect [A-Z][\w.-]*[^;]{0,40}?\b(?:before|first|in settings)\b/,
+  /(?:^|[.:!?]\s+)(?:Connect|Use) [A-Z][\w.-]*[^;]{0,40}?\b(?:before|first|in settings|to)\b/,
   /\bplan mode blocked\b/i,
   /\bno authenticated user\b/i,
   /\bssrf blocked\b/i,
@@ -8646,6 +8685,9 @@ export function createProductionAgentHandler(
     actionsToEngineTools(getRequestActions(actions));
 
   return defineEventHandler(async (event) => {
+    let completionTrackingSource = options.onRunComplete
+      ? snapshotAgentRunTrackingSource()
+      : undefined;
     const setupT0 = Date.now();
     const setupMarks: Record<string, number> = {};
     const setupMark = (k: string) => {
@@ -10247,11 +10289,17 @@ export function createProductionAgentHandler(
         ? async (run: ActiveRun) => {
             try {
               await runCompletionCallbackWithDatabaseRetry(() =>
-                options.onRunComplete?.(run, threadId),
+                options.onRunComplete?.(
+                  run,
+                  threadId,
+                  completionTrackingSource,
+                ),
               );
             } catch (err) {
               await completeTrackedProgressRun(run, err);
               throw err;
+            } finally {
+              completionTrackingSource = undefined;
             }
             await completeTrackedProgressRun(run);
           }

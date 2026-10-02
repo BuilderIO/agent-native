@@ -8,7 +8,10 @@ vi.mock("@agent-native/core/client/application-state", () => ({
   writeClientAppState,
 }));
 
-import { rememberContentLandingDocument } from "./content-landing";
+import {
+  isPersonalLanding,
+  rememberContentLandingDocument,
+} from "./content-landing";
 
 describe("rememberContentLandingDocument", () => {
   beforeEach(() => {
@@ -119,5 +122,16 @@ describe("rememberContentLandingDocument", () => {
       { documentId: "doc-1", databaseId: "db-1", viewId: "view-1" },
       { requestSource: "content-landing" },
     );
+  });
+});
+
+describe("isPersonalLanding", () => {
+  it("is /home without a space", () => {
+    const home = { pathname: "/home", search: "" };
+    expect(isPersonalLanding(home)).toBe(true);
+    expect(isPersonalLanding({ ...home, search: "?spaceId=space-1" })).toBe(
+      false,
+    );
+    expect(isPersonalLanding({ ...home, pathname: "/page/inbox" })).toBe(false);
   });
 });

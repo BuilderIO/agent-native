@@ -206,16 +206,16 @@ An app's own rows follow the same rule: every control on `generalGroups`,
 
 ## Roles {#roles}
 
-| Capability                                                                        | Member                 | Admin                                              | Owner              |
-| --------------------------------------------------------------------------------- | ---------------------- | -------------------------------------------------- | ------------------ |
-| Account pages, connecting integrations for themselves                             | Yes                    | Yes                                                | Yes                |
-| Personal providers and a personal Builder.io connection                           | Yes, unless restricted | Own keys; Builder.io connects for the organization | Same as admin      |
-| Organization providers, default model, max iterations, Restrict personal API keys | Read-only              | Yes                                                | Yes                |
-| Organization instructions, memory, skills, and files                              | Read-only              | Yes                                                | Yes                |
-| Invite members                                                                    | No                     | Members                                            | Members and admins |
-| Change member roles                                                               | No                     | No                                                 | Yes                |
-| Authentication, Apps, Infrastructure, Audit log                                   | Hidden                 | Yes                                                | Yes                |
-| Shared A2A secret, delete the organization                                        | No                     | No                                                 | Yes                |
+| Capability                                                                        | Member                 | Admin                                         | Owner              |
+| --------------------------------------------------------------------------------- | ---------------------- | --------------------------------------------- | ------------------ |
+| Account pages, connecting integrations for themselves                             | Yes                    | Yes                                           | Yes                |
+| Personal providers and a personal Builder.io account                              | Yes, unless restricted | Own keys; use Builder.io for the organization | Same as admin      |
+| Organization providers, default model, max iterations, Restrict personal API keys | Read-only              | Yes                                           | Yes                |
+| Organization instructions, memory, skills, and files                              | Read-only              | Yes                                           | Yes                |
+| Invite members                                                                    | No                     | Members                                       | Members and admins |
+| Change member roles                                                               | No                     | No                                            | Yes                |
+| Authentication, Apps, Infrastructure, Audit log                                   | Hidden                 | Yes                                           | Yes                |
+| Shared A2A secret, delete the organization                                        | No                     | No                                            | Yes                |
 
 ## UX standard {#ux-standard}
 

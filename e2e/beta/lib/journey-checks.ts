@@ -63,7 +63,7 @@ const CREDIT_BLOCK_PATTERNS: readonly RegExp[] = [
 const CONNECT_BLOCK_PATTERNS: readonly RegExp[] = [
   /Connect AI above to continue/i,
   /No LLM provider is connected/i,
-  /Connect Builder\.io to (?:continue|use|start|run)/i,
+  /(?:Connect|Use) Builder\.io to (?:continue|use|start|run)/i,
 ];
 
 export interface BlockingText {
