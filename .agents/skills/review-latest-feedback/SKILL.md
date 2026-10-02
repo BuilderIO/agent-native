@@ -457,14 +457,14 @@ and use **Shipped**.
 
 ## Phase 3: reply
 
-Thank issue reporters for opening it and Slack reporters for sharing. Then give
-the status or ask a useful question. Follow `address-feedback-with-replies` for
+Thank issue reporters for opening it and Slack reporters for sharing. Give the
+status or ask a useful question. Follow `address-feedback-with-replies` for
 Slack voice. End each Slack reply with `this was sent from a bot.` after its
 plain-language status.
 
-Write for people outside engineering, using everyday words. In one short
-paragraph, say what we did or did not do and what happens next; include a simple
-reason only when useful. Keep technical proof in the recap or PR.
+Use everyday words for nontechnical readers. In one short paragraph, say what
+we did, what we didn't do when relevant, and what's next. Give a simple reason
+when useful. Keep technical proof in the recap or PR.
 
 Share only new or useful information.
 
@@ -472,10 +472,11 @@ Share only new or useful information.
 
 After a Slack-fix PR merges, update each affected thread once, including
 clusters. This is the only exception to the single-owner rule; name the fix.
-For beta app fixes, confirm the merge-triggered publisher run succeeded before
-sharing timing. Then state when it should appear in plain language.
-If the run is missing or failed, say publication is pending and keep checking.
-For packages, state when the update will be available. Never claim live without
+For beta app fixes, check that the merge-triggered publisher run succeeded before
+sharing timing. Then say when the update should appear in plain language. If
+the run is missing or failed, say publication is pending and report the
+publisher issue.
+For packages, say when the update should be available. Never claim live without
 runtime proof.
 
 For mixed reports, list each unaddressed item and why, including subjective or
