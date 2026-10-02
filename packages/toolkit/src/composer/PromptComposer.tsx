@@ -57,6 +57,7 @@ import {
   type ComposerTextSelection,
   type ComposerImageModelMenu,
   type ComposerSubmitIntent,
+  type ComposerDraftSnapshot,
   type TiptapComposerHandle,
   type TiptapComposerSubmitOptions,
 } from "./TiptapComposer.js";
@@ -79,6 +80,7 @@ export type PromptComposerFile = File;
 
 export interface PromptComposerSubmitOptions {
   intent?: ComposerSubmitIntent;
+  steer?: boolean;
   /** Clear the submitted draft once the host owns the message and its failure recovery. */
   onLocalSubmit?: () => void;
   model?: string;
@@ -104,8 +106,12 @@ export interface PromptComposerProps {
     references: Reference[],
     options: PromptComposerSubmitOptions,
   ) => void | Promise<void>;
+  /** Run the host's empty-composer action when Enter is pressed. */
+  onEmptySubmit?: () => void | Promise<void>;
   /** Return false to stop a submit before it reaches the host runtime. */
-  onBeforeSubmit?: () => boolean | Promise<boolean>;
+  onBeforeSubmit?: (
+    draft?: ComposerDraftSnapshot,
+  ) => boolean | Promise<boolean>;
   onSubmissionPendingChange?: (pending: boolean) => void;
   /** Scope where a failed submission should be recovered after the host forks. */
   getSubmitFailureDraftScope?: () => string | null;
@@ -593,6 +599,7 @@ function PromptAttachmentStrip() {
 
 function PromptComposerInner({
   onSubmit,
+  onEmptySubmit,
   contextItems,
   onRemoveContextItem,
   onInspectContextItem,
@@ -803,6 +810,7 @@ function PromptComposerInner({
       });
       await onSubmit(finalText, files, references, {
         intent: submitOptions?.intent ?? "immediate",
+        ...(submitOptions?.steer ? { steer: true } : {}),
         onLocalSubmit: submitOptions?.onLocalSubmit,
         model: composerModel,
         engine: composerEngine,
@@ -895,6 +903,7 @@ function PromptComposerInner({
           initialText={initialText}
           initialTextKey={initialTextKey}
           onSubmit={handleSubmit}
+          onEmptySubmit={onEmptySubmit}
           onBeforeSubmit={onBeforeSubmit}
           onSubmissionPendingChange={onSubmissionPendingChange}
           getSubmitFailureDraftScope={getSubmitFailureDraftScope}

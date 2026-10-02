@@ -118,6 +118,10 @@ import {
 } from "../server/request-context.js";
 import { secretKeyNames } from "../server/secret-key-aliases.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
+import {
+  retryContextFromRequest,
+  type RefusedTurnRetryContext,
+} from "../shared/agent-chat-run-not-started.js";
 import { ANALYTICS_CLIENT_PLATFORM_BODY_FIELD } from "../shared/analytics-platform.js";
 import { stripDiagnosticSnippets } from "../shared/diagnostic-snippet.js";
 import {
@@ -293,6 +297,10 @@ import {
   turnRunLedgerExhausted,
 } from "./run-store.js";
 import { buildCurrentTimeUserContext } from "./runtime-context.js";
+import {
+  claimSetupResume,
+  setupResumeRefusedRunId,
+} from "./setup-resume-claim.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
@@ -500,7 +508,7 @@ function normalizeUsageLabel(value: unknown): string | undefined {
   return trimmed ? trimmed.slice(0, 120) : undefined;
 }
 
-function normalizeChatScope(
+export function normalizeChatScope(
   value: unknown,
 ): { type: string; id: string; label?: string } | null | undefined {
   if (value == null) return null;
@@ -1615,7 +1623,23 @@ export interface ProductionAgentOptions {
     agentKitMessageId?: string;
     attachments?: AgentChatAttachment[];
     queuedMessageId?: string;
+    queuedMessageClaimId?: string;
   }) => void | Promise<void>;
+  /**
+   * The turn was refused before a run started (no usable model credential).
+   * `runId` is the turn id the client already uses as its run id.
+   */
+  onRunNotStarted?: (details: {
+    runId: string;
+    turnId: string;
+    threadId: string;
+    message: string;
+    attachments?: AgentChatAttachment[];
+    queuedMessageId?: string;
+    agentKitMessageId?: string;
+    retryContext: RefusedTurnRetryContext;
+    failure: { code: string; message: string };
+  }) => Promise<void>;
   prepareRequest?: (details: {
     event: any;
     ownerEmail: string | null;
@@ -7625,7 +7649,8 @@ export async function runAgentLoopWithMainChatInternalContinuations(
   return usage;
 }
 
-function endsAtContinuationBoundary(run: ActiveRun): boolean {
+/** True when the run stopped where its turn carries on in a continuation run. */
+export function endsAtContinuationBoundary(run: ActiveRun): boolean {
   return (
     endsAtInternalContinuationBoundary(run) ||
     endsAfterToolResultWithoutAssistantFinal(run) ||
@@ -8655,6 +8680,7 @@ export function createProductionAgentHandler(
       displayMessage,
       parentId,
       queuedMessageId,
+      queuedMessageClaimId,
       agentKitMessageId: requestedAgentKitMessageId,
       internalContinuation,
       turnId: requestTurnId,
@@ -9173,6 +9199,42 @@ export function createProductionAgentHandler(
         ownerEmail,
         visitorFacing: isBuilderGatewayDeployConfigured(),
       });
+      const unstartedTurnId =
+        typeof requestTurnId === "string" && requestTurnId.trim()
+          ? requestTurnId.trim()
+          : undefined;
+      if (
+        options.onRunNotStarted &&
+        threadId &&
+        unstartedTurnId &&
+        !internalContinuation &&
+        !isBackgroundWorker
+      ) {
+        await options.onRunNotStarted({
+          runId: unstartedTurnId,
+          turnId: unstartedTurnId,
+          threadId,
+          message:
+            typeof requestDisplayMessage === "string" &&
+            requestDisplayMessage.trim()
+              ? requestDisplayMessage
+              : requestMessage,
+          attachments: requestAttachments,
+          ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
+            ? { queuedMessageId: queuedMessageId.trim() }
+            : {}),
+          ...(agentKitMessageId ? { agentKitMessageId } : {}),
+          retryContext: retryContextFromRequest(body, (dropped) =>
+            console.warn(
+              `[agent-chat] dropped ${dropped} invalid reference(s) from a refused turn's retry context`,
+            ),
+          ),
+          failure: {
+            code: missingCredentialsEvent.errorCode,
+            message: missingCredentialsEvent.error,
+          },
+        });
+      }
       return new ReadableStream({
         start(controller) {
           controller.enqueue(
@@ -9741,6 +9803,20 @@ export function createProductionAgentHandler(
       ) {
         return { ok: true, stopped: true };
       }
+      const setupResumeOfRunId = setupResumeRefusedRunId(body);
+      const setupResumeClaim =
+        setupResumeOfRunId && ownerEmail
+          ? await claimSetupResume({
+              ownerEmail,
+              threadId,
+              refusedRunId: setupResumeOfRunId,
+              turnId: effectiveTurnId,
+            })
+          : undefined;
+      if (setupResumeOfRunId && ownerEmail && !setupResumeClaim) {
+        // Another tab already sent this refused prompt again.
+        return { ok: true, stopped: true, resumeAlreadySent: true };
+      }
       let slot;
       try {
         slot = await tryClaimRunSlot(threadId, runId, undefined, {
@@ -9760,6 +9836,7 @@ export function createProductionAgentHandler(
             : {}),
         });
       } catch (error) {
+        await setupResumeClaim?.release();
         if (
           error instanceof AgentTurnInitiatorMismatchError ||
           error instanceof AgentTurnInitiatorUnavailableError
@@ -9770,6 +9847,7 @@ export function createProductionAgentHandler(
         throw error;
       }
       if (slot.turnAborted) {
+        await setupResumeClaim?.release();
         return { ok: true, stopped: true };
       }
       if (slot.completedRunId) {
@@ -9785,7 +9863,10 @@ export function createProductionAgentHandler(
         setResponseHeader(event, "X-Dispatch-Mode", "replay");
         return stream;
       }
-      if (!slot.claimed) return runSlotBusy(event, slot.activeRunId);
+      if (!slot.claimed) {
+        await setupResumeClaim?.release();
+        return runSlotBusy(event, slot.activeRunId);
+      }
       foregroundRunRowInserted = true;
     }
 
@@ -9912,6 +9993,10 @@ export function createProductionAgentHandler(
           attachments: requestAttachments,
           ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
             ? { queuedMessageId: queuedMessageId.trim() }
+            : {}),
+          ...(typeof queuedMessageClaimId === "string" &&
+          queuedMessageClaimId.trim()
+            ? { queuedMessageClaimId: queuedMessageClaimId.trim() }
             : {}),
         });
       } catch (error) {

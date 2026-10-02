@@ -69,7 +69,7 @@ function findArrayEnd(text: string, start: number): number | undefined {
   }
 }
 
-function parseSuggestions(text: string) {
+function parseSuggestions(text: string, truncated: boolean) {
   const unwrapped = text
     .trim()
     .replace(/^```(?:json)?\s*/i, "")
@@ -119,6 +119,12 @@ function parseSuggestions(text: string) {
       errorCode: "invalid_model_response",
     });
   }
+  if (truncated) {
+    fail("Home suggestions were truncated before completion.", {
+      statusCode: 502,
+      errorCode: "model_output_truncated",
+    });
+  }
   fail("Home suggestions returned invalid JSON.", {
     statusCode: 502,
     errorCode: "invalid_model_response",
@@ -139,7 +145,7 @@ export default defineAction({
       appId: "slides",
       systemPrompt: SYSTEM_PROMPT,
       input: roleContext(profile.onboardingRole),
-      maxOutputTokens: 240,
+      maxOutputTokens: 800,
       temperature: 0.7,
       timeoutMs: 10_000,
     }).catch((error: unknown) => {
@@ -161,13 +167,19 @@ export default defineAction({
       }
       throw error;
     });
-    if (!result) return { suggestions: [] };
-    if (result.stopReason === "max_tokens") {
-      fail("Home suggestions were truncated before completion.", {
-        statusCode: 502,
-        errorCode: "model_output_truncated",
-      });
+    if (!result) {
+      return {
+        status: "unavailable" as const,
+        reason: "missing_credentials" as const,
+        suggestions: [],
+      };
     }
-    return { suggestions: parseSuggestions(result.text) };
+    return {
+      status: "ready" as const,
+      suggestions: parseSuggestions(
+        result.text,
+        result.stopReason === "max_tokens",
+      ),
+    };
   },
 });

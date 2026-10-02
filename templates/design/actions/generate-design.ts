@@ -1392,6 +1392,21 @@ const generateDesignAction = defineAction({
       );
       return source ? isRenderableDesignFile(source) : false;
     });
+    if (firstRenderableSavedFile) {
+      track(
+        "generation_completed",
+        {
+          app_name: "design",
+          template_name: "design",
+          output_id: designId,
+          output_type: "design",
+          file_count: savedFiles.length,
+          outcome: fileErrors.length > 0 ? "partial" : "completed",
+          source: "generate_design_action",
+        },
+        context,
+      );
+    }
 
     return {
       designId,

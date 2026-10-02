@@ -861,8 +861,11 @@ export function useAgentKitControl(requestedThreadId?: ThreadId) {
         controller.moveQueuedMessageToTop
           ? controller.moveQueuedMessageToTop(threadId, messageId)
           : Promise.reject(new Error(labels.error)),
-      steerQueued: (messageId: string) =>
-        controller.steerQueuedMessage(threadId, messageId),
+      steerQueued: (
+        messageId: string,
+        options?: { interruptActiveRun?: boolean },
+      ) =>
+        controller.steerQueuedMessage(threadId, messageId, undefined, options),
       submitFeedback: (
         messageId: string,
         value: "positive" | "negative" | "dismissed",

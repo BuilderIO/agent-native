@@ -135,7 +135,7 @@ const CLAUDE_CLI_ENGINE_NAME = "claude-cli";
 const MCP_CONFIG_REMOVE_ATTEMPTS = 3;
 const PI_CLI_ENGINE_NAME = "pi-cli";
 const OPENCODE_CLI_ENGINE_NAME = "opencode-cli";
-const CLAUDE_CLI_DEFAULT_MODEL = "claude-sonnet-5";
+const CLAUDE_CLI_DEFAULT_MODEL = "claude-sonnet-5-5";
 const RECAP_SOURCE_TOOL_PROFILE = "recap-source";
 const RECAP_SOURCE_OUTPUT_FILE = "recap-source.json";
 

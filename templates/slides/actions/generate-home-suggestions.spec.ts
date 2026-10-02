@@ -49,7 +49,7 @@ describe("generate-home-suggestions", () => {
       userEmail: "user@example.test",
     } as never);
 
-    expect(result).toEqual({ suggestions });
+    expect(result).toEqual({ status: "ready", suggestions });
     expect(mocks.completeText).toHaveBeenCalledWith(
       expect.objectContaining({
         appId: "slides",
@@ -113,7 +113,7 @@ describe("generate-home-suggestions", () => {
 
     await expect(
       action.run({}, { userEmail: "user@example.test" } as never),
-    ).resolves.toEqual({ suggestions });
+    ).resolves.toEqual({ status: "ready", suggestions });
   });
 
   it("rejects a JSON object containing a nested suggestions array", async () => {
@@ -139,7 +139,11 @@ describe("generate-home-suggestions", () => {
 
     await expect(
       action.run({}, { userEmail: "user@example.test" } as never),
-    ).resolves.toEqual({ suggestions: [] });
+    ).resolves.toEqual({
+      status: "unavailable",
+      reason: "missing_credentials",
+      suggestions: [],
+    });
     expect(mocks.track).toHaveBeenCalledWith(
       "home_suggestions_unavailable",
       expect.objectContaining({
@@ -162,9 +166,20 @@ describe("generate-home-suggestions", () => {
     });
   });
 
-  it("rejects output marked truncated even when it parses", async () => {
+  it("keeps a complete answer even when the model reports max_tokens", async () => {
     mocks.completeText.mockResolvedValue({
       text: JSON.stringify(suggestions),
+      stopReason: "max_tokens",
+    });
+
+    await expect(
+      action.run({}, { userEmail: "user@example.test" } as never),
+    ).resolves.toEqual({ status: "ready", suggestions });
+  });
+
+  it("reports unparseable truncated output as truncated, not invalid JSON", async () => {
+    mocks.completeText.mockResolvedValue({
+      text: JSON.stringify(suggestions).slice(0, 80),
       stopReason: "max_tokens",
     });
 
@@ -175,6 +190,14 @@ describe("generate-home-suggestions", () => {
       errorCode: "model_output_truncated",
       statusCode: 502,
     });
+  });
+
+  it("leaves room for three full-length suggestions", async () => {
+    await action.run({}, { userEmail: "user@example.test" } as never);
+
+    expect(
+      mocks.completeText.mock.calls[0]?.[0].maxOutputTokens,
+    ).toBeGreaterThanOrEqual(600);
   });
 
   it("preserves unrelated provider failures", async () => {

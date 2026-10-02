@@ -135,6 +135,7 @@ import {
   hasContinuationLocalRequestContext,
 } from "./request-context.js";
 import { recordActiveSocialSignInProviders } from "./social-sign-in-providers.js";
+import { persistUserFirstTouchAttribution } from "./user-first-touch-attribution.js";
 
 function identityRekeyDbFromExec(
   exec: Awaited<ReturnType<typeof getDbExec>>,
@@ -234,6 +235,8 @@ export async function getBetterAuthUserIdForEmail(
 export interface BetterAuthUserCreateContext {
   headers?: Headers | null;
   request?: { headers?: Headers | null; url?: string } | null;
+  /** Better Auth's endpoint context; `session` is the acting user, if any. */
+  context?: { session?: { user?: { id?: string } | null } | null } | null;
 }
 
 function signupMethodFromRequestUrl(
@@ -273,6 +276,25 @@ export async function emitSignupEventForCreatedUser(
     anonymousId = browser?.anonymousId;
   } catch (err) {
     console.error("[auth] failed to derive signup attribution", err);
+  }
+
+  // The browser's first touch belongs to whoever is signed in on this request,
+  // so an account created by another signed-in user (admin or API creation)
+  // must not inherit it.
+  const actingUserId = context?.context?.session?.user?.id;
+  if (user.id && attribution && (!actingUserId || actingUserId === user.id)) {
+    try {
+      await persistUserFirstTouchAttribution(user.id, attribution);
+    } catch (err) {
+      // The signup itself already succeeded; the event below still carries
+      // the attribution, so only the row copy is missing, and loudly so.
+      console.error("[auth] failed to persist signup attribution", err);
+      const { captureError } = await import("./capture-error.js");
+      captureError(err, {
+        route: "auth.signup",
+        tags: { failureClass: "signup-attribution-persist" },
+      });
+    }
   }
 
   await trackSignupEvent({
@@ -2428,10 +2450,7 @@ async function createBetterAuthInstance(
               name?: string | null;
               emailVerified?: boolean;
             },
-            context?: {
-              headers?: Headers | null;
-              request?: { headers?: Headers | null; url?: string } | null;
-            } | null,
+            context?: BetterAuthUserCreateContext | null,
           ) => {
             const email = user?.email;
             if (!email) return;

@@ -91,6 +91,14 @@ export async function isAgentChatAiSetupReady(): Promise<boolean> {
   return false;
 }
 
+export function isAgentChatAiSetupRequiredError(
+  error: unknown,
+): error is { statusMessage?: string; message?: string } {
+  const data = (error as { data?: { code?: unknown } } | null | undefined)
+    ?.data;
+  return data?.code === AGENT_CHAT_AI_SETUP_REQUIRED_CODE;
+}
+
 export async function requireAgentChatAiSetup(): Promise<void> {
   if (await isAgentChatAiSetupReady()) return;
 

@@ -1,4 +1,3 @@
-import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
 import { useParams } from "react-router";
 
 import { APP_TITLE } from "@/lib/app-config";
@@ -16,7 +15,8 @@ export function meta() {
 }
 
 export function HydrateFallback() {
-  return <DefaultSpinner />;
+  const params = useParams<{ slug?: string }>();
+  return <PlansPage localPlanSlug={params.slug ?? ""} />;
 }
 
 export default function LocalPlanRoute() {

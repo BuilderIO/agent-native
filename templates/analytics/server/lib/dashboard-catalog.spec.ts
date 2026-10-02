@@ -185,12 +185,12 @@ describe("dashboard catalog", () => {
       "agent-native-templates-first-party",
     );
     expect(entry?.dataSources).toEqual(["first-party"]);
-    expect(entry?.panelCount).toBe(43);
 
     const config = cloneDashboardConfig(entry!);
     expect(config.name).toBe("Agent-Native Templates (First-party)");
-    expect(config.panels).toHaveLength(47);
-    expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(47);
+    expect(entry?.panelCount).toBe(config.panels.length);
+    expect(config.panels).toHaveLength(48);
+    expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(48);
     for (const id of [
       "activation-funnel",
       "signup-method-conversion",
