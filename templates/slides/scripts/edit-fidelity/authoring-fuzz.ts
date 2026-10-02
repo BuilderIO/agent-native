@@ -920,14 +920,22 @@ export async function runAuthoringFuzz(
           }
           const parent = record.parent === baseline.root ? root : record.parent;
           const moved = record.node.parentNode !== parent;
+          const promotedHeadingLine =
+            operation.kind === "heading-enter" &&
+            record.node instanceof HTMLElement &&
+            record.node.tagName === "P" &&
+            parent instanceof HTMLElement &&
+            root.contains(parent) &&
+            record.node.parentNode === root;
           if (
             moved &&
             !(
-              listShortcut &&
-              isListItem(record.node) &&
-              isListContainer(record.parent) &&
-              record.node.parentNode &&
-              isListContainer(record.node.parentNode)
+              promotedHeadingLine ||
+              (listShortcut &&
+                isListItem(record.node) &&
+                isListContainer(record.parent) &&
+                record.node.parentNode &&
+                isListContainer(record.node.parentNode))
             )
           ) {
             const structure = (node: Node) =>
@@ -2045,21 +2053,70 @@ export async function runAuthoringFuzz(
           const token = `link${activeIndex}`;
           await typeText(token);
           await selectToken(token);
-          await page.keyboard.press(`${modifier}+K`);
-          const input = page.locator("input[placeholder]").last();
-          await input.waitFor({ state: "visible", timeout: 1500 });
-          await input.fill("https://example.com/keyboard");
-          await input.press("Enter");
-          const linked = await editor.evaluate(
-            (root: HTMLElement, value: string) =>
-              Array.from(root.querySelectorAll<HTMLAnchorElement>("a")).some(
-                (anchor) =>
-                  anchor.textContent === value &&
-                  anchor.href === "https://example.com/keyboard",
-              ),
-            token,
-          );
-          if (!linked) throw new Error("Mod+K did not link the selection");
+          const unmaskMenu = await page.addStyleTag({
+            content:
+              '[data-block-bubble-menu="true"] { visibility: visible !important; }',
+          });
+          try {
+            await page.keyboard.press(modifier + "+K");
+            const input = page.locator(
+              '[data-block-bubble-menu="true"] input[placeholder]:visible',
+            );
+            await input.waitFor({ state: "visible", timeout: 5000 });
+            await input.fill("https://example.com/keyboard");
+            await input.press("Enter");
+            const linked = await editor.evaluate(
+              (root: HTMLElement, value: string) => {
+                const selection = window.getSelection();
+                const range =
+                  selection?.rangeCount && !selection.isCollapsed
+                    ? selection.getRangeAt(0)
+                    : null;
+                if (
+                  !range ||
+                  range.toString() !== value ||
+                  !root.contains(range.commonAncestorContainer)
+                ) {
+                  return false;
+                }
+                let selectedText = "";
+                const walker = document.createTreeWalker(
+                  root,
+                  NodeFilter.SHOW_TEXT,
+                );
+                for (
+                  let node = walker.nextNode() as Text | null;
+                  node;
+                  node = walker.nextNode() as Text | null
+                ) {
+                  if (!range.intersectsNode(node)) continue;
+                  const start =
+                    node === range.startContainer ? range.startOffset : 0;
+                  const end =
+                    node === range.endContainer
+                      ? range.endOffset
+                      : node.data.length;
+                  if (start >= end) continue;
+                  const anchor = node.parentElement?.closest("a");
+                  if (
+                    !anchor ||
+                    anchor.href !== "https://example.com/keyboard"
+                  ) {
+                    return false;
+                  }
+                  selectedText += node.data.slice(start, end);
+                }
+                return selectedText === value;
+              },
+              token,
+            );
+            if (!linked)
+              throw new Error("Mod+K did not link all of the selected text");
+          } finally {
+            await unmaskMenu.evaluate((style: HTMLStyleElement) =>
+              style.remove(),
+            );
+          }
           break;
         }
         case "vertical-navigation": {
