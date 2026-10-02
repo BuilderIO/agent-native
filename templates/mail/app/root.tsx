@@ -21,7 +21,7 @@ import {
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
-import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
+import { AppShellSkeleton } from "@agent-native/toolkit/app/shared";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
@@ -618,7 +618,7 @@ export function ErrorBoundary() {
     if (!recoverFromStaleChunkError(error)) setRecovering(false);
   }, [error, staleChunk]);
 
-  if (recovering) return <DefaultSpinner ariaLabel={copy.loading} />;
+  if (recovering) return <AppShellSkeleton layout="mail" />;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
