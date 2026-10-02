@@ -2,8 +2,8 @@
 
 The Design template's editor chrome, rebuilt from the Figma baseline: a
 mode-aware top bar, the floating toolbar, a 56px rail with File, Agents,
-Threads, and Tokens (Labs), canvas comments, version history mode, and
-outside-agent access. Canvas rendering, actions, and data are unchanged, and
+Threads, and Tokens (Labs), canvas comments, version history mode,
+outside-agent access, and a width-agnostic responsive model. Canvas rendering, actions, and data are unchanged, and
 no step changes saving, sharing, auth, or billing writes.
 
 ## Links
@@ -63,7 +63,7 @@ Spacing (G), Theme, and Spec (the requirements, by ID).
 
 ## Roadmap
 
-Seventeen steps, each one PR that's shippable alone and leaves the editor
+Eighteen steps, each one PR that's shippable alone and leaves the editor
 working. Steps 2–4 can run in parallel after step 1. None has started.
 
 ### 1. Top bar shell
@@ -87,10 +87,10 @@ Keep `annotate` in `EditorMode`.
 
 Not started · TOP-04, TOP-07 · PR —
 
-Route picker with history, the device picker, and the Appearance picker that
-replaces the `colorScheme: "light"` pin on screen iframes, shown only in
-Interact. Move `BreakpointDeviceControl` out of the inspector and delete
-`ResponsiveInteractBar`. Update `interact-toolbar-layout.spec.ts` and
+Route picker with history, the device picker (preview widths from the
+breakpoint tokens, RESP-09), and the Appearance picker that replaces the
+`colorScheme: "light"` pin on screen iframes, shown only in Interact. Delete
+`ResponsiveInteractBar`; the breakpoint chips leave with step 18. Update `interact-toolbar-layout.spec.ts` and
 `ResponsiveInteractBar.mode-exit.test.tsx`.
 
 ### 4. Floating toolbar
@@ -212,6 +212,18 @@ Copy link to selection, the share popover's People and Agents tabs, Send to ›,
 and the URL-taking MCP tools. Opening a scoped link selects and zooms to its
 layers.
 
+### 18. Responsive layout
+
+Not started · RESP · PR —
+
+Start with a spike on one code-backed (React) screen to confirm container-query
+rules round-trip to source before building the UI. Then: the frame width
+handle and width presets; the inspector's Responsive section, written through
+a new `apply-visual-edit` intent that emits token-based `@max-*` / `max-*`
+classes and the parent's `@container`; Make responsive as an agent skill that
+checks the frame at each viewport; the migration in RESP-10; and the rewritten
+`responsive-breakpoints` skill. The Tailwind check is done (RESP-03).
+
 ### Every step
 
 A step that touches copy updates `app/i18n/en-US.ts` and the 11 locale files
@@ -236,13 +248,17 @@ where it names Annotate or the old toolbar.
 - 2026-10-02: Share is a fixed-size People / Agents popover; Send to › joins the context menus; ⌘F searches the region you're in; agent menu rows are plain. AGT-03, AGT-05, TOK-13, MENU-06.
 - 2026-10-02: Zoom ends 8px before the inspector's left edge. TOP-11.
 - 2026-10-02: Theme and Nudge amount live in App menu › Preferences, not Settings. SET-05.
+- 2026-10-02: Responsive design drops the breakpoint mode. A frame is a frame with width presets from tokens; responsive rules live on layers and compile to container queries with token thresholds; the agent writes them; fixed widths are only viewports to check. RESP-04, RESP-05, RESP-06, RESP-07, RESP-08, RESP-09.
 
 ## Open questions
 
 - **KEYS-09** Keep “Minimal UI” as the label for `toggle-minimal-ui`?
 - **HIST-09** Version history as a mode, or today's sheet?
 - **TOK-11** Download tokens (DTCG) in Share › Export, or a panel export?
-- **TOK-17** Keep the Container, Breakpoint, and Opacity token kinds?
+- **TOK-17** Keep the Opacity token kind? (Container and Breakpoint stay for RESP-05.)
 - **RAIL-15** Keep the Agents panel's 320px minimum width?
 - **AGT-09** When the engineer's org can't see the design, offer to widen access or only say who can open it?
 - **AGT-10** Rename MCP server settings to Connect AI apps…?
+- **RESP-13** Desktop-first `max-*` output, or flip the base so it's mobile-first?
+- **RESP-14** Keep side-by-side frames at other widths, or rely on drag plus Interact viewports?
+- **RESP-15** Responsive rules on any layer, or only on components?

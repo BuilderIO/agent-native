@@ -48,7 +48,8 @@
         {
           "id": "TOP-06",
           "status": "decided",
-          "change": "In Design, the Screens panel picks the screen; routes and device sizes are Interact concepts."
+          "change": "In Design, the Screens panel picks the screen and the frame's W sets its width (RESP-04); device sizes in Interact are preview viewports (RESP-09).",
+          "today": "The inspector's Screen section holds the breakpoint chips and edit scope."
         },
         {
           "id": "TOP-07",
@@ -469,7 +470,7 @@
           "id": "TOK-06",
           "status": "proposed",
           "today": "The code's token types are color, typography, spacing, radius, shadow, motion, other.",
-          "change": "Container, Breakpoint, and Opacity are new kinds. Spacing becomes “Spacing & Layout” to hold Container and Breakpoint; Opacity lands in Shadows & Effects."
+          "change": "Container, Breakpoint, and Opacity are new kinds. Spacing becomes “Spacing & Layout” to hold Container and Breakpoint; Opacity lands in Shadows & Effects. Container and Breakpoint tokens feed the frame's width presets and responsive rule thresholds (RESP-05)."
         },
         {
           "id": "TOK-07",
@@ -545,7 +546,7 @@
         {
           "id": "TOK-17",
           "status": "question",
-          "change": "Keep the Container, Breakpoint, and Opacity token kinds (TOK-06), or trim the + menu to the types the code has?"
+          "change": "Container and Breakpoint stay (they feed RESP-05). Keep the Opacity kind, or leave opacity to the inspector?"
         },
         {
           "id": "TOK-18",
@@ -957,6 +958,114 @@
             "templates/design/app/root.tsx:127#ThemeToggleItem",
             "templates/design/app/pages/design-editor/editor-preferences.ts#MAX_NUDGE_AMOUNT"
           ]
+        }
+      ]
+    },
+    {
+      "area": "Responsive layout",
+      "prefix": "RESP",
+      "steps": [
+        18
+      ],
+      "items": [
+        {
+          "id": "RESP-01",
+          "status": "context",
+          "today": "Breakpoints are Framer-style: `designs.data.breakpointSet` holds design-wide widths (presets Desktop 1200, Tablet 810, Phone 390, or custom 320–3840). The inspector's Screen section shows breakpoint chips with an edit scope (This breakpoint and smaller / only), and the overview canvas adds the next of 390, 768, 1280 to all screens. Edits made while a narrower breakpoint is active become overrides automatically.",
+          "refs": [
+            "templates/design/app/components/design/BreakpointBar.tsx#FRAMER_BREAKPOINT_PRESETS",
+            "templates/design/app/pages/DesignEditor.tsx:25583#BreakpointDeviceControl",
+            "templates/design/app/components/design/MultiScreenCanvas.tsx#STANDARD_BREAKPOINT_WIDTHS",
+            "templates/design/actions/add-breakpoint.ts#breakpointSet"
+          ]
+        },
+        {
+          "id": "RESP-02",
+          "status": "context",
+          "today": "Overrides are written desktop-down at the frame's width minus one, as `max-[809px]:` classes or `@media (max-width: 809px)` rules aimed at `data-agent-native-node-id` in a managed style block. They don't follow the project's Tailwind breakpoints, and localhost write-back strips the node ids, so overrides on code-backed (React) screens have no home in source.",
+          "refs": [
+            "templates/design/shared/responsive-classes.ts#max-[",
+            "templates/design/.agents/skills/responsive-breakpoints/SKILL.md#strips"
+          ]
+        },
+        {
+          "id": "RESP-03",
+          "status": "context",
+          "today": "Tailwind check (2026-10-02): inline designs run `@tailwindcss/browser` ^4.3.3 (bundled by `local-runtime.ts`), and exports load `@tailwindcss/browser@4`. Container queries are built in: in headless Chrome against the bundled 4.3.3, `@md:` / `@max-md:` flip at a 448px container and a named `@container/card` with `@[480px]/card:` works. Code-backed apps bring their own Tailwind: v4 has container queries built in, v3 needs `@tailwindcss/container-queries`, and plain CSS `@container` works in every current browser.",
+          "refs": [
+            "templates/design/app/components/design/design-canvas/local-runtime.ts#@tailwindcss/browser",
+            "templates/design/server/lib/design-export.ts:102#@tailwindcss/browser@4",
+            "templates/design/package.json#@tailwindcss/browser"
+          ]
+        },
+        {
+          "id": "RESP-04",
+          "status": "decided",
+          "today": "A screen has a frame W/H and, separately, the breakpoint chips; two width concepts side by side.",
+          "change": "A frame is a frame: its W sets the width it renders at, and dragging its right edge resizes it with the layout reflowing live (snapping to width tokens; Alt skips the snap). There's no active-breakpoint mode and no edit scope.",
+          "prototype": "Scenario: Responsive (exploration). Drag the frame's right edge or click the width beside the screen name."
+        },
+        {
+          "id": "RESP-05",
+          "status": "decided",
+          "change": "Width presets: the frame's width menu lists Container (3xs 256 … 7xl 1280) and Breakpoint (sm 640 … 2xl 1536) widths, from the design system's `--container-*` and `--breakpoint-*` tokens when it has them and Tailwind v4's defaults otherwise.",
+          "prototype": "Scenario: Responsive (exploration). Drag the frame's right edge or click the width beside the screen name."
+        },
+        {
+          "id": "RESP-06",
+          "status": "decided",
+          "change": "Responsive rules live on the layer: the inspector's Responsive section lists rules as “Below {token}” plus a change (Stack, Wrap, One column, Collapse to menu, Hide, Text size, Padding), each showing its Tailwind class. A Container token queries the layer's parent (`@container` on the parent, `@max-3xl:grid-cols-1` on the layer); a Breakpoint token queries the frame (`max-md:hidden`). Rules travel with a component into code.",
+          "prototype": "Select a layer (the feature grid, the nav links, the headline) and use + in Responsive."
+        },
+        {
+          "id": "RESP-07",
+          "status": "decided",
+          "change": "Rules use the design system's width tokens, never arbitrary widths: `max-md:`, `@max-3xl:`, not `max-[809px]:`."
+        },
+        {
+          "id": "RESP-08",
+          "status": "decided",
+          "change": "The agent is the main author: Make responsive (Edit with Agent ›, the composer's /) reads the screen, writes the rules, checks the frame at 390, 768, and 1280, and proposes them for Apply.",
+          "prototype": "Edit with Agent › Make responsive, or /Make responsive in the Agents composer."
+        },
+        {
+          "id": "RESP-09",
+          "status": "decided",
+          "change": "Fixed widths become viewports to check, not modes to design in: Interact's device picker previews breakpoint-token widths, and the agent screenshots each one when it verifies a change."
+        },
+        {
+          "id": "RESP-10",
+          "status": "proposed",
+          "change": "Migration: existing `max-[…]` classes and managed media rules keep rendering and stay editable in Code. The UI stops creating them, `breakpointSet` becomes the list of preview viewports, and the agent offers to convert old overrides to token rules or container queries."
+        },
+        {
+          "id": "RESP-11",
+          "status": "proposed",
+          "change": "Structural changes that rules can't express (a different component at small sizes) are component variants chosen by a rule, the way Figma Sites' responsive components switch variants."
+        },
+        {
+          "id": "RESP-12",
+          "status": "proposed",
+          "today": "The `responsive-breakpoints` skill teaches the agent the active-breakpoint model.",
+          "change": "Rewrite it for this model (rules on layers, container queries, token thresholds, checking at viewports); keep `add-breakpoint` / `set-active-breakpoint` for designs that already use breakpoints.",
+          "refs": [
+            "templates/design/.agents/skills/responsive-breakpoints/SKILL.md#Framer model"
+          ]
+        },
+        {
+          "id": "RESP-13",
+          "status": "question",
+          "change": "Direction: Design's base is the widest frame, so rules come out desktop-first (`max-md:`). Engineers usually write mobile-first (`md:` on the larger value). Emit desktop-first `max-*` variants as the prototype does, or flip the base to the narrowest width so the output is mobile-first?"
+        },
+        {
+          "id": "RESP-14",
+          "status": "question",
+          "change": "Keep side-by-side linked frames of a screen at other widths (“Show at another width”), or rely on dragging the frame plus Interact's preview viewports?"
+        },
+        {
+          "id": "RESP-15",
+          "status": "question",
+          "change": "Allow responsive rules on any layer, or only on components, so they always land in a component's source?"
         }
       ]
     }

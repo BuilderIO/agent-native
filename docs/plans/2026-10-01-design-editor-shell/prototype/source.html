@@ -356,6 +356,23 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .p-card p { margin: 0; color: var(--page-muted); font-size: 15px; line-height: 1.4; }
 .p-code { background: #fff; border: 1px solid #ececec; border-radius: 12px; padding: 14px; font: 12px/1.6 var(--mono); color: #333; }
 .p-code .s { color: var(--color-link, #0a6bd6); }
+/* responsive exploration: the frame renders at its true width (scaled to fit), the page is the
+   "page" container, and rules compile to container queries in #resp-css */
+.page.resp { container: page / inline-size; }
+.p-menu { display: none; width: 34px; height: 34px; border-radius: 17px; border: 1px solid #e5e5e5; align-items: center; justify-content: center; }
+.p-menu svg.i { width: 18px; height: 18px; }
+.resp-handle { position: absolute; top: 0; bottom: 0; right: -10px; width: 20px; cursor: ew-resize; display: flex; align-items: center; justify-content: center; z-index: 5; }
+.resp-handle::before { content: ""; width: 4px; height: 40px; border-radius: 2px; background: var(--accent); opacity: .5; }
+.resp-handle:hover::before, .resp-handle.drag::before { opacity: 1; }
+.resp-readout { position: absolute; top: -26px; right: -4px; transform: translateX(50%); height: 20px; padding: 0 6px; border-radius: 4px; background: var(--accent); color: #fff; font: 500 11px/20px var(--font); white-space: nowrap; pointer-events: none; }
+.frame-label .fl-w { display: inline-flex; align-items: center; gap: 2px; height: 16px; padding: 0 4px; margin-left: 2px; border-radius: 4px; color: var(--fg); font: inherit; }
+.frame-label .fl-w:hover { background: var(--hover); }
+.resp-rules { display: flex; flex-direction: column; gap: 8px; padding: 0 16px 12px; }
+.resp-rule { display: grid; grid-template-columns: minmax(0, 1fr) 24px; gap: 4px; align-items: center; }
+.resp-rule .dd-btn.change { grid-column: 1; }
+.resp-rule .dd-btn { height: 24px; min-width: 0; padding: 0 4px 0 8px; border-radius: 6px; background: var(--muted); display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 12px; }
+.resp-rule .dd-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.resp-rule code { grid-column: 1 / -1; font: 11px/16px var(--mono); color: var(--muted-fg); }
 .p-docs { padding: 56px; display: flex; flex-direction: column; gap: 16px; min-height: 640px; }
 .p-docs h2 { font-size: 40px; letter-spacing: -0.03em; margin: 0; }
 .p-docs .toc { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
@@ -843,7 +860,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
   <button class="chip" id="labs-btn" aria-pressed="false" title="Annotate mode moves behind a Labs flag">Labs: Annotate</button>
   <button class="chip" id="labs-tokens" aria-pressed="true" title="Tokens ships behind a Labs flag">Labs: Tokens</button>
   <label class="chip" title="Compare history as a mode (timeline in the inspector) or today's sheet">History <select id="hist-style"><option value="mode">Mode</option><option value="sheet">Sheet (today)</option></select></label>
-  <label class="chip" title="Show the controls that only appear in some states">Scenario <select id="scenario-sel"><option value="none">Default</option><option value="feedback">Feedback queued</option><option value="rewrite">Changes to review</option><option value="local">Local app screen</option></select></label>
+  <label class="chip" title="Show the controls that only appear in some states">Scenario <select id="scenario-sel"><option value="none">Default</option><option value="feedback">Feedback queued</option><option value="rewrite">Changes to review</option><option value="local">Local app screen</option><option value="responsive">Responsive (exploration)</option></select></label>
   <button class="chip" id="spec-grid-btn" aria-pressed="false" title="Show the indent spacers and the inspector's 88 / 8 / 88 / 8 / 32 grid">Spacing <span class="k">G</span></button>
   <button class="chip" id="theme-btn">Theme</button>
   <button class="chip" id="spec-btn" aria-pressed="false">Spec</button>
@@ -955,6 +972,98 @@ const PROPS = {
   "hero-eyebrow": { tag: "div", x: 400, y: 40, w: 63, h: 26, radius: 13, opacity: 100, fill: "F7F7F7" },
 };
 const propsFor = id => PROPS[id] || { tag: FLAT[id]?.kind === "text" ? "span" : "div", x: 56, y: 0, w: 116, h: 19, font: "Inter", weight: "Regular", size: 16, lh: 1.2, ls: "0px", fill: "000000", radius: 0, opacity: 100, text: FLAT[id]?.kind === "text" };
+
+
+/* ───────── responsive (exploration): frame width, width tokens, container rules ───────── */
+// A frame is a frame: drag its edge or pick a width token. Rules on a layer compile to container queries,
+// so the layout reflows at any width and travels with the component into code. Tailwind v4 defaults
+// stand in until the design system defines --container-* / --breakpoint-* tokens.
+const TW_CONTAINER = [["3xs", 256], ["2xs", 288], ["xs", 320], ["sm", 384], ["md", 448], ["lg", 512], ["xl", 576], ["2xl", 672], ["3xl", 768], ["4xl", 896], ["5xl", 1024], ["6xl", 1152], ["7xl", 1280]];
+const TW_BREAKPOINT = [["sm", 640], ["md", 768], ["lg", 1024], ["xl", 1280], ["2xl", 1536]];
+function widthTokens(kind) {
+  const prefix = kind === "container" ? "--container-" : "--breakpoint-";
+  const own = TOKENS.filter(t => t.cssVar.startsWith(prefix)).map(t => [t.cssVar.slice(prefix.length), parseFloat(t.value) * (/rem$/.test(t.value) ? 16 : 1)]).filter(([, px]) => px > 0);
+  return own.length ? own.sort((a, b) => a[1] - b[1]) : kind === "container" ? TW_CONTAINER : TW_BREAKPOINT;
+}
+const RESP = { w: 1280, rules: [], nextId: 1 };
+const FRAME_SCALE = 863 / 1280;
+const respOn = () => S.scenario === "responsive" && S.route !== "*";
+const RESP_CHANGES = {
+  stack: { t: "Stack", css: "flex-direction: column; align-items: stretch", tw: "flex-col" },
+  wrap: { t: "Wrap", css: "flex-wrap: wrap; justify-content: center", tw: "flex-wrap" },
+  one: { t: "One column", css: "grid-template-columns: 1fr", tw: "grid-cols-1" },
+  menu: { t: "Collapse to menu", css: "display: none", tw: "hidden", extra: '[data-node="nav"] .p-menu { display: inline-flex; }' },
+  hide: { t: "Hide", css: "display: none", tw: "hidden" },
+  t44: { t: "Text 44px", css: "font-size: 44px !important", tw: "text-[44px]" },
+  t36: { t: "Text 36px", css: "font-size: 36px !important", tw: "text-[36px]" },
+  pad: { t: "Padding 24px", css: "padding-left: 24px; padding-right: 24px", tw: "px-6" },
+};
+const RESP_OPTIONS = { features: ["one", "pad"], "hero-cta": ["stack", "wrap"], "hero-cmd": ["wrap", "stack"], "nav-links": ["menu", "hide"], "hero-title": ["t44", "t36"], "docs-title": ["t44", "t36"], nav: ["pad"], hero: ["pad"] };
+const respChoices = node => [...(RESP_OPTIONS[node] || []), "hide"].filter((c, i, a) => a.indexOf(c) === i);
+const tokenPx = (scale, token) => (widthTokens(scale).find(t => t[0] === token) || [])[1];
+const ruleClass = r => `${r.scale === "container" ? "@max-" : "max-"}${r.token}:${RESP_CHANGES[r.change].tw}`;
+const nearestToken = w => [...widthTokens("breakpoint").map(t => [...t, "breakpoint"]), ...widthTokens("container").map(t => [...t, "container"])].find(t => Math.abs(t[1] - w) <= 0) || null;
+// Agent "Make responsive": the rules a person would otherwise add by hand.
+const MAKE_RESP = [["nav-links", "breakpoint", "md", "menu"], ["hero-title", "breakpoint", "md", "t44"], ["hero-title", "breakpoint", "sm", "t36"], ["hero-cta", "breakpoint", "sm", "stack"], ["hero-cmd", "breakpoint", "sm", "wrap"], ["features", "container", "3xl", "one"], ["nav", "breakpoint", "sm", "pad"], ["hero", "breakpoint", "sm", "pad"], ["features", "breakpoint", "sm", "pad"]];
+function respCss() {
+  // Wider thresholds first, so a narrower rule on the same layer wins by source order.
+  const rules = RESP.rules.map(r => ({ ...r, px: tokenPx(r.scale, r.token) })).filter(r => r.px).sort((a, b) => b.px - a.px);
+  const containers = new Set(rules.filter(r => r.scale === "container").map(r => FLAT[r.node]?.parent).filter(Boolean));
+  // Scoped under #page so the rules outrank the page's own classes wherever the style tag lands.
+  return [...containers].map(id => `#page [data-node="${id}"] { container-type: inline-size; }`).join("\n") + "\n" +
+    rules.map(r => `@container ${r.scale === "breakpoint" ? "page " : ""}(max-width: ${r.px - 1}px) { #page [data-node="${r.node}"] { ${RESP_CHANGES[r.change].css} } ${RESP_CHANGES[r.change].extra ? "#page " + RESP_CHANGES[r.change].extra : ""} }`).join("\n");
+}
+function renderResponsiveFrame() {
+  const p = $("#page"), wrap = p.parentElement, on = respOn();
+  p.classList.toggle("resp", on);
+  wrap.querySelector(".resp-handle")?.remove();
+  let style = $("#resp-css"); if (!style) { style = document.createElement("style"); style.id = "resp-css"; document.head.append(style); }
+  style.textContent = on ? respCss() : "";
+  if (!on) { Object.assign(p.style, { width: "", position: "", left: "", top: "", transformOrigin: "" }); Object.assign(wrap.style, { width: "", height: "" }); return; }
+  const s = FRAME_SCALE * S.zoom / 100;
+  Object.assign(p.style, { width: RESP.w + "px", position: "absolute", left: "0", top: "0", transformOrigin: "top left", transform: `scale(${s})` });
+  const fit = () => { wrap.style.width = RESP.w * s + "px"; wrap.style.height = p.offsetHeight * s + "px"; };
+  fit(); requestAnimationFrame(fit);
+  const tok = nearestToken(RESP.w);
+  $("#frame-label").innerHTML = `${S.route === "/docs" ? "Screen 2" : "Screen 1"}<button class="fl-w" id="resp-w" aria-haspopup="menu" title="Frame width">${RESP.w}${tok ? ` · ${tok[0]}` : ""}${ic("chevron-down", "s12")}</button>`;
+  const h = document.createElement("div"); h.className = "resp-handle"; h.title = "Drag to resize the frame"; wrap.append(h);
+}
+function setFrameWidth(w, live) {
+  RESP.w = Math.round(Math.min(1920, Math.max(320, w)));
+  if (live) { const p = $("#page"), s = FRAME_SCALE * S.zoom / 100; p.style.width = RESP.w + "px"; p.parentElement.style.width = RESP.w * s + "px"; p.parentElement.style.height = p.offsetHeight * s + "px"; requestAnimationFrame(renderPins); return; }
+  renderPage(); renderInspector();
+}
+document.addEventListener("pointerdown", e => {
+  const h = e.target.closest?.(".resp-handle"); if (!h) return;
+  e.preventDefault(); h.classList.add("drag");
+  const x0 = e.clientX, w0 = RESP.w, s = FRAME_SCALE * S.zoom / 100;
+  const snaps = [...widthTokens("breakpoint"), ...widthTokens("container")].map(t => t[1]);
+  const read = document.createElement("div"); read.className = "resp-readout"; h.append(read);
+  const move = ev => {
+    let w = w0 + (ev.clientX - x0) / s;
+    const snap = snaps.find(px => Math.abs(px - w) <= 8); if (snap && !ev.altKey) w = snap;
+    setFrameWidth(w, true); const tok = nearestToken(RESP.w); read.textContent = `${RESP.w}${tok ? ` · ${tok[0]}` : ""}`;
+  };
+  const up = () => { document.removeEventListener("pointermove", move); h.classList.remove("drag"); read.remove(); renderPage(); renderInspector(); };
+  document.addEventListener("pointermove", move); document.addEventListener("pointerup", up, { once: true });
+});
+const widthMenu = (cur, run) => [{ label: "Container" }, ...widthTokens("container").map(([n, px]) => ({ t: n, k: String(px), toggle: true, on: cur === px, run: () => run(px) })), "-", { label: "Breakpoint" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: n, k: String(px), toggle: true, on: cur === px, run: () => run(px) }))];
+const whenMenu = (r) => [{ label: "Container (this layer's parent)" }, ...widthTokens("container").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), toggle: true, on: r.scale === "container" && r.token === n, run: () => { r.scale = "container"; r.token = n; renderPage(); renderInspector(); } })), "-", { label: "Breakpoint (the frame)" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), toggle: true, on: r.scale === "breakpoint" && r.token === n, run: () => { r.scale = "breakpoint"; r.token = n; renderPage(); renderInspector(); } }))];
+function responsiveSection(id) {
+  if (!respOn()) return "";
+  const rules = RESP.rules.filter(r => r.node === id);
+  const add = `<button class="icon-btn xs" data-resp-add title="Add a responsive rule">${ic("plus")}</button>`;
+  if (!rules.length) return sec("responsive", "Responsive", add, "", { empty: true });
+  return sec("responsive", "Responsive", add, `<div class="resp-rules">${rules.map(r => `<div class="resp-rule"><button class="dd-btn" data-resp-when="${r.id}" aria-haspopup="menu"><span>Below ${r.token} · ${tokenPx(r.scale, r.token)}</span>${ic("chevron-down", "s12")}</button><button class="icon-btn xs" data-resp-del="${r.id}" title="Remove rule">${ic("x")}</button><button class="dd-btn change" data-resp-change="${r.id}" aria-haspopup="menu"><span>${RESP_CHANGES[r.change].t}</span>${ic("chevron-down", "s12")}</button><code>${ruleClass(r)}</code></div>`).join("")}</div>`);
+}
+document.addEventListener("click", e => {
+  const t = e.target;
+  if (t.closest?.("#resp-w")) return openMenu(t.closest("#resp-w"), widthMenu(RESP.w, px => setFrameWidth(px)));
+  if (t.closest?.("[data-resp-add]")) { const root = !FLAT[S.selected]?.parent; RESP.rules.push({ id: RESP.nextId++, node: S.selected, scale: root ? "breakpoint" : "container", token: root ? "md" : "md", change: respChoices(S.selected)[0] }); renderPage(); renderInspector(); return; }
+  const wh = t.closest?.("[data-resp-when]"); if (wh) return openMenu(wh, whenMenu(RESP.rules.find(r => r.id === +wh.dataset.respWhen)));
+  const ch = t.closest?.("[data-resp-change]"); if (ch) { const r = RESP.rules.find(x => x.id === +ch.dataset.respChange); return openMenu(ch, respChoices(r.node).map(c => ({ t: RESP_CHANGES[c].t, toggle: true, on: r.change === c, run: () => { r.change = c; renderPage(); renderInspector(); } }))); }
+  const del = t.closest?.("[data-resp-del]"); if (del) { RESP.rules = RESP.rules.filter(r => r.id !== +del.dataset.respDel); renderPage(); renderInspector(); return; }
+});
 
 /* ───────── tree (Screens + Layers) ───────── */
 function rowHTML({ depth = 0, disc = null, icon, label, id, selected, cls = "", trail = true }) {
@@ -1101,6 +1210,7 @@ function renderPage() {
   applyTokens();
   const scale = S.zoom / 100;
   p.style.transform = scale === 1 ? "" : `scale(${scale})`;
+  renderResponsiveFrame();
   markSelection();
   requestAnimationFrame(renderPins);
 }
@@ -1124,7 +1234,7 @@ function screenHTML(route, d) {
 function navHTML() {
   return N("nav-logo", `<span class="p-logo">${LOGO_SMALL} Agent-Native</span>`) +
     N("nav-links", ["Product", "Pricing", "Docs", "Changelog"].map(l => N("nav-" + l.toLowerCase(), `<a data-href="${l === "Docs" ? "/docs" : l === "Pricing" ? "/pricing" : "/home"}">${l}</a>`)).join(""), 'class="links"') +
-    `<span class="p-btn" style="height:34px;font-size:13px;padding-inline:14px">Log in</span>`;
+    `<span class="p-btn" style="height:34px;font-size:13px;padding-inline:14px">Log in</span><span class="p-menu" aria-label="Menu">${ic("menu-2")}</span>`;
 }
 function markSelection() {
   document.querySelectorAll(".page .sel").forEach(e => e.classList.remove("sel"));
@@ -1178,6 +1288,7 @@ function renderInspector() {
       <div class="fillrow"><button class="inp"><span class="swatch" style="background:#${p.fill}"></span><span class="hex">${p.fill}</span><span class="pct">100%</span></button>${act("eye", "Hide fill")}${act("minus", "Remove fill")}</div>`)}
     ${sec("stroke", "Stroke", act("layout-grid", "Styles") + act("plus", "Add stroke"), "", { empty: true })}
     ${sec("effects", "Effects", act("layout-grid", "Styles") + act("plus", "Add effect"), "", { empty: true })}
+    ${responsiveSection(id)}
     ${sec("export", "Export", act("plus", "Add export setting"), `
       <div class="export-row">${dd("1x")}${dd("PNG")}<label class="inp"><input placeholder="Suffix" aria-label="Suffix" style="padding-left:6px"></label></div>
       <button class="wide-btn" data-toast="Exported ${f?.name.slice(0, 20) || "layer"}.png">${ic("download", "s14")}Export ${(f?.name || "layer").length > 18 ? "layer" : f.name}</button>
@@ -1489,7 +1600,7 @@ function renderAgents() {
   focusPanelSearch(AG, "ag-q");
 }
 // Started from the Tokens panel, not listed with the toolbar skills.
-const PANEL_SKILLS = [["sparkles", "Generate tokens", "", "Build a token set from this design. Name colors, type, spacing, and radii by their role and merge near-duplicates.", "This design"]];
+const PANEL_SKILLS = [["device-mobile", "Make responsive", "", "Adapt this screen to narrow widths with container and breakpoint rules, then check it at each width.", "This screen"], ["sparkles", "Generate tokens", "", "Build a token set from this design. Name colors, type, spacing, and radii by their role and merge near-duplicates.", "This design"]];
 const GEN_TOKENS = [
   ["--color-foreground", "#171717", "color"], ["--color-muted", "#737373", "color"], ["--color-surface", "#ffffff", "color"], ["--color-border", "#e5e5e5", "color"], ["--color-accent", "#7c3aed", "color"],
   ["--font-sans", "Inter", "typography"], ["--font-size-display", "76px", "typography"], ["--font-size-body", "18px", "typography"], ["--leading-body", "1.45", "typography"],
@@ -1497,13 +1608,16 @@ const GEN_TOKENS = [
   ["--radius-sm", "8px", "radius"], ["--radius-lg", "24px", "radius"],
 ];
 const SKILL_RUNS = {
+  "Make responsive": { steps: ["Reading the screen at 1280", "Finding what breaks below 768", "Writing container and breakpoint rules", "Checking at 390, 768, and 1280"], result: `${MAKE_RESP.length} rules`,
+    items: ["Nav: collapse the links to a menu below md (768)", "Headline: 44px below md, 36px below sm", "CTAs stack and the command wraps below sm (640)", "Feature cards: one column when the page container is below 3xl (768)", "Nav, hero, and card padding: 24px below sm", "Checked at 390, 768, and 1280: nothing overflows"],
+    apply: () => { if (S.scenario !== "responsive") { S.scenario = "responsive"; $("#scenario-sel").value = "responsive"; } RESP.rules = MAKE_RESP.map(([node, scale, token, change]) => ({ id: RESP.nextId++, node, scale, token, change })); renderPage(); renderInspector(); return `Added ${MAKE_RESP.length} responsive rules`; } },
   "Generate tokens": { steps: ["Reading 2 screens", "Grouping 14 colors into 5", "Naming tokens by role"], result: `${GEN_TOKENS.length} tokens`, items: ["Colors: foreground, muted, surface, border, accent (3 near-duplicate grays merged)", "Typography: sans, display and body sizes, body line height", "Spacing: a 4px scale from 4 to 64", "Radius: sm 8px, lg 24px"], apply: () => { const n = upsertTyped(GEN_TOKENS.map(([cssVar, value, type]) => ({ cssVar, value, type, name: friendly(cssVar) })), "Agent"); renderTokens(); return `Added ${n} tokens`; } },
   Polish: { steps: ["Reading the selection", "Checking type scale and spacing", "Comparing with the design system"], result: "3 changes", items: ["Headline 76px → 64px so it fits two lines on 13″", "Subtitle line height 1.35 → 1.45", "CTA gap 16px → 12px to match the 4px grid"], apply: () => { DESIGN = { ...DESIGN, headline: 64 }; PROPS["hero-title"].size = 64; PROPS["hero-title"].h = 133; renderPage(); saveVersion("Chat autosave", "chat"); } },
   Debug: { steps: ["Rendering /home at 393, 820, and 1280", "Checking overflow and hit targets"], result: "2 issues", items: ["Nav links overflow at 393px", "Copy button is 40px tall; 44px recommended on touch"], apply: () => {} },
   Inspiration: { steps: ["Reading the selection", "Drafting three directions"], result: "3 directions", items: ["Editorial: serif headline, left aligned", "Product-led: live terminal under the headline", "Minimal: headline only, CTA in the nav"], apply: () => {} },
 };
 // "/" in the agent composer: the mention picker listing skills; picking one inserts an inline skill chip (toolkit skillReference).
-const COMPOSER_SKILLS = () => [...SKILLS, ...(S.labsTokens ? PANEL_SKILLS : [])];
+const COMPOSER_SKILLS = () => [...SKILLS, ...PANEL_SKILLS.filter(sk => sk[1] !== "Generate tokens" || S.labsTokens)];
 function slashQuery() {
   const sel = getSelection(); if (!sel.rangeCount) return null;
   const r = sel.getRangeAt(0), n = r.startContainer; if (n.nodeType !== 3 || !n.parentElement.closest("#ask")) return null;
@@ -1814,7 +1928,7 @@ const AGENT_ACTIONS = () => [
   { icon: "sparkles", t: "Polish", desc: "Improve hierarchy and consistency", run: () => startSkill("Polish") },
   { icon: "bug", t: "Debug", desc: "Find and fix issues", run: () => startSkill("Debug") },
   { icon: "layout-grid", t: "Generate states", desc: "Empty, loading, and error", toast: "The agent drafts empty, loading, and error states" },
-  { icon: "device-mobile", t: "Make responsive", desc: "Adapt to breakpoints", toast: "The agent adapts the selection to each breakpoint" },
+  { icon: "device-mobile", t: "Make responsive", desc: "Adapt to narrow widths", run: () => startSkill("Make responsive") },
 ];
 const editWithAgent = () => ({ icon: "sparkles", t: "Edit with Agent…", sub: AGENT_ACTIONS(), subIcon: "arrow-up-right", run: () => { setPanel("agents"); $("#ask")?.focus(); } });
 // Links carry the screen and, with a selection, the layers, so an outside agent's get_design_context reads exactly that scope.

@@ -20,7 +20,8 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
 - **TOP-05** · decided
   - Change: Zoom stays in the same spot in both modes and keeps its value. The route stays exactly centred from 1200px wide; below that it takes the leftover middle (120–264px) and presence avatars hide.
 - **TOP-06** · decided
-  - Change: In Design, the Screens panel picks the screen; routes and device sizes are Interact concepts.
+  - Today: The inspector's Screen section holds the breakpoint chips and edit scope.
+  - Change: In Design, the Screens panel picks the screen and the frame's W sets its width (RESP-04); device sizes in Interact are preview viewports (RESP-09).
 - **TOP-07** · proposed
   - Change: Local app screens: Interact's route picker shows the localhost URL; Design shows Apply to source beside zoom.
   - Prototype: Scenario: Local app screen.
@@ -180,7 +181,7 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
   - Change: + Add token is a Nova menu of token kinds in the panel's group order: Color · Font family, Font weight, Font size, Line height, Letter spacing · Spacing, Container, Breakpoint, Radius · Shadow, Opacity. A kind adds a draft row at the end of its group with the kind's prefix and a starting value (Font size → `--font-size-`, 16px), stored with that type; Enter moves to the value, Enter or clicking away saves, Esc cancels.
 - **TOK-06** · proposed
   - Today: The code's token types are color, typography, spacing, radius, shadow, motion, other.
-  - Change: Container, Breakpoint, and Opacity are new kinds. Spacing becomes “Spacing & Layout” to hold Container and Breakpoint; Opacity lands in Shadows & Effects.
+  - Change: Container, Breakpoint, and Opacity are new kinds. Spacing becomes “Spacing & Layout” to hold Container and Breakpoint; Opacity lands in Shadows & Effects. Container and Breakpoint tokens feed the frame's width presets and responsive rule thresholds (RESP-05).
 - **TOK-07** · decided
   - Today: The same popover offers Import a set from text, Import from a file, Import from a folder, and Import from current design.
   - Change: Import (Tabler `download`) is a Nova menu like +, each item importing straight away with a toast of what changed: Paste Figma link, DTCG file…, CSS or Tailwind file…, Code folder…, Paste from clipboard, then Generate from design. The same parser runs underneath, and DTCG is detected by content.
@@ -207,7 +208,7 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
 - **TOK-16** · proposed
   - Change: DTCG import and export: groups inherit `$type`; `{alias}` and `$ref` resolve; colors, dimensions, durations, font families and weights, cubic-béziers, and shadows convert to CSS. A `com.agent-native.cssVar` extension keeps the variable name, otherwise the path becomes it. Share › Export › Download tokens (DTCG) writes the same shape back, and a round trip changes nothing.
 - **TOK-17** · question
-  - Change: Keep the Container, Breakpoint, and Opacity token kinds (TOK-06), or trim the + menu to the types the code has?
+  - Change: Container and Breakpoint stay (they feed RESP-05). Keep the Opacity kind, or leave opacity to the inspector?
 - **TOK-18** · proposed
   - Change: The token panel's strings get localized (en-US plus the 11 locale files) when it leaves the build switch.
 
@@ -365,3 +366,42 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
 - **SET-05** · decided
   - Today: The theme (next-themes `setTheme`) is only reachable from the command menu's Toggle theme, which flips light and dark. Nudge amount lives in the shortcuts drawer (`editor-preferences.ts`, 1–1000px, defaults 1 and 10).
   - Change: App menu › Preferences › Theme › Light, Dark, System theme, replacing Figma's Appearance…; no Settings page for it. Interact's Appearance stays separate: it sets the previewed design's color scheme. Preferences also gets Nudge amount…, a small dialog editing the same preference, with the code's description in a tooltip.
+
+## Responsive layout (RESP, step 18)
+
+- **RESP-01** · context
+  - Today: Breakpoints are Framer-style: `designs.data.breakpointSet` holds design-wide widths (presets Desktop 1200, Tablet 810, Phone 390, or custom 320–3840). The inspector's Screen section shows breakpoint chips with an edit scope (This breakpoint and smaller / only), and the overview canvas adds the next of 390, 768, 1280 to all screens. Edits made while a narrower breakpoint is active become overrides automatically.
+- **RESP-02** · context
+  - Today: Overrides are written desktop-down at the frame's width minus one, as `max-[809px]:` classes or `@media (max-width: 809px)` rules aimed at `data-agent-native-node-id` in a managed style block. They don't follow the project's Tailwind breakpoints, and localhost write-back strips the node ids, so overrides on code-backed (React) screens have no home in source.
+- **RESP-03** · context
+  - Today: Tailwind check (2026-10-02): inline designs run `@tailwindcss/browser` ^4.3.3 (bundled by `local-runtime.ts`), and exports load `@tailwindcss/browser@4`. Container queries are built in: in headless Chrome against the bundled 4.3.3, `@md:` / `@max-md:` flip at a 448px container and a named `@container/card` with `@[480px]/card:` works. Code-backed apps bring their own Tailwind: v4 has container queries built in, v3 needs `@tailwindcss/container-queries`, and plain CSS `@container` works in every current browser.
+- **RESP-04** · decided
+  - Today: A screen has a frame W/H and, separately, the breakpoint chips; two width concepts side by side.
+  - Change: A frame is a frame: its W sets the width it renders at, and dragging its right edge resizes it with the layout reflowing live (snapping to width tokens; Alt skips the snap). There's no active-breakpoint mode and no edit scope.
+  - Prototype: Scenario: Responsive (exploration). Drag the frame's right edge or click the width beside the screen name.
+- **RESP-05** · decided
+  - Change: Width presets: the frame's width menu lists Container (3xs 256 … 7xl 1280) and Breakpoint (sm 640 … 2xl 1536) widths, from the design system's `--container-*` and `--breakpoint-*` tokens when it has them and Tailwind v4's defaults otherwise.
+  - Prototype: Scenario: Responsive (exploration). Drag the frame's right edge or click the width beside the screen name.
+- **RESP-06** · decided
+  - Change: Responsive rules live on the layer: the inspector's Responsive section lists rules as “Below {token}” plus a change (Stack, Wrap, One column, Collapse to menu, Hide, Text size, Padding), each showing its Tailwind class. A Container token queries the layer's parent (`@container` on the parent, `@max-3xl:grid-cols-1` on the layer); a Breakpoint token queries the frame (`max-md:hidden`). Rules travel with a component into code.
+  - Prototype: Select a layer (the feature grid, the nav links, the headline) and use + in Responsive.
+- **RESP-07** · decided
+  - Change: Rules use the design system's width tokens, never arbitrary widths: `max-md:`, `@max-3xl:`, not `max-[809px]:`.
+- **RESP-08** · decided
+  - Change: The agent is the main author: Make responsive (Edit with Agent ›, the composer's /) reads the screen, writes the rules, checks the frame at 390, 768, and 1280, and proposes them for Apply.
+  - Prototype: Edit with Agent › Make responsive, or /Make responsive in the Agents composer.
+- **RESP-09** · decided
+  - Change: Fixed widths become viewports to check, not modes to design in: Interact's device picker previews breakpoint-token widths, and the agent screenshots each one when it verifies a change.
+- **RESP-10** · proposed
+  - Change: Migration: existing `max-[…]` classes and managed media rules keep rendering and stay editable in Code. The UI stops creating them, `breakpointSet` becomes the list of preview viewports, and the agent offers to convert old overrides to token rules or container queries.
+- **RESP-11** · proposed
+  - Change: Structural changes that rules can't express (a different component at small sizes) are component variants chosen by a rule, the way Figma Sites' responsive components switch variants.
+- **RESP-12** · proposed
+  - Today: The `responsive-breakpoints` skill teaches the agent the active-breakpoint model.
+  - Change: Rewrite it for this model (rules on layers, container queries, token thresholds, checking at viewports); keep `add-breakpoint` / `set-active-breakpoint` for designs that already use breakpoints.
+- **RESP-13** · question
+  - Change: Direction: Design's base is the widest frame, so rules come out desktop-first (`max-md:`). Engineers usually write mobile-first (`md:` on the larger value). Emit desktop-first `max-*` variants as the prototype does, or flip the base to the narrowest width so the output is mobile-first?
+- **RESP-14** · question
+  - Change: Keep side-by-side linked frames of a screen at other widths (“Show at another width”), or rely on dragging the frame plus Interact's preview viewports?
+- **RESP-15** · question
+  - Change: Allow responsive rules on any layer, or only on components, so they always land in a component's source?
