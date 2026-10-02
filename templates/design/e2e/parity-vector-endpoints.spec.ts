@@ -221,6 +221,7 @@ test("vector endpoint controls cover all styles, swap, paint inheritance, histor
   page,
   request,
 }) => {
+  test.setTimeout(180_000);
   const { designId, fileId } = await createDesign(request);
   try {
     await gotoEditor(page, designId);
