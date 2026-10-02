@@ -16,11 +16,15 @@ export function meta() {
 }
 
 export function HydrateFallback() {
+  return <EditionsRouteContent />;
+}
+
+function EditionsRouteContent() {
+  const editionsEnabled = useEditionsLab();
+  if (!editionsEnabled) return <Navigate to="/plans" replace />;
   return <EditionPage />;
 }
 
 export default function EditionsRoute() {
-  const editionsEnabled = useEditionsLab();
-  if (!editionsEnabled) return <Navigate to="/plans" replace />;
-  return <EditionPage />;
+  return <EditionsRouteContent />;
 }

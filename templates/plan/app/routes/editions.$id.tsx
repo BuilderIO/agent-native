@@ -40,11 +40,15 @@ export const meta: Route.MetaFunction = ({ loaderData }) => {
 };
 
 export function HydrateFallback() {
+  return <EditionRouteContent />;
+}
+
+function EditionRouteContent() {
+  const editionsEnabled = useEditionsLab();
+  if (!editionsEnabled) return <Navigate to="/plans" replace />;
   return <EditionPage />;
 }
 
 export default function EditionRoute() {
-  const editionsEnabled = useEditionsLab();
-  if (!editionsEnabled) return <Navigate to="/plans" replace />;
-  return <EditionPage />;
+  return <EditionRouteContent />;
 }
