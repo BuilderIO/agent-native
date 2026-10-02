@@ -4000,6 +4000,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           );
         };
         const handleParentWindowBlur = () => {
+          if (document.hasFocus()) return;
           cancelPendingParentDrag();
           settleAllCrossScreenModifierProbes();
           if (
