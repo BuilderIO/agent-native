@@ -7,8 +7,11 @@ import {
   partitionCredentialUpdate,
 } from "../../lib/credential-keys";
 import {
+  deleteResolvedCredential,
+  resolveCredentialSaveScope,
+} from "../../lib/credential-save-scope";
+import {
   saveCredential,
-  deleteCredential,
   getCredentialContextFromEvent,
 } from "../../lib/credentials";
 import { loadDashboardSeed } from "../../lib/dashboard-seeds";
@@ -53,13 +56,18 @@ function validateCredential(key: string, value: string): string | null {
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event);
-  const { vars } = body as {
+  const { vars, scope } = body as {
     vars?: Array<{ key: string; value: string }>;
+    scope?: unknown;
   };
 
   if (!Array.isArray(vars) || vars.length === 0) {
     setResponseStatus(event, 400);
     return { error: "vars array required" };
+  }
+  if (scope !== undefined && scope !== "user" && scope !== "org") {
+    setResponseStatus(event, 400);
+    return { error: 'scope must be "user" or "org"' };
   }
 
   const recognized = vars.filter(
@@ -100,11 +108,12 @@ export default defineEventHandler(async (event) => {
     setResponseStatus(event, 401);
     return { error: "Sign in to save credentials" };
   }
+  const saveScope = await resolveCredentialSaveScope(ctx, scope);
   for (const { key, value } of toSave) {
-    await saveCredential(key, value, ctx);
+    await saveCredential(key, value, { ...ctx, scope: saveScope });
   }
   for (const key of toDelete) {
-    await deleteCredential(key, ctx);
+    await deleteResolvedCredential(key, ctx);
   }
 
   const savedKeys = new Set(toSave.map((v) => v.key));

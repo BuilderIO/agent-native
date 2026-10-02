@@ -18,12 +18,12 @@ export const pylonStatus = defineEventHandler(async (event: H3Event) => {
 
 export const pylonSaveKey = defineEventHandler(async (event: H3Event) => {
   const body = await readBody(event);
-  const { apiKey } = body;
+  const { apiKey, scope } = body;
   if (!apiKey || typeof apiKey !== "string") {
     setResponseStatus(event, 400);
     return { error: "apiKey is required" };
   }
-  const ok = await saveIntegrationKey(event, "pylon", apiKey);
+  const ok = await saveIntegrationKey(event, "pylon", apiKey, scope);
   if (!ok) {
     setResponseStatus(event, 401);
     return { error: "Sign in to connect Pylon" };

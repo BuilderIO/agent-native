@@ -20,32 +20,41 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 type Stored = { scope: string; key: string; value: string };
 const store = new Map<string, Stored>();
 
-function scopeOf(ctx: { userEmail?: string; orgId?: string | null }): string {
+function scopeOf(ctx: {
+  userEmail?: string;
+  orgId?: string | null;
+  scope?: "user" | "org";
+}): string {
   if (!ctx?.userEmail) throw new Error("ctx.userEmail required");
+  if (ctx.scope === "org") return `o:${ctx.orgId}`;
   return `u:${ctx.userEmail.toLowerCase()}`;
 }
 
 const resolveCredentialMock = vi.hoisted(() => vi.fn());
+const resolveCredentialDetailedMock = vi.hoisted(() => vi.fn());
 const saveCredentialMock = vi.hoisted(() => vi.fn());
 const deleteCredentialMock = vi.hoisted(() => vi.fn());
 const getSessionMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() => vi.fn());
+const readBodyMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/credentials", () => ({
   resolveCredential: resolveCredentialMock,
+  resolveCredentialDetailed: resolveCredentialDetailedMock,
   saveCredential: saveCredentialMock,
   deleteCredential: deleteCredentialMock,
 }));
 
 vi.mock("@agent-native/core/server", () => ({
   getSession: getSessionMock,
+  readBody: readBodyMock,
 }));
 
 vi.mock("@agent-native/core/org", () => ({
   getOrgContext: getOrgContextMock,
 }));
 
-import { apolloStatus } from "../handlers/apollo.js";
+import { apolloSaveKey, apolloStatus } from "../handlers/apollo.js";
 import { hubspotStatus } from "../handlers/hubspot.js";
 import {
   getIntegrationKey,
@@ -77,15 +86,126 @@ beforeEach(() => {
       store.set(`${scope}::${key}`, { scope, key, value });
     },
   );
+  // A member's own row answers first, then the organization's.
+  resolveCredentialDetailedMock.mockImplementation(
+    async (key: string, ctx: { userEmail: string; orgId?: string | null }) => {
+      const own = store.get(`${scopeOf(ctx)}::${key}`);
+      if (own)
+        return { value: own.value, scope: "user", scopeId: ctx.userEmail };
+      const org = ctx.orgId ? store.get(`o:${ctx.orgId}::${key}`) : undefined;
+      if (org) return { value: org.value, scope: "org", scopeId: ctx.orgId };
+      return undefined;
+    },
+  );
   resolveCredentialMock.mockImplementation(
     async (key: string, ctx: { userEmail: string }) =>
-      store.get(`${scopeOf(ctx)}::${key}`)?.value,
+      (await resolveCredentialDetailedMock(key, ctx))?.value,
   );
   deleteCredentialMock.mockImplementation(
     async (key: string, ctx: { userEmail: string }) => {
       store.delete(`${scopeOf(ctx)}::${key}`);
     },
   );
+});
+
+function signInAs(role: "owner" | "admin" | "member") {
+  getSessionMock.mockResolvedValue({ email: USER_EMAIL, orgId: "org-1" });
+  getOrgContextMock.mockResolvedValue({ orgId: "org-1", role });
+}
+
+describe("where a saved key lands", () => {
+  it.each(["owner", "admin"] as const)(
+    "saves an %s's key for the organization by default",
+    async (role) => {
+      signInAs(role);
+      await saveIntegrationKey(fakeEvent, "apollo", APOLLO_KEY);
+
+      expect([...store.values()]).toEqual([
+        { scope: "o:org-1", key: "APOLLO_API_KEY", value: APOLLO_KEY },
+      ]);
+    },
+  );
+
+  it("saves an admin's key personally when they choose Personal", async () => {
+    signInAs("admin");
+    await saveIntegrationKey(fakeEvent, "apollo", APOLLO_KEY, "user");
+
+    expect([...store.keys()]).toEqual([`u:${USER_EMAIL}::APOLLO_API_KEY`]);
+  });
+
+  it("saves a member's key personally by default", async () => {
+    signInAs("member");
+    await saveIntegrationKey(fakeEvent, "apollo", APOLLO_KEY);
+
+    expect([...store.keys()]).toEqual([`u:${USER_EMAIL}::APOLLO_API_KEY`]);
+  });
+
+  it("refuses a member's organization save with a 403 and writes nothing", async () => {
+    signInAs("member");
+
+    await expect(
+      saveIntegrationKey(fakeEvent, "apollo", APOLLO_KEY, "org"),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(saveCredentialMock).not.toHaveBeenCalled();
+  });
+
+  it("fails the save instead of storing it personally when the role cannot be read", async () => {
+    getSessionMock.mockResolvedValue({ email: USER_EMAIL, orgId: "org-1" });
+    getOrgContextMock.mockRejectedValue(new Error("org store down"));
+
+    await expect(
+      saveIntegrationKey(fakeEvent, "apollo", APOLLO_KEY),
+    ).rejects.toThrow("org store down");
+    expect(saveCredentialMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a scope it does not know with a 400", async () => {
+    signInAs("admin");
+
+    await expect(
+      saveIntegrationKey(fakeEvent, "apollo", APOLLO_KEY, "workspace"),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(saveCredentialMock).not.toHaveBeenCalled();
+  });
+
+  it("passes the requested scope from the save route", async () => {
+    signInAs("member");
+    readBodyMock.mockResolvedValue({ apiKey: APOLLO_KEY, scope: "org" });
+
+    await expect(
+      (apolloSaveKey as unknown as (e: H3Event) => Promise<unknown>)(fakeEvent),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(saveCredentialMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("disconnect removes the key the reader uses", () => {
+  it("removes the organization's key for an admin", async () => {
+    signInAs("admin");
+    await saveIntegrationKey(fakeEvent, "apollo", APOLLO_KEY);
+
+    expect(await deleteIntegrationKey(fakeEvent, "apollo")).toBe(true);
+    expect(store.size).toBe(0);
+  });
+
+  it("refuses a member's disconnect of the organization's key", async () => {
+    signInAs("admin");
+    await saveIntegrationKey(fakeEvent, "apollo", APOLLO_KEY);
+    signInAs("member");
+
+    await expect(
+      deleteIntegrationKey(fakeEvent, "apollo"),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(store.has("o:org-1::APOLLO_API_KEY")).toBe(true);
+  });
+
+  it("removes a member's own key", async () => {
+    signInAs("member");
+    await saveIntegrationKey(fakeEvent, "apollo", APOLLO_KEY);
+
+    expect(await deleteIntegrationKey(fakeEvent, "apollo")).toBe(true);
+    expect(store.size).toBe(0);
+  });
 });
 
 describe("integration-credentials per-user vault", () => {
