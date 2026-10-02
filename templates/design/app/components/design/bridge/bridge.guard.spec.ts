@@ -619,6 +619,41 @@ it(
         ),
       );
       await page.keyboard.down("s");
+      const activeSnapshotId = await page.evaluate(() => {
+        const dragStarts = (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).filter(
+          (message) =>
+            message.type === "agent-native:cross-screen-drag" &&
+            message.phase === "start",
+        );
+        return dragStarts[dragStarts.length - 1]?.sourceDeleteRequestId as
+          | string
+          | undefined;
+      });
+      expect(activeSnapshotId).toEqual(expect.any(String));
+      const activeSnapshot = await page.evaluate((snapshotId: string) => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: {
+              type: "agent-native:cross-screen-modifier-snapshot-probe",
+              requestId: "active-release",
+              snapshotId,
+            },
+            source: window,
+          }),
+        );
+        return (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).find(
+          (message) =>
+            message.type === "agent-native:cross-screen-modifier-snapshot" &&
+            message.requestId === "active-release",
+        );
+      }, activeSnapshotId!);
+      expect(activeSnapshot).toMatchObject({
+        ignoreAutoLayout: true,
+      });
       await page.mouse.up();
       await page.keyboard.up("s");
 
@@ -716,6 +751,86 @@ it(
       });
       expect(releaseSnapshots[0].changedAt).toEqual(expect.any(Number));
       expect(releaseSnapshots[1].changedAt).toEqual(expect.any(Number));
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "timestamps parent modifier transitions on the parent window's clock",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(
+        '<iframe id="source" srcdoc="<!doctype html><html><body></body></html>"></iframe>',
+      );
+      const sourceFrame = page.frames()[1]!;
+      await sourceFrame.evaluate(() => {
+        Object.defineProperty(navigator, "platform", {
+          configurable: true,
+          value: "Linux x86_64",
+        });
+      });
+      await sourceFrame.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+      await sourceFrame.waitForSelector(
+        '[data-agent-native-edit-overlay="shield"]',
+      );
+      const skewedSourceTimeOrigin = await sourceFrame.evaluate(() => {
+        const timeOrigin = Date.now() + 60_000;
+        Object.defineProperty(window, "performance", {
+          configurable: true,
+          value: { timeOrigin, now: () => 0 },
+        });
+        return timeOrigin;
+      });
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        window.addEventListener("message", (event) => {
+          if (
+            (event.data as Record<string, unknown> | null)?.type ===
+            "agent-native:cross-screen-modifier-snapshot"
+          ) {
+            (window as any).__bridgeMessages.push(event.data);
+          }
+        });
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "s", bubbles: true }),
+        );
+      });
+      await sourceFrame.evaluate(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: {
+              type: "agent-native:cross-screen-modifier-snapshot-probe",
+              requestId: "parent-clock",
+            },
+            source: window.parent,
+          }),
+        );
+      });
+      await page.waitForFunction(() =>
+        (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).some((message) => message.requestId === "parent-clock"),
+      );
+      const snapshot = await page.evaluate(() =>
+        (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).find((message) => message.requestId === "parent-clock"),
+      );
+      const parentNow = await page.evaluate(
+        () => performance.timeOrigin + performance.now(),
+      );
+      expect(snapshot?.ignoreAutoLayout).toBe(true);
+      expect(snapshot?.changedAt).toBeLessThan(skewedSourceTimeOrigin - 1_000);
+      expect(
+        Math.abs((snapshot?.changedAt as number) - parentNow),
+      ).toBeLessThan(1_000);
     } finally {
       await browser.close();
     }

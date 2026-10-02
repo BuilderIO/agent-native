@@ -5638,6 +5638,22 @@ export const editorChromeBridgeScript: string = `"use strict";
     var activeCrossScreenComputedSize;
     var activeCrossScreenDeleteRequestId = void 0;
     var activeCrossScreenDragIdentity = null;
+    function rememberEndedCrossScreenModifierSnapshot(snapshotId) {
+      var previousSnapshot = endedCrossScreenModifierSnapshots.get(snapshotId);
+      if (previousSnapshot) clearTimeout(previousSnapshot.timeoutId);
+      var endedSnapshot;
+      var timeoutId = setTimeout(function() {
+        if (endedCrossScreenModifierSnapshots.get(snapshotId) === endedSnapshot) {
+          endedCrossScreenModifierSnapshots.delete(snapshotId);
+        }
+      }, 1e3);
+      endedSnapshot = {
+        ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
+        changedAt: bridgeIgnoreAutoLayoutChangedAt,
+        timeoutId
+      };
+      endedCrossScreenModifierSnapshots.set(snapshotId, endedSnapshot);
+    }
     function postCrossScreenModifierState(ignoreAutoLayout, event) {
       var changedAt = eventEpochMilliseconds(event);
       bridgeIgnoreAutoLayoutChangedAt = changedAt;
@@ -13156,14 +13172,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       return result.width !== void 0 || result.height !== void 0 ? result : void 0;
     }
-    function eventEpochMilliseconds(ev) {
+    function eventEpochMilliseconds(ev, eventWindow) {
+      var eventPerformance = (eventWindow || window).performance;
       if (ev?.isTrusted === false) {
-        return performance.timeOrigin + performance.now();
+        return eventPerformance.timeOrigin + eventPerformance.now();
       }
       if (typeof ev?.timeStamp !== "number" || !Number.isFinite(ev.timeStamp)) {
         return void 0;
       }
-      return ev.timeStamp >= 1e12 ? ev.timeStamp : performance.timeOrigin + ev.timeStamp;
+      return ev.timeStamp >= 1e12 ? ev.timeStamp : eventPerformance.timeOrigin + ev.timeStamp;
     }
     function postCrossScreenDrag(phase, el, ev, options) {
       dndLog("post:cross-screen", { phase, el: getSelector(el ?? null) });
@@ -13185,6 +13202,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (phase === "start") {
+        if (activeCrossScreenDeleteRequestId && activeCrossScreenDragIdentity) {
+          rememberEndedCrossScreenModifierSnapshot(
+            activeCrossScreenDeleteRequestId
+          );
+        }
         activeCrossScreenDeleteRequestId = \`cross-screen-source-\${Date.now().toString(36)}-\${Math.random().toString(36).slice(2)}\`;
         activeCrossScreenStyleSnapshot = options?.styleSnapshot !== void 0 ? options.styleSnapshot : collectPortableStyleSnapshot(el ?? null);
         activeCrossScreenSourceHtml = el?.outerHTML;
@@ -13213,15 +13235,9 @@ export const editorChromeBridgeScript: string = `"use strict";
         y: ev.clientY - rect.top
       } : void 0);
       if (phase === "end" && activeCrossScreenDeleteRequestId) {
-        var endedSnapshotId = activeCrossScreenDeleteRequestId;
-        var endedSnapshot = {
-          ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
-          changedAt: bridgeIgnoreAutoLayoutChangedAt,
-          timeoutId: setTimeout(function() {
-            endedCrossScreenModifierSnapshots.delete(endedSnapshotId);
-          }, 1e3)
-        };
-        endedCrossScreenModifierSnapshots.set(endedSnapshotId, endedSnapshot);
+        rememberEndedCrossScreenModifierSnapshot(
+          activeCrossScreenDeleteRequestId
+        );
       }
       window.parent.postMessage(
         {
@@ -19428,7 +19444,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       var onParentModifierKeyDown = function(e) {
         if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
           if (!bridgeIgnoreAutoLayoutKeyPressed) {
-            bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(e);
+            bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(
+              e,
+              window.parent
+            );
           }
           bridgeIgnoreAutoLayoutKeyPressed = true;
         }
@@ -19436,7 +19455,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       var onParentModifierKeyUp = function(e) {
         if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
           if (bridgeIgnoreAutoLayoutKeyPressed) {
-            bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(e);
+            bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(
+              e,
+              window.parent
+            );
           }
           bridgeIgnoreAutoLayoutKeyPressed = false;
         }
@@ -20388,8 +20410,12 @@ export const editorChromeBridgeScript: string = `"use strict";
         if (typeof e.data.requestId !== "string") return;
         var snapshotId = typeof e.data.snapshotId === "string" ? e.data.snapshotId : void 0;
         var endedSnapshot = snapshotId ? endedCrossScreenModifierSnapshots.get(snapshotId) : void 0;
-        if (snapshotId && !endedSnapshot) return;
-        var snapshot = endedSnapshot ?? {
+        var activeSnapshot = snapshotId === activeCrossScreenDeleteRequestId && activeCrossScreenDragIdentity ? {
+          ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
+          changedAt: bridgeIgnoreAutoLayoutChangedAt
+        } : void 0;
+        if (snapshotId && !endedSnapshot && !activeSnapshot) return;
+        var snapshot = endedSnapshot ?? activeSnapshot ?? {
           ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
           changedAt: bridgeIgnoreAutoLayoutChangedAt
         };

@@ -6642,6 +6642,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     sourceProvenance?: { versionHash?: string; uniqueNodeId?: string };
   } | null = null;
 
+  function rememberEndedCrossScreenModifierSnapshot(snapshotId: string) {
+    var previousSnapshot = endedCrossScreenModifierSnapshots.get(snapshotId);
+    if (previousSnapshot) clearTimeout(previousSnapshot.timeoutId);
+    var endedSnapshot;
+    var timeoutId = setTimeout(function () {
+      if (endedCrossScreenModifierSnapshots.get(snapshotId) === endedSnapshot) {
+        endedCrossScreenModifierSnapshots.delete(snapshotId);
+      }
+    }, 1000);
+    endedSnapshot = {
+      ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
+      changedAt: bridgeIgnoreAutoLayoutChangedAt,
+      timeoutId: timeoutId,
+    };
+    endedCrossScreenModifierSnapshots.set(snapshotId, endedSnapshot);
+  }
+
   function postCrossScreenModifierState(
     ignoreAutoLayout: boolean,
     event: { timeStamp?: number },
@@ -16574,16 +16591,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
   function eventEpochMilliseconds(
     ev?: { timeStamp?: number; isTrusted?: boolean } | null,
+    eventWindow?: Window,
   ): number | undefined {
+    var eventPerformance = (eventWindow || window).performance;
     if (ev?.isTrusted === false) {
-      return performance.timeOrigin + performance.now();
+      return eventPerformance.timeOrigin + eventPerformance.now();
     }
     if (typeof ev?.timeStamp !== "number" || !Number.isFinite(ev.timeStamp)) {
       return undefined;
     }
     return ev.timeStamp >= 1_000_000_000_000
       ? ev.timeStamp
-      : performance.timeOrigin + ev.timeStamp;
+      : eventPerformance.timeOrigin + ev.timeStamp;
   }
 
   function postCrossScreenDrag(
@@ -16627,6 +16646,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (phase === "start") {
+      if (activeCrossScreenDeleteRequestId && activeCrossScreenDragIdentity) {
+        rememberEndedCrossScreenModifierSnapshot(
+          activeCrossScreenDeleteRequestId,
+        );
+      }
       activeCrossScreenDeleteRequestId = `cross-screen-source-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
       activeCrossScreenStyleSnapshot =
         options?.styleSnapshot !== undefined
@@ -16667,15 +16691,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           }
         : undefined);
     if (phase === "end" && activeCrossScreenDeleteRequestId) {
-      var endedSnapshotId = activeCrossScreenDeleteRequestId;
-      var endedSnapshot = {
-        ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
-        changedAt: bridgeIgnoreAutoLayoutChangedAt,
-        timeoutId: setTimeout(function () {
-          endedCrossScreenModifierSnapshots.delete(endedSnapshotId);
-        }, 1000),
-      };
-      endedCrossScreenModifierSnapshots.set(endedSnapshotId, endedSnapshot);
+      rememberEndedCrossScreenModifierSnapshot(
+        activeCrossScreenDeleteRequestId,
+      );
     }
     (window.parent as Window).postMessage(
       {
@@ -24795,7 +24813,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var onParentModifierKeyDown = function (e) {
       if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
         if (!bridgeIgnoreAutoLayoutKeyPressed) {
-          bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(e);
+          bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(
+            e,
+            window.parent,
+          );
         }
         bridgeIgnoreAutoLayoutKeyPressed = true;
       }
@@ -24803,7 +24824,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var onParentModifierKeyUp = function (e) {
       if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
         if (bridgeIgnoreAutoLayoutKeyPressed) {
-          bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(e);
+          bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(
+            e,
+            window.parent,
+          );
         }
         bridgeIgnoreAutoLayoutKeyPressed = false;
       }
@@ -25969,11 +25993,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var endedSnapshot = snapshotId
         ? endedCrossScreenModifierSnapshots.get(snapshotId)
         : undefined;
-      if (snapshotId && !endedSnapshot) return;
-      var snapshot = endedSnapshot ?? {
-        ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
-        changedAt: bridgeIgnoreAutoLayoutChangedAt,
-      };
+      var activeSnapshot =
+        snapshotId === activeCrossScreenDeleteRequestId &&
+        activeCrossScreenDragIdentity
+          ? {
+              ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
+              changedAt: bridgeIgnoreAutoLayoutChangedAt,
+            }
+          : undefined;
+      if (snapshotId && !endedSnapshot && !activeSnapshot) return;
+      var snapshot = endedSnapshot ??
+        activeSnapshot ?? {
+          ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
+          changedAt: bridgeIgnoreAutoLayoutChangedAt,
+        };
       if (snapshotId && endedSnapshot) {
         clearTimeout(endedSnapshot.timeoutId);
         endedCrossScreenModifierSnapshots.delete(snapshotId);
