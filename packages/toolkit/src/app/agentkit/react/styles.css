@@ -369,17 +369,56 @@
 }
 
 .agentkit-suggestions [data-agent-suggestion-scroller="true"] {
-  display: flex;
   inline-size: 100%;
-  gap: 0.375rem;
   overflow-x: auto;
   overscroll-behavior-inline: contain;
+  scroll-padding-inline: 1.5rem;
   scrollbar-width: none;
 }
 
 .agentkit-suggestions
   [data-agent-suggestion-scroller="true"]::-webkit-scrollbar {
   display: none;
+}
+
+.agentkit-suggestions [data-agent-suggestion-track="true"] {
+  display: flex;
+  flex-wrap: wrap;
+  inline-size: var(--agent-suggestion-track-width);
+  min-inline-size: 100%;
+  gap: 0.375rem;
+}
+
+[data-agent-suggestion-scroller="true"]:is(
+  [data-overflow-start],
+  [data-overflow-end]
+) {
+  -webkit-mask-image: linear-gradient(
+    var(--agent-suggestion-fade-direction, to right),
+    transparent 0,
+    black var(--agent-suggestion-fade-start, 0px),
+    black calc(100% - var(--agent-suggestion-fade-end, 0px)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    var(--agent-suggestion-fade-direction, to right),
+    transparent 0,
+    black var(--agent-suggestion-fade-start, 0px),
+    black calc(100% - var(--agent-suggestion-fade-end, 0px)),
+    transparent 100%
+  );
+}
+
+[data-agent-suggestion-scroller="true"]:dir(rtl) {
+  --agent-suggestion-fade-direction: to left;
+}
+
+[data-agent-suggestion-scroller="true"][data-overflow-start] {
+  --agent-suggestion-fade-start: 1.5rem;
+}
+
+[data-agent-suggestion-scroller="true"][data-overflow-end] {
+  --agent-suggestion-fade-end: 1.5rem;
 }
 
 .agentkit-suggestions button {
