@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildUserMessage,
   foldUnstartedTurnFailure,
+  mergeThreadDataForClientSave,
   upsertUserMessage,
 } from "../../agent/thread-data-builder.js";
 import { createAgentNativeAgentKitTransport } from "./agentkit-agent-native.js";
@@ -1206,6 +1207,149 @@ describe("createAgentNativeAgentKitTransport", () => {
       },
     ]);
     await transport.dispose();
+  });
+
+  describe("a prompt the server refused before its run started", () => {
+    const reference = {
+      type: "file",
+      path: "docs/brief.md",
+      name: "brief.md",
+      source: "workspace",
+    };
+    const retryContext = {
+      references: [reference],
+      model: "model-original",
+      engine: "engine-original",
+      effort: "high",
+      requestMode: "plan",
+    } as const;
+
+    function serverRefusal() {
+      return foldUnstartedTurnFailure(
+        upsertUserMessage(
+          {},
+          buildUserMessage({
+            text: "Create a pitch deck",
+            runId: "turn-1",
+            turnId: "turn-1",
+            agentKitMessageId: "client-user-1",
+            refusedRetry: retryContext,
+          }),
+        ),
+        {
+          runId: "turn-1",
+          threadId: "thread-refused",
+          turnId: "turn-1",
+          code: "missing_credentials",
+          message: "No LLM provider is connected.",
+        },
+      );
+    }
+
+    // A server that applies the same merge a client thread PUT goes through.
+    function threadServer(initial: unknown) {
+      let repo = initial;
+      const transport = createAgentNativeAgentKitTransport({
+        fetch: vi.fn(
+          async (input: string | URL | Request, init?: RequestInit) => {
+            const url = String(input);
+            if (url.includes("/runs/active")) return json({ active: false });
+            if (init?.method === "PUT") {
+              repo = mergeThreadDataForClientSave(
+                repo,
+                JSON.parse(JSON.parse(String(init.body)).threadData),
+              );
+              return json({ ok: true });
+            }
+            return json({
+              id: "thread-refused",
+              createdAt: "2026-10-01T00:00:00.000Z",
+              updatedAt: "2026-10-01T00:00:01.000Z",
+              threadData: JSON.stringify(repo),
+            });
+          },
+        ) as typeof fetch,
+        adapter: { now: () => "2026-10-01T00:00:02.000Z" },
+      });
+      return transport;
+    }
+
+    const refusedPrompt = (
+      snapshot: Awaited<
+        ReturnType<
+          NonNullable<
+            ReturnType<
+              typeof createAgentNativeAgentKitTransport
+            >["getThreadSnapshot"]
+          >
+        >
+      >,
+    ) => snapshot?.messages.find((message) => message.role === "user");
+
+    const expectedMetadata = {
+      ...retryContext,
+      custom: {
+        agentNativeRunNotStarted: true,
+        submittedRunId: "turn-1",
+        submittedTurnId: "turn-1",
+      },
+    };
+
+    it("keeps its marker and retry context when the client saves the loaded thread and reloads", async () => {
+      const transport = threadServer(serverRefusal());
+      const loaded = await transport.getThreadSnapshot?.({
+        threadId: "thread-refused",
+      });
+      expect(refusedPrompt(loaded)?.metadata).toMatchObject(expectedMetadata);
+
+      await transport.persistThreadSnapshot?.({
+        threadId: "thread-refused",
+        snapshot: loaded!,
+      });
+      const reloaded = await transport.getThreadSnapshot?.({
+        threadId: "thread-refused",
+      });
+
+      expect(refusedPrompt(reloaded)?.metadata).toMatchObject(expectedMetadata);
+      await transport.dispose();
+    });
+
+    it("restores them when the client saves its own copy of the prompt without them", async () => {
+      const transport = threadServer(serverRefusal());
+      const loaded = await transport.getThreadSnapshot?.({
+        threadId: "thread-refused",
+      });
+      // The client's copy of the same prompt: its own id, and the only
+      // metadata a save keeps, as after an in-session refusal.
+      const clientCopy = {
+        id: "client-user-1",
+        role: "user" as const,
+        parts: [{ type: "text" as const, text: "Create a pitch deck" }],
+        createdAt: refusedPrompt(loaded)?.createdAt,
+        status: "error" as const,
+      };
+
+      await transport.persistThreadSnapshot?.({
+        threadId: "thread-refused",
+        snapshot: {
+          ...loaded!,
+          messages: loaded!.messages.map((message) =>
+            message.role === "user" ? clientCopy : message,
+          ),
+        },
+      });
+      const reloaded = await transport.getThreadSnapshot?.({
+        threadId: "thread-refused",
+      });
+
+      const prompt = refusedPrompt(reloaded);
+      expect(prompt?.id).toBe("client-user-1");
+      expect(prompt?.metadata).toMatchObject(expectedMetadata);
+      expect(
+        reloaded?.messages.filter((message) => message.role === "user"),
+      ).toHaveLength(1);
+      await transport.dispose();
+    });
   });
 
   it("restores the complete durable reply when a same-id AgentKit snapshot is shorter", async () => {

@@ -145,7 +145,13 @@ vi.mock("../settings/store.js", async (importOriginal) => ({
     [...setupResumeClaims]
       .filter(([key]) => key.startsWith(prefix))
       .map(([key, value]) => ({ key, value: JSON.parse(value) })),
-  deleteSetting: async (key: string) => setupResumeClaims.delete(key),
+  deleteSettingIfValue: async (
+    key: string,
+    expected: Record<string, unknown>,
+  ) => {
+    if (setupResumeClaims.get(key) !== JSON.stringify(expected)) return false;
+    return setupResumeClaims.delete(key);
+  },
 }));
 
 vi.mock("./run-manager.js", async () => ({
@@ -2077,76 +2083,119 @@ describe("createProductionAgentHandler", () => {
     expect(engine.stream).not.toHaveBeenCalled();
   });
 
-  it("starts one run when two tabs resume the same refused prompt after AI setup", async () => {
-    setupResumeClaims.clear();
-    mockTryClaimRunSlot.mockClear();
-    mockTryClaimRunSlot.mockResolvedValueOnce({
-      claimed: false,
-      activeRunId: "run-winner",
-    });
-    const engine: AgentEngine = {
-      name: "test",
-      label: "Test",
-      defaultModel: "test-model",
-      supportedModels: ["test-model"],
-      capabilities: {
-        thinking: false,
-        promptCaching: false,
-        vision: false,
-        computerUse: false,
-        parallelToolCalls: false,
-      },
-      stream: vi.fn(),
-    };
-    const handler = createProductionAgentHandler({
-      systemPrompt: "Test",
-      engine,
-      actions: {},
-    });
-    const resume = (metadataOverrides = {}) =>
-      runWithRequestContext(
-        { userEmail: "alice@example.com", orgId: "acme", run: {} },
-        () =>
-          handler(
-            mockEvent(
-              new Request("http://app.example.com/_agent-native/agent-chat", {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({
-                  message: "Create a pitch deck",
-                  threadId: "thread-refused",
-                  metadata: {
-                    custom: {
-                      agentNativeRecoveryAction: "retry",
-                      agentNativeRecoveryOfRunId: "run-refused",
-                      agentNativeResumeAfterSetup: true,
-                      ...metadataOverrides,
+  describe("resuming a refused prompt after AI setup", () => {
+    function resumeHandler() {
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        stream: vi.fn(),
+      };
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine,
+        actions: {},
+      });
+      const resume = (metadataOverrides = {}) =>
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () =>
+            handler(
+              mockEvent(
+                new Request("http://app.example.com/_agent-native/agent-chat", {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({
+                    message: "Create a pitch deck",
+                    threadId: "thread-refused",
+                    metadata: {
+                      custom: {
+                        agentNativeRecoveryAction: "retry",
+                        agentNativeRecoveryOfRunId: "run-refused",
+                        agentNativeResumeAfterSetup: true,
+                        ...metadataOverrides,
+                      },
                     },
-                  },
+                  }),
                 }),
-              }),
+              ),
             ),
-          ),
+        );
+      return { engine, resume };
+    }
+
+    const busy = { claimed: false, activeRunId: "run-winner" };
+
+    it("starts one run when two tabs resume the same refused prompt", async () => {
+      setupResumeClaims.clear();
+      mockTryClaimRunSlot.mockClear();
+      let releaseSlot!: () => void;
+      mockTryClaimRunSlot.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            releaseSlot = () => resolve(busy);
+          }),
       );
+      const { engine, resume } = resumeHandler();
 
-    const results = await Promise.all([resume(), resume()]);
+      const tabs = [resume(), resume()];
+      const loser = await Promise.race(
+        tabs.map((tab, index) => tab.then((result) => ({ index, result }))),
+      );
+      releaseSlot();
+      await Promise.all(tabs);
 
-    expect(mockTryClaimRunSlot).toHaveBeenCalledOnce();
-    expect(results).toContainEqual({
-      ok: true,
-      stopped: true,
-      resumeAlreadySent: true,
+      expect(loser.result).toEqual({
+        ok: true,
+        stopped: true,
+        resumeAlreadySent: true,
+      });
+      expect(mockTryClaimRunSlot).toHaveBeenCalledOnce();
+      expect(engine.stream).not.toHaveBeenCalled();
     });
-    expect(engine.stream).not.toHaveBeenCalled();
 
-    // A manual retry of the same run is never held back by the claim.
-    mockTryClaimRunSlot.mockClear();
-    mockTryClaimRunSlot.mockResolvedValueOnce({
-      claimed: false,
-      activeRunId: "run-winner",
+    it("does not tell a later resend it already went out when the thread's run slot was busy", async () => {
+      setupResumeClaims.clear();
+      mockTryClaimRunSlot.mockClear();
+      mockTryClaimRunSlot.mockResolvedValueOnce(busy);
+      const { resume } = resumeHandler();
+
+      await resume();
+      expect([...setupResumeClaims.keys()]).toEqual([]);
+
+      mockTryClaimRunSlot.mockResolvedValueOnce(busy);
+      const later = await resume();
+
+      expect(later).not.toMatchObject({ resumeAlreadySent: true });
+      expect(mockTryClaimRunSlot).toHaveBeenCalledTimes(2);
     });
-    await resume({ agentNativeResumeAfterSetup: undefined });
-    expect(mockTryClaimRunSlot).toHaveBeenCalledOnce();
+
+    it("keeps the claim once the run slot is taken, and never holds back a manual retry", async () => {
+      setupResumeClaims.clear();
+      mockTryClaimRunSlot.mockClear();
+      mockTryClaimRunSlot.mockResolvedValueOnce({
+        claimed: false,
+        activeRunId: null,
+        completedRunId: "run-done",
+      } as never);
+      const { resume } = resumeHandler();
+
+      await resume().catch(() => undefined);
+      expect(setupResumeClaims.size).toBe(1);
+
+      mockTryClaimRunSlot.mockClear();
+      mockTryClaimRunSlot.mockResolvedValueOnce(busy);
+      await resume({ agentNativeResumeAfterSetup: undefined });
+      expect(mockTryClaimRunSlot).toHaveBeenCalledOnce();
+    });
   });
 
   it("adds MCP actions for authenticated requests and skips anonymous runs", async () => {
@@ -2268,7 +2317,14 @@ describe("createProductionAgentHandler", () => {
                   effort: "high",
                   mode: "plan",
                   metadata: {
-                    references: [{ id: "reference-1", type: "document" }],
+                    references: [
+                      {
+                        type: "file",
+                        path: "docs/brief.md",
+                        name: "brief.md",
+                        source: "workspace",
+                      },
+                    ],
                     custom: { ignored: "not kept" },
                   },
                 }),
@@ -2284,7 +2340,14 @@ describe("createProductionAgentHandler", () => {
         message: "Create a pitch deck",
         attachments: [],
         retryContext: {
-          references: [{ id: "reference-1", type: "document" }],
+          references: [
+            {
+              type: "file",
+              path: "docs/brief.md",
+              name: "brief.md",
+              source: "workspace",
+            },
+          ],
           model: "model-original",
           effort: "high",
           requestMode: "plan",

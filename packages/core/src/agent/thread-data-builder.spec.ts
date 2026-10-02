@@ -105,6 +105,73 @@ describe("buildUserMessage for a refused turn", () => {
   });
 });
 
+describe("a client thread save after a refused turn", () => {
+  it("keeps the refusal marker and retry context of the prompt it re-saves", () => {
+    const retry = {
+      references: [
+        {
+          type: "file" as const,
+          path: "docs/brief.md",
+          name: "brief.md",
+          source: "workspace",
+        },
+      ],
+      model: "model-original",
+      effort: "high",
+      requestMode: "plan" as const,
+    };
+    const existing = foldUnstartedTurnFailure(
+      upsertUserMessage(
+        {},
+        buildUserMessage({
+          text: "Make a deck",
+          runId: "turn-1",
+          turnId: "turn-1",
+          refusedRetry: retry,
+        }),
+      ),
+      {
+        runId: "turn-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        code: "missing_credentials",
+        message: "No LLM provider is connected.",
+      },
+    );
+    // The client's copy of the same prompt, as it saves its own history.
+    const incoming = {
+      messages: [
+        {
+          message: {
+            id: "client-user-1",
+            role: "user",
+            content: [{ type: "text", text: "Make a deck" }],
+            metadata: { custom: {} },
+          },
+          parentId: null,
+        },
+      ],
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, incoming);
+
+    const users = merged.messages
+      .map((entry: any) => entry.message)
+      .filter((message: any) => message.role === "user");
+    expect(users).toHaveLength(1);
+    expect(users[0].metadata).toMatchObject({
+      ...retry,
+      custom: {
+        submittedRunId: "turn-1",
+        agentNativeRunNotStarted: true,
+      },
+    });
+    expect(merged.agentKit.runs).toEqual([
+      expect.objectContaining({ id: "turn-1", status: "failed" }),
+    ]);
+  });
+});
+
 describe("extractThreadMeta", () => {
   it("prefers a manual title override while keeping the message preview", () => {
     const meta = extractThreadMeta({

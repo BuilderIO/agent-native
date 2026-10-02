@@ -3912,6 +3912,7 @@ export function createAgentChatPlugin(
         message: string;
         attachments?: AgentChatAttachment[];
         queuedMessageId?: string;
+        agentKitMessageId?: string;
         retryContext: RefusedTurnRetryContext;
         failure: { code: string; message: string };
       }) => {
@@ -7473,7 +7474,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           body.queuedMessageId.trim()
             ? { queuedMessageId: body.queuedMessageId.trim() }
             : {}),
-          retryContext: retryContextFromRequest(body),
+          ...(typeof body.agentKitMessageId === "string" &&
+          body.agentKitMessageId.trim() &&
+          body.agentKitMessageId.trim().length <= 200
+            ? { agentKitMessageId: body.agentKitMessageId.trim() }
+            : {}),
+          retryContext: retryContextFromRequest(body, (dropped) =>
+            console.warn(
+              `[agent-chat] dropped ${dropped} invalid reference(s) from a refused turn's retry context`,
+            ),
+          ),
           failure: {
             code: AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
             message:

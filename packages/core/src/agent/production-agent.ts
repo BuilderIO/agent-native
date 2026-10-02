@@ -1636,6 +1636,7 @@ export interface ProductionAgentOptions {
     message: string;
     attachments?: AgentChatAttachment[];
     queuedMessageId?: string;
+    agentKitMessageId?: string;
     retryContext: RefusedTurnRetryContext;
     failure: { code: string; message: string };
   }) => Promise<void>;
@@ -9222,7 +9223,12 @@ export function createProductionAgentHandler(
           ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
             ? { queuedMessageId: queuedMessageId.trim() }
             : {}),
-          retryContext: retryContextFromRequest(body),
+          ...(agentKitMessageId ? { agentKitMessageId } : {}),
+          retryContext: retryContextFromRequest(body, (dropped) =>
+            console.warn(
+              `[agent-chat] dropped ${dropped} invalid reference(s) from a refused turn's retry context`,
+            ),
+          ),
           failure: {
             code: missingCredentialsEvent.errorCode,
             message: missingCredentialsEvent.error,
@@ -9798,16 +9804,16 @@ export function createProductionAgentHandler(
         return { ok: true, stopped: true };
       }
       const setupResumeOfRunId = setupResumeRefusedRunId(body);
-      if (
-        setupResumeOfRunId &&
-        ownerEmail &&
-        !(await claimSetupResume({
-          ownerEmail,
-          threadId,
-          refusedRunId: setupResumeOfRunId,
-          turnId: effectiveTurnId,
-        }))
-      ) {
+      const setupResumeClaim =
+        setupResumeOfRunId && ownerEmail
+          ? await claimSetupResume({
+              ownerEmail,
+              threadId,
+              refusedRunId: setupResumeOfRunId,
+              turnId: effectiveTurnId,
+            })
+          : undefined;
+      if (setupResumeOfRunId && ownerEmail && !setupResumeClaim) {
         // Another tab already sent this refused prompt again.
         return { ok: true, stopped: true, resumeAlreadySent: true };
       }
@@ -9830,6 +9836,7 @@ export function createProductionAgentHandler(
             : {}),
         });
       } catch (error) {
+        await setupResumeClaim?.release();
         if (
           error instanceof AgentTurnInitiatorMismatchError ||
           error instanceof AgentTurnInitiatorUnavailableError
@@ -9840,6 +9847,7 @@ export function createProductionAgentHandler(
         throw error;
       }
       if (slot.turnAborted) {
+        await setupResumeClaim?.release();
         return { ok: true, stopped: true };
       }
       if (slot.completedRunId) {
@@ -9855,7 +9863,10 @@ export function createProductionAgentHandler(
         setResponseHeader(event, "X-Dispatch-Mode", "replay");
         return stream;
       }
-      if (!slot.claimed) return runSlotBusy(event, slot.activeRunId);
+      if (!slot.claimed) {
+        await setupResumeClaim?.release();
+        return runSlotBusy(event, slot.activeRunId);
+      }
       foregroundRunRowInserted = true;
     }
 

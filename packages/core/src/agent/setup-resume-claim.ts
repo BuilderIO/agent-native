@@ -1,5 +1,5 @@
 import {
-  deleteSetting,
+  deleteSettingIfValue,
   listSettingsByPrefix,
   mutateSetting,
 } from "../settings/store.js";
@@ -29,16 +29,26 @@ export function setupResumeRefusedRunId(body: {
     : undefined;
 }
 
-/** True for the first resume of a refused run, and for that same turn again. */
+export interface SetupResumeClaim {
+  /** Gives the claim back if this request is not admitted; only ever our own. */
+  release(): Promise<void>;
+}
+
+/**
+ * The claim for the first resume of a refused run (also for that same turn
+ * again), or null when another turn already holds it. A request that is then
+ * refused admission releases it, so a later resend is not told it went out.
+ */
 export async function claimSetupResume(opts: {
   ownerEmail: string;
   threadId: string;
   refusedRunId: string;
   turnId: string;
-}): Promise<boolean> {
+}): Promise<SetupResumeClaim | null> {
   const threadPrefix = `${CLAIM_KEY_PREFIX}${opts.ownerEmail}:${opts.threadId}:`;
+  const key = `${threadPrefix}${opts.refusedRunId}`;
   let claimed = false;
-  await mutateSetting(`${threadPrefix}${opts.refusedRunId}`, (current) => {
+  const held = await mutateSetting(key, (current) => {
     const heldBy = typeof current?.turnId === "string" ? current.turnId : null;
     const live =
       typeof current?.expiresAt === "number" && current.expiresAt > Date.now();
@@ -47,16 +57,27 @@ export async function claimSetupResume(opts: {
       ? { turnId: opts.turnId, expiresAt: Date.now() + CLAIM_TTL_MS }
       : (current ?? {});
   });
-  if (claimed) {
-    // Claimed first, so a failed sweep cannot lose the claim.
-    for (const { key, value } of await listSettingsByPrefix(threadPrefix)) {
+  if (!claimed) return null;
+  try {
+    // Only a row that is still the expired value is removed, so a claim
+    // another request just took over is never swept away.
+    for (const { key: staleKey, value } of await listSettingsByPrefix(
+      threadPrefix,
+    )) {
       if (
         typeof value.expiresAt === "number" &&
         value.expiresAt <= Date.now()
       ) {
-        await deleteSetting(key);
+        await deleteSettingIfValue(staleKey, value);
       }
     }
+  } catch (error) {
+    // Cleanup only: the claim above already stands.
+    console.warn("[agent-chat] could not sweep expired resume claims:", error);
   }
-  return claimed;
+  return {
+    release: async () => {
+      await deleteSettingIfValue(key, held);
+    },
+  };
 }

@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const store = vi.hoisted(() => new Map<string, string>());
+const afterListing = vi.hoisted(() => ({
+  run: undefined as undefined | (() => Promise<void>),
+}));
 
 vi.mock("../settings/store.js", () => ({
   // The same compare-and-set the real store runs: one writer wins a key.
@@ -20,11 +23,21 @@ vi.mock("../settings/store.js", () => ({
       }
     }
   },
-  listSettingsByPrefix: async (prefix: string) =>
-    [...store]
+  listSettingsByPrefix: async (prefix: string) => {
+    const rows = [...store]
       .filter(([key]) => key.startsWith(prefix))
-      .map(([key, value]) => ({ key, value: JSON.parse(value) })),
-  deleteSetting: async (key: string) => store.delete(key),
+      .map(([key, value]) => ({ key, value: JSON.parse(value) }));
+    // A request that takes a key over between the listing and the delete.
+    await afterListing.run?.();
+    return rows;
+  },
+  deleteSettingIfValue: async (
+    key: string,
+    expected: Record<string, unknown>,
+  ) => {
+    if (store.get(key) !== JSON.stringify(expected)) return false;
+    return store.delete(key);
+  },
 }));
 
 import {
@@ -37,34 +50,34 @@ const refused = {
   threadId: "thread-1",
   refusedRunId: "run-refused",
 };
+const prefix = "agent-chat-setup-resume:alice@example.com:thread-1:";
 
 beforeEach(() => {
   store.clear();
+  afterListing.run = undefined;
 });
 
 describe("claimSetupResume", () => {
   it("lets the first resume of a refused run through and refuses the next tab", async () => {
-    await expect(
-      claimSetupResume({ ...refused, turnId: "tab-1" }),
-    ).resolves.toBe(true);
-    await expect(
-      claimSetupResume({ ...refused, turnId: "tab-2" }),
-    ).resolves.toBe(false);
+    expect(await claimSetupResume({ ...refused, turnId: "tab-1" })).toEqual({
+      release: expect.any(Function),
+    });
+    expect(await claimSetupResume({ ...refused, turnId: "tab-2" })).toBeNull();
   });
 
   it("lets the claiming turn through again and keeps other refused runs separate", async () => {
     await claimSetupResume({ ...refused, turnId: "tab-1" });
 
-    await expect(
-      claimSetupResume({ ...refused, turnId: "tab-1" }),
-    ).resolves.toBe(true);
-    await expect(
-      claimSetupResume({
+    expect(
+      await claimSetupResume({ ...refused, turnId: "tab-1" }),
+    ).not.toBeNull();
+    expect(
+      await claimSetupResume({
         ...refused,
         refusedRunId: "run-other",
         turnId: "tab-2",
       }),
-    ).resolves.toBe(true);
+    ).not.toBeNull();
   });
 
   it("claims one winner when two tabs resume at once", async () => {
@@ -76,17 +89,54 @@ describe("claimSetupResume", () => {
     expect(results.filter(Boolean)).toHaveLength(1);
   });
 
-  it("reclaims an expired claim and clears expired ones for the thread", async () => {
+  it("gives the claim back so a later resend is not refused", async () => {
+    const claim = await claimSetupResume({ ...refused, turnId: "tab-1" });
+    await claim!.release();
+
+    expect(
+      await claimSetupResume({ ...refused, turnId: "tab-2" }),
+    ).not.toBeNull();
+  });
+
+  it("never releases a claim another turn holds", async () => {
+    const claim = await claimSetupResume({ ...refused, turnId: "tab-1" });
+    store.set(
+      `${prefix}run-refused`,
+      JSON.stringify({ turnId: "tab-2", expiresAt: Date.now() + 60_000 }),
+    );
+
+    await claim!.release();
+
+    expect(await claimSetupResume({ ...refused, turnId: "tab-3" })).toBeNull();
+  });
+
+  it("reclaims an expired claim and clears the expired ones for the thread", async () => {
     const expired = JSON.stringify({ turnId: "tab-old", expiresAt: 1 });
-    const prefix = "agent-chat-setup-resume:alice@example.com:thread-1:";
     store.set(`${prefix}run-refused`, expired);
     store.set(`${prefix}run-stale`, expired);
 
-    await expect(
-      claimSetupResume({ ...refused, turnId: "tab-2" }),
-    ).resolves.toBe(true);
+    expect(
+      await claimSetupResume({ ...refused, turnId: "tab-2" }),
+    ).not.toBeNull();
 
     expect([...store.keys()]).toEqual([`${prefix}run-refused`]);
+  });
+
+  it("does not sweep away a claim another request takes over mid-sweep", async () => {
+    const expired = JSON.stringify({ turnId: "tab-old", expiresAt: 1 });
+    store.set(`${prefix}run-stale`, expired);
+    const live = JSON.stringify({
+      turnId: "tab-2",
+      expiresAt: Date.now() + 60_000,
+    });
+    afterListing.run = async () => {
+      // The stale key is reclaimed after it was listed as expired.
+      store.set(`${prefix}run-stale`, live);
+    };
+
+    await claimSetupResume({ ...refused, turnId: "tab-1" });
+
+    expect(store.get(`${prefix}run-stale`)).toBe(live);
   });
 });
 
