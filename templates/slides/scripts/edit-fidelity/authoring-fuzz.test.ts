@@ -38,13 +38,13 @@ const authoringSnapshot = (y: number, color: string): Snapshot => ({
   editedText: null,
 });
 
-it("gates outside style changes without treating geometry as restyling", () => {
-  expect(
-    outsideAuthoringChangesFor(
-      authoringSnapshot(64, "rgb(0, 0, 0)"),
-      authoringSnapshot(-456, "rgb(0, 0, 0)"),
-    ),
-  ).toEqual([]);
+it("gates outside style changes and unmodeled geometry changes", () => {
+  const movement = outsideAuthoringChangesFor(
+    authoringSnapshot(64, "rgb(0, 0, 0)"),
+    authoringSnapshot(-456, "rgb(0, 0, 0)"),
+  );
+  expect(movement).toHaveLength(1);
+  expect(movement[0]).toMatchObject({ prop: "y", inside: false });
   expect(
     outsideAuthoringChangesFor(
       authoringSnapshot(64, "rgb(0, 0, 0)"),

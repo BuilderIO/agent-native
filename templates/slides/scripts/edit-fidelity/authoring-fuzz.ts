@@ -1,5 +1,5 @@
 import type { Snapshot } from "./lib/in-page.ts";
-import { diffSnapshots } from "./lib/metrics.ts";
+import { outsideChangesFor } from "./lib/metrics.ts";
 
 type Page = any;
 type Locator = any;
@@ -18,10 +18,7 @@ export function authoringFuzzProfileIndex(seed: number): number | null {
 }
 
 export function outsideAuthoringChangesFor(before: Snapshot, after: Snapshot) {
-  const diff = diffSnapshots(before, after);
-  return [...diff.deltas, ...diff.missing, ...diff.added].filter(
-    (change) => !change.inside,
-  );
+  return outsideChangesFor(before, after).changes;
 }
 
 export function assertShortcutMarkupAdded(
@@ -1140,7 +1137,7 @@ export async function runAuthoringFuzz(
     const changes = outsideAuthoringChangesFor(baseline, current);
     if (changes.length) {
       throw new Error(
-        `unexpected style or authored changes outside the edited element: ${JSON.stringify(changes.slice(0, 5))}`,
+        `unexpected changes outside the edited element: ${JSON.stringify(changes.slice(0, 5))}`,
       );
     }
   };
@@ -1765,7 +1762,20 @@ export async function runAuthoringFuzz(
         )
           lastBlock = lastBlock.parentElement;
         if (!firstBlock || !lastBlock || firstBlock === lastBlock) {
-          throw new Error("fuzz tokens did not land in separate blocks");
+          const describe = (block: HTMLElement | null) =>
+            block
+              ? {
+                  tag: block.tagName,
+                  textLength: block.textContent?.length ?? 0,
+                  children: Array.from(
+                    block.children,
+                    (child) => child.tagName,
+                  ),
+                }
+              : null;
+          throw new Error(
+            `fuzz tokens did not land in separate blocks (${JSON.stringify({ tokens, first: describe(firstBlock), second: describe(lastBlock) })})`,
+          );
         }
         const range = document.createRange();
         range.setStart(first.text, first.offset);
