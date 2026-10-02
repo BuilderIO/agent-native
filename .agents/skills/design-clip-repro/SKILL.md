@@ -89,8 +89,9 @@ time out.
   compare with a sheet rather than opening shots one by one.
 - **`Read` only opens workspace files**, which is why screenshots live under
   `templates/design/.tmp/parity/shots/`.
-- **The copied design is a real person's work.** Never commit it or put it in
-  a commit message. Delete the production copy at the end.
+- **The copied design is a real person's work.** Never commit it, and never
+  paste its source into a PR, comment or commit message. Delete the production
+  copy at the end.
 - **Close the tabs you open.** Editor and Figma tabs are large.
 - **Heavy checks run alone.** A full `tsc` of `templates/design` next to the
   dev server and the browser has run the machine out of memory. Close editor and
