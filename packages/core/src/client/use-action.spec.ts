@@ -218,7 +218,12 @@ describe("callAction", () => {
 
     await expect(
       callAction("list-files", {}, { method: "GET" }),
-    ).rejects.toMatchObject({ status: 409, code: "client_build_mismatch" });
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "client_build_mismatch",
+      serverBuildId: "server-build",
+      requiredCompatibility: "spaces-v2",
+    });
     expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
       "X-Agent-Native-Client-Compatibility": "spaces-v1",
       "X-Agent-Native-Build-Id": "client-build",

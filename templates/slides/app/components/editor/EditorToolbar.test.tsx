@@ -70,6 +70,7 @@ vi.mock("@/components/visual-editor", () => ({
 }));
 
 vi.mock("@/context/DeckContext", () => ({
+  getDeckSaveError: () => undefined,
   getStaleContentConflictSlideId: () => undefined,
   hasFailedDeckSave: () => false,
   hasUnsavedDeckChanges: () => false,

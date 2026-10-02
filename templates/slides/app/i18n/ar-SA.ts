@@ -56,6 +56,7 @@ const messages = {
     commentsAndReplies: "التعليقات والردود",
     commentsAndRepliesDescription: "عندما يعلّق شخص على عرضك أو يرد فيه.",
     retry: "إعادة المحاولة",
+    reload: "إعادة تحميل",
     mcpAbout:
       "اربط Slides بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في Slides نيابةً عنك: إنشاء العروض التقديمية وإضافة الشرائح والتصدير إلى PowerPoint. ولا يرى إلا ما يمكنك رؤيته.",
     workspaceTitle: "مساحة العمل",

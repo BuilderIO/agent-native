@@ -134,7 +134,7 @@ describe("mountActionRoutes", () => {
 
   it("rejects cached frontend clients before an action can read or write", async () => {
     process.env.AGENT_NATIVE_BUILD_ID = "server-build";
-    process.env.AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION = "spaces-v1";
+    process.env.AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION = "fallback-v1";
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
     const run = vi.fn(async () => ({ ok: true }));
@@ -144,7 +144,13 @@ describe("mountActionRoutes", () => {
       ),
     };
 
-    mountActionRoutes(nitroApp, { test: { run } as any });
+    mountActionRoutes(
+      nitroApp,
+      { test: { run } as any },
+      {
+        clientCompatibilityVersion: "slides-write-v1",
+      },
+    );
     const event = {
       _method: "POST",
       _headers: {
@@ -157,7 +163,7 @@ describe("mountActionRoutes", () => {
     await expect(mounted[0]!.handler(event)).resolves.toMatchObject({
       code: "client_build_mismatch",
       serverBuildId: "server-build",
-      requiredCompatibility: "spaces-v1",
+      requiredCompatibility: "slides-write-v1",
     });
     expect(event).toMatchObject({
       _status: 409,

@@ -508,6 +508,7 @@ interface DeckContextType {
     options?: { persistence?: "debounced" | "immediate" },
   ) => string;
   flushDeckSave: (deckId: string) => Promise<void>;
+  retryDeckSave: (deckId: string) => Promise<void>;
   resolveContentConflict: (
     deckId: string,
     slideId: string,
@@ -701,6 +702,7 @@ const immediateFlushRequests = new Map<string, boolean>();
 const deckSaveRetryAttempts = new Map<string, number>();
 const deckRevisionConflictRetryAttempts = new Map<string, number>();
 const failedSaveDecks = new Set<string>();
+const deckSaveErrors = new Map<string, DeckSaveError>();
 const staleContentConflicts = new Map<string, Set<string> | null>();
 const staleFullReplaceDrafts = new Map<string, Deck>();
 const verifiedFullReplaceOps = new WeakSet<
@@ -731,6 +733,70 @@ const MAX_DECK_SAVE_RETRIES = 2;
 const DECK_SAVE_RETRY_BASE_MS = 250;
 const MAX_DECK_REVISION_CONFLICT_RETRIES = 5;
 const DECK_REVISION_CONFLICT_RETRY_MAX_MS = 2_000;
+
+export class DeckSaveError extends Error {
+  readonly status?: number;
+  readonly errorCode?: string;
+  readonly serverBuildId?: string;
+  readonly requiredCompatibility?: string;
+  readonly retryable: boolean;
+
+  constructor(
+    deckId: string,
+    cause?: unknown,
+    message?: string,
+    retryable = false,
+  ) {
+    super(message ?? `Failed to save deck ${deckId}`);
+    this.name = "DeckSaveError";
+    this.retryable = retryable;
+    if (cause && typeof cause === "object") {
+      if ("status" in cause && typeof cause.status === "number") {
+        this.status = cause.status;
+      }
+      if ("errorCode" in cause && typeof cause.errorCode === "string") {
+        this.errorCode = cause.errorCode;
+      } else if ("code" in cause && typeof cause.code === "string") {
+        this.errorCode = cause.code;
+      }
+      if ("serverBuildId" in cause && typeof cause.serverBuildId === "string") {
+        this.serverBuildId = cause.serverBuildId;
+      }
+      if (
+        "requiredCompatibility" in cause &&
+        typeof cause.requiredCompatibility === "string"
+      ) {
+        this.requiredCompatibility = cause.requiredCompatibility;
+      }
+    }
+    this.cause = cause;
+  }
+}
+
+function markDeckSaveFailed(
+  deckId: string,
+  cause?: unknown,
+  message?: string,
+): void {
+  failedSaveDecks.add(deckId);
+  deckSaveErrors.set(
+    deckId,
+    new DeckSaveError(
+      deckId,
+      cause,
+      message,
+      pendingOpsQueue.has(deckId) &&
+        !staleContentConflicts.has(deckId) &&
+        !staleFullReplaceDrafts.has(deckId) &&
+        !isTerminalClientSaveError(cause),
+    ),
+  );
+}
+
+function clearDeckSaveFailure(deckId: string): void {
+  failedSaveDecks.delete(deckId);
+  deckSaveErrors.delete(deckId);
+}
 
 const pendingOpsQueue = new Map<string, GranularOp[]>();
 const pendingPersistedResultHandlers = new Map<
@@ -894,6 +960,21 @@ function didRefreshDeckRevision(error: unknown): boolean {
   );
 }
 
+function isTerminalClientSaveError(error: unknown): boolean {
+  const status =
+    error && typeof error === "object" && "status" in error
+      ? error.status
+      : undefined;
+  return (
+    typeof status === "number" &&
+    status >= 400 &&
+    status < 500 &&
+    status !== 408 &&
+    status !== 429 &&
+    !(isDeckRevisionConflict(error) && didRefreshDeckRevision(error))
+  );
+}
+
 function revisionConflictError(
   error: unknown,
   refreshed: boolean,
@@ -1026,6 +1107,20 @@ export function hasFailedDeckSave(deckId: string): boolean {
     staleContentConflicts.has(deckId) ||
     staleSlideFieldDrafts.has(deckId) ||
     staleFullReplaceDrafts.has(deckId)
+  );
+}
+
+export function getDeckSaveError(deckId: string): DeckSaveError | undefined {
+  if (!hasFailedDeckSave(deckId)) return undefined;
+  return (
+    deckSaveErrors.get(deckId) ??
+    (staleContentConflicts.has(deckId) || staleFullReplaceDrafts.has(deckId)
+      ? new DeckSaveError(
+          deckId,
+          { errorCode: "slide_content_conflict" },
+          `Failed to save deck ${deckId}: unresolved slide content conflict; local draft retained`,
+        )
+      : new DeckSaveError(deckId))
   );
 }
 
@@ -1163,7 +1258,13 @@ function holdStaleFullReplace(
   pendingSaves.delete(deckId);
   pendingPersistedResultHandlers.delete(deckId);
   immediateFlushRequests.delete(deckId);
-  failedSaveDecks.add(deckId);
+  markDeckSaveFailed(
+    deckId,
+    {
+      errorCode: "slide_content_conflict",
+    },
+    `Failed to save deck ${deckId}: unresolved slide content conflict; local draft retained`,
+  );
   notifySaveListeners();
 }
 
@@ -1582,7 +1683,7 @@ function drainPendingDeckOps(
       onSaveSuccess?.(ops);
       deckSaveRetryAttempts.delete(deckId);
       deckRevisionConflictRetryAttempts.delete(deckId);
-      failedSaveDecks.delete(deckId);
+      clearDeckSaveFailure(deckId);
     })
     .catch(async (err) => {
       if (!isCurrentGeneration()) return;
@@ -1613,7 +1714,7 @@ function drainPendingDeckOps(
           } else {
             pendingPersistedResultHandlers.delete(deckId);
           }
-          failedSaveDecks.delete(deckId);
+          clearDeckSaveFailure(deckId);
         } else {
           const latest = deckOrNull(await readDeckFromAPI(deckId));
           canRetryPendingOps = latest !== null;
@@ -1714,7 +1815,7 @@ function drainPendingDeckOps(
             } else {
               pendingPersistedResultHandlers.delete(deckId);
             }
-            failedSaveDecks.delete(deckId);
+            clearDeckSaveFailure(deckId);
             deckSaveRetryAttempts.delete(deckId);
             deckRevisionConflictRetryAttempts.delete(deckId);
             immediateFlushRequests.set(
@@ -1915,9 +2016,13 @@ function drainPendingDeckOps(
             pendingPersistedResultHandlers.delete(deckId);
           }
           if (latest || retryable.length === 0) {
-            failedSaveDecks.delete(deckId);
+            clearDeckSaveFailure(deckId);
           } else {
-            failedSaveDecks.add(deckId);
+            markDeckSaveFailed(
+              deckId,
+              err,
+              `Failed to save deck ${deckId}: unresolved slide content conflict; local draft retained`,
+            );
           }
         }
         deckSaveRetryAttempts.delete(deckId);
@@ -2087,7 +2192,13 @@ function drainPendingDeckOps(
       if (staleFullReplaceDrafts.has(deckId)) {
         pendingOpsQueue.delete(deckId);
         pendingPersistedResultHandlers.delete(deckId);
-        failedSaveDecks.add(deckId);
+        markDeckSaveFailed(
+          deckId,
+          {
+            errorCode: "slide_content_conflict",
+          },
+          `Failed to save deck ${deckId}: unresolved slide content conflict; local draft retained`,
+        );
         return;
       }
 
@@ -2121,13 +2232,8 @@ function drainPendingDeckOps(
       const pendingTimer = pendingSaves.get(deckId);
       if (pendingTimer) clearTimeout(pendingTimer);
       pendingSaves.delete(deckId);
-      const isTerminalConflict =
-        err &&
-        typeof err === "object" &&
-        "status" in err &&
-        err.status === 409 &&
-        !retryableRevisionConflict;
-      const shouldRetry = isTerminalConflict
+      const isTerminalClientError = isTerminalClientSaveError(err);
+      const shouldRetry = isTerminalClientError
         ? false
         : retryableRevisionConflict
           ? revisionConflictAttempt <= MAX_DECK_REVISION_CONFLICT_RETRIES
@@ -2141,7 +2247,8 @@ function drainPendingDeckOps(
         }, delay);
         pendingSaves.set(deckId, retryTimer);
       } else {
-        failedSaveDecks.add(deckId);
+        markDeckSaveFailed(deckId, err);
+        deckSaveRetryAttempts.set(deckId, MAX_DECK_SAVE_RETRIES + 1);
       }
     })
     .finally(() => {
@@ -2293,8 +2400,13 @@ async function flushDeckSave(
 ): Promise<void> {
   while (true) {
     if (staleFullReplaceDrafts.has(deckId)) {
-      throw new Error(
-        `Failed to save deck ${deckId}: unresolved slide content conflict; local draft retained`,
+      throw (
+        getDeckSaveError(deckId) ??
+        new DeckSaveError(
+          deckId,
+          { errorCode: "slide_content_conflict" },
+          `Failed to save deck ${deckId}: unresolved slide content conflict; local draft retained`,
+        )
       );
     }
     const active = inFlightSaveChains.get(deckId);
@@ -2308,7 +2420,7 @@ async function flushDeckSave(
       continue;
     }
     if (failedSaveDecks.has(deckId)) {
-      throw new Error(`Failed to save deck ${deckId}; retries were exhausted`);
+      throw getDeckSaveError(deckId) ?? new DeckSaveError(deckId);
     }
     if (
       staleContentConflicts.has(deckId) &&
@@ -2318,8 +2430,13 @@ async function flushDeckSave(
         await drainPendingDeckOps(deckId);
         continue;
       }
-      throw new Error(
-        `Failed to save deck ${deckId}: unresolved slide content conflict; local draft retained`,
+      throw (
+        getDeckSaveError(deckId) ??
+        new DeckSaveError(
+          deckId,
+          { errorCode: "slide_content_conflict" },
+          `Failed to save deck ${deckId}: unresolved slide content conflict; local draft retained`,
+        )
       );
     }
     if (staleSlideFieldDrafts.has(deckId)) {
@@ -2337,6 +2454,27 @@ async function flushDeckSave(
     }
     return;
   }
+}
+
+async function retryDeckSave(deckId: string): Promise<void> {
+  const failedSaveError = getDeckSaveError(deckId);
+  if (
+    !failedSaveError?.retryable ||
+    staleFullReplaceDrafts.has(deckId) ||
+    staleContentConflicts.has(deckId) ||
+    !pendingOpsQueue.has(deckId)
+  ) {
+    throw failedSaveError ?? new DeckSaveError(deckId);
+  }
+  const timer = pendingSaves.get(deckId);
+  if (timer) clearTimeout(timer);
+  pendingSaves.delete(deckId);
+  deckSaveRetryAttempts.delete(deckId);
+  deckRevisionConflictRetryAttempts.delete(deckId);
+  clearDeckSaveFailure(deckId);
+  notifySaveListeners();
+  await drainPendingDeckOps(deckId);
+  await flushDeckSave(deckId);
 }
 
 async function flushSafeDeckWritesForConflictResolution(
@@ -2357,7 +2495,7 @@ async function flushSafeDeckWritesForConflictResolution(
       continue;
     }
     if (failedSaveDecks.has(deckId)) {
-      throw new Error(`Failed to save deck ${deckId}; retries were exhausted`);
+      throw getDeckSaveError(deckId) ?? new DeckSaveError(deckId);
     }
     if (pendingOpsQueue.has(deckId) || pendingSaves.has(deckId)) {
       await drainPendingDeckOps(deckId);
@@ -2441,13 +2579,13 @@ function enqueueDeckOp(
   ) {
     deckSaveRetryAttempts.delete(deckId);
     deckRevisionConflictRetryAttempts.delete(deckId);
-    failedSaveDecks.delete(deckId);
+    clearDeckSaveFailure(deckId);
   }
 
   if (op.op === "full-replace") {
     deckSaveRetryAttempts.delete(deckId);
     deckRevisionConflictRetryAttempts.delete(deckId);
-    failedSaveDecks.delete(deckId);
+    clearDeckSaveFailure(deckId);
     staleContentConflicts.delete(deckId);
     staleContentDrafts.delete(deckId);
     staleContentRemoteSlides.delete(deckId);
@@ -2527,7 +2665,7 @@ function discardPendingDeckOp(
     !inFlightSaveChains.has(deckId) &&
     !pendingSaves.has(deckId)
   ) {
-    failedSaveDecks.delete(deckId);
+    clearDeckSaveFailure(deckId);
     deckSaveRetryAttempts.delete(deckId);
     deckRevisionConflictRetryAttempts.delete(deckId);
   }
@@ -2608,7 +2746,7 @@ function discardPendingDeckOps(deckId: string) {
   pendingPersistedResultHandlers.delete(deckId);
   deckSaveRetryAttempts.delete(deckId);
   deckRevisionConflictRetryAttempts.delete(deckId);
-  failedSaveDecks.delete(deckId);
+  clearDeckSaveFailure(deckId);
   staleContentConflicts.delete(deckId);
   staleFullReplaceDrafts.delete(deckId);
   staleContentRetrySlides.delete(deckId);
@@ -6176,7 +6314,8 @@ export function DeckProvider({
           inFlightSaveChains.has(deckId) ||
           inFlightKeepaliveSaves.has(deckId);
         if (!hasPendingWrites) {
-          const wasFailed = failedSaveDecks.delete(deckId);
+          const wasFailed = failedSaveDecks.has(deckId);
+          clearDeckSaveFailure(deckId);
           deckSaveRetryAttempts.delete(deckId);
           deckRevisionConflictRetryAttempts.delete(deckId);
           if (wasFailed) notifySaveListeners();
@@ -6207,6 +6346,7 @@ export function DeckProvider({
         getDeck,
         addSlide,
         flushDeckSave,
+        retryDeckSave,
         resolveContentConflict,
         updateSlide,
         updateSlides,

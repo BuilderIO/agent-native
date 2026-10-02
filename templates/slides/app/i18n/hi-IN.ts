@@ -56,6 +56,7 @@ const messages = {
     commentsAndReplies: "टिप्पणियाँ और जवाब",
     commentsAndRepliesDescription: "जब कोई आपके डेक पर टिप्पणी करे या उसमें जवाब दे।",
     retry: "फिर कोशिश करें",
+    reload: "फिर से लोड करें",
     mcpAbout:
       "Slides को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए Slides में काम कर सकता है: डेक बनाना, स्लाइड जोड़ना और PowerPoint में एक्सपोर्ट करना। वह केवल वही देखता है जो आप देख सकते हैं।",
     workspaceTitle: "कार्यस्थान",

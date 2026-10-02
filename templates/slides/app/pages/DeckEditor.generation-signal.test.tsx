@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
     },
   },
   broadGenerating: true,
+  showInlineEditTrigger: false,
+  pendingUnloadGuard: vi.fn(),
   attemptGenerating: false,
   attemptObservedRun: false,
   attemptTimedOut: false,
@@ -265,7 +267,7 @@ vi.mock("@/hooks/use-slide-file-storage-status", () => ({
 }));
 vi.mock("@/lib/pending-deck-changes", () => ({
   shouldBlockPendingDeckNavigation: () => false,
-  usePendingDeckUnloadGuard: vi.fn(),
+  usePendingDeckUnloadGuard: mocks.pendingUnloadGuard,
 }));
 
 vi.mock("@/components/editor/EditorToolbar", () => ({ default: () => null }));
@@ -273,7 +275,19 @@ vi.mock("@/components/editor/EditorSidebar", () => ({
   default: () => null,
   getSlideSelection: () => [],
 }));
-vi.mock("@/components/editor/SlideEditor", () => ({ default: () => null }));
+vi.mock("@/components/editor/SlideEditor", () => ({
+  default: ({
+    onInlineEditStart,
+  }: {
+    onInlineEditStart?: (slideId: string) => void;
+  }) =>
+    mocks.showInlineEditTrigger ? (
+      <button
+        data-testid="inline-edit-trigger"
+        onClick={() => onInlineEditStart?.("slide-1")}
+      />
+    ) : null,
+}));
 vi.mock("@/components/editor/GeneratingSlidePreview", () => ({
   default: ({ busy = true }: { busy?: boolean }) => (
     <div data-testid="generating-preview" data-busy={String(busy)} />
@@ -351,6 +365,7 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.deck.generationContext.generationMode = undefined;
     Object.assign(mocks, {
       broadGenerating: true,
+      showInlineEditTrigger: false,
       attemptGenerating: false,
       attemptObservedRun: false,
       targetTabId: "target-tab",
@@ -377,6 +392,7 @@ describe("DeckEditor generation signal wiring", () => {
     mocks.scopedCalls = [];
     mocks.listeners.clear();
     mocks.sendToAgentChat.mockClear();
+    mocks.pendingUnloadGuard.mockClear();
     mocks.toastError.mockClear();
     window.innerWidth = 390;
     vi.mocked(trackEvent).mockClear();
@@ -393,6 +409,20 @@ describe("DeckEditor generation signal wiring", () => {
       Reflect.deleteProperty(navigator, "locks");
     }
     vi.restoreAllMocks();
+  });
+
+  it("guards reloads while an inline edit is active", async () => {
+    mocks.deck.slides = [{ id: "slide-1", content: "draft" }];
+    mocks.showInlineEditTrigger = true;
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+    await act(async () => screen.getByTestId("inline-edit-trigger").click());
+
+    expect(mocks.pendingUnloadGuard).toHaveBeenLastCalledWith(true);
   });
 
   it("emits one content-free output view after the deck has slides", async () => {
