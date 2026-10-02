@@ -433,7 +433,7 @@ describe("CommentsPanel reply composer", () => {
     expect(listRegion?.className).not.toMatch(/\blg:overflow-y-auto\b/);
   });
 
-  it("opens account creation when a signed-out viewer activates the composer", () => {
+  it("shows a clear sign-in action for a signed-out viewer", () => {
     const onUnauthenticated = vi.fn();
 
     act(() => {
@@ -454,17 +454,18 @@ describe("CommentsPanel reply composer", () => {
       );
     });
 
-    const composer = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("commentsPanel.leaveComment"),
+    const signInButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("commentsPanel.signInToComment"),
     );
 
-    expect(composer).toBeDefined();
-    expect(composer?.className).not.toContain("border-input");
-    const composerShell = composer?.querySelector("span.rounded-xl");
-    expect(composerShell?.className).toContain("rounded-xl");
-    expect(composerShell?.className).toContain("border-transparent");
+    expect(signInButton).toBeDefined();
+    expect(
+      container.querySelector(
+        'textarea[placeholder="commentsPanel.leaveComment"]',
+      ),
+    ).toBeNull();
     expect(container.textContent).not.toContain("commentsPanel.beFirst");
-    act(() => composer?.click());
+    act(() => signInButton?.click());
     expect(onUnauthenticated).toHaveBeenCalledWith("comment");
   });
 
