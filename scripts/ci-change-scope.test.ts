@@ -376,6 +376,71 @@ test("does not select Design dependencies for test or typecheck", () => {
   ]);
 });
 
+test("selects focused Design canvas interaction acceptance for its runtime dependencies", () => {
+  for (const path of [
+    "templates/design/app/components/MultiScreenCanvas.tsx",
+    "templates/design/.generated/bridge/editor-chrome.generated.ts",
+    "templates/design/actions/update-file.ts",
+    "templates/design/server/handlers/design.ts",
+    "templates/design/agent-native.config.ts",
+    "templates/design/agent-native.json",
+    "templates/design/package.json",
+    "templates/design/react-router.config.ts",
+    "templates/design/vite.config.ts",
+    "templates/design/playwright.config.ts",
+    "templates/design/e2e/base-url.ts",
+    "templates/design/e2e/chrome-geometry.reference.ts",
+    "templates/design/e2e/global-setup.ts",
+    "templates/design/e2e/parity-vector-endpoints.spec.ts",
+    "templates/design/e2e/corner-radius-handle-drag.spec.ts",
+    "templates/design/e2e/helpers.ts",
+    "templates/design/e2e/drag-and-drop.shared.ts",
+    "templates/design/e2e/drag-and-drop.reparenting-rules.spec.ts",
+    "templates/design/e2e/drag-and-drop.auto-layout-parity.spec.ts",
+    "templates/design/e2e/cross-screen-auto-layout-parity.spec.ts",
+    "packages/core/src/index.ts",
+    "packages/toolkit/src/index.ts",
+    "packages/creative-context/src/index.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.design_canvas_interaction_e2e,
+      true,
+      path,
+    );
+  }
+
+  for (const path of [
+    "templates/slides/app/components/Canvas.tsx",
+    "templates/calendar/app/routes/index.tsx",
+    "packages/dispatch/src/index.ts",
+    "docs/guide.md",
+    "templates/design/README.md",
+    "templates/design/app/i18n/en-US.ts",
+    "templates/design/app/i18n/index.ts",
+    "templates/design/app/i18n-keyboard-shortcuts.ts",
+    "templates/design/app/assets/icon.ts",
+    "templates/design/public/favicon.svg",
+    "templates/design/e2e/overview-wheel-zoom.spec.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.design_canvas_interaction_e2e,
+      false,
+      path,
+    );
+  }
+
+  assert.equal(
+    classifyChangedPaths([".github/workflows/ci.yml"]).checks
+      .design_canvas_interaction_e2e,
+    true,
+  );
+  assert.equal(
+    classifyChangedPaths(["docs/guide.md"]).checks
+      .design_canvas_interaction_e2e,
+    false,
+  );
+});
+
 test("runs shared coverage when core changes", () => {
   const scope = classifyChangedPaths(["packages/core/src/agent/engine/run.ts"]);
 

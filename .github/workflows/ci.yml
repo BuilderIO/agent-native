@@ -38,6 +38,7 @@ jobs:
       neon_query_budget: ${{ steps.scope.outputs.neon_query_budget }}
       query_budget_matrix: ${{ steps.scope.outputs.query_budget_matrix }}
       neon_connection_budget: ${{ steps.scope.outputs.neon_connection_budget }}
+      design_canvas_interaction_e2e: ${{ steps.scope.outputs.design_canvas_interaction_e2e }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
       slides_chat_e2e: ${{ steps.scope.outputs.slides_chat_e2e }}
       slides_authoring_e2e: ${{ steps.scope.outputs.slides_authoring_e2e }}
@@ -336,9 +337,55 @@ jobs:
           --exclude "**/*.perf.test.ts"
           --exclude "**/create-e2e.spec.ts"
 
+  design-canvas-interaction-acceptance:
+    name: Design canvas interaction acceptance
+    needs: change-scope
+    if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/free-disk
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell --with-deps chromium
+
+      - name: Run focused Design canvas interaction cases
+        working-directory: templates/design
+        env:
+          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          pnpm exec playwright test \
+            e2e/drag-and-drop.reparenting-rules.spec.ts \
+            e2e/drag-and-drop.auto-layout-parity.spec.ts \
+            e2e/cross-screen-auto-layout-parity.spec.ts \
+            e2e/corner-radius-handle-drag.spec.ts \
+            e2e/parity-vector-endpoints.spec.ts \
+            --grep "physical|reparenting rules|canvas corner-radius handle follows the drag and persists the radius|vector endpoint controls|endpoint marker references unique" \
+            --workers=1
+
   fast-tests:
     name: Fast tests
-    needs: [change-scope, docs, test-rest, test-targeted]
+    needs:
+      [
+        change-scope,
+        docs,
+        test-rest,
+        test-targeted,
+        design-canvas-interaction-acceptance,
+      ]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -353,6 +400,8 @@ jobs:
           DOCS_RESULT: ${{ needs.docs.result }}
           TEST_REST_RESULT: ${{ needs.test-rest.result }}
           TEST_TARGETED_RESULT: ${{ needs.test-targeted.result }}
+          DESIGN_CANVAS_E2E: ${{ needs.change-scope.outputs.design_canvas_interaction_e2e }}
+          DESIGN_CANVAS_RESULT: ${{ needs.design-canvas-interaction-acceptance.result }}
         run: |
           if [ "$CHANGE_SCOPE_RESULT" != "success" ]; then
             echo "::error::change-scope did not succeed ($CHANGE_SCOPE_RESULT)"
@@ -365,6 +414,15 @@ jobs:
             fi
             echo "Docs-only change: full fast-test lanes are not required."
             exit 0
+          fi
+          if [ "$DESIGN_CANVAS_E2E" = "true" ]; then
+            if [ "$DESIGN_CANVAS_RESULT" != "success" ]; then
+              echo "::error::Design canvas interaction acceptance did not succeed ($DESIGN_CANVAS_RESULT)"
+              exit 1
+            fi
+          elif [ "$DESIGN_CANVAS_RESULT" != "skipped" ] && [ "$DESIGN_CANVAS_RESULT" != "success" ]; then
+            echo "::error::Design canvas interaction acceptance ran outside its selected path ($DESIGN_CANVAS_RESULT)"
+            exit 1
           fi
           if [ "$CI_FULL" = "true" ]; then
             if [ "$HAS_TESTS" != "true" ] || [ "$TEST_REST_RESULT" != "success" ]; then

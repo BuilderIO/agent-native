@@ -363,6 +363,7 @@ test("canvas corner-radius handle follows the drag and persists the radius", asy
 
     await selectLayerFromTree(page, "Empty rectangle");
     await expectSelectionOverlayToMatch(page, frame, "#empty-rectangle");
+    await expect(handles).toHaveCount(0);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
