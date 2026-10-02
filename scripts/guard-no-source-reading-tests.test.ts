@@ -139,6 +139,17 @@ import html from "./page.html?raw";
   );
 });
 
+test("does not flag ?raw imports of fixtures", () => {
+  assert.deepEqual(
+    flagged(`
+import example from "./fixtures/Example.tsx?raw";
+import snap from "./__snapshots__/Card.ts?raw";
+const lazy = (await import("./__fixtures__/Lazy.tsx?raw")).default;
+`),
+    [],
+  );
+});
+
 test("flags a read whose path is a const declared on a nearby line", () => {
   assert.deepEqual(
     flagged(`
@@ -426,6 +437,15 @@ const text = readFileSync("src/a.ts").toString();
 `),
     [3],
   );
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+const text = String(readFileSync("src/a.ts"));
+const awaited = String(await readFile("src/b.ts"));
+`),
+    [4, 5],
+  );
 });
 
 test("does not flag readFileSync on something that is not fs", () => {
@@ -648,6 +668,19 @@ test("a pragma at the top of a comment block above the read allows it", () => {
 import { readFileSync } from "node:fs";
 // source-read-ok: keeps the lazy import out of the eager bundle
 // (see docs/perf.md for why this cannot be observed at runtime)
+const source = readFileSync("src/a.ts", "utf8");
+`),
+    [],
+  );
+});
+
+test("a pragma anywhere in the comment block directly above allows the read", () => {
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+// The barrel is generated, so its text is the contract.
+// source-read-ok: generated barrel must list every module
+// (regenerate with pnpm gen:barrel)
 const source = readFileSync("src/a.ts", "utf8");
 `),
     [],

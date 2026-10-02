@@ -35,6 +35,9 @@ const READ_METHODS = new Set(["readFileSync", "readFile"]);
 // segment like the "fixtures" in path.join(__dirname, "fixtures", "a.ts").
 const FIXTURE_RE =
   /(?:^|[\\/])(?:[^\\/]*(?:fixtures?|snapshots?|testdata)[^\\/]*[\\/]|(?:[^\\/.]*(?:fixtures?|snapshots?|testdata)[^\\/.]*|__mocks__)$|__mocks__[\\/])/i;
+// A `?raw` import of a source module that is not a fixture or snapshot.
+const isRawSourceImport = (spec) =>
+  RAW_SOURCE_RE.test(spec) && !FIXTURE_RE.test(spec.replace(/\?.*$/su, ""));
 const FIXTURE_WORDS = new Set([
   "fixture",
   "fixtures",
@@ -336,11 +339,12 @@ const isTextRead = (call) => {
     }
     return !isNullish(options);
   }
-  return toStringConversion(call) !== null;
+  return textConversion(call) !== null;
 };
 
-// The `.toString` that turns a read's Buffer into text on the spot, or null.
-const toStringConversion = (call) => {
+// The `.toString` or `String(...)` that turns a read's Buffer into text on
+// the spot, or null.
+const textConversion = (call) => {
   let current = call;
   while (
     current.parent &&
@@ -350,12 +354,23 @@ const toStringConversion = (call) => {
     current = current.parent;
   }
   const parent = current.parent;
-  return parent !== undefined &&
+  if (!parent) return null;
+  if (
     ts.isPropertyAccessExpression(parent) &&
     parent.expression === current &&
     parent.name.text === "toString"
-    ? parent.name
-    : null;
+  ) {
+    return parent.name;
+  }
+  if (
+    ts.isCallExpression(parent) &&
+    ts.isIdentifier(parent.expression) &&
+    parent.expression.text === "String" &&
+    parent.arguments[0] === current
+  ) {
+    return parent.expression;
+  }
+  return null;
 };
 
 // The named function (declaration, or const arrow/function expression) that
@@ -573,7 +588,7 @@ function collectModel(sf) {
       ts.isStringLiteral(node.moduleSpecifier)
     ) {
       const spec = node.moduleSpecifier.text;
-      if (RAW_SOURCE_RE.test(spec)) rawSpecifiers.push(node.moduleSpecifier);
+      if (isRawSourceImport(spec)) rawSpecifiers.push(node.moduleSpecifier);
       const clause = node.importClause;
       if (clause && !FS_MODULE_RE.test(spec)) {
         if (clause.name) localBindings.add(clause.name.text);
@@ -1038,7 +1053,7 @@ function createPathAnalyzer({ visibleDecls }) {
  * text. `addedLines` is a Set of 1-based line numbers this branch added; when
  * given, only reads that touch an added line are reported: a line of the read
  * itself, the string literal naming the source file it reads (a const or a
- * table row elsewhere), or a `.toString()` that turns it into text.
+ * table row elsewhere), or a `.toString()` or `String()` that turns it into text.
  * Pass null to report every read (the `--all` measurement mode).
  *
  * Returns [{ file, line, text, reason }].
@@ -1090,7 +1105,7 @@ export function findSourceReadViolations(file, source, addedLines = null) {
 
   // { node, reason, alsoLines }: alsoLines are lines outside the node that
   // still make the read new when added (where the source path is named, or
-  // a `.toString()` that turns the read into text).
+  // a `.toString()` or `String()` that turns the read into text).
   const found = [];
   // Same-file helpers that read a path built from their parameters:
   // name -> { anchoredInside } (whether the helper roots the path in the repo)
@@ -1112,7 +1127,7 @@ export function findSourceReadViolations(file, source, addedLines = null) {
         /^import(?:Actual|Original)$/.test(callee.name.text))
     ) {
       const spec = call.arguments[0] && stringValue(call.arguments[0]);
-      if (spec && RAW_SOURCE_RE.test(spec)) {
+      if (spec && isRawSourceImport(spec)) {
         found.push({
           node: call.arguments[0],
           reason: `imports ${spec} as raw text`,
@@ -1126,7 +1141,7 @@ export function findSourceReadViolations(file, source, addedLines = null) {
       const facts = analyze(pathArg);
       if (facts.temp || facts.fixture) continue;
       if (countsAsSource(facts)) {
-        const conversion = toStringConversion(call);
+        const conversion = textConversion(call);
         found.push({
           node: call,
           reason: "reads a source file as text",

@@ -46,8 +46,8 @@
  *
  *   // source-read-ok: <reason>
  *
- * on the same line or the line immediately above it (a comment block whose
- * first line is the pragma also works). The reason must not be empty.
+ * on the read's line, or anywhere in the comment block directly above it.
+ * The reason must not be empty.
  *
  * Usage:
  *   node scripts/guard-no-source-reading-tests.mjs          diff-scoped (CI)
@@ -120,8 +120,8 @@ function reportViolations(violations) {
     "\nIf the source text really is the subject (an architecture or boundary\n" +
       "check, a workflow file), opt out for that line with the comment:\n" +
       "  // source-read-ok: <reason>\n" +
-      "on the same line or the line immediately above it. The reason must not\n" +
-      "be empty.\n",
+      "on the same line, or anywhere in the comment block directly above it.\n" +
+      "The reason must not be empty.\n",
   );
 }
 
