@@ -44,7 +44,7 @@ function isSqlLogEntryFailure(value: unknown): boolean {
 }
 
 function isStructuredSqlQuery(value: object): value is Record<string, unknown> {
-  if (Array.isArray(value) || !("params" in value)) return false;
+  if (Array.isArray(value)) return false;
   const query = "query" in value ? value.query : undefined;
   const sql = "sql" in value ? value.sql : undefined;
   const message = "message" in value ? value.message : undefined;

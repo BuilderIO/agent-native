@@ -97,6 +97,21 @@ describe("tracking captureException", () => {
     expect(stack).toMatch(/\n\s+at /);
   });
 
+  it("redacts raw SQL params behind a custom error name", () => {
+    const privateValue = "private customer value";
+    const message = `SELECT email FROM users WHERE email = $1\n\tparams: ${privateValue}`;
+    const stack = redactErrorStack({
+      name: "DrizzleQueryError",
+      message,
+      stack: `DrizzleQueryError: ${message}\n    at loadUser (server/db.ts:5:7)`,
+    });
+
+    expect(stack).toContain("DrizzleQueryError: SELECT email FROM users");
+    expect(stack).toContain("params: <redacted>");
+    expect(stack).not.toContain(privateValue);
+    expect(stack).toContain("at loadUser");
+  });
+
   it("never forwards a database error's bound parameters", () => {
     const track = vi.fn();
     registerTrackingProvider({ name: "qa-exception", track });

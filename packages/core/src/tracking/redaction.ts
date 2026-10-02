@@ -10,9 +10,9 @@ const SQL_QUERY_FAILURE_RE = /\b(?:failed query|query failed):\s*/i;
 const SQL_STATEMENT_RE =
   /^(?:select|insert|update|delete|merge|values|explain|call|execute|copy|declare)\b/i;
 const SQL_CTE_HEADER_RE =
-  /^with\s+(?:recursive\s+)?(?:"(?:[^"]|"")+"|[a-z_][\w$]*)(?:\s*\([^)]*\))?\s+as\s+(?:(?:not\s+)?materialized\s+)?\(/i;
+  /^(?:with\s+(?:recursive\s+)?)?(?:"(?:[^"]|"")+"|[a-z_][\w$]*)(?:\s*\([^)]*\))?\s+as\s+(?:(?:not\s+)?materialized\s+)?\(/i;
 const SQL_CTE_QUERY_RE =
-  /^(?:select|insert|update|delete|values|with|table)\b/i;
+  /^(?:select|insert|update|delete|merge|values|with|table)\b/i;
 
 export const SECRET_KEY_RE =
   /(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|credential)/i;
@@ -46,6 +46,96 @@ function afterLeadingSqlComments(value: string): string {
   return statement;
 }
 
+function afterSqlParenthesizedBody(value: string): string | undefined {
+  let depth = 0;
+  let blockCommentDepth = 0;
+  let quote: "'" | '"' | undefined;
+  let escapeString = false;
+  let dollarQuote: string | undefined;
+
+  for (let index = 0; index < value.length; index++) {
+    if (dollarQuote) {
+      if (value.startsWith(dollarQuote, index)) {
+        index += dollarQuote.length - 1;
+        dollarQuote = undefined;
+      }
+      continue;
+    }
+    if (quote) {
+      if (escapeString && value[index] === "\\") {
+        index++;
+      } else if (value[index] === quote) {
+        if (value[index + 1] === quote) index++;
+        else quote = undefined;
+      }
+      continue;
+    }
+    if (blockCommentDepth > 0) {
+      if (value.startsWith("/*", index)) {
+        blockCommentDepth++;
+        index++;
+      } else if (value.startsWith("*/", index)) {
+        blockCommentDepth--;
+        index++;
+      }
+      continue;
+    }
+    if (value.startsWith("--", index)) {
+      const end = value.indexOf("\n", index + 2);
+      if (end < 0) return undefined;
+      index = end;
+      continue;
+    }
+    if (value.startsWith("/*", index)) {
+      blockCommentDepth = 1;
+      index++;
+      continue;
+    }
+    if (value[index] === "'" || value[index] === '"') {
+      quote = value[index] as "'" | '"';
+      escapeString =
+        quote === "'" &&
+        /(?:^|[^A-Za-z0-9_$])(?:E|U&)$/i.test(value.slice(0, index));
+      continue;
+    }
+    if (value[index] === "$") {
+      const delimiter = /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/.exec(
+        value.slice(index),
+      )?.[0];
+      if (delimiter) {
+        dollarQuote = delimiter;
+        index += delimiter.length - 1;
+        continue;
+      }
+    }
+    if (value[index] === "(") depth++;
+    else if (value[index] === ")" && --depth === 0)
+      return value.slice(index + 1);
+  }
+
+  return undefined;
+}
+
+function isSqlCteStatement(value: string): boolean {
+  let statement = value;
+  while (true) {
+    const header = SQL_CTE_HEADER_RE.exec(statement);
+    if (!header) return false;
+
+    const afterBody = afterSqlParenthesizedBody(
+      statement.slice(header[0].length - 1),
+    );
+    if (afterBody === undefined) return false;
+
+    const remainder = afterLeadingSqlComments(afterBody);
+    if (remainder.startsWith(",")) {
+      statement = afterLeadingSqlComments(remainder.slice(1));
+      continue;
+    }
+    return SQL_CTE_QUERY_RE.test(remainder);
+  }
+}
+
 function startsWithSqlStatement(value: string): boolean {
   let statement = afterLeadingSqlComments(value);
   const errorPrefix = /^Error:\s*/i.exec(statement);
@@ -54,13 +144,7 @@ function startsWithSqlStatement(value: string): boolean {
   }
 
   if (/^with\b/i.test(statement)) {
-    const cteHeader = SQL_CTE_HEADER_RE.exec(statement);
-    return (
-      cteHeader !== null &&
-      SQL_CTE_QUERY_RE.test(
-        afterLeadingSqlComments(statement.slice(cteHeader[0].length)),
-      )
-    );
+    return isSqlCteStatement(statement);
   }
 
   return SQL_STATEMENT_RE.test(statement);
@@ -116,7 +200,10 @@ export function redactErrorStack(error: unknown): string | undefined {
     const prefix = `${error.name || "Error"}${error.message ? `: ${error.message}` : ""}`;
     const suffix = stack.slice(prefix.length);
     if (stack.startsWith(prefix) && (!suffix || /^\r?\n/.test(suffix))) {
-      const safe = `${redact(prefix)}${redact(suffix)}`;
+      const safePrefix = error.message
+        ? `${redact(error.name || "Error")}: ${redact(error.message)}`
+        : redact(prefix);
+      const safe = `${safePrefix}${redact(suffix)}`;
       return safe.length > MAX_STACK_LENGTH
         ? safe.slice(0, MAX_STACK_LENGTH)
         : safe;
