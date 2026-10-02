@@ -70,7 +70,8 @@ export function BuilderConnectPopover({
   const start = (provisionAccount?: boolean) => {
     const shouldProvision =
       provisionAccount ??
-      (defaultProvisionAccount || flow.provisionAccount || false);
+      (flow.agentNativeProvisioningEnabled === true &&
+        (defaultProvisionAccount || flow.provisionAccount === true));
     initiatedByThisTriggerRef.current = true;
     setOpen(false);
     if (onConnect) {
