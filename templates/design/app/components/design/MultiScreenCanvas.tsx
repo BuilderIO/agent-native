@@ -4087,6 +4087,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
 
       if (msg.phase === "move") {
+        const current = crossScreenDragMsgRef.current;
+        if (
+          !current ||
+          msg.sourceDeleteRequestId !== current.sourceDeleteRequestId ||
+          !isCrossScreenModifierFromActiveSourceIframe(
+            current.sourceIframeId,
+            domScreenId ?? boardFileId ?? undefined,
+          )
+        ) {
+          return;
+        }
         const { iframeX, iframeY, viewportW, viewportH, selector, sourceId } =
           msg;
         if (

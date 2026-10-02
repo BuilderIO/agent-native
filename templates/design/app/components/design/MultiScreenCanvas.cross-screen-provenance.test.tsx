@@ -297,7 +297,7 @@ describe("cross-screen drag identity provenance", () => {
     );
   });
 
-  it("ignores stale or unscoped cancels after a newer iframe drag starts", async () => {
+  it("ignores stale moves and cancels after a newer iframe drag starts", async () => {
     const onCrossScreenElementDrop = vi.fn();
     await act(async () => {
       root.render(
@@ -409,6 +409,35 @@ describe("cross-screen drag identity provenance", () => {
         viewportW: 400,
         viewportH: 300,
       });
+      send("source", {
+        phase: "move",
+        screenId: "source",
+        selector: ".previous",
+        sourceId: "previous-node",
+        sourceDeleteRequestId: "previous-request",
+        iframeX: 150,
+        iframeY: 100,
+        viewportW: 400,
+        viewportH: 300,
+      });
+      send("previous", {
+        phase: "move",
+        screenId: "previous",
+        selector: ".previous",
+        sourceId: "previous-node",
+        sourceDeleteRequestId: "previous-request",
+        iframeX: 150,
+        iframeY: 100,
+        viewportW: 400,
+        viewportH: 300,
+      });
+      await Promise.resolve();
+    });
+    expect(
+      container.querySelector("[data-cross-screen-drag-ghost]"),
+    ).toBeTruthy();
+
+    await act(async () => {
       send("previous", {
         phase: "cancel",
         sourceDeleteRequestId: "previous-request",
