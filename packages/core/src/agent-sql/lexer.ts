@@ -273,6 +273,15 @@ function lexPostgres(s: Scanner): void {
       continue;
     }
     if (ch === "'") {
+      const previous = s.tokens.at(-1);
+      if (previous?.kind === "string" && /^[eE]'/.test(previous.text)) {
+        // PostgreSQL continuation inherits the E prefix across comments and
+        // newlines; reading this as an ordinary string would hide SQL tokens.
+        s.fail(
+          "unsupported_syntax",
+          "Continuation after an escape string is not supported in agent SQL.",
+        );
+      }
       s.readQuoted(
         "'",
         { backslashEscapes: false, doubledQuoteEscapes: true },
