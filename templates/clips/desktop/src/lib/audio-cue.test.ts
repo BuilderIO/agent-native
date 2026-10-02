@@ -51,12 +51,14 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllTimers();
+  vi.restoreAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
 describe("createAudioCue", () => {
   it("primes audio synchronously and keeps the context open through the full cue", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const cue = createAudioCue();
     expect(context.resume).toHaveBeenCalledOnce();
 
@@ -72,8 +74,53 @@ describe("createAudioCue", () => {
     await vi.advanceTimersByTimeAsync(150);
     await play;
     expect(context.close).not.toHaveBeenCalled();
+    expect(info).toHaveBeenCalledWith(
+      "[clips-recorder] start cue outcome=played",
+    );
 
     cue.cleanup();
+    expect(context.close).toHaveBeenCalledOnce();
+  });
+
+  it("reports when a throttled cue misses its playback deadline", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const scheduleTimeout = window.setTimeout.bind(window);
+    vi.spyOn(window, "setTimeout").mockImplementation(((
+      handler,
+      timeout,
+      ...args
+    ) =>
+      scheduleTimeout(
+        handler,
+        typeof timeout === "number" && timeout > 100 && timeout < 1000
+          ? 1500
+          : timeout,
+        ...args,
+      )) as typeof window.setTimeout);
+    const cue = createAudioCue();
+    const play = cue.playBeforeCapture();
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await play;
+
+    expect(warn).toHaveBeenCalledWith(
+      "[clips-recorder] start cue outcome=timed_out",
+    );
+    expect(context.close).toHaveBeenCalledOnce();
+  });
+
+  it("reports cancellation while the cue is playing", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cue = createAudioCue();
+    const abort = new AbortController();
+    const play = cue.playBeforeCapture(abort.signal);
+
+    abort.abort();
+    await play;
+
+    expect(warn).toHaveBeenCalledWith(
+      "[clips-recorder] start cue outcome=cancelled",
+    );
     expect(context.close).toHaveBeenCalledOnce();
   });
 });

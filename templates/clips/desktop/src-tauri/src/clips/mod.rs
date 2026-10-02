@@ -1,5 +1,5 @@
 #[cfg(target_os = "macos")]
-use objc2_foundation::{NSPoint, NSRect, NSSize};
+use objc2_foundation::{NSPoint, NSProcessInfo, NSRect, NSSize};
 use serde::{Deserialize, Serialize};
 #[cfg(target_os = "macos")]
 use std::io::Write;
@@ -2057,10 +2057,17 @@ fn remembered_voice_target_bundle(app: &AppHandle) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        clamp_popover_logical_size, overlay_labels_to_hide, strip_trailing_period_for_messaging,
-        text_insertion_strategy, TextInsertionStrategy, BUBBLE_LABEL, FINALIZING_LABEL,
+        can_park_popover_offscreen, clamp_popover_logical_size, overlay_labels_to_hide,
+        strip_trailing_period_for_messaging, text_insertion_strategy, TextInsertionStrategy,
+        BUBBLE_LABEL, FINALIZING_LABEL,
     };
     use tauri::PhysicalSize;
+
+    #[test]
+    fn offscreen_popover_requires_supported_background_throttling() {
+        assert!(!can_park_popover_offscreen(13));
+        assert!(can_park_popover_offscreen(14));
+    }
 
     #[test]
     fn popover_size_uses_work_area_and_preserves_recorder_controls() {
@@ -2697,10 +2704,32 @@ pub async fn park_popover_offscreen(app: AppHandle) -> Result<(), String> {
         set_popover_parked(&app, true);
         set_capture_excluded(&window);
         let _ = window.set_ignore_cursor_events(true);
-        let _ = window.set_position(PhysicalPosition::new(-10_000_i32, -10_000_i32));
-        set_window_opacity(&window, 0.0);
+        #[cfg(target_os = "macos")]
+        let can_park_offscreen = {
+            let major_version = NSProcessInfo::processInfo()
+                .operatingSystemVersion()
+                .majorVersion;
+            can_park_popover_offscreen(major_version)
+        };
+        #[cfg(not(target_os = "macos"))]
+        let can_park_offscreen = true;
+
+        if can_park_offscreen {
+            let _ = window.set_position(PhysicalPosition::new(-10_000_i32, -10_000_i32));
+            set_window_opacity(&window, 0.0);
+        } else {
+            // Disabled background throttling is supported from macOS 14; keep
+            // a visible pixel on macOS 13 so WKWebView timers keep running.
+            let _ = window.set_position(PhysicalPosition::new(2_i32, 2_i32));
+            let _ = window.set_size(tauri::Size::Physical(PhysicalSize::new(2, 2)));
+            set_window_opacity(&window, 1.0);
+        }
     }
     Ok(())
+}
+
+fn can_park_popover_offscreen(os_major_version: isize) -> bool {
+    os_major_version >= 14
 }
 
 fn clear_voice_wake_state(app: &AppHandle) {

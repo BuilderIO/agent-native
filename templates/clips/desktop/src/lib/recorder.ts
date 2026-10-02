@@ -3022,8 +3022,11 @@ async function tryStartRewindFullscreenRecording(
         await runRecordingCountdown(true, params.signal);
         console.log("[rewind-latency] countdown completed");
       },
+      cancelCountdown() {
+        void emit("clips:countdown-cancel").catch(() => {});
+      },
       async beforeActivate() {
-        await audioCue.playBeforeCapture();
+        await audioCue.playBeforeCapture(params.signal);
       },
       async activate(preparedRecording) {
         throwIfRecordingStartAborted(params.signal);

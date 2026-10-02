@@ -137,6 +137,7 @@ pub fn build_popover_window(app: &mut tauri::App) -> Result<WebviewWindow, tauri
         .always_on_top(true)
         .visible_on_all_workspaces(true)
         .skip_taskbar(true)
+        .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
         .visible(false)
         .focused(true)
         .shadow(true)
