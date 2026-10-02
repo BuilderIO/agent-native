@@ -6,6 +6,7 @@ vi.mock("@tauri-apps/plugin-fs", () => ({ readFile: readFileMock }));
 
 import {
   effectiveLocalRecordingMode,
+  isMissingRecordFirstFile,
   loadRecordFirstFiles,
   recordFirstBackup,
   recordFirstFilesKey,
@@ -72,6 +73,30 @@ describe("record-first file list", () => {
     expect(storage.getItem(mine)).toBeNull();
   });
 
+  it("keeps a file saved while signed out apart, for an explicit claim", () => {
+    const storage = memoryStorage();
+    const unclaimed = recordFirstFilesKey("https://clips.example", null);
+    saveRecordFirstFiles(storage, unclaimed, [file]);
+
+    expect(unclaimed).toContain("unclaimed");
+    expect(
+      loadRecordFirstFiles(
+        storage,
+        recordFirstFilesKey("https://clips.example", "me@example.com"),
+      ),
+    ).toEqual([]);
+    expect(loadRecordFirstFiles(storage, unclaimed)).toEqual([file]);
+  });
+
+  it("recognises a missing file so its entry can be dismissed", () => {
+    expect(
+      isMissingRecordFirstFile(
+        "failed to open file at path: /x.webm with error: No such file or directory (os error 2)",
+      ),
+    ).toBe(true);
+    expect(isMissingRecordFirstFile("create-recording 503: busy")).toBe(false);
+  });
+
   it("reports an unreadable list instead of hiding saved files", () => {
     const storage = memoryStorage();
     storage.setItem("k", "{not json");
@@ -123,12 +148,17 @@ describe("queueRecordFirstUpload", () => {
 
     const upload = await queueRecordFirstUpload({
       serverUrl: "https://clips.example",
+      ownerEmail: "me@example.com",
       file,
     });
 
     expect(readFileMock).toHaveBeenCalledWith(file.path);
     const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
-    expect(body).toMatchObject({ requestStreaming: true, hasAudio: true });
+    expect(body).toMatchObject({
+      requestStreaming: true,
+      hasAudio: true,
+      expectedOwnerEmail: "me@example.com",
+    });
     expect(upload).toMatchObject({ kind: "browser", recordingId: "rec-9" });
     expect(await listBrowserRecordingBackups()).toEqual([
       expect.objectContaining({ recordingId: "rec-9", bytes: 10 }),
@@ -139,7 +169,11 @@ describe("queueRecordFirstUpload", () => {
     readFileMock.mockRejectedValue(new Error("forbidden path"));
 
     await expect(
-      queueRecordFirstUpload({ serverUrl: "https://clips.example", file }),
+      queueRecordFirstUpload({
+        serverUrl: "https://clips.example",
+        ownerEmail: "me@example.com",
+        file,
+      }),
     ).rejects.toThrow("forbidden path");
     expect(fetchMock).not.toHaveBeenCalled();
     expect(await listBrowserRecordingBackups()).toEqual([]);

@@ -32,6 +32,7 @@ import {
 } from "./pause-transition";
 import { reconcileProcessingBackup } from "./processing-backup-recovery";
 import { recordFirstBackup, type RecordFirstFile } from "./record-first";
+import { RECORDER_DISCARD_EVENT } from "./recorder-events";
 import {
   buildCreateRecordingRequestHeaders,
   buildCreateRecordingRequestBody,
@@ -1309,6 +1310,8 @@ async function replayBrowserBackupToResumableSession(
 export async function queueRecordFirstUpload(input: {
   serverUrl: string;
   authToken?: string;
+  /** The account the file belongs to; the server refuses any other. */
+  ownerEmail: string;
   file: RecordFirstFile;
 }): Promise<PendingBrowserRecordingUpload> {
   const { readFile } = await import("@tauri-apps/plugin-fs");
@@ -1325,6 +1328,7 @@ export async function queueRecordFirstUpload(input: {
       authToken: input.authToken,
       mimeType: input.file.mimeType,
       requestStreaming: true,
+      expectedOwnerEmail: input.ownerEmail,
     },
   );
   const { meta, chunks } = recordFirstBackup({
@@ -3244,7 +3248,9 @@ async function tryStartRewindFullscreenRecording(
         console.error("[clips-recorder] Rewind handle.stop() threw:", error);
       });
     }),
-    listen("clips:recorder-cancel", () => {
+    // Deleting a recording needs the toolbar's confirmation; the raw cancel
+    // shortcut only asks for it (see RECORDER_DISCARD_EVENT).
+    listen(RECORDER_DISCARD_EVENT, () => {
       void handle.cancel().catch((error) => {
         console.error("[clips-recorder] Rewind handle.cancel() threw:", error);
       });
@@ -3970,8 +3976,8 @@ async function startNativeFullscreenRecording(
         console.error("[clips-recorder] native handle.stop() threw:", err);
       });
     }),
-    listen("clips:recorder-cancel", () => {
-      console.log("[clips-recorder] native cancel event received");
+    listen(RECORDER_DISCARD_EVENT, () => {
+      console.log("[clips-recorder] native discard event received");
       handle.cancel().catch((err) => {
         console.error("[clips-recorder] native handle.cancel() threw:", err);
       });
@@ -4634,8 +4640,18 @@ async function startRecordingInner(
             console.error("[clips-recorder] local handle.stop() threw:", err);
           });
         }),
+        // Before capture starts there is nothing to lose; once it has, the
+        // file on disk may be the only copy and only a confirmed discard
+        // removes it.
         listen("clips:recorder-cancel", () => {
+          if (startedAt !== 0) return;
           console.log("[clips-recorder] local cancel event received");
+          handle.cancel().catch((err) => {
+            console.error("[clips-recorder] local handle.cancel() threw:", err);
+          });
+        }),
+        listen(RECORDER_DISCARD_EVENT, () => {
+          console.log("[clips-recorder] local discard event received");
           handle.cancel().catch((err) => {
             console.error("[clips-recorder] local handle.cancel() threw:", err);
           });
@@ -5070,6 +5086,18 @@ async function startRecordingInner(
       }),
       listen("clips:recorder-cancel", () => {
         console.log("[clips-recorder] cancel event received");
+        if (!handle) {
+          cancelRequestedDuringStartup = true;
+          return;
+        }
+        // Recording: only a confirmed discard deletes it.
+        if (startedAt !== 0) return;
+        handle.cancel().catch((err) => {
+          console.error("[clips-recorder] handle.cancel() threw:", err);
+        });
+      }),
+      listen(RECORDER_DISCARD_EVENT, () => {
+        console.log("[clips-recorder] discard event received");
         if (!handle) {
           cancelRequestedDuringStartup = true;
           return;

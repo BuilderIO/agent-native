@@ -32,6 +32,7 @@ vi.mock("./local-export", async (importOriginal) => {
 });
 
 import { startRecording, type StartParams } from "./recorder";
+import { RECORDER_DISCARD_EVENT } from "./recorder-events";
 import type { TranscriptionCapture } from "./transcription-capture";
 
 function deferred<T>() {
@@ -861,6 +862,40 @@ describe("browser recording startup cancellation", () => {
     expect(audioCue.cleanup).toHaveBeenCalled();
   });
 
+  it("keeps a record-first file on a raw cancel and removes it only on a confirmed discard", async () => {
+    useBrowserCameraCapture();
+    const cue = deferred<void>();
+    const audioCue = {
+      playBeforeCapture: vi.fn(async () => cue.promise),
+      cleanup: vi.fn(),
+    };
+    const pending = startRecording(
+      {
+        ...params,
+        mode: "camera",
+        cameraOn: true,
+        micOn: false,
+        systemAudioOn: false,
+        localRecordingMode: "composed",
+      },
+      audioCue,
+    );
+
+    await reachCue(audioCue.playBeforeCapture);
+    cue.resolve();
+    await flush();
+    await pending;
+    expect(localExports[0].start).toHaveBeenCalledOnce();
+
+    await mocks.emit("clips:recorder-cancel");
+    await flush();
+    expect(localExports[0].cancel).not.toHaveBeenCalled();
+
+    await mocks.emit(RECORDER_DISCARD_EVENT);
+    await flush();
+    expect(localExports[0].cancel).toHaveBeenCalledOnce();
+  });
+
   it("retains cloud Cancel during the cue and skips MediaRecorder.start", async () => {
     useBrowserCameraCapture();
     const cue = deferred<void>();
@@ -1023,7 +1058,7 @@ describe("browser recording startup cancellation", () => {
     );
   });
 
-  it("cancels a live upload when Cancel arrives during transcription startup", async () => {
+  it("cancels a live upload only on a confirmed discard during transcription startup", async () => {
     useBrowserCameraCapture();
     const cue = deferred<void>();
     const transcription = deferred<TranscriptionCapture>();
@@ -1053,7 +1088,16 @@ describe("browser recording startup cancellation", () => {
     expect(mocks.transcribe).toHaveBeenCalledOnce();
     const id = createdRecordingId();
 
+    // A raw cancel (the global shortcut) only asks for confirmation once
+    // capture has started; it must not delete anything.
     await mocks.emit("clips:recorder-cancel");
+    await flush();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining(`/api/uploads/${id}/abort`),
+      expect.anything(),
+    );
+
+    await mocks.emit(RECORDER_DISCARD_EVENT);
     await flush();
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining(`/api/uploads/${id}/abort`),

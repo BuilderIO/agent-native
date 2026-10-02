@@ -134,6 +134,7 @@ import {
 import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
 import {
   effectiveLocalRecordingMode,
+  isMissingRecordFirstFile,
   loadRecordFirstFiles,
   recordFirstFilesKey,
   saveRecordFirstFiles,
@@ -157,6 +158,7 @@ import {
   type RecorderStopResult,
   type RestartHandoff,
 } from "./lib/recorder";
+import { RECORDER_DISCARD_EVENT } from "./lib/recorder-events";
 import { notifyRecordingFailure } from "./lib/recording-failure-notifications";
 import { clearResolvedFinalizationError } from "./lib/recording-finalization-state";
 import {
@@ -3005,35 +3007,80 @@ export function App({
   const recordFirstKey = signedInAs
     ? recordFirstFilesKey(originForServer(serverUrl), signedInAs)
     : null;
+  const unclaimedRecordFirstKey = recordFirstFilesKey(
+    originForServer(serverUrl),
+    null,
+  );
   const [recordFirstFiles, setRecordFirstFiles] = useState<RecordFirstFile[]>(
     [],
   );
+  const [unclaimedRecordFirstFiles, setUnclaimedRecordFirstFiles] = useState<
+    RecordFirstFile[]
+  >([]);
   const [recordFirstError, setRecordFirstError] = useState<string | null>(null);
+  const [recordFirstFileErrors, setRecordFirstFileErrors] = useState<
+    Record<string, string>
+  >({});
   const [recordFirstUploading, setRecordFirstUploading] = useState(false);
   useEffect(() => {
-    if (!recordFirstKey) {
-      setRecordFirstFiles([]);
-      return;
-    }
+    // Never keep another account's list in state: an unreadable list shows
+    // an error and an empty queue, so "Upload now" cannot send A's files
+    // with B's token.
+    setRecordFirstFileErrors({});
     try {
-      setRecordFirstFiles(loadRecordFirstFiles(localStorage, recordFirstKey));
+      setUnclaimedRecordFirstFiles(
+        loadRecordFirstFiles(localStorage, unclaimedRecordFirstKey),
+      );
+      setRecordFirstFiles(
+        recordFirstKey
+          ? loadRecordFirstFiles(localStorage, recordFirstKey)
+          : [],
+      );
       setRecordFirstError(null);
     } catch (err) {
-      setRecordFirstError(err instanceof Error ? err.message : String(err));
+      setRecordFirstFiles([]);
+      setUnclaimedRecordFirstFiles([]);
+      setRecordFirstError(
+        `${RECORD_FIRST_LIST_UNREADABLE} ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
-  }, [recordFirstKey]);
+  }, [recordFirstKey, unclaimedRecordFirstKey]);
   const rememberRecordFirstFile = useCallback(
     (file: RecordFirstFile) => {
-      if (!recordFirstKey) return;
-      setRecordFirstFiles((files) => {
+      // Signed out mid-recording: keep it as unclaimed rather than dropping it.
+      const key = recordFirstKey ?? unclaimedRecordFirstKey;
+      const setFiles = recordFirstKey
+        ? setRecordFirstFiles
+        : setUnclaimedRecordFirstFiles;
+      setFiles((files) => {
         const next = [...files.filter((f) => f.path !== file.path), file];
-        saveRecordFirstFiles(localStorage, recordFirstKey, next);
+        saveRecordFirstFiles(localStorage, key, next);
         return next;
       });
     },
-    [recordFirstKey],
+    [recordFirstKey, unclaimedRecordFirstKey],
   );
-  const uploadRecordFirstFilesRef = useRef<() => Promise<void>>(async () => {});
+  const forgetRecordFirstFile = useCallback(
+    (path: string) => {
+      // Removes the list entry only; the file on disk is never touched.
+      for (const [key, setFiles] of [
+        [recordFirstKey, setRecordFirstFiles],
+        [unclaimedRecordFirstKey, setUnclaimedRecordFirstFiles],
+      ] as const) {
+        if (!key) continue;
+        setFiles((files) => {
+          const next = files.filter((f) => f.path !== path);
+          saveRecordFirstFiles(localStorage, key, next);
+          return next;
+        });
+      }
+      setRecordFirstFileErrors(({ [path]: _forgotten, ...rest }) => rest);
+    },
+    [recordFirstKey, unclaimedRecordFirstKey],
+  );
+  const uploadRecordFirstFilesRef = useRef<
+    (options?: { includeUnclaimed?: boolean }) => Promise<void>
+  >(async () => {});
 
   useEffect(() => {
     let disposed = false;
@@ -3255,28 +3302,54 @@ export function App({
     }
   };
 
-  uploadRecordFirstFilesRef.current = async () => {
-    if (recordFirstUploading || !recordFirstKey) return;
+  uploadRecordFirstFilesRef.current = async (
+    options: { includeUnclaimed?: boolean } = {},
+  ) => {
+    if (recordFirstUploading || !recordFirstKey || !signedInAs) return;
     if (videoStorageStatus !== "configured") {
       openVideoStorageSetup();
       return;
     }
+    // Unclaimed files (saved while signed out) join this account only when
+    // the user clicks Upload now, never automatically.
+    let files = recordFirstFiles;
+    if (options.includeUnclaimed && unclaimedRecordFirstFiles.length > 0) {
+      files = [
+        ...recordFirstFiles,
+        ...unclaimedRecordFirstFiles.filter(
+          (f) => !recordFirstFiles.some((own) => own.path === f.path),
+        ),
+      ];
+      saveRecordFirstFiles(localStorage, recordFirstKey, files);
+      saveRecordFirstFiles(localStorage, unclaimedRecordFirstKey, []);
+      setRecordFirstFiles(files);
+      setUnclaimedRecordFirstFiles([]);
+    }
     setRecordFirstUploading(true);
     setRecordFirstError(null);
     try {
-      for (const file of recordFirstFiles) {
+      for (const file of files) {
         const authToken = loadDesktopAuthToken(serverUrl);
         let upload: PendingDesktopUpload;
         try {
-          upload = await queueRecordFirstUpload({ serverUrl, authToken, file });
+          upload = await queueRecordFirstUpload({
+            serverUrl,
+            authToken,
+            ownerEmail: signedInAs,
+            file,
+          });
         } catch (err) {
-          setRecordFirstError(
-            `${file.fileName}: ${err instanceof Error ? err.message : String(err)}`,
-          );
-          break;
+          // One bad file never blocks the rest of the queue.
+          const message = err instanceof Error ? err.message : String(err);
+          setRecordFirstFileErrors((errors) => ({
+            ...errors,
+            [file.path]: message,
+          }));
+          continue;
         }
-        setRecordFirstFiles((files) => {
-          const next = files.filter((f) => f.path !== file.path);
+        setRecordFirstFileErrors(({ [file.path]: _done, ...rest }) => rest);
+        setRecordFirstFiles((current) => {
+          const next = current.filter((f) => f.path !== file.path);
           saveRecordFirstFiles(localStorage, recordFirstKey, next);
           return next;
         });
@@ -3950,7 +4023,7 @@ export function App({
       }),
     );
     track(
-      listen("clips:recorder-cancel", async () => {
+      listen(RECORDER_DISCARD_EVENT, async () => {
         if (
           cancelled ||
           restartInFlightRef.current ||
@@ -4088,6 +4161,10 @@ export function App({
     authenticated: authStatus === "authed",
     finalizing: recordingStopFinalizing,
     finalizingRecordingId: sessionRecordingIdRef.current,
+    activeRecordingId:
+      isRecording || recordingStartPending
+        ? sessionRecordingIdRef.current
+        : null,
     showFinalizing: popoverView !== "recorder" || authStatus !== "authed",
     retryingUploadId,
     retryingUploadStatus,
@@ -4647,13 +4724,28 @@ export function App({
           </button>
         ) : null}
 
-        {recordFirstFiles.length > 0 ? (
+        {recordFirstFiles.length + unclaimedRecordFirstFiles.length > 0 ||
+        recordFirstError ? (
           <RecordFirstUploadsBanner
-            count={recordFirstFiles.length}
+            count={recordFirstFiles.length + unclaimedRecordFirstFiles.length}
             storageConnected={videoStorageStatus === "configured"}
+            signedIn={!!signedInAs}
             uploading={recordFirstUploading}
             error={recordFirstError}
-            onUpload={() => void uploadRecordFirstFilesRef.current()}
+            failedFiles={[
+              ...recordFirstFiles,
+              ...unclaimedRecordFirstFiles,
+            ].flatMap((file) =>
+              recordFirstFileErrors[file.path]
+                ? [{ file, message: recordFirstFileErrors[file.path]! }]
+                : [],
+            )}
+            onUpload={() =>
+              void uploadRecordFirstFilesRef.current({
+                includeUnclaimed: true,
+              })
+            }
+            onForget={forgetRecordFirstFile}
           />
         ) : null}
         {recError ? (
@@ -4855,48 +4947,76 @@ function UpdateRestartBanner({ message }: { message: string }) {
   );
 }
 
+const RECORD_FIRST_LIST_UNREADABLE =
+  "Clips couldn't read its list of recordings waiting to upload. They are still in Movies/Clips.";
+
 function RecordFirstUploadsBanner({
   count,
   storageConnected,
+  signedIn,
   uploading,
   error,
+  failedFiles,
   onUpload,
+  onForget,
 }: {
   count: number;
   storageConnected: boolean;
+  signedIn: boolean;
   uploading: boolean;
   error: string | null;
+  failedFiles: Array<{ file: RecordFirstFile; message: string }>;
   onUpload: () => void;
+  onForget: (path: string) => void;
 }) {
   const recordings = count === 1 ? "1 recording" : `${count} recordings`;
   return (
-    <div className="storage-flow-banner" role="status">
-      <div className="storage-flow-icon" aria-hidden>
-        <IconUpload size={17} stroke={1.8} />
-      </div>
-      <div className="storage-flow-copy">
-        <div className="storage-flow-title">
-          {uploading
-            ? `Uploading ${recordings}…`
-            : `${recordings} saved on this Mac, not uploaded`}
+    <>
+      <div className="storage-flow-banner" role="status">
+        <div className="storage-flow-icon" aria-hidden>
+          <IconUpload size={17} stroke={1.8} />
         </div>
-        <div className="storage-flow-sub">
-          {error ??
-            (storageConnected
-              ? "Saved in Movies/Clips. Upload them to get share links."
-              : "Saved in Movies/Clips. Connect storage and they upload.")}
+        <div className="storage-flow-copy">
+          <div className="storage-flow-title">
+            {uploading
+              ? `Uploading ${recordings}…`
+              : `${recordings} saved on this Mac, not uploaded`}
+          </div>
+          <div className="storage-flow-sub">
+            {error ??
+              (storageConnected
+                ? "Saved in Movies/Clips. Upload them to get share links."
+                : "Saved in Movies/Clips. Connect storage and they upload.")}
+          </div>
         </div>
+        {count > 0 ? (
+          <button
+            type="button"
+            className="storage-flow-connect"
+            disabled={uploading || !signedIn}
+            title={signedIn ? undefined : "Sign in to upload"}
+            onClick={onUpload}
+          >
+            <IconUpload size={14} stroke={2} />
+            {storageConnected ? "Upload now" : "Connect"}
+          </button>
+        ) : null}
       </div>
-      <button
-        type="button"
-        className="storage-flow-connect"
-        disabled={uploading}
-        onClick={onUpload}
-      >
-        <IconUpload size={14} stroke={2} />
-        {storageConnected ? "Upload now" : "Connect"}
-      </button>
-    </div>
+      {failedFiles.map(({ file, message }) => (
+        <div key={file.path} className="error-banner" role="alert">
+          {file.fileName}: {message}
+          {isMissingRecordFirstFile(message) ? (
+            <button
+              type="button"
+              className="storage-flow-connect"
+              onClick={() => onForget(file.path)}
+            >
+              Remove from list
+            </button>
+          ) : null}
+        </div>
+      ))}
+    </>
   );
 }
 

@@ -24,9 +24,21 @@ export interface RecordFirstFile extends LocalExportedFile {
   savedAt: string;
 }
 
-/** Per server and account, so a file only ever uploads to who recorded it. */
-export function recordFirstFilesKey(serverOrigin: string, account: string) {
-  return `clips-record-first-files:${serverOrigin}|${account.toLowerCase()}`;
+/**
+ * Per server and account, so a file only ever uploads to who recorded it. A
+ * file saved while signed out (an expired session) goes under "unclaimed"
+ * and uploads only after the user explicitly adds it to their account.
+ */
+export function recordFirstFilesKey(
+  serverOrigin: string,
+  account: string | null,
+) {
+  return `clips-record-first-files:${serverOrigin}|${account ? account.toLowerCase() : "unclaimed"}`;
+}
+
+/** A failure that means the file itself is gone, so retrying cannot help. */
+export function isMissingRecordFirstFile(message: string): boolean {
+  return /not found|no such file|os error 2|does not exist/i.test(message);
 }
 
 /** Absent is an empty list; an unreadable list throws instead of hiding files. */
