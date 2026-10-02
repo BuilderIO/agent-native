@@ -3637,7 +3637,9 @@ function DatabaseTable({
         />
       )}
 
-      {hasMoreItems && !isClientQueryExpansionPending ? (
+      {hasMoreItems &&
+      !isClientQueryExpansionPending &&
+      !database.itemsFailed ? (
         <div className="flex items-center justify-center border-t border-border/45 py-3">
           <Button
             type="button"
