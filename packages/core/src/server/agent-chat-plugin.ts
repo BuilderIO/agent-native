@@ -3707,6 +3707,7 @@ export function createAgentChatPlugin(
         turnId: string;
         threadId: string | undefined;
         message: string;
+        agentKitMessageId?: string;
         attachments?: AgentChatAttachment[];
         queuedMessageId?: string;
         /** The turn was refused before a run started; record why in the thread. */
@@ -3794,6 +3795,7 @@ export function createAgentChatPlugin(
               attachments: details.attachments,
               runId: details.runId,
               turnId: details.turnId,
+              agentKitMessageId: details.agentKitMessageId,
               queuedMessageId: details.queuedMessageId,
             }),
           );

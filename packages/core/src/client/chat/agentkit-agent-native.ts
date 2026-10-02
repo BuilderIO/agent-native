@@ -38,6 +38,7 @@ import {
 import { trackRunOutcome } from "./run-outcome-telemetry.js";
 import {
   createAgentNativeChatRuntime,
+  isAgentNativeChatRuntime,
   type AgentChatRuntime,
   type CreateAgentNativeChatRuntimeOptions,
 } from "./runtime.js";
@@ -68,6 +69,7 @@ interface ActiveRunStatus {
   status?: unknown;
   runId?: unknown;
   awaitingRedispatch?: unknown;
+  terminalReason?: unknown;
 }
 
 const RUN_SLOT_POLL_INTERVAL_MS = 150;
@@ -210,9 +212,92 @@ function messagePart(
   };
 }
 
+function attachmentReferenceUrl(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? value
+      : undefined;
+  } catch {
+    return value.startsWith("/") && !value.startsWith("//") ? value : undefined;
+  }
+}
+
+function storedAttachmentPart(value: unknown): AgentMessagePart | null {
+  const attachment = asRecord(value);
+  if (
+    !attachment ||
+    (attachment.type !== "file" && attachment.type !== "image")
+  ) {
+    return null;
+  }
+  const contentParts = Array.isArray(attachment.content)
+    ? attachment.content.map(asRecord).filter((part) => part !== null)
+    : [];
+  const reference = contentParts.find(
+    (part) =>
+      (part.type === "file" && typeof part.url === "string") ||
+      (part.type === "image" && typeof part.image === "string"),
+  );
+  const metadata = asRecord(attachment.metadata);
+  const url =
+    attachmentReferenceUrl(metadata?.uploadUrl) ??
+    attachmentReferenceUrl(reference?.url ?? reference?.image);
+  const name =
+    (typeof attachment.name === "string" && attachment.name) ||
+    (typeof reference?.filename === "string" && reference.filename) ||
+    attachment.type;
+  const fileId =
+    (typeof attachment.id === "string" && attachment.id) ||
+    (typeof reference?.fileId === "string" && reference.fileId);
+  const mediaType =
+    (typeof attachment.contentType === "string" && attachment.contentType) ||
+    (typeof reference?.mimeType === "string" && reference.mimeType);
+  return {
+    type: "file",
+    name,
+    ...(url ? { url } : {}),
+    ...(fileId ? { fileId } : {}),
+    ...(mediaType ? { mediaType } : {}),
+  };
+}
+
+function sameUserPrompt(left: AgentMessage, right: AgentMessage): boolean {
+  if (
+    left.role !== "user" ||
+    right.role !== "user" ||
+    !left.createdAt ||
+    !right.createdAt ||
+    Date.parse(left.createdAt) !== Date.parse(right.createdAt) ||
+    left.parts.length !== right.parts.length
+  ) {
+    return false;
+  }
+  return left.parts.every((part, index) => {
+    const other = right.parts[index];
+    if (!other || part.type !== other.type) return false;
+    if (part.type === "text" && other.type === "text") {
+      return part.text === other.text;
+    }
+    if (part.type !== "file" || other.type !== "file") return false;
+    const sameReference =
+      (part.fileId && other.fileId && part.fileId === other.fileId) ||
+      (part.url && other.url && part.url === other.url);
+    if (sameReference) return true;
+    if ((part.fileId && other.fileId) || (part.url && other.url)) {
+      return false;
+    }
+    return (
+      Boolean(part.name) &&
+      part.name === other.name &&
+      part.mediaType === other.mediaType
+    );
+  });
+}
+
 function storedMessages(
   value: unknown,
-  now: () => string,
   fallbackTextFormat?: TextPart["format"],
 ): AgentMessage[] {
   if (value === undefined) return [];
@@ -250,6 +335,12 @@ function storedMessages(
               .map((part) => messagePart(part, textFormat))
               .filter((part) => part !== null)
           : [];
+    const attachmentParts = Array.isArray(message.attachments)
+      ? message.attachments
+          .map(storedAttachmentPart)
+          .filter((part) => part !== null)
+      : [];
+    const createdAt = timestamp(message.createdAt, "");
     return [
       {
         id:
@@ -257,8 +348,8 @@ function storedMessages(
             ? message.id
             : `repository-message-${index}`,
         role,
-        parts,
-        createdAt: timestamp(message.createdAt, now()),
+        parts: [...parts, ...attachmentParts],
+        ...(createdAt ? { createdAt } : {}),
         ...(asRecord(message.metadata)
           ? { metadata: asRecord(message.metadata)! }
           : {}),
@@ -288,11 +379,128 @@ function isRenderedRunNotStartedNotice(
   );
 }
 
-function reconcileDurableAssistantText(
+function completedDurableRunIds(messages: AgentMessage[]): Set<string> {
+  return new Set(
+    messages.flatMap((message) => {
+      const runId = asRecord(message.metadata)?.runId;
+      const custom = asRecord(asRecord(message.metadata)?.custom);
+      return message.role === "assistant" &&
+        message.status === "complete" &&
+        custom?.continued !== true &&
+        custom?.userStopped !== true &&
+        typeof runId === "string"
+        ? [runId]
+        : [];
+    }),
+  );
+}
+
+function userStoppedDurableRunIds(messages: AgentMessage[]): Set<string> {
+  return new Set(
+    messages.flatMap((message) => {
+      const runId = asRecord(message.metadata)?.runId;
+      const custom = asRecord(asRecord(message.metadata)?.custom);
+      return message.role === "assistant" &&
+        custom?.userStopped === true &&
+        typeof runId === "string"
+        ? [runId]
+        : [];
+    }),
+  );
+}
+
+function durableRunFailures(messages: AgentMessage[]): Map<string, AgentError> {
+  return new Map(
+    messages.flatMap((message) => {
+      const runId = asRecord(message.metadata)?.runId;
+      const error = asRecord(
+        asRecord(asRecord(message.metadata)?.custom)?.runError,
+      );
+      if (
+        message.role !== "assistant" ||
+        message.status !== "error" ||
+        typeof runId !== "string" ||
+        !error ||
+        typeof error.message !== "string"
+      ) {
+        return [];
+      }
+      return [
+        [
+          runId,
+          {
+            code:
+              typeof error.errorCode === "string"
+                ? error.errorCode
+                : "run_failed",
+            message: error.message,
+            ...(error.details !== undefined ? { details: error.details } : {}),
+            ...(typeof error.recoverable === "boolean"
+              ? { retryable: error.recoverable }
+              : {}),
+          },
+        ] as const,
+      ];
+    }),
+  );
+}
+
+function reconcileDurableMessages(
   messages: AgentMessage[],
   durable: AgentMessage[],
   events: AgentThreadSnapshot["events"],
+  runs: AgentThreadSnapshot["runs"],
 ): AgentMessage[] {
+  const submittedRunId = (message: AgentMessage) => {
+    const value = asRecord(asRecord(message.metadata)?.custom)?.submittedRunId;
+    return typeof value === "string" ? value : undefined;
+  };
+  const submittedAgentKitMessageId = (message: AgentMessage) => {
+    const value = asRecord(
+      asRecord(message.metadata)?.custom,
+    )?.agentKitMessageId;
+    return typeof value === "string" ? value : undefined;
+  };
+  const sameSubmittedPrompt = (
+    snapshot: AgentMessage,
+    stored: AgentMessage,
+  ) => {
+    const storedMessageId = submittedAgentKitMessageId(stored);
+    return (
+      (storedMessageId === undefined || storedMessageId === snapshot.id) &&
+      sameUserPrompt(snapshot, stored)
+    );
+  };
+  const submittedUsers = durable.filter(
+    (message) =>
+      message.role === "user" &&
+      asRecord(message.metadata)?.hideUserMessage !== true &&
+      submittedRunId(message) !== undefined,
+  );
+  const submittedIds = new Set(submittedUsers.map((message) => message.id));
+  const durableIndexById = new Map(
+    durable.map((message, index) => [message.id, index]),
+  );
+  const submittedUsersByRun = new Map<string, AgentMessage | null>();
+  for (const stored of submittedUsers) {
+    const runId = submittedRunId(stored)!;
+    submittedUsersByRun.set(
+      runId,
+      submittedUsersByRun.has(runId) ? null : stored,
+    );
+  }
+  const submittedUsersByAgentKitMessageId = new Map<
+    string,
+    AgentMessage | null
+  >();
+  for (const stored of submittedUsers) {
+    const messageId = submittedAgentKitMessageId(stored);
+    if (!messageId) continue;
+    submittedUsersByAgentKitMessageId.set(
+      messageId,
+      submittedUsersByAgentKitMessageId.has(messageId) ? null : stored,
+    );
+  }
   const durableById = new Map(durable.map((message) => [message.id, message]));
   const assistantIdsByRun = new Map<string, Set<string>>();
   for (const event of events ?? []) {
@@ -319,16 +527,191 @@ function reconcileDurableAssistantText(
     durableByRun.set(runId, durableByRun.has(runId) ? null : message);
   }
 
-  return messages.map((message) => {
+  const representedSubmittedUserIds = new Set<string>();
+  const unmatchedSnapshotUsers: AgentMessage[] = [];
+  const representedAssistantIds = new Set(
+    messages.flatMap((message) =>
+      message.role === "assistant" ? [message.id] : [],
+    ),
+  );
+  const representedAssistantRunIds = new Set<string>();
+  for (const message of messages) {
+    if (
+      message.role === "user" &&
+      asRecord(message.metadata)?.hideUserMessage !== true
+    ) {
+      const runId = submittedRunId(message);
+      const hasAgentKitMessageId = submittedUsersByAgentKitMessageId.has(
+        message.id,
+      );
+      const represented = hasAgentKitMessageId
+        ? submittedUsersByAgentKitMessageId.get(message.id)
+        : submittedIds.has(message.id)
+          ? durableById.get(message.id)
+          : runId
+            ? submittedUsersByRun.get(runId)
+            : undefined;
+      if (represented?.role === "user") {
+        representedSubmittedUserIds.add(represented.id);
+      } else if (!runId) {
+        unmatchedSnapshotUsers.push(message);
+      }
+    } else if (message.role === "assistant") {
+      const metadataRunId = asRecord(message.metadata)?.runId;
+      const runId =
+        typeof metadataRunId === "string"
+          ? metadataRunId
+          : runByAssistantId.get(message.id);
+      const stored = runId ? durableByRun.get(runId) : undefined;
+      if (runId && stored) representedAssistantRunIds.add(runId);
+    }
+  }
+  const matchedSnapshotUserIds = new Set<string>();
+  for (const snapshotUser of unmatchedSnapshotUsers) {
+    const candidates = submittedUsers.filter(
+      (message) =>
+        !representedSubmittedUserIds.has(message.id) &&
+        sameSubmittedPrompt(snapshotUser, message),
+    );
+    if (candidates.length !== 1) continue;
+    const stored = candidates[0]!;
+    const matchingSnapshots = unmatchedSnapshotUsers.filter(
+      (message) =>
+        !matchedSnapshotUserIds.has(message.id) &&
+        sameSubmittedPrompt(message, stored),
+    );
+    if (matchingSnapshots.length !== 1) continue;
+    representedSubmittedUserIds.add(stored.id);
+    matchedSnapshotUserIds.add(snapshotUser.id);
+  }
+  // ponytail: only collapse balanced indistinguishable prompt groups; use
+  // stable message IDs when the client exposes them for unequal groups.
+  for (const snapshotUser of unmatchedSnapshotUsers) {
+    if (matchedSnapshotUserIds.has(snapshotUser.id)) continue;
+    const candidates = submittedUsers.filter(
+      (message) =>
+        !representedSubmittedUserIds.has(message.id) &&
+        sameSubmittedPrompt(snapshotUser, message),
+    );
+    if (candidates.length < 2) continue;
+    const matchingSnapshots = unmatchedSnapshotUsers.filter(
+      (message) =>
+        !matchedSnapshotUserIds.has(message.id) &&
+        candidates.every((candidate) =>
+          sameSubmittedPrompt(message, candidate),
+        ),
+    );
+    if (matchingSnapshots.length !== candidates.length) continue;
+    for (const candidate of candidates) {
+      representedSubmittedUserIds.add(candidate.id);
+    }
+    for (const message of matchingSnapshots) {
+      matchedSnapshotUserIds.add(message.id);
+    }
+  }
+
+  const missingMessages: AgentMessage[] = submittedUsers.filter(
+    (message) => !representedSubmittedUserIds.has(message.id),
+  );
+  const completedRunIds = new Set([
+    ...(runs ?? [])
+      .filter((run) =>
+        ["completed", "failed", "cancelled"].includes(run.status),
+      )
+      .map((run) => run.id),
+    ...completedDurableRunIds(durable),
+  ]);
+  const durableAssistantRunIds = new Set(
+    durable.flatMap((message) => {
+      const runId = asRecord(message.metadata)?.runId;
+      const custom = asRecord(asRecord(message.metadata)?.custom);
+      return message.role === "assistant" &&
+        ["complete", "error"].includes(message.status ?? "") &&
+        custom?.continued !== true &&
+        typeof runId === "string"
+        ? [runId]
+        : [];
+    }),
+  );
+  const recoverableAssistantRunIds = new Set([
+    ...completedRunIds,
+    ...durableAssistantRunIds,
+  ]);
+  for (const message of durable) {
+    if (
+      message.role !== "assistant" ||
+      representedAssistantIds.has(message.id)
+    ) {
+      continue;
+    }
+    const runId = asRecord(message.metadata)?.runId;
+    if (typeof runId !== "string" || !recoverableAssistantRunIds.has(runId)) {
+      continue;
+    }
+    if (representedAssistantRunIds.has(runId)) continue;
+    missingMessages.push(message);
+    representedAssistantIds.add(message.id);
+  }
+
+  const projectedMessages = [
+    ...messages,
+    ...missingMessages.sort(
+      (left, right) =>
+        (durableIndexById.get(left.id) ?? 0) -
+        (durableIndexById.get(right.id) ?? 0),
+    ),
+  ]
+    .map((message, index) => ({
+      message,
+      index,
+    }))
+    .sort((left, right) => {
+      const leftCreatedAt = Date.parse(left.message.createdAt ?? "");
+      const rightCreatedAt = Date.parse(right.message.createdAt ?? "");
+      if (
+        Number.isFinite(leftCreatedAt) &&
+        Number.isFinite(rightCreatedAt) &&
+        leftCreatedAt !== rightCreatedAt
+      ) {
+        return leftCreatedAt - rightCreatedAt;
+      }
+      return left.index - right.index;
+    })
+    .map(({ message }) => message);
+
+  return projectedMessages.map((message) => {
     if (message.role !== "assistant") return message;
-    const runId = runByAssistantId.get(message.id);
+    const metadataRunId = asRecord(message.metadata)?.runId;
+    const runId =
+      runByAssistantId.get(message.id) ??
+      (typeof metadataRunId === "string" ? metadataRunId : undefined);
     const stored =
       durableById.get(message.id) ??
       (runId ? durableByRun.get(runId) : undefined);
     if (stored?.role !== "assistant") return message;
-    const lastPart = message.parts.at(-1);
-    if (lastPart && lastPart.type !== "text") return message;
-    const currentText = message.parts
+    const messageMetadata = asRecord(message.metadata);
+    const storedMetadata = asRecord(stored.metadata);
+    const messageCustom = asRecord(messageMetadata?.custom);
+    const storedCustom = asRecord(storedMetadata?.custom);
+    const metadata = storedMetadata
+      ? {
+          ...messageMetadata,
+          ...storedMetadata,
+          ...(messageCustom || storedCustom
+            ? { custom: { ...messageCustom, ...storedCustom } }
+            : {}),
+        }
+      : message.metadata;
+    const reconciled = {
+      ...message,
+      ...(stored.status === "complete" || stored.status === "error"
+        ? { status: stored.status }
+        : {}),
+      ...(metadata ? { metadata } : {}),
+    };
+    const lastPart = reconciled.parts.at(-1);
+    if (lastPart && lastPart.type !== "text") return reconciled;
+    const currentText = reconciled.parts
       .filter((part) => part.type === "text")
       .map((part) => part.text)
       .join("");
@@ -340,22 +723,24 @@ function reconcileDurableAssistantText(
       !storedText.startsWith(currentText) ||
       storedText.length <= currentText.length
     ) {
-      return message;
+      return reconciled;
     }
     const suffix = storedText.slice(currentText.length);
-    const parts = [...message.parts];
+    const parts = [...reconciled.parts];
     if (!lastPart) {
       parts.push({ type: "text", text: suffix });
     } else {
       parts[parts.length - 1] = { ...lastPart, text: lastPart.text + suffix };
     }
-    return { ...message, parts };
+    return { ...reconciled, parts };
   });
 }
 
 function messageStatus(value: unknown): AgentMessage["status"] | undefined {
-  return value === "streaming" || value === "complete" || value === "error"
-    ? value
+  const status = asRecord(value)?.type ?? value;
+  if (status === "incomplete") return "error";
+  return status === "streaming" || status === "complete" || status === "error"
+    ? status
     : undefined;
 }
 
@@ -965,7 +1350,6 @@ export function createAgentNativeAgentKitTransport(
     );
     const storedMessageProjection = storedMessages(
       repository.messages,
-      now,
       options.adapter?.textFormat,
     ).filter(
       (message) => !isRenderedRunNotStartedNotice(message, failedRunIds),
@@ -997,10 +1381,11 @@ export function createAgentNativeAgentKitTransport(
       : undefined;
     const durableMessages = storedMessageProjection;
     const messages = protocolSnapshot?.messages
-      ? reconcileDurableAssistantText(
+      ? reconcileDurableMessages(
           protocolSnapshot.messages,
           durableMessages,
           protocolSnapshot.events,
+          protocolSnapshot.runs,
         )
       : durableMessages;
     const actionWidgets = storedActionWidgets(repository.messages);
@@ -1107,14 +1492,10 @@ export function createAgentNativeAgentKitTransport(
     };
   }
 
-  async function snapshot(
-    threadId: string,
-  ): Promise<AgentThreadSnapshot | null> {
-    const stored = await fetchThread(threadId);
-    if (!stored) return null;
-    const thread = projectThread(threadId, stored);
-    // A message parked by a send still waiting on this page is delivered by
-    // that wait; listing it as queued here would let a promotion race it.
+  function withoutParkedMessages(
+    thread: AgentThreadSnapshot,
+  ): AgentThreadSnapshot {
+    // The original send waiter owns delivery of its parked queue entry.
     return parkedMessageIds.size === 0
       ? thread
       : {
@@ -1125,9 +1506,17 @@ export function createAgentNativeAgentKitTransport(
         };
   }
 
+  async function snapshot(
+    threadId: string,
+  ): Promise<AgentThreadSnapshot | null> {
+    const stored = await fetchThread(threadId);
+    if (!stored) return null;
+    return withoutParkedMessages(projectThread(threadId, stored));
+  }
+
   async function activeRunSnapshot(
     threadId: string,
-  ): Promise<AgentRunSnapshot | undefined> {
+  ): Promise<AgentRunSnapshot | null | undefined> {
     const response = await fetcher(
       `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
       { headers: await headers({ sessionId: threadId }) },
@@ -1138,24 +1527,77 @@ export function createAgentNativeAgentKitTransport(
       throw new TypeError("Agent chat active-run response must be an object.");
     }
     const status = value.status;
-    if (
-      value.active !== true ||
-      typeof value.runId !== "string" ||
-      !value.runId ||
-      status === "completed" ||
-      status === "complete" ||
-      status === "failed" ||
-      status === "cancelled"
-    ) {
-      return undefined;
+    if (value.active === false) return null;
+    if (value.active !== true) return undefined;
+    if (typeof value.runId !== "string" || !value.runId) {
+      throw new TypeError(
+        "Agent chat active-run response must include an active run ID.",
+      );
     }
-    const runStatus: AgentRunSnapshot["status"] =
+    let runStatus: AgentRunSnapshot["status"];
+    let error: AgentRunSnapshot["error"];
+    const terminalReason =
+      typeof value.terminalReason === "string"
+        ? value.terminalReason
+        : undefined;
+    const legacyTruncated =
+      status === "truncated" ||
+      (["complete", "completed"].includes(String(status)) &&
+        terminalReason !== undefined &&
+        terminalReason !== "done");
+    if (legacyTruncated && value.awaitingRedispatch === true) {
+      runStatus = "running";
+    } else if (legacyTruncated) {
+      runStatus = "failed";
+      error = {
+        code:
+          terminalReason && terminalReason !== "done"
+            ? terminalReason.startsWith("error:")
+              ? terminalReason.slice("error:".length)
+              : terminalReason
+            : "run_truncated",
+        message:
+          terminalReason === "run_timeout"
+            ? "The run reached its time limit before completion was confirmed."
+            : "The server stopped the run before it confirmed completion.",
+        retryable: true,
+        ...(terminalReason ? { metadata: { terminalReason } } : {}),
+      };
+    } else if (status === "complete" || status === "completed") {
+      runStatus = "completed";
+    } else if (status === "failed" || status === "errored") {
+      runStatus = "failed";
+      error = {
+        code: terminalReason?.startsWith("error:")
+          ? terminalReason.slice("error:".length)
+          : (terminalReason ?? "run_failed"),
+        message:
+          terminalReason === "run_timeout"
+            ? "The run reached its time limit before completion was confirmed."
+            : "The server reported that this run failed.",
+        ...(terminalReason ? { metadata: { terminalReason } } : {}),
+      };
+    } else if (status === "cancelled" || status === "aborted") {
+      runStatus = "cancelled";
+    } else if (status === "truncated") {
+      runStatus = "failed";
+      error = {
+        code: "run_truncated",
+        message: "The server stopped the run before it confirmed completion.",
+        retryable: true,
+      };
+    } else if (
       status === "queued" ||
       status === "running" ||
       status === "awaiting_approval" ||
       status === "awaiting_input"
-        ? status
-        : "running";
+    ) {
+      runStatus = status;
+    } else {
+      throw new TypeError(
+        "Agent chat active-run response has an invalid status.",
+      );
+    }
     return {
       id: value.runId,
       threadId,
@@ -1163,27 +1605,146 @@ export function createAgentNativeAgentKitTransport(
       // The durable SSE endpoint replays from its first event when a browser
       // has no saved AgentKit cursor; the protocol adapter rebuilds the log.
       lastSequence: 0,
+      ...(error ? { error } : {}),
     };
   }
 
   async function threadSnapshotWithActiveRun(
     threadId: string,
   ): Promise<AgentThreadSnapshot | null> {
-    const thread = await snapshot(threadId);
-    if (!thread || options.runtime) return thread;
+    const stored = await fetchThread(threadId);
+    const thread = stored ? projectThread(threadId, stored) : null;
+    if (!stored || !thread) return thread;
+    if (options.runtime && !isAgentNativeChatRuntime(options.runtime)) {
+      return withoutParkedMessages(thread);
+    }
+    const durableMessages = storedMessages(
+      storedRepository(stored).messages,
+      options.adapter?.textFormat,
+    );
+    const completedRunIds = completedDurableRunIds(durableMessages);
+    const userStoppedRunIds = userStoppedDurableRunIds(durableMessages);
+    const durableFailures = durableRunFailures(durableMessages);
     const activeRun = await activeRunSnapshot(threadId);
-    if (!activeRun) return thread;
-    const runs = [
-      ...(thread.runs ?? []).filter((entry) => entry.id !== activeRun.id),
-      activeRun,
-    ];
-    return {
-      ...thread,
+    if (activeRun === undefined) return withoutParkedMessages(thread);
+    let discoveredRun = activeRun;
+    if (discoveredRun?.status === "failed") {
+      const durableFailure = durableFailures.get(discoveredRun.id);
+      if (durableFailure) {
+        discoveredRun = {
+          ...discoveredRun,
+          error: { ...discoveredRun.error, ...durableFailure },
+        };
+      }
+    }
+    const knownActiveRunId =
+      discoveredRun &&
+      !["completed", "failed", "cancelled"].includes(discoveredRun.status)
+        ? discoveredRun.id
+        : undefined;
+    const runs = (thread.runs ?? [])
+      .filter((entry) => entry.id !== discoveredRun?.id)
+      .map((run) => {
+        if (
+          activeRun === null &&
+          run.status === "running" &&
+          userStoppedRunIds.has(run.id)
+        ) {
+          return { ...run, status: "cancelled" as const };
+        }
+        if (
+          activeRun === null &&
+          run.status === "running" &&
+          completedRunIds.has(run.id)
+        ) {
+          return { ...run, status: "completed" as const };
+        }
+        if (
+          activeRun !== undefined &&
+          run.id !== knownActiveRunId &&
+          ![
+            "completed",
+            "failed",
+            "cancelled",
+            "awaiting_approval",
+            "awaiting_input",
+          ].includes(run.status)
+        ) {
+          return {
+            ...run,
+            status: "failed" as const,
+            error: {
+              ...(durableFailures.get(run.id) ?? {
+                code: "run_state_unavailable",
+                message:
+                  "The server no longer reports this run as active, so its final result could not be confirmed.",
+                retryable: true,
+              }),
+            },
+          };
+        }
+        return run;
+      });
+    if (discoveredRun) runs.push(discoveredRun);
+    const activeRunIds =
+      discoveredRun &&
+      !["completed", "failed", "cancelled"].includes(discoveredRun.status)
+        ? [discoveredRun.id]
+        : activeRun === null
+          ? runs
+              .filter((run) =>
+                ["awaiting_approval", "awaiting_input"].includes(run.status),
+              )
+              .map((run) => run.id)
+          : [];
+    const failedRunIds = new Set(
+      runs.flatMap((run) =>
+        run.status === "failed" && run.error ? [run.id] : [],
+      ),
+    );
+    const messages = reconcileDurableMessages(
+      thread.messages,
+      durableMessages.filter(
+        (message) => !isRenderedRunNotStartedNotice(message, failedRunIds),
+      ),
+      thread.events,
       runs,
-      activeRunIds: [
-        ...new Set([...(thread.activeRunIds ?? []), activeRun.id]),
-      ],
-    };
+    );
+    const replayFromStart = [
+      "running",
+      "awaiting_approval",
+      "awaiting_input",
+    ].includes(discoveredRun?.status ?? "");
+    const replayedMessageIds = new Set<string>();
+    for (const event of thread.events ?? []) {
+      if (
+        event.runId === discoveredRun?.id &&
+        (event.type === "message.created" ||
+          event.type === "message.completed") &&
+        event.message.role === "assistant"
+      ) {
+        replayedMessageIds.add(event.message.id);
+      }
+    }
+    const messagesForReplay = replayFromStart
+      ? messages.filter((message) => {
+          if (message.role !== "assistant") return true;
+          const runId = asRecord(message.metadata)?.runId;
+          return !(
+            runId === discoveredRun?.id ||
+            replayedMessageIds.has(message.id) ||
+            (message.status === "streaming" && typeof runId !== "string")
+          );
+        })
+      : messages;
+    return withoutParkedMessages({
+      ...thread,
+      // Replay starts at sequence zero, so rebuild an active assistant instead
+      // of appending the same prefix to its persisted partial projection.
+      messages: messagesForReplay,
+      runs,
+      activeRunIds,
+    });
   }
 
   async function persistThreadSnapshot(input: {
@@ -1229,11 +1790,7 @@ export function createAgentNativeAgentKitTransport(
       ? mergeStoredAndIncomingMessages(
           mergeStoredAndIncomingMessages(
             storedSnapshot.messages,
-            storedMessages(
-              repository.messages,
-              now,
-              options.adapter?.textFormat,
-            ),
+            storedMessages(repository.messages, options.adapter?.textFormat),
           ),
           input.snapshot.messages,
         )
@@ -1384,6 +1941,7 @@ export function createAgentNativeAgentKitTransport(
     },
   ): Promise<void> {
     let consecutiveClearPolls = 0;
+    let activeRunId: string | undefined;
     for (let poll = 0; poll < wait.maxPolls; poll += 1) {
       wait.signal?.throwIfAborted();
       const response = await fetcher(
@@ -1400,6 +1958,7 @@ export function createAgentNativeAgentKitTransport(
           "Agent chat active-run response must be an object.",
         );
       }
+      if (typeof status.runId === "string") activeRunId = status.runId;
       const clear =
         status.awaitingRedispatch !== true &&
         (status.active !== true ||
@@ -1415,7 +1974,9 @@ export function createAgentNativeAgentKitTransport(
         await new Promise((resolve) => setTimeout(resolve, wait.intervalMs));
       }
     }
-    throw new AgentKitRunSlotBusyError();
+    const error = new AgentKitRunSlotBusyError();
+    if (activeRunId) Object.assign(error, { activeRunId });
+    throw error;
   }
 
   /** Waits for the thread to free up; a failed poll is not a failed send. */
@@ -1480,11 +2041,16 @@ export function createAgentNativeAgentKitTransport(
       attachments: message.parts.filter((part) => part.type === "file"),
       ...(message.metadata ? { metadata: message.metadata } : {}),
     };
-    await persistQueueMutation(input.threadId, {
-      type: "append",
-      message: parked,
-    });
     parkedMessageIds.add(parked.id);
+    try {
+      await persistQueueMutation(input.threadId, {
+        type: "append",
+        message: parked,
+      });
+    } catch (error) {
+      parkedMessageIds.delete(parked.id);
+      throw error;
+    }
     const deadline = Date.now() + BACKGROUND_FUNCTION_WALL_MS;
     try {
       for (;;) {

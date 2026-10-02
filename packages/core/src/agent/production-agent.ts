@@ -1612,6 +1612,7 @@ export interface ProductionAgentOptions {
     turnId: string;
     threadId: string | undefined;
     message: string;
+    agentKitMessageId?: string;
     attachments?: AgentChatAttachment[];
     queuedMessageId?: string;
   }) => void | Promise<void>;
@@ -8668,6 +8669,7 @@ export function createProductionAgentHandler(
       displayMessage,
       parentId,
       queuedMessageId,
+      agentKitMessageId: requestedAgentKitMessageId,
       internalContinuation,
       turnId: requestTurnId,
       model: requestModel,
@@ -8690,6 +8692,12 @@ export function createProductionAgentHandler(
           ? parentId.trim()
           : undefined;
     setupMark("bodyParsed");
+
+    const agentKitMessageId =
+      typeof requestedAgentKitMessageId === "string" &&
+      requestedAgentKitMessageId.trim().length <= 200
+        ? requestedAgentKitMessageId.trim() || undefined
+        : undefined;
 
     const backgroundRunMarker =
       preInjectedBody &&
@@ -9944,6 +9952,7 @@ export function createProductionAgentHandler(
           turnId: effectiveTurnId,
           threadId,
           message: messageToPersist,
+          ...(agentKitMessageId ? { agentKitMessageId } : {}),
           attachments: requestAttachments,
           ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
             ? { queuedMessageId: queuedMessageId.trim() }
