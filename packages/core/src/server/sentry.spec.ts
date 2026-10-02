@@ -751,14 +751,17 @@ describe("server/sentry", () => {
         },
         extra: {
           __serialized__: {
-            cause: { params: [privateValue] },
+            cause: {
+              params: [privateValue],
+              diagnostics: { params: ["cause diagnostic"] },
+            },
             unrelated: { params: ["diagnostic"] },
           },
         },
       } as never) as {
         extra: {
           __serialized__: {
-            cause: { params: unknown };
+            cause: { params: unknown; diagnostics: { params: string[] } };
             unrelated: { params: string[] };
           };
         };
@@ -766,6 +769,9 @@ describe("server/sentry", () => {
 
       expect(JSON.stringify(result)).not.toContain(privateValue);
       expect(result.extra.__serialized__.cause.params).toBe("<redacted>");
+      expect(result.extra.__serialized__.cause.diagnostics.params).toEqual([
+        "cause diagnostic",
+      ]);
       expect(result.extra.__serialized__.unrelated.params).toEqual([
         "diagnostic",
       ]);

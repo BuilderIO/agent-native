@@ -168,16 +168,21 @@ export function initServerSentry(): Promise<boolean> {
               event.extra,
             ]);
           redactSentryEventPayload(event, false, true);
+          const serialized = event.extra?.__serialized__;
           if (
             hasSqlExceptionValue &&
-            event.extra &&
-            typeof event.extra.__serialized__ === "object" &&
-            event.extra.__serialized__ !== null
+            serialized !== null &&
+            typeof serialized === "object"
           ) {
-            redactSentryEventPayload(
-              (event.extra.__serialized__ as Record<string, unknown>).cause,
-              true,
-            );
+            const cause = (serialized as Record<string, unknown>).cause;
+            if (
+              cause !== null &&
+              typeof cause === "object" &&
+              !Array.isArray(cause) &&
+              "params" in cause
+            ) {
+              (cause as Record<string, unknown>).params = "<redacted>";
+            }
           }
           if (hasSqlFailure) {
             const root = event as unknown as Record<string, unknown>;
