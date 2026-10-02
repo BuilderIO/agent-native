@@ -1,5 +1,5 @@
 import { IconCornerDownRight, IconDots, IconTrash } from "@tabler/icons-react";
-import type { CSSProperties, ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 
 import { Button } from "../ui/button.js";
 import {
@@ -82,6 +82,9 @@ export function MessageQueueDrawer({
 }: MessageQueueDrawerProps) {
   const recessed = variant === "recessed";
   const empty = items.length === 0;
+  const [openActionsItemId, setOpenActionsItemId] = useState<string | null>(
+    null,
+  );
   if (empty && !recessed) return null;
 
   const recessedStyle = recessed
@@ -186,7 +189,14 @@ export function MessageQueueDrawer({
                     <TooltipContent>{labels.remove}</TooltipContent>
                   </Tooltip>
                   {items.length > 1 && actions.length > 0 ? (
-                    <DropdownMenu>
+                    <DropdownMenu
+                      open={openActionsItemId === item.id}
+                      onOpenChange={(open) =>
+                        setOpenActionsItemId((current) =>
+                          open ? item.id : current === item.id ? null : current,
+                        )
+                      }
+                    >
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <DropdownMenuTrigger asChild>

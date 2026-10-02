@@ -121,6 +121,53 @@ describe("MessageQueueDrawer", () => {
     expect(onMoveToTop).toHaveBeenCalledWith(items[0]);
   });
 
+  it("keeps only the last queue-row action menu open", async () => {
+    const multipleItems = [
+      ...items,
+      { id: "third", text: "Write the follow-up" },
+    ];
+
+    act(() => {
+      root.render(
+        <MessageQueueDrawer
+          items={multipleItems}
+          labels={labels}
+          onRemove={() => undefined}
+          getItemActions={(item) => [
+            {
+              id: "move-to-top",
+              label: `Move ${item.id} to top`,
+              onSelect: () => undefined,
+            },
+          ]}
+        />,
+      );
+    });
+
+    const moreButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        'button[aria-label="More actions"]',
+      ),
+    );
+
+    await act(async () => {
+      for (const button of moreButtons) {
+        button.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+      }
+      await Promise.resolve();
+    });
+
+    const openMenus = document.querySelectorAll('[role="menu"]');
+    expect(openMenus).toHaveLength(1);
+    expect(openMenus[0]?.textContent).toContain("Move third to top");
+  });
+
   it("collapses the recessed queue into the composer workflow", () => {
     act(() => {
       root.render(
