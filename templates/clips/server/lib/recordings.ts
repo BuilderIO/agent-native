@@ -125,14 +125,10 @@ export async function getOrganizationDefaultVisibility(
 ): Promise<RecordingVisibility> {
   if (!organizationId) return DEFAULT_RECORDING_VISIBILITY;
 
-  try {
-    return (
-      (await readOrganizationDefaultVisibility(organizationId)) ??
-      DEFAULT_RECORDING_VISIBILITY
-    );
-  } catch {
-    return DEFAULT_RECORDING_VISIBILITY;
-  }
+  return (
+    (await readOrganizationDefaultVisibility(organizationId)) ??
+    DEFAULT_RECORDING_VISIBILITY
+  );
 }
 
 export async function getDefaultRecordingVisibility(

@@ -258,6 +258,23 @@ describe("getDefaultRecordingVisibility", () => {
     );
   });
 
+  it("propagates organization settings read failures", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
+    mocks.getUserSetting.mockResolvedValue(null);
+    const failure = new Error("database unavailable");
+    mocks.getDb.mockReturnValue({
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: vi.fn().mockRejectedValue(failure),
+          }),
+        }),
+      }),
+    });
+
+    await expect(getDefaultRecordingVisibility("org-1")).rejects.toBe(failure);
+  });
+
   it("honors an explicit personal public preference", async () => {
     mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
     mocks.getUserSetting.mockResolvedValue({
