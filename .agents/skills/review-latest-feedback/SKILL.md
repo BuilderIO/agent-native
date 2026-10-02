@@ -542,8 +542,12 @@ Use `/ship` for PR ownership, push, and merge checks. Never push to another
 person's PR without explicit authorization for that exact PR in this request.
 Push-only authorization means `ship_mode=ready-only`; merging requires separate
 authorization for that PR. Without push authorization, hand off as pending.
-Carry cursors, reports, evidence, owners, sibling results, and dispositions
-into the PR body.
+Carry cursors, evidence, owners, sibling results, and dispositions into the PR
+body. Reference a source issue there only when this PR actually fixes it. Do
+not add an issue number or link for work the PR merely discusses, defers, or
+leaves unfixed; GitHub may show that PR on the issue and make it look like the
+issue is being fixed. Keep non-fixed dispositions in the recap without an
+issue reference in the PR body.
 Keep source-tested, built, deployed, and observed-live claims separate.
 
 Carry exact tracker row ids and the reproduction ledger into the PR or release
