@@ -258,6 +258,12 @@ diagnostics shaping, and access policy inside the Analytics template.
 
 Solo para desarrollo local, Analytics puede recurrir a fragmentos en línea de SQL limitados cuando el almacenamiento de blob privado no está disponible. Las implementaciones de producción deberían configurar almacenamiento de blob privado o cifrado en lugar de depender de Postgres para las cargas útiles de repetición.
 
+## Identidades de prueba {#test-identities}
+
+Las cuentas de QA y E2E siguen funcionando en todas partes, pero nunca cuentan. `track()`, `identify()`, el seguimiento en el navegador y la reproducción de sesiones descartan los eventos de una identidad de prueba antes de que los vea cualquier proveedor. Las excepciones de servidor de una identidad de prueba se conservan, se marcan con `test_identity: true` y solo se entregan a los proveedores que definen `acceptsTestIdentityExceptions` (Agent-Native Analytics), así que siguen siendo consultables sin alertar a nadie. El correo no relacionado con el acceso a una identidad de prueba también se suprime: `sendEmail()` devuelve `{ status: "suppressed", reason: "test-identity" }` y registra el intento, mientras que los correos de inicio de sesión, verificación, restablecimiento de contraseña e invitación se siguen enviando.
+
+`isTestIdentity(email)` de `@agent-native/core/server` es la única regla. Reconoce los dominios reservados `.test`, `.invalid`, `.localhost` y `.example`, y el marcador de QA `+autoz`. Añade más por despliegue con `AGENT_NATIVE_TEST_IDENTITY_EMAILS`, una lista separada por comas de direcciones exactas (`qa@corp.com`) o entradas `@dominio` (`@example.com`). `testIdentitySql(column)` es la misma regla como expresión de PostgreSQL/BigQuery para consultas de métricas. Los navegadores solo aplican las reglas integradas; la ingesta de Agent-Native Analytics también aplica la lista del despliegue.
+
 ## Avanzado: proveedores personalizados e internos {#advanced}
 
 La mayoría de las aplicaciones solo necesitan `track()` / `identify()` y un proveedor integrado. El resto de la superficie (registro de proveedores personalizados, la interfaz `TrackingProvider`, componentes internos de procesamiento por lotes y la propia telemetría del navegador del marco) se encuentra a continuación.

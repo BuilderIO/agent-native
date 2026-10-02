@@ -3,7 +3,7 @@ import { appPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
-import { isQaTestEmail } from "@agent-native/core/shared";
+import { isTestIdentityEmail } from "@agent-native/core/shared";
 import { resolveNativeAuthCopy } from "@agent-native/core/shared/auth-copy";
 import {
   useCallback,
@@ -42,7 +42,7 @@ function trackAccountAuthEvent(
   properties: Record<string, unknown>,
   email: string,
 ): void {
-  if (isQaTestEmail(email)) return;
+  if (isTestIdentityEmail(email)) return;
   trackEvent(name, properties);
 }
 

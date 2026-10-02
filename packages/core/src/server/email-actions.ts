@@ -115,7 +115,7 @@ export function createCoreEmailActionEntries(options?: {
         if (!bodyMd) return "Error: 'body' is required.";
 
         try {
-          await sendEmail({
+          const result = await sendEmail({
             to,
             subject,
             html: wrapInEmailTemplate(markdownToHtml(bodyMd)),
@@ -124,6 +124,9 @@ export function createCoreEmailActionEntries(options?: {
             ...(cc ? { cc } : {}),
             ...(replyTo ? { replyTo } : {}),
           });
+          if (result.status === "suppressed") {
+            return `Not sent: ${to} is a test identity, which never receives non-auth email.`;
+          }
 
           const bccNote = bcc ? ` (bcc: ${bcc})` : "";
           return `Email sent to ${to}${bccNote}: "${subject}"`;

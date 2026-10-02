@@ -11,6 +11,7 @@ import {
 } from "./credential-provider.js";
 import { AGENT_NATIVE_EMAIL_LOGO_CONTENT_ID } from "./email-template.js";
 import { getRequestOrgId } from "./request-context.js";
+import { isTestIdentity } from "./test-identity.js";
 
 export type EmailProvider = "resend" | "sendgrid" | "dev";
 
@@ -52,7 +53,17 @@ export interface SendEmailArgs {
   app?: string;
   orgId?: string;
   signal?: AbortSignal;
+  /**
+   * Account-access mail: sign-in links, verification, password reset, org
+   * invitations. Delivered to test identities too, since they must still be
+   * able to sign in. Everything else to a test identity is suppressed.
+   */
+  authCritical?: boolean;
 }
+
+export type SendEmailResult =
+  | { status: "sent"; provider: EmailProvider }
+  | { status: "suppressed"; reason: "test-identity" };
 
 let cachedAgentNativeLogo: Buffer | undefined;
 
@@ -538,7 +549,7 @@ async function deliverEmail(
 async function sendEmailWithSignal(
   args: SendEmailArgs,
   signal?: AbortSignal,
-): Promise<void> {
+): Promise<SendEmailResult> {
   const baseRecord = {
     templateId: args.templateId,
     app: args.app ?? getAppConfig().app.slug ?? "unknown",
@@ -550,6 +561,19 @@ async function sendEmailWithSignal(
       ? truncateForLog(redactSensitiveEmailBodyContent(args.text))
       : undefined,
   };
+  if (!args.authCritical && isTestIdentity(args.to)) {
+    console.info(
+      `[agent-native:email] suppressed: test identity (${args.templateId ?? "untemplated"})`,
+    );
+    await recordEmailSend({
+      ...baseRecord,
+      sender: args.from ?? "unknown",
+      status: "suppressed",
+      error: "suppressed: test identity",
+      provider: "none",
+    });
+    return { status: "suppressed", reason: "test-identity" };
+  }
   let outcome: DeliveryOutcome | undefined;
   try {
     outcome = await deliverEmail(args, signal);
@@ -581,9 +605,10 @@ async function sendEmailWithSignal(
     responseStatus: outcome.responseStatus,
     responseBody: outcome.responseBody,
   });
+  return { status: "sent", provider: outcome.provider };
 }
 
-export async function sendEmail(args: SendEmailArgs): Promise<void> {
+export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
   if (
     args.idempotencyKey !== undefined &&
     (!args.idempotencyKey ||
@@ -608,7 +633,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
   const timeoutError = new Error(`Email send timed out after ${timeoutMs}ms`);
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    await Promise.race([
+    return await Promise.race([
       sendEmailWithSignal(args, signal),
       new Promise<never>((_, reject) => {
         timeout = setTimeout(() => {

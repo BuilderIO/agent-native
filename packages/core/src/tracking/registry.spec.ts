@@ -321,6 +321,51 @@ describe("tracking registry", () => {
     expect(events).toEqual([]);
   });
 
+  it("suppresses reserved-domain and deployment-declared test identities", async () => {
+    const events = captureEvents();
+    vi.stubEnv("AGENT_NATIVE_TEST_IDENTITY_EMAILS", "qa-lead@builder.io");
+    try {
+      track("signup", undefined, { userId: "qa-owner@example.test" });
+      track("signup", undefined, { userId: "qa-lead@builder.io" });
+      await runWithRequestContext({ userEmail: "qa-lead@builder.io" }, () => {
+        track("ambient_event");
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    expect(events).toEqual([]);
+    expect(mockQueueTrackingEvent).not.toHaveBeenCalled();
+  });
+
+  it("keeps a test identity's exceptions, flagged, for providers that opt in", async () => {
+    const plain = captureEvents();
+    const firstParty: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-first-party",
+      acceptsTestIdentityExceptions: true,
+      track(event) {
+        firstParty.push(event);
+      },
+    });
+    try {
+      await runWithRequestContext(
+        { userEmail: "qa-owner@example.test" },
+        () => {
+          track("$exception", { exceptionMessage: "boom" });
+          track("page_viewed");
+        },
+      );
+    } finally {
+      unregisterTrackingProvider("qa-first-party");
+    }
+
+    expect(plain).toEqual([]);
+    expect(firstParty.map((event) => event.name)).toEqual(["$exception"]);
+    expect(firstParty[0]?.properties?.test_identity).toBe(true);
+    expect(mockQueueTrackingEvent).not.toHaveBeenCalled();
+  });
+
   it("suppresses synthetic browser traffic before providers", async () => {
     const events = captureEvents();
     await runWithRequestContext(

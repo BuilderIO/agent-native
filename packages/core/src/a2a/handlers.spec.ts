@@ -337,7 +337,7 @@ describe("handleJsonRpc", () => {
     }));
     const event = mockEvent();
     event.context = {
-      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aVerifiedEmail: "alice+qa@agent-native.example.com",
       __a2aAudienceVerified: true,
     };
 
@@ -363,7 +363,7 @@ describe("handleJsonRpc", () => {
       output: JSON.stringify({
         action: "gong-calls",
         input: { company: "Acme" },
-        userEmail: "alice+qa@agent-native.test",
+        userEmail: "alice+qa@agent-native.example.com",
         orgId: "org-qa",
       }),
     });
@@ -382,7 +382,7 @@ describe("handleJsonRpc", () => {
     }));
     const event = mockEvent();
     event.context = {
-      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aVerifiedEmail: "alice+qa@agent-native.example.com",
       __a2aAudienceVerified: true,
     };
 
@@ -419,7 +419,7 @@ describe("handleJsonRpc", () => {
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       name: "$a2a_read_invoke",
-      userId: "alice+qa@agent-native.test",
+      userId: "alice+qa@agent-native.example.com",
       properties: {
         action: "gong-calls",
         receiver_app: "analytics",
@@ -462,7 +462,7 @@ describe("handleJsonRpc", () => {
   it("rejects direct action invocation from a legacy non-audience token", async () => {
     const event = mockEvent();
     event.context = {
-      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aVerifiedEmail: "alice+qa@agent-native.example.com",
     };
 
     const result = await handleJsonRpc(
@@ -483,7 +483,7 @@ describe("handleJsonRpc", () => {
     const executeReadOnlyAction = vi.fn();
     const event = mockEvent();
     event.context = {
-      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aVerifiedEmail: "alice+qa@agent-native.example.com",
       __a2aAudienceVerified: true,
     };
 
@@ -531,7 +531,7 @@ describe("handleJsonRpc", () => {
     const config = { ...customHandler, handler };
     const event = mockEvent();
     event.context = {
-      __a2aVerifiedEmail: "alice@example.test",
+      __a2aVerifiedEmail: "alice@example.org",
       __a2aAudienceVerified: true,
       __a2aOrgDomain: "acme.test",
     };
@@ -564,7 +564,7 @@ describe("handleJsonRpc", () => {
     const config = { ...customHandler, handler };
     const event = mockEvent();
     event.context = {
-      __a2aVerifiedEmail: "alice@example.test",
+      __a2aVerifiedEmail: "alice@example.org",
       __a2aAudienceVerified: true,
       __a2aOrgDomain: "acme.test",
     };
@@ -646,7 +646,7 @@ describe("handleJsonRpc", () => {
   it("does not expose a task to the same user in another org scope", async () => {
     const ownerEvent = mockEvent();
     ownerEvent.context = {
-      __a2aVerifiedEmail: "alice@example.test",
+      __a2aVerifiedEmail: "alice@example.org",
       __a2aOrgDomain: "acme.test",
     };
     const created = await handleJsonRpc(
@@ -666,7 +666,7 @@ describe("handleJsonRpc", () => {
     );
     const otherOrgEvent = mockEvent();
     otherOrgEvent.context = {
-      __a2aVerifiedEmail: "alice@example.test",
+      __a2aVerifiedEmail: "alice@example.org",
       __a2aOrgDomain: "other.test",
     };
 
@@ -713,7 +713,7 @@ describe("handleJsonRpc", () => {
   it("fails safely on an oversized authenticated idempotency key", async () => {
     const handler = vi.fn(customHandler.handler!);
     const event = mockEvent();
-    event.context = { __a2aVerifiedEmail: "alice@example.test" };
+    event.context = { __a2aVerifiedEmail: "alice@example.org" };
 
     const result = await handleJsonRpc(
       {
@@ -1013,7 +1013,7 @@ describe("handleJsonRpc", () => {
   it("scopes streamed tasks to the caller's verified organization", async () => {
     const ownerEvent = mockEvent();
     ownerEvent.context = {
-      __a2aVerifiedEmail: "alice@example.test",
+      __a2aVerifiedEmail: "alice@example.org",
       __a2aOrgDomain: "acme.test",
     };
 
@@ -1042,7 +1042,7 @@ describe("handleJsonRpc", () => {
 
     const otherOrgEvent = mockEvent();
     otherOrgEvent.context = {
-      __a2aVerifiedEmail: "alice@example.test",
+      __a2aVerifiedEmail: "alice@example.org",
       __a2aOrgDomain: "other.test",
     };
     const denied = await handleJsonRpc(
@@ -1766,7 +1766,7 @@ describe("handleJsonRpc", () => {
         method: "message/send",
         params: {
           metadata: {
-            userEmail: "mallory+qa@agent-native.test",
+            userEmail: "mallory+qa@agent-native.example.com",
             orgDomain: "acme.test",
           },
           message: {
@@ -1802,7 +1802,7 @@ describe("handleJsonRpc", () => {
     };
     const event = mockEvent();
     event.context = {
-      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aVerifiedEmail: "alice+qa@agent-native.example.com",
       __a2aOrgDomain: "acme.test",
     };
 
@@ -1813,7 +1813,7 @@ describe("handleJsonRpc", () => {
         method: "message/send",
         params: {
           metadata: {
-            userEmail: "mallory+qa@agent-native.test",
+            userEmail: "mallory+qa@agent-native.example.com",
             orgDomain: "evil.test",
           },
           message: {
@@ -1828,7 +1828,7 @@ describe("handleJsonRpc", () => {
 
     expect(result.error).toBeUndefined();
     expect(result.result.status.message.parts[0].text).toBe(
-      "alice+qa@agent-native.test|acme",
+      "alice+qa@agent-native.example.com|acme",
     );
     expect(resolveOrgByDomainMock).toHaveBeenCalledWith("acme.test");
     expect(resolveOrgByDomainMock).not.toHaveBeenCalledWith("evil.test");
@@ -1852,7 +1852,7 @@ describe("handleJsonRpc", () => {
     };
     const event = mockEvent();
     event.context = {
-      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aVerifiedEmail: "alice+qa@agent-native.example.com",
     };
     event.req = {
       headers: new Headers({
@@ -1895,7 +1895,7 @@ describe("handleJsonRpc", () => {
 
     const followupEvent = mockEvent();
     followupEvent.context = {
-      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aVerifiedEmail: "alice+qa@agent-native.example.com",
     };
     const followup = await handleJsonRpc(
       {
@@ -1908,7 +1908,7 @@ describe("handleJsonRpc", () => {
       contextConfig,
     );
     expect(followup.result.status.message.parts[0].text).toBe(
-      "alice+qa@agent-native.test|https://workspace.example.test",
+      "alice+qa@agent-native.example.com|https://workspace.example.test",
     );
   });
 
@@ -1928,9 +1928,9 @@ describe("handleJsonRpc", () => {
       }),
     };
     const event = mockEvent();
-    event.context = { __a2aVerifiedEmail: "alice+qa@agent-native.test" };
+    event.context = { __a2aVerifiedEmail: "alice+qa@agent-native.example.com" };
     const approvedActions = [
-      { tool: "send-email", input: { to: "alice@example.test" } },
+      { tool: "send-email", input: { to: "alice@example.org" } },
     ];
 
     const result = await handleJsonRpc(
@@ -1983,7 +1983,7 @@ describe("handleJsonRpc", () => {
     };
     const event = mockEvent();
     event.context = {
-      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aVerifiedEmail: "alice+qa@agent-native.example.com",
       __a2aAudienceVerified: true,
     };
     const sourceContext = {
@@ -2056,7 +2056,7 @@ describe("handleJsonRpc", () => {
         method: "message/send",
         params: {
           approvedActions: [
-            { tool: "send-email", input: { to: "victim@example.test" } },
+            { tool: "send-email", input: { to: "victim@example.org" } },
           ],
           message: { role: "user", parts: [{ type: "text", text: "send" }] },
         },
@@ -2085,7 +2085,7 @@ describe("handleJsonRpc", () => {
     };
     const event = mockEvent();
     event.context = {
-      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aVerifiedEmail: "alice+qa@agent-native.example.com",
     };
     event.req = {
       headers: new Headers({
@@ -2126,7 +2126,7 @@ describe("handleJsonRpc", () => {
 
     const followupEvent = mockEvent();
     followupEvent.context = {
-      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aVerifiedEmail: "alice+qa@agent-native.example.com",
     };
     const followup = await handleJsonRpc(
       {
@@ -2161,7 +2161,7 @@ describe("handleJsonRpc", () => {
     };
     const event = mockEvent();
     event.context = {
-      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aVerifiedEmail: "alice+qa@agent-native.example.com",
     };
 
     const result = await handleJsonRpc(
@@ -2171,7 +2171,7 @@ describe("handleJsonRpc", () => {
         method: "message/send",
         params: {
           metadata: {
-            userEmail: "mallory+qa@agent-native.test",
+            userEmail: "mallory+qa@agent-native.example.com",
             orgDomain: "evil.test",
           },
           message: {
@@ -2186,11 +2186,11 @@ describe("handleJsonRpc", () => {
 
     expect(result.error).toBeUndefined();
     expect(result.result.status.message.parts[0].text).toBe(
-      "alice+qa@agent-native.test|org-by-email",
+      "alice+qa@agent-native.example.com|org-by-email",
     );
     expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
     expect(resolveOrgIdForEmailMock).toHaveBeenCalledWith(
-      "alice+qa@agent-native.test",
+      "alice+qa@agent-native.example.com",
     );
   });
 
@@ -2219,7 +2219,7 @@ describe("handleJsonRpc", () => {
         params: {
           async: true,
           metadata: {
-            userEmail: "mallory+qa@agent-native.test",
+            userEmail: "mallory+qa@agent-native.example.com",
             orgDomain: "acme.test",
           },
           message: {
@@ -2272,7 +2272,7 @@ describe("handleJsonRpc", () => {
     };
     const event = mockEvent();
     event.context = {
-      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aVerifiedEmail: "alice+qa@agent-native.example.com",
     };
 
     const result = await handleJsonRpc(
@@ -2283,7 +2283,7 @@ describe("handleJsonRpc", () => {
         params: {
           async: true,
           metadata: {
-            userEmail: "mallory+qa@agent-native.test",
+            userEmail: "mallory+qa@agent-native.example.com",
             orgDomain: "evil.test",
           },
           message: {
@@ -2303,7 +2303,7 @@ describe("handleJsonRpc", () => {
 
     const getEvent = mockEvent();
     getEvent.context = {
-      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aVerifiedEmail: "alice+qa@agent-native.example.com",
     };
     const followup = await handleJsonRpc(
       {
@@ -2318,11 +2318,11 @@ describe("handleJsonRpc", () => {
 
     expect(followup.error).toBeUndefined();
     expect(followup.result.status.message.parts[0].text).toBe(
-      "alice+qa@agent-native.test|org-by-email",
+      "alice+qa@agent-native.example.com|org-by-email",
     );
     expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
     expect(resolveOrgIdForEmailMock).toHaveBeenCalledWith(
-      "alice+qa@agent-native.test",
+      "alice+qa@agent-native.example.com",
     );
   });
 });
@@ -2368,7 +2368,7 @@ describe("default handler (no custom handler)", () => {
     const { agentChat } = await import("../shared/agent-chat.js");
     const event = mockEvent();
     event.context = {
-      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aVerifiedEmail: "alice+qa@agent-native.example.com",
       __a2aAudienceVerified: true,
     };
 
@@ -2404,7 +2404,7 @@ describe("default handler (no custom handler)", () => {
       "resolve-integration-source-context",
       { integrationTaskId: "integration-task-1" },
       expect.objectContaining({
-        userEmail: "alice+qa@agent-native.test",
+        userEmail: "alice+qa@agent-native.example.com",
         requestTimeoutMs: 5_000,
       }),
     );
@@ -2415,7 +2415,7 @@ describe("default handler (no custom handler)", () => {
     vi.mocked(agentChat.call).mockClear();
     callActionMock.mockClear();
     const event = mockEvent();
-    event.context = { __a2aVerifiedEmail: "alice+qa@agent-native.test" };
+    event.context = { __a2aVerifiedEmail: "alice+qa@agent-native.example.com" };
 
     await handleJsonRpc(
       {
@@ -2476,7 +2476,7 @@ describe("default handler (no custom handler)", () => {
       const event = mockEvent();
       if (verified) {
         event.context = {
-          __a2aVerifiedEmail: "alice+qa@agent-native.test",
+          __a2aVerifiedEmail: "alice+qa@agent-native.example.com",
           __a2aAudienceVerified: true,
         };
       }
@@ -2512,7 +2512,7 @@ describe("default handler (no custom handler)", () => {
     });
     const event = mockEvent();
     event.context = {
-      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aVerifiedEmail: "alice+qa@agent-native.example.com",
       __a2aAudienceVerified: true,
     };
 
