@@ -6,7 +6,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { publishesDesignChange } from "../server/lib/design-change-events.js";
+import { designChangeResource } from "../server/lib/design-change-resource.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import {
   checkpointSkippedResultField,
@@ -30,7 +30,7 @@ const CREATED_SCREEN_WIDTH = 1440;
 const CREATED_SCREEN_HEIGHT = 1024;
 const CREATED_SCREEN_GAP = 96;
 
-const designAction = defineAction({
+export default defineAction({
   description:
     "Add a new file to a design project. Validates that the design exists and " +
     "the user has editor access. Returns the new file's ID, filename, and design URL path when the file is renderable.",
@@ -178,8 +178,5 @@ const designAction = defineAction({
       ...checkpointField,
     };
   },
-});
-
-export default publishesDesignChange(designAction, {
-  designId: (p) => p.designId,
+  changeResource: (p, result) => designChangeResource(p.designId, result),
 });

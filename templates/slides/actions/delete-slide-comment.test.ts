@@ -102,11 +102,6 @@ vi.mock("../server/db/index.js", () => {
   };
 });
 
-const mockNotifyClients = vi.hoisted(() => vi.fn());
-vi.mock("../server/handlers/decks.js", () => ({
-  notifyClients: (...args: unknown[]) => mockNotifyClients(...args),
-}));
-
 import action from "./delete-slide-comment";
 
 function run(args: { id: string; deckId: string }) {
@@ -148,19 +143,11 @@ beforeEach(() => {
 });
 
 describe("delete-slide-comment", () => {
-  it("emits a comments-changed deck event after a delete", async () => {
-    await run({ id: "c-2", deckId: "deck-1" });
-
-    expect(mockNotifyClients).toHaveBeenCalledWith(
-      "deck-1",
-      "comments-changed",
-    );
-  });
-
-  it("does not emit when the comment is missing", async () => {
-    await expect(run({ id: "missing", deckId: "deck-1" })).rejects.toThrow();
-
-    expect(mockNotifyClients).not.toHaveBeenCalled();
+  it("announces its change to every collaborator on the deck", () => {
+    expect((action as any).changeResource({ deckId: "deck-1" })).toEqual({
+      resourceType: "deck",
+      resourceId: "deck-1",
+    });
   });
 
   it("lets the author delete their own comment with commenter access", async () => {

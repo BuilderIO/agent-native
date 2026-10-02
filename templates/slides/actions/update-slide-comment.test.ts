@@ -114,11 +114,6 @@ vi.mock("../server/db/index.js", () => {
   };
 });
 
-const mockNotifyClients = vi.hoisted(() => vi.fn());
-vi.mock("../server/handlers/decks.js", () => ({
-  notifyClients: (...args: unknown[]) => mockNotifyClients(...args),
-}));
-
 import action from "./update-slide-comment";
 
 function run(args: {
@@ -161,24 +156,11 @@ beforeEach(() => {
 });
 
 describe("update-slide-comment", () => {
-  it("emits a comments-changed deck event for resolve, reopen, and edits", async () => {
-    await run({ id: "c-1", deckId: "deck-1", resolved: true });
-    await run({ id: "c-1", deckId: "deck-1", resolved: false });
-    await run({ id: "c-1", deckId: "deck-1", content: "Edited" });
-
-    expect(mockNotifyClients).toHaveBeenCalledTimes(3);
-    expect(mockNotifyClients).toHaveBeenCalledWith(
-      "deck-1",
-      "comments-changed",
-    );
-  });
-
-  it("does not emit when the comment is missing", async () => {
-    await expect(
-      run({ id: "missing", deckId: "deck-1", resolved: true }),
-    ).rejects.toThrow();
-
-    expect(mockNotifyClients).not.toHaveBeenCalled();
+  it("announces its change to every collaborator on the deck", () => {
+    expect((action as any).changeResource({ deckId: "deck-1" })).toEqual({
+      resourceType: "deck",
+      resourceId: "deck-1",
+    });
   });
 
   it("resolves the whole thread with commenter access", async () => {

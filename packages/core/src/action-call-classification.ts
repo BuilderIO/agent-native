@@ -48,13 +48,17 @@ export function actionCallEmitsChange(
  */
 export function actionChangeResource(
   entry: {
-    changeResource?: (input: any) => ActionChangeResource | null | undefined;
+    changeResource?: (
+      input: any,
+      result: any,
+    ) => ActionChangeResource | null | undefined;
   },
   params: unknown,
+  result: unknown,
 ): ActionChangeResource | undefined {
   if (!entry.changeResource) return undefined;
   try {
-    const resource = entry.changeResource(params);
+    const resource = entry.changeResource(params, result);
     if (!resource) return undefined;
     if (
       typeof resource.resourceType === "string" &&

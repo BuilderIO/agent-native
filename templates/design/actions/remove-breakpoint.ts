@@ -3,7 +3,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import "../server/db/index.js";
-import { publishesDesignChange } from "../server/lib/design-change-events.js";
+import { designChangeResource } from "../server/lib/design-change-resource.js";
 import {
   mutateDesignData,
   type DesignDataRecord,
@@ -21,7 +21,7 @@ function readBreakpointSet(designData: DesignDataRecord): BreakpointSet | null {
   return null;
 }
 
-const designAction = defineAction({
+export default defineAction({
   description:
     "Remove a breakpoint frame from the design's breakpoint set by its id. " +
     "If the active breakpoint (stored in application state) matches the removed " +
@@ -83,8 +83,5 @@ const designAction = defineAction({
       breakpointSet: updatedSet!,
     };
   },
-});
-
-export default publishesDesignChange(designAction, {
-  designId: (p) => p.designId,
+  changeResource: (p, result) => designChangeResource(p.designId, result),
 });

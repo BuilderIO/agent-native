@@ -963,7 +963,7 @@ function mountActionRoutesInternal(
                 try {
                   await notifyActionChange({
                     actionName: name,
-                    ...actionChangeResource(entry, params),
+                    ...actionChangeResource(entry, params, result),
                     ...(userEmail ? { owner: userEmail } : {}),
                     ...(getHeader(event, "x-request-source")
                       ? {

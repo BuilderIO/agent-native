@@ -2361,7 +2361,7 @@ export async function createMCPServerForRequest(
             try {
               await writeActionChangeMarker({
                 actionName: name,
-                ...actionChangeResource(entry, args),
+                ...actionChangeResource(entry, args, rawResult),
                 owner: getRequestUserEmail() ?? undefined,
                 orgId: getRequestOrgId() ?? undefined,
               });

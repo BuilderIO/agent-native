@@ -1037,6 +1037,7 @@ export interface ActionEntry {
   changeEvents?: boolean;
   changeResource?: (
     input: any,
+    result: any,
   ) => import("../action.js").ActionChangeResource | null | undefined;
   parallelSafe?: boolean;
   dedupe?: boolean;
@@ -6966,7 +6967,11 @@ export async function runAgentLoop(opts: {
               const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
               notifyActionChangeInBackground({
                 actionName: toolCall.name,
-                ...actionChangeResource(actionEntry, toolCall.input),
+                ...actionChangeResource(
+                  actionEntry,
+                  toolCall.input,
+                  chatUIResult,
+                ),
                 ...(owner ? { owner } : {}),
                 ...(orgId ? { orgId } : {}),
               });

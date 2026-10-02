@@ -8,7 +8,6 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { notifyClients } from "../server/handlers/decks.js";
 import { notifyDeckComment } from "../server/lib/comment-notifications.js";
 import {
   serializeSlideCommentAnchor,
@@ -61,6 +60,10 @@ export default defineAction({
   description:
     "Add a comment to a slide or reply to an existing thread on that same slide. Inline Markdown supports emphasis, inline code, links, and line breaks; headings are flattened. Comments may be anchored to slide positions or stable slide objects.",
   schema: addSlideCommentSchema,
+  changeResource: ({ deckId }) => ({
+    resourceType: "deck",
+    resourceId: deckId,
+  }),
   run: async (args, ctx) => {
     const {
       deckId,
@@ -188,8 +191,6 @@ export default defineAction({
       content,
       isReply: requestedThreadId !== undefined,
     });
-
-    await notifyClients(deckId, "comments-changed");
 
     return { id, threadId, notified };
   },

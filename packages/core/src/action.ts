@@ -385,10 +385,12 @@ interface DefineActionWithSchema<
   /** Names the shareable resource a mutating call changes so the `action`
    *  change event also reaches every collaborator who can read it, not only the
    *  actor. Without it other open sessions are never told and show stale data
-   *  until they reload. Receives the call's raw input; return `null` when the
-   *  call touches no resource. */
+   *  until they reload. Receives the call's raw input and what the action
+   *  returned (for a call keyed by a child id whose resource only the result
+   *  names); return `null` when the call touches no resource or changed nothing. */
   changeResource?: (
     input: StandardSchemaV1.InferInput<TSchema>,
+    result: TReturn,
   ) => ActionChangeResource | null | undefined;
   parallelSafe?: boolean;
   endsTurn?: boolean;
@@ -469,6 +471,7 @@ interface DefineActionWithParams<
   changeEvents?: boolean;
   changeResource?: (
     input: InferParams<TParams>,
+    result: TReturn,
   ) => ActionChangeResource | null | undefined;
   parallelSafe?: boolean;
   endsTurn?: boolean;
@@ -515,6 +518,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly changeEvents?: boolean;
   readonly changeResource?: (
     input: TInput,
+    result: TReturn,
   ) => ActionChangeResource | null | undefined;
   readonly parallelSafe?: boolean;
   readonly endsTurn?: boolean;

@@ -2010,11 +2010,14 @@ describe("mountActionRoutes", () => {
       "update-doc": {
         http: { method: "GET" },
         readOnly: false,
-        changeResource: (input: { id: string }) => ({
+        changeResource: (
+          _input: { id: string },
+          result: { documentId: string },
+        ) => ({
           resourceType: "document",
-          resourceId: input.id,
+          resourceId: result.documentId,
         }),
-        run: vi.fn(async () => ({ ok: true })),
+        run: vi.fn(async () => ({ ok: true, documentId: "doc-1" })),
       } as any,
     };
 

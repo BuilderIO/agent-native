@@ -3691,11 +3691,14 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
             },
           },
           readOnly: false,
-          changeResource: (input: { id: string }) => ({
+          changeResource: (
+            _input: { id: string },
+            result: { thingId: string },
+          ) => ({
             resourceType: "thing",
-            resourceId: input.id,
+            resourceId: result.thingId,
           }),
-          run: async () => ({ updated: true }),
+          run: async () => ({ updated: true, thingId: "thing-1" }),
         },
       },
     };

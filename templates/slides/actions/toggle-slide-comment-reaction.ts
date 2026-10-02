@@ -5,7 +5,6 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { notifyClients } from "../server/handlers/decks.js";
 import {
   parseSlideCommentReactionBuckets,
   serializeSlideCommentReactionBuckets,
@@ -26,6 +25,10 @@ export default defineAction({
       .min(1)
       .max(64)
       .describe("Emoji character or sequence (for example, 👍 or 🎉)"),
+  }),
+  changeResource: ({ deckId }) => ({
+    resourceType: "deck",
+    resourceId: deckId,
   }),
   run: async ({ commentId, deckId, emoji }) => {
     const viewerEmail = getRequestUserEmail()?.trim().toLowerCase();
@@ -80,7 +83,6 @@ export default defineAction({
         .returning({ id: schema.slideComments.id });
 
       if (updated.length > 0) {
-        await notifyClients(deckId, "comments-changed");
         return {
           id: commentId,
           emoji: normalizedEmoji,

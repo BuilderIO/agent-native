@@ -83,7 +83,7 @@ describe("actionChangeResource", () => {
   const resource = { resourceType: "document", resourceId: "doc-1" };
 
   it("returns nothing for an action that declares no resource", () => {
-    expect(actionChangeResource({}, { id: "doc-1" })).toBeUndefined();
+    expect(actionChangeResource({}, { id: "doc-1" }, {})).toBeUndefined();
   });
 
   it("derives the resource from the call input", () => {
@@ -97,13 +97,40 @@ describe("actionChangeResource", () => {
       run: async () => ({}),
     });
 
-    expect(actionChangeResource(entry, { id: "doc-1" })).toEqual(resource);
+    expect(actionChangeResource(entry, { id: "doc-1" }, {})).toEqual(resource);
+  });
+
+  it("derives the resource from the result when the input names only a child id", () => {
+    const entry = defineAction({
+      description: "delete file",
+      schema: z.object({ fileId: z.string() }),
+      changeResource: (_input, result) =>
+        result.changed
+          ? { resourceType: "design", resourceId: result.designId }
+          : null,
+      run: async () => ({ changed: true, designId: "d1" }),
+    });
+
+    expect(
+      actionChangeResource(
+        entry,
+        { fileId: "f1" },
+        { changed: true, designId: "d1" },
+      ),
+    ).toEqual({ resourceType: "design", resourceId: "d1" });
+    expect(
+      actionChangeResource(
+        entry,
+        { fileId: "f1" },
+        { changed: false, designId: "d1" },
+      ),
+    ).toBeUndefined();
   });
 
   it("treats null, malformed, and throwing declarations as the actor-only default", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
-      expect(actionChangeResource({ changeResource: () => null }, {})).toBe(
+      expect(actionChangeResource({ changeResource: () => null }, {}, {})).toBe(
         undefined,
       );
       expect(
@@ -115,6 +142,7 @@ describe("actionChangeResource", () => {
             }),
           },
           {},
+          {},
         ),
       ).toBeUndefined();
       expect(
@@ -124,6 +152,7 @@ describe("actionChangeResource", () => {
               throw new Error("bad input");
             },
           },
+          {},
           {},
         ),
       ).toBeUndefined();

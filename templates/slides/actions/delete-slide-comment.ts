@@ -5,7 +5,6 @@ import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { notifyClients } from "../server/handlers/decks.js";
 
 export default defineAction({
   description:
@@ -13,6 +12,10 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("Comment ID"),
     deckId: z.string().describe("Deck ID"),
+  }),
+  changeResource: ({ deckId }) => ({
+    resourceType: "deck",
+    resourceId: deckId,
   }),
   run: async (args) => {
     await assertAccess("deck", args.deckId, "commenter");
@@ -95,7 +98,6 @@ export default defineAction({
         );
     });
 
-    await notifyClients(comment.deckId, "comments-changed");
     return { ok: true };
   },
 });

@@ -84,9 +84,13 @@ this pragma on the opt-in or the line immediately above it:
 An opted-in page only hears about an action when its change event reaches the
 current user. By default an `action` event reaches the actor alone, so a
 collaborator's comment, save, or agent edit never arrives. Declare
-`changeResource: (input) => ({ resourceType, resourceId })` on the mutating
-action (Content's `documentChangeResource` is the example) and the event also
-reaches everyone who can read that resource.
+`changeResource: (input, result) => ({ resourceType, resourceId })` on the
+mutating action and the event also reaches everyone who can read that resource.
+Name it from `input` when the call carries the resource id (Content's
+`documentChangeResource`, Slides' comment actions) and from `result` when the
+call is keyed by a child id (Design's `designChangeResource` for
+`delete-file`); return `null` for a call that changed nothing. Do not publish a
+parallel per-template event for the same purpose.
 
 Do not start `subscribeSyncEvents()` or an `EventSource` in a feature to bypass
 the decision. `subscribeSyncEvents()` is a lower-level transport subscription
