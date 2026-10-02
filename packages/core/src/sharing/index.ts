@@ -23,8 +23,12 @@ export {
   assertAccess,
   currentAccess,
   ForbiddenError,
+  isResourceAvailable,
+  resolveAccessStatus,
   type AccessContext,
   type ResolvedAccess,
+  type ResourceAccessState,
+  type ResourceAccessStatus,
 } from "./access.js";
 
 export {

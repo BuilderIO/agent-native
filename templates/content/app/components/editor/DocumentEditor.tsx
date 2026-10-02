@@ -10,7 +10,6 @@ import {
   actionErrorMessage,
   callAction,
   setClientAppState,
-  signOut,
   tryCallActionKeepalive,
   useAvatarUrl,
   useDbSync,
@@ -66,7 +65,7 @@ import {
   useState,
 } from "react";
 import type { ClipboardEvent, MutableRefObject, ReactNode } from "react";
-import { Link, Navigate, useLocation, useNavigate } from "react-router";
+import { Navigate, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import type { Doc as YDoc } from "yjs";
 
@@ -128,10 +127,7 @@ import {
   useOptimisticDocumentTitle,
   refreshLandingTitleHintCache,
 } from "@/hooks/use-optimistic-document-title";
-import {
-  CONTENT_LANDING_PATH,
-  rememberContentLandingDocument,
-} from "@/lib/content-landing";
+import { rememberContentLandingDocument } from "@/lib/content-landing";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
 import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
 import { rememberLandingTitleHint } from "@/lib/document-title-hint";
@@ -193,6 +189,7 @@ import {
   authoredCandidateMatchesContent,
   pendingSaveRetrySnapshot,
 } from "./document-save-retry";
+import { DocumentAccessScreen } from "./DocumentAccessScreen";
 import { DocumentBlockFields } from "./DocumentBlockFields";
 import { DocumentDatabase } from "./DocumentDatabase";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
@@ -1143,18 +1140,11 @@ function adoptConfirmedSaveWatermarks({
   }
 }
 
-// A Page link that this account can't read stays on its URL and says so.
-// Opening some other page instead hides the denial from the person who
-// followed the link.
-export function DocumentUnavailable({
-  host,
-}: {
-  host: PageEditorSurfaceProps["host"];
-}) {
+// What an embedded preview shows for a page it can't read. A full page shows
+// DocumentAccessScreen instead.
+function DocumentUnavailable() {
   const t = useT();
   const sidebarTrigger = useSidebarTrigger();
-  const { session } = useSession();
-  const viewerEmail = host === "page" ? (session?.email ?? null) : null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -1174,21 +1164,6 @@ export function DocumentUnavailable({
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
             {t("empty.documentUnavailableDescription")}
           </p>
-          {viewerEmail ? (
-            <p className="mt-4 break-all text-sm text-muted-foreground">
-              {t("empty.signedInAs", { email: viewerEmail })}
-            </p>
-          ) : null}
-          {host === "page" ? (
-            <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-              <Button asChild>
-                <Link to={CONTENT_LANDING_PATH}>{t("empty.goToMyPages")}</Link>
-              </Button>
-              <Button variant="outline" onClick={() => void signOut()}>
-                {t("empty.switchAccount")}
-              </Button>
-            </div>
-          ) : null}
         </div>
       </div>
     </div>
@@ -1366,7 +1341,20 @@ export function PageEditorSurface({
   }
 
   if (loadState.view === "unavailable") {
-    return <DocumentUnavailable host={host} />;
+    return host === "page" ? (
+      <DocumentAccessScreen
+        documentId={documentId}
+        loading={
+          <DocumentEditorSkeleton
+            title={optimisticTitle}
+            iconRow={readPageIconRowHint(documentId)}
+          />
+        }
+        onReload={() => void retryDocumentQuery()}
+      />
+    ) : (
+      <DocumentUnavailable />
+    );
   }
 
   if (loadState.view === "error") {
@@ -1386,7 +1374,7 @@ export function PageEditorSurface({
     return host === "page" ? (
       <Navigate to="/home" replace />
     ) : (
-      <DocumentUnavailable host={host} />
+      <DocumentUnavailable />
     );
   }
 

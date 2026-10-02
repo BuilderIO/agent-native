@@ -1349,6 +1349,20 @@ const messages: ToolkitAgentChatTranslation = {
   "contextXray.tokensShare": "jetons · {{share}} %",
   "contextXray.unpin": "Désépingler",
   "contextXray.unpinSegment": "Désépingler le segment",
+  "accessGate.deniedTitle": "Vous n’avez pas accès",
+  "accessGate.deniedDescription":
+    "Demandez au propriétaire de le partager avec vous.",
+  "accessGate.missingTitle": "Cet élément n’existe pas",
+  "accessGate.missingDescription":
+    "Le lien est peut-être incorrect, ou l’élément a été supprimé.",
+  "accessGate.trashedTitle": "Cet élément est dans la corbeille",
+  "accessGate.trashedDescription": "Restaurez-le pour l’ouvrir à nouveau.",
+  "accessGate.signedOutTitle": "Connectez-vous pour continuer",
+  "accessGate.signedOutDescription":
+    "Connectez-vous avec un compte qui y a accès.",
+  "accessGate.signIn": "Se connecter",
+  "accessGate.signedInAs": "Vous êtes connecté en tant que {{email}}",
+  "accessGate.switchAccount": "Changer de compte",
   "share.add": "Ajouter",
   "share.addPeopleEmail": "Ajouter des personnes par email",
   "share.addPeopleOrganization": "Ajouter des personnes de votre organisation",

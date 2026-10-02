@@ -20,6 +20,11 @@ registerShareableResource({
   titleColumn: "title",
   getResourcePath: (document) => `/page/${document.id}`,
   ownerAccessIgnoresOrg: true,
+  // A trashed page reads as missing to anyone who can't open it.
+  availability: {
+    columns: ["trashedAt"],
+    isAvailable: (document) => !document.trashedAt,
+  },
   agentReadable: {
     resourceKind: DOCUMENT_AGENT_RESOURCE_KIND,
     getContextPath: () => DOCUMENT_AGENT_CONTEXT_ENDPOINT,

@@ -310,9 +310,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "未選取頁面",
-    signedInAs: "目前登入帳號：{{email}}",
+    pageNoAccess: "你沒有此頁面的存取權",
+    pageMissing: "此頁面不存在",
+    pageInTrash: "此頁面在垃圾桶中",
+    pageInTrashAskOwner: "請擁有者還原它。",
+    openTrash: "開啟垃圾桶",
     goToMyPages: "前往我的頁面",
-    switchAccount: "切換帳號",
     noPageDescription: "從側邊欄選取頁面，或建立新頁面開始。",
     documentUnavailable: "檔案不可用",
     documentUnavailableDescription:

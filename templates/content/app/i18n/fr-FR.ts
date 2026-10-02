@@ -1386,9 +1386,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "Aucune page sélectionnée",
-    signedInAs: "Connecté en tant que {{email}}",
+    pageNoAccess: "Vous n’avez pas accès à cette page",
+    pageMissing: "Cette page n’existe pas",
+    pageInTrash: "Cette page est dans la corbeille",
+    pageInTrashAskOwner: "Demandez au propriétaire de la restaurer.",
+    openTrash: "Ouvrir la corbeille",
     goToMyPages: "Aller à mes pages",
-    switchAccount: "Changer de compte",
     noPageDescription:
       "Sélectionnez une page dans la barre latérale ou créez-en une.",
     newPage: "Nouvelle page",

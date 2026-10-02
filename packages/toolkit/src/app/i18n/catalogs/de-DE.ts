@@ -1336,6 +1336,20 @@ const messages: ToolkitAgentChatTranslation = {
   "contextXray.tokensShare": "Token · {{share}}%",
   "contextXray.unpin": "Nicht mehr anheften",
   "contextXray.unpinSegment": "Segment lösen",
+  "accessGate.deniedTitle": "Du hast keinen Zugriff",
+  "accessGate.deniedDescription": "Bitte den Eigentümer, es mit dir zu teilen.",
+  "accessGate.missingTitle": "Das gibt es nicht",
+  "accessGate.missingDescription":
+    "Der Link ist vielleicht falsch, oder es wurde gelöscht.",
+  "accessGate.trashedTitle": "Das liegt im Papierkorb",
+  "accessGate.trashedDescription":
+    "Stelle es wieder her, um es erneut zu öffnen.",
+  "accessGate.signedOutTitle": "Melde dich an, um fortzufahren",
+  "accessGate.signedOutDescription":
+    "Melde dich mit einem Konto an, das Zugriff hat.",
+  "accessGate.signIn": "Anmelden",
+  "accessGate.signedInAs": "Du bist als {{email}} angemeldet",
+  "accessGate.switchAccount": "Konto wechseln",
   "share.add": "Hinzufügen",
   "share.addPeopleEmail": "Personen per E-Mail hinzufügen",
   "share.addPeopleOrganization": "Personen aus deiner Organisation hinzufügen",

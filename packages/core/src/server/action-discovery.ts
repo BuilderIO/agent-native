@@ -484,6 +484,10 @@ export async function mergeCoreSharingActions(
       () => import("../sharing/actions/list-resource-shares.js"),
     ],
     [
+      "get-resource-access-status",
+      () => import("../sharing/actions/get-resource-access-status.js"),
+    ],
+    [
       "set-resource-visibility",
       () => import("../sharing/actions/set-resource-visibility.js"),
     ],

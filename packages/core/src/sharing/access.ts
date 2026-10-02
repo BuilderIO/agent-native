@@ -335,8 +335,9 @@ export interface ResolvedAccess {
  * Minimal resource shape returned when a caller opts into a projected access
  * load via `{ skipResourceBody: true }`. Contains exactly the columns the
  * access-decision logic itself reads — identity, ownership, org scope, and
- * visibility — never a resource type's heavy body columns (`data`,
- * `content`, and similar blobs).
+ * visibility, plus any columns the registration's availability rule reads —
+ * never a resource type's heavy body columns (`data`, `content`, and similar
+ * blobs).
  */
 export interface AccessProjectedResource {
   id: string;
@@ -414,13 +415,32 @@ function selectExistingColumns(
   return selection;
 }
 
-function projectedAccessColumns(resourceTable: any): Record<string, unknown> {
-  return {
+function projectedAccessColumns(
+  reg: ShareableResourceRegistration,
+): Record<string, unknown> {
+  const resourceTable = reg.resourceTable;
+  const columns: Record<string, unknown> = {
     id: resourceTable.id,
     ownerEmail: resourceTable.ownerEmail,
     orgId: resourceTable.orgId,
     visibility: resourceTable.visibility,
   };
+  for (const key of reg.availability?.columns ?? []) {
+    if (resourceTable[key]) columns[key] = resourceTable[key];
+  }
+  return columns;
+}
+
+/**
+ * Whether a loaded row passes its registration's availability rule. A row
+ * loaded without an availability column (an older schema) counts as
+ * available, the same as a registration without a rule.
+ */
+export function isResourceAvailable(
+  reg: ShareableResourceRegistration,
+  resource: any,
+): boolean {
+  return reg.availability ? reg.availability.isAvailable(resource) : true;
 }
 
 function hasDynamicPublicAccessRoleResolver(
@@ -438,9 +458,7 @@ async function loadResourceForAccess(
   const useProjection =
     options.skipResourceBody === true &&
     !hasDynamicPublicAccessRoleResolver(reg);
-  const projectedColumns = useProjection
-    ? projectedAccessColumns(reg.resourceTable)
-    : null;
+  const projectedColumns = useProjection ? projectedAccessColumns(reg) : null;
   const omittedColumnNames = new Set<string>();
 
   for (let attempt = 0; attempt < 12; attempt++) {
@@ -551,6 +569,62 @@ async function resolveAccessImpl(
   const role = await highestShareRole(reg, resourceId, ctx, resource);
   if (role) return { role, resource };
   return null;
+}
+
+/**
+ * What a link to a shareable resource can honestly say to the person who
+ * opened it.
+ *
+ * - `allowed`: they can open it.
+ * - `trashed`: they could open it, but it fails the registration's
+ *   availability rule (for example it is in the trash).
+ * - `denied`: they are signed in, can't open it, and it exists.
+ * - `missing`: they are signed in and it doesn't exist, or it is unavailable
+ *   and they can't open it, so trash looks the same as deleted.
+ * - `signed-out`: nobody is signed in and it isn't open to them, so nothing
+ *   about it is revealed.
+ */
+export type ResourceAccessState =
+  | "allowed"
+  | "trashed"
+  | "denied"
+  | "missing"
+  | "signed-out";
+
+export interface ResourceAccessStatus {
+  state: ResourceAccessState;
+  /** The viewer's role, only when they can open the resource. */
+  role?: ResolvedAccess["role"];
+}
+
+/**
+ * Resolves a link's {@link ResourceAccessState} for the current viewer. It
+ * never returns the resource's title, owner, visibility, or workspace, and
+ * database failures stay errors rather than reading as `missing`.
+ */
+export async function resolveAccessStatus(
+  resourceType: string,
+  resourceId: string,
+  ctx: AccessContext = currentAccess(),
+): Promise<ResourceAccessStatus> {
+  const reg = requireShareableResource(resourceType);
+  const access = await resolveAccess(resourceType, resourceId, ctx, {
+    skipResourceBody: true,
+  });
+  if (access) {
+    return {
+      state: isResourceAvailable(reg, access.resource) ? "allowed" : "trashed",
+      role: access.role,
+    };
+  }
+  if (!normalizeEmailForAccess(ctx.userEmail)) return { state: "signed-out" };
+  const resource = await loadResourceForAccess(reg, resourceId, {
+    skipResourceBody: true,
+  });
+  return {
+    state:
+      resource && isResourceAvailable(reg, resource) ? "denied" : "missing",
+  };
 }
 
 async function highestShareRole(
