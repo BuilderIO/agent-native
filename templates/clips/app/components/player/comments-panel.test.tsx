@@ -455,7 +455,7 @@ describe("CommentsPanel reply composer", () => {
     });
 
     const composer = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("commentsPanel.leaveComment"),
+      (button) => button.textContent?.includes("commentsPanel.signInToComment"),
     );
 
     expect(composer).toBeDefined();
