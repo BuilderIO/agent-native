@@ -5,7 +5,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-type QueryResult = { data?: unknown; isPending: boolean; isError: boolean };
+type QueryResult = {
+  data?: unknown;
+  isPending: boolean;
+  isError: boolean;
+  refetch?: () => void;
+};
 
 const mocks = vi.hoisted(() => ({
   session: { current: null as { email: string } | null },
@@ -20,6 +25,12 @@ const mocks = vi.hoisted(() => ({
     onAccessGranted: undefined as (() => void) | undefined,
     options: undefined as unknown,
   },
+  // Status of the page a trashed page was deleted with, by id.
+  rootGates: {} as Record<
+    string,
+    { status?: { state: string; role?: string }; isError?: boolean }
+  >,
+  rootRefetch: vi.fn(),
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
@@ -38,7 +49,21 @@ vi.mock("@agent-native/core/client/sharing", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@agent-native/core/client/sharing")
   >()),
-  useResourceAccessGate: (options: { onAccessGranted?: () => void }) => {
+  useResourceAccessGate: (options: {
+    resourceId: string;
+    enabled?: boolean;
+    onAccessGranted?: () => void;
+  }) => {
+    if (options.resourceId !== "private-doc") {
+      const root =
+        options.enabled === false ? {} : mocks.rootGates[options.resourceId];
+      return {
+        status: root?.status,
+        isLoading: false,
+        isError: root?.isError ?? false,
+        refetch: mocks.rootRefetch,
+      };
+    }
     mocks.gate.options = options;
     mocks.gate.onAccessGranted = options.onAccessGranted;
     return {
@@ -70,6 +95,7 @@ describe("DocumentAccessScreen", () => {
     mocks.gate.status = undefined;
     mocks.gate.isError = false;
     mocks.queries = {};
+    mocks.rootGates = {};
     mocks.useActionQuery.mockReset();
     mocks.useActionQuery.mockImplementation(
       (
@@ -88,6 +114,7 @@ describe("DocumentAccessScreen", () => {
       mocks.signOut,
       mocks.restore,
       mocks.gate.refetch,
+      mocks.rootRefetch,
       mocks.toast.success,
       mocks.toast.error,
       onReload,
@@ -215,6 +242,7 @@ describe("DocumentAccessScreen", () => {
       data: { trashRootId },
       isPending: false,
       isError: false,
+      refetch: vi.fn(),
     };
   }
 
@@ -239,13 +267,12 @@ describe("DocumentAccessScreen", () => {
 
   it("restores from the page that was deleted when the viewer manages it", async () => {
     trashedPage("parent-doc");
-    mocks.queries["get-resource-access-status:parent-doc"] = {
-      data: { state: "trashed", role: "admin" },
-      isPending: false,
-      isError: false,
+    mocks.rootGates["parent-doc"] = {
+      status: { state: "trashed", role: "admin" },
     };
     mocks.restore.mockResolvedValue({ success: true });
-    render({ state: "trashed", role: "owner" });
+    // Only viewing the page itself doesn't matter; Restore needs the parent.
+    render({ state: "trashed", role: "viewer" });
 
     await act(async () => {
       button("trash.restore")?.click();
@@ -256,11 +283,7 @@ describe("DocumentAccessScreen", () => {
 
   it("doesn't offer Restore when the page was deleted with a parent the viewer can't manage", () => {
     trashedPage("parent-doc");
-    mocks.queries["get-resource-access-status:parent-doc"] = {
-      data: { state: "trashed", role: "viewer" },
-      isPending: false,
-      isError: false,
-    };
+    mocks.rootGates["parent-doc"] = { status: { state: "missing" } };
     render({ state: "trashed", role: "owner" });
 
     expect(container.textContent).toContain("empty.pageInTrashAskOwner");
@@ -270,8 +293,40 @@ describe("DocumentAccessScreen", () => {
 
   it("shows the loading state while it checks who can restore", () => {
     render({ state: "trashed", role: "owner" });
-
     expect(container.textContent).toBe("loading");
+
+    trashedPage("parent-doc");
+    render({ state: "trashed", role: "owner" });
+    expect(container.textContent).toBe("loading");
+  });
+
+  it("offers a retry instead of guessing when it can't check who can restore", () => {
+    mocks.queries["get-trashed-document:private-doc"] = {
+      isPending: false,
+      isError: true,
+      refetch: vi.fn(),
+    };
+    render({ state: "trashed", role: "owner" });
+
+    expect(container.textContent).not.toContain("empty.pageInTrashAskOwner");
+    act(() => button("database.retry")?.click());
+    expect(mocks.gate.refetch).toHaveBeenCalledTimes(1);
+    expect(
+      mocks.queries["get-trashed-document:private-doc"].refetch,
+    ).toHaveBeenCalledTimes(1);
+
+    trashedPage("parent-doc");
+    mocks.rootGates["parent-doc"] = { isError: true };
+    render({ state: "trashed", role: "owner" });
+    act(() => button("database.retry")?.click());
+    expect(mocks.rootRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("can't restore twice while the restored page loads", () => {
+    trashedPage(null);
+    render({ state: "trashed", role: "owner" }, true);
+
+    expect(button("trash.restore")?.disabled).toBe(true);
   });
 
   it("says so when Restore fails and stays on the screen", async () => {
@@ -289,6 +344,7 @@ describe("DocumentAccessScreen", () => {
   });
 
   it("asks a viewer of a trashed page to have the owner restore it", () => {
+    trashedPage(null);
     render({ state: "trashed", role: "viewer" });
 
     expect(container.textContent).toContain("empty.pageInTrashAskOwner");

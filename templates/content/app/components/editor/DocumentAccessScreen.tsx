@@ -7,7 +7,6 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   useResourceAccessGate,
   type ResourceAccessGateRole,
-  type ResourceAccessGateStatus,
 } from "@agent-native/core/client/sharing";
 import { ResourceAccessScreen } from "@agent-native/toolkit/app/sharing";
 import { useState, type ReactNode } from "react";
@@ -58,25 +57,23 @@ export function DocumentAccessScreen({
   const restore = useRestoreDocument();
 
   // Restore brings back the subtree trashed with the page, starting at the
-  // page that was deleted, so it needs admin access to that page, the same
-  // rule as Restore in the Trash list.
+  // page that was deleted, so it needs admin access to that page and nothing
+  // more, the same rule as Restore in the Trash list.
   const trashed = gate.status?.state === "trashed";
   const trashedPage = useActionQuery<{ trashRootId?: string | null }>(
     "get-trashed-document",
     { id: documentId },
-    { enabled: trashed && managesPage(gate.status?.role), retry: false },
+    { enabled: trashed, retry: false },
   );
   const trashRootId = trashedPage.data
     ? (trashedPage.data.trashRootId ?? documentId)
     : null;
-  const rootAccess = useActionQuery<ResourceAccessGateStatus>(
-    "get-resource-access-status",
-    { resourceType: "document", resourceId: trashRootId ?? "" },
-    {
-      enabled: trashed && !!trashRootId && trashRootId !== documentId,
-      retry: false,
-    },
-  );
+  const trashedWithParent = trashRootId !== null && trashRootId !== documentId;
+  const rootGate = useResourceAccessGate({
+    resourceType: "document",
+    resourceId: trashRootId ?? "",
+    enabled: trashed && trashedWithParent,
+  });
 
   if (gate.isError) {
     return <QueryErrorState onRetry={() => void gate.refetch()} />;
@@ -111,17 +108,23 @@ export function DocumentAccessScreen({
   }
 
   if (state === "trashed") {
-    const checkingRestore =
-      managesPage(role) &&
-      (trashedPage.isPending ||
-        (trashRootId !== null &&
-          trashRootId !== documentId &&
-          rootAccess.isPending));
-    if (checkingRestore) return <>{loading}</>;
-    const canRestore =
-      managesPage(role) &&
-      trashRootId !== null &&
-      (trashRootId === documentId || managesPage(rootAccess.data?.role));
+    if (trashedPage.isError || rootGate.isError) {
+      return (
+        <QueryErrorState
+          onRetry={() => {
+            void gate.refetch();
+            void trashedPage.refetch();
+            if (trashedWithParent) void rootGate.refetch();
+          }}
+        />
+      );
+    }
+    if (trashedPage.isPending || (trashedWithParent && !rootGate.status)) {
+      return <>{loading}</>;
+    }
+    const canRestore = trashedWithParent
+      ? managesPage(rootGate.status?.role)
+      : managesPage(role);
     const restorePage = async () => {
       if (!trashRootId) return;
       try {
@@ -143,7 +146,7 @@ export function DocumentAccessScreen({
             <>
               <Button
                 onClick={() => void restorePage()}
-                disabled={restore.isPending}
+                disabled={restore.isPending || reloading}
               >
                 {t("trash.restore")}
               </Button>

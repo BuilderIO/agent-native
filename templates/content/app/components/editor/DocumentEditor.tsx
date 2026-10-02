@@ -1265,9 +1265,11 @@ export function PageEditorSurface({
     queryClient,
     documentQueryKeyValue,
   );
-  const [manualRetryDocumentId, setManualRetryDocumentId] = useState<
-    string | null
-  >(null);
+  const [manualRetry, setManualRetry] = useState<{
+    documentId: string;
+    fromAccessScreen: boolean;
+  } | null>(null);
+  const isManualRetrying = manualRetry?.documentId === documentId;
   const admittedDocumentIdRef = useRef<string | null>(null);
   const loadFailureRef = useRef<DocumentLoadFailureState | null>(null);
   const document =
@@ -1298,7 +1300,9 @@ export function PageEditorSurface({
     isFetching,
     isError,
     hasLoadFailure: loadFailure.failed,
-    isManualRetrying: manualRetryDocumentId === documentId,
+    isManualRetrying,
+    isAccessRetrying:
+      isManualRetrying && manualRetry?.fromAccessScreen === true,
     error,
   });
   admittedDocumentIdRef.current = loadState.admittedDocumentId;
@@ -1315,8 +1319,8 @@ export function PageEditorSurface({
       loadState.view === "editor",
   );
 
-  async function retryDocumentQuery() {
-    setManualRetryDocumentId(documentId);
+  async function retryDocumentQuery({ fromAccessScreen = false } = {}) {
+    setManualRetry({ documentId, fromAccessScreen });
     try {
       await queryClient.cancelQueries({
         queryKey: documentQueryKey(documentId, {
@@ -1334,8 +1338,8 @@ export function PageEditorSurface({
       };
       await documentQuery.refetch();
     } finally {
-      setManualRetryDocumentId((current) =>
-        current === documentId ? null : current,
+      setManualRetry((current) =>
+        current?.documentId === documentId ? null : current,
       );
     }
   }
@@ -1350,8 +1354,8 @@ export function PageEditorSurface({
             iconRow={readPageIconRowHint(documentId)}
           />
         }
-        reloading={manualRetryDocumentId === documentId}
-        onReload={() => void retryDocumentQuery()}
+        reloading={isManualRetrying}
+        onReload={() => void retryDocumentQuery({ fromAccessScreen: true })}
       />
     ) : (
       <DocumentUnavailable />
@@ -1362,7 +1366,7 @@ export function PageEditorSurface({
     return (
       <QueryErrorState
         onRetry={() => void retryDocumentQuery()}
-        retrying={manualRetryDocumentId === documentId}
+        retrying={isManualRetrying}
       />
     );
   }
@@ -1458,6 +1462,7 @@ export function documentEditorLoadState({
   isError,
   hasLoadFailure,
   isManualRetrying,
+  isAccessRetrying = false,
   error,
 }: {
   documentId: string;
@@ -1469,6 +1474,11 @@ export function documentEditorLoadState({
   isError: boolean;
   hasLoadFailure: boolean;
   isManualRetrying: boolean;
+  /**
+   * The retry started from the access screen, which stays mounted until the
+   * read settles so it can't remount and retry again.
+   */
+  isAccessRetrying?: boolean;
   error: unknown;
 }) {
   const activeAdmittedDocumentId =
@@ -1495,7 +1505,8 @@ export function documentEditorLoadState({
   if (isManualRetrying || isError || hasLoadFailure) {
     return {
       view:
-        isError && isDocumentLoadUnavailableError(error)
+        (isError && isDocumentLoadUnavailableError(error)) ||
+        (isAccessRetrying && !isError)
           ? ("unavailable" as const)
           : ("error" as const),
       admittedDocumentId: activeAdmittedDocumentId,
