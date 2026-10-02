@@ -86,7 +86,7 @@ import {
   peekLandingTitleHint,
   stashLandingTitleHint,
 } from "@/lib/document-title-hint";
-import { rememberPageIconRow } from "@/lib/page-icon-row-hint";
+import { rememberPageIconRow } from "@/lib/page-startup-hints";
 
 import HomeRoute from "./_app.home";
 

@@ -861,6 +861,33 @@ export function startPageOpenDocumentReads(
     retry: false,
   });
   startPreviewDocumentDraftRead(queryClient, documentId, cached);
+  if (cached?.source?.mode !== "local-files") {
+    startPageOpenReviewReads(queryClient, documentId);
+  }
+}
+
+// Open comments and suggestions hold the review margin open beside the page,
+// so their reads start with the page read rather than after it lands. A page
+// known to come from a local file has neither, so its open skips them.
+export function startPageOpenReviewReads(
+  queryClient: QueryClient,
+  documentId: string,
+) {
+  const reads = [
+    ["list-comments", { documentId }],
+    [
+      "list-resource-suggestions",
+      { resourceType: "document", resourceId: documentId },
+    ],
+  ] as const;
+  for (const [actionName, params] of reads) {
+    void queryClient.prefetchQuery({
+      queryKey: ["action", actionName, params],
+      queryFn: ({ signal }) =>
+        callAction(actionName, params, { method: "GET", signal }),
+      retry: false,
+    });
+  }
 }
 
 export interface PreviewDocumentDraftRecord {

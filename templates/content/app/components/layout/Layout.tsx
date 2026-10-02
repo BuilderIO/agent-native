@@ -38,8 +38,11 @@ import {
   applyRegisteredDocumentHistoryRestore,
   prepareRegisteredDocumentHistoryRestore,
 } from "@/lib/document-history-restore-controller";
-import { readPageIconRowHint } from "@/lib/page-icon-row-hint";
 import { retirePageOpenReads } from "@/lib/page-open-reads";
+import {
+  readPageIconRowHint,
+  readPageShapeHint,
+} from "@/lib/page-startup-hints";
 
 import { Header } from "./Header";
 import { isContentSettingsRoute } from "./settings-route-policy";
@@ -367,6 +370,7 @@ export function Layout({ children }: LayoutProps) {
                 <DocumentEditorSkeleton
                   title={pendingDocumentTitle}
                   iconRow={readPageIconRowHint(pendingDocumentId)}
+                  shape={readPageShapeHint(pendingDocumentId)}
                 />
               ) : (
                 children

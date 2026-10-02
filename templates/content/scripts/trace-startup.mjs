@@ -17,8 +17,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 // links to --click-path and time the new document).
 //
 // Layout stability: --stability follows every element marked
-// `data-startup-anchor` (the title, the body, the sidebar's Search row, section
-// headers, and first Files row, on placeholders and real elements alike) on
+// `data-startup-anchor` (the title, the body, a collection's tabs row and table,
+// the sidebar's Search row, section headers, and first Files row, on
+// placeholders and real elements alike) on
 // every animation frame from the first frame it appears, and reports how far
 // each moved. A run fails when any anchor moves more than --max-shift pixels
 // (default 2). The script exits 1 when any run fails, and 2 when a run found
@@ -389,6 +390,7 @@ async function waitForBody(page, since, documentId) {
   while (Date.now() - started < timeoutMs) {
     // A client-side redirect (for example `/` to `/home`) replaces the
     // document mid-poll; keep polling the new one.
+    // A collection page has no body; it is ready once its rows are drawn.
     const done = await page
       .evaluate(
         ([s, id]) =>
@@ -403,7 +405,10 @@ async function waitForBody(page, since, documentId) {
               (entry) =>
                 entry.startTime >= s &&
                 (!id || entry.detail?.documentId === id),
-            ),
+            ) ||
+          (s === 0 &&
+            !!document.documentElement.dataset
+              .contentDatabaseRowsVisibleDocumentId),
         [since, documentId],
       )
       .catch(() => false);

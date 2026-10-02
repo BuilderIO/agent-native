@@ -19,6 +19,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const contentDatabaseQueryMock = vi.hoisted(() => vi.fn());
+const databaseItemsState = vi.hoisted(() => ({ settled: true, failed: false }));
+const databaseRetryItemsMock = vi.hoisted(() => vi.fn());
 const databaseRefetchMock = vi.hoisted(() =>
   vi.fn(
     async (): Promise<{
@@ -193,6 +195,10 @@ vi.mock("@/hooks/use-content-database", () => ({
       data: response,
       isLoading: false,
       isFetching: limit !== response.pagination?.limit || Boolean(tableQuery),
+      itemsSettled: databaseItemsState.settled,
+      itemsFailed: databaseItemsState.failed,
+      itemsRetrying: false,
+      retryItems: () => databaseRetryItemsMock(),
       refetch: () => databaseRefetchMock(),
     };
   },
@@ -436,6 +442,9 @@ describe("DatabaseView UI regressions", () => {
     toastErrorMock.mockReset();
     toastSuccessMock.mockReset();
     contentDatabaseQueryMock.mockReset();
+    databaseItemsState.settled = true;
+    databaseItemsState.failed = false;
+    databaseRetryItemsMock.mockReset();
     addItemMutation.mutateAsync.mockReset();
     createDocumentMutation.mutateAsync.mockReset();
     databaseRefetchMock.mockReset().mockResolvedValue({ data: undefined });
@@ -685,6 +694,35 @@ describe("DatabaseView UI regressions", () => {
 
     expect(filterButton?.getAttribute("aria-expanded")).toBe("true");
     expect(document.querySelector("[role=menu]")).toBeTruthy();
+  });
+
+  it("holds the placeholder until the first rows land, then keeps the view through later reads", async () => {
+    databaseItemsState.settled = false;
+    await renderDatabaseView();
+    expect(findButtonByText(container, "New")).toBeUndefined();
+    expect(
+      container.querySelector('[data-startup-anchor="database-table"]'),
+    ).toBeTruthy();
+
+    databaseItemsState.settled = true;
+    await renderDatabaseView();
+    expect(findButtonByText(container, "New")).toBeTruthy();
+
+    databaseItemsState.settled = false;
+    await renderDatabaseView();
+    expect(findButtonByText(container, "New")).toBeTruthy();
+  });
+
+  it("shows a retryable error instead of rows when the view's rows cannot be read", async () => {
+    databaseItemsState.failed = true;
+    await renderDatabaseView();
+    expect(
+      container.querySelector('[data-startup-anchor="database-table"]'),
+    ).toBeNull();
+    const retry = findButtonByText(container, "database.retry");
+    expect(retry).toBeTruthy();
+    await act(async () => retry!.click());
+    expect(databaseRetryItemsMock).toHaveBeenCalledOnce();
   });
 
   it("creates a workspace page from the Files table New button", async () => {

@@ -114,7 +114,7 @@ export function ContentStartupShell({
           <main className="agent-native-app-main relative flex min-w-0 min-h-0 flex-1 flex-col overflow-x-hidden">
             {contentStartupShowsPage(pathname) ? (
               <SidebarTriggerContext.Provider value={compactSidebarTrigger}>
-                <DocumentEditorSkeleton iconRow="startup" />
+                <DocumentEditorSkeleton iconRow="startup" shape="startup" />
               </SidebarTriggerContext.Provider>
             ) : null}
           </main>

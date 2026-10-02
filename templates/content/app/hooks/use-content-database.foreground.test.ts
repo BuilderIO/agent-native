@@ -15,6 +15,8 @@ vi.mock("@tanstack/react-query", async () => ({
   useQueryClient,
 }));
 
+import type { ContentDatabaseTableQuery } from "@shared/api";
+
 import { useContentDatabase } from "./use-content-database";
 
 describe("foreground database read after cached creation", () => {
@@ -88,5 +90,58 @@ describe("foreground database read after cached creation", () => {
     expect(observer.getCurrentResult().isSuccess).toBe(false);
     unsubscribe();
     client.clear();
+  });
+});
+
+describe("rows for the requested view", () => {
+  const baseData = {
+    database: { id: "database" },
+    items: [{ id: "stored-first" }],
+  };
+  const tableQuery: ContentDatabaseTableQuery = {
+    search: "",
+    filters: [],
+    sorts: [{ key: "rank", label: "Rank", direction: "asc" }],
+    filterMode: "and",
+  };
+
+  function read(
+    base: { data?: unknown; isError?: boolean },
+    page: { data?: unknown; isError?: boolean },
+  ) {
+    useQueryClient.mockReturnValue(new QueryClient());
+    useActionQuery.mockImplementation((name: string) =>
+      name === "get-content-database"
+        ? { isError: false, ...base }
+        : { isError: false, ...page },
+    );
+    let result: ReturnType<typeof useContentDatabase> | undefined;
+    function Probe() {
+      result = useContentDatabase("database-page", 100, tableQuery);
+      return null;
+    }
+    renderToStaticMarkup(createElement(Probe));
+    return result!;
+  }
+
+  it("reports a failed sorted read as failed, not as the base rows", () => {
+    const result = read({ data: baseData }, { isError: true });
+    expect(result.itemsSettled).toBe(true);
+    expect(result.itemsFailed).toBe(true);
+  });
+
+  it("reports a failed base read as failed, not as an empty view", () => {
+    const result = read({ isError: true }, { data: undefined });
+    expect(result.itemsSettled).toBe(true);
+    expect(result.itemsFailed).toBe(true);
+  });
+
+  it("draws the sorted rows once they land", () => {
+    const result = read(
+      { data: baseData },
+      { data: { items: [{ id: "rank-first" }] } },
+    );
+    expect(result.itemsFailed).toBe(false);
+    expect(result.data?.items).toEqual([{ id: "rank-first" }]);
   });
 });
