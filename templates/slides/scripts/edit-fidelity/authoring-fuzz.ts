@@ -1,3 +1,6 @@
+import type { Snapshot } from "./lib/in-page.ts";
+import { outsideChangesFor } from "./lib/metrics.ts";
+
 type Page = any;
 type Locator = any;
 
@@ -423,7 +426,6 @@ export async function runAuthoringFuzz(
   const pendingSaveConflicts: Promise<void>[] = [];
   let patchDeckConflicts = 0;
   let conflictResourceErrors = 0;
-  let reportedNativeReflow = false;
   const onConsole = (message: any) => {
     if (message.type() !== "error") return;
     if (message.text().includes("status of 409 (Conflict)")) {
@@ -682,78 +684,19 @@ export async function runAuthoringFuzz(
     await typeBurst(payload, verifyPlacement);
     if (trigger) await typeBurst(trigger, false);
   };
-  const snapshotOutside = async () =>
+  const snapshotOutside = async (): Promise<Snapshot> =>
     page.evaluate(
-      ({ slide, edited }: { slide: string; edited: string }) => {
+      ({ slide, editor }: { slide: string; editor: string }) => {
         const root = document.querySelector(slide);
-        const editing = document.querySelector(edited);
-        if (
-          !(root instanceof HTMLElement) ||
-          !(editing instanceof HTMLElement) ||
-          !root.contains(editing)
-        ) {
+        const editing = document.querySelector(editor);
+        if (!root || !editing || !root.contains(editing)) {
           throw new Error(
             "slide/editor selectors must resolve inside the same slide",
           );
         }
-        const chrome = [
-          "[data-slide-selection-chrome]",
-          "[data-slide-selection-outline]",
-          "[data-slide-resize-handle]",
-          "[data-slide-move-handle]",
-          "[data-slide-rotate-handle]",
-          "[data-block-bubble-menu]",
-        ].join(",");
-        const layoutProperties = new Set([
-          "block-size",
-          "grid-auto-columns",
-          "grid-auto-rows",
-          "grid-template-columns",
-          "grid-template-rows",
-          "height",
-          "inline-size",
-          "perspective-origin",
-          "transform-origin",
-          "width",
-        ]);
-        const elements = [
-          root,
-          ...Array.from(root.querySelectorAll("*")),
-        ].filter(
-          (element) =>
-            !editing.contains(element) &&
-            element !== editing &&
-            !element.closest(chrome),
-        );
-        return elements.map((element) => {
-          const path: number[] = [];
-          let current = element;
-          while (current !== root) {
-            const parent = current.parentElement;
-            if (!parent) break;
-            path.unshift(Array.from(parent.children).indexOf(current));
-            current = parent;
-          }
-          const style = getComputedStyle(element);
-          const computed = Array.from(style)
-            .filter((property) => !layoutProperties.has(property))
-            .sort()
-            .map(
-              (property) => `${property}:${style.getPropertyValue(property)}`,
-            )
-            .join(";");
-          const rect = element.getBoundingClientRect();
-          return {
-            path: path.join("."),
-            tag: element.tagName,
-            className: element.getAttribute("class") ?? "",
-            inlineStyle: element.getAttribute("style") ?? "",
-            computed,
-            rect: [rect.x, rect.y, rect.width, rect.height],
-          };
-        });
+        return window.__editFidelity.snapshot(slide, {});
       },
-      { slide: slideSelector, edited: editorSelector },
+      { slide: slideSelector, editor: editorSelector },
     );
   const snapshotEditorSiblings = async (
     phase: "capture" | "assert",
@@ -1069,77 +1012,13 @@ export async function runAuthoringFuzz(
       },
       { selector: editorSelector, phase, operation },
     );
-  const assertOutsideUnchanged = async (baseline: string) => {
+  const assertOutsideUnchanged = async (baseline: Snapshot) => {
     const current = await snapshotOutside();
-    const previous = JSON.parse(baseline) as Array<{
-      path: string;
-      tag: string;
-      className: string;
-      inlineStyle: string;
-      computed: string;
-      rect: number[];
-    }>;
-    const styleChanges: string[] = [];
-    const geometryChanges: string[] = [];
-    const styleProperties = (value: string) =>
-      new Map(
-        value.split(";").map((entry) => {
-          const separator = entry.indexOf(":");
-          return [entry.slice(0, separator), entry.slice(separator + 1)];
-        }),
-      );
-    for (
-      let index = 0;
-      index < Math.max(previous.length, current.length);
-      index++
-    ) {
-      const before = previous[index];
-      const after = current[index];
-      if (!before || !after) {
-        styleChanges.push(
-          `${before?.path ?? after?.path}:${before?.tag ?? after?.tag} added/removed`,
-        );
-      } else {
-        if (
-          before.className !== after.className ||
-          before.inlineStyle !== after.inlineStyle ||
-          before.computed !== after.computed
-        ) {
-          const beforeStyle = styleProperties(before.computed);
-          const afterStyle = styleProperties(after.computed);
-          const properties = [
-            ...new Set([...beforeStyle.keys(), ...afterStyle.keys()]),
-          ].filter(
-            (property) =>
-              beforeStyle.get(property) !== afterStyle.get(property),
-          );
-          styleChanges.push(
-            `${after.path}:${after.tag} changed ${[
-              ...(before.className !== after.className ? ["class"] : []),
-              ...(before.inlineStyle !== after.inlineStyle
-                ? ["inline style"]
-                : []),
-              ...properties.slice(0, 5),
-            ].join(", ")}`,
-          );
-        }
-        if (before.rect.join(",") !== after.rect.join(",")) {
-          geometryChanges.push(
-            `${after.path}:${after.tag} ${before.rect.join(",")} -> ${after.rect.join(",")}`,
-          );
-        }
-      }
-    }
-    if (styleChanges.length) {
+    const { changes } = outsideChangesFor(baseline, current);
+    if (changes.length) {
       throw new Error(
-        `authored or non-geometric computed style changed outside the edited element: ${styleChanges.slice(0, 5).join("; ")}`,
+        `unexpected style or geometry changes outside the edited element: ${JSON.stringify(changes.slice(0, 5))}`,
       );
-    }
-    if (geometryChanges.length && !reportedNativeReflow) {
-      console.warn(
-        `[authoring-fuzz] native auto-layout reflow outside the edited element: ${geometryChanges.slice(0, 3).join("; ")}`,
-      );
-      reportedNativeReflow = true;
     }
   };
   const withoutSessionAttributes = async (html: string) =>
@@ -1199,20 +1078,9 @@ export async function runAuthoringFuzz(
           return 0;
       }
     }, result);
-  const assertShortcut = async (
-    result: string,
-    before: number,
-    beforeTextLength: number,
-  ) => {
+  const assertShortcut = async (result: string, before: number) => {
     const after = await shortcutResultCount(result);
-    try {
-      assertShortcutMarkupAdded(result, before, after);
-    } catch (error) {
-      const afterTextLength = (await inspectSelection()).text.length;
-      throw new Error(
-        `${String(error)}; text length ${beforeTextLength} -> ${afterTextLength}`,
-      );
-    }
+    assertShortcutMarkupAdded(result, before, after);
   };
   const newLine = async () => {
     await editor.press(lineEndKey);
@@ -1407,13 +1275,25 @@ export async function runAuthoringFuzz(
         const clipboard = new DataTransfer();
         clipboard.setData("text/plain", data.text);
         if (data.html) clipboard.setData("text/html", data.html);
-        root.dispatchEvent(
-          new ClipboardEvent("paste", {
-            clipboardData: clipboard,
-            bubbles: true,
-            cancelable: true,
-          }),
-        );
+        const event = new Event("paste", {
+          bubbles: true,
+          cancelable: true,
+        }) as ClipboardEvent;
+        // Firefox drops clipboardData from synthetic ClipboardEvent constructors.
+        Object.defineProperty(event, "clipboardData", { value: clipboard });
+        root.dispatchEvent(event);
+        const selection = window.getSelection();
+        return {
+          defaultPrevented: event.defaultPrevented,
+          clipboardText: event.clipboardData?.getData("text/plain") ?? null,
+          focused: document.activeElement === root,
+          selectionInside: Boolean(
+            selection &&
+            root.contains(selection.anchorNode) &&
+            root.contains(selection.focusNode),
+          ),
+          selectionCollapsed: selection?.isCollapsed ?? null,
+        };
       },
       { html, text },
     );
@@ -1569,7 +1449,7 @@ export async function runAuthoringFuzz(
       await assertSlideIsScaled(page, slideSelector);
     }
     const { originalHtml, originalSlideHtml } = options;
-    const outsideBefore = JSON.stringify(await snapshotOutside());
+    const outsideBefore = await snapshotOutside();
 
     for (activeIndex = 0; activeIndex < plan.length; activeIndex += 1) {
       activePhase = `step ${activeIndex}`;
@@ -1584,13 +1464,12 @@ export async function runAuthoringFuzz(
           await snapshotEditorSiblings("capture", operation);
           {
             const before = await shortcutResultCount(operation.result);
-            const beforeTextLength = (await inspectSelection()).text.length;
             await typeText(
               operation.value,
               operation.result !== "divider",
               true,
             );
-            await assertShortcut(operation.result, before, beforeTextLength);
+            await assertShortcut(operation.result, before);
             await typeBurst("q", true);
           }
           break;
@@ -2100,9 +1979,14 @@ export async function runAuthoringFuzz(
         case "paste-plain":
           {
             const token = `plainpaste${activeIndex}`;
-            await paste(null, token);
-            if (!(await inspectSelection()).text.includes(token))
-              throw new Error("plain paste did not insert at the selection");
+            const before = await inspectSelection();
+            const event = await paste(null, token);
+            const after = await inspectSelection();
+            if (!after.text.includes(token)) {
+              throw new Error(
+                `plain paste did not insert at the selection: ${JSON.stringify({ event, before: { inside: before.inside, collapsed: before.collapsed, start: before.start, end: before.end }, after: { inside: after.inside, collapsed: after.collapsed, start: after.start, end: after.end } })}`,
+              );
+            }
           }
           break;
         case "paste-rich": {

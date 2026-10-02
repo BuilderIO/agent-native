@@ -47,7 +47,6 @@ import {
 import {
   diffPngs,
   diffSnapshots,
-  followsCenteredFlexReflow,
   findBaselineProblems,
   hardFailures,
   isDraftRevert,
@@ -55,6 +54,7 @@ import {
   keepaliveMismatches,
   lineDiff,
   orphanedBaselineKeys,
+  outsideChangesFor,
   padRect,
   p95IndexFromThresholdedSamples,
   ratchetBaselineEntry,
@@ -3368,83 +3368,6 @@ async function runAuthoringCorpusQa(
           const after = await snapshot(page, slideId, {
             ...authoredTarget,
           });
-          const outsideChangesFor = (
-            phaseBefore: Snapshot,
-            phaseAfter: Snapshot,
-          ) => {
-            const outside = diffSnapshots(phaseBefore, phaseAfter);
-            const targetResized =
-              phaseBefore.editedRect !== null &&
-              phaseAfter.editedRect !== null &&
-              (Math.abs(
-                phaseBefore.editedRect.width - phaseAfter.editedRect.width,
-              ) > 1 ||
-                Math.abs(
-                  phaseBefore.editedRect.height - phaseAfter.editedRect.height,
-                ) > 1);
-            const naturalReflow =
-              targetResized &&
-              phaseBefore.editedInFlow &&
-              phaseAfter.editedInFlow;
-            const beforeRecords = new Map(
-              phaseBefore.records.map((record) => [record.key, record]),
-            );
-            const afterRecordsByKey = new Map(
-              phaseAfter.records.map((record) => [record.key, record]),
-            );
-            const afterRecordsByStableKey = new Map(
-              phaseAfter.records.flatMap((record) =>
-                record.stableKey ? [[record.stableKey, record] as const] : [],
-              ),
-            );
-            const followsNaturalReflow = (
-              change: (typeof outside.geometry)[number],
-            ) => {
-              const beforeRecord = beforeRecords.get(change.key);
-              const afterRecord = beforeRecord?.stableKey
-                ? (afterRecordsByStableKey.get(beforeRecord.stableKey) ??
-                  afterRecordsByKey.get(change.key))
-                : afterRecordsByKey.get(change.key);
-              if (
-                !naturalReflow ||
-                (change.prop !== "x" && change.prop !== "y") ||
-                !beforeRecord?.downstreamFlow ||
-                !afterRecord?.downstreamFlow ||
-                !phaseBefore.editedRect ||
-                !phaseAfter.editedRect
-              ) {
-                return false;
-              }
-              const position =
-                change.prop === "x" ? ("x" as const) : ("y" as const);
-              const extent =
-                change.prop === "x" ? ("width" as const) : ("height" as const);
-              const expectedShift =
-                phaseAfter.editedRect[position] +
-                phaseAfter.editedRect[extent] -
-                phaseBefore.editedRect[position] -
-                phaseBefore.editedRect[extent];
-              const actualShift = Number(change.b) - Number(change.a);
-              return (
-                Math.abs(actualShift - expectedShift) <= 1 ||
-                followsCenteredFlexReflow(
-                  beforeRecord,
-                  afterRecord,
-                  change.prop,
-                  actualShift,
-                )
-              );
-            };
-            const changes = [
-              ...outside.deltas,
-              ...outside.geometry.filter(
-                (change) => !followsNaturalReflow(change),
-              ),
-              ...outside.missing,
-              ...outside.added,
-            ].filter((change) => !change.inside);
-            return { outside, changes };
-          };
           const beforeToAfter = outsideChangesFor(before, after);
           const phases = [
             {
