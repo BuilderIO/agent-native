@@ -1540,6 +1540,83 @@ ALTER TABLE analysis_revisions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
     )`,
       },
     },
+    {
+      // The coverage table comes last: ingest and reads take its existence
+      // as proof that every friction table and index exists.
+      version: 154,
+      name: "analytics-session-friction",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS session_recording_friction (
+      recording_id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      session_id TEXT NOT NULL,
+      processed_chunks INTEGER NOT NULL DEFAULT 0,
+      dead_clicks INTEGER NOT NULL DEFAULT 0,
+      error_toasts INTEGER NOT NULL DEFAULT 0,
+      retry_loops INTEGER NOT NULL DEFAULT 0,
+      error_then_leave INTEGER NOT NULL DEFAULT 0,
+      slow_requests INTEGER NOT NULL DEFAULT 0,
+      http_4xx INTEGER NOT NULL DEFAULT 0,
+      http_5xx INTEGER NOT NULL DEFAULT 0,
+      score INTEGER NOT NULL DEFAULT 0,
+      detector_state TEXT NOT NULL DEFAULT '{}',
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS session_recording_friction_updated_at_idx
+      ON session_recording_friction (updated_at);
+    CREATE TABLE IF NOT EXISTS analytics_session_friction (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      session_id TEXT NOT NULL,
+      failed_actions INTEGER NOT NULL DEFAULT 0,
+      stuck_chats INTEGER NOT NULL DEFAULT 0,
+      thumbs_down INTEGER NOT NULL DEFAULT 0,
+      cancelled_runs INTEGER NOT NULL DEFAULT 0,
+      agent_failures INTEGER NOT NULL DEFAULT 0,
+      quick_backs INTEGER NOT NULL DEFAULT 0,
+      score INTEGER NOT NULL DEFAULT 0,
+      nav_state TEXT,
+      first_at TEXT NOT NULL,
+      last_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_session_friction_key_idx
+      ON analytics_session_friction (tenant_key, session_id);
+    CREATE INDEX IF NOT EXISTS analytics_session_friction_last_at_idx
+      ON analytics_session_friction (last_at);
+    CREATE TABLE IF NOT EXISTS analytics_session_trouble (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      session_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      label TEXT NOT NULL,
+      status TEXT,
+      cause TEXT,
+      event_count INTEGER NOT NULL DEFAULT 0,
+      first_at TEXT NOT NULL,
+      last_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS analytics_session_trouble_session_idx
+      ON analytics_session_trouble (tenant_key, session_id);
+    CREATE INDEX IF NOT EXISTS analytics_session_trouble_last_at_idx
+      ON analytics_session_trouble (last_at);
+    CREATE INDEX IF NOT EXISTS error_events_session_recording_idx
+      ON error_events (session_recording_id);
+    CREATE INDEX IF NOT EXISTS error_events_client_recording_idx
+      ON error_events (client_recording_id);
+    CREATE TABLE IF NOT EXISTS analytics_session_friction_coverage (
+      tenant_key TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      started_at TEXT NOT NULL
+    )`,
+      },
+    },
   ],
   { table: "analytics_migrations" },
 );

@@ -122,5 +122,11 @@ export const errorEvents = table(
       event.orgId,
       event.occurredAt,
     ),
+    sessionRecordingIdx: index("error_events_session_recording_idx").on(
+      event.sessionRecordingId,
+    ),
+    clientRecordingIdx: index("error_events_client_recording_idx").on(
+      event.clientRecordingId,
+    ),
   }),
 );

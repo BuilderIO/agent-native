@@ -23,6 +23,7 @@ import {
   type SessionEventNameCount,
 } from "../../shared/session-events.js";
 import { getDb, schema } from "../db/index.js";
+import { recordSessionEventFriction } from "./session-friction.js";
 
 /**
  * Session event index.
@@ -87,7 +88,7 @@ function viewerTenantKeys(scope: SessionEventScope): string[] {
  * that fits an index entry. Never ends on half of a surrogate pair, which
  * Postgres would store as a replacement character.
  */
-function boundedText(
+export function boundedText(
   value: string | null | undefined,
   maxLength: number,
 ): string {
@@ -100,7 +101,7 @@ function boundedText(
  * with it the batch. Such a session never gets an index row, so "didn't"
  * excludes it.
  */
-function sessionIdOf(value: string | null | undefined): string | null {
+export function sessionIdOf(value: string | null | undefined): string | null {
   const sessionId = value?.trim();
   return sessionId && sessionId.length <= MAX_SESSION_ID_LENGTH
     ? sessionId
@@ -351,6 +352,7 @@ export async function recordSessionEventIndex(
           })),
         )
         .onConflictDoNothing();
+      await recordSessionEventFriction(savepoint, rows, receivedAt);
     });
   } catch (error) {
     // Deploys ship code before the scheduled migration creates these tables.

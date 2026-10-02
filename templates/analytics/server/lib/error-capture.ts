@@ -1454,6 +1454,122 @@ async function sparklinesForIssues(
   return result;
 }
 
+export interface RecordingErrorIssueInput {
+  id: string;
+  clientRecordingId: string;
+  ownerEmail: string;
+  orgId: string | null;
+}
+
+export interface RecordingErrorIssue {
+  id: string;
+  title: string;
+  count: number;
+}
+
+const MAX_RECORDING_ISSUE_ROWS = 500;
+
+/**
+ * The Monitoring issues each recording's captured errors belong to, most
+ * frequent first. An occurrence matches by recording id or client recording
+ * id, within the recording's own owner scope. A recording missing from a
+ * truncated read maps to null, never to "no issues".
+ */
+export async function listRecordingErrorIssues(
+  scope: ErrorReadScope,
+  recordings: readonly RecordingErrorIssueInput[],
+  perRecording = 2,
+): Promise<Map<string, RecordingErrorIssue[] | null>> {
+  const result = new Map<string, RecordingErrorIssue[] | null>();
+  if (!recordings.length) return result;
+  const db = getDb() as any;
+  const e = schema.errorEvents;
+  const i = schema.errorIssues;
+  const rows: Array<{
+    sessionRecordingId: string | null;
+    clientRecordingId: string | null;
+    ownerEmail: string;
+    orgId: string | null;
+    issueId: string;
+    title: string;
+    count: number | string;
+  }> = await db
+    .select({
+      sessionRecordingId: e.sessionRecordingId,
+      clientRecordingId: e.clientRecordingId,
+      ownerEmail: e.ownerEmail,
+      orgId: e.orgId,
+      issueId: i.id,
+      title: i.title,
+      count: sql<number>`count(*)`,
+    })
+    .from(e)
+    .innerJoin(
+      i,
+      and(
+        eq(e.issueId, i.id),
+        eq(e.ownerEmail, i.ownerEmail),
+        or(eq(e.orgId, i.orgId), and(isNull(e.orgId), isNull(i.orgId))),
+      ),
+    )
+    .where(
+      and(
+        issuesAccessFilter(scope),
+        or(
+          inArray(
+            e.sessionRecordingId,
+            recordings.map((recording) => recording.id),
+          ),
+          inArray(
+            e.clientRecordingId,
+            recordings.map((recording) => recording.clientRecordingId),
+          ),
+        ),
+      ),
+    )
+    .groupBy(
+      e.sessionRecordingId,
+      e.clientRecordingId,
+      e.ownerEmail,
+      e.orgId,
+      i.id,
+      i.title,
+    )
+    .orderBy(desc(sql`count(*)`), i.id)
+    .limit(MAX_RECORDING_ISSUE_ROWS);
+  const truncated = rows.length >= MAX_RECORDING_ISSUE_ROWS;
+  for (const recording of recordings) {
+    const issues = new Map<string, RecordingErrorIssue>();
+    for (const row of rows) {
+      if (
+        row.ownerEmail !== recording.ownerEmail ||
+        (row.orgId ?? null) !== (recording.orgId ?? null) ||
+        (row.sessionRecordingId !== recording.id &&
+          row.clientRecordingId !== recording.clientRecordingId)
+      ) {
+        continue;
+      }
+      const existing = issues.get(row.issueId);
+      if (existing) existing.count += Number(row.count);
+      else
+        issues.set(row.issueId, {
+          id: row.issueId,
+          title: row.title,
+          count: Number(row.count),
+        });
+    }
+    result.set(
+      recording.id,
+      issues.size === 0 && truncated
+        ? null
+        : [...issues.values()]
+            .sort((a, b) => b.count - a.count || a.id.localeCompare(b.id))
+            .slice(0, perRecording),
+    );
+  }
+  return result;
+}
+
 export async function listErrorIssues(
   scope: ErrorReadScope,
   filters: ListErrorIssuesFilters = {},
