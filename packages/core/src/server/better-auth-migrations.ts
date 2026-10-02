@@ -449,14 +449,15 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
     name: "better-auth-user-first-touch-attribution",
     sql: {
       postgres: `
-        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "first_touch_utm_source" TEXT;
-        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "first_touch_utm_medium" TEXT;
-        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "first_touch_utm_campaign" TEXT;
-        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "first_touch_utm_term" TEXT;
-        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "first_touch_gclid" TEXT;
-        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "first_touch_msclkid" TEXT;
-        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "first_touch_vector_source" TEXT;
-        ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "first_touch_referrer" TEXT
+        ALTER TABLE "user"
+          ADD COLUMN IF NOT EXISTS "first_touch_utm_source" TEXT,
+          ADD COLUMN IF NOT EXISTS "first_touch_utm_medium" TEXT,
+          ADD COLUMN IF NOT EXISTS "first_touch_utm_campaign" TEXT,
+          ADD COLUMN IF NOT EXISTS "first_touch_utm_term" TEXT,
+          ADD COLUMN IF NOT EXISTS "first_touch_gclid" TEXT,
+          ADD COLUMN IF NOT EXISTS "first_touch_msclkid" TEXT,
+          ADD COLUMN IF NOT EXISTS "first_touch_vector_source" TEXT,
+          ADD COLUMN IF NOT EXISTS "first_touch_referrer" TEXT
       `,
     },
   },

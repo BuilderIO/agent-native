@@ -13,7 +13,9 @@ beforeEach(() => {
 describe("readGeneratedDeckSlideCount", () => {
   it("counts the slides of a readable deck", async () => {
     resolveAccess.mockResolvedValue({
-      resource: { data: JSON.stringify({ slides: [{ id: "a" }, { id: "b" }] }) },
+      resource: {
+        data: JSON.stringify({ slides: [{ id: "a" }, { id: "b" }] }),
+      },
     });
     await expect(readGeneratedDeckSlideCount("deck-1")).resolves.toBe(2);
   });

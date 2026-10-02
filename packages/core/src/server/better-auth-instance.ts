@@ -232,6 +232,8 @@ export async function getBetterAuthUserIdForEmail(
 export interface BetterAuthUserCreateContext {
   headers?: Headers | null;
   request?: { headers?: Headers | null; url?: string } | null;
+  /** Better Auth's endpoint context; `session` is the acting user, if any. */
+  context?: { session?: { user?: { id?: string } | null } | null } | null;
 }
 
 function signupMethodFromRequestUrl(
@@ -273,7 +275,11 @@ export async function emitSignupEventForCreatedUser(
     console.error("[auth] failed to derive signup attribution", err);
   }
 
-  if (user.id && attribution) {
+  // The browser's first touch belongs to whoever is signed in on this request,
+  // so an account created by another signed-in user (admin or API creation)
+  // must not inherit it.
+  const actingUserId = context?.context?.session?.user?.id;
+  if (user.id && attribution && (!actingUserId || actingUserId === user.id)) {
     try {
       await persistUserFirstTouchAttribution(user.id, attribution);
     } catch (err) {
@@ -2441,10 +2447,7 @@ async function createBetterAuthInstance(
               name?: string | null;
               emailVerified?: boolean;
             },
-            context?: {
-              headers?: Headers | null;
-              request?: { headers?: Headers | null; url?: string } | null;
-            } | null,
+            context?: BetterAuthUserCreateContext | null,
           ) => {
             const email = user?.email;
             if (!email) return;

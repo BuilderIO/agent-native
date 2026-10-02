@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+import { registerErrorCaptureProvider } from "./capture-error.js";
 import { encodeMagicLinkSignupAttribution } from "./magic-link-attribution.js";
 
 const tracked: Array<{
@@ -27,11 +28,13 @@ const persisted: Array<{
   userId: string;
   attribution: Record<string, string | undefined> | undefined;
 }> = [];
+let persistError: Error | undefined;
 vi.mock("./user-first-touch-attribution.js", () => ({
   persistUserFirstTouchAttribution: async (
     userId: string,
     attribution: Record<string, string | undefined> | undefined,
   ) => {
+    if (persistError) throw persistError;
     persisted.push({ userId, attribution });
     return true;
   },
@@ -61,6 +64,7 @@ function headersWithCookie(cookie: string): Headers {
 beforeEach(() => {
   tracked.length = 0;
   persisted.length = 0;
+  persistError = undefined;
   requestContext = undefined;
   process.env.BETTER_AUTH_SECRET = AUTH_SECRET;
 });
@@ -204,6 +208,63 @@ describe("emitSignupEventForCreatedUser", () => {
         }),
       },
     ]);
+  });
+
+  it("still emits the signup, and reports the failure, when the first-touch write fails", async () => {
+    persistError = new Error("column first_touch_utm_source does not exist");
+    const captured = vi.fn();
+    const unregister = registerErrorCaptureProvider(
+      "first-touch-test",
+      captured,
+    );
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      await expect(
+        emitSignupEventForCreatedUser(USER, {
+          headers: headersWithCookie(
+            `an_aid=anon_paid; ${firstTouchCookie({ utm_source: "bing" })}`,
+          ),
+        }),
+      ).resolves.toBeUndefined();
+
+      expect(tracked).toHaveLength(1);
+      expect(tracked[0].properties).toMatchObject({ utm_source: "bing" });
+      expect(log).toHaveBeenCalledWith(
+        "[auth] failed to persist signup attribution",
+        persistError,
+      );
+      expect(captured).toHaveBeenCalledWith(
+        persistError,
+        expect.objectContaining({
+          tags: expect.objectContaining({
+            failureClass: "signup-attribution-persist",
+          }),
+        }),
+      );
+    } finally {
+      unregister();
+      log.mockRestore();
+    }
+  });
+
+  it("does not copy another signed-in user's first touch onto an account they create", async () => {
+    const headers = headersWithCookie(
+      `an_aid=anon_admin; ${firstTouchCookie({ utm_source: "admin-campaign" })}`,
+    );
+
+    await emitSignupEventForCreatedUser(USER, {
+      headers,
+      context: { session: { user: { id: "admin_1" } } },
+    });
+    expect(persisted).toEqual([]);
+    expect(tracked).toHaveLength(1);
+
+    await emitSignupEventForCreatedUser(USER, {
+      headers,
+      context: { session: { user: { id: USER.id } } },
+    });
+    expect(persisted).toHaveLength(1);
   });
 
   it("persists nothing for a row created with no browser attribution", async () => {
