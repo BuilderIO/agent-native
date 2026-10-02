@@ -1,6 +1,6 @@
 import {
-  CLAUDE_SONNET_MODEL_ID,
-  CLAUDE_SONNET_MODEL_LABEL,
+  BUILDER_CLAUDE_SONNET_MODEL_ID,
+  BUILDER_CLAUDE_SONNET_MODEL_LABEL,
 } from "@agent-native/core/agent/model-config";
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
@@ -237,7 +237,10 @@ const AGENT_MODEL_OPTIONS = [
   { value: "inherit", label: "Default model" },
   { value: "claude-fable-5", label: "Claude Fable 5" },
   { value: "claude-opus-5-5", label: "Claude Opus 5.5" },
-  { value: CLAUDE_SONNET_MODEL_ID, label: CLAUDE_SONNET_MODEL_LABEL },
+  {
+    value: BUILDER_CLAUDE_SONNET_MODEL_ID,
+    label: BUILDER_CLAUDE_SONNET_MODEL_LABEL,
+  },
   { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
 ] as const;
 

@@ -1,6 +1,6 @@
 import {
-  CLAUDE_SONNET_MODEL_ID,
-  CLAUDE_SONNET_MODEL_LABEL,
+  BUILDER_CLAUDE_SONNET_MODEL_ID,
+  BUILDER_CLAUDE_SONNET_MODEL_LABEL,
 } from "@agent-native/core/agent/model-config";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import type { Resource } from "@agent-native/core/client/resources/use-resources";
@@ -180,8 +180,8 @@ function FrontmatterBar({
             <option value="inherit">Default model</option>
             <option value="claude-fable-5">Claude Fable 5</option>
             <option value="claude-opus-5-5">Claude Opus 5.5</option>
-            <option value={CLAUDE_SONNET_MODEL_ID}>
-              {CLAUDE_SONNET_MODEL_LABEL}
+            <option value={BUILDER_CLAUDE_SONNET_MODEL_ID}>
+              {BUILDER_CLAUDE_SONNET_MODEL_LABEL}
             </option>
             <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
           </select>

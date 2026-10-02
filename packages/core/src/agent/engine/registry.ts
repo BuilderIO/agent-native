@@ -285,12 +285,7 @@ export function normalizeModelForEngine(
   const candidate = typeof model === "string" ? model.trim() : "";
   if (!candidate) return engine.defaultModel;
 
-  if (
-    engine.preserveCustomModels ||
-    engine.acceptsCustomModels ||
-    options.preserveCustomModels ||
-    options.acceptsCustomModels
-  ) {
+  if (engine.preserveCustomModels || options.preserveCustomModels) {
     return candidate;
   }
 
@@ -300,10 +295,17 @@ export function normalizeModelForEngine(
     return candidate;
   }
 
-  return (
-    findLatestSupportedVersionMatch(candidate, engine.supportedModels) ??
-    engine.defaultModel
+  const versionMatch = findLatestSupportedVersionMatch(
+    candidate,
+    engine.supportedModels,
   );
+  if (versionMatch) return versionMatch;
+
+  if (engine.acceptsCustomModels || options.acceptsCustomModels) {
+    return candidate;
+  }
+
+  return engine.defaultModel;
 }
 
 type ModelResolvableEngine = Pick<

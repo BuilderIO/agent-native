@@ -689,11 +689,14 @@ describe("AgentEngine registry", () => {
       const { normalizeModelForEngine } = await import("./registry.js");
       const engine = {
         name: "anthropic",
-        defaultModel: "claude-sonnet-5",
-        supportedModels: ["claude-sonnet-5"],
+        defaultModel: "claude-sonnet-5-5",
+        supportedModels: ["claude-sonnet-5-5"],
         acceptsCustomModels: true,
       } as any;
 
+      expect(normalizeModelForEngine(engine, "claude-sonnet-5")).toBe(
+        "claude-sonnet-5-5",
+      );
       expect(normalizeModelForEngine(engine, "claude-next-preview")).toBe(
         "claude-next-preview",
       );
