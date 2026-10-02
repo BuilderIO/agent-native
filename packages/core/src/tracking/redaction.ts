@@ -98,10 +98,14 @@ function afterSqlParenthesizedBody(value: string): string | undefined {
         /(?:^|[^A-Za-z0-9_$])(?:E|U&)$/i.test(value.slice(0, index));
       continue;
     }
-    if (value[index] === "$") {
-      const delimiter = /^\$(?:[_\p{ID_Start}][$\p{ID_Continue}]*)?\$/u.exec(
-        value.slice(index),
-      )?.[0];
+    if (
+      value[index] === "$" &&
+      (index === 0 || !/[$\p{ID_Continue}]/u.test(value[index - 1]))
+    ) {
+      const delimiter =
+        /^\$(?:[_\p{ID_Start}](?:(?!\$)\p{ID_Continue})*)?\$/u.exec(
+          value.slice(index),
+        )?.[0];
       if (delimiter) {
         dollarQuote = delimiter;
         index += delimiter.length - 1;

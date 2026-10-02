@@ -203,6 +203,10 @@ describe("tracking captureException", () => {
       "Unicode dollar-quote tags in CTE bodies",
       "WITH data AS (SELECT $é$) ) $é$ AS value) SELECT value FROM data",
     ],
+    [
+      "dollar signs in unquoted CTE body identifiers",
+      "WITH data AS (SELECT col$é$tail FROM users WHERE email = $1) SELECT col$é$tail FROM data",
+    ],
   ])("redacts SQL bind parameters in CTEs with %s", (_case, query) => {
     const privateValue = "private customer value";
     const redacted = redact(`${query}\n\tparams: ${privateValue}`);
