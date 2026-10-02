@@ -37,6 +37,15 @@ const FEEDBACK_REGEX_CASES = [
   [false, "eyes-only thread"],
 ];
 
+const FEEDBACK_REPLY_TONE_RE =
+  /\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\bclarif(?:ication|y)\b|\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b|\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b[^.!?]{0,80}\b(?:url|link|details?|information|issue)\b|\bclarif(?:ication|y)\b[^.!?]{0,120}\b(?:already|thread|reply|fixed|fixing|solved|found|agent-native|someone|details?|not|unfriendly|robotic|tone|warm|harsh)\b|\bthank(?:s|ed|ing)?\b[^.!?]{0,80}\b(?:first|before|them|reporter)\b|\b(?:didn'?t|doesn'?t|without|skipped|forgot(?:ten)?)\b[^.!?]{0,80}\bthank(?:s|ed|ing)?\b|\b(?:slack|feedback)\b[^.!?\n]{0,120}\b(?:messages?|replies?|updates?)\b[^.!?\n]{0,120}\b(?:way\s+too\s+|too\s+|overly\s+)?(?:technical|detailed|verbose)\b|\b(?:slack|feedback)\b[^.!?\n]{0,120}\b(?:messages?|replies?|updates?)\b[^.!?\n]{0,120}\b(?:high[- ]level|plain[- ]language|non[- ]technical)\b/i;
+
+const FEEDBACK_REPLY_TONE_REGEX_CASES = [
+  [true, "Slack messages are way too technical and detailed for reporters."],
+  [true, "Make feedback replies high-level and easy for nontechnical people."],
+  [false, "The technical feedback needs a detailed explanation."],
+];
+
 const RESOURCE_CLEANUP_TARGET = String.raw`(?:tabs?|browsers?|processes|servers?|node(?:\.js)?|watchers?|repls?)`;
 const RESOURCE_CLEANUP_FAILURE = String.raw`(?:fail(?:ed)? to (?:close|stop)|(?:don['’]?t|do not|didn['’]?t|did not|can['’]?t|cannot|never|not) (?:close|stop|shut down|closing|stopping)|orphan(?:ed|ing)?|(?:left|leave|leaving)[^.!?\n]{0,50}(?:open|running|unclosed))`;
 const RESOURCE_CLEANUP_RE = new RegExp(
@@ -1989,6 +1998,12 @@ if (process.argv.includes("--self-test")) {
       UNANSWERED_FEEDBACK_FOLLOWUP_RE.test(message) !== expected,
   );
   failures.push(
+    ...FEEDBACK_REPLY_TONE_REGEX_CASES.filter(
+      ([expected, message]) =>
+        FEEDBACK_REPLY_TONE_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
     ...RESOURCE_CLEANUP_REGEX_CASES.filter(
       ([expected, message]) => RESOURCE_CLEANUP_RE.test(message) !== expected,
     ),
@@ -2091,7 +2106,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + FEEDBACK_REPLY_TONE_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -2290,11 +2305,10 @@ const PATTERNS = [
   },
   {
     key: "feedback-reply-tone",
-    label:
-      "Reported duplicate feedback clarification or missing thank-first reply",
+    label: "Had to correct feedback reply clarity or tone",
     fixedBy:
-      ".agents/skills/address-feedback* + .agents/skills/review-prs (first-contact thanks, 2026-09-24)",
-    re: /\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\bclarif(?:ication|y)\b|\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b|\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b[^.!?]{0,80}\b(?:url|link|details?|information|issue)\b|\bclarif(?:ication|y)\b[^.!?]{0,120}\b(?:already|thread|reply|fixed|fixing|solved|found|agent-native|someone|details?|not|unfriendly|robotic|tone|warm|harsh)\b|\bthank(?:s|ed|ing)?\b[^.!?]{0,80}\b(?:first|before|them|reporter)\b|\b(?:didn'?t|doesn'?t|without|skipped|forgot(?:ten)?)\b[^.!?]{0,80}\bthank(?:s|ed|ing)?\b/i,
+      ".agents/skills/review-latest-feedback + address-feedback-with-replies (plain-language status updates, 2026-10-01)",
+    re: FEEDBACK_REPLY_TONE_RE,
   },
   {
     key: "pr-review-handoff",

@@ -457,31 +457,24 @@ and use **Shipped**.
 
 ## Phase 3: reply
 
-Start GitHub issue comments by thanking the reporter for opening the issue;
-start Slack feedback replies by thanking them for sharing the issue. Then give
-the status or ask a question. Follow `address-feedback-with-replies` for the
-remaining Slack reply voice and wording. Every reply ends with
-`this was sent from a bot.` after the plain-language status.
+Thank issue reporters for opening it and Slack reporters for sharing. Then give
+the status or ask a useful question. Follow `address-feedback-with-replies` for
+Slack voice. End each Slack reply with `this was sent from a bot.` after its
+plain-language status.
 
-Keep Slack replies brief, high-level, and easy for someone outside engineering
-to understand. Say what we did or did not do and what happens next; include a
-simple reason only when useful. Leave code, tool names, test results, and
-debugging details in the recap or PR. Mention release timing only when it helps
-set expectations, using everyday words.
+Write for people outside engineering, using everyday words. In one short
+paragraph, say what we did or did not do and what happens next; include a simple
+reason only when useful. Keep technical proof in the recap or PR.
 
-Reply with a new status or useful information; do not repeat a status already
-in the thread.
+Share only new or useful information.
 
 ### After a PR merges
 
-When a Slack-fix PR merges, reply once in every affected source thread,
-including each clustered source. This post-merge status is an exception to the
-single-owner reply rule; keep each reply concise and thread-specific. Name fixed
-items. For beta-publisher app fixes, confirm the merge-triggered publisher run
-and expected window first; then say it should be live on beta in the next few
-hours. If the run is missing or failed, say beta publication is pending and
-check/report the publisher. For package fixes, give publication/upgrade timing.
-Never claim live without runtime proof.
+After a Slack-fix PR merges, update each affected thread once, including
+clusters. This is the only exception to the single-owner rule; name the fix.
+For beta app fixes, verify when the update should appear before giving a
+timeframe; if delayed, say it's pending and keep checking. For packages, state
+when the update will be available. Never claim live without runtime proof.
 
 For mixed reports, list each unaddressed item and why, including subjective or
 out-of-scope items. Ask one targeted question if needed. Say clear deferred
