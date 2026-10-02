@@ -1110,7 +1110,7 @@ export function McpIntegrationsSection({
         }}
         initialIntegrationId={initialIntegrationId}
         connectIntegrationId={connectIntegrationId}
-        defaultScope="user"
+        defaultScope="org"
         canCreateOrgMcp={canCreateOrgMcp}
         hasOrg={hasOrg}
         onCreateMcpServer={(args) => createServer.mutateAsync(args)}
@@ -1609,7 +1609,7 @@ export function IntegrationsPanel() {
                 }}
                 initialIntegrationId={mcp.initialIntegrationId}
                 connectIntegrationId={mcp.connectIntegrationId}
-                defaultScope="user"
+                defaultScope="org"
                 canCreateOrgMcp={mcp.canCreateOrgMcp}
                 hasOrg={mcp.hasOrg}
                 onCreateMcpServer={(args) => mcp.createServer.mutateAsync(args)}

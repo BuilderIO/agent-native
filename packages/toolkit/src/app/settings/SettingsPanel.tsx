@@ -97,6 +97,7 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useId,
   useMemo,
   useRef,
 } from "react";
@@ -134,7 +135,7 @@ import { SettingsLoadingRow, SettingsSkeleton } from "./SettingsSkeleton.js";
 import type { SettingsTabItem } from "./SettingsTabsPage.js";
 import { StorageSettingsForm } from "./StorageSettingsForm.js";
 import { UsageSection } from "./UsageSection.js";
-import { useProviderKeySaveScope } from "./use-provider-key-save-scope.js";
+import { useCredentialSaveScope } from "./use-credential-save-scope.js";
 import {
   type BuilderConnectFlow,
   useBuilderConnectFlow,
@@ -145,6 +146,7 @@ import {
   useSettingsPanelController,
 } from "./useSettingsPanelController.js";
 import { VoiceTranscriptionSection } from "./VoiceTranscriptionSection.js";
+import { WhoField } from "./WhoField.js";
 const ManageButton = React.forwardRef<
   HTMLButtonElement,
   React.ComponentPropsWithoutRef<typeof ToolkitButton>
@@ -1081,9 +1083,12 @@ function LLMSectionInner({
   const keyEntryVisible = !!envVar && !(envConfigured || settingsConfigured);
   const {
     scope: keySaveScope,
+    canChoose: canChooseKeyScope,
+    setScope: setKeySaveScope,
     roleUnavailable: keySaveRoleUnavailable,
     retry: retryKeySaveRole,
-  } = useProviderKeySaveScope();
+  } = useCredentialSaveScope();
+  const keyScopeId = useId();
 
   const handleFindOllamaModels = () => {
     setOllamaModelsLoading(true);
@@ -1747,6 +1752,17 @@ function LLMSectionInner({
                         )}
                       </Button>
                     </div>
+                  ) : null}
+                  {canChooseKeyScope &&
+                  keySaveScope &&
+                  (keyEntryVisible || endpointChanged) ? (
+                    <WhoField
+                      id={keyScopeId}
+                      choice
+                      scope={keySaveScope}
+                      disabled={saving}
+                      onChange={setKeySaveScope}
+                    />
                   ) : null}
 
                   <div className="flex items-center gap-2">
@@ -2527,6 +2543,12 @@ export function EmailSectionInner({
     "resend",
   );
   const [envLoaded, setEnvLoaded] = useState(false);
+  const {
+    scope: emailScope,
+    canChoose: canChooseEmailScope,
+    setScope: setEmailScope,
+  } = useCredentialSaveScope();
+  const emailScopeId = useId();
 
   useEffect(() => {
     fetch(agentNativePath("/_agent-native/env-status"))
@@ -2551,12 +2573,13 @@ export function EmailSectionInner({
   }, [resendConfigured, sendgridConfigured]);
 
   const save = async (vars: Array<{ key: string; value: string }>) => {
+    if (!emailScope) return;
     setSaving(true);
     try {
       const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vars }),
+        body: JSON.stringify({ vars, scope: emailScope }),
       });
       if (res.ok) {
         setSaved(true);
@@ -2613,6 +2636,21 @@ export function EmailSectionInner({
               setEmailProvider(value as "resend" | "sendgrid")
             }
           />
+          {canChooseEmailScope &&
+          emailScope &&
+          !(
+            (emailProvider === "resend"
+              ? resendConfigured
+              : sendgridConfigured) && fromConfigured
+          ) ? (
+            <WhoField
+              id={emailScopeId}
+              choice
+              scope={emailScope}
+              disabled={saving}
+              onChange={setEmailScope}
+            />
+          ) : null}
 
           {emailProvider === "resend" ? (
             <ManualSetupCard
@@ -2646,7 +2684,7 @@ export function EmailSectionInner({
                     intent="primary"
                     emphasis="solid"
                     onClick={saveResend}
-                    disabled={!resendKey.trim() || saving}
+                    disabled={!resendKey.trim() || saving || !emailScope}
                     className={emailBtnCls}
                   >
                     {saving ? (
@@ -2733,7 +2771,7 @@ export function EmailSectionInner({
                     intent="primary"
                     emphasis="solid"
                     onClick={saveSendgrid}
-                    disabled={!sendgridKey.trim() || saving}
+                    disabled={!sendgridKey.trim() || saving || !emailScope}
                     className={emailBtnCls}
                   >
                     {saving ? (

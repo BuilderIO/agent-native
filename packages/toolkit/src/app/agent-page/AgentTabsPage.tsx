@@ -447,7 +447,7 @@ export function ConnectionsTab({
         <McpIntegrationDialog
           open={dialogOpen}
           onOpenChange={setDialogOpen}
-          defaultScope="user"
+          defaultScope="org"
           canCreateOrgMcp={canCreateOrgMcp}
           hasOrg={hasOrg}
           onCreateMcpServer={onCreateMcpServer}

@@ -217,6 +217,8 @@ An app's own rows follow the same rule: every control on `generalGroups`,
 | Authentication, Apps, Infrastructure, Audit log                                   | Hidden                 | Yes                                                | Yes                |
 | Shared A2A secret, delete the organization                                        | No                     | No                                                 | Yes                |
 
+Owners and admins run on the organization's provider keys and Builder.io connection first, with their own as the fallback; members run on their own first. When saving a key, owners and admins save it for the organization by default and can pick **Personal**; members save personally.
+
 ## UX standard {#ux-standard}
 
 - Keep durable settings in Settings. The agent sidebar links into a page

@@ -37,6 +37,7 @@ import { KeyProviderTile } from "./KeyProviderTile.js";
 import { NewKeyMenu, normalizeKeyName } from "./NewKeyMenu.js";
 import { SettingsCrossLinkHint } from "./SettingsCrossLinkHint.js";
 import { SettingsSkeleton } from "./SettingsSkeleton.js";
+import { useCredentialSaveScope } from "./use-credential-save-scope.js";
 
 const SOURCE_LABEL_KEY: Record<Exclude<SecretSource, "personal">, string> = {
   vault: "secrets.sourceVault",
@@ -866,7 +867,18 @@ function AdHocKeysSection({
   const [formName, setFormName] = useState("");
   const [formValue, setFormValue] = useState("");
   const [formDescription, setFormDescription] = useState("");
-  const [formScope, setFormScope] = useState<"user" | "workspace">("user");
+  // Owners and admins save for the workspace unless they pick personal.
+  const saveScope = useCredentialSaveScope();
+  const [pickedScope, setFormScope] = useState<"user" | "workspace" | null>(
+    null,
+  );
+  const formScope =
+    pickedScope ??
+    (saveScope.scope === "org"
+      ? "workspace"
+      : saveScope.scope === "user"
+        ? "user"
+        : null);
   const [formBusy, setFormBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -920,14 +932,14 @@ function AdHocKeysSection({
     setFormName("");
     setFormValue("");
     setFormDescription("");
-    setFormScope("user");
+    setFormScope(null);
     setFormError(null);
   }, [onShowFormChange]);
 
   const handleAdd = useCallback(async () => {
     const name = formName.trim();
     const value = formValue.trim();
-    if (!name || !value || formBusy) return;
+    if (!name || !value || !formScope || formBusy) return;
     setFormBusy(true);
     setFormError(null);
     try {
@@ -1031,26 +1043,28 @@ function AdHocKeysSection({
             className="w-full text-[11px]"
             placeholder="Description (optional)"
           />
-          <Picker
-            mode="select"
-            options={[
-              { value: "user", label: t("secrets.scopePersonal") },
-              { value: "workspace", label: t("secrets.scopeWorkspace") },
-            ]}
-            value={formScope}
-            onChange={(value) => {
-              if (value === "user" || value === "workspace") {
-                setFormScope(value);
-              }
-            }}
-            aria-label={t("secrets.scopeLabel")}
-            description={t(
-              formScope === "user"
-                ? "secrets.scopePersonalDescription"
-                : "secrets.scopeWorkspaceDescription",
-            )}
-            className="text-[11px]"
-          />
+          {saveScope.canChoose && formScope ? (
+            <Picker
+              mode="select"
+              options={[
+                { value: "user", label: t("secrets.scopePersonal") },
+                { value: "workspace", label: t("secrets.scopeWorkspace") },
+              ]}
+              value={formScope}
+              onChange={(value) => {
+                if (value === "user" || value === "workspace") {
+                  setFormScope(value);
+                }
+              }}
+              aria-label={t("secrets.scopeLabel")}
+              description={t(
+                formScope === "user"
+                  ? "secrets.scopePersonalDescription"
+                  : "secrets.scopeWorkspaceDescription",
+              )}
+              className="text-[11px]"
+            />
+          ) : null}
           <div className="flex items-center justify-end gap-1.5">
             <Button
               type="button"
@@ -1066,7 +1080,9 @@ function AdHocKeysSection({
               intent="primary"
               emphasis="solid"
               onClick={handleAdd}
-              disabled={!formName.trim() || !formValue.trim() || formBusy}
+              disabled={
+                !formName.trim() || !formValue.trim() || !formScope || formBusy
+              }
               className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
               style={{ backgroundColor: "#00B5FF", color: "white" }}
             >

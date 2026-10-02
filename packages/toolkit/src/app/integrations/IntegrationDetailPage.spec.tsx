@@ -358,6 +358,15 @@ describe("IntegrationDetailPage", () => {
     expect(rowText("sign-in")).toContain("OAuth");
   });
 
+  it("connects an admin's server for the organization unless they pick Just me", async () => {
+    await render("context7");
+    const { action } = await renderHeader();
+    await act(async () => action?.click());
+    expect(createServer).toHaveBeenLastCalledWith(
+      expect.objectContaining({ scope: "org" }),
+    );
+  });
+
   it("lets an admin share a public server with the organization", async () => {
     await render("context7");
     expect(rowText("who-can-use-it")).toContain(

@@ -135,7 +135,7 @@ function KeyValueDialogContent({
       (dialog.mode === "add" ? (dialog.initialName ?? "") : ""),
   );
   const [value, setValue] = useState("");
-  const [shared, setShared] = useState(false);
+  const [shared, setShared] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

@@ -25,10 +25,11 @@ import {
   IconSearch,
   IconServer2,
 } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import { AgentProviderPicker } from "./AgentProviderPicker.js";
-import { useProviderKeySaveScope } from "./use-provider-key-save-scope.js";
+import { useCredentialSaveScope } from "./use-credential-save-scope.js";
+import { WhoField } from "./WhoField.js";
 
 export {
   AgentProviderPicker,
@@ -67,9 +68,12 @@ export function AgentProviderSetupForm({
   const t = useT();
   const {
     scope: saveScope,
+    canChoose: canChooseScope,
+    setScope: setSaveScope,
     roleUnavailable,
     retry: retryRole,
-  } = useProviderKeySaveScope(chosenScope);
+  } = useCredentialSaveScope(chosenScope);
+  const whoId = useId();
   const isPage = layout === "page";
   const [provider, setProvider] = useState<AgentProviderId>(initialProvider);
   const [apiKey, setApiKey] = useState("");
@@ -588,6 +592,16 @@ export function AgentProviderSetupForm({
               </div>
             ) : null}
           </div>
+        ) : null}
+
+        {canChooseScope && saveScope ? (
+          <WhoField
+            id={whoId}
+            choice
+            scope={saveScope}
+            disabled={saving}
+            onChange={setSaveScope}
+          />
         ) : null}
 
         <div className="flex flex-wrap items-center gap-2 pt-0.5">
