@@ -249,12 +249,6 @@ test.describe("two tabs editing one page at beta cadence", () => {
       testInfo,
       context,
       async (s) => {
-        const elsewhereTitle = `Convergence elsewhere ${s.id}`;
-        const elsewhere = await createPage(
-          s.reader,
-          elsewhereTitle,
-          "Somewhere else.",
-        );
         const tab = await s.tabs.open("A", s.id);
         const saves = await SaveGate.install(tab);
         const session = await SessionGate.install(tab);
@@ -268,13 +262,11 @@ test.describe("two tabs editing one page at beta cadence", () => {
         );
         await saves.waitForHeld();
         // In-app navigation, as clicking the sidebar does; a full load waits
-        // for the session before rendering any page.
-        await tab
-          .getByRole("link", { name: elsewhereTitle, exact: true })
-          .first()
-          .click();
-        await expect(tab).toHaveURL(new RegExp(`/page/${elsewhere}`));
-        await expectEditorReady(tab);
+        // for the session before rendering any page. The sidebar pages its
+        // page list, so a page link may not be loaded; Trash always is.
+        const trash = tab.getByRole("link", { name: "Trash", exact: true });
+        await trash.click();
+        await expect(trash).toHaveAttribute("aria-current", "page");
         // Outlast the browser's 30 s session answer, so returning re-reads it.
         await delay(SESSION_LIFETIME_MS + 1_000);
 
@@ -282,8 +274,8 @@ test.describe("two tabs editing one page at beta cadence", () => {
         session.hold();
         await tab.goBack();
         await expect(tab).toHaveURL(new RegExp(`/page/${s.id}`));
-        // The fixed page holds its editor until the session is known; a page
-        // that shows it early is exactly where the word used to disappear.
+        // An editor shown before the held session read returns is where #6366
+        // lost the word, so text typed then must still be kept.
         const shownBeforeSession = await tab
           .locator(`${EDITOR}[contenteditable=true]`)
           .waitFor({ timeout: 4_000 })
