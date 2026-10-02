@@ -27,6 +27,11 @@ import {
   type PlanContent,
 } from "@shared/plan-content";
 import { blocksToProseJSON, proseJSONToBlocks } from "@shared/plan-doc";
+import {
+  adoptSnapshot,
+  documentIsAheadOfSaved,
+  normalizeBlocksValue,
+} from "@shared/plan-doc-adoption";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorView } from "@tiptap/pm/view";
 import type { Editor } from "@tiptap/react";
@@ -647,6 +652,8 @@ function repaintDropViews(
   restoreScroll();
 }
 
+const REMOTE_SAVE_SETTLE_MS = 1500;
+
 function applyBlocksSurgically(editor: Editor, blocks: PlanBlock[]): boolean {
   try {
     const doc = editor.schema.nodeFromJSON(blocksToProseJSON(blocks));
@@ -752,6 +759,15 @@ export function PlanDocumentEditor({
     if (ring.length > 24) ring.shift();
     lastEmittedRef.current = serialized;
   }, []);
+  // The saved blocks the live document is known to include. A snapshot another
+  // writer saved is merged into the document against them instead of replacing
+  // it: the document holds what collaborators typed that the snapshot predates.
+  const docBaseRef = useRef<PlanBlock[]>(content.blocks);
+  const commitRef = useRef<(next: PlanBlock[]) => void>(() => {});
+  const collabEnabledRef = useRef(false);
+  const savedBlocksRef = useRef<PlanBlock[]>(content.blocks);
+  const remoteSaveTimerRef = useRef<number | null>(null);
+
   useEffect(() => {
     const incoming = JSON.stringify(content.blocks);
     if (
@@ -759,6 +775,7 @@ export function PlanDocumentEditor({
       incoming === JSON.stringify(blocksRef.current)
     ) {
       lastEmittedRef.current = incoming;
+      docBaseRef.current = content.blocks;
       return;
     }
     rememberEmitted(incoming);
@@ -834,6 +851,9 @@ export function PlanDocumentEditor({
     requestSync: requestCollabSync,
   } = collabEnabled && sharedCollabDoc ? sharedCollabDoc : ownCollabDoc;
   const collabSynced = collabEnabled ? collabSyncedRaw : true;
+  collabEnabledRef.current = collabEnabled;
+  commitRef.current = commit;
+  savedBlocksRef.current = content.blocks;
   const editorEditable =
     editable && (!collabEnabled || collabInitialization.status === "ready");
 
@@ -1022,12 +1042,26 @@ export function PlanDocumentEditor({
         nextValue: string,
         options: { emitUpdate?: boolean; addToHistory?: boolean },
       ) => {
-        let parsed: PlanBlock[];
+        let snapshot: PlanBlock[];
         try {
-          parsed = JSON.parse(nextValue) as PlanBlock[];
+          snapshot = JSON.parse(nextValue) as PlanBlock[];
         } catch {
           return;
         }
+        let parsed = snapshot;
+        let keptLiveEdits = false;
+        if (collabEnabledRef.current) {
+          const live = proseJSONToBlocks(editor.getJSON(), blocksRef.current);
+          ({ target: parsed, keptLiveEdits } = adoptSnapshot(
+            docBaseRef.current,
+            live,
+            snapshot,
+          ));
+        }
+        docBaseRef.current = snapshot;
+        // The merged document holds more than the saved copy, which nobody
+        // else will save: the collaborators' editors did not change it.
+        if (keptLiveEdits) commitRef.current(parsed);
         if (applyBlocksSurgically(editor, parsed)) {
           if (parsed.length > 0) hasSeededRef.current = true;
           return;
@@ -1052,19 +1086,7 @@ export function PlanDocumentEditor({
     [],
   );
 
-  const normalizeValue = useMemo(
-    () => (input: string) => {
-      try {
-        const parsed = JSON.parse(input) as PlanBlock[];
-        return JSON.stringify(
-          proseJSONToBlocks(blocksToProseJSON(parsed), parsed),
-        );
-      } catch {
-        return input;
-      }
-    },
-    [],
-  );
+  const normalizeValue = normalizeBlocksValue;
 
   const restore = useCallback(
     (restored: PlanBlock[]) => {
@@ -1215,6 +1237,32 @@ export function PlanDocumentEditor({
     if (next) commit(next);
   };
 
+  // Collaborators' typing reaches this document through Yjs and is saved by
+  // them, but a save made before it arrived can be the last one to land and
+  // leave SQL without it. Once the document has settled, save whatever it holds
+  // that the latest saved copy does not.
+  const handleRemoteDocChange = () => {
+    if (remoteSaveTimerRef.current !== null) {
+      window.clearTimeout(remoteSaveTimerRef.current);
+    }
+    remoteSaveTimerRef.current = window.setTimeout(() => {
+      remoteSaveTimerRef.current = null;
+      const editor = editorRef.current;
+      if (!editor || editor.isDestroyed || !collabEnabledRef.current) return;
+      const live = readCurrentBlocks(blocksRef.current);
+      if (!live) return;
+      if (documentIsAheadOfSaved(live, savedBlocksRef.current)) commit(live);
+    }, REMOTE_SAVE_SETTLE_MS);
+  };
+  useEffect(
+    () => () => {
+      if (remoteSaveTimerRef.current !== null) {
+        window.clearTimeout(remoteSaveTimerRef.current);
+      }
+    },
+    [],
+  );
+
   // A collaborator's text reaches this document through Yjs without going
   // through `handleChange`, so blocks captured at the last local keystroke can
   // be older than the document. Saving reads the document itself.
@@ -1343,6 +1391,7 @@ export function PlanDocumentEditor({
             ydoc && editable && planId ? requestInitialSeed : undefined
           }
           requestCollabSync={ydoc ? requestCollabSync : undefined}
+          onRemoteSnapshotChange={handleRemoteDocChange}
           onInitialSeedError={onInitialSeedError}
           initialAppliedUpdatedAt={null}
           wrapperClassName={WRAPPER_CLASS}
