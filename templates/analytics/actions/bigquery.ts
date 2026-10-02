@@ -127,6 +127,7 @@ export default defineAction({
     sql: z.string().describe("SQL query to execute"),
   }),
   readOnly: true,
+  mcpTool: false,
   toolCallable: true,
   grounding: true,
   run: async (args, context?: ActionRunContext) => {

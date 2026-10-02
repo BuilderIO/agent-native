@@ -67,6 +67,7 @@ import {
   LEGACY_NEW_VS_RECURRING_USERS_SQL,
   PREVIOUS_CANONICAL_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
   PREVIOUS_PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
+  PRE_ACQUISITION_SPLIT_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
   PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_WITH_LAST_VALID_SQL,
   PRE_CUSTOM_FIRST_PARTY_BIGQUERY_WAU_SQL,
   repairCanonicalFirstPartyDashboardQueries,
@@ -883,7 +884,7 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
             source: "bigquery",
             sql: originMainPanelSql(
               "bigQueryRetention",
-              FIRST_PARTY_BIGQUERY_RETENTION_SQL,
+              PRE_ACQUISITION_SPLIT_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
             ),
           },
         ],
@@ -995,6 +996,16 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
         )
         .digest("hex"),
     ).toBe("842d4904b31b1763da551aae2b24bba8508137ca35198ab6ac0df3c83810144e");
+    expect(
+      createHash("sha256")
+        .update(
+          PREVIOUS_PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_SQL.replace(
+            /\s+/g,
+            " ",
+          ).trim(),
+        )
+        .digest("hex"),
+    ).toBe("9fd0ccf9207e0557909d80eba96330aa75821da10c09e315186699ee45b8b187");
 
     for (const sql of [
       PREVIOUS_CANONICAL_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
@@ -1008,6 +1019,23 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
       expect(repaired.changed).toBe(true);
       expect(panel.sql).toBe(FIRST_PARTY_BIGQUERY_RETENTION_SQL);
     }
+  });
+
+  it("repairs the previously canonical BigQuery retention query with the channel split", () => {
+    const repaired = repairFirstPartyBigQueryDashboardQueries({
+      panels: [
+        {
+          id: "retention-over-time",
+          source: "bigquery",
+          sql: PRE_ACQUISITION_SPLIT_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
+        },
+      ],
+    });
+
+    expect(repaired.changed).toBe(true);
+    expect((repaired.config.panels as Array<{ sql: string }>)[0]?.sql).toBe(
+      FIRST_PARTY_BIGQUERY_RETENTION_SQL,
+    );
   });
 
   it("repairs the persisted last-valid BigQuery retention query for custom ranges", () => {

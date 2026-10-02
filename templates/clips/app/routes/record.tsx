@@ -1485,7 +1485,7 @@ export default function RecordRoute() {
 
         const { previewStream: ps, cameraStream: cs } = await engine.acquire();
         if (isStale()) {
-          await engine.cancel("unknown").catch(() => {});
+          await engine.cancel("recording_interrupted").catch(() => {});
           return;
         }
         const captureTitle = buildCaptureTitle({

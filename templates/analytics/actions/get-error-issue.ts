@@ -28,6 +28,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   grounding: true,
   run: async (args) => {

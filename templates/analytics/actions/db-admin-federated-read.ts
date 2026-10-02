@@ -22,6 +22,7 @@ export default defineAction({
   },
   http: { method: "POST" },
   readOnly: true,
+  mcpTool: false,
   grounding: true,
   run: async (args, ctx) => {
     const admin = await requireDbAdminContextFromRequest(ctx);
