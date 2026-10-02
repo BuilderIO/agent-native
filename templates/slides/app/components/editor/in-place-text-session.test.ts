@@ -991,6 +991,17 @@ describe("in-place text session: Enter", () => {
     expect(el.innerHTML).toBe("<li>One<br> two</li>");
   });
 
+  it("normalizes Shift+Enter keydown to a soft line break", () => {
+    const el = mount('<p id="t">one two</p>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "one two"), 3);
+
+    expect(key(el, { key: "Enter", shiftKey: true }).defaultPrevented).toBe(
+      true,
+    );
+    expect(el.innerHTML).toBe("one<br> two");
+  });
+
   it("indents and outdents a list item with Tab and Shift+Tab", () => {
     const el = mount('<ul id="t"><li>One</li><li>Two</li></ul>');
     session = startInPlaceTextSession(el);
@@ -1991,6 +2002,19 @@ describe("in-place text session: commands", () => {
     expect(el.innerHTML).toBe(
       'Hello<span data-slide-inline-style="true" style="color: rgb(255, 0, 0);"> red</span>',
     );
+  });
+
+  it("keeps a collapsed caret attached while creating a code run", () => {
+    const el = mount('<p id="t">Hello</p>');
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, 5);
+
+    expect(session.commands.code()).toBe(true);
+    expect(el.contains(window.getSelection()?.anchorNode ?? null)).toBe(true);
+    type(el, "x");
+
+    expect(el.querySelector("code")?.textContent).toContain("x");
+    expect(el.contains(window.getSelection()?.anchorNode ?? null)).toBe(true);
   });
 
   it("removes code formatting from a selection inside a styled span", () => {
@@ -4526,6 +4550,23 @@ describe("in-place text session: Content authoring parity", () => {
     expect(quote.firstElementChild?.textContent).toBe("AboveQuoted");
   });
 
+  it("demotes a quote when Backspace lands at its parent boundary", () => {
+    const el = mount(
+      '<div id="t"><p>Above</p><blockquote><p>Quoted</p></blockquote></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const quote = el.querySelector("blockquote")!;
+    caret(el, Array.from(el.childNodes).indexOf(quote));
+
+    beforeInput(el, "deleteContentBackward");
+
+    expect(el.querySelector("blockquote")).toBeNull();
+    expect(el.children[1]?.tagName).toBe("P");
+    expect(el.children[1]?.textContent).toBe("Quoted");
+    beforeInput(el, "deleteContentBackward");
+    expect(el.firstElementChild?.textContent).toBe("AboveQuoted");
+  });
+
   it("keeps a paragraph when Backspace merges into a non-paragraph block", () => {
     const el = mount(
       '<div id="t"><div style="display:flex;color:red"><span>Previous</span></div><h2>Title</h2></div>',
@@ -4558,6 +4599,47 @@ describe("in-place text session: Content authoring parity", () => {
     expect(el.innerHTML).toBe("<h2>Title<strong>Body</strong></h2>");
   });
 
+  it("enters a plain paragraph after a Markdown heading", () => {
+    const el = mount('<p id="t"></p>');
+    session = startInPlaceTextSession(el);
+    caret(el, 0);
+
+    type(el, "# ");
+    expect(session.element.tagName).toBe("H1");
+    type(session.element, "Title");
+    beforeInput(session.element, "insertParagraph");
+
+    const heading = session.element.querySelector("h1");
+    const paragraph = heading?.nextElementSibling;
+    expect(heading?.textContent?.replaceAll(ZWSP, "")).toBe("Title");
+    expect(paragraph?.tagName).toBe("P");
+    expect(paragraph?.textContent?.replaceAll(ZWSP, "")).toBe("");
+    expect(paragraph?.contains(window.getSelection()?.anchorNode ?? null)).toBe(
+      true,
+    );
+  });
+
+  it("enters a plain paragraph after a heading in styled bullet rows", () => {
+    const el = mount(
+      '<div id="t" style="display:flex;flex-direction:column"><div style="display:flex"><span>•</span><div><h1>Title</h1></div></div><div style="display:flex"><span>•</span><div>Next</div></div></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const heading = el.querySelector("h1")!;
+    caret(textOf(heading, "Title"), "Title".length);
+
+    beforeInput(el, "insertParagraph");
+
+    expect(el.children).toHaveLength(3);
+    expect(el.children[0]?.tagName).toBe("DIV");
+    expect(el.children[0]?.getAttribute("style")).toBe("display:flex");
+    expect(el.children[1]?.tagName).toBe("P");
+    expect(el.children[1]?.textContent?.replaceAll(ZWSP, "")).toBe("");
+    expect(el.children[2]?.textContent).toContain("Next");
+    expect(
+      el.children[1]?.contains(window.getSelection()?.anchorNode ?? null),
+    ).toBe(true);
+  });
+
   it("handles beforeinput before a child can stop it from bubbling", () => {
     const el = mount('<div id="t"><h2>Title</h2></div>');
     session = startInPlaceTextSession(el);
@@ -4569,6 +4651,20 @@ describe("in-place text session: Content authoring parity", () => {
       true,
     );
     expect(el.firstElementChild?.tagName).toBe("P");
+  });
+
+  it("handles Enter before a child can stop beforeinput from bubbling", () => {
+    const el = mount('<div id="t"><h2>Title</h2></div>');
+    session = startInPlaceTextSession(el);
+    const heading = el.querySelector("h2")!;
+    caret(textOf(heading, "Title"), "Title".length);
+    heading.addEventListener("beforeinput", (event) => event.stopPropagation());
+
+    expect(beforeInput(heading, "insertParagraph").defaultPrevented).toBe(true);
+    expect(heading.nextElementSibling?.tagName).toBe("P");
+    expect(heading.nextElementSibling?.textContent?.replaceAll(ZWSP, "")).toBe(
+      "",
+    );
   });
 
   it("demotes a heading when the caret is at its element boundary", () => {

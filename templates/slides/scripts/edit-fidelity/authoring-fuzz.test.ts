@@ -10,14 +10,47 @@ import {
   createAuthoringFuzzPlan,
   formatAuthoringFuzzFailure,
   lineNavigationKeys,
+  outsideAuthoringChangesFor,
   runAuthoringFuzz,
 } from "./authoring-fuzz.ts";
+import type { Snapshot } from "./lib/in-page.ts";
 
 it("requires a markdown shortcut to add its result markup", () => {
   expect(() => assertShortcutMarkupAdded("bullet", 0, 1)).not.toThrow();
   expect(() => assertShortcutMarkupAdded("bullet", 1, 1)).toThrow(
     "markdown shortcut did not produce bullet",
   );
+});
+
+const authoringSnapshot = (y: number, color: string): Snapshot => ({
+  records: [
+    {
+      key: "box:div#0",
+      kind: "box",
+      inside: false,
+      props: { color },
+      rect: { x: 0, y, width: 100, height: 80 },
+    },
+  ],
+  inventory: { elements: 1, visible: 1, hidden: 0, svg: 0, img: 0, style: 0 },
+  text: "",
+  editedRect: null,
+  editedText: null,
+});
+
+it("gates outside style changes without treating geometry as restyling", () => {
+  expect(
+    outsideAuthoringChangesFor(
+      authoringSnapshot(64, "rgb(0, 0, 0)"),
+      authoringSnapshot(-456, "rgb(0, 0, 0)"),
+    ),
+  ).toEqual([]);
+  expect(
+    outsideAuthoringChangesFor(
+      authoringSnapshot(64, "rgb(0, 0, 0)"),
+      authoringSnapshot(64, "rgb(255, 0, 0)"),
+    ),
+  ).toHaveLength(1);
 });
 
 function pageAtScale(scale: number) {
@@ -155,6 +188,12 @@ it("creates reproducible authoring plans with full command coverage", () => {
     createAuthoringFuzzPlan(Number.MAX_SAFE_INTEGER + 1, 500),
   ).toThrow("safe integer");
   expect(() => createAuthoringFuzzPlan(42, 0)).toThrow("positive integer");
+});
+
+it("runs vertical caret fidelity in the committed absolute profile", () => {
+  expect(createAuthoringFuzzPlan(2, 1)).toEqual([
+    { kind: "vertical-navigation" },
+  ]);
 });
 
 it("ends each fuzz plan with an edit after undo and redo operations", () => {

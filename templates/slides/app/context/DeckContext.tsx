@@ -178,10 +178,11 @@ function slideFieldBaselines(
     }
     const key = field as PatchSlideBaselineField;
     const baseline = slide[key];
-    baselines[key] =
-      baseline === undefined
-        ? { present: false }
-        : { present: true, value: structuredClone(baseline) };
+    const absent =
+      baseline === undefined || (key === "notes" && baseline === null);
+    baselines[key] = absent
+      ? { present: false }
+      : { present: true, value: structuredClone(baseline) };
   }
   return Object.keys(baselines).length > 0 ? baselines : undefined;
 }

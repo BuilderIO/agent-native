@@ -52,6 +52,14 @@ const CSS_PROPERTY_NAMES: Record<InlineTextStyleKey, string> = {
 };
 
 const INLINE_STYLE_SPAN = "span[data-slide-inline-style]";
+const INLINE_TEXT_BLOCKS =
+  "address,article,aside,blockquote,dd,div,dl,dt,figcaption,figure,footer,h1,h2,h3,h4,h5,h6,header,li,ol,p,pre,section,table,tbody,td,tfoot,th,thead,tr,ul";
+const INLINE_LAYOUT_DISPLAYS = new Set([
+  "flex",
+  "grid",
+  "inline-flex",
+  "inline-grid",
+]);
 
 const DECORATION_LINE: Record<"underline" | "strike", string> = {
   underline: "underline",
@@ -86,9 +94,9 @@ function elementAttributesMatch(a: Element, b: Element) {
   );
 }
 
-export function normalizeInlineTextSpans(editable: HTMLElement) {
+function normalizeInlineTextSpanScope(scope: HTMLElement) {
   const spans = Array.from(
-    editable.querySelectorAll<HTMLSpanElement>(INLINE_STYLE_SPAN),
+    scope.querySelectorAll<HTMLSpanElement>(INLINE_STYLE_SPAN),
   );
   for (const span of spans.reverse()) {
     if (!span.isConnected) continue;
@@ -105,7 +113,7 @@ export function normalizeInlineTextSpans(editable: HTMLElement) {
   while (merged) {
     merged = false;
     for (const span of Array.from(
-      editable.querySelectorAll<HTMLSpanElement>(INLINE_STYLE_SPAN),
+      scope.querySelectorAll<HTMLSpanElement>(INLINE_STYLE_SPAN),
     )) {
       const next = span.nextSibling;
       if (
@@ -119,6 +127,32 @@ export function normalizeInlineTextSpans(editable: HTMLElement) {
       }
     }
   }
+}
+
+function inlineTextNormalizationScope(editable: HTMLElement, text: Text) {
+  const block =
+    text.parentElement?.closest<HTMLElement>(INLINE_TEXT_BLOCKS) ?? editable;
+  if (INLINE_LAYOUT_DISPLAYS.has(getComputedStyle(block).display)) {
+    return (
+      Array.from(block.children).find((child) => child.contains(text)) ?? null
+    );
+  }
+  return block;
+}
+
+export function normalizeInlineTextSpans(
+  editable: HTMLElement,
+  selectedText?: readonly Text[],
+) {
+  const scopes = selectedText
+    ? new Set(
+        selectedText.flatMap((text) => {
+          const scope = inlineTextNormalizationScope(editable, text);
+          return scope instanceof HTMLElement ? [scope] : [];
+        }),
+      )
+    : new Set([editable]);
+  for (const scope of scopes) normalizeInlineTextSpanScope(scope);
 }
 
 export function getEditableTextRange(
@@ -220,7 +254,7 @@ function styleSelectedText(
   const texts = splitSelectedText(editable, range);
   if (texts.length === 0) return { scope: "selection", range };
   style(texts);
-  normalizeInlineTextSpans(editable);
+  normalizeInlineTextSpans(editable, texts);
 
   const last = texts[texts.length - 1];
   const nextRange = document.createRange();
