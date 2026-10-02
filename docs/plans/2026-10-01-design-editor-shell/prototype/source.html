@@ -2875,7 +2875,8 @@ function appDialog() {
       if (t.closest("[data-copy-prompt]")) { copyText(CONNECT_PROMPT, "Prompt copied"); return waitThenConnect(); }
       const ag = t.closest("[data-connect-agent]"); if (ag) { toast(`Opening ${ag.dataset.connectAgent} with the connect prompt`); return waitThenConnect(); }
       const v = t.closest("[data-view]"); if (v) { APPD.view = v.dataset.view; paint(); return; }
-      const r = t.closest("[data-add-route]"); if (r) { close(); toast(`Added ${r.dataset.addRoute} as a ${APPD.view} screen`); }
+      // Prototype only: adding a route switches to the Local app screen scenario, so the screen shows up live.
+      const r = t.closest("[data-add-route]"); if (r) { close(); const p = r.dataset.addRoute; S.scenario = "local"; $("#scenario-sel").value = "local"; if (ROUTES.some(x => x.path === p)) go(p); else render(); toast(`Added ${p} as a ${APPD.view} screen`); }
     });
   });
 }
