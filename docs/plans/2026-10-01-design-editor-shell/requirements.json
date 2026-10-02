@@ -770,7 +770,7 @@
         {
           "id": "FILE-02",
           "status": "decided",
-          "change": "Under the name, a ghost button reads “Designs” and goes to /home. No arrow: the label sits flush with the file name, and the hover fill extends 4px past it."
+          "change": "Under the name, a ghost button reads “Designs” and goes to /home. No arrow: the label sits flush with the file name, the hover fill extends 4px past it on each side, and the button is its own 16px line 2px below the name, so the fill never covers the name."
         },
         {
           "id": "FILE-03",

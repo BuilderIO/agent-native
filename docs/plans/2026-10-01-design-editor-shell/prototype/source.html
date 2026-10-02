@@ -136,7 +136,8 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .file-name svg { color: var(--muted-fg); }
 .file-name:hover svg, .file-name[aria-expanded="true"] svg { color: var(--fg); }
 /* Hover fill extends 4px past the text; the negative margin keeps the label flush with the file name. */
-.file-folder { height: 20px; margin: -2px 0 -2px -4px; padding-inline: 4px; display: inline-flex; align-items: center; color: var(--muted-fg); border-radius: 6px; align-self: flex-start; }
+/* The fill stays on its own 16px line, 2px under the name, so it never paints over the name's descenders. */
+.file-folder { height: 16px; margin: 2px 0 0 -4px; padding-inline: 4px; display: inline-flex; align-items: center; color: var(--muted-fg); border-radius: 6px; align-self: flex-start; }
 .file-folder:hover, .file-folder:focus-visible { color: var(--fg); background: var(--hover); }
 .icon-btn { width: 32px; height: 32px; border-radius: 6px; display: grid; place-items: center; flex: none; }
 .icon-btn:hover { background: var(--hover); }

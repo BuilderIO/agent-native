@@ -294,7 +294,7 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
   - Today: The title is click-to-rename, beside a minimal-UI toggle; the project menu holds Back to designs, Save as template, Version history, Export, Edit, View.
   - Change: The file name opens the Design file menu from Figma: Rename, Duplicate, Version history, Save as template…, Export…, Move to trash.
 - **FILE-02** · decided
-  - Change: Under the name, a ghost button reads “Designs” and goes to /home. No arrow: the label sits flush with the file name, and the hover fill extends 4px past it.
+  - Change: Under the name, a ghost button reads “Designs” and goes to /home. No arrow: the label sits flush with the file name, the hover fill extends 4px past it on each side, and the button is its own 16px line 2px below the name, so the fill never covers the name.
 - **FILE-03** · decided
   - Today: Designs have no folders.
   - Change: Move to folder… stays hidden until designs have folders.
