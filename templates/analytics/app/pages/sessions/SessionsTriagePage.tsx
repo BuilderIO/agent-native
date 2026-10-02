@@ -8,7 +8,7 @@ import {
   IconRefresh,
   IconX,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,9 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -44,6 +46,15 @@ import {
   SESSION_DID_NOT_EVENT_PARAM,
 } from "../../../shared/session-events";
 import {
+  isSessionFrictionSort,
+  readSessionFrictionSignals,
+  SESSION_FRICTION_SIGNAL_PARAM,
+  SESSION_FRICTION_SIGNALS,
+  type SessionFriction,
+  type SessionFrictionSignal,
+  type SessionFrictionSort,
+} from "../../../shared/session-friction";
+import {
   readSessionPage,
   SESSION_PAGE_SIZE,
 } from "../../../shared/session-page";
@@ -51,6 +62,11 @@ import {
   SessionEventFilter,
   type SessionEventConditions,
 } from "./SessionEventFilter";
+import {
+  frictionSignalLabel,
+  SessionFrictionFilter,
+  SessionFrictionStrip,
+} from "./SessionFriction";
 import {
   EmptySessionsState,
   formatSessionDuration,
@@ -60,6 +76,7 @@ import {
 
 type Range = "24h" | "7d" | "30d" | "90d" | "all" | "custom";
 type Sort = "newest" | "longest" | "errors" | "events" | "rage";
+type AnySort = Sort | SessionFrictionSort;
 type VisitorType = "internal" | "work" | "personal";
 
 type Recording = {
@@ -79,6 +96,7 @@ type Recording = {
   template: string | null;
   path: string | null;
   hostname: string | null;
+  friction?: SessionFriction;
 };
 
 type Page = {
@@ -169,6 +187,19 @@ export function withSessionEventConditions(
   return next;
 }
 
+export function withSessionFrictionSignals(
+  current: URLSearchParams,
+  signals: readonly SessionFrictionSignal[],
+): URLSearchParams {
+  const next = new URLSearchParams(current);
+  next.delete(SESSION_FRICTION_SIGNAL_PARAM);
+  for (const signal of signals) {
+    next.append(SESSION_FRICTION_SIGNAL_PARAM, signal);
+  }
+  next.delete("page");
+  return next;
+}
+
 export function SessionsTriagePage() {
   const t = useT();
   const [params, setParams] = useSearchParams();
@@ -179,9 +210,7 @@ export function SessionsTriagePage() {
   const app = params.get("app") ?? "";
   const query = params.get("q") ?? "";
   const domain = params.get("emailDomain") ?? "";
-  const sort = SORTS.includes(params.get("sort") as Sort)
-    ? (params.get("sort") as Sort)
-    : "newest";
+  const requestedSort = params.get("sort");
   const visitorType = (["internal", "work", "personal"] as VisitorType[]).find(
     (value) => value === params.get("visitorType"),
   );
@@ -209,9 +238,20 @@ export function SessionsTriagePage() {
   const urlHasEventConditions =
     urlEventConditions.didEvents.length > 0 ||
     urlEventConditions.didNotEvents.length > 0;
-  // A shared link with event conditions waits for the Lab state instead of
+  const urlFrictionSignals = readSessionFrictionSignals(params);
+  const frictionSignals = eventsLabEnabled ? urlFrictionSignals : [];
+  const urlHasFrictionParams =
+    urlFrictionSignals.length > 0 || isSessionFrictionSort(requestedSort);
+  // Friction sorts, like friction filters, apply only while the Lab is on.
+  const sort: AnySort = SORTS.includes(requestedSort as Sort)
+    ? (requestedSort as Sort)
+    : eventsLabEnabled && isSessionFrictionSort(requestedSort)
+      ? requestedSort
+      : "newest";
+  // A shared link with Lab conditions waits for the Lab state instead of
   // briefly listing unfiltered sessions.
-  const waitingForEventsLab = urlHasEventConditions && eventsLab.isLoading;
+  const waitingForEventsLab =
+    (urlHasEventConditions || urlHasFrictionParams) && eventsLab.isLoading;
 
   useEffect(() => {
     if (requestedPage === null || requestedPage === String(page)) return;
@@ -239,6 +279,15 @@ export function SessionsTriagePage() {
   const setEventConditions = useCallback(
     (conditions: SessionEventConditions) => {
       setParams((current) => withSessionEventConditions(current, conditions), {
+        replace: true,
+      });
+    },
+    [setParams],
+  );
+
+  const setFrictionSignals = useCallback(
+    (signals: SessionFrictionSignal[]) => {
+      setParams((current) => withSessionFrictionSignals(current, signals), {
         replace: true,
       });
     },
@@ -322,11 +371,18 @@ export function SessionsTriagePage() {
       didNotEvents: eventConditions.didNotEvents.length
         ? eventConditions.didNotEvents
         : undefined,
+      frictionSignals: frictionSignals.length ? frictionSignals : undefined,
+      includeFriction: eventsLabEnabled || undefined,
       sort,
       offset: (page - 1) * SESSION_PAGE_SIZE,
       limit: SESSION_PAGE_SIZE,
     },
-    { staleTime: 30_000, enabled: !waitingForEventsLab },
+    {
+      staleTime: 30_000,
+      enabled: !waitingForEventsLab,
+      // Rows stay put while the Lab's friction details load in.
+      placeholderData: eventsLabEnabled ? (previous) => previous : undefined,
+    },
   );
   const recordings = data?.recordings ?? [];
   const total = data?.total ?? 0;
@@ -363,6 +419,7 @@ export function SessionsTriagePage() {
       didNotEvents: eventConditions.didNotEvents.length
         ? eventConditions.didNotEvents
         : undefined,
+      frictionSignals: frictionSignals.length ? frictionSignals : undefined,
       sort,
       limit: 1,
     },
@@ -651,6 +708,12 @@ export function SessionsTriagePage() {
             onChange={setEventConditions}
           />
         ) : null}
+        {eventsLabEnabled ? (
+          <SessionFrictionFilter
+            signals={frictionSignals}
+            onChange={setFrictionSignals}
+          />
+        ) : null}
         {hasActiveFilters ? (
           <Button
             variant="ghost"
@@ -666,6 +729,11 @@ export function SessionsTriagePage() {
       {urlHasEventConditions && !eventsLabEnabled && !eventsLab.isLoading ? (
         <p className="text-xs text-muted-foreground" role="status">
           {t("sessions.eventFiltersNeedLab")}
+        </p>
+      ) : null}
+      {urlHasFrictionParams && !eventsLabEnabled && !eventsLab.isLoading ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          {t("sessions.frictionFiltersNeedLab")}
         </p>
       ) : null}
       <Card>
@@ -698,6 +766,19 @@ export function SessionsTriagePage() {
                     {sortLabel(value, t)}
                   </SelectItem>
                 ))}
+                {eventsLabEnabled ? (
+                  <SelectGroup>
+                    <SelectLabel>{t("sessions.friction")}</SelectLabel>
+                    <SelectItem value="friction">
+                      {t("sessions.sortFriction")}
+                    </SelectItem>
+                    {SESSION_FRICTION_SIGNALS.map((signal) => (
+                      <SelectItem key={signal} value={signal}>
+                        {frictionSignalLabel(signal, t)}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ) : null}
               </SelectContent>
             </Select>
             <Button
@@ -746,80 +827,88 @@ export function SessionsTriagePage() {
               ) : (
                 <div className="divide-y">
                   {recordings.map((recording) => (
-                    <Link
+                    <SessionRow
                       key={recording.id}
-                      to={`/sessions/${encodeURIComponent(recording.id)}`}
-                      className="grid gap-2 px-4 py-3 hover:bg-muted/35 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary sm:grid-cols-4"
-                      aria-label={`${t("sessions.watchReplay")}: ${recording.userId || recording.userKey || recording.anonymousId || t("sessions.anonymous")}`}
+                      friction={
+                        eventsLabEnabled ? recording.friction : undefined
+                      }
                     >
-                      <span className="font-medium text-primary">
-                        {formatSessionDuration(recording.durationMs)}
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium">
-                          {recording.userId ||
-                            recording.userKey ||
-                            recording.anonymousId ||
-                            t("sessions.anonymous")}
+                      <Link
+                        to={`/sessions/${encodeURIComponent(recording.id)}`}
+                        className="grid gap-2 px-4 py-3 hover:bg-muted/35 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary sm:grid-cols-4"
+                        aria-label={`${t("sessions.watchReplay")}: ${recording.userId || recording.userKey || recording.anonymousId || t("sessions.anonymous")}`}
+                      >
+                        <span className="font-medium text-primary">
+                          {formatSessionDuration(recording.durationMs)}
                         </span>
-                        <span className="block text-xs text-muted-foreground">
-                          {new Date(recording.startedAt).toLocaleString()}
-                        </span>
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm text-primary">
-                          {recording.path ||
-                            recording.hostname ||
-                            recording.sessionId}
-                        </span>
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {recording.app ||
-                            recording.template ||
-                            t("sessions.unknownApp")}
-                        </span>
-                      </span>
-                      <span className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                        <span>
-                          {t("sessions.eventCountCompact", {
-                            count: recording.eventCount.toLocaleString(),
-                          })}
-                        </span>
-                        {recording.errorCount > 0 && (
-                          <span className="text-destructive">
-                            {t(
-                              recording.errorCount === 1
-                                ? "sessions.errorCountSingular"
-                                : "sessions.errorCount",
-                              { count: recording.errorCount.toLocaleString() },
-                            )}
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium">
+                            {recording.userId ||
+                              recording.userKey ||
+                              recording.anonymousId ||
+                              t("sessions.anonymous")}
                           </span>
-                        )}
-                        <span>
-                          {t(
-                            recording.networkErrorCount === 1
-                              ? "sessions.networkErrorCountSingular"
-                              : "sessions.networkErrorCount",
-                            {
-                              count:
-                                recording.networkErrorCount.toLocaleString(),
-                            },
-                          )}
+                          <span className="block text-xs text-muted-foreground">
+                            {new Date(recording.startedAt).toLocaleString()}
+                          </span>
                         </span>
-                        {recording.rageClickCount > 0 && (
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm text-primary">
+                            {recording.path ||
+                              recording.hostname ||
+                              recording.sessionId}
+                          </span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {recording.app ||
+                              recording.template ||
+                              t("sessions.unknownApp")}
+                          </span>
+                        </span>
+                        <span className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                          <span>
+                            {t("sessions.eventCountCompact", {
+                              count: recording.eventCount.toLocaleString(),
+                            })}
+                          </span>
+                          {recording.errorCount > 0 && (
+                            <span className="text-destructive">
+                              {t(
+                                recording.errorCount === 1
+                                  ? "sessions.errorCountSingular"
+                                  : "sessions.errorCount",
+                                {
+                                  count: recording.errorCount.toLocaleString(),
+                                },
+                              )}
+                            </span>
+                          )}
                           <span>
                             {t(
-                              recording.rageClickCount === 1
-                                ? "sessions.rageClickCountSingular"
-                                : "sessions.rageClicks",
+                              recording.networkErrorCount === 1
+                                ? "sessions.networkErrorCountSingular"
+                                : "sessions.networkErrorCount",
                               {
                                 count:
-                                  recording.rageClickCount.toLocaleString(),
+                                  recording.networkErrorCount.toLocaleString(),
                               },
                             )}
                           </span>
-                        )}
-                      </span>
-                    </Link>
+                          {recording.rageClickCount > 0 && (
+                            <span>
+                              {t(
+                                recording.rageClickCount === 1
+                                  ? "sessions.rageClickCountSingular"
+                                  : "sessions.rageClicks",
+                                {
+                                  count:
+                                    recording.rageClickCount.toLocaleString(),
+                                },
+                              )}
+                            </span>
+                          )}
+                        </span>
+                      </Link>
+                    </SessionRow>
                   ))}
                 </div>
               )}
@@ -865,6 +954,26 @@ function eventCatalogHref(range: Range, app: string): string {
   if (app) next.set("app", app);
   const query = next.toString();
   return `/sessions/events${query ? `?${query}` : ""}`;
+}
+
+/**
+ * The row as it always was, plus the Lab's friction strip below it. The
+ * strip holds issue links, so it sits beside the row link, not inside it.
+ */
+function SessionRow({
+  friction,
+  children,
+}: {
+  friction: SessionFriction | undefined;
+  children: ReactNode;
+}) {
+  if (!friction) return <>{children}</>;
+  return (
+    <div>
+      {children}
+      <SessionFrictionStrip friction={friction} />
+    </div>
+  );
 }
 
 function CheckFilter({

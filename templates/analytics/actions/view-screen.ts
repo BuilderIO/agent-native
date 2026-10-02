@@ -10,6 +10,7 @@ import { listAnalyticsAlertRules } from "../server/lib/analytics-alerts";
 import { getAnalysis, getDashboard } from "../server/lib/dashboards-store";
 import { getErrorIssue, listErrorIssues } from "../server/lib/error-capture.js";
 import { listAnalyticsPublicKeys } from "../server/lib/first-party-analytics.js";
+import { getSessionFrictionDetails } from "../server/lib/session-friction.js";
 import {
   getSessionReplaySummary,
   listSessionRecordingsPage,
@@ -25,6 +26,10 @@ import {
 import { getMonitor, listMonitors } from "../server/lib/uptime-monitors.js";
 import { sessionDateBound } from "../shared/session-date-bounds";
 import { readSessionEventFilters } from "../shared/session-events";
+import {
+  isSessionFrictionSort,
+  readSessionFrictionSignals,
+} from "../shared/session-friction";
 import { readSessionPage, SESSION_PAGE_SIZE } from "../shared/session-page";
 
 const SESSION_FILTER_KEYS = new Set([
@@ -275,29 +280,49 @@ export default defineAction({
                 : ("newest" as const),
               offset,
             };
-            const urlEventConditions = readSessionEventFilters(
-              new URLSearchParams(url?.search ?? ""),
-            );
+            const urlSearch = new URLSearchParams(url?.search ?? "");
+            const urlEventConditions = readSessionEventFilters(urlSearch);
             const urlHasEventConditions =
               urlEventConditions.didEvents.length > 0 ||
               urlEventConditions.didNotEvents.length > 0;
-            // Match the page: event conditions apply only with the Lab on.
-            const eventsLabEnabled =
-              urlHasEventConditions &&
-              (await isSessionsTriageLabEnabled(email, scope.orgId));
-            if (eventsLabEnabled) {
+            const urlFrictionSignals = readSessionFrictionSignals(urlSearch);
+            const urlFrictionSort = isSessionFrictionSort(params.sort)
+              ? params.sort
+              : null;
+            // Match the page: event conditions, friction filters and sorts,
+            // and row friction apply only with the Lab on.
+            const triageLabEnabled = await isSessionsTriageLabEnabled(
+              email,
+              scope.orgId,
+            );
+            if (triageLabEnabled) {
               if (urlEventConditions.didEvents.length) {
                 filters.didEvents = urlEventConditions.didEvents;
               }
               if (urlEventConditions.didNotEvents.length) {
                 filters.didNotEvents = urlEventConditions.didNotEvents;
               }
+              if (urlFrictionSignals.length) {
+                filters.frictionSignals = urlFrictionSignals;
+              }
+              if (urlFrictionSort) filters.sort = urlFrictionSort;
             }
             const result = await listSessionRecordingsPage(scope, {
               ...filters,
               limit: SESSION_EXCERPT_SIZE,
             });
-            screen.sessionReplays = result.recordings;
+            if (triageLabEnabled) {
+              const friction = await getSessionFrictionDetails(
+                scope,
+                result.recordings,
+              );
+              screen.sessionReplays = result.recordings.map((recording) => ({
+                ...recording,
+                friction: friction.get(recording.id),
+              }));
+            } else {
+              screen.sessionReplays = result.recordings;
+            }
             screen.sessionReplayPage = {
               filters: {
                 range: customRange ? "custom" : readReplayRange(params.range),
@@ -309,8 +334,17 @@ export default defineAction({
               total: result.total,
               returnedCount: result.recordings.length,
               excerptLimit: SESSION_EXCERPT_SIZE,
-              ...(urlHasEventConditions && !eventsLabEnabled
+              ...(urlHasEventConditions && !triageLabEnabled
                 ? { eventConditionsNotApplied: urlEventConditions }
+                : {}),
+              ...((urlFrictionSignals.length || urlFrictionSort) &&
+              !triageLabEnabled
+                ? {
+                    frictionNotApplied: {
+                      signals: urlFrictionSignals,
+                      sort: urlFrictionSort,
+                    },
+                  }
                 : {}),
               truncated:
                 result.recordings.length <
@@ -320,6 +354,7 @@ export default defineAction({
                 args: {
                   paginated: true,
                   ...filters,
+                  ...(triageLabEnabled ? { includeFriction: true } : {}),
                   limit: SESSION_PAGE_SIZE,
                 },
               },
