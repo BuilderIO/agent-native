@@ -2215,3 +2215,92 @@ describe("db/client shared connection pools", () => {
     expect(sharedDbPool("postgres-js", url, () => original)).toBe(replacement);
   });
 });
+
+describe("retryOnConnectionError budget", () => {
+  const connectTimeout = () =>
+    Object.assign(new Error("DB connect timed out"), {
+      code: "CONNECT_TIMEOUT",
+    });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  async function runUntilSettled<T>(run: () => Promise<T>) {
+    const startedAt = Date.now();
+    let elapsedMs = -1;
+    const settled = run().then(
+      (value) => {
+        elapsedMs = Date.now() - startedAt;
+        return { value, error: undefined as unknown };
+      },
+      (error: unknown) => {
+        elapsedMs = Date.now() - startedAt;
+        return { value: undefined, error };
+      },
+    );
+    await vi.advanceTimersByTimeAsync(120_000);
+    return { ...(await settled), elapsedMs };
+  }
+
+  it("does not start a second attempt that could outlast the gateway", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "15000");
+    const { retryOnConnectionError } = await import("./client.js");
+    const attempt = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 15_000));
+      throw connectTimeout();
+    });
+
+    const { error, elapsedMs } = await runUntilSettled(() =>
+      retryOnConnectionError(attempt),
+    );
+
+    expect(error).toMatchObject({ code: "CONNECT_TIMEOUT" });
+    expect(attempt).toHaveBeenCalledTimes(1);
+    expect(elapsedMs).toBeLessThan(20_000);
+  });
+
+  it("stays under 20s with the serverless default timeout", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "retry-budget-test");
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "");
+    const { retryOnConnectionError } = await import("./client.js");
+    const attempt = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 8_000));
+      throw connectTimeout();
+    });
+
+    const { error, elapsedMs } = await runUntilSettled(() =>
+      retryOnConnectionError(attempt),
+    );
+
+    expect(error).toMatchObject({ code: "CONNECT_TIMEOUT" });
+    expect(attempt).toHaveBeenCalledTimes(2);
+    expect(elapsedMs).toBeLessThan(20_000);
+  });
+
+  it("still retries quick connection errors", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "15000");
+    const { retryOnConnectionError } = await import("./client.js");
+    const attempt = vi
+      .fn<() => Promise<string>>()
+      .mockRejectedValueOnce(
+        Object.assign(new Error("reset"), { code: "ECONNRESET" }),
+      )
+      .mockRejectedValueOnce(
+        Object.assign(new Error("reset"), { code: "ECONNRESET" }),
+      )
+      .mockResolvedValue("ok");
+
+    const { value } = await runUntilSettled(() =>
+      retryOnConnectionError(attempt),
+    );
+
+    expect(value).toBe("ok");
+    expect(attempt).toHaveBeenCalledTimes(3);
+  });
+});
