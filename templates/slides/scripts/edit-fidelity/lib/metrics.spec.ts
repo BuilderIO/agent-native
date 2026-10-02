@@ -12,6 +12,7 @@ import {
   keepaliveMismatches,
   lineDiff,
   orphanedBaselineKeys,
+  outsideChangesFor,
   p95IndexFromThresholdedSamples,
   ratchetBaselineEntry,
   resized,
@@ -287,6 +288,71 @@ describe("followsCenteredFlexReflow", () => {
         20,
       ),
     ).toBe(false);
+  });
+});
+
+describe("outsideChangesFor", () => {
+  const edited = (
+    records: SnapRecord[],
+    editedRect: NonNullable<Snapshot["editedRect"]>,
+    editedInFlow = true,
+  ): Snapshot => ({
+    ...snap(records),
+    editedRect,
+    editedInFlow,
+  });
+  const sibling = (x: number, y: number, width = 100): SnapRecord => ({
+    ...rec("box:div#0", {}),
+    downstreamFlow: true,
+    rect: { x, y, width, height: 20 },
+  });
+
+  it("allows measured movement that follows an in-flow edit's new edge", () => {
+    const before = edited([sibling(0, 20)], {
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 20,
+    });
+    const after = edited([sibling(0, 40)], {
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 40,
+    });
+
+    expect(outsideChangesFor(before, after).changes).toEqual([]);
+  });
+
+  it("keeps independent and unverified geometry changes as failures", () => {
+    const before = edited([sibling(0, 20)], {
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 20,
+    });
+    const moved = edited([sibling(30, 40)], {
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 40,
+    });
+    const detached = edited(
+      [sibling(0, 40)],
+      { x: 0, y: 0, width: 100, height: 40 },
+      false,
+    );
+
+    expect(
+      outsideChangesFor(before, moved).changes.some(
+        (change) => "prop" in change && change.prop === "x",
+      ),
+    ).toBe(true);
+    expect(
+      outsideChangesFor(before, detached).changes.some(
+        (change) => "prop" in change && change.prop === "y",
+      ),
+    ).toBe(true);
   });
 });
 

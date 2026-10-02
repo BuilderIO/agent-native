@@ -312,6 +312,69 @@ export function diffSnapshots(a: Snapshot, b: Snapshot): StyleDiff {
   };
 }
 
+export function outsideChangesFor(before: Snapshot, after: Snapshot) {
+  const outside = diffSnapshots(before, after);
+  const targetResized =
+    before.editedRect !== null &&
+    after.editedRect !== null &&
+    (Math.abs(before.editedRect.width - after.editedRect.width) > 1 ||
+      Math.abs(before.editedRect.height - after.editedRect.height) > 1);
+  const naturalReflow =
+    targetResized && before.editedInFlow && after.editedInFlow;
+  const beforeRecords = new Map(
+    before.records.map((record) => [record.key, record]),
+  );
+  const afterRecordsByKey = new Map(
+    after.records.map((record) => [record.key, record]),
+  );
+  const afterRecordsByStableKey = new Map(
+    after.records.flatMap((record) =>
+      record.stableKey ? [[record.stableKey, record] as const] : [],
+    ),
+  );
+  const followsNaturalReflow = (change: StyleDelta) => {
+    const beforeRecord = beforeRecords.get(change.key);
+    const afterRecord = beforeRecord?.stableKey
+      ? (afterRecordsByStableKey.get(beforeRecord.stableKey) ??
+        afterRecordsByKey.get(change.key))
+      : afterRecordsByKey.get(change.key);
+    if (
+      !naturalReflow ||
+      (change.prop !== "x" && change.prop !== "y") ||
+      !beforeRecord?.downstreamFlow ||
+      !afterRecord?.downstreamFlow ||
+      !before.editedRect ||
+      !after.editedRect
+    ) {
+      return false;
+    }
+    const position = change.prop === "x" ? "x" : "y";
+    const extent = change.prop === "x" ? "width" : "height";
+    const expectedShift =
+      after.editedRect[position] +
+      after.editedRect[extent] -
+      before.editedRect[position] -
+      before.editedRect[extent];
+    const actualShift = Number(change.b) - Number(change.a);
+    return (
+      Math.abs(actualShift - expectedShift) <= 1 ||
+      followsCenteredFlexReflow(
+        beforeRecord,
+        afterRecord,
+        change.prop,
+        actualShift,
+      )
+    );
+  };
+  const changes = [
+    ...outside.deltas,
+    ...outside.geometry.filter((change) => !followsNaturalReflow(change)),
+    ...outside.missing,
+    ...outside.added,
+  ].filter((change) => !change.inside);
+  return { outside, changes };
+}
+
 // ---------------------------------------------------------------- writes ---
 
 export const stripSpace = (s: string) => s.replace(/[\s\u200b\ufeff]+/g, "");
