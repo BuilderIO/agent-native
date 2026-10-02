@@ -411,9 +411,10 @@ describe("request-scoped action surface", () => {
     expect(route).toContain("runWithRequestContext");
     expect(route).toContain("const orgId = await getOrgIdFromEvent(event);");
     expect(route).toContain("{ userEmail: ownerEmail, orgId }");
-    expect(route).toContain("completeText({");
-    expect(route).toContain("appId: options?.appId");
-    expect(route).toContain('return { title: "" };');
+    expect(route).toContain(
+      "generateChatTitle({ ...request, appId: options?.appId })",
+    );
+    expect(route).toContain("setResponseStatus(event, 502);");
     expect(route).not.toContain("cleanMessage.trim().slice(0, 60)");
   });
 

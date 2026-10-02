@@ -1691,7 +1691,11 @@ const AgentKitAssistantChatBody = forwardRef<
       if (
         !thread.messages.slice(0, index).some((item) => item.role === "user")
       ) {
-        props.onGenerateTitle?.(threadId, text);
+        const { engine, model } = message.metadata ?? {};
+        props.onGenerateTitle?.(threadId, text, {
+          ...(typeof engine === "string" ? { engine } : {}),
+          ...(typeof model === "string" ? { model } : {}),
+        });
       }
     }
     const terminalEvents = thread.events.filter(

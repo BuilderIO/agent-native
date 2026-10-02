@@ -1601,6 +1601,7 @@ function mergeAgentKitHistoryArray(
   kind: "message" | "toolCall" | "widget",
   existingMessageRunIds: Map<string, string>,
   incomingMessageRunIds: Map<string, string>,
+  promptRunIds: Map<string, string>,
 ): unknown[] | undefined {
   if (!Array.isArray(existing) && !Array.isArray(incoming)) return undefined;
   const merged = Array.isArray(existing) ? [...existing] : [];
@@ -1654,7 +1655,114 @@ function mergeAgentKitHistoryArray(
       }
     }
   }
-  return merged;
+  if (kind !== "message") return merged;
+  const runAt = replyRunIdAt(
+    merged,
+    [incomingMessageRunIds, existingMessageRunIds],
+    promptRunIds,
+  );
+  return merged.filter(
+    (_entry, index) => !isSupersededInFlightReply(merged, index, runAt),
+  );
+}
+
+/** Prompt id to the run it was submitted to, from the stored user messages. */
+function submittedPromptRunIds(...lists: unknown[]): Map<string, string> {
+  const runs = new Map<string, string>();
+  for (const list of lists) {
+    for (const entry of Array.isArray(list) ? list : []) {
+      const message = getStoredMessage(entry);
+      const id = messageId(message);
+      const runId = message?.metadata?.custom?.submittedRunId;
+      if (message?.role === "user" && id && typeof runId === "string") {
+        runs.set(id, runId);
+      }
+    }
+  }
+  return runs;
+}
+
+/**
+ * The run behind each reply: its own metadata, else the AgentKit events, else
+ * the prompt's submitted run when it is the prompt's first reply. Compacted
+ * events drop the link for a reply saved mid-stream, so the prompt is often
+ * the only record left.
+ */
+function replyRunIdAt(
+  entries: unknown[],
+  eventRunIds: Map<string, string>[],
+  promptRunIds: Map<string, string>,
+): (index: number) => string | undefined {
+  return (index) => {
+    const message = getStoredMessage(entries[index]);
+    const id = messageId(message);
+    const recorded =
+      getMessageRunId(message) ??
+      (id ? eventRunIds.find((runs) => runs.has(id))?.get(id) : undefined);
+    if (recorded) return recorded;
+    for (let i = index - 1; i >= 0; i--) {
+      const earlier = getStoredMessage(entries[i]);
+      if (earlier?.role === "assistant") return undefined;
+      if (earlier?.role === "user") {
+        const prompt = messageId(earlier);
+        return prompt ? promptRunIds.get(prompt) : undefined;
+      }
+    }
+    return undefined;
+  };
+}
+
+function storedMessageText(message: any): string {
+  return messageText(message?.content ?? message?.parts);
+}
+
+function isInFlightReply(message: any): boolean {
+  return (
+    message?.role === "assistant" &&
+    (message.status === "streaming" || message.status?.type === "running")
+  );
+}
+
+/**
+ * A reloaded page replays an unfinished run from its first event under a new
+ * message id, so the reply it saved mid-stream reaches storage beside the
+ * replay. That partial gives way only to a finished reply to the same prompt
+ * from the same run whose text extends it, and only while no other run is
+ * still answering that prompt. Without a known run on both sides, both stay.
+ */
+function isSupersededInFlightReply(
+  entries: unknown[],
+  index: number,
+  runAt: (index: number) => string | undefined,
+): boolean {
+  const message = getStoredMessage(entries[index]);
+  if (!isInFlightReply(message)) return false;
+  const runId = runAt(index);
+  if (!runId) return false;
+  let start = index;
+  while (start > 0 && getStoredMessage(entries[start - 1])?.role !== "user") {
+    start--;
+  }
+  if (start === 0) return false;
+  const text = storedMessageText(message);
+  let finishedPast = false;
+  for (let other = start; other < entries.length; other++) {
+    const reply = getStoredMessage(entries[other]);
+    if (reply?.role === "user") break;
+    if (other === index || reply?.role !== "assistant") continue;
+    const otherRunId = runAt(other);
+    if (isInFlightReply(reply) && otherRunId !== runId) return false;
+    const replyText = storedMessageText(reply);
+    if (
+      (reply.status === "complete" || reply.status?.type === "complete") &&
+      otherRunId === runId &&
+      replyText.length > text.length &&
+      replyText.startsWith(text)
+    ) {
+      finishedPast = true;
+    }
+  }
+  return finishedPast;
 }
 
 function latestSnapshotRun(runs: unknown): AgentRunSnapshot | undefined {
@@ -1788,7 +1896,11 @@ export function foldThreadRunSuggestions(
   };
 }
 
-function mergeAgentKitHistory(existing: unknown, incoming: unknown): unknown {
+function mergeAgentKitHistory(
+  existing: unknown,
+  incoming: unknown,
+  promptRunIds: Map<string, string>,
+): unknown {
   if (
     !existing ||
     typeof existing !== "object" ||
@@ -1864,6 +1976,7 @@ function mergeAgentKitHistory(existing: unknown, incoming: unknown): unknown {
       kind,
       existingMessageRunIds,
       incomingMessageRunIds,
+      promptRunIds,
     );
     if (entries) merged[key] = entries;
   }
@@ -1922,10 +2035,15 @@ export function mergeThreadDataForClientSave(
     merged.queuedMessages = existingNormalized.queuedMessages;
   }
 
+  const promptRunIds = submittedPromptRunIds(
+    existingNormalized?.messages,
+    incomingNormalized?.messages,
+  );
   if (merged.agentKit !== undefined) {
     merged.agentKit = mergeAgentKitHistory(
       existingNormalized?.agentKit,
       merged.agentKit,
+      promptRunIds,
     );
   }
 
@@ -2034,7 +2152,13 @@ export function mergeThreadDataForClientSave(
       message?.role === "assistant" ? getMessageRunId(message) : null;
     if (runId) serverReplyRuns.add(runId);
   }
-  const keptMessages = nextMessages.filter((entry) => {
+  const runAt = replyRunIdAt(
+    nextMessages,
+    [eventRunIds, snapshotMessageRunIds(existingNormalized?.agentKit)],
+    promptRunIds,
+  );
+  const keptMessages = nextMessages.filter((entry, index) => {
+    if (isSupersededInFlightReply(nextMessages, index, runAt)) return false;
     const message = getStoredMessage(entry);
     if (message?.role !== "assistant" || getMessageRunId(message)) return true;
     const runId =

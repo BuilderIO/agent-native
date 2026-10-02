@@ -3058,6 +3058,45 @@ describe("useChatThreads", () => {
     ).toBe("Second title");
   });
 
+  it("generates a title on the engine and model the turn was sent with", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init)
+        return jsonResponse({ threads: [] });
+      if (url === "/chat/generate-title" && init?.method === "POST") {
+        return jsonResponse({ title: "Numbered sentences" });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "title-model-test", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+    await act(async () => {
+      root.render(<Harness />);
+    });
+
+    await act(async () => {
+      await hook!.generateTitle("thread-1", "Write forty lines", {
+        engine: "ai-sdk:openai",
+        model: "gpt-5.6-luna",
+      });
+    });
+
+    const call = fetchMock.mock.calls.find(
+      ([url]) => url === "/chat/generate-title",
+    );
+    expect(JSON.parse(call![1]!.body as string)).toEqual({
+      message: "Write forty lines",
+      engine: "ai-sdk:openai",
+      model: "gpt-5.6-luna",
+    });
+  });
+
   it("preserves a user rename over generated titles and later saves", async () => {
     const sourceThread: ChatThreadSummary = {
       id: "thread-1",
