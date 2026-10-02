@@ -1227,6 +1227,115 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  // The shape of a thread whose page was reloaded mid-run: the page saved
+  // its snapshot with only the prompt, and the server then finished the run.
+  function reloadedMidRunThread(agentKitMessages: unknown[]) {
+    return {
+      id: "thread-reloaded",
+      threadData: JSON.stringify({
+        messages: [
+          {
+            message: {
+              id: "user-1",
+              role: "user",
+              status: "complete",
+              content: [{ type: "text", text: "Write forty lines" }],
+            },
+            parentId: null,
+          },
+          {
+            message: {
+              id: "server-run-1",
+              role: "assistant",
+              status: { type: "complete", reason: "stop" },
+              content: [{ type: "text", text: "L1: one\nL40: forty" }],
+              metadata: {
+                runId: "run-1",
+                custom: { turnId: "turn-1", foldedRunIds: ["run-1"] },
+              },
+            },
+            parentId: "user-1",
+          },
+        ],
+        agentKit: {
+          messages: agentKitMessages,
+          events: [],
+          runs: [
+            {
+              id: "run-1",
+              threadId: "thread-reloaded",
+              status: "completed",
+              startedAt: "2026-10-01T23:54:23.807Z",
+              lastSequence: 0,
+            },
+          ],
+          activeRunIds: [],
+        },
+      }),
+    };
+  }
+  const reloadedPrompt = {
+    id: "user-1",
+    role: "user",
+    status: "complete",
+    parts: [{ type: "text", text: "Write forty lines" }],
+  };
+
+  it("restores a finished run's reply the reloaded page never saved into the AgentKit snapshot", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: true, status: "completed", runId: "run-1" })
+          : json(reloadedMidRunThread([reloadedPrompt])),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-reloaded",
+    });
+
+    expect(snapshot?.messages).toMatchObject([
+      { id: "user-1", role: "user" },
+      {
+        id: "server-run-1",
+        role: "assistant",
+        parts: [{ type: "text", text: "L1: one\nL40: forty" }],
+      },
+    ]);
+    expect(snapshot?.activeRunIds ?? []).toEqual([]);
+    await transport.dispose();
+  });
+
+  it("does not restore a durable reply over a turn the snapshot already answers", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "complete" })
+          : json(
+              reloadedMidRunThread([
+                reloadedPrompt,
+                {
+                  id: "regenerated",
+                  role: "assistant",
+                  status: "complete",
+                  parts: [{ type: "text", text: "A newer answer" }],
+                },
+              ]),
+            ),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-reloaded",
+    });
+
+    expect(snapshot?.messages.map((message) => message.id)).toEqual([
+      "user-1",
+      "regenerated",
+    ]);
+    await transport.dispose();
+  });
+
   it("does not replace unrelated or reordered AgentKit content with durable text", async () => {
     const transport = createAgentNativeAgentKitTransport({
       fetch: vi.fn(async (input: string | URL | Request) =>

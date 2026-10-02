@@ -334,6 +334,74 @@ function reconcileDurableAssistantText(
   });
 }
 
+/**
+ * The server folds a finished run's reply into durable history only; the
+ * AgentKit snapshot holds what the watching page saved. A page reloaded or
+ * closed mid-run never saves that reply, so a completed run with no reply in
+ * the snapshot takes its durable one, right after the prompt it answers.
+ */
+function restoreUnsavedRunReplies(
+  messages: AgentMessage[],
+  durable: AgentMessage[],
+  storedEntries: unknown,
+  snapshot: Pick<AgentThreadSnapshot, "events" | "runs">,
+): AgentMessage[] {
+  const completedRunIds = new Set(
+    (snapshot.runs ?? [])
+      .filter((run) => run.status === "completed")
+      .map((run) => run.id),
+  );
+  if (completedRunIds.size === 0) return messages;
+  const answeredRunIds = new Set(
+    (snapshot.events ?? []).flatMap((event) =>
+      (event.type === "message.created" ||
+        event.type === "message.completed") &&
+      event.message.role === "assistant"
+        ? [event.runId]
+        : [],
+    ),
+  );
+  const parentIds = new Map(
+    (Array.isArray(storedEntries) ? storedEntries : []).flatMap((entry) => {
+      const record = asRecord(entry);
+      const id = asRecord(record?.message)?.id;
+      return typeof id === "string" && typeof record?.parentId === "string"
+        ? [[id, record.parentId] as const]
+        : [];
+    }),
+  );
+  const restored = [...messages];
+  const restoredIds = new Set(restored.map((message) => message.id));
+  for (const message of durable) {
+    if (message.role !== "assistant" || restoredIds.has(message.id)) continue;
+    const metadata = asRecord(message.metadata);
+    const folded = asRecord(metadata?.custom)?.foldedRunIds;
+    const runIds = [
+      metadata?.runId,
+      ...(Array.isArray(folded) ? folded : []),
+    ].filter((id): id is string => typeof id === "string");
+    if (
+      !runIds.some((id) => completedRunIds.has(id)) ||
+      runIds.some((id) => answeredRunIds.has(id))
+    ) {
+      continue;
+    }
+    const parentIndex = restored.findIndex(
+      (entry) => entry.id === parentIds.get(message.id),
+    );
+    // A prompt the snapshot already answers belongs to a newer branch.
+    if (
+      restored[parentIndex]?.role !== "user" ||
+      restored[parentIndex + 1]?.role === "assistant"
+    ) {
+      continue;
+    }
+    restored.splice(parentIndex + 1, 0, message);
+    restoredIds.add(message.id);
+  }
+  return restored;
+}
+
 function messageStatus(value: unknown): AgentMessage["status"] | undefined {
   return value === "streaming" || value === "complete" || value === "error"
     ? value
@@ -953,10 +1021,15 @@ export function createAgentNativeAgentKitTransport(
       options.adapter?.textFormat,
     );
     const messages = protocolSnapshot?.messages
-      ? reconcileDurableAssistantText(
-          protocolSnapshot.messages,
+      ? restoreUnsavedRunReplies(
+          reconcileDurableAssistantText(
+            protocolSnapshot.messages,
+            durableMessages,
+            protocolSnapshot.events,
+          ),
           durableMessages,
-          protocolSnapshot.events,
+          repository.messages,
+          protocolSnapshot,
         )
       : durableMessages;
     const actionWidgets = storedActionWidgets(repository.messages);
