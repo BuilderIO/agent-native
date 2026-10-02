@@ -517,6 +517,7 @@ export function useCollabReconcile({
     initialSeedRetry,
   ]);
 
+  const syncedBeforeAdoptRef = useRef<string | null>(null);
   const peerReconcileWaitRef = useRef<{
     editor: Editor;
     ydoc: YDoc | null;
@@ -830,6 +831,28 @@ export function useCollabReconcile({
         return;
       }
 
+      // A snapshot another writer saved can reach this tab before the Yjs
+      // updates that carry the same text (a collab poll lags the action poll),
+      // and applying it first inserts that text a second time when they land.
+      // Snapshots with revisions are told apart from their collab copy by the
+      // revision protocol above instead.
+      const snapshotKey = contentUpdatedAt ?? "";
+      if (
+        collab &&
+        externalNewer &&
+        !contentRevision &&
+        requestCollabSync &&
+        syncedBeforeAdoptRef.current !== snapshotKey
+      ) {
+        void requestCollabSync()
+          .catch(() => null)
+          .then(() => {
+            syncedBeforeAdoptRef.current = snapshotKey;
+            if (!cancelled) apply(deferred);
+          });
+        return;
+      }
+
       if (collab && externalNewer && !deferred && peerCountRef.current > 0) {
         peerWait.deadline ??= Date.now() + PEER_SETTLE_MS;
         const remaining = peerWait.deadline - Date.now();
@@ -993,6 +1016,7 @@ export function useCollabReconcile({
     overlapPolicy,
     collabBackedSnapshot,
     pendingCollabSnapshot,
+    requestCollabSync,
   ]);
 
   const shouldIgnoreUpdate = (transaction: Transaction): boolean => {

@@ -706,7 +706,7 @@ export function PlanDocumentEditor({
   >;
   sharedCollabDoc?: Pick<
     UseCollaborativeDocResult,
-    "ydoc" | "awareness" | "isSynced" | "initialization"
+    "ydoc" | "awareness" | "isSynced" | "initialization" | "requestSync"
   >;
 }) {
   const t = useT();
@@ -831,6 +831,7 @@ export function PlanDocumentEditor({
     awareness,
     isSynced: collabSyncedRaw,
     initialization: collabInitialization,
+    requestSync: requestCollabSync,
   } = collabEnabled && sharedCollabDoc ? sharedCollabDoc : ownCollabDoc;
   const collabSynced = collabEnabled ? collabSyncedRaw : true;
   const editorEditable =
@@ -1341,6 +1342,7 @@ export function PlanDocumentEditor({
           requestInitialSeed={
             ydoc && editable && planId ? requestInitialSeed : undefined
           }
+          requestCollabSync={ydoc ? requestCollabSync : undefined}
           onInitialSeedError={onInitialSeedError}
           initialAppliedUpdatedAt={null}
           wrapperClassName={WRAPPER_CLASS}

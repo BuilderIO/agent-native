@@ -73,6 +73,7 @@ export interface SharedRichEditorProps {
   }) => boolean;
   initialAppliedUpdatedAt?: string | null;
   requestInitialSeed?: UseCollabReconcileOptions["requestInitialSeed"];
+  requestCollabSync?: UseCollabReconcileOptions["requestCollabSync"];
   onInitialSeedError?: UseCollabReconcileOptions["onInitialSeedError"];
   wrapperClassName?: string;
   onEditorReady?: (editor: import("@tiptap/react").Editor) => void;
@@ -111,6 +112,7 @@ export function SharedRichEditor({
   shouldSeed,
   initialAppliedUpdatedAt,
   requestInitialSeed,
+  requestCollabSync,
   onInitialSeedError,
   wrapperClassName,
   onEditorReady,
@@ -232,6 +234,7 @@ export function SharedRichEditor({
     shouldSeed,
     initialAppliedUpdatedAt,
     requestInitialSeed,
+    requestCollabSync,
     onInitialSeedError,
   });
   guardsRef.current = collabState;
