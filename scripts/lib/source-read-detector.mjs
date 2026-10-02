@@ -254,21 +254,21 @@ function createPragmaReader(sf, lines) {
 
   /**
    * Returns "ok" (a pragma with a reason), "empty" (a pragma with no reason),
-   * or null (no pragma) for a flagged span.
+   * or null (no pragma) for a read reported at `line`. Only that line and the
+   * comment block directly above it count, not the rest of a multi-line call.
    */
-  return (startLine, endLine) => {
+  return (line) => {
     let sawEmpty = false;
-    const candidates = [];
-    for (let line = startLine; line <= endLine; line += 1) {
-      candidates.push(pragmaOnLine(line));
-    }
     // The comment block directly above (a trailing comment on the previous
     // code line belongs to that line, not this one).
-    candidates.push(commentBlockHasPragma(startLine));
+    const candidates = [pragmaOnLine(line), commentBlockHasPragma(line)];
     for (const match of candidates) {
       if (!match) continue;
-      const reason = match[1].replace(/\*\/\s*$/, "").trim();
-      if (reason) return "ok";
+      // A block comment's reason ends at its `*/`; code after it is not one.
+      const text = match[0].startsWith("/*")
+        ? match[1].split("*/")[0]
+        : match[1];
+      if (text.trim()) return "ok";
       sawEmpty = true;
     }
     return sawEmpty ? "empty" : null;
@@ -336,6 +336,11 @@ const isTextRead = (call) => {
     }
     return !isNullish(options);
   }
+  return toStringConversion(call) !== null;
+};
+
+// The `.toString` that turns a read's Buffer into text on the spot, or null.
+const toStringConversion = (call) => {
   let current = call;
   while (
     current.parent &&
@@ -344,12 +349,13 @@ const isTextRead = (call) => {
   ) {
     current = current.parent;
   }
-  return (
-    current.parent !== undefined &&
-    ts.isPropertyAccessExpression(current.parent) &&
-    current.parent.expression === current &&
-    current.parent.name.text === "toString"
-  );
+  const parent = current.parent;
+  return parent !== undefined &&
+    ts.isPropertyAccessExpression(parent) &&
+    parent.expression === current &&
+    parent.name.text === "toString"
+    ? parent.name
+    : null;
 };
 
 // The named function (declaration, or const arrow/function expression) that
@@ -675,6 +681,9 @@ function createPathAnalyzer({ visibleDecls }) {
   //   anchored    it is rooted in the repo checkout: __dirname, import.meta,
   //               process.cwd(), or a root-named constant we cannot resolve
   //   literalOnly it is built from string literals alone (cwd-relative)
+  //   sourceLines the lines of the string literals that give it a "source"
+  //               tail, so a diff that only edits where the path is defined
+  //               (a const, a table row) still reaches the read
   // Only a "source" tail that is anchored (or literal-only) and neither
   // fixture nor temp counts: reads of generated output under a build or temp
   // directory are testing what the code produced, not what it says.
@@ -702,6 +711,7 @@ function createPathAnalyzer({ visibleDecls }) {
       temp: a.temp || b.temp,
       anchored: a.anchored || b.anchored,
       literalOnly: a.literalOnly && b.literalOnly,
+      sourceLines: [...a.sourceLines, ...b.sourceLines],
     };
   };
   const UNKNOWN = {
@@ -710,21 +720,31 @@ function createPathAnalyzer({ visibleDecls }) {
     temp: false,
     anchored: false,
     literalOnly: false,
+    sourceLines: [],
   };
   const ANCHOR = { ...UNKNOWN, anchored: true };
 
-  const literalFacts = (text) => ({
-    tail: SOURCE_EXT_RE.test(text) ? "source" : "other",
-    fixture: FIXTURE_RE.test(text),
-    temp: TEMP_LITERAL_RE.test(text),
-    anchored: false,
-    literalOnly: true,
-  });
+  const lineOf = (node) => {
+    const sf = node.getSourceFile();
+    return sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+  };
+
+  const literalFacts = (text, node) => {
+    const source = SOURCE_EXT_RE.test(text);
+    return {
+      tail: source ? "source" : "other",
+      fixture: FIXTURE_RE.test(text),
+      temp: TEMP_LITERAL_RE.test(text),
+      anchored: false,
+      literalOnly: true,
+      sourceLines: source ? [lineOf(node)] : [],
+    };
+  };
 
   const analyze = (node, depth = 0, seen = new Set()) => {
     const inner = unwrap(node);
     const text = stringValue(inner);
-    if (text !== null) return literalFacts(text);
+    if (text !== null) return literalFacts(text, inner);
 
     if (ts.isTemplateExpression(inner)) {
       const head = inner.head.text;
@@ -732,21 +752,24 @@ function createPathAnalyzer({ visibleDecls }) {
         ...UNKNOWN,
         fixture: FIXTURE_RE.test(head),
       };
-      let lastLiteral = head;
-      let lastExpression = null;
+      let lastLiteral = inner.head;
+      let lastFacts = null;
       for (const span of inner.templateSpans) {
         if (FIXTURE_RE.test(span.literal.text)) facts.fixture = true;
-        lastLiteral = span.literal.text;
-        lastExpression = span.expression;
+        lastLiteral = span.literal;
         const spanFacts = analyze(span.expression, depth + 1, seen);
+        lastFacts = spanFacts;
         facts.fixture ||= spanFacts.fixture;
         facts.temp ||= spanFacts.temp;
         facts.anchored ||= spanFacts.anchored;
       }
-      if (lastLiteral) {
-        facts.tail = SOURCE_EXT_RE.test(lastLiteral) ? "source" : "other";
-      } else if (lastExpression) {
-        facts.tail = analyze(lastExpression, depth + 1, seen).tail;
+      if (lastLiteral.text) {
+        const source = SOURCE_EXT_RE.test(lastLiteral.text);
+        facts.tail = source ? "source" : "other";
+        facts.sourceLines = source ? [lineOf(lastLiteral)] : [];
+      } else if (lastFacts) {
+        facts.tail = lastFacts.tail;
+        facts.sourceLines = lastFacts.sourceLines;
       }
       return facts;
     }
@@ -796,6 +819,7 @@ function createPathAnalyzer({ visibleDecls }) {
           temp: left.temp || right.temp,
           anchored: left.anchored || right.anchored,
           literalOnly: left.literalOnly && right.literalOnly,
+          sourceLines: right.sourceLines,
         };
       }
       return UNKNOWN;
@@ -861,6 +885,7 @@ function createPathAnalyzer({ visibleDecls }) {
           temp,
           anchored: anchored || receiver.anchored,
           literalOnly: false,
+          sourceLines: receiver.sourceLines,
         };
       }
       // new URL(path, base) / fileURLToPath(url) / pathToFileURL(path) /
@@ -884,6 +909,7 @@ function createPathAnalyzer({ visibleDecls }) {
           isPathFunction &&
           argFacts.length > 0 &&
           argFacts.every((facts) => facts.literalOnly),
+        sourceLines: decisive ? decisive.sourceLines : [],
       };
     }
 
@@ -1010,7 +1036,9 @@ function createPathAnalyzer({ visibleDecls }) {
 /**
  * Finds tests in `source` (the text of `file`) that read a source module as
  * text. `addedLines` is a Set of 1-based line numbers this branch added; when
- * given, only reads whose statement touches an added line are reported.
+ * given, only reads that touch an added line are reported: a line of the read
+ * itself, the string literal naming the source file it reads (a const or a
+ * table row elsewhere), or a `.toString()` that turns it into text.
  * Pass null to report every read (the `--all` measurement mode).
  *
  * Returns [{ file, line, text, reason }].
@@ -1037,6 +1065,8 @@ export function findSourceReadViolations(file, source, addedLines = null) {
       .replace(/[\r\n\u2028\u2029]+$/u, ""),
   );
   const pragmaStatus = createPragmaReader(sf, lines);
+  const lineOfNode = (node) =>
+    sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
   const model = collectModel(sf);
   const { analyze, mentionsParam, UNKNOWN } = createPathAnalyzer(model);
   const { isFsExpression, isLocalBinding, fsReaders, calls, rawSpecifiers } =
@@ -1058,7 +1088,10 @@ export function findSourceReadViolations(file, source, addedLines = null) {
     return false;
   };
 
-  const found = []; // { node, reason }
+  // { node, reason, alsoLines }: alsoLines are lines outside the node that
+  // still make the read new when added (where the source path is named, or
+  // a `.toString()` that turns the read into text).
+  const found = [];
   // Same-file helpers that read a path built from their parameters:
   // name -> { anchoredInside } (whether the helper roots the path in the repo)
   const helpers = new Map();
@@ -1093,7 +1126,14 @@ export function findSourceReadViolations(file, source, addedLines = null) {
       const facts = analyze(pathArg);
       if (facts.temp || facts.fixture) continue;
       if (countsAsSource(facts)) {
-        found.push({ node: call, reason: "reads a source file as text" });
+        const conversion = toStringConversion(call);
+        found.push({
+          node: call,
+          reason: "reads a source file as text",
+          alsoLines: conversion
+            ? [...facts.sourceLines, lineOfNode(conversion)]
+            : facts.sourceLines,
+        });
       } else if (facts.tail === "unknown") {
         const named = nearestNamedFunction(call);
         if (named && mentionsParam(pathArg, named.fn)) {
@@ -1126,6 +1166,7 @@ export function findSourceReadViolations(file, source, addedLines = null) {
         found.push({
           node: call,
           reason: `${callee.text}() reads a source file as text`,
+          alsoLines: argFacts.flatMap((facts) => facts.sourceLines),
         });
       }
     }
@@ -1141,21 +1182,17 @@ export function findSourceReadViolations(file, source, addedLines = null) {
   // ---- scope to added lines, apply pragma, report -------------------------
   const violations = [];
   const seenReports = new Set();
-  for (const { node, reason } of found) {
-    const startLine =
-      sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+  for (const { node, reason, alsoLines = [] } of found) {
+    const startLine = lineOfNode(node);
     const endLine = sf.getLineAndCharacterOfPosition(node.getEnd()).line + 1;
     if (addedLines) {
-      let touched = false;
-      for (let line = startLine; line <= endLine; line += 1) {
-        if (addedLines.has(line)) {
-          touched = true;
-          break;
-        }
+      let touched = alsoLines.some((line) => addedLines.has(line));
+      for (let line = startLine; !touched && line <= endLine; line += 1) {
+        touched = addedLines.has(line);
       }
       if (!touched) continue;
     }
-    const status = pragmaStatus(startLine, endLine);
+    const status = pragmaStatus(startLine);
     if (status === "ok") continue;
     const key = `${startLine}:${reason}`;
     if (seenReports.has(key)) continue;

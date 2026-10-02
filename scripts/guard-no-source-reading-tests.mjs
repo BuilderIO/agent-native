@@ -14,9 +14,10 @@
  * An audit found 186 of them in 42 files and the habit was still growing.
  *
  * The existing ones are a separate cleanup. This guard is diff-scoped via
- * scripts/lib/changed-lines.mjs: it only fails on lines THIS branch added,
- * so the habit stops spreading without demanding the backlog be fixed in
- * the same PR.
+ * scripts/lib/changed-lines.mjs: it only fails on reads that touch lines THIS
+ * branch added (the read itself, or the string naming the source file it
+ * reads), so the habit stops spreading without demanding the backlog be fixed
+ * in the same PR.
  *
  * Rejected on added lines in test files (*.test.*, *.spec.*, __tests__/):
  *   - readFileSync / readFile / fs.promises.readFile (and aliases) that read

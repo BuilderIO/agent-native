@@ -772,6 +772,38 @@ const a = readFileSync("src/a.ts", "utf8");
   );
 });
 
+test("an empty block-comment pragma followed by code does not allow the read", () => {
+  const source = `
+import { readFileSync } from "node:fs";
+/* source-read-ok: */ const a = readFileSync("src/a.ts", "utf8");
+`;
+  assert.deepEqual(flagged(source), [3]);
+  assert.match(reasons(source)[0]!, /pragma needs a reason/u);
+});
+
+test("a pragma inside a multi-line read does not allow it", () => {
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+const a = readFileSync(
+  "src/a.ts", // source-read-ok: not the read line
+  "utf8",
+);
+`),
+    [3],
+  );
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+const a = readFileSync( // source-read-ok: on the read line
+  "src/a.ts",
+  "utf8",
+);
+`),
+    [],
+  );
+});
+
 test("only lines the branch added are reported", () => {
   const source = `
 import { readFileSync } from "node:fs";
@@ -803,6 +835,49 @@ const source = readFileSync(
     findSourceReadViolations(TEST_PATH, source, new Set([4])).length,
     1,
   );
+});
+
+function flaggedWhenAdded(source: string, added: number[]): number[] {
+  return findSourceReadViolations(TEST_PATH, source, new Set(added)).map(
+    (found) => found.line,
+  );
+}
+
+test("a read is reported when the line naming its source file was added", () => {
+  const source = `
+import { readFileSync } from "node:fs";
+import path from "node:path";
+const EDITOR = "src/Editor.tsx";
+const rows = [["editor", "src/Editor.tsx"], ["data", "data.json"]];
+const a = readFileSync(path.join(__dirname, EDITOR), "utf8");
+for (const [, file] of rows) readFileSync(path.join(__dirname, file), "utf8");
+const read = (rel: string) => readFileSync(path.join(__dirname, rel), "utf8");
+const PANEL = "src/Panel.tsx";
+read(PANEL);
+`;
+  assert.deepEqual(flaggedWhenAdded(source, [4]), [6]);
+  assert.deepEqual(flaggedWhenAdded(source, [5]), [7]);
+  assert.deepEqual(flaggedWhenAdded(source, [9]), [10]);
+});
+
+test("an added line the read depends on that names no source file is not enough", () => {
+  const source = `
+import { readFileSync } from "node:fs";
+import path from "node:path";
+const ROOT = path.resolve(__dirname, "..");
+const a = readFileSync(path.join(ROOT, "src/a.ts"), "utf8");
+`;
+  assert.deepEqual(flaggedWhenAdded(source, [4]), []);
+  assert.deepEqual(flaggedWhenAdded(source, [5]), [5]);
+});
+
+test("a read is reported when the line turning it into text was added", () => {
+  const source = `
+import { readFileSync } from "node:fs";
+const a = readFileSync("src/a.ts")
+  .toString();
+`;
+  assert.deepEqual(flaggedWhenAdded(source, [4]), [3]);
 });
 
 test("a violation carries the file, line, source text and a reason", () => {
