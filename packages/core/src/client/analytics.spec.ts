@@ -813,7 +813,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking, trackEvent } = await freshAnalytics();
 
     configureTracking({ pageviewTracking: false });
-    trackEvent("beta lane event");
+    trackEvent("beta_lane_event");
 
     const [url] = analyticsCalls[0];
     expect(url).toBe(

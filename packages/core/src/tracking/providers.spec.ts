@@ -77,7 +77,7 @@ describe("tracking providers", () => {
       await freshTrackingModules();
 
     registerBuiltinProviders();
-    track("qa.event", { app: "clips" }, { userId: "u1" });
+    track("qa_event", { app: "clips" }, { userId: "u1" });
     await flushTracking();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
