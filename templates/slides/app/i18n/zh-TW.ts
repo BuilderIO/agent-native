@@ -974,6 +974,7 @@ const messages = {
     createDeckOrVisual: "建立簡報",
     noMineDecks: "你還沒有建立任何幻燈片。",
     noDecksMatchSearch: "沒有符合搜尋條件的簡報。",
+    noDecksMatchFilter: "沒有符合目前篩選條件的簡報。",
     deleteDeckTitle: "刪除幻燈片？",
     deleteDeckDescription: "這會永久刪除此幻燈片及其所有頁面。此操作無法撤銷。",
     cancel: "取消",

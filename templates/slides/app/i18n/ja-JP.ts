@@ -1020,6 +1020,7 @@ const messages = {
     createDeckOrVisual: "プレゼンテーションを作成",
     noMineDecks: "自分が作成したデッキはまだありません。",
     noDecksMatchSearch: "検索に一致するデッキはありません。",
+    noDecksMatchFilter: "現在のフィルターに一致するデッキはありません。",
     deleteDeckTitle: "デッキを削除しますか？",
     deleteDeckDescription:
       "このデッキとすべてのスライドを完全に削除します。この操作は元に戻せません。",

@@ -1792,6 +1792,7 @@ export default {
       "Escolha um ponto de partida ou escreva seu próprio prompt.",
     searchNoResultsTitle: "Nenhum design corresponde a esta busca",
     searchNoResultsDescription: "Tente outra busca.",
+    noDesignsMatchFilter: "Nenhum design corresponde ao filtro atual.",
     starterSaas: "Página de destino SaaS",
     starterDashboard: "Painel",
     starterPricing: "Página de preços",

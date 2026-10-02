@@ -1809,6 +1809,7 @@ export default {
       "Choisissez un point de départ ou rédigez votre propre invite.",
     searchNoResultsTitle: "Aucun design ne correspond à cette recherche",
     searchNoResultsDescription: "Essayez une autre recherche.",
+    noDesignsMatchFilter: "Aucun design ne correspond au filtre actuel.",
     starterSaas: "Page de destination SaaS",
     starterDashboard: "Tableau de bord",
     starterPricing: "Page de tarification",

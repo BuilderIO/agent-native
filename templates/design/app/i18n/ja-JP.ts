@@ -1792,6 +1792,7 @@ export default {
     pickStartingPoint: "開始点を選択するか、独自のプロンプトを作成します。",
     searchNoResultsTitle: "この検索に一致するデザインはありません",
     searchNoResultsDescription: "別の検索をお試しください。",
+    noDesignsMatchFilter: "現在のフィルターに一致するデザインはありません。",
     starterSaas: "SaaS ランディング ページ",
     starterDashboard: "ダッシュボード",
     starterPricing: "価格ページ",

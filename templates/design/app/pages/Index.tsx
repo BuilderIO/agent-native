@@ -1400,7 +1400,11 @@ export default function Index() {
                 ) : designs.length === 0 ? (
                   normalizedSearch ? (
                     <SearchEmptyState />
-                  ) : null
+                  ) : (
+                    <div className="rounded-xl bg-card p-6 text-center text-sm text-muted-foreground">
+                      {t("home.noDesignsMatchFilter")}
+                    </div>
+                  )
                 ) : (
                   <>
                     {isSelectingDesigns ? (

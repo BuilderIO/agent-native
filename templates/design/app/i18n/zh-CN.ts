@@ -1716,6 +1716,7 @@ export default {
     pickStartingPoint: "选择一个起点或编写您自己的提示。",
     searchNoResultsTitle: "没有符合此搜索条件的设计",
     searchNoResultsDescription: "请尝试其他搜索。",
+    noDesignsMatchFilter: "没有符合当前筛选条件的设计。",
     starterSaas: "SaaS 登陆页面",
     starterDashboard: "仪表板",
     starterPricing: "定价页面",

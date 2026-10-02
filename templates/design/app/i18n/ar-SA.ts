@@ -1754,6 +1754,7 @@ export default {
     pickStartingPoint: "اختر نقطة بداية أو اكتب مطالبتك الخاصة.",
     searchNoResultsTitle: "لا توجد تصميمات تطابق هذا البحث",
     searchNoResultsDescription: "جرّب بحثًا مختلفًا.",
+    noDesignsMatchFilter: "لا توجد تصميمات تطابق عامل التصفية الحالي.",
     starterSaas: "الصفحة المقصودة SaaS",
     starterDashboard: "لوحة المعلومات",
     starterPricing: "صفحة التسعير",

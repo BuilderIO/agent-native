@@ -2631,11 +2631,16 @@ export default function Index({ active = true }: { active?: boolean }) {
                   onSetWorkspaceDefault={handleSetWorkspaceDefaultDeck}
                 />
               ))}
-              {visibleDecks.length === 0 && normalizedDeckSearch && (
-                <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
-                  {t("home.noDecksMatchSearch")}
-                </div>
-              )}
+              {visibleDecks.length === 0 &&
+                (normalizedDeckSearch ? (
+                  <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
+                    {t("home.noDecksMatchSearch")}
+                  </div>
+                ) : (
+                  <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
+                    {t("home.noDecksMatchFilter")}
+                  </div>
+                ))}
             </div>
           }
         />

@@ -1761,6 +1761,7 @@ export default {
     pickStartingPoint: "एक प्रारंभिक बिंदु चुनें या अपना स्वयं का संकेत लिखें।",
     searchNoResultsTitle: "इस खोज से मेल खाने वाला कोई डिज़ाइन नहीं है",
     searchNoResultsDescription: "कोई दूसरी खोज आज़माएँ।",
+    noDesignsMatchFilter: "वर्तमान फ़िल्टर से कोई डिज़ाइन मेल नहीं खाता।",
     starterSaas: "सास लैंडिंग पृष्ठ",
     starterDashboard: "डैशबोर्ड",
     starterPricing: "मूल्य निर्धारण पृष्ठ",

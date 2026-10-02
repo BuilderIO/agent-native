@@ -1816,6 +1816,7 @@ export default {
       "Wählen Sie einen Ausgangspunkt oder schreiben Sie Ihre eigene Aufforderung.",
     searchNoResultsTitle: "Keine Designs entsprechen dieser Suche",
     searchNoResultsDescription: "Versuche es mit einer anderen Suche.",
+    noDesignsMatchFilter: "Keine Designs entsprechen dem aktuellen Filter.",
     starterSaas: "SaaS-Landingpage",
     starterDashboard: "Dashboard",
     starterPricing: "Preisseite",

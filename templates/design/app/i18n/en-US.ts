@@ -1778,6 +1778,7 @@ export default {
     pickStartingPoint: "Pick a starting point or write your own prompt.",
     searchNoResultsTitle: "No designs match your search",
     searchNoResultsDescription: "Try a different search.",
+    noDesignsMatchFilter: "No designs match the current filter.",
     starterSaas: "SaaS landing page",
     starterDashboard: "Dashboard",
     starterPricing: "Pricing page",

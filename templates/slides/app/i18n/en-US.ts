@@ -1013,6 +1013,7 @@ const messages = {
     createDeckOrVisual: "Create a presentation",
     noMineDecks: "No decks created by you yet.",
     noDecksMatchSearch: "No decks match your search.",
+    noDecksMatchFilter: "No decks match the current filter.",
     deleteDeckTitle: "Delete Deck?",
     deleteDeckDescription:
       "This will permanently delete this deck and all its slides. This action cannot be undone.",

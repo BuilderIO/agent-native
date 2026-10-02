@@ -1819,6 +1819,7 @@ export default {
     pickStartingPoint: "選取一個起點或編寫您自己的提示。",
     searchNoResultsTitle: "找不到符合此搜尋的設計",
     searchNoResultsDescription: "請嘗試其他搜尋。",
+    noDesignsMatchFilter: "沒有符合目前篩選條件的設計。",
     starterSaas: "SaaS 到達頁面",
     starterDashboard: "儀表板",
     starterPricing: "定價頁面",

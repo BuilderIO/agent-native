@@ -1793,6 +1793,7 @@ export default {
     pickStartingPoint: "Elija un punto de partida o escriba su propio mensaje.",
     searchNoResultsTitle: "Ningún diseño coincide con esta búsqueda",
     searchNoResultsDescription: "Prueba con otra búsqueda.",
+    noDesignsMatchFilter: "Ningún diseño coincide con el filtro actual.",
     starterSaas: "Página de inicio de SaaS",
     starterDashboard: "Panel",
     starterPricing: "Página de precios",
