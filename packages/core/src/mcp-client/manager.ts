@@ -439,19 +439,7 @@ export class McpClientManager {
         `MCP server ${entry.id} connect`,
         timeoutMs,
       );
-      if (callbackError) {
-        const probeError = callbackError;
-        const negotiatedVersion = client.getNegotiatedProtocolVersion?.();
-        if (httpStatusFromError(probeError) === 400 && negotiatedVersion) {
-          // Auto version negotiation treats a 400 probe as fallback on older servers.
-          if (entry.error === formatMcpConnectError(probeError)) {
-            entry.error = undefined;
-          }
-          callbackError = undefined;
-        } else {
-          throw callbackError;
-        }
-      }
+      if (callbackError) throw callbackError;
       const listed = await withConnectTimeout(
         Promise.resolve(client.listTools()),
         `MCP server ${entry.id} tools/list`,

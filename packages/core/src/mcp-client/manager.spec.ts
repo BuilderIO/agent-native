@@ -63,7 +63,6 @@ function headersFromUnknown(value: unknown): Record<string, string> {
 
 class FakeClient {
   onerror?: (error: unknown) => void;
-  negotiatedProtocolVersion?: string;
   private transport: FakeTransport | null = null;
   constructor(
     public info: any,
@@ -79,9 +78,6 @@ class FakeClient {
   }
   getTransport() {
     return this.transport;
-  }
-  getNegotiatedProtocolVersion() {
-    return this.negotiatedProtocolVersion;
   }
   async listTools() {
     const spec = serverFixtures[this.transport!.key];
@@ -960,42 +956,6 @@ describe("McpClientManager", () => {
       process.off("unhandledRejection", onUnhandled);
       FakeClient.prototype.connect = origConnect;
       FakeClient.prototype.close = origClose;
-    }
-  });
-
-  it("accepts a successful legacy protocol negotiation after an HTTP 400 probe", async () => {
-    const origConnect = FakeClient.prototype.connect;
-    FakeClient.prototype.connect = async function (transport: FakeTransport) {
-      if (transport instanceof FakeHttp) {
-        transport.onerror?.(
-          Object.assign(new Error("Unsupported protocol version"), {
-            status: 400,
-          }),
-        );
-        this.negotiatedProtocolVersion = "2025-11-25";
-      }
-      return origConnect.call(this, transport);
-    };
-
-    try {
-      serverFixtures["http https://example.com/mcp"] = {
-        tools: [{ name: "ping" }],
-        callImpl: () => ({ content: [] }),
-      };
-      const mgr = new McpClientManager({
-        servers: {
-          remote: { type: "http", url: "https://example.com/mcp" },
-        },
-      });
-      await mgr.start();
-
-      expect(mgr.connectedServers).toEqual(["remote"]);
-      expect(mgr.getStatus().errors).toEqual({});
-      expect(mgr.getTools().map((tool) => tool.name)).toContain(
-        "mcp__remote__ping",
-      );
-    } finally {
-      FakeClient.prototype.connect = origConnect;
     }
   });
 });
