@@ -378,6 +378,10 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .inp.tokfield { padding-right: 0; }
 .tok-chip { display: inline-flex; align-items: center; gap: 4px; height: 18px; margin-right: auto; padding: 0 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font: 500 11px/18px var(--font); }
 .tok-chip svg.i { width: 12px; height: 12px; }
+.src-row { display: flex; align-items: center; gap: 8px; padding: 0 16px 12px; }
+.src-row .flabel { flex: none; width: 48px; }
+.src-row .inp.sel { flex: 1; min-width: 0; gap: 6px; padding: 0 4px 0 8px; }
+.src-row .inp.sel span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .segt { display: flex; padding: 2px; border-radius: 6px; background: var(--muted); }
 .segt button { flex: 1; height: 20px; border-radius: 4px; font-size: 12px; color: var(--muted-fg); }
 .segt button[aria-pressed="true"] { background: var(--bg); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / 10%); }
@@ -1007,7 +1011,7 @@ function widthTokens(kind) {
   const own = TOKENS.filter(t => t.cssVar.startsWith(prefix)).map(t => [t.cssVar.slice(prefix.length), parseFloat(t.value) * (/rem$/.test(t.value) ? 16 : 1)]).filter(([, px]) => px > 0);
   return own.length ? own.sort((a, b) => a[1] - b[1]) : kind === "container" ? TW_CONTAINER : TW_BREAKPOINT;
 }
-const RESP = { w: 1280, rules: [], nextId: 1 };
+const RESP = { w: 1280, h: null, rules: [], nextId: 1 };
 const respOn = () => S.route !== "*";
 // Design renders the frame at its own width; Interact renders it at the device's width.
 const frameWidth = () => S.mode === "interact" ? DEVICES.find(d => d.name === S.device).w : RESP.w;
@@ -1043,9 +1047,11 @@ function renderResponsiveFrame() {
   wrap.querySelector(".resp-handle")?.remove();
   let style = $("#resp-css"); if (!style) { style = document.createElement("style"); style.id = "resp-css"; document.head.append(style); }
   style.textContent = on ? respCss() : "";
-  if (!on) { Object.assign(p.style, { width: "", position: "", left: "", top: "", transformOrigin: "" }); Object.assign(wrap.style, { width: "", height: "" }); return; }
+  if (!on) { Object.assign(p.style, { width: "", height: "", overflow: "", position: "", left: "", top: "", transformOrigin: "" }); Object.assign(wrap.style, { width: "", height: "" }); return; }
   const s = S.zoom / 100, w = frameWidth();
   Object.assign(p.style, { width: w + "px", position: "absolute", left: "0", top: "0", transformOrigin: "top left", transform: `scale(${s})` });
+  const hFixed = S.mode === "design" ? RESP.h : null;
+  Object.assign(p.style, { height: hFixed ? hFixed + "px" : "", overflow: hFixed ? "hidden" : "" });
   const fit = () => { wrap.style.width = w * s + "px"; wrap.style.height = p.offsetHeight * s + "px"; };
   fit(); requestAnimationFrame(fit);
   const name = screenName();
@@ -1060,7 +1066,11 @@ function setFrameWidth(w, live, tok = null) {
   if (live) { const p = $("#page"), s = S.zoom / 100; p.style.width = RESP.w + "px"; p.parentElement.style.width = RESP.w * s + "px"; p.parentElement.style.height = p.offsetHeight * s + "px"; requestAnimationFrame(renderPins); return; }
   renderPage(); renderInspector();
 }
-document.addEventListener("keydown", e => { if (e.target.id === "screen-w" && e.key === "Enter") { e.preventDefault(); setFrameWidth(parseFloat(e.target.value) || RESP.w); } });
+document.addEventListener("keydown", e => {
+  if (e.target.id === "screen-w" && e.key === "Enter") { e.preventDefault(); setFrameWidth(parseFloat(e.target.value) || RESP.w); }
+  // H takes a number for a fixed height; anything else, like “Hug”, goes back to hugging the content.
+  if (e.target.id === "screen-h" && e.key === "Enter") { e.preventDefault(); const v = parseFloat(e.target.value); RESP.h = v > 0 ? Math.round(v) : null; renderPage(); renderInspector(); }
+});
 document.addEventListener("pointerdown", e => {
   const h = e.target.closest?.(".resp-handle"); if (!h) return;
   e.preventDefault(); h.classList.add("drag");
@@ -1081,6 +1091,11 @@ const boundToken = () => RESP.tok && RESP.tok[1] === RESP.w ? RESP.tok : null;
 const frameToken = () => boundToken() || nearestToken(RESP.w);
 const widthMenu = (cur, run) => { const [name, , kind] = (cur === RESP.w ? frameToken() : nearestToken(cur)) || []; return [{ label: "Container" }, ...widthTokens("container").map(([n, px]) => ({ t: n, k: String(px), radio: true, on: kind === "container" && name === n, run: () => run(px, [n, px, "container"]) })), "-", { label: "Breakpoint" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: n, k: String(px), radio: true, on: kind === "breakpoint" && name === n, run: () => run(px, [n, px, "breakpoint"]) }))]; };
 const whenMenu = (r) => [{ label: "Container (this layer's parent)" }, ...widthTokens("container").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), radio: true, on: r.scale === "container" && r.token === n, run: () => { r.scale = "container"; r.token = n; renderPage(); renderInspector(); } })), "-", { label: "Breakpoint (the frame)" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), radio: true, on: r.scale === "breakpoint" && r.token === n, run: () => { r.scale = "breakpoint"; r.token = n; renderPage(); renderInspector(); } }))];
+// Source only shows for a URL screen (a live page, usually a connected local app); static screens have nothing to choose.
+const SRC = { live: true, url: "localhost:5173/home" };
+const urlScreen = () => S.scenario === "local";
+// Device sizes use the Frame tool's list, so there's one set of presets; a device sets W and a fixed H.
+const deviceMenu = () => FRAME_PRESETS.map(([key, label, icon, list]) => ({ icon, t: label, sub: list.map(([n, w, h]) => ({ t: n, k: `${w}\u2009×\u2009${h}`, radio: true, on: RESP.w === w && RESP.h === h, run: () => { RESP.h = h; setFrameWidth(w); } })) }));
 // The selected screen's frame, in the code's order: Screen, Position (X/Y, size with device presets),
 // Layout grids, Appearance, Fill, Stroke, Effects, Export.
 function renderScreenInspector(el) {
@@ -1090,10 +1105,10 @@ function renderScreenInspector(el) {
     : `<label class="inp"><span class="pre">W</span><input id="screen-w" value="${RESP.w}" aria-label="Frame width" inputmode="numeric"><button class="post" data-w-menu aria-haspopup="menu" title="Width tokens">${ic("chevron-down", "s12")}</button></label>`;
   el.innerHTML = `<div class="sel-head"><div class="g"><span class="nm">${ic("frame", "s14")}<span>${screenName()}</span></span><span class="muted" style="font-size:12px">${S.route}</span></div></div>
     <div class="insp-scroll">
-    ${sec("screen", "Screen", "", `<div class="g5">${field("Source", `<div class="segt"><button aria-pressed="true">Static</button><button aria-pressed="false" data-toast="Screens can render a URL (a local app or a live page)">URL</button></div>`, "c13")}</div>`)}
-    ${sec("position", "Position", act("device-desktop", "Device sizes"), `
+    ${urlScreen() ? sec("screen", "Screen", "", `<div class="src-row"><span class="flabel">Source</span><button class="inp sel" data-src-menu aria-haspopup="menu">${ic(SRC.live ? "world" : "file-code", "s12")}<span>${SRC.live ? SRC.url : "Static snapshot"}</span>${ic("chevron-down", "s12")}</button></div>`) : ""}
+    ${sec("position", "Position", `<button class="icon-btn xs" data-device-menu aria-haspopup="menu" title="Device sizes">${ic("device-desktop")}</button>`, `
       <div class="g5">${field("Position", inp("X", "0px"))}${field("&nbsp;", inp("Y", "0px"), "c3")}</div>
-      <div class="g5">${field("Size", wField)}${field("&nbsp;", inp("H", "Hug"), "c3")}</div>`)}
+      <div class="g5">${field("Size", wField)}${field("&nbsp;", `<label class="inp"><span class="pre">H</span><input id="screen-h" value="${RESP.h ? RESP.h : "Hug"}" aria-label="Frame height"></label>`, "c3")}</div>`)}
     ${sec("grids", "Layout grids", act("plus", "Add layout grid"), "", { empty: true })}
     ${sec("appearance", "Appearance", act("eye", "Visible"), `<div class="g5">${field("Opacity", inp(ic("grid-dots", "s12"), "100%"))}${field("Corner radius", inp(ic("border-radius", "s12"), "0"), "c3")}</div>`)}
     ${sec("fill", "Fill", act("plus", "Add fill"), `<div class="fillrow"><button class="inp"><span class="swatch" style="background:#ffffff"></span><span class="hex">FFFFFF</span><span class="pct">100%</span></button></div>`)}
@@ -1111,6 +1126,9 @@ function responsiveSection(id) {
 document.addEventListener("click", e => {
   const t = e.target;
   if (t.closest?.("[data-select-screen]")) { S.screenSel = true; S.multi = []; renderTree(); renderPage(); renderInspector(); return; }
+  const dm = t.closest?.("[data-device-menu]"); if (dm) return openMenu(dm, deviceMenu(), { align: "right" });
+  const sm = t.closest?.("[data-src-menu]");
+  if (sm) return openMenu(sm, [{ icon: "world", t: "Live URL", k: SRC.url, radio: true, on: SRC.live, run: () => { SRC.live = true; renderInspector(); } }, { icon: "file-code", t: "Static snapshot", radio: true, on: !SRC.live, run: () => { SRC.live = false; renderInspector(); toast("Saved the current page as a static snapshot"); } }, "-", { t: "Change URL…", toast: "Edits the screen URL (/plans or http://localhost:5173/plans)" }, { t: "Choose local app…", toast: "Picks one of the connected local apps" }]);
   const wm = t.closest?.("[data-w-menu]");
   if (wm) return openMenu(wm.closest(".inp") || wm, [...widthMenu(RESP.w, (px, tok) => setFrameWidth(px, false, tok)), ...(boundToken() ? ["-", { t: "Detach token", run: () => setFrameWidth(RESP.w) }] : [])]);
   if (t.closest?.("[data-resp-add]")) { const root = !FLAT[S.selected]?.parent; RESP.rules.push({ id: RESP.nextId++, node: S.selected, scale: root ? "breakpoint" : "container", token: root ? "md" : "md", change: respChoices(S.selected)[0] }); renderPage(); renderInspector(); return; }

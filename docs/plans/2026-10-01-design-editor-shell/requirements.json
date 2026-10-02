@@ -863,6 +863,27 @@
           "refs": [
             "templates/design/app/components/design/inspector/frame-size-presets.ts#FRAME_SIZE_PRESET_CATEGORIES"
           ]
+        },
+        {
+          "id": "INSP-07",
+          "status": "decided",
+          "today": "Every selected screen shows a Source segmented control, Static | URL (`update-screen-source`). URL reveals a Screen URL field with Update and, with more than one connected app, Choose local app. The Static label reuses `editPanel.positionOptions.static`, the Position option of the same name.",
+          "change": "Source shows only for a URL screen (a live page, usually a connected local app), as one row: Source, then the URL with a menu holding Live URL, Static snapshot, Change URL…, and Choose local app…. A static screen has no Source row, and no Screen section when that leaves it empty. Static snapshot gets its own string instead of the Position option's.",
+          "refs": [
+            "templates/design/app/components/design/EditPanel.tsx#editPanel.screenSource.title",
+            "templates/design/actions/update-screen-source.ts#static HTML and a live localhost URL"
+          ],
+          "prototype": "Scenario: Local app screen, then select the screen."
+        },
+        {
+          "id": "INSP-08",
+          "status": "decided",
+          "today": "Position's device icon (`ScreenSizePresetPicker`) opens its own preset popover that sets W and H, separate from the Frame tool's panel.",
+          "change": "The device icon opens the Frame tool's grouped list (INSP-06) as a menu, one submenu per group, each preset showing W × H. Picking one sets W and a fixed H, and the frame shows that viewport; typing a number into H fixes the height, and anything else (Hug) goes back to hugging the content.",
+          "refs": [
+            "templates/design/app/components/design/EditPanel.tsx#ScreenSizePresetPicker"
+          ],
+          "prototype": "Select the screen, then the device icon on Position."
         }
       ]
     },
@@ -1042,7 +1063,7 @@
         {
           "id": "RESP-05",
           "status": "decided",
-          "change": "W's chevron, in the inspector only, lists Container (3xs 256 … 7xl 1280) and Breakpoint (sm 640 … 2xl 1536) widths, from the design system's `--container-*` and `--breakpoint-*` tokens when it has them and Tailwind v4's defaults otherwise. Picking one binds it: W shows the token (2xl) instead of the number, the menu checks it, and Detach token, typing a number, or dragging the frame sets a raw width again. It's one choice, and the menu closes on pick. The device-size picker (width and height together) stays beside Position.",
+          "change": "W's chevron, in the inspector only, lists Container (3xs 256 … 7xl 1280) and Breakpoint (sm 640 … 2xl 1536) widths, from the design system's `--container-*` and `--breakpoint-*` tokens when it has them and Tailwind v4's defaults otherwise. Picking one binds it: W shows the token (2xl) instead of the number, the menu checks it, and Detach token, typing a number, or dragging the frame sets a raw width again. It's one choice, and the menu closes on pick. Device sizes, which set width and height together, are a separate picker on Position (INSP-08).",
           "prototype": "Select the screen, then open W's chevron.",
           "today": "Nothing in the inspector binds a value to a token: W/H take numbers, and the device-size picker sets both from `FRAME_SIZE_PRESET_CATEGORIES`.",
           "refs": [
