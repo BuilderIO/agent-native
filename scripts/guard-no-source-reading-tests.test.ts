@@ -391,6 +391,18 @@ readFileSync("packages/temp/Editor.ts", "utf8");
   );
 });
 
+test("flags a null-encoding read that is turned into text on the spot", () => {
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+const a = readFileSync("src/a.ts", { encoding: null }).toString();
+const b = String(readFileSync("src/b.ts", null));
+const c = readFileSync("src/c.ts", { encoding: null });
+`),
+    [3, 4],
+  );
+});
+
 test("does not flag a read with a null or undefined encoding", () => {
   assert.deepEqual(
     flagged(`
@@ -523,6 +535,53 @@ const source = await loadFake().then((fs) =>
 );
 `),
     [],
+  );
+});
+
+test("a local fs or readFileSync shadows the imported one in its scope", () => {
+  assert.deepEqual(
+    flagged(`
+import fs from "node:fs";
+function check(fs: { readFileSync: (p: string, e: string) => string }) {
+  return fs.readFileSync("./Editor.tsx", "utf8");
+}
+const real = fs.readFileSync("./Panel.tsx", "utf8");
+`),
+    [6],
+  );
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+function check(readFileSync: (p: string, e: string) => string) {
+  return readFileSync("./Editor.tsx", "utf8");
+}
+readFileSync("./Panel.tsx", "utf8");
+`),
+    [6],
+  );
+  assert.deepEqual(
+    flagged(`
+import fs from "node:fs";
+it("uses a fake filesystem", () => {
+  const fs = { readFileSync: () => "x" };
+  fs.readFileSync("./Editor.tsx", "utf8");
+});
+`),
+    [],
+  );
+});
+
+test("an fs binding made inside a scope is still fs there", () => {
+  assert.deepEqual(
+    flagged(`
+it("reads", async () => {
+  const { readFileSync } = await import("node:fs");
+  const fsp = (await import("node:fs")).promises;
+  readFileSync("./Editor.tsx", "utf8");
+  await fsp.readFile("./Panel.tsx", "utf8");
+});
+`),
+    [5, 6],
   );
 });
 
@@ -672,6 +731,28 @@ const source = readFileSync("src/a.ts", "utf8");
 `),
     [],
   );
+});
+
+test("a pragma on a continuation line of a block comment counts", () => {
+  assert.deepEqual(
+    flagged(`
+import { readFileSync } from "node:fs";
+/**
+ * The barrel is generated, so its text is the contract.
+ * source-read-ok: generated barrel must list every module
+ */
+const source = readFileSync("src/a.ts", "utf8");
+`),
+    [],
+  );
+  const empty = `
+import { readFileSync } from "node:fs";
+/*
+ * source-read-ok: */
+const source = readFileSync("src/a.ts", "utf8");
+`;
+  assert.deepEqual(flagged(empty), [5]);
+  assert.match(reasons(empty)[0]!, /pragma needs a reason/u);
 });
 
 test("a pragma anywhere in the comment block directly above allows the read", () => {

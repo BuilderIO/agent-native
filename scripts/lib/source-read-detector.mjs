@@ -102,7 +102,8 @@ function isRepoRootName(name) {
   );
 }
 
-const PRAGMA_RE = /(?:\/\/|\/\*)\s*source-read-ok:(.*)$/i;
+// After `//`, `/*` or `/**`, or a ` * ` continuation line of a block comment.
+const PRAGMA_RE = /(?:\/\/|\/\*+|^\s*\*)\s*source-read-ok:(.*)$/i;
 
 const MIGHT_READ_RE = /readFile|\?(?:[^"'`\s]*&)?raw/;
 
@@ -268,9 +269,9 @@ function createPragmaReader(sf, lines) {
     for (const match of candidates) {
       if (!match) continue;
       // A block comment's reason ends at its `*/`; code after it is not one.
-      const text = match[0].startsWith("/*")
-        ? match[1].split("*/")[0]
-        : match[1];
+      const text = match[0].trimStart().startsWith("//")
+        ? match[1]
+        : match[1].split("*/")[0];
       if (text.trim()) return "ok";
       sawEmpty = true;
     }
@@ -332,13 +333,20 @@ const isTextRead = (call) => {
     if (stringValue(options) !== null) return true;
     if (ts.isObjectLiteralExpression(options)) {
       const encoding = objectProperty(options, "encoding");
-      if (encoding) return !isNullish(encoding);
-      return options.properties.some((property) =>
-        ts.isSpreadAssignment(property),
-      );
+      if (
+        encoding
+          ? !isNullish(encoding)
+          : options.properties.some((property) =>
+              ts.isSpreadAssignment(property),
+            )
+      ) {
+        return true;
+      }
+    } else if (!isNullish(options)) {
+      return true;
     }
-    return !isNullish(options);
   }
+  // A Buffer read (no encoding, or a nullish one) turned into text.
   return textConversion(call) !== null;
 };
 
@@ -413,6 +421,10 @@ function collectModel(sf) {
   // (`fs`, `fsp`) or is `readFileSync` only stands for the real thing when the
   // file does not define it itself, like `const fs = { readFileSync: vi.fn() }`.
   const localBindings = new Set();
+  // name -> the scopes where a declaration binds it to the fs module (or one
+  // of its read functions), so a same-named parameter or mock in a nested
+  // scope shadows it.
+  const fsBoundIn = new Map();
   const calls = [];
   const rawSpecifiers = [];
 
@@ -454,9 +466,20 @@ function collectModel(sf) {
     return sf;
   };
 
+  // Whether the declaration of `name` visible at `ref` binds it to fs (true),
+  // to something else (false), or there is none in the file (null: an
+  // import, or a name declared in a scope `ref` cannot see).
+  const fsBindingAt = (name, ref) => {
+    const visible = visibleDecls(name, ref);
+    if (visible.length === 0) return null;
+    return fsBoundIn.get(name)?.has(visible[0].scope) ?? false;
+  };
+
   const isFsExpression = (expr) => {
     const inner = unwrap(expr);
     if (ts.isIdentifier(inner)) {
+      const bound = fsBindingAt(inner.text, inner);
+      if (bound !== null) return bound;
       return (
         fsReceivers.has(inner.text) ||
         (FS_RECEIVER_NAME_RE.test(inner.text) && !localBindings.has(inner.text))
@@ -484,9 +507,14 @@ function collectModel(sf) {
     return false;
   };
 
-  const bindFsBinding = (nameNode) => {
+  const bindFsBinding = (nameNode, scope) => {
+    const bindIn = (name) => {
+      if (!fsBoundIn.has(name)) fsBoundIn.set(name, new Set());
+      fsBoundIn.get(name).add(scope);
+    };
     if (ts.isIdentifier(nameNode)) {
       fsReceivers.add(nameNode.text);
+      bindIn(nameNode.text);
       return;
     }
     if (!ts.isObjectBindingPattern(nameNode)) return;
@@ -495,6 +523,8 @@ function collectModel(sf) {
       const imported = (element.propertyName ?? element.name).text;
       if (READ_METHODS.has(imported)) fsReaders.add(element.name.text);
       else if (imported === "promises") fsReceivers.add(element.name.text);
+      else continue;
+      bindIn(element.name.text);
     }
   };
 
@@ -578,7 +608,7 @@ function collectModel(sf) {
     }
     const fn = call.arguments[0] && unwrap(call.arguments[0]);
     if (fn && isFunctionLike(fn) && fn.parameters[0]) {
-      bindFsBinding(fn.parameters[0].name);
+      bindFsBinding(fn.parameters[0].name, fn);
     }
   }
 
@@ -639,7 +669,7 @@ function collectModel(sf) {
         bindPattern(node.name, declarationScope(node), null, []);
       }
       if (node.initializer && isFsExpression(node.initializer)) {
-        bindFsBinding(node.name);
+        bindFsBinding(node.name, declarationScope(node));
       }
     } else if (
       ts.isBinaryExpression(node) &&
@@ -647,11 +677,10 @@ function collectModel(sf) {
       ts.isIdentifier(node.left)
     ) {
       const declared = visibleDecls(node.left.text, node.left)[0];
-      addDecl(node.left.text, declared ? declared.scope : sf, {
-        init: node.right,
-      });
+      const scope = declared ? declared.scope : sf;
+      addDecl(node.left.text, scope, { init: node.right });
       // `let fs; fs = await import("node:fs")` is still the fs module.
-      if (isFsExpression(node.right)) bindFsBinding(node.left);
+      if (isFsExpression(node.right)) bindFsBinding(node.left, scope);
     } else if (
       ts.isForOfStatement(node) &&
       ts.isVariableDeclarationList(node.initializer)
@@ -677,6 +706,7 @@ function collectModel(sf) {
   return {
     visibleDecls,
     isFsExpression,
+    fsBindingAt,
     isLocalBinding: (name) => localBindings.has(name),
     fsReaders,
     calls,
@@ -1084,11 +1114,20 @@ export function findSourceReadViolations(file, source, addedLines = null) {
     sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
   const model = collectModel(sf);
   const { analyze, mentionsParam, UNKNOWN } = createPathAnalyzer(model);
-  const { isFsExpression, isLocalBinding, fsReaders, calls, rawSpecifiers } =
-    model;
+  const {
+    isFsExpression,
+    fsBindingAt,
+    isLocalBinding,
+    fsReaders,
+    calls,
+    rawSpecifiers,
+  } = model;
 
   const readReceiverIsFs = (callee) => {
     if (ts.isIdentifier(callee)) {
+      // A parameter or helper named readFileSync shadows the imported one.
+      const bound = fsBindingAt(callee.text, callee);
+      if (bound !== null) return bound;
       return (
         fsReaders.has(callee.text) ||
         (callee.text === "readFileSync" && !isLocalBinding(callee.text))
