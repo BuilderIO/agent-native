@@ -181,24 +181,31 @@ export default defineAction({
                 required: z.boolean().optional(),
               })
               .superRefine((edit, context) => {
-                if (
-                  (edit.find !== undefined) ===
-                  (edit.objectId !== undefined)
+                if (edit.find !== undefined && edit.objectId !== undefined) {
+                  context.addIssue({
+                    code: "custom",
+                    message:
+                      "This replace edit sent both find and objectId. Resend it with ONLY objectId (omit find, all, occurrence) to replace a selected element's content, or with ONLY find to search and replace text.",
+                  });
+                } else if (
+                  edit.find === undefined &&
+                  edit.objectId === undefined
                 ) {
                   context.addIssue({
                     code: "custom",
                     message:
-                      "A replace edit requires exactly one of find or objectId",
+                      "A replace edit needs find (the text to search for) or objectId (the selected element's data-slide-object-id).",
                   });
                 }
                 if (
+                  edit.find === undefined &&
                   edit.objectId !== undefined &&
                   (edit.all !== undefined || edit.occurrence !== undefined)
                 ) {
                   context.addIssue({
                     code: "custom",
                     message:
-                      "objectId replacement does not support all or occurrence",
+                      "objectId replacement does not support all or occurrence; resend the edit without them (they apply only to find).",
                   });
                 }
                 if (

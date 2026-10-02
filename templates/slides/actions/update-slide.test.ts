@@ -704,6 +704,35 @@ describe("update-slide", () => {
     expect(lastUpdateSet).toBeUndefined();
   });
 
+  it("tells the agent which fields to drop when an edit mixes find and objectId", () => {
+    const parsed = (
+      action.schema as unknown as {
+        safeParse: (input: unknown) => {
+          success: boolean;
+          error?: { issues: Array<{ message: string }> };
+        };
+      }
+    ).safeParse({
+      deckId: "deck-1",
+      slideId: "slide-1",
+      edits: [
+        {
+          find: "Old",
+          objectId: "title",
+          replace: "New",
+          all: false,
+          occurrence: 1,
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(false);
+    const messages = parsed.error!.issues.map((issue) => issue.message);
+    const mixed = messages.find((message) => message.includes("both find"));
+    expect(mixed).toContain("Resend it with ONLY objectId");
+    expect(mixed).toContain("ONLY find");
+  });
+
   it("teaches styleOnly and the edits requirement in the agent-facing schema", () => {
     const styleOnly = (
       action.schema as unknown as {
