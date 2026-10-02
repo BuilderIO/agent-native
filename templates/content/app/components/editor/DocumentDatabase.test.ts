@@ -2207,7 +2207,7 @@ describe("database item preview", () => {
     ]);
   });
 
-  it("keeps navigation state for a wide database under the keepalive cap", () => {
+  it("keeps navigation state for a wide database under its byte budget", () => {
     const options = ["Not started", "In progress", "Waiting", "Done"].map(
       (name, index) => ({ id: `opt-${index}`, name, color: "gray" as const }),
     );

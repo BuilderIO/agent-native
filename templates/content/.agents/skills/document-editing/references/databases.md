@@ -51,7 +51,8 @@ shrinks to keep the whole navigation state under 48 KB, and
 footer calculations are active, navigation state also includes
 `databaseCalculationResults` with the visible result text for each calculated
 column. When table rows are selected, navigation state also includes
-`databaseSelectedItemCount` and `databaseSelectedItems`, and
+`databaseSelectedItemCount` and `databaseSelectedItems` (under the same
+row cap), and
 `view-screen.databaseCurrentView` mirrors that selected row summary.
 `view-screen` exposes the same slice as `databaseCurrentView` alongside the
 full collection payload. Its row property summaries should mirror the active

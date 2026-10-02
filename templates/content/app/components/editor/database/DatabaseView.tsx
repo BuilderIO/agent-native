@@ -1790,12 +1790,18 @@ function DatabaseTable({
       selectedItems,
       previewItem,
     });
-    void setClientAppState(
-      `navigation:${getBrowserTabId()}`,
-      fitDatabaseNavigationState(state),
-    ).catch(() => {
-      // Navigation sync is best-effort; the next view change rewrites it.
+    // The route writes a bare navigation state to the same key from Root,
+    // whose effects run after this one in the same commit. Writing after the
+    // commit keeps this fuller state from being overwritten by it.
+    const timer = setTimeout(() => {
+      void setClientAppState(
+        `navigation:${getBrowserTabId()}`,
+        fitDatabaseNavigationState(state),
+      ).catch(() => {
+        // Navigation sync is best-effort; the next view change rewrites it.
+      });
     });
+    return () => clearTimeout(timer);
   }, [
     activeView,
     effectiveFrozenColumnIds,

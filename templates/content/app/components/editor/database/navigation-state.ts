@@ -41,8 +41,8 @@ export function databaseViewSummaries(
 export const DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT = 50;
 export const DATABASE_NAVIGATION_CELL_TEXT_LIMIT = 200;
 /**
- * Navigation state is rewritten on every table change, and an unload-time
- * write may use `keepalive`, whose request bodies browsers cap at 64 KiB.
+ * Navigation state is rewritten on every table change and read into the
+ * agent's context on every turn.
  */
 export const DATABASE_NAVIGATION_STATE_MAX_BYTES = 48 * 1024;
 
