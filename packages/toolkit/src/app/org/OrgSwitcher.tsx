@@ -202,6 +202,8 @@ export function BuilderCreditNotice({
       enabled: Boolean(org?.email),
       staleTime: 30_000,
       refetchInterval: 60_000,
+      // The 60s poll is the retry; retrying a Builder outage multiplies it.
+      retry: false,
     },
   );
   const t = useT();

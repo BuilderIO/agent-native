@@ -98,6 +98,77 @@ import { useSkills } from "./use-skills.js";
 import { RealtimeVoiceModeBoundary } from "./useRealtimeVoiceMode.js";
 import { useVoiceDictation } from "./useVoiceDictation.js";
 import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
+/**
+ * What a send would take from the composer at one moment, so a host that held
+ * a send back can tell the draft it held from one the person kept editing.
+ */
+export interface ComposerDraftSnapshot {
+  text: string;
+  /** Each reference exactly as it would be submitted, stably serialized. */
+  referenceKeys: string[];
+  attachmentIds: string[];
+}
+
+/** The same value always serializes the same, whatever order its keys were set in. */
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+const attachmentFileInstances = new WeakMap<object, number>();
+let nextAttachmentFileInstance = 0;
+
+/**
+ * Names and ids can repeat: a replacement file may carry the same name, and
+ * the image adapter has used the name as the id. The attachment's own File
+ * object is what tells one file from another, so it is part of the identity.
+ */
+function composerAttachmentIdentity(attachment: {
+  id?: string;
+  name?: string;
+  file?: unknown;
+}): string {
+  const label = attachment.id ?? attachment.name ?? "";
+  const file = attachment.file;
+  if (!file || typeof file !== "object") return label;
+  let instance = attachmentFileInstances.get(file);
+  if (instance === undefined) {
+    instance = ++nextAttachmentFileInstance;
+    attachmentFileInstances.set(file, instance);
+  }
+  return `${label}#${instance}`;
+}
+
+export function composerDraftSnapshot(
+  text: string,
+  references: readonly Reference[],
+  attachments: readonly { id?: string; name?: string; file?: unknown }[],
+): ComposerDraftSnapshot {
+  return {
+    text,
+    referenceKeys: references.map((ref) => stableJson(ref)),
+    attachmentIds: attachments.map(composerAttachmentIdentity),
+  };
+}
+
+export function sameComposerDraft(
+  a: ComposerDraftSnapshot,
+  b: ComposerDraftSnapshot,
+): boolean {
+  return (
+    a.text === b.text &&
+    JSON.stringify(a.referenceKeys) === JSON.stringify(b.referenceKeys) &&
+    JSON.stringify(a.attachmentIds) === JSON.stringify(b.attachmentIds)
+  );
+}
+
 export interface TiptapComposerHandle {
   focus(): void;
   /** Add a file through the same attachment pipeline as paste and drop. */
@@ -112,6 +183,10 @@ export interface TiptapComposerHandle {
   setText(text: string): void;
   /** Submit replacement text with the current attachments and context, without editing the draft on failure. */
   submitWithText(text: string): Promise<boolean>;
+  /** Submit the current draft as if the person pressed send. */
+  submit?(): Promise<boolean>;
+  /** The draft as a send would take it right now. */
+  getDraftSnapshot?(): ComposerDraftSnapshot;
   insertReference(ref: AgentComposerReference): void;
   replaceReference(refType: string, ref: AgentComposerReference | null): void;
   getSelection(): ComposerTextSelection | null;
@@ -919,7 +994,9 @@ export interface TiptapComposerProps {
   ) => void | Promise<void>;
   onEmptySubmit?: () => void | Promise<void>;
   /** Return false to stop a submit before it enters the chat runtime. */
-  onBeforeSubmit?: () => boolean | Promise<boolean>;
+  onBeforeSubmit?: (
+    draft?: ComposerDraftSnapshot,
+  ) => boolean | Promise<boolean>;
   onSubmissionPendingChange?: (pending: boolean) => void;
   /** Scope where a failed submission should be recovered after the host forks. */
   getSubmitFailureDraftScope?: () => string | null;
@@ -3564,6 +3641,15 @@ export function TiptapComposer({
       flushComposerDraft();
     },
     submitWithText: (text: string) => submitComposer("immediate", text),
+    submit: () => submitComposer("immediate"),
+    getDraftSnapshot: () => {
+      const { text, references } = extractComposerPayload();
+      return composerDraftSnapshot(
+        text,
+        references,
+        composerRuntime.getState().attachments,
+      );
+    },
     insertReference,
     replaceReference(refType, ref) {
       if (!isComposerEditorUsable(editor)) return;
@@ -4369,7 +4455,9 @@ export function TiptapComposer({
         submitInFlightRef.current = true;
         onSubmissionPendingChange?.(true);
         try {
-          const shouldSubmit = await onBeforeSubmit();
+          const shouldSubmit = await onBeforeSubmit(
+            composerDraftSnapshot(text, references, attachments),
+          );
           if (!shouldSubmit) {
             restoreSubmittedDraft(true);
             return false;

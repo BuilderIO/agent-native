@@ -628,13 +628,76 @@ export function repairCanonicalFirstPartyDashboardQueries(
       (replacement) => replacement.source === "first-party",
     ),
   );
-  const repaired = repairFirstPartyObservedRetentionPanels(historical.config, [
-    ...CANONICAL_CUSTOM_PANEL_REPLACEMENTS,
-    ...CANONICAL_CATALOG_PANEL_REPLACEMENTS,
-  ]);
+  const repaired = appendPanelsIntroducedWithRetentionSplit(
+    config,
+    repairFirstPartyObservedRetentionPanels(historical.config, [
+      ...CANONICAL_CUSTOM_PANEL_REPLACEMENTS,
+      ...CANONICAL_CATALOG_PANEL_REPLACEMENTS,
+    ]),
+  );
   return historical.changed && !repaired.changed
     ? { ...repaired, changed: true }
     : repaired;
+}
+
+/**
+ * Panels that shipped with the paid/untagged retention split are added to a
+ * saved canonical dashboard in the same pass that upgrades its retention
+ * panel, which happens once; a later removal is the owner's choice and sticks.
+ * `before` is the config as saved: the historical fingerprint pass may already
+ * have moved the retention SQL to its current value by the time `repaired` is
+ * compared.
+ */
+const PANELS_INTRODUCED_WITH_RETENTION_SPLIT = ["chat-readiness-by-app"];
+
+/** The two-series palette the retention panel had before it gained the split. */
+// guard:allow-raw-color — chart series palette saved in the panel config, not a themed surface
+const PRE_SPLIT_RETENTION_COLORS = ["#10b981", "#8b5cf6"];
+
+function appendPanelsIntroducedWithRetentionSplit(
+  before: Record<string, unknown>,
+  repaired: { config: Record<string, unknown>; changed: boolean },
+): { config: Record<string, unknown>; changed: boolean } {
+  const retentionSql = (config: Record<string, unknown>) =>
+    Array.isArray(config.panels)
+      ? (
+          config.panels.find(
+            (panel) =>
+              (panel as { id?: unknown } | null)?.id === "retention-over-time",
+          ) as { sql?: unknown } | undefined
+        )?.sql
+      : undefined;
+  const previousSql = retentionSql(before);
+  const upgradedNow =
+    typeof previousSql === "string" &&
+    previousSql !== retentionSql(repaired.config) &&
+    retentionSql(repaired.config) === buildPanel("retention-over-time")?.sql;
+  if (!upgradedNow || !Array.isArray(repaired.config.panels)) return repaired;
+  // Four series cycle two colors into duplicates, so a panel still on the old
+  // default palette takes the split palette; a customized palette is kept.
+  const splitColors = buildPanel("retention-over-time")?.config?.colors;
+  const panels = repaired.config.panels.map((entry) => {
+    const panel = entry as { id?: unknown; config?: { colors?: unknown } };
+    return panel?.id === "retention-over-time" &&
+      Array.isArray(splitColors) &&
+      JSON.stringify(panel.config?.colors) ===
+        JSON.stringify(PRE_SPLIT_RETENTION_COLORS)
+      ? { ...panel, config: { ...panel.config, colors: splitColors } }
+      : entry;
+  });
+  const present = new Set(
+    panels.map((panel) => (panel as { id?: unknown })?.id),
+  );
+  const additions = PANELS_INTRODUCED_WITH_RETENTION_SPLIT.filter(
+    (id) => !present.has(id),
+  ).flatMap((id) => {
+    const panel = buildPanel(id);
+    return panel ? [panel] : [];
+  });
+  return {
+    config: { ...repaired.config, panels: [...panels, ...additions] },
+    changed: true,
+  };
 }
 
 export function repairKnownFirstPartyDashboardQueries(

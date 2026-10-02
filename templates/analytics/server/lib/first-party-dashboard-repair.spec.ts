@@ -92,8 +92,11 @@ import {
   PRE_CAPPED_SIGNUPS_OVER_TIME_SQL,
   PRE_CUSTOM_RETENTION_OVER_TIME_SQL,
   PRE_CUSTOM_SPINE_SIGNUPS_OVER_TIME_SQL,
+  PRE_ACQUISITION_SPLIT_RETENTION_OVER_TIME_DESCRIPTION,
+  PRE_ACQUISITION_SPLIT_RETENTION_OVER_TIME_SQL,
   FIRST_PARTY_TEMPLATE_NAMES,
   buildPanel,
+  scopeFirstPartyPanelSql,
 } from "./first-party-metric-catalog";
 import { UNBOUNDED_FIRST_PARTY_PANEL_FIXES } from "./first-party-unbounded-panel-repair";
 
@@ -647,6 +650,104 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     expect(customized.changed).toBe(false);
   });
 
+  it("upgrades the content/chat retention panel to the paid/untagged split and adds chat readiness once", () => {
+    const retention = requiredFirstPartyPanel("retention-over-time");
+    const chatReadiness = requiredFirstPartyPanel("chat-readiness-by-app");
+    const saved = {
+      panels: [
+        {
+          ...retention,
+          sql: scopeFirstPartyPanelSql(
+            PRE_ACQUISITION_SPLIT_RETENTION_OVER_TIME_SQL,
+          ),
+          config: {
+            ...retention.config,
+            description: PRE_ACQUISITION_SPLIT_RETENTION_OVER_TIME_DESCRIPTION,
+          },
+        },
+      ],
+    };
+
+    const repaired = repairCanonicalFirstPartyDashboardQueries(saved);
+
+    expect(repaired.changed).toBe(true);
+    const panels = repaired.config.panels as Array<{
+      id: string;
+      sql: string;
+      config: { description?: string };
+    }>;
+    expect(panels.map((panel) => panel.id)).toEqual([
+      "retention-over-time",
+      "chat-readiness-by-app",
+    ]);
+    expect(panels[0]?.sql).toBe(retention.sql);
+    expect(panels[0]?.sql).toContain("'1-7d return (' || c.channel || ')'");
+    expect(panels[0]?.config.description).toBe(retention.config.description);
+    expect(panels[1]?.sql).toBe(chatReadiness.sql);
+    expect(panels[1]?.sql).toContain("llm_chat_eligible");
+
+    expect(
+      repairCanonicalFirstPartyDashboardQueries(repaired.config).changed,
+    ).toBe(false);
+    // Removing the added panel after the upgrade is the owner's choice.
+    expect(
+      repairCanonicalFirstPartyDashboardQueries({ panels: [panels[0]] })
+        .changed,
+    ).toBe(false);
+  });
+
+  it("adds chat readiness when the historical pass already moved the retention SQL to the split", () => {
+    const retention = requiredFirstPartyPanel("retention-over-time");
+    const repaired = repairCanonicalFirstPartyDashboardQueries({
+      panels: [
+        {
+          ...retention,
+          sql: originMainPanelSql(
+            "retentionOverTimeCatalog",
+            scopeFirstPartyPanelSql(
+              PRE_ACQUISITION_SPLIT_RETENTION_OVER_TIME_SQL,
+            ),
+          ),
+          config: { ...retention.config, colors: ["#10b981", "#8b5cf6"] },
+        },
+      ],
+    });
+
+    expect(repaired.changed).toBe(true);
+    const panels = repaired.config.panels as Array<{
+      id: string;
+      sql: string;
+      config: { colors?: string[] };
+    }>;
+    expect(panels.map((panel) => panel.id)).toEqual([
+      "retention-over-time",
+      "chat-readiness-by-app",
+    ]);
+    expect(panels[0]?.sql).toBe(retention.sql);
+    expect(panels[0]?.config.colors).toEqual(retention.config.colors);
+    expect(panels[0]?.config.colors).toHaveLength(4);
+  });
+
+  it("keeps a customized retention palette when upgrading the panel", () => {
+    const retention = requiredFirstPartyPanel("retention-over-time");
+    const repaired = repairCanonicalFirstPartyDashboardQueries({
+      panels: [
+        {
+          ...retention,
+          sql: scopeFirstPartyPanelSql(
+            PRE_ACQUISITION_SPLIT_RETENTION_OVER_TIME_SQL,
+          ),
+          config: { ...retention.config, colors: ["#111111", "#222222"] },
+        },
+      ],
+    });
+
+    expect(
+      (repaired.config.panels as Array<{ config: { colors?: string[] } }>)[0]
+        ?.config.colors,
+    ).toEqual(["#111111", "#222222"]);
+  });
+
   it("repairs the previous canonical Postgres retention query", () => {
     const retention = requiredFirstPartyPanel("retention-over-time");
     const repaired = repairCanonicalFirstPartyDashboardQueries({
@@ -666,7 +767,12 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
         panels: [
           {
             ...retention,
-            sql: originMainPanelSql("retentionOverTimeCatalog", retention.sql),
+            sql: originMainPanelSql(
+              "retentionOverTimeCatalog",
+              scopeFirstPartyPanelSql(
+                PRE_ACQUISITION_SPLIT_RETENTION_OVER_TIME_SQL,
+              ),
+            ),
           },
         ],
       }),
@@ -688,7 +794,12 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
         panels: [
           {
             ...retention,
-            sql: originMainPanelSql("retentionOverTimeSeed", retention.sql),
+            sql: originMainPanelSql(
+              "retentionOverTimeSeed",
+              scopeFirstPartyPanelSql(
+                PRE_ACQUISITION_SPLIT_RETENTION_OVER_TIME_SQL,
+              ),
+            ),
           },
         ],
       }),

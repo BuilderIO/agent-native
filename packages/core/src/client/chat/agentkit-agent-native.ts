@@ -20,6 +20,10 @@ import {
   parseAgentThreadSnapshot,
 } from "@agent-native/agentkit/protocol";
 
+import {
+  RUN_NOT_STARTED_METADATA_KEY,
+  retryContextFromRequest,
+} from "../../shared/agent-chat-run-not-started.js";
 import { agentNativePath } from "../api-path.js";
 import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
 import { dispatchAgentChatRunning } from "../use-agent-chat-running-threads.js";
@@ -323,6 +327,24 @@ function storedMessages(
   });
 }
 
+/**
+ * The server answers a turn it refused before any run started with a durable
+ * notice and a failed run. The run renders as the recovery card, so showing the
+ * notice too would print the same failure twice.
+ */
+function isRenderedRunNotStartedNotice(
+  message: AgentMessage,
+  failedRunIds: ReadonlySet<string>,
+): boolean {
+  const metadata = asRecord(message.metadata);
+  return (
+    message.role === "assistant" &&
+    asRecord(metadata?.custom)?.[RUN_NOT_STARTED_METADATA_KEY] === true &&
+    typeof metadata?.runId === "string" &&
+    failedRunIds.has(metadata.runId)
+  );
+}
+
 function sameUserPrompt(left: AgentMessage, right: AgentMessage): boolean {
   if (
     left.role !== "user" ||
@@ -420,6 +442,56 @@ function durableRunFailures(messages: AgentMessage[]): Map<string, AgentError> {
   );
 }
 
+const REFUSED_TURN_CUSTOM_KEYS = [
+  RUN_NOT_STARTED_METADATA_KEY,
+  "submittedRunId",
+  "submittedTurnId",
+] as const;
+
+/** The retry context of a refused prompt, bounded the way the server stores it. */
+function refusedTurnRetryContext(
+  metadata: Record<string, unknown> | null | undefined,
+) {
+  return retryContextFromRequest({
+    metadata,
+    model: metadata?.model,
+    engine: metadata?.engine,
+    effort: metadata?.effort,
+    mode: metadata?.requestMode,
+  });
+}
+
+/**
+ * A snapshot copy of a prompt the server refused stands in for the durable one,
+ * and a client save keeps only a few markers of it, so the refusal marker and
+ * the retry context come from the durable message when the copy lacks them.
+ */
+function withRefusedTurnMetadata(
+  message: AgentMessage,
+  stored: AgentMessage,
+): AgentMessage {
+  const storedMetadata = asRecord(stored.metadata);
+  const storedCustom = asRecord(storedMetadata?.custom);
+  if (storedCustom?.[RUN_NOT_STARTED_METADATA_KEY] !== true) return message;
+  const metadata = asRecord(message.metadata);
+  const custom = asRecord(metadata?.custom);
+  return {
+    ...message,
+    metadata: {
+      ...refusedTurnRetryContext(storedMetadata),
+      ...metadata,
+      custom: {
+        ...Object.fromEntries(
+          REFUSED_TURN_CUSTOM_KEYS.flatMap((key) =>
+            storedCustom[key] === undefined ? [] : [[key, storedCustom[key]]],
+          ),
+        ),
+        ...custom,
+      },
+    },
+  };
+}
+
 function reconcileDurableMessages(
   messages: AgentMessage[],
   durable: AgentMessage[],
@@ -503,6 +575,7 @@ function reconcileDurableMessages(
   }
 
   const representedSubmittedUserIds = new Set<string>();
+  const storedUserBySnapshotId = new Map<string, AgentMessage>();
   const unmatchedSnapshotUsers: AgentMessage[] = [];
   const representedAssistantIds = new Set(
     messages.flatMap((message) =>
@@ -528,6 +601,7 @@ function reconcileDurableMessages(
             : undefined;
       if (represented?.role === "user") {
         representedSubmittedUserIds.add(represented.id);
+        storedUserBySnapshotId.set(message.id, represented);
       } else if (!runId) {
         unmatchedSnapshotUsers.push(message);
       }
@@ -558,6 +632,7 @@ function reconcileDurableMessages(
     if (matchingSnapshots.length !== 1) continue;
     representedSubmittedUserIds.add(stored.id);
     matchedSnapshotUserIds.add(snapshotUser.id);
+    storedUserBySnapshotId.set(snapshotUser.id, stored);
   }
   // ponytail: only collapse balanced indistinguishable prompt groups; use
   // stable message IDs when the client exposes them for unequal groups.
@@ -655,6 +730,10 @@ function reconcileDurableMessages(
     .map(({ message }) => message);
 
   return projectedMessages.map((message) => {
+    if (message.role === "user") {
+      const stored = storedUserBySnapshotId.get(message.id);
+      return stored ? withRefusedTurnMetadata(message, stored) : message;
+    }
     if (message.role !== "assistant") return message;
     const metadataRunId = asRecord(message.metadata)?.runId;
     const runId =
@@ -987,10 +1066,43 @@ function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
     }),
     ...(message.createdAt ? { createdAt: message.createdAt } : {}),
     ...(message.status ? { status: message.status } : {}),
-    ...(asRecord(message.metadata)?.hideUserMessage === true
-      ? { metadata: { hideUserMessage: true } }
-      : {}),
+    ...persistedMessageMetadata(message.metadata),
   }));
+}
+
+/**
+ * Only the markers a reloaded or second tab needs: a hidden recovery message,
+ * which failed run a recovery message already answered, so the same failure is
+ * never sent again from another tab or after a reload, and, for a prompt the
+ * server refused before a run started, its refusal marker and retry context,
+ * so the setup card and Retry still resend the original request.
+ */
+function persistedMessageMetadata(
+  value: unknown,
+): { metadata: Record<string, unknown> } | Record<string, never> {
+  const metadata = asRecord(value);
+  const custom = asRecord(metadata?.custom);
+  const answeredRunId = custom?.agentNativeRecoveryOfRunId;
+  const refused = custom?.[RUN_NOT_STARTED_METADATA_KEY] === true;
+  const refusedCustom = refused
+    ? Object.fromEntries(
+        REFUSED_TURN_CUSTOM_KEYS.flatMap((key) =>
+          custom[key] === undefined ? [] : [[key, custom[key]]],
+        ),
+      )
+    : {};
+  const keptCustom = {
+    ...refusedCustom,
+    ...(typeof answeredRunId === "string" && answeredRunId
+      ? { agentNativeRecoveryOfRunId: answeredRunId }
+      : {}),
+  };
+  const kept = {
+    ...(refused ? refusedTurnRetryContext(metadata) : {}),
+    ...(metadata?.hideUserMessage === true ? { hideUserMessage: true } : {}),
+    ...(Object.keys(keptCustom).length > 0 ? { custom: keptCustom } : {}),
+  };
+  return Object.keys(kept).length > 0 ? { metadata: kept } : {};
 }
 
 function mergeStoredAndIncomingMessages(
@@ -1333,17 +1445,29 @@ export function createAgentNativeAgentKitTransport(
     const createdAt = timestamp(stored.createdAt, projectedAt);
     const updatedAt = timestamp(stored.updatedAt, createdAt);
     const repository = storedRepository(stored);
+    const agentKit = asRecord(repository.agentKit);
+    const failedRunIds = new Set(
+      (Array.isArray(agentKit?.runs) ? agentKit.runs : []).flatMap((value) => {
+        const run = asRecord(value);
+        return run?.status === "failed" &&
+          asRecord(run.error) &&
+          typeof run.id === "string"
+          ? [run.id]
+          : [];
+      }),
+    );
     const storedMessageProjection = storedMessages(
       repository.messages,
       now,
       options.adapter?.textFormat,
+    ).filter(
+      (message) => !isRenderedRunNotStartedNotice(message, failedRunIds),
     );
     const queuedMessages = storedQueue(
       repository.queuedMessages,
       threadId,
       updatedAt,
     );
-    const agentKit = asRecord(repository.agentKit);
     const protocolSnapshot = agentKit
       ? parseAgentThreadSnapshot({
           id: threadId,
@@ -1364,11 +1488,7 @@ export function createAgentNativeAgentKitTransport(
           annotations: agentKit.annotations,
         })
       : undefined;
-    const durableMessages = storedMessages(
-      repository.messages,
-      now,
-      options.adapter?.textFormat,
-    );
+    const durableMessages = storedMessageProjection;
     const messages = protocolSnapshot?.messages
       ? reconcileDurableMessages(
           protocolSnapshot.messages,
@@ -1677,9 +1797,16 @@ export function createAgentNativeAgentKitTransport(
               )
               .map((run) => run.id)
           : [];
+    const failedRunIds = new Set(
+      runs.flatMap((run) =>
+        run.status === "failed" && run.error ? [run.id] : [],
+      ),
+    );
     const messages = reconcileDurableMessages(
       thread.messages,
-      durableMessages,
+      durableMessages.filter(
+        (message) => !isRenderedRunNotStartedNotice(message, failedRunIds),
+      ),
       thread.events,
       runs,
     );
