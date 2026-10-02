@@ -554,6 +554,10 @@ FROM anchor_dates a CROSS JOIN periods p
 LEFT JOIN cohort_sizes cs ON cs.date = a.date
 LEFT JOIN retained r ON r.date = a.date AND r.period = p.period
 ORDER BY a.date, p.period`;
+// A first-activity cohort can include an account that signed up long before
+// the activity window (it came back after a gap), so the channel is read from
+// the whole signup history the date spine can reach, not the activity window.
+const RETENTION_ACQUISITION_LOOKBACK_DAYS = ANALYTICS_DATE_SPINE_MAX_OFFSET + 1;
 /**
  * One acquisition channel per account, from its first signup event: `paid`
  * when the signup carried an ad click id, a paid `utm_medium`, or a
@@ -582,14 +586,10 @@ const RETENTION_ACQUISITION_CTE = `acquisition AS (
       ${SIGNUP_ACQUISITION_CHANNEL_SQL} AS channel,
       ROW_NUMBER() OVER (PARTITION BY ${AUTHENTICATED_ACTIVITY_USER_KEY_SQL} ORDER BY timestamp ASC) AS signup_rank
     FROM analytics_events
-    CROSS JOIN date_spine_bounds
     WHERE event_name = 'signup'
       AND ${AUTHENTICATED_ACTIVITY_USER_FILTER_SQL}
       AND ${FIRST_PARTY_TEMPLATE_FILTER}
-      AND (
-        ('{{timeRange}}' = 'custom' AND event_date >= to_char((date_spine_bounds.start_date - INTERVAL '${OBSERVED_ACTIVITY_LOOKBACK_DAYS + RETENTION_ROLLING_DAYS - 1} days')::date, 'YYYY-MM-DD'))
-        OR ('{{timeRange}}' <> 'custom' AND ${RETENTION_OVER_TIME_LOOKBACK_FILTER})
-      )
+      AND ${EVENT_DATE_SQL} >= ${daysAgoSql(RETENTION_ACQUISITION_LOOKBACK_DAYS)}
       AND event_date <= ${todaySql()}
   ) signups
   WHERE signup_rank = 1
@@ -1337,7 +1337,9 @@ const CHAT_READINESS_SCOPE_FILTER = `${AUTHENTICATED_ACTIVITY_USER_FILTER_SQL} A
 /**
  * Whether people who sent a prompt could chat at that moment (the browser's
  * `llm_chat_eligible`, the same predicate the server's setup gate uses) and
- * how many of them got no reply (`run_no_reply`, refused turns included).
+ * how many of them also had a turn with no reply (`run_no_reply`, refused
+ * turns included). The prompt event carries no thread or attempt id, so the
+ * outcome is read per person in the selected range, not matched to one prompt.
  */
 // guard:allow-unbounded-read — the final select groups the date-bounded submits CTE, not a table.
 const CHAT_READINESS_BY_APP_SQL = `WITH submits AS (
@@ -2327,15 +2329,23 @@ const ENTRIES: FirstPartyMetric[] = [
     buildSql: fixed(CHAT_READINESS_BY_APP_SQL),
     config: {
       description:
-        "Signed-in people who sent a prompt, whether AI was ready to answer when they sent it (llm_chat_eligible), and how many were left without a reply (run_no_reply, including turns refused before a run started).",
+        "Signed-in people who sent a prompt in the selected range, whether AI was ready to answer when they sent it (llm_chat_eligible), and how many of them also had a turn with no reply (run_no_reply, including turns refused before a run started). Per person, not matched to a single prompt.",
       columns: [
         { key: "app", label: "App" },
         { key: "prompt_users", label: "Prompted", format: "number" },
         { key: "chat_eligible_users", label: "AI ready", format: "number" },
         { key: "not_eligible_users", label: "AI not ready", format: "number" },
-        { key: "run_started_users", label: "Run started", format: "number" },
-        { key: "unanswered_users", label: "No reply", format: "number" },
-        { key: "unanswered_rate", label: "No-reply rate", format: "percent" },
+        { key: "run_started_users", label: "Had a run", format: "number" },
+        {
+          key: "unanswered_users",
+          label: "Had a no-reply turn",
+          format: "number",
+        },
+        {
+          key: "unanswered_rate",
+          label: "No-reply turn rate",
+          format: "percent",
+        },
       ],
     },
   },

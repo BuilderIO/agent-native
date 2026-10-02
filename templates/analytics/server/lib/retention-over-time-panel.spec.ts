@@ -287,6 +287,60 @@ describe("retention-over-time panel SQL", () => {
     });
   });
 
+  it("keeps an account that signed up long before the activity window in its signup channel", async () => {
+    client = await PGlite.create("memory://");
+    await createAnalyticsEventsTable(client);
+    const today = (
+      (await client.query(
+        "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+      )) as { rows: Array<{ today: string }> }
+    ).rows[0]!.today;
+    const cohortDate = offsetDate(today, 20);
+    const returnDate = offsetDate(cohortDate, -2);
+    const signedUpDate = offsetDate(today, 500);
+    for (let index = 0; index < 5; index++) {
+      const userKey = `returning-${index}`;
+      // Signed up 500 days ago, first seen again inside the window.
+      await client.query(
+        `INSERT INTO analytics_events (id, event_name, user_id, user_key, timestamp, event_date, template, properties)
+         VALUES ($1, 'signup', $2, $3, $4, $4, 'slides', $5)`,
+        [
+          `signup-${userKey}`,
+          `${userKey}@example.com`,
+          userKey,
+          signedUpDate,
+          JSON.stringify({ auth_user_id: userKey, gclid: "g" }),
+        ],
+      );
+      await seedFirstSeenEvent(client, userKey, cohortDate, "slides");
+      await seedFirstSeenEvent(client, userKey, returnDate, "slides");
+    }
+
+    const sql = interpolate(buildPanel("retention-over-time")!.sql, {
+      timeRange: "",
+      emailFilter: "",
+      appFilter: "",
+    });
+    const rows = (
+      (await client.query(sql)) as {
+        rows: Array<{
+          date: string;
+          period: string;
+          cohort_users: number;
+          retained_users: number | null;
+        }>;
+      }
+    ).rows;
+    const at = (period: string) =>
+      rows.find((row) => row.date === cohortDate && row.period === period);
+
+    expect(at("1-7d return")).toMatchObject({ cohort_users: 5 });
+    expect(at("1-7d return (paid)")).toMatchObject({
+      cohort_users: 5,
+      retained_users: 5,
+    });
+  });
+
   it("reads chat readiness at prompt and unanswered turns per app", async () => {
     client = await PGlite.create("memory://");
     await createAnalyticsEventsTable(client);
