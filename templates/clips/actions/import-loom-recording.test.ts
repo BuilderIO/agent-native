@@ -330,7 +330,7 @@ describe("first imported recording transactional email", () => {
       status: "uploading",
       videoUrl: null,
       failureReason:
-        "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage, then retry this import.",
+        "Video storage is not connected yet. Use Builder.io (free tier available) or configure S3-compatible storage, then retry this import.",
       sourceAppName: "Video link",
       sourceWindowTitle: sourceUrl,
       thumbnailUrl: "https://media.example.com/old-thumbnail.jpg",

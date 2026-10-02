@@ -847,7 +847,7 @@ describe("realtime voice session route", () => {
     const ownerResult = (await handlers.get(REALTIME_VOICE_SESSION_PATH)!(
       ownerEvent,
     )) as { error: string };
-    expect(ownerResult.error).toContain("Connect Builder");
+    expect(ownerResult.error).toContain("Use Builder.io");
     expect(ownerResult.error).toContain("OpenAI API key");
   });
 

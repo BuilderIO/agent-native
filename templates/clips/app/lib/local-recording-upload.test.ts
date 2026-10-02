@@ -115,7 +115,7 @@ describe("classifyLocalUploadFailure", () => {
       classifyLocalUploadFailure({
         status: 503,
         message:
-          "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage to upload clips.",
+          "Video storage is not connected yet. Use Builder.io (free tier available) or configure S3-compatible storage to upload clips.",
       }),
     ).toBe("storage_setup_required");
     expect(
@@ -218,7 +218,7 @@ describe("uploadLocalRecording", () => {
       json(
         {
           error:
-            "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage to upload clips.",
+            "Video storage is not connected yet. Use Builder.io (free tier available) or configure S3-compatible storage to upload clips.",
         },
         503,
       ),

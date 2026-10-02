@@ -891,7 +891,7 @@ describe("mountActionRoutes", () => {
         run: vi.fn().mockRejectedValue(
           new FeatureNotConfiguredError({
             requiredCredential: "BUILDER_PRIVATE_KEY",
-            message: "Connect Builder.io or add a fallback AI key.",
+            message: "Use Builder.io or add a fallback AI key.",
           }),
         ),
         http: { method: "POST" as const },
@@ -905,7 +905,7 @@ describe("mountActionRoutes", () => {
 
     expect(event._status).toBe(400);
     expect(result).toEqual({
-      error: "Connect Builder.io or add a fallback AI key.",
+      error: "Use Builder.io or add a fallback AI key.",
       errorCode: "feature_not_configured",
     });
   });

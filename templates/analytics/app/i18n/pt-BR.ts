@@ -177,9 +177,9 @@ export default {
     notificationsSoundGroup: "Som",
     replayStorage: "Armazenamento de replay de sessão",
     replayStorageDescription:
-      "As gravações de replay de sessão precisam de um provedor de upload de arquivos configurado. Conecte o Builder.io para armazenamento de objetos no plano gratuito ou use seu próprio bucket compatível com S3.",
+      "As gravações de replay de sessão precisam de um provedor de upload de arquivos configurado. Use o Builder.io para armazenamento de objetos no plano gratuito ou use seu próprio bucket compatível com S3.",
     connected: "Conectado",
-    connectBuilder: "Conectar Builder.io",
+    connectBuilder: "Usar Builder.io",
     checkingBuilder: "Verificando Builder.io...",
     builderConnected: "Builder.io conectado",
     builderConnectedToast: "Builder.io conectado",
@@ -1477,7 +1477,7 @@ export default {
     time: "Hora",
     storageSetupTitle: "Conectar armazenamento de replay",
     storageSetupDescription:
-      "As gravações de replay de sessão precisam de armazenamento antes que os fragmentos possam ser salvos. Conecte o Builder.io para armazenamento no plano gratuito ou configure seu próprio bucket compatível com S3.",
+      "As gravações de replay de sessão precisam de armazenamento antes que os fragmentos possam ser salvos. Use o Builder.io para armazenamento no plano gratuito ou configure seu próprio bucket compatível com S3.",
     storageConnected: "Armazenamento conectado",
     connectBuilder: "Usar Builder.io",
     configureS3: "Configurar armazenamento S3",
