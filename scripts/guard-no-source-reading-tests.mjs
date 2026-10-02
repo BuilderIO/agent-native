@@ -35,9 +35,10 @@
  * scripts/lib/source-read-detector.mjs; where it cannot tell where a path
  * comes from it does not flag.
  *
- * Instead, render the component (Content UI: renderUi from
- * templates/content/app/test-utils/render-ui.tsx) or call the module through
- * its public interface and assert on what a user or caller observes.
+ * Instead, render the component the way the app's other UI tests do (Content
+ * has a helper, renderUi in templates/content/app/test-utils/render-ui.tsx) or
+ * call the module through its public interface and assert on what a user or
+ * caller observes.
  *
  * Sometimes source text really is the subject: an architecture or boundary
  * check, a workflow file. Opt out per line with
@@ -105,10 +106,11 @@ function reportViolations(violations) {
       "text pass when the behavior breaks (the string is still there, the\n" +
       "feature is not) and fail on harmless refactors (renames, reformatting,\n" +
       "CRLF checkouts). They check what the code says, not what it does.\n\n" +
-      "Instead, run the code: render the component with renderUi from\n" +
-      "templates/content/app/test-utils/render-ui.tsx (Content UI), or call the\n" +
-      "module through its public interface, and assert on what a user or\n" +
-      "caller observes.\n",
+      "Instead, run the code: render the component the way the app's other UI\n" +
+      "tests do (Content has a helper, renderUi in\n" +
+      "templates/content/app/test-utils/render-ui.tsx), or call the module\n" +
+      "through its public interface, and assert on what a user or caller\n" +
+      "observes.\n",
   );
   for (const v of violations) {
     console.error(`  ${v.file}:${v.line}  ${v.text}\n    (${v.reason})`);
