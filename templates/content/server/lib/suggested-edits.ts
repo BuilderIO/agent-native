@@ -28,8 +28,8 @@ import {
 import { hasSuggestionBodyTarget } from "../../actions/_suggestion-eligibility.js";
 import { commentIdForIdempotency } from "../../actions/add-comment.js";
 import {
-  SUPPORTED_SUGGESTION_BLOCKS,
   SUPPORTED_SUGGESTION_MARKS,
+  supportsSuggestionNode,
 } from "../../app/components/editor/suggestions/model.js";
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
 import { mergeDocumentBodyIntents } from "../../shared/document-intent-merge.js";
@@ -215,8 +215,6 @@ type SuggestionDocumentJson = {
   content?: SuggestionDocumentJson[];
 };
 
-const SUPPORTED_SUGGESTION_INLINE_NODES = new Set(["hardBreak"]);
-
 function unsupportedNotionSpanAttrs(
   attrs: Record<string, unknown> | undefined,
 ) {
@@ -280,11 +278,7 @@ function unsupportedSuggestionStructure(
     }
     return result;
   }
-  if (
-    node.type !== "doc" &&
-    !SUPPORTED_SUGGESTION_INLINE_NODES.has(node.type ?? "") &&
-    !SUPPORTED_SUGGESTION_BLOCKS.has(node.type ?? "")
-  ) {
+  if (!supportsSuggestionNode(node.type ?? "")) {
     result.push({ path, node });
     return result;
   }
@@ -332,18 +326,13 @@ function validateSuggestionStructure(
   );
   if (
     unsupportedStructureKey(beforeMarkdown) !== surround ||
-    unsupportedStructureKey(afterMarkdown) !== surround
-  ) {
-    throw new Error(
-      "Content v1 suggestions cannot add or change unsupported structures",
-    );
-  }
-  if (
+    unsupportedStructureKey(afterMarkdown) !== surround ||
     JSON.stringify(unsupportedRawNotionSpanAttrs(beforeMarkdown)) !==
-    JSON.stringify(unsupportedRawNotionSpanAttrs(afterMarkdown))
+      JSON.stringify(unsupportedRawNotionSpanAttrs(afterMarkdown))
   ) {
-    throw new Error(
-      "Content v1 suggestions cannot add or change unsupported structures",
+    fail(
+      "Suggestions cannot change tables, images, or other content that suggestions do not support yet. Suggest changes to the surrounding text instead.",
+      { statusCode: 422, errorCode: "suggestion_structure_unsupported" },
     );
   }
   return after;
@@ -579,9 +568,10 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       );
     }
     if (before.markdown.includes("<InlineDatabase")) {
-      throw new Error(
-        "Pages with inline databases cannot receive suggestions yet",
-      );
+      fail("Pages with inline databases cannot receive suggestions yet.", {
+        statusCode: 409,
+        errorCode: "suggestion_body_unavailable",
+      });
     }
     validateSuggestionStructure(before.markdown, after.markdown);
     return operations;
@@ -677,9 +667,10 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       nextContent,
     );
     if (currentContent.includes("<InlineDatabase")) {
-      throw new Error(
-        "Pages containing inline databases cannot accept suggestions yet",
-      );
+      fail("Pages containing inline databases cannot accept suggestions yet.", {
+        statusCode: 409,
+        errorCode: "suggestion_body_unavailable",
+      });
     }
     const eligiblePrimaryIds = await assertSuggestionBodyTarget(
       tx,

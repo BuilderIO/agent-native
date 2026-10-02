@@ -165,6 +165,7 @@ import {
   resolveSuggestionPresentationRange,
   type SuggestionPresentationTransition,
 } from "./suggestions/presentation-rebase";
+import { SuggestingReadOnlyBlocks } from "./suggestions/read-only-blocks";
 import { TableHoverControls } from "./TableHoverControls";
 
 function compareDocumentBodyRevisions(
@@ -1967,6 +1968,7 @@ interface VisualEditorExtensionOptions {
   onImageComment?: (quotedText: string, offsetTop: number) => void;
   onImageFilePickerRequest?: (request: PendingImagePicker) => void;
   canMutateMedia?: () => boolean;
+  isSuggesting?: () => boolean;
   onJoinTitle?: (text: string) => void;
   onOpenNotionPageLink?: (documentId: string) => void;
   localFilePath?: string | null;
@@ -2566,6 +2568,7 @@ export function createVisualEditorExtensions({
   onImageComment,
   onImageFilePickerRequest,
   canMutateMedia,
+  isSuggesting,
   onJoinTitle,
   onOpenNotionPageLink,
   localFilePath,
@@ -2645,6 +2648,9 @@ export function createVisualEditorExtensions({
       NotionTableCell,
       NormalizeTableHeaders,
       NormalizeTableAlignment,
+      ...(isSuggesting
+        ? [SuggestingReadOnlyBlocks.configure({ isSuggesting })]
+        : []),
       ...createNotionEditorExtensions({
         documentId,
         onOpenPageLink: onOpenNotionPageLink,
@@ -3165,6 +3171,7 @@ export function VisualEditor({
     }
   }, [documentId, fileStorageConfigured]);
   const canMutateMedia = useCallback(() => !suggestingRef.current, []);
+  const isSuggesting = useCallback(() => suggestingRef.current, []);
   const isVisualEditorFocused = useCallback((editor: CoreEditor) => {
     if (editor.isFocused) return true;
     const activeElement = editor.view.dom.ownerDocument.activeElement;
@@ -3210,6 +3217,7 @@ export function VisualEditor({
         onImageComment: onComment,
         onImageFilePickerRequest,
         canMutateMedia,
+        isSuggesting,
         onJoinTitle,
         onOpenNotionPageLink,
         localFilePath,
@@ -3252,6 +3260,7 @@ export function VisualEditor({
       onComment,
       onImageFilePickerRequest,
       canMutateMedia,
+      isSuggesting,
       onJoinTitle,
       onOpenNotionPageLink,
       localFilePath,

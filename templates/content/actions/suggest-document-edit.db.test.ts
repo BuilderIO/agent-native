@@ -783,6 +783,33 @@ describe("suggest-document-edit", () => {
     );
   });
 
+  it("refuses an edit inside a table cell with a typed error", async () => {
+    await runWithRequestContext(
+      { userEmail: ctx.userEmail, orgId: null },
+      async () => {
+        const { id, revision } = await createPage(
+          "Intro text.\n\n| Name | Value |\n| --- | --- |\n| alpha cell | beta |\n\nClosing text.",
+        );
+        await expect(
+          suggestDocumentEdit.run(
+            {
+              id,
+              baseRevision: revision,
+              idempotencyKey: `table-cell-${id}`,
+              find: "alpha cell",
+              replace: "omega cell",
+            },
+            { caller: "mcp" as const, userEmail: ctx.userEmail },
+          ),
+        ).rejects.toMatchObject({
+          statusCode: 422,
+          errorCode: "suggestion_structure_unsupported",
+          message: expect.stringMatching(/cannot change tables/),
+        });
+      },
+    );
+  });
+
   it("rejects an ambiguous find", async () => {
     await runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: null },
