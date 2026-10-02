@@ -373,7 +373,7 @@ Access tokens are signed with `A2A_SECRET` when set, otherwise `BETTER_AUTH_SECR
 
 New MCP authorization codes and refresh tokens record their owner at issuance. Token exchanges reject unbound legacy grants or an owner-binding mismatch with `invalid_grant`, without inferring a legacy owner. An intentional email rekey updates the issuance identity. Offboarding revokes or deletes grants without transferring the issuance binding.
 
-The OAuth owner-binding update requires every existing OAuth refresh connection to [reconnect once](/docs/external-agents#reconnect). Pending old authorization codes must restart consent. Already-issued access tokens retain their existing lifetime and live membership checks.
+The OAuth owner-binding update requires every existing OAuth connection to [reconnect once](/docs/external-agents#reconnect). Old OAuth access tokens are refused after rollout. Unbound legacy refresh tokens return `invalid_grant`, and pending old authorization codes must restart consent. Newly issued access tokens use their configured lifetime and live membership checks. This OAuth cutover leaves Connect tokens and cross-app A2A tokens unchanged.
 
 `npx @agent-native/core@latest connect <url> --client claude-code` writes the URL-only MCP entry for this standard flow. For clients that cannot perform remote MCP OAuth, use the Connect page or `npx @agent-native/core@latest connect --token <token>` fallback to write an explicit bearer-token entry.
 

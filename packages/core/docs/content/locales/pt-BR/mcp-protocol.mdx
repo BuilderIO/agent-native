@@ -352,7 +352,7 @@ Os tokens de atualização são armazenados apenas como hashes e não são alter
 
 Os novos códigos de autorização e tokens de atualização mantêm o vínculo com seu proprietário na emissão. Concessões antigas sem vínculo e divergências de proprietário retornam `invalid_grant`. Renovar uma concessão revogada ou excluída retorna `invalid_grant` mesmo quando a atualização não afeta nenhuma linha. Uma falha de gravação na renovação retorna HTTP 503, que permite nova tentativa, com `Retry-After: 5`. Nenhuma dessas falhas emite um token de acesso.
 
-A atualização do vínculo de proprietário do OAuth exige que cada conexão OAuth existente com token de atualização [se reconecte uma vez](/docs/external-agents#reconnect). Os códigos de autorização antigos pendentes devem reiniciar o consentimento. Os tokens de acesso já emitidos mantêm sua validade atual e as verificações de associação a cada solicitação.
+A atualização do vínculo de proprietário do OAuth exige que cada conexão OAuth existente [se reconecte uma vez](/docs/external-agents#reconnect). Os tokens de acesso OAuth antigos são recusados após a implantação. Os tokens de atualização antigos sem vínculo de proprietário retornam `invalid_grant`, e os códigos de autorização antigos pendentes devem reiniciar o consentimento. Os tokens de acesso recém-emitidos usam a validade configurada e as verificações de associação a cada solicitação. Esta transição do OAuth não altera os tokens de Connect nem os tokens A2A entre aplicativos.
 
 ## Configuração MCP personalizada {#custom-setup}
 

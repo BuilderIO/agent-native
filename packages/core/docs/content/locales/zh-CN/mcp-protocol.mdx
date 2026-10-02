@@ -346,7 +346,7 @@ WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.w
 
 新的授权码和刷新令牌保留签发时的所有者绑定。未绑定所有者的旧授权和所有者不匹配的授权会返回 `invalid_grant`。续期已撤销或已删除的授权时，即使更新没有影响任何行，也会返回 `invalid_grant`。续期写入失败时，会返回可重试的 HTTP 503 和 `Retry-After: 5`。这两种失败都不会签发访问令牌。
 
-OAuth 所有者绑定更新要求每个现有的 OAuth 刷新连接[重新连接一次](/docs/external-agents#reconnect)。尚未使用的旧授权码必须重新开始同意流程。已签发的访问令牌保留现有有效期，并继续在每次请求时检查成员资格。
+OAuth 所有者绑定更新要求每个现有的 OAuth 连接[重新连接一次](/docs/external-agents#reconnect)。更新上线后，旧 OAuth 访问令牌会被拒绝。未绑定所有者的旧刷新令牌会返回 `invalid_grant`，尚未使用的旧授权码必须重新开始同意流程。新签发的访问令牌使用配置的有效期，并在每次请求时检查成员资格。此次 OAuth 切换不会更改 Connect 令牌或跨应用 A2A 令牌。
 
 ## 自定义 MCP 设置 {#custom-setup}
 

@@ -315,7 +315,7 @@ https://mail.agent-native.com/mcp
 
 新的 MCP 授权码和刷新令牌会记录签发时的所有者。令牌交换会以 `invalid_grant` 拒绝未绑定所有者的旧授权或所有者绑定不匹配的授权，不会推断旧授权的所有者。有意更改电子邮件地址时，签发身份也会更新。成员离职处理会撤销或删除授权，不会将签发绑定转移给他人。
 
-OAuth 所有者绑定更新要求每个现有的 OAuth 刷新连接[重新连接一次](/docs/external-agents#reconnect)。尚未使用的旧授权码必须重新开始同意流程。已签发的访问令牌保留现有有效期，并继续在每次请求时检查成员资格。
+OAuth 所有者绑定更新要求每个现有的 OAuth 连接[重新连接一次](/docs/external-agents#reconnect)。更新上线后，旧 OAuth 访问令牌会被拒绝。未绑定所有者的旧刷新令牌会返回 `invalid_grant`，尚未使用的旧授权码必须重新开始同意流程。新签发的访问令牌使用配置的有效期，并在每次请求时检查成员资格。此次 OAuth 切换不会更改 Connect 令牌或跨应用 A2A 令牌。
 
 `npx @agent-native/core@latest connect <url> --client claude-code` 为此标准流程写入仅 URL 的 MCP 条目。对于无法执行远程 MCP OAuth 的客户端，请使用“连接”页面或 `npx @agent-native/core@latest connect --token <token>` 回退来写入显式不记名令牌条目。
 

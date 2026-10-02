@@ -355,7 +355,7 @@ WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.w
 
 새 인증 코드와 갱신 토큰은 발급 당시의 소유자 바인딩을 유지합니다. 바인딩이 없는 이전 권한 부여와 소유자 불일치는 `invalid_grant`를 반환합니다. 철회되거나 삭제된 권한 부여를 갱신하면 갱신 대상 행이 없는 경우에도 `invalid_grant`를 반환합니다. 갱신 내용을 저장하지 못하면 재시도 가능한 HTTP 503과 `Retry-After: 5`를 반환합니다. 어느 실패에서도 액세스 토큰을 발급하지 않습니다.
 
-OAuth 소유자 바인딩 업데이트 후 기존 OAuth 갱신 연결은 모두 [한 번 다시 연결해야 합니다](/docs/external-agents#reconnect). 아직 사용하지 않은 이전 인증 코드는 동의 절차를 다시 시작해야 합니다. 이미 발급된 액세스 토큰은 기존 유효 기간과 요청마다 수행되는 멤버십 확인을 유지합니다.
+OAuth 소유자 바인딩 업데이트 후 기존 OAuth 연결은 모두 [한 번 다시 연결해야 합니다](/docs/external-agents#reconnect). 업데이트가 적용되면 이전 OAuth 액세스 토큰은 거부됩니다. 소유자 바인딩이 없는 이전 갱신 토큰은 `invalid_grant`를 반환하며 아직 사용하지 않은 이전 인증 코드는 동의 절차를 다시 시작해야 합니다. 새로 발급된 액세스 토큰에는 설정된 유효 기간과 요청마다 수행되는 멤버십 확인이 적용됩니다. 이 OAuth 전환은 Connect 토큰과 앱 간 A2A 토큰을 변경하지 않습니다.
 
 ## 사용자 정의 MCP 설정 {#custom-setup}
 

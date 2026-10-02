@@ -269,7 +269,7 @@ La connexion est **par utilisateur, limitée et révocable**. Dans le chemin OAu
 
 ### Ré-authentification après un 401 {#reconnect}
 
-La mise à jour du lien de propriété OAuth impose à chaque connexion OAuth existante utilisant un jeton d'actualisation de [se reconnecter une fois](/docs/external-agents#reconnect). Les anciens codes d'autorisation encore en attente doivent reprendre le consentement. Les jetons d'accès déjà émis conservent leur durée de validité actuelle et les vérifications d'appartenance à chaque requête.
+La mise à jour du lien de propriété OAuth impose à chaque connexion OAuth existante de [se reconnecter une fois](/docs/external-agents#reconnect). Les anciens jetons d'accès OAuth sont refusés après le déploiement. Les anciens jetons d'actualisation sans lien de propriété renvoient `invalid_grant`, et les anciens codes d'autorisation encore en attente doivent reprendre le consentement. Les jetons d'accès nouvellement émis utilisent la durée de validité configurée et les vérifications d'appartenance à chaque requête. Cette transition OAuth ne modifie ni les jetons Connect ni les jetons A2A entre applications.
 
 Une fois connecté, l'authentification doit persister à long terme : les jetons d'accès durent 30 jours par défaut (remplacement par `MCP_OAUTH_ACCESS_TOKEN_TTL` sur le serveur, par exemple `7d` ou `12h`) avec une fenêtre d'actualisation glissante de 365 jours, les 401 aléatoires devraient donc être rares. Lorsque cela se produit, utilisez la commande légère de reconnexion plutôt que de réinstaller :
 

@@ -299,7 +299,7 @@ The connection is **per-user, scoped, and revocable**. In the OAuth path, the ho
 
 ### Re-authenticating after a 401 {#reconnect}
 
-The OAuth owner-binding update requires every existing OAuth refresh connection to [reconnect once](/docs/external-agents#reconnect). Pending old authorization codes must restart consent. Already-issued access tokens retain their existing lifetime and live membership checks.
+The OAuth owner-binding update requires every existing OAuth connection to [reconnect once](/docs/external-agents#reconnect). Old OAuth access tokens are refused after rollout. Unbound legacy refresh tokens return `invalid_grant`, and pending old authorization codes must restart consent. Newly issued access tokens use their configured lifetime and live membership checks. This OAuth cutover leaves Connect tokens and cross-app A2A tokens unchanged.
 
 Once connected, auth should persist long-term — access tokens last 30 days by default (override with `MCP_OAUTH_ACCESS_TOKEN_TTL` on the server, e.g. `7d` or `12h`) with a sliding 365-day refresh window, so random 401s should be rare. When one does happen, use the lightweight reconnect command rather than reinstalling:
 

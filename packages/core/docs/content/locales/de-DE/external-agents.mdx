@@ -269,7 +269,7 @@ Die Verbindung ist **pro Benutzer, bereichsbezogen und widerrufbar**. Im OAuth-P
 
 ### Erneute Authentifizierung nach einem 401 {#reconnect}
 
-Die Aktualisierung zur OAuth-Eigentümerbindung erfordert für jede bestehende OAuth-Verbindung mit Aktualisierungstoken eine [einmalige erneute Verbindung](/docs/external-agents#reconnect). Für noch ausstehende alte Autorisierungscodes muss der Zustimmungsablauf neu gestartet werden. Bereits ausgestellte Zugriffstoken behalten ihre bisherige Gültigkeitsdauer und die laufenden Mitgliedschaftsprüfungen.
+Die Aktualisierung zur OAuth-Eigentümerbindung erfordert für jede bestehende OAuth-Verbindung eine [einmalige erneute Verbindung](/docs/external-agents#reconnect). Alte OAuth-Zugriffstoken werden nach der Einführung abgelehnt. Ungebundene bisherige Aktualisierungstoken liefern `invalid_grant`, und für noch ausstehende alte Autorisierungscodes muss der Zustimmungsablauf neu gestartet werden. Neu ausgestellte Zugriffstoken nutzen die konfigurierte Gültigkeitsdauer und die laufenden Mitgliedschaftsprüfungen. Diese OAuth-Umstellung lässt Connect-Token und appübergreifende A2A-Token unverändert.
 
 Sobald die Verbindung hergestellt ist, sollte die Authentifizierung langfristig bestehen bleiben – Zugriffstokens sind standardmäßig 30 Tage gültig (Überschreibung durch `MCP_OAUTH_ACCESS_TOKEN_TTL` auf dem Server, z. B. `7d` oder `12h`) mit einem gleitenden Aktualisierungsfenster von 365 Tagen, sodass zufällige 401-Fehler selten sein sollten. Wenn einer auftritt, verwenden Sie den einfachen Befehl zum erneuten Verbinden, anstatt eine Neuinstallation durchzuführen:
 
