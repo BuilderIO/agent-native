@@ -3580,6 +3580,49 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
+  it("keeps external action links external for desktop clients", async () => {
+    const projectUrl =
+      "https://beta.builder.io/app/projects/test-project/test-app?spaceId=test-space";
+    const externalLinkConfig = {
+      ...config,
+      actions: {
+        ...config.actions,
+        "echo-thing": {
+          ...config.actions["echo-thing"],
+          link: () => ({
+            label: "Open project",
+            view: "project",
+            url: projectUrl,
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 32,
+        method: "tools/call",
+        params: { name: "echo-thing", arguments: { value: "hello" } },
+      },
+      {
+        headers: {
+          "x-agent-native-mcp-full-catalog": "1",
+          "x-agent-native-open-target": "desktop",
+        },
+        config: externalLinkConfig,
+      },
+    );
+
+    expect(out.result.content[1].text).toBe(
+      `\n\n[Open project →](${projectUrl})`,
+    );
+    expect(out.result._meta["agent-native/openLink"]).toMatchObject({
+      webUrl: projectUrl,
+      desktopUrl: projectUrl,
+    });
+  });
+
   it("serializes bounded action images as MCP image content without exposing base64 in text or structured content", async () => {
     const png = "aGVsbG8=";
     const imageConfig = {

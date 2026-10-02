@@ -1018,7 +1018,9 @@ export function buildLinkArtifacts(
       ? withCollapsedAgentSidebarParam(lk.url)
       : lk.url;
     const webUrl = toAbsoluteOpenUrl(linkUrl, meta?.origin);
-    const desktopUrl = toDesktopOpenUrl(linkUrl);
+    const desktopUrl = isAgentNativeOpenDeepLink(linkUrl)
+      ? toDesktopOpenUrl(linkUrl)
+      : webUrl;
     const vscodeUrl = toVsCodeOpenUrl(webUrl);
     const markdownUrl = meta?.target === "desktop" ? desktopUrl : webUrl;
     return {
