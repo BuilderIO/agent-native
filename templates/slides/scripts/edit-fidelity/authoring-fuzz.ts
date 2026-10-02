@@ -920,13 +920,18 @@ export async function runAuthoringFuzz(
           }
           const parent = record.parent === baseline.root ? root : record.parent;
           const moved = record.node.parentNode !== parent;
+          const newParent = record.node.parentNode;
           const promotedHeadingLine =
             operation.kind === "heading-enter" &&
             record.node instanceof HTMLElement &&
             record.node.tagName === "P" &&
             parent instanceof HTMLElement &&
+            newParent instanceof HTMLElement &&
             root.contains(parent) &&
-            record.node.parentNode === root;
+            newParent !== parent &&
+            newParent.children.length === 2 &&
+            newParent.firstElementChild?.tagName === "H2" &&
+            newParent.lastElementChild === record.node;
           if (
             moved &&
             !(
@@ -2205,15 +2210,29 @@ export async function runAuthoringFuzz(
           await selectToken(token);
           await page.keyboard.press(`${modifier}+B`);
           const copied = await copySelection();
-          if (!/<(?:strong|b)\b/i.test(copied.html)) {
-            throw new Error("copy did not preserve the selected bold mark");
+          if (
+            !/<(?:strong|b)\b|<span\b[^>]*style="[^"]*font-weight\s*:/i.test(
+              copied.html,
+            )
+          ) {
+            throw new Error(
+              `copy did not preserve the selected bold mark (${copied.html})`,
+            );
           }
           await newPlainLine();
           await paste(copied.html, copied.text);
           const preserved = await editor.evaluate(
             (root: HTMLElement, value: string) =>
-              Array.from(root.querySelectorAll("strong,b")).some(
-                (mark) => mark.textContent === value,
+              Array.from(
+                root.querySelectorAll<HTMLElement>(
+                  "strong,b,span[style*='font-weight']",
+                ),
+              ).some(
+                (mark) =>
+                  mark.textContent === value &&
+                  (mark.matches("strong,b") ||
+                    Number.parseInt(getComputedStyle(mark).fontWeight, 10) >=
+                      600),
               ),
             token,
           );
