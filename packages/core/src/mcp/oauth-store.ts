@@ -87,6 +87,7 @@ export async function ensureTable(): Promise<void> {
           code_challenge TEXT NOT NULL,
           code_challenge_method TEXT NOT NULL,
           owner_email TEXT NOT NULL,
+          issued_for_email TEXT,
           org_id TEXT,
           org_domain TEXT,
           scope TEXT NOT NULL,
@@ -102,6 +103,7 @@ export async function ensureTable(): Promise<void> {
           token_hash TEXT UNIQUE NOT NULL,
           client_id TEXT NOT NULL,
           owner_email TEXT NOT NULL,
+          issued_for_email TEXT,
           org_id TEXT,
           org_domain TEXT,
           scope TEXT NOT NULL,
@@ -121,9 +123,20 @@ export async function ensureTable(): Promise<void> {
         `ALTER TABLE mcp_oauth_clients ADD COLUMN IF NOT EXISTS application_type TEXT`,
       );
       await ensureTableExists("mcp_oauth_codes", createCodesSql);
+      // Legacy owners may already have been transferred; leave their bindings unset.
+      await ensureColumnExists(
+        "mcp_oauth_codes",
+        "issued_for_email",
+        `ALTER TABLE mcp_oauth_codes ADD COLUMN IF NOT EXISTS issued_for_email TEXT`,
+      );
       await ensureTableExists(
         "mcp_oauth_refresh_tokens",
         createRefreshTokensSql,
+      );
+      await ensureColumnExists(
+        "mcp_oauth_refresh_tokens",
+        "issued_for_email",
+        `ALTER TABLE mcp_oauth_refresh_tokens ADD COLUMN IF NOT EXISTS issued_for_email TEXT`,
       );
     })().catch((err) => {
       _initPromise = undefined;
@@ -151,6 +164,7 @@ export interface OAuthCodeRow {
   codeChallenge: string;
   codeChallengeMethod: string;
   ownerEmail: string;
+  issuedForEmail: string | null;
   orgId: string | null;
   orgDomain: string | null;
   scope: string;
@@ -165,6 +179,7 @@ export interface OAuthRefreshTokenRow {
   tokenHash: string;
   clientId: string;
   ownerEmail: string;
+  issuedForEmail: string | null;
   orgId: string | null;
   orgDomain: string | null;
   scope: string;
@@ -240,6 +255,7 @@ function mapCodeRow(row: any): OAuthCodeRow {
     codeChallenge: row.code_challenge ?? row.codeChallenge,
     codeChallengeMethod: row.code_challenge_method ?? row.codeChallengeMethod,
     ownerEmail: row.owner_email ?? row.ownerEmail,
+    issuedForEmail: row.issued_for_email ?? row.issuedForEmail ?? null,
     orgId: row.org_id ?? row.orgId ?? null,
     orgDomain: row.org_domain ?? row.orgDomain ?? null,
     scope: row.scope,
@@ -256,6 +272,7 @@ function mapRefreshRow(row: any): OAuthRefreshTokenRow {
     tokenHash: row.token_hash ?? row.tokenHash,
     clientId: row.client_id ?? row.clientId,
     ownerEmail: row.owner_email ?? row.ownerEmail,
+    issuedForEmail: row.issued_for_email ?? row.issuedForEmail ?? null,
     orgId: row.org_id ?? row.orgId ?? null,
     orgDomain: row.org_domain ?? row.orgDomain ?? null,
     scope: row.scope,
@@ -266,6 +283,17 @@ function mapRefreshRow(row: any): OAuthRefreshTokenRow {
     revokedAt: numOrNull(row.revoked_at ?? row.revokedAt),
     replacedByHash: row.replaced_by_hash ?? row.replacedByHash ?? null,
   };
+}
+
+function hasIssuanceOwner(row: {
+  ownerEmail: string;
+  issuedForEmail: string | null;
+}): boolean {
+  return (
+    typeof row.issuedForEmail === "string" &&
+    row.issuedForEmail.trim().length > 0 &&
+    row.issuedForEmail === row.ownerEmail
+  );
 }
 
 export async function registerOAuthClient(params: {
@@ -361,13 +389,14 @@ export async function createOAuthCode(params: {
   const now = Date.now();
   const expiresAt = now + MCP_OAUTH_CODE_TTL_MS;
   await client.execute({
-    sql: `INSERT INTO mcp_oauth_codes (code, client_id, redirect_uri, code_challenge, code_challenge_method, owner_email, org_id, org_domain, scope, resource, created_at, expires_at, consumed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO mcp_oauth_codes (code, client_id, redirect_uri, code_challenge, code_challenge_method, owner_email, issued_for_email, org_id, org_domain, scope, resource, created_at, expires_at, consumed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       code,
       params.clientId,
       params.redirectUri,
       params.codeChallenge,
       params.codeChallengeMethod,
+      params.ownerEmail,
       params.ownerEmail,
       params.orgId ?? null,
       params.orgDomain ?? null,
@@ -385,6 +414,7 @@ export async function createOAuthCode(params: {
     codeChallenge: params.codeChallenge,
     codeChallengeMethod: params.codeChallengeMethod,
     ownerEmail: params.ownerEmail,
+    issuedForEmail: params.ownerEmail,
     orgId: params.orgId ?? null,
     orgDomain: params.orgDomain ?? null,
     scope: params.scope,
@@ -404,7 +434,11 @@ export async function getOAuthCode(code: string): Promise<OAuthCodeRow | null> {
   });
   if (rows.length === 0) return null;
   const row = mapCodeRow(rows[0]);
-  if (row.consumedAt != null || (row.expiresAt ?? 0) < Date.now()) {
+  if (
+    !hasIssuanceOwner(row) ||
+    row.consumedAt != null ||
+    (row.expiresAt ?? 0) < Date.now()
+  ) {
     return null;
   }
   return row;
@@ -412,6 +446,7 @@ export async function getOAuthCode(code: string): Promise<OAuthCodeRow | null> {
 
 export async function consumeOAuthCode(
   code: string,
+  expectedOwnerEmail?: string,
 ): Promise<OAuthCodeRow | null> {
   await ensureTable();
   const client = getDbExec();
@@ -421,14 +456,25 @@ export async function consumeOAuthCode(
   });
   if (rows.length === 0) return null;
   const row = mapCodeRow(rows[0]);
-  if (row.consumedAt != null || (row.expiresAt ?? 0) < Date.now()) {
+  const now = Date.now();
+  if (
+    !hasIssuanceOwner(row) ||
+    (expectedOwnerEmail !== undefined &&
+      row.ownerEmail !== expectedOwnerEmail) ||
+    row.consumedAt != null ||
+    (row.expiresAt ?? 0) < now
+  ) {
     return null;
   }
   const result = await client.execute({
-    sql: `UPDATE mcp_oauth_codes SET consumed_at = ? WHERE code = ? AND consumed_at IS NULL`,
-    args: [Date.now(), code],
+    sql: `UPDATE mcp_oauth_codes SET consumed_at = ? WHERE code = ? AND consumed_at IS NULL AND expires_at >= ? AND owner_email = ? AND issued_for_email = ?`,
+    args: [now, code, now, row.ownerEmail, row.issuedForEmail],
   });
-  return result.rowsAffected > 0 ? row : null;
+  if (result.rowsAffected === 0) return null;
+  if (result.rowsAffected === 1) return row;
+  throw new Error(
+    "Authorization-code consumption returned an invalid row count",
+  );
 }
 
 export async function createOAuthRefreshToken(params: {
@@ -448,6 +494,7 @@ export async function createOAuthRefreshToken(params: {
     tokenHash: hashOAuthToken(params.refreshToken),
     clientId: params.clientId,
     ownerEmail: params.ownerEmail,
+    issuedForEmail: params.ownerEmail,
     orgId: params.orgId ?? null,
     orgDomain: params.orgDomain ?? null,
     scope: params.scope,
@@ -459,12 +506,13 @@ export async function createOAuthRefreshToken(params: {
     replacedByHash: null,
   };
   await client.execute({
-    sql: `INSERT INTO mcp_oauth_refresh_tokens (id, token_hash, client_id, owner_email, org_id, org_domain, scope, resource, created_at, expires_at, last_used_at, revoked_at, replaced_by_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO mcp_oauth_refresh_tokens (id, token_hash, client_id, owner_email, issued_for_email, org_id, org_domain, scope, resource, created_at, expires_at, last_used_at, revoked_at, replaced_by_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       row.id,
       row.tokenHash,
       row.clientId,
       row.ownerEmail,
+      row.issuedForEmail,
       row.orgId,
       row.orgDomain,
       row.scope,
@@ -493,14 +541,22 @@ export async function rotateOAuthRefreshToken(params: {
   });
   if (rows.length === 0) return null;
   const old = mapRefreshRow(rows[0]);
-  if (old.revokedAt != null || (old.expiresAt ?? 0) < Date.now()) return null;
-
   const now = Date.now();
+  if (
+    !hasIssuanceOwner(old) ||
+    old.revokedAt != null ||
+    (old.expiresAt ?? 0) < now
+  )
+    return null;
+
   const update = await client.execute({
-    sql: `UPDATE mcp_oauth_refresh_tokens SET revoked_at = ?, last_used_at = ?, replaced_by_hash = ? WHERE token_hash = ? AND revoked_at IS NULL`,
-    args: [now, now, newHash, oldHash],
+    sql: `UPDATE mcp_oauth_refresh_tokens SET revoked_at = ?, last_used_at = ?, replaced_by_hash = ? WHERE token_hash = ? AND revoked_at IS NULL AND expires_at >= ? AND owner_email = ? AND issued_for_email = ?`,
+    args: [now, now, newHash, oldHash, now, old.ownerEmail, old.issuedForEmail],
   });
   if (update.rowsAffected === 0) return null;
+  if (update.rowsAffected !== 1) {
+    throw new Error("Refresh-token rotation returned an invalid row count");
+  }
 
   const next: OAuthRefreshTokenRow = {
     ...old,
@@ -513,12 +569,13 @@ export async function rotateOAuthRefreshToken(params: {
     replacedByHash: null,
   };
   await client.execute({
-    sql: `INSERT INTO mcp_oauth_refresh_tokens (id, token_hash, client_id, owner_email, org_id, org_domain, scope, resource, created_at, expires_at, last_used_at, revoked_at, replaced_by_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO mcp_oauth_refresh_tokens (id, token_hash, client_id, owner_email, issued_for_email, org_id, org_domain, scope, resource, created_at, expires_at, last_used_at, revoked_at, replaced_by_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       next.id,
       next.tokenHash,
       next.clientId,
       next.ownerEmail,
+      next.issuedForEmail,
       next.orgId,
       next.orgDomain,
       next.scope,
@@ -545,7 +602,11 @@ export async function getOAuthRefreshToken(
   });
   if (rows.length === 0) return null;
   const row = mapRefreshRow(rows[0]);
-  if (row.revokedAt != null || (row.expiresAt ?? 0) < Date.now()) {
+  if (
+    !hasIssuanceOwner(row) ||
+    row.revokedAt != null ||
+    (row.expiresAt ?? 0) < Date.now()
+  ) {
     return null;
   }
   return row;
@@ -555,17 +616,26 @@ export async function getOAuthRefreshToken(
  * Slide the refresh-token's expiry window on each successful use so that active
  * users never hit the TTL. Records `last_used_at` and extends `expires_at` to
  * `now + MCP_OAUTH_REFRESH_TOKEN_TTL_MS`.
+ * The caller supplies the owner whose membership it verified.
  */
 export async function touchOAuthRefreshToken(
   refreshToken: string,
+  expectedOwnerEmail: string,
 ): Promise<"renewed" | "invalid"> {
   await ensureTable();
   const client = getDbExec();
   const tokenHash = hashOAuthToken(refreshToken);
   const now = Date.now();
   const result = await client.execute({
-    sql: `UPDATE mcp_oauth_refresh_tokens SET last_used_at = ?, expires_at = ? WHERE token_hash = ? AND revoked_at IS NULL`,
-    args: [now, now + MCP_OAUTH_REFRESH_TOKEN_TTL_MS, tokenHash],
+    sql: `UPDATE mcp_oauth_refresh_tokens SET last_used_at = ?, expires_at = ? WHERE token_hash = ? AND revoked_at IS NULL AND expires_at >= ? AND owner_email = ? AND issued_for_email = ? AND BTRIM(issued_for_email) <> ''`,
+    args: [
+      now,
+      now + MCP_OAUTH_REFRESH_TOKEN_TTL_MS,
+      tokenHash,
+      now,
+      expectedOwnerEmail,
+      expectedOwnerEmail,
+    ],
   });
   if (result.rowsAffected === 0) return "invalid";
   if (result.rowsAffected === 1) return "renewed";

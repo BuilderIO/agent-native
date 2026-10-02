@@ -96,6 +96,7 @@ vi.mock("./oauth-store.js", () => ({
     const row = {
       code: `code-${++counter}`,
       ...params,
+      issuedForEmail: params.ownerEmail,
       createdAt: Date.now(),
       expiresAt: Date.now() + 600_000,
       consumedAt: null,
@@ -105,20 +106,37 @@ vi.mock("./oauth-store.js", () => ({
   }),
   getOAuthCode: vi.fn(async (code: string) => {
     const row = codes.get(code);
-    if (!row || row.consumedAt || row.expiresAt < Date.now()) return null;
-    return row;
+    if (
+      !row ||
+      !row.issuedForEmail?.trim() ||
+      row.issuedForEmail !== row.ownerEmail ||
+      row.consumedAt ||
+      row.expiresAt < Date.now()
+    )
+      return null;
+    return { ...row };
   }),
-  consumeOAuthCode: vi.fn(async (code: string) => {
+  consumeOAuthCode: vi.fn(async (code: string, expectedOwnerEmail?: string) => {
     const row = codes.get(code);
-    if (!row || row.consumedAt) return null;
+    if (
+      !row ||
+      !row.issuedForEmail?.trim() ||
+      row.issuedForEmail !== row.ownerEmail ||
+      (expectedOwnerEmail !== undefined &&
+        row.ownerEmail !== expectedOwnerEmail) ||
+      row.consumedAt ||
+      row.expiresAt < Date.now()
+    )
+      return null;
     row.consumedAt = Date.now();
-    return row;
+    return { ...row };
   }),
   createOAuthRefreshToken: vi.fn(async (params: any) => {
     refreshRows.set(params.refreshToken, {
       id: `refresh-${++counter}`,
       tokenHash: params.refreshToken,
       ...params,
+      issuedForEmail: params.ownerEmail,
       createdAt: Date.now(),
       expiresAt: Date.now() + 90 * 24 * 60 * 60_000,
       revokedAt: null,
@@ -126,19 +144,35 @@ vi.mock("./oauth-store.js", () => ({
   }),
   getOAuthRefreshToken: vi.fn(async (refreshToken: string) => {
     const row = refreshRows.get(refreshToken);
-    if (!row || row.revokedAt) return null;
-    return row;
+    if (
+      !row ||
+      !row.issuedForEmail?.trim() ||
+      row.issuedForEmail !== row.ownerEmail ||
+      row.revokedAt ||
+      row.expiresAt < Date.now()
+    )
+      return null;
+    return { ...row };
   }),
-  touchOAuthRefreshToken: vi.fn(async (refreshToken: string) => {
-    const row = refreshRows.get(refreshToken);
-    if (row && !row.revokedAt) {
-      const now = Date.now();
-      row.lastUsedAt = now;
-      row.expiresAt = now + 365 * 24 * 60 * 60_000;
-      return "renewed";
-    }
-    return "invalid";
-  }),
+  touchOAuthRefreshToken: vi.fn(
+    async (refreshToken: string, expectedOwnerEmail: string) => {
+      const row = refreshRows.get(refreshToken);
+      if (
+        row &&
+        row.issuedForEmail?.trim() &&
+        row.issuedForEmail === expectedOwnerEmail &&
+        row.ownerEmail === expectedOwnerEmail &&
+        !row.revokedAt &&
+        row.expiresAt >= Date.now()
+      ) {
+        const now = Date.now();
+        row.lastUsedAt = now;
+        row.expiresAt = now + 365 * 24 * 60 * 60_000;
+        return "renewed";
+      }
+      return "invalid";
+    },
+  ),
   revokeOAuthRefreshToken: vi.fn(async (refreshToken: string) => {
     const row = refreshRows.get(refreshToken);
     if (row && !row.revokedAt) row.revokedAt = Date.now();
@@ -146,7 +180,13 @@ vi.mock("./oauth-store.js", () => ({
   rotateOAuthRefreshToken: vi.fn(
     async ({ oldRefreshToken, newRefreshToken }) => {
       const old = refreshRows.get(oldRefreshToken);
-      if (!old || old.revokedAt) return null;
+      if (
+        !old ||
+        !old.issuedForEmail?.trim() ||
+        old.issuedForEmail !== old.ownerEmail ||
+        old.revokedAt
+      )
+        return null;
       old.revokedAt = Date.now();
       const next = { ...old, tokenHash: newRefreshToken, revokedAt: null };
       refreshRows.set(newRefreshToken, next);
@@ -2180,14 +2220,19 @@ describe("MCP OAuth grant validation", () => {
     );
   });
 
-  it.each(["revoked", "deleted"])(
+  it.each(["revoked", "deleted", "transferred", "rekeyed"])(
     "mints nothing when the refresh token is %s between lookup and renewal",
     async (change) => {
       const { clientId, code } = await authorizedCode();
       const issued = await (await exchange(clientId, code)).json();
       checkCredentialOrgMembershipMock.mockImplementationOnce(async () => {
+        const row = refreshRows.get(issued.refresh_token);
         if (change === "deleted") refreshRows.delete(issued.refresh_token);
-        else refreshRows.get(issued.refresh_token).revokedAt = Date.now();
+        else if (change === "revoked") row.revokedAt = Date.now();
+        else {
+          row.ownerEmail = "renamed@example.test";
+          if (change === "rekeyed") row.issuedForEmail = row.ownerEmail;
+        }
         return "member";
       });
       const token = await import("./oauth-token.js");
@@ -2203,9 +2248,32 @@ describe("MCP OAuth grant validation", () => {
       expect(sign).not.toHaveBeenCalled();
       expect(store.touchOAuthRefreshToken).toHaveBeenCalledWith(
         issued.refresh_token,
+        "steve@example.com",
       );
     },
   );
+
+  it("mints nothing when the code owner changes after membership validation", async () => {
+    const { clientId, code } = await authorizedCode();
+    checkCredentialOrgMembershipMock.mockImplementationOnce(async () => {
+      const row = codes.get(code);
+      row.ownerEmail = "renamed@example.test";
+      row.issuedForEmail = row.ownerEmail;
+      return "member";
+    });
+    const token = await import("./oauth-token.js");
+    const sign = vi.spyOn(token, "signMcpOAuthAccessToken");
+
+    const response = await exchange(clientId, code);
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe("invalid_grant");
+    expect(body.access_token).toBeUndefined();
+    expect(sign).not.toHaveBeenCalled();
+    expect(codes.get(code).consumedAt).toBeNull();
+    expect(refreshRows.size).toBe(0);
+  });
 
   it("refuses and consumes an authorization code once the user has left", async () => {
     const { clientId, code } = await authorizedCode();

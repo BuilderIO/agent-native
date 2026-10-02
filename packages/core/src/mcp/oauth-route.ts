@@ -1095,22 +1095,22 @@ async function handleAuthorizationCodeGrant(
     return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
   }
   if (membership === "not-member") {
-    await consumeOAuthCode(code);
+    await consumeOAuthCode(code, row.ownerEmail);
     return oauthError("invalid_grant", NOT_A_MEMBER_DESCRIPTION);
   }
-  const consumed = await consumeOAuthCode(code);
+  const consumed = await consumeOAuthCode(code, row.ownerEmail);
   if (!consumed) return oauthError("invalid_grant", "Invalid or expired code");
   const issuer = getMcpOAuthIssuer(event);
   if (!issuer)
     return oauthError("server_error", "Unable to derive issuer", 500);
   return json(
     await issueTokenSet({
-      ownerEmail: row.ownerEmail,
-      orgId: row.orgId,
-      orgDomain: row.orgDomain,
+      ownerEmail: consumed.ownerEmail,
+      orgId: consumed.orgId,
+      orgDomain: consumed.orgDomain,
       clientId,
-      scope: row.scope,
-      resource: row.resource,
+      scope: consumed.scope,
+      resource: consumed.resource,
       issuer,
     }),
   );
@@ -1145,7 +1145,10 @@ async function handleRefreshTokenGrant(
     return oauthError("invalid_grant", NOT_A_MEMBER_DESCRIPTION);
   }
   try {
-    const renewal = await touchOAuthRefreshToken(refreshToken);
+    const renewal = await touchOAuthRefreshToken(
+      refreshToken,
+      existing.ownerEmail,
+    );
     if (renewal !== "renewed") {
       return oauthError("invalid_grant", "Invalid refresh token");
     }

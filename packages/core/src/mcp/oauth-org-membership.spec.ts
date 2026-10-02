@@ -70,6 +70,7 @@ import {
   getMcpOAuthResource,
   handleMcpOAuth,
 } from "./oauth-route.js";
+import { createOAuthCode, createOAuthRefreshToken } from "./oauth-store.js";
 import { signMcpOAuthAccessToken } from "./oauth-token.js";
 
 const ORIGIN = "https://app.example.test";
@@ -763,5 +764,97 @@ describe("MCP access when the membership lookup fails", () => {
     expect(await refreshRowsFor(alice)).toEqual(before);
 
     expect((await refresh(alice)).status).toBe(200);
+  });
+});
+
+describe("MCP OAuth issuance-owner cutover", () => {
+  it("refuses a legacy successor access token through the full MCP authentication chain", async () => {
+    const resource = getMcpOAuthResource(appEvent("/mcp"))!;
+    const legacyAccessToken = await signA2AToken(ALICE, undefined, undefined, {
+      preferGlobalSecret: true,
+      expiresIn: "30d",
+      audience: resource,
+      extraClaims: {
+        typ: "agent-native-mcp-oauth",
+        org_id: ORG,
+        client_id: alice.clientId,
+        scope: "mcp:read",
+        resource,
+      },
+    });
+
+    expect((await authenticateMcpRequest(legacyAccessToken)).auth).toEqual({
+      authed: false,
+    });
+    expect(await docsVisibleTo(legacyAccessToken)).toEqual([]);
+    expect(
+      (await authenticateMcpRequest(alice.accessToken)).auth,
+    ).toMatchObject({
+      authed: true,
+      identity: { userEmail: ALICE, orgId: ORG },
+    });
+  });
+
+  it("refuses a legacy transferred refresh token instead of authenticating its successor", async () => {
+    const client = await registerMcpClient();
+    const refreshToken = "synthetic-legacy-transferred-refresh";
+    await createOAuthRefreshToken({
+      refreshToken,
+      clientId: client.clientId,
+      ownerEmail: BOB,
+      orgId: ORG,
+      scope: "mcp:read",
+      resource: getMcpOAuthResource(appEvent("/mcp"))!,
+    });
+    await getDbExec().execute(
+      "ALTER TABLE mcp_oauth_refresh_tokens ADD COLUMN IF NOT EXISTS issued_for_email TEXT",
+    );
+    await getDbExec().execute({
+      sql: "UPDATE mcp_oauth_refresh_tokens SET owner_email = ?, issued_for_email = NULL WHERE client_id = ?",
+      args: [ALICE, client.clientId],
+    });
+
+    const response = await tokenRequest({
+      grant_type: "refresh_token",
+      client_id: client.clientId,
+      refresh_token: refreshToken,
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("invalid_grant");
+    expect(response.body.access_token).toBeUndefined();
+    expect(await refreshRowsFor(client)).toMatchObject([
+      { owner_email: ALICE, last_used_at: null },
+    ]);
+  });
+
+  it("refuses a legacy transferred code and creates no successor credentials", async () => {
+    const client = await registerMcpClient();
+    const code = await createOAuthCode({
+      clientId: client.clientId,
+      redirectUri: REDIRECT_URI,
+      codeChallenge: createHash("sha256")
+        .update(CODE_VERIFIER)
+        .digest("base64url"),
+      codeChallengeMethod: "S256",
+      ownerEmail: BOB,
+      orgId: ORG,
+      scope: "mcp:read",
+      resource: getMcpOAuthResource(appEvent("/mcp"))!,
+    });
+    await getDbExec().execute(
+      "ALTER TABLE mcp_oauth_codes ADD COLUMN IF NOT EXISTS issued_for_email TEXT",
+    );
+    await getDbExec().execute({
+      sql: "UPDATE mcp_oauth_codes SET owner_email = ?, issued_for_email = NULL WHERE code = ?",
+      args: [ALICE, code.code],
+    });
+
+    const response = await exchangeCode(client, code.code);
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toBe("invalid_grant");
+    expect(response.body.access_token).toBeUndefined();
+    expect(await refreshRowsFor(client)).toEqual([]);
   });
 });

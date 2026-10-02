@@ -74,6 +74,65 @@ describe("oauth-store hashing & token generation", () => {
   });
 });
 
+describe("OAuth issuance-owner schema migration", () => {
+  it("adds nullable bindings without assigning ambiguous legacy grants to their current owners", async () => {
+    await pglite.exec(`
+      CREATE TABLE mcp_oauth_codes (
+        code TEXT PRIMARY KEY,
+        client_id TEXT NOT NULL,
+        redirect_uri TEXT NOT NULL,
+        code_challenge TEXT NOT NULL,
+        code_challenge_method TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        org_domain TEXT,
+        scope TEXT NOT NULL,
+        resource TEXT NOT NULL,
+        created_at BIGINT,
+        expires_at BIGINT,
+        consumed_at BIGINT
+      );
+      CREATE TABLE mcp_oauth_refresh_tokens (
+        id TEXT PRIMARY KEY,
+        token_hash TEXT UNIQUE NOT NULL,
+        client_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        org_domain TEXT,
+        scope TEXT NOT NULL,
+        resource TEXT NOT NULL,
+        created_at BIGINT,
+        expires_at BIGINT,
+        last_used_at BIGINT,
+        revoked_at BIGINT,
+        replaced_by_hash TEXT
+      )
+    `);
+    const s = await freshStore();
+    const expiresAt = Date.now() + 60_000;
+    await pglite.query(
+      `INSERT INTO mcp_oauth_codes (code, client_id, redirect_uri, code_challenge, code_challenge_method, owner_email, scope, resource, expires_at)
+       VALUES ('synthetic-legacy-code', 'client-1', 'https://app.example.test/cb', 'synthetic-challenge', 'S256', 'successor@example.test', 'mcp:read', 'https://app.example.test/mcp', $1)`,
+      [expiresAt],
+    );
+    await pglite.query(
+      `INSERT INTO mcp_oauth_refresh_tokens (id, token_hash, client_id, owner_email, scope, resource, expires_at)
+       VALUES ('synthetic-legacy-row', $1, 'client-1', 'successor@example.test', 'mcp:read', 'https://app.example.test/mcp', $2)`,
+      [s.hashOAuthToken("synthetic-legacy-refresh"), expiresAt],
+    );
+
+    await s.ensureTable();
+
+    for (const tableName of ["mcp_oauth_codes", "mcp_oauth_refresh_tokens"]) {
+      expect(
+        (await pglite.query(`SELECT issued_for_email FROM ${tableName}`)).rows,
+      ).toEqual([{ issued_for_email: null }]);
+    }
+    expect(await s.getOAuthCode("synthetic-legacy-code")).toBeNull();
+    expect(await s.getOAuthRefreshToken("synthetic-legacy-refresh")).toBeNull();
+  });
+});
+
 describe("client registration", () => {
   it("infers native application type for a pre-migration loopback client", async () => {
     await pglite.exec(`
@@ -239,6 +298,7 @@ describe("authorization codes", () => {
     expect(fetched).toMatchObject({
       clientId: "client-1",
       ownerEmail: "owner@example.com",
+      issuedForEmail: "owner@example.com",
       orgId: "org-1",
       orgDomain: "example.com",
       scope: "mcp:read mcp:write",
@@ -254,6 +314,72 @@ describe("authorization codes", () => {
     const created = await s.createOAuthCode(codeParams);
     vi.spyOn(Date, "now").mockReturnValue(1000 + s.MCP_OAUTH_CODE_TTL_MS + 1);
     expect(await s.getOAuthCode(created.code)).toBeNull();
+  });
+
+  it.each([null, "", " ", "former@example.test"])(
+    "refuses a code with issuance binding %j without consuming it",
+    async (binding) => {
+      const s = await freshStore();
+      const created = await s.createOAuthCode(codeParams);
+      await pglite.exec(
+        "ALTER TABLE mcp_oauth_codes ADD COLUMN IF NOT EXISTS issued_for_email TEXT",
+      );
+      await pglite.query(
+        "UPDATE mcp_oauth_codes SET issued_for_email = $1 WHERE code = $2",
+        [binding, created.code],
+      );
+
+      expect(await s.getOAuthCode(created.code)).toBeNull();
+      expect(await s.consumeOAuthCode(created.code)).toBeNull();
+      expect(
+        (await pglite.query("SELECT consumed_at FROM mcp_oauth_codes")).rows,
+      ).toEqual([{ consumed_at: null }]);
+    },
+  );
+
+  it("keeps a code valid when an intentional email rekey updates both owner fields", async () => {
+    const s = await freshStore();
+    const created = await s.createOAuthCode(codeParams);
+    await pglite.query(
+      "UPDATE mcp_oauth_codes SET owner_email = $1, issued_for_email = $1 WHERE code = $2",
+      ["renamed@example.test", created.code],
+    );
+
+    expect(await s.getOAuthCode(created.code)).toMatchObject({
+      ownerEmail: "renamed@example.test",
+      issuedForEmail: "renamed@example.test",
+    });
+    expect(
+      await s.consumeOAuthCode(created.code, "renamed@example.test"),
+    ).toMatchObject({
+      ownerEmail: "renamed@example.test",
+      issuedForEmail: "renamed@example.test",
+    });
+  });
+
+  it("refuses consumption when a code is rekeyed between its read and conditional update", async () => {
+    const s = await freshStore();
+    const created = await s.createOAuthCode(codeParams);
+    const execute = exec.execute.bind(exec);
+    vi.spyOn(exec, "execute").mockImplementation(async (input) => {
+      if (
+        typeof input !== "string" &&
+        input.sql.startsWith("UPDATE mcp_oauth_codes SET consumed_at")
+      ) {
+        await pglite.query(
+          "UPDATE mcp_oauth_codes SET owner_email = $1, issued_for_email = $1 WHERE code = $2",
+          ["renamed@example.test", created.code],
+        );
+      }
+      return execute(input);
+    });
+
+    expect(
+      await s.consumeOAuthCode(created.code, codeParams.ownerEmail),
+    ).toBeNull();
+    expect(
+      (await pglite.query("SELECT consumed_at FROM mcp_oauth_codes")).rows,
+    ).toEqual([{ consumed_at: null }]);
   });
 
   it("getOAuthCode returns null for an unknown code", async () => {
@@ -327,6 +453,7 @@ describe("refresh tokens", () => {
     expect(found).toMatchObject({
       clientId: "client-1",
       ownerEmail: "owner@example.com",
+      issuedForEmail: "owner@example.com",
       orgId: "org-1",
       scope: "mcp:read",
       resource: "https://mail.example.com",
@@ -341,9 +468,9 @@ describe("refresh tokens", () => {
     await s.createOAuthRefreshToken(refreshParams);
     vi.spyOn(Date, "now").mockReturnValue(2000);
 
-    await expect(s.touchOAuthRefreshToken("raw-refresh-token")).resolves.toBe(
-      "renewed",
-    );
+    await expect(
+      s.touchOAuthRefreshToken("raw-refresh-token", refreshParams.ownerEmail),
+    ).resolves.toBe("renewed");
 
     const found = await s.getOAuthRefreshToken("raw-refresh-token");
     expect(found).toMatchObject({
@@ -351,6 +478,120 @@ describe("refresh tokens", () => {
       lastUsedAt: 2000,
       revokedAt: null,
     });
+  });
+
+  it.each([null, "", " ", "former@example.test"])(
+    "refuses refresh lookup, renewal, and rotation with issuance binding %j",
+    async (binding) => {
+      const s = await freshStore();
+      await s.createOAuthRefreshToken(refreshParams);
+      await pglite.exec(
+        "ALTER TABLE mcp_oauth_refresh_tokens ADD COLUMN IF NOT EXISTS issued_for_email TEXT",
+      );
+      await pglite.query(
+        "UPDATE mcp_oauth_refresh_tokens SET issued_for_email = $1",
+        [binding],
+      );
+
+      expect(await s.getOAuthRefreshToken("raw-refresh-token")).toBeNull();
+      await expect(
+        s.touchOAuthRefreshToken("raw-refresh-token", refreshParams.ownerEmail),
+      ).resolves.toBe("invalid");
+      expect(
+        await s.rotateOAuthRefreshToken({
+          oldRefreshToken: "raw-refresh-token",
+          newRefreshToken: "synthetic-rotated-refresh",
+        }),
+      ).toBeNull();
+      expect(
+        (
+          await pglite.query(
+            "SELECT issued_for_email, revoked_at, last_used_at FROM mcp_oauth_refresh_tokens",
+          )
+        ).rows,
+      ).toEqual([
+        { issued_for_email: binding, revoked_at: null, last_used_at: null },
+      ]);
+    },
+  );
+
+  it("preserves the renamed issuance owner when a valid refresh token rotates", async () => {
+    const s = await freshStore();
+    await s.createOAuthRefreshToken(refreshParams);
+    await pglite.query(
+      "UPDATE mcp_oauth_refresh_tokens SET owner_email = $1, issued_for_email = $1",
+      ["renamed@example.test"],
+    );
+    await expect(
+      s.touchOAuthRefreshToken("raw-refresh-token", "renamed@example.test"),
+    ).resolves.toBe("renewed");
+
+    expect(
+      await s.rotateOAuthRefreshToken({
+        oldRefreshToken: "raw-refresh-token",
+        newRefreshToken: "synthetic-rotated-refresh",
+      }),
+    ).toMatchObject({
+      ownerEmail: "renamed@example.test",
+      issuedForEmail: "renamed@example.test",
+    });
+    expect(
+      await s.getOAuthRefreshToken("synthetic-rotated-refresh"),
+    ).toMatchObject({
+      ownerEmail: "renamed@example.test",
+      issuedForEmail: "renamed@example.test",
+    });
+  });
+
+  it("refuses renewal after a rekey when the caller verified the previous owner", async () => {
+    const s = await freshStore();
+    await s.createOAuthRefreshToken(refreshParams);
+    const verified = await s.getOAuthRefreshToken("raw-refresh-token");
+    await pglite.query(
+      "UPDATE mcp_oauth_refresh_tokens SET owner_email = $1, issued_for_email = $1",
+      ["renamed@example.test"],
+    );
+
+    await expect(
+      s.touchOAuthRefreshToken("raw-refresh-token", verified!.ownerEmail),
+    ).resolves.toBe("invalid");
+    expect(
+      (await pglite.query("SELECT last_used_at FROM mcp_oauth_refresh_tokens"))
+        .rows,
+    ).toEqual([{ last_used_at: null }]);
+  });
+
+  it("refuses rotation when a token is rekeyed between its read and conditional update", async () => {
+    const s = await freshStore();
+    await s.createOAuthRefreshToken(refreshParams);
+    const execute = exec.execute.bind(exec);
+    vi.spyOn(exec, "execute").mockImplementation(async (input) => {
+      if (
+        typeof input !== "string" &&
+        input.sql.startsWith("UPDATE mcp_oauth_refresh_tokens SET revoked_at")
+      ) {
+        await pglite.query(
+          "UPDATE mcp_oauth_refresh_tokens SET owner_email = $1, issued_for_email = $1",
+          ["renamed@example.test"],
+        );
+      }
+      return execute(input);
+    });
+
+    expect(
+      await s.rotateOAuthRefreshToken({
+        oldRefreshToken: "raw-refresh-token",
+        newRefreshToken: "synthetic-raced-rotation",
+      }),
+    ).toBeNull();
+    expect(
+      (
+        await pglite.query(
+          "SELECT revoked_at, replaced_by_hash FROM mcp_oauth_refresh_tokens",
+        )
+      ).rows,
+    ).toEqual([{ revoked_at: null, replaced_by_hash: null }]);
+    expect(await s.getOAuthRefreshToken("synthetic-raced-rotation")).toBeNull();
   });
 
   it("touchOAuthRefreshToken slides the expiry window (active users never expire)", async () => {
@@ -361,7 +602,10 @@ describe("refresh tokens", () => {
     expect(original?.expiresAt).toBe(1000 + s.MCP_OAUTH_REFRESH_TOKEN_TTL_MS);
 
     vi.spyOn(Date, "now").mockReturnValue(2000);
-    await s.touchOAuthRefreshToken("raw-refresh-token");
+    await s.touchOAuthRefreshToken(
+      "raw-refresh-token",
+      refreshParams.ownerEmail,
+    );
     const touched = await s.getOAuthRefreshToken("raw-refresh-token");
     expect(touched?.expiresAt).toBe(2000 + s.MCP_OAUTH_REFRESH_TOKEN_TTL_MS);
     expect(touched?.lastUsedAt).toBe(2000);
@@ -379,9 +623,9 @@ describe("refresh tokens", () => {
       }
       const execute = vi.spyOn(exec, "execute");
 
-      await expect(s.touchOAuthRefreshToken("raw-refresh-token")).resolves.toBe(
-        "invalid",
-      );
+      await expect(
+        s.touchOAuthRefreshToken("raw-refresh-token", refreshParams.ownerEmail),
+      ).resolves.toBe("invalid");
       await expect(execute.mock.results.at(-1)!.value).resolves.toMatchObject({
         rowsAffected: 0,
       });
@@ -397,9 +641,9 @@ describe("refresh tokens", () => {
       rowsAffected: NaN,
     });
 
-    await expect(s.touchOAuthRefreshToken("raw-refresh-token")).rejects.toThrow(
-      /invalid row count/,
-    );
+    await expect(
+      s.touchOAuthRefreshToken("raw-refresh-token", refreshParams.ownerEmail),
+    ).rejects.toThrow(/invalid row count/);
   });
 
   it("refresh token TTL is 365d by default", async () => {
@@ -415,6 +659,13 @@ describe("refresh tokens", () => {
       1000 + s.MCP_OAUTH_REFRESH_TOKEN_TTL_MS + 1,
     );
     expect(await s.getOAuthRefreshToken("raw-refresh-token")).toBeNull();
+    await expect(
+      s.touchOAuthRefreshToken("raw-refresh-token", refreshParams.ownerEmail),
+    ).resolves.toBe("invalid");
+    expect(
+      (await pglite.query("SELECT last_used_at FROM mcp_oauth_refresh_tokens"))
+        .rows,
+    ).toEqual([{ last_used_at: null }]);
   });
 
   it("rotateOAuthRefreshToken revokes the old token and issues a fresh one carrying the same identity", async () => {
@@ -428,6 +679,7 @@ describe("refresh tokens", () => {
     expect(rotated).toMatchObject({
       clientId: "client-1",
       ownerEmail: "owner@example.com",
+      issuedForEmail: "owner@example.com",
       orgId: "org-1",
       orgDomain: "example.com",
       scope: "mcp:read",
