@@ -732,6 +732,45 @@ describe("server/sentry", () => {
       ).toContain("\tparams: <redacted>");
     });
 
+    it("redacts serialized cause params when an exception value identifies SQL", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const query = "insert into customers (email) values ($1)";
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        exception: {
+          values: [
+            {
+              type: "Error",
+              value: `Failed query: ${query}\n\tparams: ${privateValue}`,
+            },
+          ],
+        },
+        extra: {
+          __serialized__: {
+            cause: { params: [privateValue] },
+            unrelated: { params: ["diagnostic"] },
+          },
+        },
+      } as never) as {
+        extra: {
+          __serialized__: {
+            cause: { params: unknown };
+            unrelated: { params: string[] };
+          };
+        };
+      };
+
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+      expect(result.extra.__serialized__.cause.params).toBe("<redacted>");
+      expect(result.extra.__serialized__.unrelated.params).toEqual([
+        "diagnostic",
+      ]);
+    });
+
     it("preserves serialized stack frames after redacting SQL params", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
