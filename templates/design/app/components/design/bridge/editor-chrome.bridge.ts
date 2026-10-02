@@ -16606,13 +16606,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   ): void {
     dndLog("post:cross-screen", { phase: phase, el: getSelector(el ?? null) });
     if (phase === "cancel") {
+      const sourceDeleteRequestId = activeCrossScreenDeleteRequestId;
       activeCrossScreenStyleSnapshot = undefined;
       activeCrossScreenSourceHtml = undefined;
       activeCrossScreenComputedSize = undefined;
       activeCrossScreenDragIdentity = null;
       activeCrossScreenDeleteRequestId = undefined;
       (window.parent as Window).postMessage(
-        { type: "agent-native:cross-screen-drag", phase: "cancel" },
+        {
+          type: "agent-native:cross-screen-drag",
+          phase: "cancel",
+          sourceDeleteRequestId,
+        },
         "*",
       );
       return;

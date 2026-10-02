@@ -705,7 +705,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     string | null
   >(null);
   const boardCrossScreenDropPendingRef = useRef(false);
+  const boardCrossScreenDropPendingSeqsRef = useRef(new Set<number>());
   const boardCrossScreenDropTransactionRef = useRef<string | null>(null);
+  const boardCrossScreenDropTransactionSeqRef = useRef(
+    new Map<string, number>(),
+  );
   const boardCrossScreenDropTimeoutTransactionRef = useRef<string | null>(null);
   const boardCrossScreenDropTimeoutRef = useRef<number | null>(null);
   const onBoardRuntimeStructureInsertRejectedRef = useRef(
@@ -714,18 +718,47 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   onBoardRuntimeStructureInsertRejectedRef.current =
     onBoardRuntimeStructureInsertRejected;
   const finishBoardCrossScreenDrop = useCallback(
-    (options?: { preserveTransaction?: boolean; force?: boolean }) => {
-      if (!boardCrossScreenDropPendingRef.current && !options?.force) return;
-      boardCrossScreenDropPendingRef.current = false;
-      if (boardCrossScreenDropTimeoutRef.current !== null) {
+    (options?: {
+      dropSeq?: number;
+      transactionId?: string;
+      preserveTransaction?: boolean;
+      force?: boolean;
+    }) => {
+      const pendingDropSeqs = boardCrossScreenDropPendingSeqsRef.current;
+      const transactionId = options?.transactionId;
+      const dropSeq =
+        options?.dropSeq ??
+        (transactionId
+          ? boardCrossScreenDropTransactionSeqRef.current.get(transactionId)
+          : undefined);
+      if (dropSeq !== undefined) pendingDropSeqs.delete(dropSeq);
+      if (transactionId) {
+        boardCrossScreenDropTransactionSeqRef.current.delete(transactionId);
+      } else if (dropSeq === undefined) {
+        if (!boardCrossScreenDropPendingRef.current && !options?.force) return;
+        pendingDropSeqs.clear();
+        boardCrossScreenDropTransactionSeqRef.current.clear();
+      }
+
+      const ownsTimeout = transactionId
+        ? boardCrossScreenDropTimeoutTransactionRef.current === transactionId
+        : dropSeq === undefined;
+      if (ownsTimeout && boardCrossScreenDropTimeoutRef.current !== null) {
         window.clearTimeout(boardCrossScreenDropTimeoutRef.current);
         boardCrossScreenDropTimeoutRef.current = null;
       }
-      boardCrossScreenDropTimeoutTransactionRef.current = null;
-      if (!options?.preserveTransaction) {
+      if (ownsTimeout) {
+        boardCrossScreenDropTimeoutTransactionRef.current = null;
+      }
+      if (
+        !options?.preserveTransaction &&
+        transactionId &&
+        boardCrossScreenDropTransactionRef.current === transactionId
+      ) {
         boardCrossScreenDropTransactionRef.current = null;
       }
-      setCrossScreenDragActive(false);
+      boardCrossScreenDropPendingRef.current = pendingDropSeqs.size > 0;
+      setCrossScreenDragActive(boardCrossScreenDropPendingRef.current);
     },
     [],
   );
@@ -1208,6 +1241,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const crossScreenHitTestSeqRef = useRef(0);
   const crossScreenPreviewGenerationRef = useRef(0);
   const crossScreenDropSeqRef = useRef(0);
+  const crossScreenCommittedDropSeqsRef = useRef(new Set<number>());
   const crossScreenEndSeenRef = useRef(false);
   const crossScreenHostCommittedRef = useRef(false);
   const crossScreenIgnoreAutoLayoutRef = useRef(false);
@@ -1215,15 +1249,20 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     downAt: number | null;
     upAt: number | null;
   }>({ downAt: null, upAt: null });
-  const crossScreenModifierProbeRef = useRef<{
-    requestId: string;
-    sourceIframeId: string;
-    timeoutId: number;
-    resolve: (snapshot?: {
-      ignoreAutoLayout: boolean;
-      changedAt?: number;
-    }) => void;
-  } | null>(null);
+  const crossScreenModifierProbesRef = useRef(
+    new Map<
+      string,
+      {
+        sourceIframeId: string;
+        timeoutId: number;
+        removeBlurListener: () => void;
+        resolve: (snapshot?: {
+          ignoreAutoLayout: boolean;
+          changedAt?: number;
+        }) => void;
+      }
+    >(),
+  );
   const crossScreenSKeyPressedRef = useRef(false);
   const crossScreenControlPressedRef = useRef(false);
   const canvasMountedRef = useRef(true);
@@ -1250,6 +1289,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     styleSnapshot?: PortableStyleSnapshot;
     styleSnapshotCaptureFailed?: boolean;
   } | null>(null);
+  const crossScreenReleasedDropsRef = useRef(
+    new Map<number, NonNullable<(typeof crossScreenDragMsgRef)["current"]>>(),
+  );
   const crossScreenParentDragCleanupRef = useRef<(() => void) | null>(null);
   const crossScreenSourceFrameAtStartRef = useRef<{
     screenId: string;
@@ -2581,9 +2623,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     canvasMountedRef.current = true;
     return () => {
       canvasMountedRef.current = false;
-      if (crossScreenModifierProbeRef.current) {
-        window.clearTimeout(crossScreenModifierProbeRef.current.timeoutId);
-        crossScreenModifierProbeRef.current = null;
+      for (const pending of crossScreenModifierProbesRef.current.values()) {
+        window.clearTimeout(pending.timeoutId);
+        pending.removeBlurListener();
+      }
+      crossScreenModifierProbesRef.current.clear();
+      crossScreenCommittedDropSeqsRef.current.clear();
+      crossScreenReleasedDropsRef.current.clear();
+      if (boardCrossScreenDropTimeoutRef.current !== null) {
+        window.clearTimeout(boardCrossScreenDropTimeoutRef.current);
       }
     };
   }, []);
@@ -2626,10 +2674,22 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       crossScreenParentDragCleanupRef.current = null;
     };
 
-    const clearCrossScreenModifierProbe = () => {
-      if (!crossScreenModifierProbeRef.current) return;
-      window.clearTimeout(crossScreenModifierProbeRef.current.timeoutId);
-      crossScreenModifierProbeRef.current = null;
+    const settleCrossScreenModifierProbe = (
+      requestId: string,
+      snapshot?: { ignoreAutoLayout: boolean; changedAt?: number },
+    ) => {
+      const pending = crossScreenModifierProbesRef.current.get(requestId);
+      if (!pending) return;
+      window.clearTimeout(pending.timeoutId);
+      pending.removeBlurListener();
+      crossScreenModifierProbesRef.current.delete(requestId);
+      pending.resolve(snapshot);
+    };
+
+    const settleAllCrossScreenModifierProbes = () => {
+      for (const requestId of crossScreenModifierProbesRef.current.keys()) {
+        settleCrossScreenModifierProbe(requestId);
+      }
     };
 
     const postCrossScreenClaim = (sourceScreenId: string, claimed: boolean) => {
@@ -2651,7 +2711,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
     const clearCrossScreenDrag = (options?: { keepBoardMounted?: boolean }) => {
       crossScreenPreviewGenerationRef.current += 1;
-      clearCrossScreenModifierProbe();
       stopParentCrossScreenDrag();
       crossScreenIgnoreAutoLayoutRef.current = false;
       crossScreenControlPressedRef.current = false;
@@ -2670,8 +2729,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       crossScreenDragMsgRef.current = null;
       crossScreenSourceFrameAtStartRef.current = null;
       if (!options?.keepBoardMounted) {
-        finishBoardCrossScreenDrop();
-        setCrossScreenDragActive(false);
+        boardCrossScreenDropPendingRef.current =
+          boardCrossScreenDropPendingSeqsRef.current.size > 0;
+        setCrossScreenDragActive(boardCrossScreenDropPendingRef.current);
       }
       crossScreenLastBoardPointRef.current = null;
       crossScreenLastHitResultRef.current.clear();
@@ -2750,7 +2810,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const modifiers = {
         ...options.modifiers,
         ignoreAutoLayout:
-          options.modifiers?.ignoreAutoLayout === true ||
+          options.modifiers?.ignoreAutoLayout ??
           crossScreenIgnoreAutoLayoutRef.current,
       };
 
@@ -3142,6 +3202,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       lastBoardPoint: Point | null,
       releasedAt?: number,
       releaseModifiers?: CrossScreenModifierState,
+      sKeyTimesAtRelease = { ...crossScreenSKeyTimesRef.current },
+      dropSeq = crossScreenDropSeqRef.current,
     ) => {
       dndHostLog("overview:finalize", {
         sourceScreenId,
@@ -3149,7 +3211,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         lastBoardPoint,
         selector: payload.selector,
       });
-      const sKeyTimes = crossScreenSKeyTimesRef.current;
+      const sKeyTimes = sKeyTimesAtRelease;
       payload.modifiers = mergeCrossScreenReleaseModifiers(
         payload.modifiers,
         releaseModifiers,
@@ -3165,11 +3227,24 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         ...payload.modifiers,
         ignoreAutoLayout: ignoreAutoLayoutAtRelease,
       };
-      crossScreenEndSeenRef.current = true;
-      const dropSeq = crossScreenDropSeqRef.current;
+      if (crossScreenDropSeqRef.current === dropSeq) {
+        crossScreenEndSeenRef.current = true;
+        crossScreenLastBoardPointRef.current = null;
+      }
+      crossScreenCommittedDropSeqsRef.current.add(dropSeq);
       const isCurrentDrop = () =>
-        canvasMountedRef.current && crossScreenDropSeqRef.current === dropSeq;
-      crossScreenLastBoardPointRef.current = null;
+        canvasMountedRef.current &&
+        (crossScreenDropSeqRef.current === dropSeq ||
+          crossScreenCommittedDropSeqsRef.current.has(dropSeq));
+      const finishCommittedDrop = () => {
+        crossScreenCommittedDropSeqsRef.current.delete(dropSeq);
+        crossScreenReleasedDropsRef.current.delete(dropSeq);
+      };
+      const clearCurrentDrop = (options?: { keepBoardMounted?: boolean }) => {
+        if (crossScreenDropSeqRef.current === dropSeq) {
+          clearCrossScreenDrag(options);
+        }
+      };
       const hasIdentifier = !!(payload.selector || payload.sourceId);
       const sourceDeleteCandidates = [
         payload.selector,
@@ -3187,12 +3262,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       };
       if (!hasIdentifier || !sourceScreenId) {
         cancelPendingSourceDelete();
-        clearCrossScreenDrag();
+        finishCommittedDrop();
+        clearCurrentDrop();
         return;
       }
       if (!lastBoardPoint) {
         cancelPendingSourceDelete();
-        clearCrossScreenDrag();
+        finishCommittedDrop();
+        clearCurrentDrop();
         return;
       }
       const sourceFrameGeometry = frameGeometryRef.current?.[sourceScreenId];
@@ -3205,7 +3282,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         lastBoardPoint.y <= sourceFrameGeometry.y + sourceFrameGeometry.height;
       if (droppedInsideSourceScreen) {
         cancelPendingSourceDelete();
-        clearCrossScreenDrag();
+        finishCommittedDrop();
+        clearCurrentDrop();
         return;
       }
       trace("drop", "finalize", {
@@ -3236,39 +3314,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           lastBoardPoint,
         });
         cancelPendingSourceDelete();
-        clearCrossScreenDrag();
+        finishCommittedDrop();
+        clearCurrentDrop();
         return;
       }
-      crossScreenHostCommittedRef.current = true;
-      if (targetCandidate.id === boardFileId) {
-        boardCrossScreenDropTransactionRef.current = null;
-        boardCrossScreenDropPendingRef.current = true;
-        boardCrossScreenDropTimeoutTransactionRef.current = null;
-        if (boardCrossScreenDropTimeoutRef.current !== null) {
-          window.clearTimeout(boardCrossScreenDropTimeoutRef.current);
-        }
-        const expireBoardCrossScreenDrop = () => {
-          if (!boardCrossScreenDropPendingRef.current) return;
-          crossScreenDropSeqRef.current += 1;
-          const transactionId =
-            boardCrossScreenDropTimeoutTransactionRef.current;
-          if (
-            transactionId &&
-            boardCrossScreenDropTransactionRef.current === transactionId
-          ) {
-            onBoardRuntimeStructureInsertRejectedRef.current?.(
-              "board-drop-timeout",
-              transactionId,
-            );
-            return;
-          }
-          finishBoardCrossScreenDrop();
-        };
-        boardCrossScreenDropTimeoutRef.current = window.setTimeout(() => {
-          expireBoardCrossScreenDrop();
-        }, CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS);
+      if (crossScreenDropSeqRef.current === dropSeq) {
+        crossScreenHostCommittedRef.current = true;
       }
-      clearCrossScreenDrag({
+      if (targetCandidate.id === boardFileId) {
+        boardCrossScreenDropPendingSeqsRef.current.add(dropSeq);
+        boardCrossScreenDropPendingRef.current = true;
+      }
+      clearCurrentDrop({
         keepBoardMounted: targetCandidate.id === boardFileId,
       });
 
@@ -3288,9 +3345,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             anchorRect,
           }) => {
             if (!isCurrentDrop()) {
+              finishCommittedDrop();
               cancelPendingSourceDelete();
+              if (targetCandidate.id === boardFileId) {
+                finishBoardCrossScreenDrop({ dropSeq });
+              }
               return;
             }
+            finishCommittedDrop();
             const hasAnchor = Boolean(
               anchorNodeId || pendingNodeId || anchorSelector,
             );
@@ -3333,16 +3395,53 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               transactionAfterDrop !== transactionBeforeDrop
             ) {
               boardCrossScreenDropTransactionRef.current = transactionAfterDrop;
+              boardCrossScreenDropTransactionSeqRef.current.set(
+                transactionAfterDrop,
+                dropSeq,
+              );
               boardCrossScreenDropTimeoutTransactionRef.current =
                 transactionAfterDrop;
+              if (boardCrossScreenDropTimeoutRef.current !== null) {
+                window.clearTimeout(boardCrossScreenDropTimeoutRef.current);
+              }
+              boardCrossScreenDropTimeoutRef.current = window.setTimeout(() => {
+                if (
+                  boardCrossScreenDropTransactionRef.current !==
+                    transactionAfterDrop ||
+                  boardCrossScreenDropTimeoutTransactionRef.current !==
+                    transactionAfterDrop
+                ) {
+                  return;
+                }
+                boardCrossScreenDropTimeoutRef.current = null;
+                boardCrossScreenDropTimeoutTransactionRef.current = null;
+                const rollbackScheduled =
+                  onBoardRuntimeStructureInsertRejectedRef.current?.(
+                    "board-drop-timeout",
+                    transactionAfterDrop,
+                  ) === true;
+                if (!rollbackScheduled) {
+                  setBoardRuntimeSurfaceActive(null);
+                  finishBoardCrossScreenDrop({
+                    transactionId: transactionAfterDrop,
+                  });
+                }
+              }, CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS);
             } else {
               finishBoardCrossScreenDrop({
+                dropSeq,
                 preserveTransaction: transactionBeforeDrop !== null,
               });
               cancelPendingSourceDelete();
             }
           },
-          () => cancelPendingSourceDelete(),
+          () => {
+            finishCommittedDrop();
+            cancelPendingSourceDelete();
+            if (targetCandidate.id === boardFileId) {
+              finishBoardCrossScreenDrop({ dropSeq });
+            }
+          },
         );
         return;
       }
@@ -3362,9 +3461,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           anchorRect,
         }) => {
           if (!isCurrentDrop()) {
+            finishCommittedDrop();
             cancelPendingSourceDelete();
             return;
           }
+          finishCommittedDrop();
           const targetAnchorPlacement = isCrossScreenDropPlacement(placement)
             ? placement
             : undefined;
@@ -3407,7 +3508,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             cancelPendingSourceDelete();
           }
         },
-        () => cancelPendingSourceDelete(),
+        () => {
+          finishCommittedDrop();
+          cancelPendingSourceDelete();
+          if (targetCandidate.id === boardFileId) {
+            finishBoardCrossScreenDrop({ dropSeq });
+          }
+        },
       );
     };
 
@@ -3423,14 +3530,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         : undefined;
       if (!sourcePreviewIframe) return;
       if (event.data.type === "agent-native:cross-screen-modifier-snapshot") {
-        const pending = crossScreenModifierProbeRef.current;
+        const requestId = event.data.requestId;
+        const pending =
+          typeof requestId === "string"
+            ? crossScreenModifierProbesRef.current.get(requestId)
+            : undefined;
         const senderIframeId =
           sourcePreviewIframe.getAttribute("data-screen-iframe-id") ??
           boardFileId ??
           undefined;
         if (
           !pending ||
-          event.data.requestId !== pending.requestId ||
           !isCrossScreenModifierFromActiveSourceIframe(
             pending.sourceIframeId,
             senderIframeId,
@@ -3438,9 +3548,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         ) {
           return;
         }
-        window.clearTimeout(pending.timeoutId);
-        crossScreenModifierProbeRef.current = null;
-        pending.resolve({
+        settleCrossScreenModifierProbe(requestId, {
           ignoreAutoLayout: event.data.ignoreAutoLayout === true,
           changedAt:
             typeof event.data.changedAt === "number" &&
@@ -3577,7 +3685,22 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         msg.styleSnapshotCaptureFailed === true;
 
       if (msg.phase === "cancel") {
-        if (crossScreenEndSeenRef.current) return;
+        const current = crossScreenDragMsgRef.current;
+        const senderIframeId =
+          sourcePreviewIframe.getAttribute("data-screen-iframe-id") ??
+          boardFileId ??
+          undefined;
+        if (
+          !current?.sourceDeleteRequestId ||
+          msg.sourceDeleteRequestId !== current.sourceDeleteRequestId ||
+          !isCrossScreenModifierFromActiveSourceIframe(
+            current.sourceIframeId,
+            senderIframeId,
+          ) ||
+          crossScreenEndSeenRef.current
+        ) {
+          return;
+        }
         crossScreenDropSeqRef.current += 1;
         clearCrossScreenDrag({
           keepBoardMounted: boardCrossScreenDropPendingRef.current,
@@ -3626,7 +3749,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         });
       }
       if (msg.phase === "start") {
-        clearCrossScreenModifierProbe();
         setCrossScreenDragActive(true);
         const startFrame =
           renderedFrameGeometryRef.current[sourceScreenId] ??
@@ -3740,6 +3862,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           const lastBoardPoint = crossScreenLastBoardPointRef.current;
           const releasedAt = eventEpochMilliseconds(ev.timeStamp);
           const fallbackPayload = crossScreenDragMsgRef.current ?? {
+            sourceScreenId,
+            sourceIframeId: domScreenId ?? sourceScreenId,
             selector: msg.selector ?? "",
             sourceId: msg.sourceId,
             sourceDeleteRequestId: msg.sourceDeleteRequestId,
@@ -3759,46 +3883,48 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             ev,
           );
           const dropSeq = crossScreenDropSeqRef.current;
+          const sKeyTimesAtRelease = { ...crossScreenSKeyTimesRef.current };
+          const payload = {
+            ...(crossScreenDragMsgRef.current ?? fallbackPayload),
+            modifiers: {
+              ...(crossScreenDragMsgRef.current ?? fallbackPayload).modifiers,
+            },
+          };
           crossScreenEndSeenRef.current = true;
           crossScreenHostCommittedRef.current = true;
           stopParentCrossScreenDrag();
+          crossScreenCommittedDropSeqsRef.current.add(dropSeq);
 
           const finishRelease = (snapshot?: {
             ignoreAutoLayout: boolean;
             changedAt?: number;
           }) => {
+            let releaseSKeyTimes = { ...sKeyTimesAtRelease };
             if (snapshot) {
               if (typeof snapshot.changedAt === "number") {
-                crossScreenSKeyTimesRef.current =
-                  crossScreenSKeyTimesAfterKeyChange(
-                    crossScreenSKeyTimesRef.current,
-                    snapshot.ignoreAutoLayout,
-                    snapshot.changedAt,
-                  );
+                releaseSKeyTimes = crossScreenSKeyTimesAfterKeyChange(
+                  releaseSKeyTimes,
+                  snapshot.ignoreAutoLayout,
+                  snapshot.changedAt,
+                );
               }
               const ignoreAutoLayout =
-                crossScreenSKeyHeldFromTimes(crossScreenSKeyTimesRef.current) ??
+                crossScreenSKeyHeldFromTimes(releaseSKeyTimes) ??
                 snapshot.ignoreAutoLayout;
-              crossScreenIgnoreAutoLayoutRef.current = ignoreAutoLayout;
-              const current = crossScreenDragMsgRef.current;
-              if (current) {
-                crossScreenDragMsgRef.current = {
-                  ...current,
-                  modifiers: {
-                    ...current.modifiers,
-                    ignoreAutoLayout,
-                  },
-                };
-              }
+              payload.modifiers = {
+                ...payload.modifiers,
+                ignoreAutoLayout,
+              };
             }
             if (
               !canvasMountedRef.current ||
-              crossScreenDropSeqRef.current !== dropSeq
+              (crossScreenDropSeqRef.current !== dropSeq &&
+                !crossScreenCommittedDropSeqsRef.current.has(dropSeq))
             ) {
+              crossScreenCommittedDropSeqsRef.current.delete(dropSeq);
+              crossScreenReleasedDropsRef.current.delete(dropSeq);
               return;
             }
-            const payload = crossScreenDragMsgRef.current ?? fallbackPayload;
-            if (!payload) return;
             finalizeCrossScreenDrop(
               sourceScreenId,
               candidate,
@@ -3806,6 +3932,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               lastBoardPoint,
               releasedAt,
               releaseModifiers,
+              releaseSKeyTimes,
+              dropSeq,
             );
             sourcePreviewIframe.contentWindow?.postMessage(
               {
@@ -3822,21 +3950,24 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           }
 
           const requestId = `cross-screen-release:${sourceScreenId}:${dropSeq}`;
+          crossScreenReleasedDropsRef.current.set(dropSeq, payload);
+          const handleReleasedDropBlur = () =>
+            settleCrossScreenModifierProbe(requestId);
+          window.addEventListener("blur", handleReleasedDropBlur, true);
+          const removeBlurListener = () =>
+            window.removeEventListener("blur", handleReleasedDropBlur, true);
           const timeoutId = window.setTimeout(() => {
-            const pending = crossScreenModifierProbeRef.current;
-            if (!pending || pending.requestId !== requestId) return;
-            crossScreenModifierProbeRef.current = null;
-            pending.resolve();
+            settleCrossScreenModifierProbe(requestId);
           }, CROSS_SCREEN_MODIFIER_SNAPSHOT_TIMEOUT_MS);
-          crossScreenModifierProbeRef.current = {
-            requestId,
+          crossScreenModifierProbesRef.current.set(requestId, {
             sourceIframeId:
               sourcePreviewIframe.getAttribute("data-screen-iframe-id") ??
               boardFileId ??
               sourceScreenId,
             timeoutId,
+            removeBlurListener,
             resolve: finishRelease,
-          };
+          });
           sourcePreviewIframe.contentWindow?.postMessage(
             {
               type: "agent-native:cross-screen-modifier-snapshot-probe",
@@ -3847,6 +3978,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         };
         const handleParentWindowBlur = () => {
           cancelPendingParentDrag();
+          settleAllCrossScreenModifierProbes();
           if (
             shouldClearCrossScreenSKeyTimesOnWindowBlur(document.hasFocus())
           ) {
@@ -3884,6 +4016,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           ev.stopPropagation();
           ev.stopImmediatePropagation();
           cancelPendingParentDrag();
+          crossScreenCommittedDropSeqsRef.current.delete(
+            crossScreenDropSeqRef.current,
+          );
           crossScreenDropSeqRef.current += 1;
           crossScreenEndSeenRef.current = true;
           sourcePreviewIframe.contentWindow?.postMessage(
@@ -4036,8 +4171,26 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       }
 
       if (msg.phase === "end") {
+        const releasedPayload = msg.sourceDeleteRequestId
+          ? Array.from(crossScreenReleasedDropsRef.current.values()).find(
+              (pending) =>
+                pending.sourceDeleteRequestId === msg.sourceDeleteRequestId,
+            )
+          : undefined;
+        if (releasedPayload && typeof msg.sourceCloneHtml === "string") {
+          releasedPayload.sourceCloneHtml = msg.sourceCloneHtml;
+          return;
+        }
+        const current = crossScreenDragMsgRef.current;
+        if (
+          current &&
+          current.sourceDeleteRequestId &&
+          msg.sourceDeleteRequestId &&
+          current.sourceDeleteRequestId !== msg.sourceDeleteRequestId
+        ) {
+          return;
+        }
         if (crossScreenEndSeenRef.current) {
-          const current = crossScreenDragMsgRef.current;
           if (current && typeof msg.sourceCloneHtml === "string") {
             crossScreenDragMsgRef.current = {
               ...current,
@@ -10644,12 +10797,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                     if (reason === "board-drop-timeout") {
                       if (!rollbackScheduled) {
                         setBoardRuntimeSurfaceActive(null);
-                        finishBoardCrossScreenDrop();
+                        finishBoardCrossScreenDrop({ transactionId });
                       }
                       return;
                     }
                     setBoardRuntimeSurfaceActive(null);
-                    finishBoardCrossScreenDrop();
+                    finishBoardCrossScreenDrop({ transactionId });
                   }}
                   onRuntimeStructureInsertApplied={(details) => {
                     const expectedTransactionId =
@@ -10666,7 +10819,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                       setBoardRuntimeSurfaceActive(boardFileId ?? null);
                     }
                     handleBoardRuntimeStructureInsertApplied(details);
-                    finishBoardCrossScreenDrop({ preserveTransaction: true });
+                    finishBoardCrossScreenDrop({
+                      transactionId: details.transactionId,
+                      preserveTransaction: true,
+                    });
                   }}
                   onRuntimeStructureRollbackResult={(details) => {
                     const expectedTransactionId =
@@ -10681,7 +10837,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                     }
                     if (details.applied) setBoardRuntimeSurfaceActive(null);
                     handleBoardRuntimeStructureRollbackResult(details);
-                    finishBoardCrossScreenDrop({ force: true });
+                    finishBoardCrossScreenDrop({
+                      transactionId: details.transactionId,
+                      force: true,
+                    });
                   }}
                   clearSelectionRequest={boardClearSelectionRequest}
                   selectedSelector={boardSelectedSelector ?? null}

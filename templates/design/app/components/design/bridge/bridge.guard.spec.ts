@@ -1227,12 +1227,6 @@ it(
         viewport: { width: 900, height: 700 },
       });
       page.on("pageerror", (err) => pageErrors.push(err.message));
-      await page.evaluate(() => {
-        (window as any).__bridgeMessages = [];
-        window.addEventListener("message", (event: MessageEvent) => {
-          (window as any).__bridgeMessages.push(event.data);
-        });
-      });
 
       await page.setContent(`<!doctype html>
 <html>
@@ -1257,6 +1251,12 @@ it(
     <button id="target" data-agent-native-node-id="target-button">Target</button>
   </body>
 </html>`);
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          (window as any).__bridgeMessages.push(event.data);
+        });
+      });
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
@@ -1293,6 +1293,19 @@ it(
           messageTypes: ((window as any).__bridgeMessages ?? []).map(
             (message: { type?: string }) => message.type,
           ),
+          cancelRequestIds: (
+            (window as any).__bridgeMessages as Array<{
+              type?: string;
+              phase?: string;
+              sourceDeleteRequestId?: string;
+            }>
+          )
+            .filter(
+              (message) =>
+                message.type === "agent-native:cross-screen-drag" &&
+                message.phase === "cancel",
+            )
+            .map((message) => message.sourceDeleteRequestId),
         };
       });
 
@@ -1300,6 +1313,8 @@ it(
       expect(result.top).toBe("140px");
       expect(result.messageTypes).not.toContain("visual-style-change");
       expect(result.messageTypes).not.toContain("visual-structure-change");
+      expect(result.cancelRequestIds.length).toBeGreaterThan(0);
+      expect(result.cancelRequestIds.every(Boolean)).toBe(true);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

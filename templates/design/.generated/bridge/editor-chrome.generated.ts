@@ -13168,13 +13168,18 @@ export const editorChromeBridgeScript: string = `"use strict";
     function postCrossScreenDrag(phase, el, ev, options) {
       dndLog("post:cross-screen", { phase, el: getSelector(el ?? null) });
       if (phase === "cancel") {
+        const sourceDeleteRequestId = activeCrossScreenDeleteRequestId;
         activeCrossScreenStyleSnapshot = void 0;
         activeCrossScreenSourceHtml = void 0;
         activeCrossScreenComputedSize = void 0;
         activeCrossScreenDragIdentity = null;
         activeCrossScreenDeleteRequestId = void 0;
         window.parent.postMessage(
-          { type: "agent-native:cross-screen-drag", phase: "cancel" },
+          {
+            type: "agent-native:cross-screen-drag",
+            phase: "cancel",
+            sourceDeleteRequestId
+          },
           "*"
         );
         return;
