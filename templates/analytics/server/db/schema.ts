@@ -374,6 +374,104 @@ export const analyticsSessionEventCoverage = table(
   },
 );
 
+// Friction a recording's own replay shows, measured as its chunks arrive. The
+// row covers the recording only while it has processed every stored chunk.
+export const sessionRecordingFriction = table(
+  "session_recording_friction",
+  {
+    recordingId: text("recording_id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    sessionId: text("session_id").notNull(),
+    processedChunks: integer("processed_chunks").notNull().default(0),
+    deadClicks: integer("dead_clicks").notNull().default(0),
+    errorToasts: integer("error_toasts").notNull().default(0),
+    retryLoops: integer("retry_loops").notNull().default(0),
+    errorThenLeave: integer("error_then_leave").notNull().default(0),
+    slowRequests: integer("slow_requests").notNull().default(0),
+    http4xx: integer("http_4xx").notNull().default(0),
+    http5xx: integer("http_5xx").notNull().default(0),
+    score: integer("score").notNull().default(0),
+    detectorState: text("detector_state").notNull().default("{}"),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => ({
+    updatedAtIdx: index("session_recording_friction_updated_at_idx").on(
+      t.updatedAt,
+    ),
+  }),
+);
+
+// Friction a session's tracked events show, written with the session event
+// index so one gap marker covers both.
+export const analyticsSessionFriction = table(
+  "analytics_session_friction",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    sessionId: text("session_id").notNull(),
+    failedActions: integer("failed_actions").notNull().default(0),
+    stuckChats: integer("stuck_chats").notNull().default(0),
+    thumbsDown: integer("thumbs_down").notNull().default(0),
+    cancelledRuns: integer("cancelled_runs").notNull().default(0),
+    agentFailures: integer("agent_failures").notNull().default(0),
+    quickBacks: integer("quick_backs").notNull().default(0),
+    score: integer("score").notNull().default(0),
+    navState: text("nav_state"),
+    firstAt: text("first_at").notNull(),
+    lastAt: text("last_at").notNull(),
+  },
+  (t) => ({
+    sessionUnique: uniqueIndex("analytics_session_friction_key_idx").on(
+      t.tenantKey,
+      t.sessionId,
+    ),
+    lastAtIdx: index("analytics_session_friction_last_at_idx").on(t.lastAt),
+  }),
+);
+
+// Failed actions and agent failures grouped per session: actions by name and
+// status, agent failures by named cause or else by normalized message.
+export const analyticsSessionTrouble = table(
+  "analytics_session_trouble",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    sessionId: text("session_id").notNull(),
+    kind: text("kind", { enum: ["action", "agent"] }).notNull(),
+    label: text("label").notNull(),
+    status: text("status"),
+    cause: text("cause"),
+    eventCount: integer("event_count").notNull().default(0),
+    firstAt: text("first_at").notNull(),
+    lastAt: text("last_at").notNull(),
+  },
+  (t) => ({
+    sessionIdx: index("analytics_session_trouble_session_idx").on(
+      t.tenantKey,
+      t.sessionId,
+    ),
+    lastAtIdx: index("analytics_session_trouble_last_at_idx").on(t.lastAt),
+  }),
+);
+
+// When each tenant's session friction began. Event friction covers only
+// sessions that started after it.
+export const analyticsSessionFrictionCoverage = table(
+  "analytics_session_friction_coverage",
+  {
+    tenantKey: text("tenant_key").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    startedAt: text("started_at").notNull(),
+  },
+);
+
 export const analyticsUserDays = table("analytics_user_days", {
   id: text("id").primaryKey(),
   tenantKey: text("tenant_key").notNull(),

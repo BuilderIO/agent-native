@@ -113,6 +113,42 @@ agent answers about browser recordings in the Analytics template.
   them are two days past replay retention, and its gap marker after that. The
   BigQuery-cutover purge leaves these tables alone.
 
+## Friction Signals
+
+- Friction is derived at ingest into Analytics' own tables and read only
+  from them, in every sink mode. Replay signals (dead clicks, Sonner error
+  toasts, retry loops, leaving within 30 seconds of an error, slow requests
+  over `SLOW_REQUEST_THRESHOLD_MS`, 4xx and 5xx responses) come from the
+  rrweb chunks in `recordSessionReplayChunks`, one row per recording in
+  `session_recording_friction`. Event signals (failed actions, agent
+  failures, stuck chats, thumbs-down, quick backs, cancelled runs) and their
+  trouble groups come from tracked events inside the event index savepoint,
+  one row per session in `analytics_session_friction` plus
+  `analytics_session_trouble`.
+- Never store page text or URLs: detector state keeps timestamps, rrweb node
+  ids, and hashed request keys; quick backs compare hashed paths.
+- A replay row counts only while `processed_chunks` equals the recording's
+  `chunk_count`. Each batch must continue from the stored detector state, so a
+  batch that cannot be measured leaves the row behind and the recording reads
+  as unmeasured; never restart from fresh state. An event row counts only when
+  the tenant's friction coverage began before every recording of the session
+  and the session has no event index gap marker. A friction write failure
+  rolls back with the index savepoint, so it records a gap.
+- Reads must keep "unmeasured" (null) apart from "measured, no friction" (0).
+  Until the migration creates `analytics_session_friction_coverage` (created
+  last), ingest skips friction, filters match nothing, friction sorts fall
+  back to newest, and details report every part as null.
+- Agent failures group by a named cause from `AGENT_TROUBLE_CAUSES` in core
+  (`no_model_connected`, `rate_limit`, `context_overflow`, `provider_error`),
+  else by the normalized message. Failed actions group by action and status.
+  New causes need product approval; add them to that one list.
+- The score is a weighted sum with each signal capped at
+  `SESSION_FRICTION_SIGNAL_CAP`, computed per part at ingest and summed at
+  read. Change weights only in `SESSION_FRICTION_WEIGHTS`.
+- Every friction surface is behind the Sessions triage Lab, in the UI and in
+  `list-session-recordings` / `view-screen`. With the Lab off, Sessions looks
+  and behaves exactly as before; ingest still records friction.
+
 ## Agent Diagnostics Surface
 
 - `buildSessionReplayAgentContext` includes a `diagnostics` section: up to 50

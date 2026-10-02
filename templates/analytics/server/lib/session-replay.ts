@@ -40,6 +40,12 @@ import {
 } from "drizzle-orm";
 
 import {
+  isSessionFrictionSort,
+  type SessionFriction,
+  type SessionFrictionSignal,
+  type SessionFrictionSort,
+} from "../../shared/session-friction.js";
+import {
   isFailedSessionReplayNetworkStatus,
   SESSION_REPLAY_CONSOLE_EVENT_TAG,
   SESSION_REPLAY_NETWORK_EVENT_TAG,
@@ -53,6 +59,12 @@ import {
   pruneSessionEventIndex,
   sessionEventFilterConditions,
 } from "./session-event-index.js";
+import {
+  pruneSessionFriction,
+  recordReplayFriction,
+  sessionFrictionFilterConditions,
+  sessionFrictionSortOrder,
+} from "./session-friction.js";
 
 export type ReplayRange = "24h" | "7d" | "30d" | "90d" | "all";
 
@@ -105,7 +117,13 @@ export interface SessionReplayListFilters {
   hideInternal?: boolean;
   visitorType?: "internal" | "work" | "personal";
   emailDomain?: string;
-  sort?: "newest" | "longest" | "errors" | "events" | "rage";
+  sort?:
+    | "newest"
+    | "longest"
+    | "errors"
+    | "events"
+    | "rage"
+    | SessionFrictionSort;
   offset?: number;
   status?: "active" | "completed";
   limit?: number;
@@ -113,6 +131,8 @@ export interface SessionReplayListFilters {
   didEvents?: string[];
   /** Sessions that tracked none of these events. */
   didNotEvents?: string[];
+  /** Measured sessions that showed every one of these friction signals. */
+  frictionSignals?: SessionFrictionSignal[];
 }
 
 export interface SessionReplayEventReadOptions {
@@ -195,6 +215,8 @@ export interface SessionRecordingSummary {
   role?: SessionReplayAccessRole;
   canEdit?: boolean;
   canManage?: boolean;
+  /** Present only when the Sessions triage Lab asked for it. */
+  friction?: SessionFriction;
 }
 
 export interface AgentSessionRecordingSummary {
@@ -1657,6 +1679,14 @@ export async function recordSessionReplayChunks(
     parseRecordingMetadata(recording),
     clampedInput.metadata,
   );
+  const errorCount = Math.max(
+    Number(recording.errorCount ?? 0),
+    clampedInput.errorCount,
+  );
+  const rageClickCount = Math.max(
+    Number(recording.rageClickCount ?? 0),
+    clampedInput.rageClickCount,
+  );
 
   await db
     .update(schema.sessionRecordings)
@@ -1675,18 +1705,12 @@ export async function recordSessionReplayChunks(
         Number(recording.pageCount ?? 0),
         clampedInput.pageCount,
       ),
-      errorCount: Math.max(
-        Number(recording.errorCount ?? 0),
-        clampedInput.errorCount,
-      ),
+      errorCount,
       networkErrorCount: Math.max(
         Number(recording.networkErrorCount ?? 0),
         clampedInput.networkErrorCount,
       ),
-      rageClickCount: Math.max(
-        Number(recording.rageClickCount ?? 0),
-        clampedInput.rageClickCount,
-      ),
+      rageClickCount,
       privacyMode:
         clampedInput.privacyMode !== "unknown"
           ? clampedInput.privacyMode
@@ -1707,6 +1731,21 @@ export async function recordSessionReplayChunks(
       lastIngestedAt: ingestedAt,
     })
     .where(eq(schema.sessionRecordings.id, recording.id));
+
+  const insertedSeqs = new Set(rowsToInsert.map((row) => row.seq));
+  await recordReplayFriction({
+    recordingId: recording.id,
+    sessionId: clampedInput.sessionId,
+    ownerEmail: key.ownerEmail,
+    orgId: key.orgId,
+    priorChunkCount: existingChunks.length,
+    newChunks: clampedInput.chunks
+      .filter((chunk) => insertedSeqs.has(chunk.seq))
+      .map((chunk) => ({ seq: chunk.seq, inlineData: chunk.inlineData })),
+    errorCount,
+    rageClickCount,
+    ingestedAt,
+  });
 
   await touchPublicKeyLastUsedAt(key.id, ingestedAt);
 
@@ -1741,7 +1780,8 @@ export async function listSessionRecordings(
     filters.sort ||
     filters.offset ||
     filters.didEvents?.length ||
-    filters.didNotEvents?.length
+    filters.didNotEvents?.length ||
+    filters.frictionSignals?.length
   ) {
     return (await listSessionRecordingsPage(scope, filters)).recordings;
   }
@@ -1945,21 +1985,27 @@ export async function listSessionRecordingsPage(
       didEvents: filters.didEvents,
       didNotEvents: filters.didNotEvents,
     })),
+    ...(await sessionFrictionFilterConditions(filters.frictionSignals)),
   );
   const appConditions = [...conditions];
   if (filters.app)
     conditions.push(eq(schema.sessionRecordings.app, filters.app));
-  const sortColumn = {
-    newest: schema.sessionRecordings.startedAt,
-    longest: schema.sessionRecordings.durationMs,
-    errors: schema.sessionRecordings.errorCount,
-    events: schema.sessionRecordings.eventCount,
-    rage: schema.sessionRecordings.rageClickCount,
-  }[filters.sort ?? "newest"];
-  const sortOrder =
-    filters.sort === "longest"
+  const sort = filters.sort ?? "newest";
+  // Before the friction migration nothing is measured, so friction sorts
+  // fall back to newest rather than fail.
+  const sortOrder = isSessionFrictionSort(sort)
+    ? ((await sessionFrictionSortOrder(sort)) ??
+      desc(schema.sessionRecordings.startedAt))
+    : sort === "longest"
       ? sql`${schema.sessionRecordings.durationMs} desc nulls last`
-      : desc(sortColumn);
+      : desc(
+          {
+            newest: schema.sessionRecordings.startedAt,
+            errors: schema.sessionRecordings.errorCount,
+            events: schema.sessionRecordings.eventCount,
+            rage: schema.sessionRecordings.rageClickCount,
+          }[sort],
+        );
   const [totalRows, appRows] = await Promise.all([
     db
       .select({ count: sql<number>`count(*)` })
@@ -2768,6 +2814,11 @@ export async function runSessionReplayRetentionSweep(
     await pruneSessionEventIndex(replayRetentionDays(), now);
   } catch (err) {
     console.warn("[session-replay] Session event index pruning failed:", err);
+  }
+  try {
+    await pruneSessionFriction(replayRetentionDays(), now);
+  } catch (err) {
+    console.warn("[session-replay] Session friction pruning failed:", err);
   }
   return {
     finalized: finalized.finalized,
