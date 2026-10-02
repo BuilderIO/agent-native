@@ -161,10 +161,25 @@ vi.mock("@agent-native/core/application-state", () => ({
 const settingsStore = new Map<string, Record<string, unknown>>();
 vi.mock("@agent-native/core/settings", () => ({
   getSetting: async (key: string) => settingsStore.get(key) ?? null,
-  putSetting: async (key: string, value: Record<string, unknown>) => {
-    settingsStore.set(key, value);
+  mutateSetting: async (
+    key: string,
+    updater: (
+      current: Record<string, unknown> | null,
+    ) => Record<string, unknown>,
+  ) => {
+    const next = updater(settingsStore.get(key) ?? null);
+    settingsStore.set(key, next);
+    return next;
   },
-  deleteSetting: async (key: string) => settingsStore.delete(key),
+  deleteSettingIfValue: async (
+    key: string,
+    expected: Record<string, unknown>,
+  ) => {
+    if (JSON.stringify(settingsStore.get(key)) !== JSON.stringify(expected)) {
+      return false;
+    }
+    return settingsStore.delete(key);
+  },
   listSettingsByPrefix: async (prefix: string) =>
     [...settingsStore]
       .filter(([key]) => key.startsWith(prefix))

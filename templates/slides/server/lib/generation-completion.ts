@@ -1,8 +1,8 @@
 import {
-  deleteSetting,
+  deleteSettingIfValue,
   getSetting,
   listSettingsByPrefix,
-  putSetting,
+  mutateSetting,
 } from "@agent-native/core/settings";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { track, type TrackingSource } from "@agent-native/core/tracking";
@@ -29,6 +29,16 @@ const firstOutputsByTurn = new Map<string, GenerationFirstOutput[]>();
 // its turn when the turn never finishes, and then it expires.
 const PENDING_KEY_PREFIX = "slides-generation-pending:";
 const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
+// How long one worker may hold a turn's markers while it reports them. A
+// worker that dies mid-report leaves a lease that lapses, and a later run of
+// the turn reports again: at-least-once, never silently dropped.
+const FINALIZING_LEASE_MS = 2 * 60 * 1000;
+
+interface PendingRow {
+  outputs: GenerationFirstOutput[];
+  expiresAt: number;
+  finalizing?: { owner: string; until: number };
+}
 
 export function noteGenerationFirstOutput(
   turnKey: string | undefined,
@@ -67,36 +77,103 @@ function isFirstOutput(value: unknown): value is GenerationFirstOutput {
   );
 }
 
-async function loadPendingOutputs(
+/** The stored row, or null when there is none or it has expired. */
+function parsePendingRow(
   turnKey: string,
-): Promise<GenerationFirstOutput[]> {
-  const stored = await getSetting(`${PENDING_KEY_PREFIX}${turnKey}`);
-  if (!stored) return [];
-  if (typeof stored.expiresAt === "number" && stored.expiresAt <= Date.now()) {
-    await deleteSetting(`${PENDING_KEY_PREFIX}${turnKey}`);
-    return [];
+  stored: Record<string, unknown> | null,
+): PendingRow | null {
+  if (!stored) return null;
+  if (typeof stored.expiresAt !== "number") {
+    throw new Error(`Malformed pending generation marker for turn ${turnKey}.`);
   }
+  if (stored.expiresAt <= Date.now()) return null;
+  const finalizing = stored.finalizing as PendingRow["finalizing"] | undefined;
   if (!Array.isArray(stored.outputs) || !stored.outputs.every(isFirstOutput)) {
     throw new Error(`Malformed pending generation marker for turn ${turnKey}.`);
   }
-  return stored.outputs;
+  return {
+    outputs: stored.outputs,
+    expiresAt: stored.expiresAt,
+    ...(finalizing ? { finalizing } : {}),
+  };
 }
 
 async function storePendingOutputs(
   turnKey: string,
   outputs: GenerationFirstOutput[],
 ): Promise<void> {
-  const merged = mergeOutputs(await loadPendingOutputs(turnKey), outputs);
-  await putSetting(`${PENDING_KEY_PREFIX}${turnKey}`, {
-    outputs: merged,
-    expiresAt: Date.now() + PENDING_TTL_MS,
+  const key = `${PENDING_KEY_PREFIX}${turnKey}`;
+  await mutateSetting(key, (current) => {
+    const row = parsePendingRow(turnKey, current);
+    return {
+      ...row,
+      outputs: mergeOutputs(row?.outputs ?? [], outputs),
+      expiresAt: Date.now() + PENDING_TTL_MS,
+    };
   });
-  // Written first, so a failed sweep cannot lose the marker.
-  for (const { key, value } of await listSettingsByPrefix(PENDING_KEY_PREFIX)) {
+  // Written first, so a failed sweep cannot lose the marker. A row is removed
+  // only while it is still the expired value that was listed.
+  for (const { key: staleKey, value } of await listSettingsByPrefix(
+    PENDING_KEY_PREFIX,
+  )) {
     if (typeof value.expiresAt === "number" && value.expiresAt <= Date.now()) {
-      await deleteSetting(key);
+      await deleteSettingIfValue(staleKey, value);
     }
   }
+}
+
+/**
+ * Takes the turn's markers for reporting, atomically: of two workers that
+ * finish the same turn, one gets them and the other gets null.
+ */
+async function claimFinalization(
+  turnKey: string,
+  local: GenerationFirstOutput[],
+): Promise<{
+  outputs: GenerationFirstOutput[];
+  owner: string;
+  held: Record<string, unknown>;
+} | null> {
+  const key = `${PENDING_KEY_PREFIX}${turnKey}`;
+  const stored = await getSetting(key);
+  if (local.length === 0 && !parsePendingRow(turnKey, stored)) {
+    // Nothing to report; an expired row is cleared while it is still the one read.
+    if (stored) await deleteSettingIfValue(key, stored);
+    return null;
+  }
+  const owner = crypto.randomUUID();
+  let outputs: GenerationFirstOutput[] = [];
+  let claimed = false;
+  const held = await mutateSetting(key, (current) => {
+    const row = parsePendingRow(turnKey, current);
+    const lease = row?.finalizing;
+    outputs = mergeOutputs(row?.outputs ?? [], local);
+    claimed = !(lease && lease.until > Date.now() && lease.owner !== owner);
+    if (!claimed && current) return current;
+    return {
+      outputs,
+      expiresAt: Date.now() + PENDING_TTL_MS,
+      finalizing: { owner, until: Date.now() + FINALIZING_LEASE_MS },
+    };
+  });
+  return claimed ? { outputs, owner, held } : null;
+}
+
+/** Gives the markers back after a failed read, unless the lease moved on. */
+async function releaseFinalization(
+  turnKey: string,
+  owner: string,
+): Promise<void> {
+  const key = `${PENDING_KEY_PREFIX}${turnKey}`;
+  if (!(await getSetting(key))) return;
+  await mutateSetting(key, (current) => {
+    const row = parsePendingRow(turnKey, current);
+    if (!current || !row || row.finalizing?.owner !== owner) {
+      return current ?? {};
+    }
+    const { finalizing: _released, ...rest } = row;
+    return rest;
+  });
 }
 
 export async function trackGenerationCompletedForRun(
@@ -114,23 +191,26 @@ export async function trackGenerationCompletedForRun(
     }
     return;
   }
-  const outputs = mergeOutputs(await loadPendingOutputs(turnKey), local);
-  if (outputs.length === 0) return;
-  const settle = async () => {
-    firstOutputsByTurn.delete(turnKey);
-    await deleteSetting(`${PENDING_KEY_PREFIX}${turnKey}`);
-  };
+  const claim = await claimFinalization(turnKey, local);
+  if (!claim) return;
+  const { outputs, owner, held } = claim;
+  firstOutputsByTurn.delete(turnKey);
+  const key = `${PENDING_KEY_PREFIX}${turnKey}`;
   if (run.status !== "completed") {
-    await settle();
+    await deleteSettingIfValue(key, held);
     return;
   }
-  // Every read happens before the markers are dropped, so a failed read leaves
-  // them for a later run of the turn and nothing is reported twice.
+  // Every read happens before anything is reported, so a failed read gives the
+  // markers back for a later run of the turn and nothing is reported twice.
   const counts = new Map<string, number | null>();
-  for (const output of outputs) {
-    counts.set(output.deckId, await readSlideCount(output.deckId));
+  try {
+    for (const output of outputs) {
+      counts.set(output.deckId, await readSlideCount(output.deckId));
+    }
+  } catch (error) {
+    await releaseFinalization(turnKey, owner);
+    throw error;
   }
-  await settle();
   for (const output of outputs) {
     const slideCount = counts.get(output.deckId) ?? null;
     if (slideCount === null || slideCount === 0) continue;
@@ -158,6 +238,8 @@ export async function trackGenerationCompletedForRun(
       source,
     );
   }
+  // Dropped only after every report was handed off.
+  await deleteSettingIfValue(key, held);
 }
 
 /**
