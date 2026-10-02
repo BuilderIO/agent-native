@@ -242,7 +242,7 @@ CREATE TEMPORARY VIEW "notes" AS
 
 当该列尚不存在时，INSERT 语句会自动注入 `owner_email`。
 
-`db-query`、`db-exec` 和 `db-patch` 工具检查 SQL 词元边界，并在事务内验证每个关系名称都解析为上述临时视图之一。它们会拒绝带模式或数据库限定的名称（`public.<table>`）、视图未覆盖的关系、与 `pg_catalog` 以外的函数或运算符匹配的名称（包括扩展），以及执行 SQL 文本或访问服务器、会话或序列状态的特定内置函数。PostgreSQL 转义字符串续接语法不受支持，会被拒绝。`db-query` 以只读方式运行。代理使用裸表名称。范围会自动应用。应用可以通过 `@agent-native/core/agent-sql` 复用这些检查。其中的 `readAgentSqlQuery()` 会识别受支持的 `SELECT`/`WITH` 查询中的表来源及其精确文本范围，`rewriteAgentSqlQuerySources()` 则替换这些范围。调用方必须限制允许的来源并确保只读执行。
+`db-query`、`db-exec` 和 `db-patch` 工具检查 SQL 词元边界，并在事务内验证每个关系名称都解析为上述临时视图之一。它们会拒绝带模式或数据库限定的名称（`public.<table>`）、视图未覆盖的关系、与 `pg_catalog` 以外的函数或运算符匹配的名称（包括扩展），以及执行 SQL 文本或访问服务器、会话或序列状态的特定内置函数。PostgreSQL 转义字符串续接语法不受支持，会被拒绝。`db-query` 以只读方式运行。代理使用裸表名称。范围会自动应用。这些检查限定直接 SQL 读取和写入的范围，并拒绝未经批准的显式例程调用和类型转换。经过审查的模式默认值、约束、触发器、类型强制转换和类型输入/输出仍属于受信任的数据库行为。应用可以通过 `@agent-native/core/agent-sql` 复用这些检查。其中的 `readAgentSqlQuery()` 会识别受支持的 `SELECT`/`WITH` 查询中的表来源及其精确文本范围，`rewriteAgentSqlQuerySources()` 则替换这些范围。调用方必须限制允许的来源并确保只读执行。
 
 ### 每个组织范围界定 (`org_id`)
 
