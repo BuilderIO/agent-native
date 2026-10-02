@@ -168,7 +168,7 @@ describe("MessageQueueDrawer", () => {
     expect(openMenus[0]?.textContent).toContain("Move third to top");
   });
 
-  it("does not reopen a queue-row menu after the queue shrinks and grows", async () => {
+  it("does not reopen a queue-row menu after its row or actions disappear", async () => {
     const getItemActions = (item: MessageQueueItem) => [
       {
         id: "move-to-top",
@@ -177,55 +177,55 @@ describe("MessageQueueDrawer", () => {
       },
     ];
 
-    act(() => {
-      root.render(
-        <MessageQueueDrawer
-          items={items}
-          labels={labels}
-          onRemove={() => undefined}
-          getItemActions={getItemActions}
-        />,
+    const renderQueue = (
+      queueItems: readonly MessageQueueItem[] = items,
+      actions: typeof getItemActions | (() => []) = getItemActions,
+    ) => {
+      act(() => {
+        root.render(
+          <MessageQueueDrawer
+            items={queueItems}
+            labels={labels}
+            onRemove={() => undefined}
+            getItemActions={actions}
+          />,
+        );
+      });
+    };
+    const openFirstMenu = async () => {
+      const button = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="More actions"]',
       );
-    });
+      await act(async () => {
+        button?.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+        await Promise.resolve();
+      });
+      expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    };
 
-    const firstMoreButton = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="More actions"]',
-    );
-    await act(async () => {
-      firstMoreButton?.dispatchEvent(
-        new PointerEvent("pointerdown", {
-          bubbles: true,
-          button: 0,
-          pointerType: "mouse",
-        }),
-      );
-      await Promise.resolve();
-    });
-    expect(document.querySelector('[role="menu"]')).not.toBeNull();
-
-    act(() => {
-      root.render(
-        <MessageQueueDrawer
-          items={items.slice(0, 1)}
-          labels={labels}
-          onRemove={() => undefined}
-          getItemActions={getItemActions}
-        />,
-      );
-    });
+    renderQueue();
+    await openFirstMenu();
+    renderQueue(items.slice(0, 1));
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    renderQueue();
     expect(document.querySelector('[role="menu"]')).toBeNull();
 
-    act(() => {
-      root.render(
-        <MessageQueueDrawer
-          items={items}
-          labels={labels}
-          onRemove={() => undefined}
-          getItemActions={getItemActions}
-        />,
-      );
-    });
+    await openFirstMenu();
+    renderQueue(items.slice(1));
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    renderQueue();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
 
+    await openFirstMenu();
+    renderQueue(items, () => []);
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    renderQueue();
     expect(document.querySelector('[role="menu"]')).toBeNull();
   });
 

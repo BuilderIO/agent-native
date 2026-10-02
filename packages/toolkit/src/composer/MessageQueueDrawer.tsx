@@ -86,8 +86,15 @@ export function MessageQueueDrawer({
     null,
   );
   useEffect(() => {
-    if (items.length <= 1) setOpenActionsItemId(null);
-  }, [items.length]);
+    const hasOpenActionsItem =
+      items.length > 1 &&
+      items.some(
+        (item) =>
+          item.id === openActionsItemId &&
+          (getItemActions?.(item).length ?? 0) > 0,
+      );
+    if (!hasOpenActionsItem) setOpenActionsItemId(null);
+  }, [items, getItemActions, openActionsItemId]);
   if (empty && !recessed) return null;
 
   const recessedStyle = recessed
