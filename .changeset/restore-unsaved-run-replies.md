@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Show a finished agent reply after reopening a chat that was refreshed or closed while the run was still going, instead of only the prompt.
+Complete a chat reply that continued across several runs when the page was reloaded before the last continuation finished, instead of showing only the first half.

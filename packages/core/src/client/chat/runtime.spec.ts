@@ -275,6 +275,35 @@ describe("createHttpAgentChatRuntime", () => {
     });
   });
 
+  it("preserves active-run details from a typed slot-busy response", async () => {
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: "Run already in progress for this thread",
+              code: "run_slot_busy",
+              retryable: true,
+              activeRunId: "run-active",
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          ),
+      ) as typeof fetch,
+    });
+
+    await expect(
+      (await runtime.createSession({ id: "thread-1" })).startTurn({
+        prompt: "A second message",
+      }),
+    ).rejects.toMatchObject({
+      code: "run_slot_busy",
+      status: 409,
+      retryable: true,
+      activeRunId: "run-active",
+    });
+  });
+
   it("lets a transport continue a paused turn with the previous input", async () => {
     const fetchMock = vi
       .fn()
@@ -445,6 +474,35 @@ describe("createAgentNativeChatRuntime", () => {
     ).toMatchObject({
       message: "Use this selection once",
       skipPendingSelectionContext: true,
+    });
+  });
+
+  it("forwards the submitted AgentKit message ID to durable chat persistence", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }], "run-identity"));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({ id: "thread-identity" });
+    const turn = await session.startTurn({
+      prompt: "Submit this message",
+      messages: [
+        {
+          id: "message-agentkit-1",
+          role: "user",
+          content: [{ type: "text", text: "Submit this message" }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)),
+    ).toMatchObject({
+      message: "Submit this message",
+      agentKitMessageId: "message-agentkit-1",
     });
   });
 
