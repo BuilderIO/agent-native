@@ -26,6 +26,7 @@
  */
 
 import { resolveCredentialForScope } from "../credentials/index.js";
+import { orderCredentialScopes } from "../server/credential-read-order.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -151,7 +152,11 @@ async function readRequestScopedSecret(
   name: string,
   userScopeId: string,
 ): Promise<{ value: string; ref: ResolvedKeyReference } | null> {
-  const candidates = requestSecretCandidates(userScopeId);
+  const candidates = await orderCredentialScopes(
+    requestSecretCandidates(userScopeId),
+    getRequestOrgId(),
+    userScopeId,
+  );
   for (const ref of candidates) {
     const result = await readAppSecret({ key: name, ...ref });
     if (result) return { value: result.value, ref: { name, ...ref } };

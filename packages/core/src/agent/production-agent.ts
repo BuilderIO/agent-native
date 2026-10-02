@@ -99,6 +99,7 @@ import {
   resolveBuilderGatewayAuth,
   type BuilderGatewayAuth,
 } from "../server/credential-provider.js";
+import { orderCredentialScopes } from "../server/credential-read-order.js";
 import { readBody } from "../server/h3-helpers.js";
 import { resolveHostedHarnessPolicy } from "../server/hosted-harness-policy.js";
 import {
@@ -587,7 +588,7 @@ async function getOwnerApiKeyDetailed(
     } else if (!syntheticTraffic && !personalRestricted) {
       refs.push({ scope: "workspace", scopeId: `solo:${ownerEmail}` });
     }
-    for (const ref of refs) {
+    for (const ref of await orderCredentialScopes(refs, orgId, ownerEmail)) {
       for (const storedKey of secretKeyNames(secretKey)) {
         const fromSecrets = await readAppSecret({
           key: storedKey,

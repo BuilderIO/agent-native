@@ -2856,12 +2856,11 @@ describe("Restrict personal API keys", () => {
     await expect(resolveSecret("OPENAI_API_KEY")).resolves.toBeNull();
   });
 
-  it("keeps an owner's or admin's personal key", async () => {
+  it("keeps an owner's or admin's personal key as their fallback", async () => {
     for (const role of ["owner", "admin"]) {
       restrictOrg(role);
       storeRows({
         "user:member@b.com:ANTHROPIC_API_KEY": "sk-ant-personal",
-        [`org:${ORG}:ANTHROPIC_API_KEY`]: "sk-ant-org",
       });
       await expect(
         resolveSecretDetailed("ANTHROPIC_API_KEY"),
@@ -2923,23 +2922,65 @@ describe("Restrict personal API keys", () => {
     );
   });
 
-  it("runs every role on their own Builder key pair ahead of the org's", async () => {
-    for (const role of ["owner", "admin", "member"]) {
+  it("runs an owner or admin on the org's credentials ahead of their own, and a member on theirs", async () => {
+    const rows = {
+      "user:member@b.com:BUILDER_PRIVATE_KEY": "bpk-personal",
+      "user:member@b.com:BUILDER_PUBLIC_KEY": "pub-personal",
+      [`org:${ORG}:BUILDER_PRIVATE_KEY`]: "bpk-org",
+      [`org:${ORG}:BUILDER_PUBLIC_KEY`]: "pub-org",
+      "user:member@b.com:ANTHROPIC_API_KEY": "sk-ant-personal",
+      [`org:${ORG}:ANTHROPIC_API_KEY`]: "sk-ant-org",
+      "user:member@b.com:SVC_ID": "id-personal",
+      "user:member@b.com:SVC_SECRET": "secret-personal",
+      [`org:${ORG}:SVC_ID`]: "id-org",
+      [`org:${ORG}:SVC_SECRET`]: "secret-org",
+    };
+    for (const [role, expected] of [
+      ["owner", "org"],
+      ["admin", "org"],
+      ["member", "personal"],
+    ] as const) {
       restrictOrg(role, false);
-      storeRows({
-        "user:member@b.com:BUILDER_PRIVATE_KEY": "bpk-personal",
-        "user:member@b.com:BUILDER_PUBLIC_KEY": "pub-personal",
-        [`org:${ORG}:BUILDER_PRIVATE_KEY`]: "bpk-org",
-        [`org:${ORG}:BUILDER_PUBLIC_KEY`]: "pub-org",
-      });
+      storeRows(rows);
       await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
-        privateKey: "bpk-personal",
-        source: "user",
+        privateKey: `bpk-${expected}`,
+        source: expected === "org" ? "org" : "user",
       });
       await expect(
         resolveBuilderCredential("BUILDER_PRIVATE_KEY"),
-      ).resolves.toBe("bpk-personal");
+      ).resolves.toBe(`bpk-${expected}`);
+      await expect(
+        resolveSecretDetailed("ANTHROPIC_API_KEY"),
+      ).resolves.toMatchObject({
+        value: `sk-ant-${expected}`,
+        source: expected === "org" ? "org" : "user",
+      });
+      await expect(
+        resolveSecretPair(["SVC_ID", "SVC_SECRET"]),
+      ).resolves.toEqual([`id-${expected}`, `secret-${expected}`]);
     }
+  });
+
+  it("fails an owner's lookup when their role can't be read, instead of running on their own key", async () => {
+    mockGetSetting.mockResolvedValue(null);
+    mockGetDbExec.mockReturnValue({
+      execute: vi.fn(async () => {
+        throw new Error("db query timed out");
+      }),
+    });
+    storeRows({
+      "user:member@b.com:ANTHROPIC_API_KEY": "sk-ant-personal",
+      [`org:${ORG}:ANTHROPIC_API_KEY`]: "sk-ant-org",
+      "user:member@b.com:BUILDER_PRIVATE_KEY": "bpk-personal",
+      "user:member@b.com:BUILDER_PUBLIC_KEY": "pub-personal",
+    });
+    await expect(
+      resolveSecretDetailed("ANTHROPIC_API_KEY"),
+    ).resolves.toMatchObject({ value: null, lookupFailed: true });
+    await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
+      privateKey: null,
+      lookupFailed: true,
+    });
   });
 
   it("falls back to an admin's own Builder key pair when the org has none", async () => {

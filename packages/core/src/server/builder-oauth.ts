@@ -12,6 +12,7 @@ import {
   type McpOAuthCredentialBundle,
 } from "../mcp-client/oauth-client.js";
 import { getOAuthTokens, listOAuthTokenOwners } from "../oauth-tokens/store.js";
+import { orderCredentialScopes } from "./credential-read-order.js";
 import { isPersonalProviderKeyUseRestricted } from "./personal-provider-key-policy.js";
 
 const resolveOrgIdForEmail: (typeof import("../org/context.js"))["resolveOrgIdForEmail"] =
@@ -140,11 +141,12 @@ function userOwnerOptions(ownerEmail: string) {
   };
 }
 
-// Read paths try the caller's personal grant first, then the org grant. An
+// Read paths try a member's personal grant first, then the org grant. An
 // explicit orgId wins over the user's active org so background work stays
 // bound to the organization that authorized it. `forUse` reads pick the grant
 // a request runs on, so they skip a personal grant the org policy disallows
-// (disconnect still sees it so its owner can remove it).
+// (disconnect still sees it so its owner can remove it), and put the org grant
+// first for an owner or admin (`orderCredentialScopes`).
 async function resolveBuilderOAuthOptions(
   ownerEmail: string,
   orgId?: string | null,
@@ -164,7 +166,10 @@ async function resolveBuilderOAuthOptions(
     }));
   const personal = personalAllowed ? [userOptions] : [];
   const org = resolvedOrgId ? [orgOwnerOptions(resolvedOrgId)] : [];
-  return [...personal, ...org];
+  const options = [...personal, ...org];
+  return forUse
+    ? orderCredentialScopes(options, resolvedOrgId, email)
+    : options;
 }
 
 async function resolveBuilderOAuthOptionsForScope(

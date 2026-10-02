@@ -6,6 +6,7 @@ import {
 } from "../secrets/crypto.js";
 import { readAppSecret, type SecretRef } from "../secrets/storage.js";
 import { assertCredentialStoreReadable } from "../server/credential-provider.js";
+import { readsOrgCredentialFirst } from "../server/credential-read-order.js";
 import {
   isPersonalProviderKeyUseRestricted,
   isPersonalProviderPolicyKey,
@@ -196,7 +197,7 @@ async function resolveEffectiveOrgId(
 
 /**
  * Resolve a credential across the encrypted app_secrets store and the legacy
- * settings-backed credential store. User overrides win, followed by the
+ * settings-backed credential store. A member's own value wins, followed by the
  * active org/workspace shared value.
  *
  * SECURITY: NEVER reads from process.env. Env vars are global to the
@@ -209,6 +210,8 @@ async function resolveEffectiveOrgId(
  *   4. legacy workspace-scoped app_secrets for the org
  *   5. org-scoped legacy settings credential
  *   6. solo workspace-scoped app_secrets (`solo:<email>`)
+ *
+ * An owner or admin of the org reads 3-5 before 1-2 (`readsOrgCredentialFirst`).
  *
  * Steps 3-5 use `ctx.orgId` when given, else the org resolved from
  * `ctx.userEmail` (see `resolveEffectiveOrgId`), and are skipped only when the
@@ -233,23 +236,24 @@ export async function resolveCredentialDetailed(
         : { email: ctx.userEmail },
     ));
 
+  let personal: ResolvedCredential | undefined;
   if (ctx.credentialScope !== "org" && !personalRestricted) {
-    const userSecret = await readScopedAppSecret(key, "user", ctx.userEmail);
-    if (userSecret) {
-      return { value: userSecret, scope: "user", scopeId: ctx.userEmail };
-    }
-
-    const userSetting = await resolveCredentialForScope(key, {
-      ...ctx,
-      scope: "user",
-    });
-    if (userSetting) {
-      return { value: userSetting, scope: "user", scopeId: ctx.userEmail };
-    }
+    const value =
+      (await readScopedAppSecret(key, "user", ctx.userEmail)) ??
+      (await resolveCredentialForScope(key, { ...ctx, scope: "user" }));
+    if (value) personal = { value, scope: "user", scopeId: ctx.userEmail };
   }
 
   if (ctx.credentialScope === "org" && !ctx.orgId) return undefined;
   const orgLookup = await resolveEffectiveOrgId(ctx);
+  // An owner or admin runs on the organization's credential ahead of their own.
+  if (
+    personal &&
+    (orgLookup.lookupFailed ||
+      !(await readsOrgCredentialFirst(orgLookup.orgId, ctx.userEmail)))
+  ) {
+    return personal;
+  }
   assertCredentialStoreReadable(orgLookup);
   const { orgId } = orgLookup;
 
@@ -273,6 +277,7 @@ export async function resolveCredentialDetailed(
   }
 
   if (ctx.credentialScope === "org") return undefined;
+  if (personal) return personal;
 
   // Solo-workspace fallback: always checked, even when an org id was found
   // above. A credential written before the user joined/created an org lives
