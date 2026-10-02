@@ -122,14 +122,18 @@ export function createCoreEmailActionEntries(options?: {
             text: markdownToText(bodyMd),
             ...(from ? { from } : {}),
             ...(cc ? { cc } : {}),
+            ...(bcc ? { bcc } : {}),
             ...(replyTo ? { replyTo } : {}),
           });
           if (result.status === "suppressed") {
-            return `Not sent: ${to} is a test identity, which never receives non-auth email.`;
+            return `Not sent: every recipient is a test identity, which never receives non-auth email.`;
           }
 
           const bccNote = bcc ? ` (bcc: ${bcc})` : "";
-          return `Email sent to ${to}${bccNote}: "${subject}"`;
+          const skippedNote = result.suppressed?.length
+            ? `. Skipped test identities, which never receive non-auth email: ${result.suppressed.join(", ")}`
+            : "";
+          return `Email sent to ${to}${bccNote}: "${subject}"${skippedNote}`;
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           return `Error sending email: ${msg}`;

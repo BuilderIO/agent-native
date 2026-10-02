@@ -43,4 +43,23 @@ describe("core-send-email delivery outcome", () => {
     expect(result).toContain("Not sent");
     expect(result).not.toContain("Email sent");
   });
+
+  it("forwards bcc and names the test identities that were skipped", async () => {
+    sendEmail.mockResolvedValueOnce({
+      status: "sent",
+      provider: "resend",
+      suppressed: ["qa-auditor@example.test"],
+    });
+    const result = await createCoreEmailActionEntries()["core-send-email"].run({
+      to: "reader@example.com",
+      bcc: "qa-auditor@example.test",
+      subject: "Hi",
+      body: "Hello",
+    });
+    expect(sendEmail).toHaveBeenLastCalledWith(
+      expect.objectContaining({ bcc: "qa-auditor@example.test" }),
+    );
+    expect(result).toContain("qa-auditor@example.test");
+    expect(result).toMatch(/test identit/i);
+  });
 });

@@ -41,6 +41,7 @@ export interface SendEmailArgs {
   from?: string;
   fromName?: string;
   cc?: string | string[];
+  bcc?: string | string[];
   replyTo?: string;
   appSender?: { name: string; slug: string; replyTo?: string };
   inReplyTo?: string;
@@ -56,13 +57,19 @@ export interface SendEmailArgs {
   /**
    * Account-access mail: sign-in links, verification, password reset, org
    * invitations. Delivered to test identities too, since they must still be
-   * able to sign in. Everything else to a test identity is suppressed.
+   * able to sign in. Otherwise every recipient line drops its test
+   * identities, and a send left with nobody is suppressed.
    */
   authCritical?: boolean;
 }
 
 export type SendEmailResult =
-  | { status: "sent"; provider: EmailProvider }
+  | {
+      status: "sent";
+      provider: EmailProvider;
+      /** Test identities dropped from the recipient lines; absent when none. */
+      suppressed?: string[];
+    }
   | { status: "suppressed"; reason: "test-identity" };
 
 let cachedAgentNativeLogo: Buffer | undefined;
@@ -399,7 +406,8 @@ async function deliverEmail(
       html: args.html,
       text: args.text,
     };
-    if (args.cc) payload.cc = Array.isArray(args.cc) ? args.cc : [args.cc];
+    if (args.cc) payload.cc = recipientList(args.cc);
+    if (args.bcc) payload.bcc = recipientList(args.bcc);
     if (replyTo) payload.reply_to = replyTo;
     if (attachments?.length) {
       payload.attachments = attachments.map((a) => ({
@@ -456,8 +464,10 @@ async function deliverEmail(
       to: [{ email: args.to }],
     };
     if (args.cc) {
-      const ccList = Array.isArray(args.cc) ? args.cc : [args.cc];
-      personalization.cc = ccList.map((email) => ({ email }));
+      personalization.cc = recipientList(args.cc).map((email) => ({ email }));
+    }
+    if (args.bcc) {
+      personalization.bcc = recipientList(args.bcc).map((email) => ({ email }));
     }
 
     const sgPayload: Record<string, unknown> = {
@@ -546,10 +556,34 @@ async function deliverEmail(
   return { provider, from };
 }
 
+function recipientList(value: string | string[] | undefined): string[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
 async function sendEmailWithSignal(
-  args: SendEmailArgs,
+  requested: SendEmailArgs,
   signal?: AbortSignal,
 ): Promise<SendEmailResult> {
+  const suppressed = requested.authCritical
+    ? []
+    : [
+        requested.to,
+        ...recipientList(requested.cc),
+        ...recipientList(requested.bcc),
+      ].filter((address) => isTestIdentity(address));
+  const deliverable = (value: string | string[] | undefined) =>
+    recipientList(value).filter((address) => !suppressed.includes(address));
+  const cc = deliverable(requested.cc);
+  const bcc = deliverable(requested.bcc);
+  // A send addressed to a test identity still reaches its real cc/bcc.
+  const to = deliverable(requested.to)[0] ?? cc.shift() ?? bcc.shift();
+  const args: SendEmailArgs = {
+    ...requested,
+    to: to ?? requested.to,
+    cc: cc.length ? cc : undefined,
+    bcc: bcc.length ? bcc : undefined,
+  };
   const baseRecord = {
     templateId: args.templateId,
     app: args.app ?? getAppConfig().app.slug ?? "unknown",
@@ -561,19 +595,22 @@ async function sendEmailWithSignal(
       ? truncateForLog(redactSensitiveEmailBodyContent(args.text))
       : undefined,
   };
-  if (!args.authCritical && isTestIdentity(args.to)) {
+  if (suppressed.length) {
     console.info(
-      `[agent-native:email] suppressed: test identity (${args.templateId ?? "untemplated"})`,
+      `[agent-native:email] suppressed: test identity, ${suppressed.length} recipient(s)${to ? "" : ", whole send"} (${args.templateId ?? "untemplated"})`,
     );
+  }
+  for (const recipient of suppressed) {
     await recordEmailSend({
       ...baseRecord,
+      recipient,
       sender: args.from ?? "unknown",
       status: "suppressed",
       error: "suppressed: test identity",
       provider: "none",
     });
-    return { status: "suppressed", reason: "test-identity" };
   }
+  if (!to) return { status: "suppressed", reason: "test-identity" };
   let outcome: DeliveryOutcome | undefined;
   try {
     outcome = await deliverEmail(args, signal);
@@ -605,7 +642,11 @@ async function sendEmailWithSignal(
     responseStatus: outcome.responseStatus,
     responseBody: outcome.responseBody,
   });
-  return { status: "sent", provider: outcome.provider };
+  return {
+    status: "sent",
+    provider: outcome.provider,
+    ...(suppressed.length ? { suppressed } : {}),
+  };
 }
 
 export async function sendEmail(args: SendEmailArgs): Promise<SendEmailResult> {
