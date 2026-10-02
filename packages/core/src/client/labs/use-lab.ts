@@ -27,6 +27,8 @@ export function useLabState(lab: LabReference): {
   isLoading: boolean;
   isError: boolean;
   isSuccess: boolean;
+  /** Read the Lab state again, such as after it failed to load. */
+  refetch: () => void;
 } {
   const key = labKey(lab);
   const { status } = useSession();
@@ -49,6 +51,7 @@ export function useLabState(lab: LabReference): {
       query.isLoading || (status === "loading" && query.data === undefined),
     isError: query.isError,
     isSuccess: query.isSuccess,
+    refetch: () => void query.refetch(),
   };
 }
 
