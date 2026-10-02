@@ -638,6 +638,66 @@ describe("refresh tokens", () => {
     });
   });
 
+  it("renews a refresh grant only on the supplied transaction executor", async () => {
+    const s = await freshStore();
+    await s.createOAuthRefreshToken(refreshParams);
+    const tx: DbExec = { execute: vi.fn(exec.execute.bind(exec)) };
+    const globalWrite = vi
+      .spyOn(exec, "execute")
+      .mockImplementation(async () => {
+        throw new Error("renewal escaped its supplied transaction");
+      });
+    await expect(
+      s.touchOAuthRefreshToken(
+        "raw-refresh-token",
+        refreshParams.ownerEmail,
+        tx,
+      ),
+    ).resolves.toBe("renewed");
+    expect(globalWrite).not.toHaveBeenCalled();
+    expect(tx.execute).toHaveBeenCalledOnce();
+    expect(
+      (await pglite.query("SELECT last_used_at FROM mcp_oauth_refresh_tokens"))
+        .rows[0].last_used_at,
+    ).not.toBeNull();
+  });
+
+  it("does not revoke a grant rekeyed away from the previously validated owner", async () => {
+    const s = await freshStore();
+    await s.createOAuthRefreshToken(refreshParams);
+    await pglite.query(
+      "UPDATE mcp_oauth_refresh_tokens SET owner_email = $1, issued_for_email = $1",
+      ["renamed@example.test"],
+    );
+    await s.revokeOAuthRefreshToken(
+      "raw-refresh-token",
+      refreshParams.ownerEmail,
+    );
+    expect(await s.getOAuthRefreshToken("raw-refresh-token")).toMatchObject({
+      ownerEmail: "renamed@example.test",
+      issuedForEmail: "renamed@example.test",
+      revokedAt: null,
+    });
+  });
+
+  it.each([NaN, -1, 2])(
+    "rejects indeterminate revocation result %j instead of reporting cleanup success",
+    async (rowsAffected) => {
+      const s = await freshStore();
+      await s.createOAuthRefreshToken(refreshParams);
+      vi.spyOn(exec, "execute").mockResolvedValueOnce({
+        rows: [],
+        rowsAffected,
+      });
+      await expect(
+        s.revokeOAuthRefreshToken(
+          "raw-refresh-token",
+          refreshParams.ownerEmail,
+        ),
+      ).rejects.toThrow(/invalid row count/);
+    },
+  );
+
   it.each([null, "", " ", "former@example.test"])(
     "refuses refresh lookup, renewal, and rotation with issuance binding %j",
     async (binding) => {

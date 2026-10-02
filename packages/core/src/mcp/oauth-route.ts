@@ -15,10 +15,6 @@ import {
   withMcpCredentialIssuance,
 } from "./credential-issuance.js";
 import {
-  checkCredentialOrgMembership,
-  type CredentialOrgMembership,
-} from "./credential-membership.js";
-import {
   applicationTypeForRedirectUris,
   isAllowedOAuthRedirectUri,
   isUrlBasedOAuthClientId,
@@ -1083,23 +1079,6 @@ async function issueTokenSet(
   };
 }
 
-/**
- * Codes and refresh tokens carry the organization chosen at consent. The user
- * may have left it since, so re-check membership before minting, with the same
- * check verifyAuth applies to every access token.
- */
-async function grantOrgMembership(
-  event: H3Event,
-  grant: { ownerEmail: string; orgId: string | null },
-): Promise<CredentialOrgMembership> {
-  if (!grant.orgId) return "member";
-  return checkCredentialOrgMembership({
-    orgId: grant.orgId,
-    email: grant.ownerEmail,
-    requestOrigin: getOrigin(event),
-  });
-}
-
 const NOT_A_MEMBER_DESCRIPTION =
   "The user is no longer a member of the organization this grant was issued for";
 
@@ -1194,7 +1173,13 @@ async function handleRefreshTokenGrant(
   if (!clientId) {
     return oauthError("invalid_request", "client_id is required");
   }
-  const existing = await getOAuthRefreshToken(refreshToken);
+  let existing;
+  try {
+    await ensureOAuthTables();
+    existing = await getOAuthRefreshToken(refreshToken);
+  } catch {
+    return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+  }
   if (!existing) return oauthError("invalid_grant", "Invalid refresh token");
   if (existing.clientId !== clientId) {
     return oauthError(
@@ -1202,46 +1187,56 @@ async function handleRefreshTokenGrant(
       "Refresh token belongs to another client",
     );
   }
-  const membership = await grantOrgMembership(event, existing);
-  if (membership === "unavailable") {
-    return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
-  }
-  if (membership === "not-member") {
-    await revokeOAuthRefreshToken(refreshToken);
-    return oauthError("invalid_grant", NOT_A_MEMBER_DESCRIPTION);
-  }
-  try {
-    const renewal = await touchOAuthRefreshToken(
-      refreshToken,
-      existing.ownerEmail,
-    );
-    if (renewal !== "renewed") {
-      return oauthError("invalid_grant", "Invalid refresh token");
-    }
-  } catch {
-    return grantUnavailableError(
-      "Unable to renew the refresh token. Retry the request.",
-    );
-  }
   const issuer = getMcpOAuthIssuer(event);
   if (!issuer)
     return oauthError("server_error", "Unable to derive issuer", 500);
-  const accessToken = await signMcpOAuthAccessToken({
-    ownerEmail: existing.ownerEmail,
-    orgId: existing.orgId,
-    orgDomain: existing.orgDomain,
-    clientId: existing.clientId,
-    scope: existing.scope,
-    resource: existing.resource,
-    issuer,
-  });
-  return json({
-    access_token: accessToken,
-    token_type: "Bearer",
-    expires_in: MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS,
-    refresh_token: refreshToken,
-    scope: existing.scope,
-  });
+  try {
+    return await withMcpCredentialIssuance(
+      {
+        email: existing.ownerEmail,
+        orgId: existing.orgId,
+        requestOrigin: getOrigin(event),
+      },
+      async (tx) => {
+        const renewal = await touchOAuthRefreshToken(
+          refreshToken,
+          existing.ownerEmail,
+          tx,
+        );
+        if (renewal !== "renewed")
+          return oauthError("invalid_grant", "Invalid refresh token");
+        const accessToken = await signMcpOAuthAccessToken({
+          ownerEmail: existing.ownerEmail,
+          orgId: existing.orgId,
+          orgDomain: existing.orgDomain,
+          clientId: existing.clientId,
+          scope: existing.scope,
+          resource: existing.resource,
+          issuer,
+        });
+        return json({
+          access_token: accessToken,
+          token_type: "Bearer",
+          expires_in: MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS,
+          refresh_token: refreshToken,
+          scope: existing.scope,
+        });
+      },
+    );
+  } catch (error) {
+    if (
+      error instanceof McpCredentialIssuanceError &&
+      error.reason === "not-member"
+    ) {
+      try {
+        await revokeOAuthRefreshToken(refreshToken, existing.ownerEmail);
+      } catch {
+        return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+      }
+      return oauthError("invalid_grant", NOT_A_MEMBER_DESCRIPTION);
+    }
+    return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+  }
 }
 
 async function handleToken(event: H3Event): Promise<Response> {

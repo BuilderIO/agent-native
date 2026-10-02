@@ -128,6 +128,7 @@ function as<T>(email: string, fn: () => Promise<T>): Promise<T> {
 
 type TokenResponse = {
   status: number;
+  headers: Headers;
   body: Record<string, any>;
 };
 
@@ -136,7 +137,11 @@ async function tokenRequest(body: Record<string, string>) {
     appEvent("/mcp/oauth/token", { method: "POST", body }),
     "token",
   );
-  return { status: res.status, body: await res.json() } as TokenResponse;
+  return {
+    status: res.status,
+    headers: res.headers,
+    body: await res.json(),
+  } as TokenResponse;
 }
 
 /** The MCP endpoint's own auth chain: `handleMcpRequest` → `verifyAuth` →
@@ -1023,6 +1028,145 @@ describe("MCP OAuth issuance-owner cutover", () => {
       authed: false,
     });
   });
+
+  it("refuses refresh without signing when offboarding commits before the membership lock", async () => {
+    const connection = await connectMcpClient(BOB);
+    const token = await import("./oauth-token.js");
+    const sign = vi.spyOn(token, "signMcpOAuthAccessToken");
+    let removed = false;
+    membershipLookup.afterCheck = async () => {
+      await removeBob();
+      removed = true;
+    };
+    let denied: TokenResponse;
+    try {
+      denied = await refresh(connection);
+      expect(sign).not.toHaveBeenCalled();
+    } finally {
+      sign.mockRestore();
+      membershipLookup.afterCheck = undefined;
+    }
+    expect(removed).toBe(true);
+    expect(denied!.status).toBe(400);
+    expect(denied!.body.error).toBe("invalid_grant");
+    expect(denied!.body.access_token).toBeUndefined();
+    await invite(BOB);
+    expect((await refresh(connection)).body.error).toBe("invalid_grant");
+  });
+
+  it("holds the same transaction through refresh renewal and signing before a subsequent offboard sweep", async () => {
+    const connection = await connectMcpClient(BOB);
+    const exec = getDbExec();
+    const transaction = exec.transaction!.bind(exec);
+    const execute = exec.execute.bind(exec);
+    const token = await import("./oauth-token.js");
+    const signToken = token.signMcpOAuthAccessToken;
+    let insideTransaction = false;
+    let removed = false;
+    const queries: string[] = [];
+    const sign = vi
+      .spyOn(token, "signMcpOAuthAccessToken")
+      .mockImplementation((params) => {
+        expect(insideTransaction).toBe(true);
+        return signToken(params);
+      });
+    const globalSql = vi.spyOn(exec, "execute").mockImplementation((query) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (sql.startsWith("UPDATE mcp_oauth_refresh_tokens SET last_used_at"))
+        throw new Error("refresh renewal escaped the supplied transaction");
+      return execute(query);
+    });
+    const txSpy = vi
+      .spyOn(exec, "transaction")
+      .mockImplementation(async (run) => {
+        const result = await transaction(async (tx) => {
+          const txExecute = tx.execute.bind(tx);
+          const txSql = vi.spyOn(tx, "execute").mockImplementation((query) => {
+            queries.push(typeof query === "string" ? query : query.sql);
+            return txExecute(query);
+          });
+          insideTransaction = true;
+          try {
+            return await run(tx);
+          } finally {
+            insideTransaction = false;
+            txSql.mockRestore();
+          }
+        });
+        if (!removed) {
+          removed = true;
+          await removeBob();
+        }
+        return result;
+      });
+    let refreshed: TokenResponse;
+    try {
+      refreshed = await refresh(connection);
+      expect(sign).toHaveBeenCalledOnce();
+    } finally {
+      txSpy.mockRestore();
+      globalSql.mockRestore();
+      sign.mockRestore();
+    }
+    const lock = queries.findIndex((sql) => sql.includes("FOR UPDATE"));
+    const renewal = queries.findIndex((sql) =>
+      sql.startsWith("UPDATE mcp_oauth_refresh_tokens SET last_used_at"),
+    );
+    expect(lock).toBeGreaterThanOrEqual(0);
+    expect(renewal).toBeGreaterThan(lock);
+    expect(refreshed!.status).toBe(200);
+    expect(refreshed!.body.access_token).toEqual(expect.any(String));
+    expect(removed).toBe(true);
+    expect(
+      (await authenticateMcpRequest(refreshed!.body.access_token)).auth,
+    ).toEqual({
+      authed: false,
+    });
+    expect((await refreshRowsFor(connection))[0].revoked_at).not.toBeNull();
+    await invite(BOB);
+    expect((await refresh(connection)).body.error).toBe("invalid_grant");
+  });
+
+  it.each(["signing", "commit"])(
+    "rolls back refresh renewal and exposes no access token when %s fails",
+    async (failure) => {
+      const connection = await connectMcpClient(BOB);
+      const before = await refreshRowsFor(connection);
+      const exec = getDbExec();
+      const transaction = exec.transaction!.bind(exec);
+      const token = await import("./oauth-token.js");
+      const sign = vi.spyOn(token, "signMcpOAuthAccessToken");
+      const txSpy = vi.spyOn(exec, "transaction");
+      if (failure === "signing")
+        sign.mockRejectedValueOnce(
+          new Error("synthetic refresh signing failure"),
+        );
+      else
+        txSpy.mockImplementationOnce((run) =>
+          transaction(async (tx) => {
+            await run(tx);
+            throw new Error("synthetic refresh commit failure");
+          }),
+        );
+      let failed: TokenResponse;
+      try {
+        failed = await refresh(connection);
+      } finally {
+        txSpy.mockRestore();
+        sign.mockRestore();
+      }
+      expect(failed!.status).toBe(503);
+      expect(failed!.headers.get("retry-after")).toBe("5");
+      expect(failed!.body.error).toBe("temporarily_unavailable");
+      expect(failed!.body.access_token).toBeUndefined();
+      expect(failed!.body.refresh_token).toBeUndefined();
+      expect(await refreshRowsFor(connection)).toEqual(before);
+      const retried = await refresh(connection);
+      expect(retried.status).toBe(200);
+      expect(retried.body.access_token).toEqual(expect.any(String));
+      expect(retried.body.refresh_token).toBe(connection.refreshToken);
+    },
+  );
 
   it("refuses a legacy successor access token through the full MCP authentication chain", async () => {
     const resource = getMcpOAuthResource(appEvent("/mcp"))!;

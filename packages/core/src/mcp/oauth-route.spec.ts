@@ -214,10 +214,19 @@ vi.mock("./oauth-store.js", () => ({
       return "invalid";
     },
   ),
-  revokeOAuthRefreshToken: vi.fn(async (refreshToken: string) => {
-    const row = refreshRows.get(refreshToken);
-    if (row && !row.revokedAt) row.revokedAt = Date.now();
-  }),
+  revokeOAuthRefreshToken: vi.fn(
+    async (refreshToken: string, expectedOwnerEmail?: string) => {
+      const row = refreshRows.get(refreshToken);
+      if (
+        row &&
+        !row.revokedAt &&
+        (expectedOwnerEmail === undefined ||
+          (row.ownerEmail === expectedOwnerEmail &&
+            row.issuedForEmail === expectedOwnerEmail))
+      )
+        row.revokedAt = Date.now();
+    },
+  ),
   rotateOAuthRefreshToken: vi.fn(
     async ({ oldRefreshToken, newRefreshToken }) => {
       const old = refreshRows.get(oldRefreshToken);
@@ -2209,6 +2218,101 @@ describe("MCP OAuth grant validation", () => {
       });
   });
 
+  it("renews and signs refresh access inside the shared issuance transaction", async () => {
+    const { clientId, code } = await authorizedCode();
+    const issued = await (await exchange(clientId, code)).json();
+    const issuance = await import("./credential-issuance.js");
+    const token = await import("./oauth-token.js");
+    const store = await import("./oauth-store.js");
+    const runIssuance = vi
+      .mocked(issuance.withMcpCredentialIssuance)
+      .getMockImplementation()!;
+    let insideTransaction = false;
+    vi.mocked(issuance.withMcpCredentialIssuance).mockImplementationOnce(
+      (input, run) =>
+        runIssuance(input, async (tx) => {
+          insideTransaction = true;
+          try {
+            return await run(tx);
+          } finally {
+            insideTransaction = false;
+          }
+        }),
+    );
+    const sign = token.signMcpOAuthAccessToken;
+    const signContexts: boolean[] = [];
+    vi.spyOn(token, "signMcpOAuthAccessToken").mockImplementation((params) => {
+      signContexts.push(insideTransaction);
+      return sign(params);
+    });
+    checkCredentialOrgMembershipMock.mockClear();
+
+    expect((await refresh(clientId, issued.refresh_token)).status).toBe(200);
+    expect(signContexts).toEqual([true]);
+    expect(store.touchOAuthRefreshToken).toHaveBeenCalledWith(
+      issued.refresh_token,
+      "steve@example.com",
+      issuanceTx,
+    );
+    expect(checkCredentialOrgMembershipMock).toHaveBeenCalledOnce();
+    expect(
+      vi.mocked(store.ensureOAuthTables).mock.invocationCallOrder.at(-1),
+    ).toBeLessThan(
+      vi
+        .mocked(issuance.withMcpCredentialIssuance)
+        .mock.invocationCallOrder.at(-1)!,
+    );
+  });
+
+  it("keeps a rekeyed owner's grant when the previous owner's membership is denied", async () => {
+    const { clientId, code } = await authorizedCode();
+    const issued = await (await exchange(clientId, code)).json();
+    checkCredentialOrgMembershipMock.mockImplementationOnce(async () => {
+      const row = refreshRows.get(issued.refresh_token);
+      row.ownerEmail = "renamed@example.test";
+      row.issuedForEmail = row.ownerEmail;
+      return "not-member";
+    });
+    const response = await refresh(clientId, issued.refresh_token);
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toBe("invalid_grant");
+    expect(refreshRows.get(issued.refresh_token)).toMatchObject({
+      ownerEmail: "renamed@example.test",
+      issuedForEmail: "renamed@example.test",
+      revokedAt: null,
+    });
+    const token = await import("./oauth-token.js");
+    const sign = vi.spyOn(token, "signMcpOAuthAccessToken");
+    expect((await refresh(clientId, issued.refresh_token)).status).toBe(200);
+    expect(sign).toHaveBeenCalledWith(
+      expect.objectContaining({ ownerEmail: "renamed@example.test" }),
+    );
+  });
+
+  it("answers a retryable error when denied refresh cleanup cannot be confirmed", async () => {
+    const { clientId, code } = await authorizedCode();
+    const issued = await (await exchange(clientId, code)).json();
+    checkCredentialOrgMembershipMock.mockResolvedValue("not-member");
+    const store = await import("./oauth-store.js");
+    vi.mocked(store.revokeOAuthRefreshToken).mockRejectedValueOnce(
+      new Error("Synthetic revocation write failure"),
+    );
+    const token = await import("./oauth-token.js");
+    const sign = vi.spyOn(token, "signMcpOAuthAccessToken");
+    const failed = await refresh(clientId, issued.refresh_token);
+    const body = await failed.json();
+    expect(failed.status).toBe(503);
+    expect(failed.headers.get("retry-after")).toBe("5");
+    expect(body.error).toBe("temporarily_unavailable");
+    expect(body.access_token).toBeUndefined();
+    expect(sign).not.toHaveBeenCalled();
+    expect(store.revokeOAuthRefreshToken).toHaveBeenCalledWith(
+      issued.refresh_token,
+      "steve@example.com",
+    );
+    expect(refreshRows.get(issued.refresh_token).revokedAt).toBeNull();
+  });
+
   it("uses the issuance executor for consent, consumption, and refresh insertion", async () => {
     const { clientId, code } = await authorizedCode();
     expect((await exchange(clientId, code)).status).toBe(200);
@@ -2400,6 +2504,7 @@ describe("MCP OAuth grant validation", () => {
       expect(store.touchOAuthRefreshToken).toHaveBeenCalledWith(
         issued.refresh_token,
         "steve@example.com",
+        issuanceTx,
       );
     },
   );

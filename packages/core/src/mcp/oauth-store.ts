@@ -644,9 +644,10 @@ export async function getOAuthRefreshToken(
 export async function touchOAuthRefreshToken(
   refreshToken: string,
   expectedOwnerEmail: string,
+  db?: DbExec,
 ): Promise<"renewed" | "invalid"> {
-  await ensureTable();
-  const client = getDbExec();
+  if (!db) await ensureTable();
+  const client = db ?? getDbExec();
   const tokenHash = hashOAuthToken(refreshToken);
   const now = Date.now();
   const result = await client.execute({
@@ -671,11 +672,24 @@ export async function touchOAuthRefreshToken(
  */
 export async function revokeOAuthRefreshToken(
   refreshToken: string,
+  expectedOwnerEmail?: string,
 ): Promise<void> {
   await ensureTable();
   const client = getDbExec();
-  await client.execute({
-    sql: `UPDATE mcp_oauth_refresh_tokens SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL`,
-    args: [Date.now(), hashOAuthToken(refreshToken)],
+  const result = await client.execute({
+    sql: `UPDATE mcp_oauth_refresh_tokens SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL${
+      expectedOwnerEmail !== undefined
+        ? " AND owner_email = ? AND issued_for_email = ?"
+        : ""
+    }`,
+    args: [
+      Date.now(),
+      hashOAuthToken(refreshToken),
+      ...(expectedOwnerEmail !== undefined
+        ? [expectedOwnerEmail, expectedOwnerEmail]
+        : []),
+    ],
   });
+  if (result.rowsAffected !== 0 && result.rowsAffected !== 1)
+    throw new Error("Refresh-token revocation returned an invalid row count");
 }
