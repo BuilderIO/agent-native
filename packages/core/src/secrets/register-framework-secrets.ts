@@ -44,8 +44,18 @@ export async function providerKeyCheckResult(
     };
   }
   if (response.status === 403 && options.acceptForbidden) {
-    // coercion-ok: an unreadable 403 body falls through to the rejection below.
-    const body = await response.text().catch(() => "");
+    let body: string;
+    try {
+      body = await response.text();
+    } catch {
+      // The body decides between a restricted key and a rejected one, so an
+      // unreadable one has not judged the key.
+      return {
+        ok: false,
+        retryable: true,
+        error: `${provider} could not verify the key right now (its answer could not be read). Try again in a moment.`,
+      };
+    }
     if (options.acceptForbidden(body)) return { ok: true };
   }
   return {

@@ -1,13 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveBuilderRequestAuthorizationMock = vi.hoisted(() => vi.fn());
+const builderApiHost = vi.hoisted(() => ({
+  value: "https://api.example.test",
+}));
 
 vi.mock("./builder-api-auth.js", () => ({
   resolveBuilderRequestAuthorization: resolveBuilderRequestAuthorizationMock,
 }));
 
 vi.mock("./builder-browser.js", () => ({
-  getBuilderApiHost: () => "https://api.example.test",
+  getBuilderApiHost: () => builderApiHost.value,
   getBuilderAppHost: () => "https://builder.example.test",
 }));
 
@@ -21,6 +24,7 @@ import {
 describe("Fusion Builder authorization", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    builderApiHost.value = "https://api.example.test";
     vi.stubGlobal("fetch", vi.fn());
   });
 
@@ -179,6 +183,18 @@ describe("Fusion Builder authorization", () => {
       });
     },
   );
+
+  it("does not type a misconfigured Builder host as a credit service outage", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "<OAUTH_TOKEN_EXAMPLE>",
+      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      source: "oauth",
+    });
+    builderApiHost.value = "not a url";
+
+    await expect(getBuilderCreditUsage()).rejects.toBeInstanceOf(TypeError);
+    expect(fetch).not.toHaveBeenCalled();
+  });
 
   it("reports an unreachable Builder credit service as unavailable", async () => {
     resolveBuilderRequestAuthorizationMock.mockResolvedValue({

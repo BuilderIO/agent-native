@@ -142,15 +142,15 @@ export async function getBuilderCreditUsage(): Promise<BuilderCreditUsage | null
   });
   if (!authorization) return null;
 
+  // Built outside the try: a bad Builder URL is a configuration bug, not an
+  // outage of the credit service, and must not be typed as one.
+  const usageUrl = fusionUrl("/agent-native/credits/v1/usage", authorization);
   let response: Response;
   try {
-    response = await fetch(
-      fusionUrl("/agent-native/credits/v1/usage", authorization),
-      {
-        headers: { Authorization: authorization.authorization },
-        signal: AbortSignal.timeout(5000),
-      },
-    );
+    response = await fetch(usageUrl, {
+      headers: { Authorization: authorization.authorization },
+      signal: AbortSignal.timeout(5000),
+    });
   } catch {
     return builderCreditUsageUnavailable();
   }
