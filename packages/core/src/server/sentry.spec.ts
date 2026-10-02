@@ -475,6 +475,58 @@ describe("server/sentry", () => {
       expect(JSON.stringify(result)).not.toContain(privateValue);
     });
 
+    it.each(["context", "breadcrumb"] as const)(
+      "associates nested SQL in a %s with root params",
+      async (location) => {
+        process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+        const { initServerSentry } = await import("./sentry.js");
+        await initServerSentry();
+
+        const privateValue = "private customer value";
+        const query = "SELECT email FROM users WHERE email = $1";
+        const sqlContext = {
+          query,
+          params: [privateValue],
+          unrelated: {
+            message: "with request parameters omitted",
+            params: ["diagnostic"],
+          },
+        };
+        const sqlBreadcrumb = {
+          message: query,
+          data: {
+            params: [privateValue],
+            unrelated: {
+              message: "with request parameters omitted",
+              params: ["diagnostic"],
+            },
+          },
+        };
+        const nested =
+          location === "context"
+            ? { contexts: { database: sqlContext } }
+            : { breadcrumbs: [sqlBreadcrumb] };
+        const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+        const result = beforeSend({
+          ...nested,
+          params: [privateValue],
+          extra: {
+            params: [privateValue],
+            unrelated: { params: ["diagnostic"] },
+          },
+        } as never) as {
+          params: unknown;
+          extra: { params: unknown; unrelated: { params: string[] } };
+        };
+
+        expect(result.params).toBe("<redacted>");
+        expect(result.extra.params).toBe("<redacted>");
+        expect(result.extra.unrelated.params).toEqual(["diagnostic"]);
+        expect(JSON.stringify(result)).not.toContain(privateValue);
+        expect(JSON.stringify(result)).toContain("diagnostic");
+      },
+    );
+
     it("distinguishes CTE queries from diagnostics beginning with with", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");

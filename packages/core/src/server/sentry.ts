@@ -29,6 +29,32 @@ function parseTracesSampleRate(): number {
   return n;
 }
 
+function isStructuredSqlQuery(value: object): value is Record<string, unknown> {
+  if (Array.isArray(value)) return false;
+  const query = "query" in value ? value.query : undefined;
+  const sql = "sql" in value ? value.sql : undefined;
+  const message = "message" in value ? value.message : undefined;
+  return [query, sql, message].some(
+    (candidate) =>
+      typeof candidate === "string" && isSqlStatementText(candidate),
+  );
+}
+
+function hasSqlFailureSignal(
+  value: unknown,
+  seen = new WeakSet<object>(),
+): boolean {
+  if (typeof value === "string") return isSqlStatementText(value);
+  if (value == null || typeof value !== "object" || seen.has(value)) {
+    return false;
+  }
+  seen.add(value);
+  return (
+    isStructuredSqlQuery(value) ||
+    Object.values(value).some((child) => hasSqlFailureSignal(child, seen))
+  );
+}
+
 function isSqlLogEntryFailure(value: unknown): boolean {
   if (typeof value === "string") return isSqlQueryFailureText(value);
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
@@ -40,17 +66,6 @@ function isSqlLogEntryFailure(value: unknown): boolean {
     Object.values(value).some(
       (child) => typeof child === "string" && isSqlQueryFailureText(child),
     )
-  );
-}
-
-function isStructuredSqlQuery(value: object): value is Record<string, unknown> {
-  if (Array.isArray(value)) return false;
-  const query = "query" in value ? value.query : undefined;
-  const sql = "sql" in value ? value.sql : undefined;
-  const message = "message" in value ? value.message : undefined;
-  return [query, sql, message].some(
-    (candidate) =>
-      typeof candidate === "string" && isSqlStatementText(candidate),
   );
 }
 
@@ -69,7 +84,7 @@ function redactSentryEventPayload(
     isStructuredSqlQuery(value) ||
     (!eventRoot &&
       Object.values(record).some(
-        (child) => typeof child === "string" && isSqlQueryFailureText(child),
+        (child) => typeof child === "string" && isSqlStatementText(child),
       ));
   const stackContext = { name: record.name, message: record.message };
   for (const [key, child] of Object.entries(record)) {
@@ -135,7 +150,12 @@ export function initServerSentry(): Promise<boolean> {
             (typeof event.message === "string" &&
               isSqlStatementText(event.message)) ||
             hasSqlExceptionValue ||
-            hasSqlLogEntryFailure;
+            hasSqlLogEntryFailure ||
+            hasSqlFailureSignal([
+              event.contexts,
+              event.breadcrumbs,
+              event.extra,
+            ]);
           redactSentryEventPayload(event, false, true);
           if (hasSqlFailure) {
             const root = event as unknown as Record<string, unknown>;
