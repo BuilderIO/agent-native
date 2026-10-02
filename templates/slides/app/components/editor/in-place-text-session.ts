@@ -1998,7 +1998,7 @@ export function startInPlaceTextSession(
         target.append(from);
       }
     }
-    from.remove();
+    if (from.parentNode !== target) from.remove();
     placeCaret(...textPoint(target, join, true));
   }
 

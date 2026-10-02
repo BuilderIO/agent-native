@@ -4526,6 +4526,26 @@ describe("in-place text session: Content authoring parity", () => {
     expect(quote.firstElementChild?.textContent).toBe("AboveQuoted");
   });
 
+  it("keeps a paragraph when Backspace merges into a non-paragraph block", () => {
+    const el = mount(
+      '<div id="t"><div style="display:flex;color:red"><span>Previous</span></div><h2>Title</h2></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Title"), 0);
+
+    beforeInput(el, "deleteContentBackward");
+    beforeInput(el, "deleteContentBackward");
+
+    expect(el.textContent).toBe("PreviousTitle");
+    expect(el.children).toHaveLength(1);
+    expect(el.firstElementChild?.getAttribute("style")).toBe(
+      "display:flex;color:red",
+    );
+    expect(el.firstElementChild?.querySelector(":scope > p")?.textContent).toBe(
+      "Title",
+    );
+  });
+
   it("handles beforeinput before a child can stop it from bubbling", () => {
     const el = mount('<div id="t"><h2>Title</h2></div>');
     session = startInPlaceTextSession(el);
