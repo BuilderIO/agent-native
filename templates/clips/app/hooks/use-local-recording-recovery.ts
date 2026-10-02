@@ -30,6 +30,7 @@ export async function findLocalRecordingsToFinish(
 ): Promise<RecordingBackupMeta[]> {
   const [metas, liveIds] = await Promise.all([
     listRecordingBackupMetas(),
+    // coercion-ok: null is "liveness unknown", which the selector answers by recency.
     liveRecordingBackupIds().catch(() => null),
   ]);
   const pending: RecordingBackupMeta[] = [];
@@ -40,8 +41,10 @@ export async function findLocalRecordingsToFinish(
     const serverId =
       meta.serverRecordingId ?? (meta.localOnly ? null : meta.recordingId);
     if (serverId) {
+      // coercion-ok: null is "server unreachable" (unlike { found: false }); the copy is still offered.
       const server = await fetchServerUploadStatus(serverId).catch(() => null);
       if (server?.found && server.status === "ready") {
+        // coercion-ok: copies from before stale tracking have no superseded rows.
         await trashStaleServerRecordings(meta.staleServerRecordingIds ?? []);
         await deleteRecordingBackup(meta.recordingId);
         continue;

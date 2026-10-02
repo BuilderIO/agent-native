@@ -213,7 +213,8 @@ interface PendingLocalUpload {
   needsStorage: boolean;
   uploading: boolean;
   progress: number | null;
-  error: { code: LocalUploadFailureCode; message: string } | null;
+  /** The detail stays on the local copy's `lastError`; the UI shows the code. */
+  error: { code: LocalUploadFailureCode } | null;
 }
 
 type ClipsExtensionCapture = {
@@ -1336,6 +1337,7 @@ export default function RecordRoute() {
         if (!intake) {
           // Recording never waits on storage. A missing or unreadable status
           // records into the local copy and asks for storage after Stop.
+          // coercion-ok: an unreadable status records locally; the upload step re-reads it.
           const status = await fetchVideoStorageStatus().catch(() => null);
           if (isStale()) {
             try {
@@ -1416,6 +1418,7 @@ export default function RecordRoute() {
             if (res?.status === 401 || res?.status === 403) {
               throw new Error("SESSION_EXPIRED");
             }
+            // coercion-ok: a non-JSON error body falls back to the HTTP status below.
             const body = (await res?.json().catch(() => null)) as {
               error?: string;
             } | null;
@@ -2325,16 +2328,11 @@ export default function RecordRoute() {
       localUploadAbortRef.current = abort;
       update({ uploading: true, progress: null, error: null });
       try {
+        // coercion-ok: null surfaces as the "network" state with Retry below.
         const status = await fetchVideoStorageStatus().catch(() => null);
         if (!isCurrent() || abort.signal.aborted) return;
         if (!status) {
-          update({
-            uploading: false,
-            error: {
-              code: "network",
-              message: "Video storage status is unreachable.",
-            },
-          });
+          update({ uploading: false, error: { code: "network" } });
           return;
         }
         markStorageConfigured(status);
@@ -2400,7 +2398,7 @@ export default function RecordRoute() {
           error:
             failure.code === "storage_setup_required"
               ? null
-              : { code: failure.code, message: failure.message },
+              : { code: failure.code },
         });
       } finally {
         if (localUploadAbortRef.current === abort) {
@@ -2465,10 +2463,15 @@ export default function RecordRoute() {
     if (uiState !== "idle" || pendingLocalRef.current) return;
     let cancelled = false;
     void (async () => {
-      const [meta, liveIds] = await Promise.all([
-        getRecordingBackupMeta(resumeLocalRecordingId).catch(() => null),
-        liveRecordingBackupIds().catch(() => null),
-      ]);
+      let meta: Awaited<ReturnType<typeof getRecordingBackupMeta>>;
+      try {
+        meta = await getRecordingBackupMeta(resumeLocalRecordingId);
+      } catch {
+        if (!cancelled) toast.error(t("recordRoute.noLocalRecordingData"));
+        return;
+      }
+      // coercion-ok: null is "liveness unknown"; this tab then takes the copy.
+      const liveIds = await liveRecordingBackupIds().catch(() => null);
       if (cancelled) return;
       if (
         !meta ||
@@ -2730,9 +2733,9 @@ export default function RecordRoute() {
       toast.success(t("recordRoute.recordingDownloadStarted"));
       return;
     }
-    const copy = recordingId
-      ? await readRecoverableRecordingBackup(recordingId).catch(() => null)
-      : null;
+    const read = recordingId && readRecoverableRecordingBackup(recordingId);
+    // coercion-ok: an unreadable copy reports "no local data" just below.
+    const copy = read ? await read.catch(() => null) : null;
     if (!copy?.blob) {
       toast.error(t("recordRoute.noLocalRecordingData"));
       return;
