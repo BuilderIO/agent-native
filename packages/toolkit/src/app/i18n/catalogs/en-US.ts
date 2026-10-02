@@ -1234,6 +1234,9 @@ const messages = {
   "accessRequest.stale": "Someone already handled this request, or it changed.",
   "share.accessRequests": "Access requests",
   "share.accessRequestsLoadFailed": "Couldn't load access requests.",
+  "share.accessRequestsNewest": "Showing the {{count}} newest requests.",
+  "accessRequest.emailFailed":
+    "{{name}} has access, but we couldn't email them.",
   "share.allowRequestFrom": "Allow {{name}}",
   "share.declineRequestFrom": "Decline {{name}}",
   "share.add": "Add",

@@ -28,7 +28,12 @@ const approveRequest = vi.fn(async () => undefined);
 
 vi.mock("@agent-native/core/client/use-action", () => ({
   useActionQuery: (name: string) =>
-    name === "list-resource-access-requests" ? requestsQuery : sharesQuery,
+    name === "list-resource-access-requests"
+      ? {
+          ...requestsQuery,
+          data: { requests: requestsQuery.data, hasMore: false },
+        }
+      : sharesQuery,
   useActionMutation: (name: string) => ({
     mutate: vi.fn(),
     mutateAsync:

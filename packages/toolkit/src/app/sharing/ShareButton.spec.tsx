@@ -49,7 +49,11 @@ const sharesData = vi.hoisted(() => ({
   },
 }));
 
-const accessRequestsData = vi.hoisted(() => ({ current: [] as unknown[] }));
+const accessRequestsData = vi.hoisted(() => ({
+  current: [] as unknown[],
+  hasMore: false,
+}));
+const refetchRequests = vi.hoisted(() => vi.fn(async () => undefined));
 const approveRequest = vi.hoisted(() => vi.fn());
 const queriedActions = vi.hoisted(() => [] as string[]);
 
@@ -57,7 +61,14 @@ vi.mock("@agent-native/core/client/use-action", () => ({
   useActionQuery: (name: string) => {
     queriedActions.push(name);
     return name === "list-resource-access-requests"
-      ? { data: accessRequestsData.current, isError: false, refetch: vi.fn() }
+      ? {
+          data: {
+            requests: accessRequestsData.current,
+            hasMore: accessRequestsData.hasMore,
+          },
+          isError: false,
+          refetch: refetchRequests,
+        }
       : {
           data: sharesData.current,
           isError: sharesError.current,
@@ -198,6 +209,8 @@ describe("ShareButton", () => {
     otherMutate.mockReset();
     approveRequest.mockReset().mockResolvedValue(undefined);
     accessRequestsData.current = [];
+    accessRequestsData.hasMore = false;
+    refetchRequests.mockClear();
     queriedActions.length = 0;
     refetchShares.mockClear();
     popoverInteractOutsideHandlers.length = 0;
@@ -1221,26 +1234,25 @@ describe("ShareButton", () => {
     expect(container.textContent).not.toContain("owner@example.com");
   });
 
-  it("lists access requests above who has access, and Allow grants Viewer", async () => {
-    accessRequestsData.current = [
-      {
-        id: "req-1",
-        generation: 3,
-        state: "pending",
-        requester: { email: "requester@example.test", name: "Pat Example" },
-        note: "Need this for the launch review.",
-        requestedAt: "2026-10-01T10:00:00.000Z",
-        decidedAt: null,
-        grantedRole: null,
-        resource: {
-          type: "document",
-          id: "doc-1",
-          label: "Document",
-          title: "Launch plan",
-          path: "/page/doc-1",
-        },
-      },
-    ];
+  const patRequest = {
+    id: "req-1",
+    generation: 3,
+    state: "pending",
+    requester: { email: "requester@example.test", name: "Pat Example" },
+    note: "Need this for the launch review.",
+    requestedAt: "2026-10-01T10:00:00.000Z",
+    decidedAt: null,
+    grantedRole: null,
+    resource: {
+      type: "document",
+      id: "doc-1",
+      label: "Document",
+      title: "Launch plan",
+      path: "/page/doc-1",
+    },
+  };
+
+  async function renderWithRequests() {
     await act(async () => {
       root.render(
         <TooltipProvider>
@@ -1257,6 +1269,18 @@ describe("ShareButton", () => {
         </TooltipProvider>,
       );
     });
+  }
+
+  async function allowPat() {
+    const allow = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Allow Pat Example"]',
+    );
+    await act(async () => allow!.click());
+  }
+
+  it("lists access requests above who has access, and Allow grants Viewer", async () => {
+    accessRequestsData.current = [patRequest];
+    await renderWithRequests();
 
     const text = container.textContent ?? "";
     expect(text).toContain("Need this for the launch review.");
@@ -1265,15 +1289,54 @@ describe("ShareButton", () => {
       text.indexOf("Who has access"),
     );
 
-    const allow = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Allow Pat Example"]',
-    );
-    await act(async () => allow!.click());
+    await allowPat();
     expect(approveRequest).toHaveBeenCalledWith({
       requestId: "req-1",
       generation: 3,
       role: "viewer",
     });
+  });
+
+  it("reloads the requests when someone else already handled one", async () => {
+    accessRequestsData.current = [patRequest];
+    approveRequest.mockRejectedValueOnce(
+      Object.assign(new Error("stale"), {
+        status: 409,
+        errorCode: "access_request_stale",
+      }),
+    );
+    await renderWithRequests();
+
+    await allowPat();
+
+    expect(refetchRequests).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain(
+      "Someone already handled this request, or it changed.",
+    );
+  });
+
+  it("says when the requester couldn't be emailed that they're in", async () => {
+    accessRequestsData.current = [patRequest];
+    approveRequest.mockResolvedValueOnce({
+      state: "approved",
+      role: "viewer",
+      email: "failed",
+    });
+    await renderWithRequests();
+
+    await allowPat();
+
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "Pat Example has access, but we couldn't email them.",
+    );
+  });
+
+  it("says when older requests are past the list", async () => {
+    accessRequestsData.current = [patRequest];
+    accessRequestsData.hasMore = true;
+    await renderWithRequests();
+
+    expect(container.textContent).toContain("Showing the 1 newest requests.");
   });
 
   it("doesn't read access requests for someone who can't manage access", async () => {

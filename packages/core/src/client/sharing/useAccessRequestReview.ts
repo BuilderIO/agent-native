@@ -32,17 +32,19 @@ export interface AccessRequestDecisionFailure extends ResourceAccessRequestFailu
   message: string | null;
 }
 
+type DecidedRequest = Pick<
+  AccessRequestReview,
+  "id" | "generation" | "requester"
+>;
+
 export interface AccessRequestDecisions {
-  approve: (
-    request: Pick<AccessRequestReview, "id" | "generation">,
-    role: AccessRequestRole,
-  ) => Promise<void>;
-  decline: (
-    request: Pick<AccessRequestReview, "id" | "generation">,
-  ) => Promise<void>;
+  approve: (request: DecidedRequest, role: AccessRequestRole) => Promise<void>;
+  decline: (request: DecidedRequest) => Promise<void>;
   /** The request a decision is in flight for. */
   pendingId: string | null;
   error: AccessRequestDecisionFailure | null;
+  /** An allowed request whose requester couldn't be emailed. */
+  unemailed: Pick<AccessRequestReview, "id" | "requester"> | null;
 }
 
 function decisionFailure(error: unknown): AccessRequestDecisionFailure | null {
@@ -67,10 +69,16 @@ function decisionFailure(error: unknown): AccessRequestDecisionFailure | null {
   };
 }
 
-/** Allow and Decline, shared by the approval page and the Share dialog. */
-export function useAccessRequestDecisions(): AccessRequestDecisions {
+/**
+ * Allow and Decline, shared by the approval page and the Share panels. A
+ * decision someone else already made calls `onStale`, so the caller reloads
+ * instead of offering the same outdated request again.
+ */
+export function useAccessRequestDecisions(
+  onStale: () => unknown,
+): AccessRequestDecisions {
   const { mutateAsync: approveAsync } = useActionMutation<
-    unknown,
+    { email?: "sent" | "skipped" | "failed" },
     { requestId: string; generation: number; role: AccessRequestRole }
   >("approve-resource-access-request");
   const { mutateAsync: declineAsync } = useActionMutation<
@@ -79,32 +87,43 @@ export function useAccessRequestDecisions(): AccessRequestDecisions {
   >("decline-resource-access-request");
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
+  const [unemailed, setUnemailed] =
+    useState<AccessRequestDecisions["unemailed"]>(null);
 
   const decide = useCallback(
     async (requestId: string, run: () => Promise<unknown>) => {
       setPendingId(requestId);
       setError(null);
+      setUnemailed(null);
       try {
         await run();
       } catch (err) {
         setError(err);
+        if (
+          (err as { errorCode?: unknown }).errorCode === "access_request_stale"
+        ) {
+          void onStale();
+        }
         throw err;
       } finally {
         setPendingId((current) => (current === requestId ? null : current));
       }
     },
-    [],
+    [onStale],
   );
 
   const approve = useCallback<AccessRequestDecisions["approve"]>(
     (request, role) =>
-      decide(request.id, () =>
-        approveAsync({
+      decide(request.id, async () => {
+        const result = await approveAsync({
           requestId: request.id,
           generation: request.generation,
           role,
-        }),
-      ),
+        });
+        if (result?.email === "failed") {
+          setUnemailed({ id: request.id, requester: request.requester });
+        }
+      }),
     [approveAsync, decide],
   );
   const decline = useCallback<AccessRequestDecisions["decline"]>(
@@ -115,7 +134,13 @@ export function useAccessRequestDecisions(): AccessRequestDecisions {
     [declineAsync, decide],
   );
 
-  return { approve, decline, pendingId, error: decisionFailure(error) };
+  return {
+    approve,
+    decline,
+    pendingId,
+    error: decisionFailure(error),
+    unemailed,
+  };
 }
 
 export interface AccessRequestReviewController {
@@ -144,7 +169,7 @@ export function useAccessRequestReview(
     params,
     { enabled: Boolean(requestId), retry: false },
   );
-  const decisions = useAccessRequestDecisions();
+  const decisions = useAccessRequestDecisions(query.refetch);
   const status = (query.error as { status?: unknown } | null)?.status;
   const isSignedOut = query.isError && status === 401;
   const isUnavailable = query.isError && status === 404;
@@ -160,14 +185,17 @@ export function useAccessRequestReview(
 }
 
 export interface ResourceAccessRequestsController {
+  /** The newest pending requests. */
   requests: AccessRequestReview[];
+  /** Older pending requests exist beyond `requests`. */
+  hasMore: boolean;
   isLoading: boolean;
   isError: boolean;
   refetch: () => Promise<unknown>;
   decisions: AccessRequestDecisions;
 }
 
-/** Pending access requests for one resource, for its Share dialog. */
+/** Pending access requests for one resource, for its Share panel. */
 export function useResourceAccessRequests({
   resourceType,
   resourceId,
@@ -181,14 +209,14 @@ export function useResourceAccessRequests({
     () => ({ resourceType, resourceId }),
     [resourceId, resourceType],
   );
-  const query = useActionQuery<AccessRequestReview[]>(
-    "list-resource-access-requests",
-    params,
-    { enabled, retry: false },
-  );
-  const decisions = useAccessRequestDecisions();
+  const query = useActionQuery<{
+    requests: AccessRequestReview[];
+    hasMore: boolean;
+  }>("list-resource-access-requests", params, { enabled, retry: false });
+  const decisions = useAccessRequestDecisions(query.refetch);
   return {
-    requests: query.data ?? [],
+    requests: query.data?.requests ?? [],
+    hasMore: query.data?.hasMore ?? false,
     isLoading: query.isLoading,
     isError: query.isError,
     refetch: query.refetch,

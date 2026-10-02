@@ -1407,6 +1407,10 @@ const messages: ToolkitAgentChatTranslation = {
   "share.accessRequests": "Demandes d’accès",
   "share.accessRequestsLoadFailed":
     "Impossible de charger les demandes d’accès.",
+  "share.accessRequestsNewest":
+    "Affichage des {{count}} demandes les plus récentes.",
+  "accessRequest.emailFailed":
+    "{{name}} a accès, mais nous n’avons pas pu lui envoyer d’e-mail.",
   "share.allowRequestFrom": "Autoriser {{name}}",
   "share.declineRequestFrom": "Refuser {{name}}",
   "share.add": "Ajouter",

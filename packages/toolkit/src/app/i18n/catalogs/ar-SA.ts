@@ -1241,6 +1241,9 @@ const messages: ToolkitAgentChatTranslation = {
   "accessRequest.stale": "تعامل شخص آخر مع هذا الطلب بالفعل، أو تم تغييره.",
   "share.accessRequests": "طلبات الوصول",
   "share.accessRequestsLoadFailed": "تعذّر تحميل طلبات الوصول.",
+  "share.accessRequestsNewest": "يتم عرض أحدث الطلبات ({{count}}).",
+  "accessRequest.emailFailed":
+    "تم منح {{name}} صلاحية الوصول، لكن تعذّر إرسال البريد الإلكتروني.",
   "share.allowRequestFrom": "السماح لـ {{name}}",
   "share.declineRequestFrom": "رفض طلب {{name}}",
   "share.add": "إضافة",

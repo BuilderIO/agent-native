@@ -17,10 +17,8 @@ export function AccessRequestsSection({
   resourceId: string;
 }) {
   const t = useT();
-  const { requests, isError, refetch, decisions } = useResourceAccessRequests({
-    resourceType,
-    resourceId,
-  });
+  const { requests, hasMore, isError, refetch, decisions } =
+    useResourceAccessRequests({ resourceType, resourceId });
   if (isError) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -39,8 +37,14 @@ export function AccessRequestsSection({
       </div>
     );
   }
-  if (!requests.length) return null;
   const error = decisions.error;
+  const unemailed = decisions.unemailed;
+  // Kept after the last request is handled while its outcome is still worth
+  // reading: a stale decision, or an email that didn't send.
+  if (!requests.length && !error && !unemailed) return null;
+  // A failure shows as `decisions.error`, and a stale one reloads the list.
+  const decide = (run: () => Promise<void>) =>
+    void run().catch(() => undefined);
   return (
     <div className="space-y-2">
       <div className="text-sm font-semibold">
@@ -48,21 +52,35 @@ export function AccessRequestsSection({
           defaultValue: "Access requests",
         })}
       </div>
-      <ul className="m-0 flex list-none flex-col gap-1 p-0">
-        {requests.map((request) => (
-          <AccessRequestRow
-            key={request.id}
-            request={request}
-            deciding={decisions.pendingId === request.id}
-            onAllow={() =>
-              void decisions.approve(request, "viewer").catch(() => undefined)
-            }
-            onDecline={() =>
-              void decisions.decline(request).catch(() => undefined)
-            }
-          />
-        ))}
-      </ul>
+      {requests.length ? (
+        <ul className="m-0 flex list-none flex-col gap-1 p-0">
+          {requests.map((request) => (
+            <AccessRequestRow
+              key={request.id}
+              request={request}
+              deciding={decisions.pendingId === request.id}
+              onAllow={() => decide(() => decisions.approve(request, "viewer"))}
+              onDecline={() => decide(() => decisions.decline(request))}
+            />
+          ))}
+        </ul>
+      ) : null}
+      {hasMore ? (
+        <p className="text-xs text-muted-foreground">
+          {t("agentChat.share.accessRequestsNewest", {
+            count: requests.length,
+            defaultValue: "Showing the {{count}} newest requests.",
+          })}
+        </p>
+      ) : null}
+      {unemailed ? (
+        <p role="status" className="text-xs text-muted-foreground">
+          {t("agentChat.accessRequest.emailFailed", {
+            name: unemailed.requester.name?.trim() || unemailed.requester.email,
+            defaultValue: "{{name}} has access, but we couldn't email them.",
+          })}
+        </p>
+      ) : null}
       {error ? (
         <p role="alert" className="text-xs text-destructive">
           {error.errorCode === "access_request_stale"

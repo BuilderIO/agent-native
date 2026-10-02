@@ -1160,6 +1160,8 @@ const messages: ToolkitAgentChatTranslation = {
   "accessRequest.stale": "其他人已处理此申请，或申请已发生变化。",
   "share.accessRequests": "访问申请",
   "share.accessRequestsLoadFailed": "无法加载访问申请。",
+  "share.accessRequestsNewest": "显示最新的 {{count}} 条申请。",
+  "accessRequest.emailFailed": "{{name}} 已获得访问权限，但无法向其发送邮件。",
   "share.allowRequestFrom": "允许 {{name}}",
   "share.declineRequestFrom": "拒绝 {{name}}",
   "share.add": "添加",

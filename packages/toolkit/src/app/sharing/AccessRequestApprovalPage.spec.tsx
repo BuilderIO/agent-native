@@ -189,6 +189,22 @@ describe("AccessRequestApprovalPage", () => {
     expect(mocks.refetch).toHaveBeenCalled();
   });
 
+  it("says when the requester couldn't be emailed that they're in", async () => {
+    mocks.query = { data: pendingReview };
+    mocks.approve.mockResolvedValue({
+      state: "approved",
+      role: "viewer",
+      email: "failed",
+    });
+    render();
+
+    await act(async () => button("Allow")?.click());
+
+    expect(container.querySelector('[role="status"]')?.textContent).toMatch(
+      /has access, but we couldn't email them\.$/,
+    );
+  });
+
   it("doesn't show an unexpected server message", async () => {
     mocks.query = { data: pendingReview };
     mocks.approve.mockRejectedValue(

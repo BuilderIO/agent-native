@@ -1,4 +1,4 @@
-import { and, eq, ne, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, ne, sql, type SQL } from "drizzle-orm";
 import { drizzle as drizzleProxy } from "drizzle-orm/pg-proxy";
 
 import { fail } from "../action.js";
@@ -75,6 +75,12 @@ function sharesDb(reg: ShareableResourceRegistration): any {
     const result = await transaction.execute({ sql: query, args: params });
     return { rows: result.rows.map((row) => Object.values(row)) };
   });
+}
+
+const SHARE_ROLES: ShareRole[] = ["viewer", "commenter", "editor", "admin"];
+
+function weakerRoles(role: ShareRole): ShareRole[] {
+  return SHARE_ROLES.filter((other) => ROLE_RANK[other] < ROLE_RANK[role]);
 }
 
 export interface GrantResourceAccessInput {
@@ -204,17 +210,27 @@ export async function grantResourceAccess(
     if (keep) {
       return { id: existing.id, updated: false, role: existing.role };
     }
+    // The role can change between the read above and this write, so keeping a
+    // stronger role is checked by the write itself, not only by the read.
+    const replaceable = input.keepStrongerRole
+      ? inArray(reg.sharesTable.role, weakerRoles(input.role))
+      : ne(reg.sharesTable.role, input.role);
     const [updated] = await db
       .update(reg.sharesTable)
       .set({ role: input.role })
-      .where(
-        and(
-          eq(reg.sharesTable.id, existing.id),
-          ne(reg.sharesTable.role, input.role),
-        ),
-      )
+      .where(and(eq(reg.sharesTable.id, existing.id), replaceable))
       .returning({ id: reg.sharesTable.id });
-    return { id: existing.id, updated: Boolean(updated), role: input.role };
+    if (updated || !input.keepStrongerRole) {
+      return { id: existing.id, updated: Boolean(updated), role: input.role };
+    }
+    const current = await findExisting();
+    if (!current) {
+      fail("Access changed while it was being granted. Try again.", {
+        errorCode: "share_conflict",
+        statusCode: 409,
+      });
+    }
+    return { id: current.id, updated: false, role: current.role };
   };
   const result = {
     principalId,

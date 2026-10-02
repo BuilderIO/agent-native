@@ -1164,6 +1164,9 @@ const messages: ToolkitAgentChatTranslation = {
   "accessRequest.stale": "其他人已處理此申請，或申請已有變更。",
   "share.accessRequests": "存取申請",
   "share.accessRequestsLoadFailed": "無法載入存取申請。",
+  "share.accessRequestsNewest": "顯示最新的 {{count}} 筆申請。",
+  "accessRequest.emailFailed":
+    "{{name}} 已取得存取權，但無法寄送電子郵件給對方。",
   "share.allowRequestFrom": "允許 {{name}}",
   "share.declineRequestFrom": "拒絕 {{name}}",
   "share.add": "加入",

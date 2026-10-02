@@ -5,7 +5,7 @@ import { approveAccessRequest } from "../access-requests.js";
 
 export default defineAction({
   description:
-    "Allow a pending access request, giving the requester a role on the resource under the same sharing rules as Share. A stronger role they already hold is kept.",
+    "Allow a pending access request, giving the requester a role on the resource under the same sharing rules as Share. A stronger role they already hold is kept. `email` says whether the requester was emailed: sent, skipped, or failed.",
   schema: z.object({
     requestId: z.string().min(1),
     generation: z.number().int().positive(),

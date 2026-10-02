@@ -95,7 +95,6 @@ export function AccessRequestApprovalPage({
           <ReviewPanel
             review={controller.review}
             decisions={controller.decisions}
-            onStale={() => void controller.refetch()}
           />
         ) : controller.isError ? (
           <section className="flex w-full max-w-sm flex-col items-center text-center">
@@ -144,11 +143,9 @@ function ReviewSkeleton() {
 function ReviewPanel({
   review,
   decisions,
-  onStale,
 }: {
   review: AccessRequestReview;
   decisions: ReturnType<typeof useAccessRequestReview>["decisions"];
-  onStale: () => void;
 }) {
   const t = useT();
   const headingId = useId();
@@ -170,17 +167,9 @@ function ReviewPanel({
     headingRef.current?.focus({ preventScroll: true });
   }, [review.state]);
 
-  const decide = async (run: () => Promise<void>) => {
-    try {
-      await run();
-    } catch (err) {
-      if (
-        (err as { errorCode?: unknown }).errorCode === "access_request_stale"
-      ) {
-        onStale();
-      }
-    }
-  };
+  // A failure shows as `decisions.error`, and a stale one reloads the request.
+  const decide = (run: () => Promise<void>) =>
+    void run().catch(() => undefined);
 
   const heading =
     review.state === "approved"
@@ -285,18 +274,27 @@ function ReviewPanel({
           <ActionButton
             pending={deciding}
             disabled={deciding}
-            onPress={() => void decide(() => decisions.approve(review, role))}
+            onPress={() => decide(() => decisions.approve(review, role))}
           >
             {t("agentChat.accessRequest.allow", { defaultValue: "Allow" })}
           </ActionButton>
           <ActionButton
             emphasis="outline"
             disabled={deciding}
-            onPress={() => void decide(() => decisions.decline(review))}
+            onPress={() => decide(() => decisions.decline(review))}
           >
             {t("agentChat.accessRequest.decline", { defaultValue: "Decline" })}
           </ActionButton>
         </div>
+      ) : null}
+
+      {decisions.unemailed?.id === review.id ? (
+        <p role="status" className="text-sm text-muted-foreground">
+          {t("agentChat.accessRequest.emailFailed", {
+            name,
+            defaultValue: "{{name}} has access, but we couldn't email them.",
+          })}
+        </p>
       ) : null}
 
       {errorText ? (

@@ -40,8 +40,10 @@ export {
   listResourceAccessRequests,
   requestResourceAccess,
   resolveLinkStatus,
+  type AccessGrantedEmail,
   type AccessRequestReview,
   type RequestResourceAccessResult,
+  type ResourceAccessRequestList,
   type ResourceLinkStatus,
   type ViewerAccessRequest,
 } from "./access-requests.js";

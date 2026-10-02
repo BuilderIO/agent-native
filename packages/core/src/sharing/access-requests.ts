@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 
 import { fail } from "../action.js";
 import { getDbExec, withDbExec } from "../db/client.js";
@@ -35,6 +35,7 @@ import {
   resolveShareNotificationUrl,
 } from "./actions/share-resource.js";
 import { announceResourceAccessChange, grantResourceAccess } from "./grant.js";
+import { filterRecipientsByResourceAccess } from "./recipients.js";
 import {
   requireShareableResource,
   type ShareableResourceRegistration,
@@ -50,7 +51,7 @@ export const ACCESS_REQUEST_DECLINE_COOLDOWN_MS = 7 * DAY_MS;
 export const ACCESS_REQUESTS_PER_REQUESTER_PER_DAY = 20;
 /** Requests one owner can receive in a day, across their resources. */
 export const ACCESS_REQUESTS_PER_OWNER_PER_DAY = 50;
-// People with admin on a resource who hear about a request, besides the owner.
+// People shared directly as admin who hear about a request, besides the owner.
 const ADMIN_RECIPIENT_LIMIT = 20;
 const PENDING_LIST_LIMIT = 50;
 
@@ -176,24 +177,43 @@ async function emailBrand(
   return { name, logoUrl };
 }
 
-async function adminRecipients(
+// The owner and people shared directly as admin, kept only while their access
+// still resolves to admin: on a restricted resource an admin share grants
+// nothing outside its organization, and a request carries the title and the
+// note. Anyone who manages access another way, through an organization, a
+// group, or the app's own rule, sees requests in the Share panel instead.
+async function requestRecipients(
   reg: ShareableResourceRegistration,
-  resourceId: string,
+  resource: any,
+  request: AccessRequestRow,
 ): Promise<string[]> {
   const rows = await (reg.getDb() as any)
     .select({ principalId: reg.sharesTable.principalId })
     .from(reg.sharesTable)
     .where(
       and(
-        eq(reg.sharesTable.resourceId, resourceId),
+        eq(reg.sharesTable.resourceId, request.resourceId),
         eq(reg.sharesTable.principalType, "user"),
         eq(reg.sharesTable.role, "admin"),
       ),
     )
+    .orderBy(asc(reg.sharesTable.createdAt))
     .limit(ADMIN_RECIPIENT_LIMIT);
-  return rows.map((row: { principalId: string }) =>
-    row.principalId.trim().toLowerCase(),
-  );
+  const candidates = Array.from(
+    new Set([
+      request.ownerEmail,
+      ...rows.map((row: { principalId: string }) =>
+        row.principalId.trim().toLowerCase(),
+      ),
+    ]),
+  ).filter((email) => email && email !== request.requesterEmail);
+  return filterRecipientsByResourceAccess({
+    resourceType: request.resourceType,
+    resourceId: request.resourceId,
+    emails: candidates,
+    orgId: resource.orgId,
+    minimumRole: "admin",
+  });
 }
 
 async function enforceRequestLimits(
@@ -207,7 +227,7 @@ async function enforceRequestLimits(
     [{ ownerEmail }, ACCESS_REQUESTS_PER_OWNER_PER_DAY],
   ] as const) {
     const recent = await countRecentAccessRequests(by, since);
-    if (recent.count < limit) continue;
+    if (recent.count <= limit) continue;
     const retryAt = iso((recent.oldestAt ?? now) + DAY_MS);
     fail("Too many access requests right now. Try again later.", {
       errorCode: "access_request_rate_limited",
@@ -229,10 +249,7 @@ async function deliverAccessRequest(
   resource: any,
   request: AccessRequestRow,
 ): Promise<AccessRequestDelivery> {
-  const admins = await adminRecipients(reg, request.resourceId);
-  const recipients = Array.from(
-    new Set([request.ownerEmail, ...admins]),
-  ).filter((email) => email && email !== request.requesterEmail);
+  const recipients = await requestRecipients(reg, resource, request);
   const title = resourceTitle(reg, resource);
   const requesterName = request.requesterName || request.requesterEmail;
   const reviewPath = accessRequestReviewPath(request.id);
@@ -252,27 +269,32 @@ async function deliverAccessRequest(
   };
 
   for (const recipient of recipients) {
-    const result = await notifyWithDelivery(
-      {
-        severity: "info",
-        title: `${requesterName} is asking for access to "${title}"`,
-        body: request.note ?? undefined,
-        // Only the inbox: the email channel would go to workspace-wide
-        // recipients, and the email below already reaches this person.
-        channels: ["inbox"],
-        metadata: {
-          link: reviewPath,
-          kind: "access-request",
-          resourceType: request.resourceType,
-          resourceId: request.resourceId,
-          requestId: request.id,
+    try {
+      const result = await notifyWithDelivery(
+        {
+          severity: "info",
+          title: `${requesterName} is asking for access to "${title}"`,
+          body: request.note ?? undefined,
+          // Only the inbox: the email channel would go to workspace-wide
+          // recipients, and the email below already reaches this person.
+          channels: ["inbox"],
+          metadata: {
+            link: reviewPath,
+            kind: "access-request",
+            resourceType: request.resourceType,
+            resourceId: request.resourceId,
+            requestId: request.id,
+          },
+          idempotencyKey: key,
         },
-        idempotencyKey: key,
-      },
-      { owner: recipient },
-    );
-    if (result.notification) delivery.inbox++;
-    else delivery.failed++;
+        { owner: recipient },
+      );
+      if (result.notification) delivery.inbox++;
+      else delivery.failed++;
+    } catch (err) {
+      delivery.failed++;
+      console.error("[access-requests] request notification failed:", err);
+    }
 
     if (!app || isSyntheticQaEmail(recipient)) continue;
     try {
@@ -317,8 +339,9 @@ export type RequestResourceAccessResult =
 /**
  * Asks the owner, and anyone with admin, to give the signed-in viewer access
  * to a resource they can't open. Asking again while a request is open sends
- * nothing. If nobody could be told, the request is withdrawn and this fails,
- * so the viewer never sees "sent" for a request nobody will find.
+ * nothing. If the request is over a daily limit, or nobody could be told,
+ * it is withdrawn and this fails, so the viewer never sees "sent" for a
+ * request nobody will find.
  */
 export async function requestResourceAccess(input: {
   resourceType: string;
@@ -367,7 +390,6 @@ export async function requestResourceAccess(input: {
       statusCode: 404,
     });
   }
-  await enforceRequestLimits(requesterEmail, ownerEmail, now);
 
   const profile = await getUserProfile(requesterEmail);
   const note = input.note?.trim().slice(0, ACCESS_REQUEST_NOTE_MAX_LENGTH);
@@ -390,13 +412,21 @@ export async function requestResourceAccess(input: {
     });
   }
 
-  const delivery = await deliverAccessRequest(reg, resource, request);
-  if (delivery.inbox + delivery.email === 0) {
+  // The limits count the request just opened, so requests made at the same
+  // moment can't all pass a count taken before any of them existed.
+  let delivery: AccessRequestDelivery;
+  try {
+    await enforceRequestLimits(requesterEmail, ownerEmail, now);
+    delivery = await deliverAccessRequest(reg, resource, request);
+    if (delivery.inbox + delivery.email === 0) {
+      fail("The owner couldn't be notified. Try again in a moment.", {
+        errorCode: "access_request_undelivered",
+        statusCode: 503,
+      });
+    }
+  } catch (err) {
     await deleteAccessRequest(request.id, request.generation);
-    fail("The owner couldn't be notified. Try again in a moment.", {
-      errorCode: "access_request_undelivered",
-      statusCode: 503,
-    });
+    throw err;
   }
   await recordAccessRequestDelivery(request.id, request.generation, {
     ...delivery,
@@ -480,11 +510,18 @@ export async function getAccessRequestReview(
   return toReview(reg, resource, request);
 }
 
+export interface ResourceAccessRequestList {
+  /** The newest pending requests. */
+  requests: AccessRequestReview[];
+  /** Older pending requests exist beyond `requests`. */
+  hasMore: boolean;
+}
+
 /** Pending requests for one resource, for someone who manages its access. */
 export async function listResourceAccessRequests(
   resourceType: string,
   resourceId: string,
-): Promise<AccessRequestReview[]> {
+): Promise<ResourceAccessRequestList> {
   const reg = requireShareableResource(resourceType);
   const access = await resolveAccess(resourceType, resourceId, undefined, {
     skipResourceBody: true,
@@ -495,13 +532,18 @@ export async function listResourceAccessRequests(
       statusCode: 403,
     });
   }
-  if (!reg.accessRequests) return [];
+  if (!reg.accessRequests) return { requests: [], hasMore: false };
   const rows = await listPendingAccessRequests(
     resourceType,
     resourceId,
-    PENDING_LIST_LIMIT,
+    PENDING_LIST_LIMIT + 1,
   );
-  return rows.map((row) => toReview(reg, access.resource, row));
+  return {
+    requests: rows
+      .slice(0, PENDING_LIST_LIMIT)
+      .map((row) => toReview(reg, access.resource, row)),
+    hasMore: rows.length > PENDING_LIST_LIMIT,
+  };
 }
 
 function staleRequest(): never {
@@ -511,16 +553,22 @@ function staleRequest(): never {
   });
 }
 
+/**
+ * Whether the requester was emailed that they're in: `skipped` when the app
+ * has no email set up, `failed` when sending did.
+ */
+export type AccessGrantedEmail = "sent" | "skipped" | "failed";
+
 async function sendAccessGrantedEmail(
   reg: ShareableResourceRegistration,
   resource: any,
   request: AccessRequestRow,
   approverEmail: string,
   role: ShareRole,
-): Promise<void> {
-  if (isSyntheticQaEmail(request.requesterEmail)) return;
-  if (!(await isEmailConfigured())) return;
+): Promise<AccessGrantedEmail> {
   try {
+    if (isSyntheticQaEmail(request.requesterEmail)) return "skipped";
+    if (!(await isEmailConfigured())) return "skipped";
     const approver = await getUserProfile(approverEmail);
     const { subject, html, text } = await renderTransactionalEmail(
       CORE_ACCESS_GRANTED_EMAIL_ID,
@@ -552,21 +600,28 @@ async function sendAccessGrantedEmail(
       templateId: CORE_ACCESS_GRANTED_EMAIL_ID,
       idempotencyKey: `access-granted:${request.id}:${request.generation}`,
     });
+    return "sent";
   } catch (err) {
     console.error("[access-requests] access-granted email failed:", err);
+    return "failed";
   }
 }
 
 /**
  * Gives the requester `role`, through the same grant and sharing rules as
  * Share, and closes the request in the same transaction. A stronger role the
- * requester already holds is kept.
+ * requester already holds is kept. The access stands even when the email
+ * telling them fails; `email` says so.
  */
 export async function approveAccessRequest(input: {
   requestId: string;
   generation: number;
   role: ShareRole;
-}): Promise<{ state: "approved"; role: ShareRole }> {
+}): Promise<{
+  state: "approved";
+  role: ShareRole;
+  email: AccessGrantedEmail;
+}> {
   const { request, reg, resource } = await loadReviewableRequest(
     input.requestId,
   );
@@ -605,8 +660,14 @@ export async function approveAccessRequest(input: {
     request.resourceId,
     grant.extensionTargetsBefore,
   );
-  await sendAccessGrantedEmail(reg, resource, request, approver, grant.role);
-  return { state: "approved", role: grant.role };
+  const email = await sendAccessGrantedEmail(
+    reg,
+    resource,
+    request,
+    approver,
+    grant.role,
+  );
+  return { state: "approved", role: grant.role, email };
 }
 
 /** Closes a request without granting anything or telling the requester. */

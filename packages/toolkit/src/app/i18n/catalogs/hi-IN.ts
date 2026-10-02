@@ -1216,6 +1216,9 @@ const messages: ToolkitAgentChatTranslation = {
   "accessRequest.stale": "किसी ने यह अनुरोध पहले ही संभाल लिया है, या यह बदल गया है।",
   "share.accessRequests": "एक्सेस अनुरोध",
   "share.accessRequestsLoadFailed": "एक्सेस अनुरोध लोड नहीं किए जा सके।",
+  "share.accessRequestsNewest": "सबसे नए {{count}} अनुरोध दिखाए जा रहे हैं।",
+  "accessRequest.emailFailed":
+    "{{name}} को एक्सेस मिल गया है, लेकिन हम उन्हें ईमेल नहीं भेज सके।",
   "share.allowRequestFrom": "{{name}} को अनुमति दें",
   "share.declineRequestFrom": "{{name}} को अस्वीकार करें",
   "share.add": "जोड़ें",

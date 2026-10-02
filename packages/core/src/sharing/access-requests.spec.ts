@@ -21,6 +21,10 @@ type Exec = {
   transaction: <T>(fn: (tx: Exec) => Promise<T>) => Promise<T>;
 };
 
+// Runs once, right after a grant reads the principal's current share row, to
+// stand in for another session changing it before the grant writes.
+const afterShareRead: { run: (() => Promise<void>) | null } = { run: null };
+
 const rawClient: Exec = {
   async execute(input) {
     if (typeof input === "string") {
@@ -28,6 +32,14 @@ const rawClient: Exec = {
       return { rows: [], rowsAffected: 0 };
     }
     const result = await pglite.query(input.sql, input.args ?? []);
+    const run = afterShareRead.run;
+    if (
+      run &&
+      /^select "id", "role" from "qa_request_doc_shares"/.test(input.sql)
+    ) {
+      afterShareRead.run = null;
+      await run();
+    }
     return {
       rows: result.rows as any[],
       rowsAffected: result.affectedRows ?? 0,
@@ -66,9 +78,15 @@ vi.mock("../notifications/registry.js", () => ({
 }));
 
 const sendEmail = vi.fn(async (_args: any) => {});
-const emailConfigured = { value: true };
+const emailConfigured: { value: boolean; error: Error | null } = {
+  value: true,
+  error: null,
+};
 vi.mock("../server/email.js", () => ({
-  isEmailConfigured: async () => emailConfigured.value,
+  isEmailConfigured: async () => {
+    if (emailConfigured.error) throw emailConfigured.error;
+    return emailConfigured.value;
+  },
   sendEmail: (args: any) => sendEmail(args),
 }));
 
@@ -274,6 +292,8 @@ beforeEach(async () => {
   }));
   sendEmail.mockReset();
   emailConfigured.value = true;
+  emailConfigured.error = null;
+  afterShareRead.run = null;
 });
 
 describe("resolveLinkStatus", () => {
@@ -358,6 +378,50 @@ describe("requestResourceAccess", () => {
     });
   });
 
+  it("tells only people whose access still lets them manage it", async () => {
+    await insertDoc("org-doc", "org-1");
+    orgMembers.add(`org-1:${ownerEmail}`);
+    // An admin share on a restricted resource grants nothing to someone
+    // outside its organization, such as an invitee whose invitation lapsed.
+    await shareWith("org-doc", adminEmail, "admin");
+
+    const result = await as(outsiderEmail, () =>
+      requestResourceAccess({
+        resourceType: orgOnlyType,
+        resourceId: "org-doc",
+      }),
+    );
+
+    expect(result).toMatchObject({ state: "requested", sent: true });
+    expect(notifyWithDelivery.mock.calls.map(([, meta]) => meta.owner)).toEqual(
+      [ownerEmail],
+    );
+    expect(sendEmail.mock.calls.map(([email]) => email.to)).toEqual([
+      ownerEmail,
+    ]);
+  });
+
+  it("still sends when telling one of the people fails", async () => {
+    await insertDoc("doc");
+    await shareWith("doc", adminEmail, "admin");
+    emailConfigured.value = false;
+    notifyWithDelivery.mockImplementation(async (_input, meta) => {
+      if (meta.owner === ownerEmail) throw new Error("inbox down");
+      return {
+        notification: { id: "notification" } as any,
+        deliveredChannels: ["inbox"],
+      };
+    });
+
+    expect(await requestAs(outsiderEmail, "doc")).toMatchObject({ sent: true });
+    expect(JSON.parse((await requestRow("doc"))?.delivery)).toEqual({
+      recipients: 2,
+      inbox: 1,
+      email: 0,
+      failed: 1,
+    });
+  });
+
   it("sends nothing when the viewer asks again while their request is open", async () => {
     await insertDoc("doc");
     await requestAs(outsiderEmail, "doc");
@@ -413,6 +477,29 @@ describe("requestResourceAccess", () => {
     });
     expect(Date.parse(error.details.retryAt)).toBeGreaterThan(now);
     expect(notifyWithDelivery).not.toHaveBeenCalled();
+    expect(await requestRow("doc")).toBeUndefined();
+  });
+
+  it("holds the daily limit when requests arrive at the same moment", async () => {
+    const ids = Array.from(
+      { length: ACCESS_REQUESTS_PER_REQUESTER_PER_DAY + 5 },
+      (_, i) => `burst-${i}`,
+    );
+    for (const id of ids) await insertDoc(id);
+
+    const results = await Promise.allSettled(
+      ids.map((id) => requestAs(outsiderEmail, id)),
+    );
+
+    const sent = results.filter((result) => result.status === "fulfilled");
+    expect(sent.length).toBeLessThanOrEqual(
+      ACCESS_REQUESTS_PER_REQUESTER_PER_DAY,
+    );
+    const { rows } = await pglite.query(
+      `SELECT COUNT(*)::int AS n FROM resource_access_requests WHERE requester_email = ?`,
+      [outsiderEmail],
+    );
+    expect((rows[0] as { n: number }).n).toBe(sent.length);
   });
 
   it("stops requests to an owner past their daily limit", async () => {
@@ -454,6 +541,20 @@ describe("requestResourceAccess", () => {
     expect(
       await as(outsiderEmail, () => resolveLinkStatus(requestableType, "doc")),
     ).toEqual({ state: "denied", canRequest: true });
+  });
+
+  it("withdraws a request when telling anyone throws, so asking again sends it", async () => {
+    await insertDoc("doc");
+    emailConfigured.error = new Error("email settings unreadable");
+
+    expect((await errorOf(requestAs(outsiderEmail, "doc"))).message).toBe(
+      "email settings unreadable",
+    );
+    expect(await requestRow("doc")).toBeUndefined();
+
+    emailConfigured.error = null;
+    expect(await requestAs(outsiderEmail, "doc")).toMatchObject({ sent: true });
+    expect(notifyWithDelivery).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -501,7 +602,36 @@ describe("reviewing a request", () => {
       await as(ownerEmail, () =>
         listResourceAccessRequests(requestableType, "doc"),
       ),
-    ).toMatchObject([{ id, requester: { email: outsiderEmail } }]);
+    ).toMatchObject({
+      requests: [{ id, requester: { email: outsiderEmail } }],
+      hasMore: false,
+    });
+  });
+
+  it("says when older pending requests are past the list", async () => {
+    await insertDoc("doc");
+    for (let i = 0; i < 51; i++) {
+      await rawClient.execute({
+        sql: `INSERT INTO resource_access_requests (id, resource_type, resource_id, requester_email, owner_email, state, generation, requested_at, created_at) VALUES (?, ?, ?, ?, ?, 'pending', 1, ?, ?)`,
+        args: [
+          `backlog-${i}`,
+          requestableType,
+          "doc",
+          `asker-${i}@example.com`,
+          ownerEmail,
+          i,
+          i,
+        ],
+      });
+    }
+
+    const list = await as(ownerEmail, () =>
+      listResourceAccessRequests(requestableType, "doc"),
+    );
+
+    expect(list.hasMore).toBe(true);
+    expect(list.requests).toHaveLength(50);
+    expect(list.requests[0].id).toBe("backlog-50");
   });
 
   it("grants view by default, opens the page for the requester, and emails them", async () => {
@@ -513,7 +643,7 @@ describe("reviewing a request", () => {
       await as(ownerEmail, () =>
         approveAccessRequest({ requestId: id, generation, role: "viewer" }),
       ),
-    ).toEqual({ state: "approved", role: "viewer" });
+    ).toEqual({ state: "approved", role: "viewer", email: "sent" });
 
     expect(await shareRole("doc", outsiderEmail)).toBe("viewer");
     expect(
@@ -533,7 +663,37 @@ describe("reviewing a request", () => {
       await as(ownerEmail, () =>
         listResourceAccessRequests(requestableType, "doc"),
       ),
-    ).toEqual([]);
+    ).toEqual({ requests: [], hasMore: false });
+  });
+
+  it("keeps the access when the email telling the requester fails, and says so", async () => {
+    await insertDoc("doc");
+    await insertDoc("quiet-doc");
+    const failed = await openRequest();
+    const quiet = await openRequest("quiet-doc");
+    sendEmail.mockRejectedValue(new Error("provider down"));
+
+    expect(
+      await as(ownerEmail, () =>
+        approveAccessRequest({
+          requestId: failed.id,
+          generation: failed.generation,
+          role: "viewer",
+        }),
+      ),
+    ).toEqual({ state: "approved", role: "viewer", email: "failed" });
+    expect(await shareRole("doc", outsiderEmail)).toBe("viewer");
+
+    emailConfigured.value = false;
+    expect(
+      await as(ownerEmail, () =>
+        approveAccessRequest({
+          requestId: quiet.id,
+          generation: quiet.generation,
+          role: "viewer",
+        }),
+      ),
+    ).toMatchObject({ email: "skipped" });
   });
 
   it("never lowers a stronger role the requester already holds", async () => {
@@ -545,8 +705,29 @@ describe("reviewing a request", () => {
       await as(ownerEmail, () =>
         approveAccessRequest({ requestId: id, generation, role: "viewer" }),
       ),
-    ).toEqual({ state: "approved", role: "editor" });
+    ).toEqual({ state: "approved", role: "editor", email: "sent" });
     expect(await shareRole("doc", outsiderEmail)).toBe("editor");
+  });
+
+  it("keeps a stronger role granted while the approval was being written", async () => {
+    await insertDoc("doc");
+    const { id, generation } = await openRequest();
+    await shareWith("doc", outsiderEmail, "viewer");
+    afterShareRead.run = async () => {
+      await pglite.query(
+        `UPDATE qa_request_doc_shares SET role = 'admin' WHERE principal_id = ?`,
+        [outsiderEmail],
+      );
+    };
+
+    expect(
+      await as(ownerEmail, () =>
+        approveAccessRequest({ requestId: id, generation, role: "editor" }),
+      ),
+    ).toMatchObject({ state: "approved", role: "admin" });
+    expect(afterShareRead.run).toBeNull();
+    expect(await shareRole("doc", outsiderEmail)).toBe("admin");
+    expect(await requestRow("doc")).toMatchObject({ granted_role: "admin" });
   });
 
   it("refuses a decision on a request someone already handled", async () => {
@@ -590,6 +771,7 @@ describe("reviewing a request", () => {
 
   it("follows sharing policy, and leaves the request pending when policy refuses", async () => {
     await insertDoc("org-doc", "org-1");
+    orgMembers.add(`org-1:${ownerEmail}`);
     const { id, generation } = await openRequest("org-doc", orgOnlyType);
 
     const error = await errorOf(
@@ -613,7 +795,7 @@ describe("reviewing a request", () => {
           approveAccessRequest({ requestId: id, generation, role: "viewer" }),
         "org-1",
       ),
-    ).toEqual({ state: "approved", role: "viewer" });
+    ).toEqual({ state: "approved", role: "viewer", email: "sent" });
   });
 
   it("declines quietly, and lets the requester ask again only after the cooldown", async () => {

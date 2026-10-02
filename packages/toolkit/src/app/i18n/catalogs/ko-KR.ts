@@ -1231,6 +1231,9 @@ const messages: ToolkitAgentChatTranslation = {
     "다른 사람이 이미 이 요청을 처리했거나 요청이 변경되었습니다.",
   "share.accessRequests": "접근 권한 요청",
   "share.accessRequestsLoadFailed": "접근 권한 요청을 불러올 수 없습니다.",
+  "share.accessRequestsNewest": "최근 요청 {{count}}개를 표시합니다.",
+  "accessRequest.emailFailed":
+    "{{name}}님에게 접근 권한을 부여했지만 이메일을 보내지 못했습니다.",
   "share.allowRequestFrom": "{{name}} 허용",
   "share.declineRequestFrom": "{{name}} 거부",
   "share.add": "추가",

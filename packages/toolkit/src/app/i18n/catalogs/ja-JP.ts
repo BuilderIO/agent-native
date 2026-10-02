@@ -1254,6 +1254,10 @@ const messages: ToolkitAgentChatTranslation = {
   "share.accessRequests": "アクセスリクエスト",
   "share.accessRequestsLoadFailed":
     "アクセスリクエストを読み込めませんでした。",
+  "share.accessRequestsNewest":
+    "新しい順に{{count}}件のリクエストを表示しています。",
+  "accessRequest.emailFailed":
+    "{{name}}にアクセス権を付与しましたが、メールを送信できませんでした。",
   "share.allowRequestFrom": "{{name}}のリクエストを許可",
   "share.declineRequestFrom": "{{name}}のリクエストを拒否",
   "share.add": "追加",
