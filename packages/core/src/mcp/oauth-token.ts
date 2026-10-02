@@ -18,6 +18,7 @@ export const MCP_OAUTH_SCOPES = [
 ] as const;
 
 export const MCP_OAUTH_DEFAULT_SCOPE = MCP_OAUTH_SCOPES.join(" ");
+const MCP_OAUTH_CREDENTIAL_VERSION = 2;
 
 export interface McpOAuthAccessTokenClaims {
   sub: string;
@@ -28,6 +29,7 @@ export interface McpOAuthAccessTokenClaims {
   resource: string;
   jti?: string;
   typ: "agent-native-mcp-oauth";
+  credential_version: typeof MCP_OAUTH_CREDENTIAL_VERSION;
 }
 
 function signingSecret(): Uint8Array {
@@ -101,6 +103,7 @@ export async function signMcpOAuthAccessToken(params: {
 }): Promise<string> {
   return new jose.SignJWT({
     typ: "agent-native-mcp-oauth",
+    credential_version: MCP_OAUTH_CREDENTIAL_VERSION,
     sub: params.ownerEmail,
     ...(params.orgId !== undefined ? { org_id: params.orgId } : {}),
     ...(params.orgDomain ? { org_domain: params.orgDomain } : {}),
@@ -180,6 +183,8 @@ export async function verifyMcpOAuthAccessToken(
 
   try {
     if (payload.typ !== "agent-native-mcp-oauth") return null;
+    if (payload.credential_version !== MCP_OAUTH_CREDENTIAL_VERSION)
+      return null;
     if (typeof payload.resource !== "string") return null;
     const embeddedResource = normaliseResource(payload.resource);
     if (!audiences.includes(embeddedResource)) return null;
