@@ -101,9 +101,27 @@ describe("extensions config", () => {
     ).toThrow();
   });
 
-  // Zod hands back a declared default without re-running the field's
-  // validation, so a default the source regex rejects would stay invisible
-  // until an app overrode it. Parse the default through its own field.
+  // A browser drops a CSP source list that mixes 'none' with other
+  // sources, so the combination would read as a deny-all that still
+  // permits https.
+  it("rejects 'none' combined with another source", () => {
+    for (const sources of [
+      ["'none'", "https:"],
+      ["https:", "'none'"],
+      ["'none'", "'self'", "data:"],
+    ]) {
+      expect(() =>
+        defineAppConfig({ extensions: { iframeImageSources: sources } }),
+      ).toThrow();
+    }
+  });
+
+  it("accepts 'none' as the whole list", () => {
+    defineAppConfig({ extensions: { iframeImageSources: ["'none'"] } });
+
+    expect(getAppConfig().extensions.iframeImageSources).toEqual(["'none'"]);
+  });
+
   it("documents a remote image or media origin as an egress permission", () => {
     const fields = describeConfigFields(extensionsConfig);
     const image = fields.find((field) => field.path === "iframeImageSources");
@@ -114,6 +132,10 @@ describe("extensions config", () => {
     expect(media?.doc).not.toContain("does not widen");
   });
 
+  // Zod hands back a declared default without re-running the field's
+  // validation, so a default the source regex or the 'none' refinement
+  // rejects would stay invisible until an app overrode it. Parse the
+  // default through its own field.
   it("declares defaults its own validator accepts", () => {
     const config = getAppConfig().extensions;
     expect(

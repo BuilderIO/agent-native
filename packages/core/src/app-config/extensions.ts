@@ -30,6 +30,13 @@ function displaySources(doc: string) {
   return z
     .array(cspSource)
     .min(1)
+    // CSP drops a directive that mixes 'none' with other sources, so
+    // ["'none'", "https:"] reads as a deny-all that still allows https.
+    // Reject the combination instead of emitting a policy that does not
+    // say what the config says.
+    .refine((sources) => !sources.includes("'none'") || sources.length === 1, {
+      error: "'none' must be the only source in the list",
+    })
     .default(DEFAULT_EXTENSION_DISPLAY_SOURCES)
     .meta({ doc });
 }
