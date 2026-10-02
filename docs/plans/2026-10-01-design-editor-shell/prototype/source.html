@@ -2117,10 +2117,10 @@ const ARRANGE = () => [{ t: "Bring to front", k: "]" }, { t: "Bring forward", k:
 const TRANSFORM = () => [{ t: "Flip horizontal", k: "⇧H" }, { t: "Flip vertical", k: "⇧V" }, { t: "Swap fill and stroke", k: "⇧X" }];
 const tail = () => ["-", { t: "Hide", k: "⇧⌘H" }, { t: "Lock", k: "⇧⌘L" }, "-", { t: "Arrange", sub: ARRANGE() }, { t: "Transform", sub: TRANSFORM() }];
 const CTX = {
-  // Same order as the layer menus: the agent group, then the clipboard, then CanvasContextMenu's view toggles,
-  // which name what they'll do (Hide UI while it's showing).
-  none: () => [{ icon: "sparkles", t: "Explore with Agent…", run: () => { setPanel("agents"); $("#ask")?.focus(); } }, sendToItem("screen"), "-",
-    { t: "Paste here", k: "⌘V" }, { t: "Copy link to screen", run: () => copyText(linkTo("screen"), `Link to ${screenOf(S.route).screen} copied`) }, "-",
+  // The agent and sharing group (as on layers), then Paste here, then CanvasContextMenu's view toggles, which
+  // name what they'll do (Hide UI while it's showing).
+  none: () => [{ icon: "sparkles", t: "Explore with Agent…", run: () => { setPanel("agents"); $("#ask")?.focus(); } }, sendToItem("screen"), { icon: "link", t: "Copy link to screen", run: () => copyText(linkTo("screen"), `Link to ${screenOf(S.route).screen} copied`) }, "-",
+    { t: "Paste here", k: "⌘V" }, "-",
     { t: app.classList.contains("no-panel") ? "Show UI" : "Hide UI", k: "⌘\\", run: () => app.classList.toggle("no-panel") },
     { t: S.showPins === false ? "Show comments" : "Hide comments", k: "⇧C", run: () => { S.showPins = S.showPins === false; renderPins(); } }],
   layer: id => [editWithAgent(), sendToItem("selection"), "-", { t: "Copy", k: "⌘C" }, { t: "Paste to replace", k: "⇧⌘R" }, { t: "Copy/Paste as", sub: COPY_PASTE_AS() }, "-",
