@@ -12,9 +12,29 @@
  * release migrations do not reach every deployed database, so the same
  * recovery must also run where the failure is actually observed.
  */
+import { getCurrentAdapter } from "better-auth";
 import { parseEnvelope, symmetricDecrypt } from "better-auth/crypto";
+import type { Jwk } from "better-auth/plugins/jwt";
 
 const JWKS_DECRYPT_ERROR_SNIPPET = "Failed to decrypt private key";
+
+/**
+ * Better Auth's default JWKS read is an unordered `findMany` capped at 100
+ * rows. Once expiry leaves more than 100 stale rows, that window can hold no
+ * live key: `/jwks` publishes `{"keys":[]}` after the grace period, and every
+ * signature mints another key the next read cannot see (2026-09-01 the plan
+ * app grew 18k keys this way; 2026-10-01 its JWKS went empty). Reading newest
+ * first keeps the live and recently rotated keys in the window.
+ */
+export async function readNewestJwks(
+  adapter: Parameters<typeof getCurrentAdapter>[0],
+): Promise<Jwk[]> {
+  return (await getCurrentAdapter(adapter)).findMany<Jwk>({
+    model: "jwks",
+    sortBy: { field: "createdAt", direction: "desc" },
+    limit: 100,
+  });
+}
 
 export function isJwksDecryptError(error: unknown): boolean {
   return (

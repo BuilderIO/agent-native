@@ -121,7 +121,10 @@ import {
 } from "./google-oauth-credentials.js";
 import { isBuilderPreviewHttpsEnvironment } from "./https-request.js";
 import { IDENTITY_SSO_PROVIDER_ID } from "./identity-sso-provider.js";
-import { withJwksRotationRecovery } from "./jwks-secret-rotation.js";
+import {
+  readNewestJwks,
+  withJwksRotationRecovery,
+} from "./jwks-secret-rotation.js";
 import { readMagicLinkSignupAttribution } from "./magic-link-attribution.js";
 import {
   getConfiguredOriginAllowlist,
@@ -2537,6 +2540,7 @@ async function createBetterAuthInstance(
             expirationTime: "15m",
           },
           disableSettingJwtHeader: true,
+          adapter: { getJwks: (ctx) => readNewestJwks(ctx.context.adapter) },
         }),
       ),
       bearer(),
