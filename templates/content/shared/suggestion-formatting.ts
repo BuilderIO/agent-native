@@ -254,15 +254,23 @@ function normalizedSourceGap(source: string, from: number, to: number): string {
 const TABLE_TAG = /<\/?(?:table|tr|td|th)\b[^>]*>/;
 
 // Canonical NFM writes a stored pipe table as an HTML table. Both reduce to
-// one "|" per cell and row boundary; the final reparse proves the cells.
-function tableBoundaries(gap: string): string {
-  return gap
+// "|" between cells and a newline between rows, with or without the stored
+// rows' optional outer pipes; the final reparse proves the cells.
+function tableBoundaries(
+  gap: string,
+  startsLine: boolean,
+  endsLine: boolean,
+): string {
+  return `${startsLine ? "\n" : ""}${gap}${endsLine ? "\n" : ""}`
     .replace(/^[ \t|:-]*$/gm, (line) =>
       line.includes("|") && line.includes("-") ? "" : line,
     )
-    .replace(/<t[dh]\b[^>]*>|<\/tr>/g, "|")
-    .replace(/<\/?(?:table|tr|td|th)\b[^>]*>/g, "")
-    .replace(/\s*\|\s*/g, "|");
+    .replace(/[ \t]*\|?[ \t]*\n[ \t]*\|?/g, "\n")
+    .replace(/<tr\b[^>]*>\s*<t[dh]\b[^>]*>/g, "\n")
+    .replace(/<t[dh]\b[^>]*>/g, "|")
+    .replace(/<\/?(?:table|tr|td|th)\b[^>]*>/g, "\n")
+    .replace(/\s*\|\s*/g, "|")
+    .replace(/\s*\n\s*/g, "\n");
 }
 
 function mapStoredSourceRuns(
@@ -299,9 +307,18 @@ function mapStoredSourceRuns(
       expected = expected.replace(/\n+$/, "");
     }
     if (stored === expected) return true;
+    const lineEdges = (text: string, start: number, end: number) =>
+      [
+        start === 0 || /[\r\n]/.test(text[start - 1]!),
+        end === text.length || /[\r\n]/.test(text[end]!),
+      ] as const;
     return (
       TABLE_TAG.test(canonical.slice(canonicalFrom, canonicalTo)) &&
-      tableBoundaries(stored) === tableBoundaries(expected)
+      tableBoundaries(stored, ...lineEdges(source, from, to)) ===
+        tableBoundaries(
+          expected,
+          ...lineEdges(canonical, canonicalFrom, canonicalTo),
+        )
     );
   };
   let cursor = 0;

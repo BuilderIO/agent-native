@@ -448,6 +448,24 @@ describe("pipe tables stored as Markdown", () => {
     expect(markedSlices(before)).toEqual(["**reading pane**", "`mail-parity`"]);
   });
 
+  const withoutOuterPipes = (source: string) =>
+    source.replace(/^\| ?| ?\|$/gm, "");
+
+  it.each([
+    ["on a page", page],
+    ["that is the whole page", page.split("\n").slice(2, 6).join("\n")],
+  ])("maps a table without outer pipes %s", (_name, source) => {
+    const before = withoutOuterPipes(source);
+    expect(before).not.toContain("| 1 |");
+    expect(markedSlices(before)).toEqual(["**reading pane**", "`mail-parity`"]);
+  });
+
+  it("maps a bare table whose cells touch their pipes", () => {
+    expect(markedSlices("H | Other\n---|---\n**marked**|value")).toEqual([
+      "**marked**",
+    ]);
+  });
+
   it("suggests an edit after the table on a page with formatted cells", () => {
     suggestDocumentEdit(page, { find, replace });
   });
@@ -463,24 +481,30 @@ describe("pipe tables stored as Markdown", () => {
   });
 
   it.each([
-    ["after the table", find, replace],
-    ["inside a formatted cell", "reading pane", "split view"],
+    ["after the table", page, find, replace],
+    ["inside a formatted cell", page, "reading pane", "split view"],
+    [
+      "after a table without outer pipes",
+      withoutOuterPipes(page),
+      find,
+      replace,
+    ],
   ])(
     "turns a Suggesting-mode edit %s into edits on the stored bytes",
-    (_name, from, to) => {
-      const after = canonicalizeNfm(page).replace(from, to);
+    (_name, before, from, to) => {
+      const after = canonicalizeNfm(before).replace(from, to);
       const operations = markdownSuggestionOperationsForEditorRevision({
-        before: page,
+        before,
         after,
         replacements: [],
       });
-      let applied = page;
+      let applied = before;
       for (const operation of [...operations].reverse())
         applied =
           applied.slice(0, operation.anchor.from) +
           operation.after.changedText +
           applied.slice(operation.anchor.to);
-      expect(applied).toBe(page.replace(from, to));
+      expect(applied).toBe(before.replace(from, to));
     },
   );
 
