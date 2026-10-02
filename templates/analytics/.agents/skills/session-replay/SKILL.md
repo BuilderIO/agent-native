@@ -91,9 +91,10 @@ agent answers about browser recordings in the Analytics template.
 - Indexes hold caller text raw, and one entry over Postgres's limit fails the
   whole batch. Ingest cuts every indexed value with
   `server/lib/indexed-text.ts` (event name, app, template, path, user key)
-  before any table sees it; index rows use hashed ids, and a session id over
-  256 characters skips the session index. Bound any new indexed caller value
-  there.
+  before any table sees it, and index rows use hashed ids. Ids are never cut,
+  because a cut id could merge two sessions: replay ingest rejects session and
+  recording ids over 256 characters, and an event's longer session id skips the
+  session index. Bound any new indexed caller value there.
 - Public ingest (`/track`, `/api/analytics/replay`) returns a thrown message
   only for an error built with `requestError` (a numeric `statusCode`). Any
   other failure is logged and answered with a generic 500, because its message

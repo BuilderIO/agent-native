@@ -751,7 +751,7 @@ export async function recordAnalyticsEvents(
           app,
           template,
           url: parts.url,
-          userId,
+          userId: userId && boundedText(userId, MAX_USER_KEY_LENGTH),
           anonymousId,
           userKey,
           sessionId,

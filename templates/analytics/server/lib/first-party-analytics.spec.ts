@@ -567,6 +567,15 @@ describe("recordAnalyticsEvents", () => {
     expect(rows[1]).toMatchObject({ eventName: "pageview", userKey: "user_1" });
   });
 
+  it("bounds the user id an exception indexes in its error event", async () => {
+    await recordAnalyticsEvents("anpk_test", [
+      { event: "$exception", userId: "中".repeat(4096), properties: {} },
+    ]);
+
+    const [, sources] = exceptionMocks.ingest.mock.calls[0];
+    expect(sources[0].derived.userId).toBe("中".repeat(MAX_USER_KEY_LENGTH));
+  });
+
   it("rejects an unknown key as the caller's error", async () => {
     analyticsDbMocks.selectLimit.mockResolvedValueOnce([]);
 

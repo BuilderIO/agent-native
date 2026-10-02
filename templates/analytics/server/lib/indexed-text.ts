@@ -9,6 +9,11 @@ export const MAX_EVENT_NAME_LENGTH = 200;
 export const MAX_APP_LENGTH = 100;
 export const MAX_PATH_LENGTH = 500;
 export const MAX_USER_KEY_LENGTH = 256;
+/**
+ * Session and recording ids are rejected or skipped past this length, never
+ * cut, because a cut id could merge two sessions.
+ */
+export const MAX_SESSION_ID_LENGTH = 256;
 
 /**
  * Never ends on half of a surrogate pair, which Postgres would store as a

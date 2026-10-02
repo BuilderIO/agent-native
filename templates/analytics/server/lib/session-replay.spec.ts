@@ -331,6 +331,38 @@ describe("session replay ingest parsing", () => {
     resolveAccessMock.mockReset();
   });
 
+  it("rejects ids too long to index instead of failing the insert", () => {
+    const events = [{ type: 4, timestamp: 1, data: { href: "/" } }];
+    const tooLong = "s".repeat(257);
+    for (const ids of [
+      { sessionId: tooLong },
+      { sessionId: "session_1", replayId: tooLong },
+    ]) {
+      expect(() =>
+        parseSessionReplayIngestPayload({
+          publicKey: "anpk_test",
+          sequence: 0,
+          events,
+          ...ids,
+        }),
+      ).toThrow(
+        expect.objectContaining({
+          statusCode: 400,
+          message:
+            "Replay session and recording ids must be at most 256 characters",
+        }),
+      );
+    }
+    expect(
+      parseSessionReplayIngestPayload({
+        publicKey: "anpk_test",
+        sessionId: "s".repeat(256),
+        sequence: 0,
+        events,
+      }).sessionId,
+    ).toHaveLength(256);
+  });
+
   it("normalizes recorder payloads into session recording chunks", () => {
     const parsed = parseSessionReplayIngestPayload({
       publicKey: "anpk_test",

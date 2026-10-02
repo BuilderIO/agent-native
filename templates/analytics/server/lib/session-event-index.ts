@@ -26,6 +26,7 @@ import { getDb, schema } from "../db/index.js";
 import {
   MAX_APP_LENGTH,
   MAX_EVENT_NAME_LENGTH,
+  MAX_SESSION_ID_LENGTH,
   boundedText,
 } from "./indexed-text.js";
 
@@ -59,7 +60,6 @@ export interface SessionEventScope {
 
 const MAX_PROPERTY_KEYS = 30;
 const PROPERTY_KEY_PATTERN = /^[A-Za-z0-9_.$:-]{1,64}$/;
-const MAX_SESSION_ID_LENGTH = 256;
 const STOPPED_FIRING_DAYS = 7;
 const SESSION_EVENT_INDEX_RETENTION_BUFFER_DAYS = 2;
 export const EVENT_CATALOG_RETENTION_DAYS = 180;
