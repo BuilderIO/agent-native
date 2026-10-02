@@ -379,6 +379,9 @@ test("does not select Design dependencies for test or typecheck", () => {
 test("selects focused Design canvas interaction acceptance for its runtime dependencies", () => {
   for (const path of [
     "templates/design/app/components/MultiScreenCanvas.tsx",
+    "templates/design/shared/canvas-math.ts",
+    "templates/design/shared/pen-path.ts",
+    "templates/design/shared/responsive-frame-layout.ts",
     "templates/design/.generated/bridge/editor-chrome.generated.ts",
     "templates/design/actions/update-file.ts",
     "templates/design/server/handlers/design.ts",

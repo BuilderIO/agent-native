@@ -398,6 +398,7 @@ function isDesignDndRuntimePath(path: string): boolean {
   const designSharedRuntimeSource =
     (path.startsWith("templates/design/actions/") ||
       path.startsWith("templates/design/server/") ||
+      path.startsWith("templates/design/shared/") ||
       path.startsWith("templates/design/.generated/bridge/")) &&
     /\.(?:[cm]?[jt]sx?)$/u.test(path);
 
