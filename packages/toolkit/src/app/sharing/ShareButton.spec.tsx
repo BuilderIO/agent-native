@@ -49,14 +49,25 @@ const sharesData = vi.hoisted(() => ({
   },
 }));
 
+const accessRequestsData = vi.hoisted(() => ({ current: [] as unknown[] }));
+const approveRequest = vi.hoisted(() => vi.fn());
+const queriedActions = vi.hoisted(() => [] as string[]);
+
 vi.mock("@agent-native/core/client/use-action", () => ({
-  useActionQuery: () => ({
-    data: sharesData.current,
-    isError: sharesError.current,
-    refetch: refetchShares,
-  }),
+  useActionQuery: (name: string) => {
+    queriedActions.push(name);
+    return name === "list-resource-access-requests"
+      ? { data: accessRequestsData.current, isError: false, refetch: vi.fn() }
+      : {
+          data: sharesData.current,
+          isError: sharesError.current,
+          refetch: refetchShares,
+        };
+  },
   useActionMutation: (name: string) => ({
     mutate: name === "share-resource" ? shareMutate : otherMutate,
+    mutateAsync:
+      name === "approve-resource-access-request" ? approveRequest : otherMutate,
   }),
 }));
 
@@ -185,6 +196,9 @@ describe("ShareButton", () => {
     );
     shareMutate.mockReset();
     otherMutate.mockReset();
+    approveRequest.mockReset().mockResolvedValue(undefined);
+    accessRequestsData.current = [];
+    queriedActions.length = 0;
     refetchShares.mockClear();
     popoverInteractOutsideHandlers.length = 0;
     sheetInteractOutsideHandlers.length = 0;
@@ -1205,6 +1219,77 @@ describe("ShareButton", () => {
     ).toBe("Agents");
     expect(container.textContent).toContain("Copy agent prompt");
     expect(container.textContent).not.toContain("owner@example.com");
+  });
+
+  it("lists access requests above who has access, and Allow grants Viewer", async () => {
+    accessRequestsData.current = [
+      {
+        id: "req-1",
+        generation: 3,
+        state: "pending",
+        requester: { email: "requester@example.test", name: "Pat Example" },
+        note: "Need this for the launch review.",
+        requestedAt: "2026-10-01T10:00:00.000Z",
+        decidedAt: null,
+        grantedRole: null,
+        resource: {
+          type: "document",
+          id: "doc-1",
+          label: "Document",
+          title: "Launch plan",
+          path: "/page/doc-1",
+        },
+      },
+    ];
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <QueryClientProvider client={queryClient}>
+            <ShareButton
+              resourceType="document"
+              resourceId="doc-1"
+              peopleTabLabel="People"
+              agentsTabLabel="Agents"
+              peopleAccessLabel="Who has access"
+              agentTabContent={<button type="button">Copy agent prompt</button>}
+            />
+          </QueryClientProvider>
+        </TooltipProvider>,
+      );
+    });
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("Need this for the launch review.");
+    expect(text.indexOf("Access requests")).toBeGreaterThan(-1);
+    expect(text.indexOf("Access requests")).toBeLessThan(
+      text.indexOf("Who has access"),
+    );
+
+    const allow = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Allow Pat Example"]',
+    );
+    await act(async () => allow!.click());
+    expect(approveRequest).toHaveBeenCalledWith({
+      requestId: "req-1",
+      generation: 3,
+      role: "viewer",
+    });
+  });
+
+  it("doesn't read access requests for someone who can't manage access", async () => {
+    sharesData.current = { ...sharesData.current, role: "viewer" };
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <QueryClientProvider client={queryClient}>
+            <ShareButton resourceType="document" resourceId="doc-1" />
+          </QueryClientProvider>
+        </TooltipProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("People with access");
+    expect(queriedActions).not.toContain("list-resource-access-requests");
   });
 
   // Keep the non-source-locale provider test last: react-i18next's global
