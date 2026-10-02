@@ -684,6 +684,7 @@
         "@agent-native/core/shared/app-status",
         "@agent-native/core/shared/auth-copy",
         "@agent-native/core/shared/auth-page-types",
+        "@agent-native/core/shared/environment-lanes",
         "@agent-native/core/shared/framework-route-prefix",
         "@agent-native/core/shared/qa-test-email",
         "@agent-native/core/shared/runtime-config",

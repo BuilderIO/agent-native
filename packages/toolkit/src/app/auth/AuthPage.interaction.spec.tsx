@@ -246,4 +246,59 @@ describe("AuthPage interactions", () => {
       vi.useRealTimers();
     }
   });
+
+  it("sends a beta app's sign-up events to beta Analytics", async () => {
+    const originalHref = window.location.href;
+    const sendBeacon = vi.fn(() => true);
+    Object.defineProperty(navigator, "sendBeacon", {
+      value: sendBeacon,
+      configurable: true,
+    });
+    window.happyDOM.setURL("https://beta.clips.agent-native.com/signup");
+    window.localStorage.setItem("agent-native.anonymous_id", "anon_1");
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: Record<string, string> }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      agentNativeAnalyticsPublicKey: "anpk_test",
+      agentNativeAnalyticsEndpoint: "https://analytics.agent-native.com/track",
+    };
+
+    try {
+      await act(async () => {
+        root.render(
+          <AuthPage
+            {...propsFromHtml(
+              getOnboardingHtml({
+                requestHost: "beta.clips.agent-native.com",
+                requestPath: "/signup",
+              }),
+            )}
+            initialView="signup"
+          />,
+        );
+        await Promise.resolve();
+      });
+
+      const email = container.querySelector<HTMLInputElement>("#s-email");
+      expect(email).not.toBeNull();
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )!.set!.call(email, "person@example.com");
+        email!.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+
+      expect(sendBeacon).toHaveBeenCalled();
+      for (const [url] of sendBeacon.mock.calls as unknown as [string][]) {
+        expect(url).toBe("https://beta.analytics.agent-native.com/track");
+      }
+    } finally {
+      delete (window as Window & { __AGENT_NATIVE_CONFIG__?: unknown })
+        .__AGENT_NATIVE_CONFIG__;
+      window.localStorage.removeItem("agent-native.anonymous_id");
+      Reflect.deleteProperty(navigator, "sendBeacon");
+      window.happyDOM.setURL(originalHref);
+    }
+  });
 });
