@@ -7,15 +7,6 @@ export type PlanBlocksRevision = {
   blocks: PlanBlock[];
 };
 
-/**
- * What a save needs from the open document: the blocks it holds now, and the
- * saved revision those edits were made on top of.
- */
-export type PlanDocumentSnapshot = {
-  blocks: PlanBlock[];
-  base: PlanBlocksRevision | null;
-};
-
 // Each conflict means another writer saved while this one was merging, so a
 // plan under heavy concurrent editing can need a few rounds. Past the cap the
 // 409 reaches the caller instead of looping.

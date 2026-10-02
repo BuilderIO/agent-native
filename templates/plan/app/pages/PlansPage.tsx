@@ -4047,12 +4047,22 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     });
   };
 
+  // The newest block save this tab made, with the blocks it sent. Until the
+  // open document adopts the saved result, that save (not the older revision
+  // the document still reports) is what the next edit was made on top of, and
+  // the blocks sent, not the merged result, are what the document holds.
+  const lastBlockSaveRef = useRef<{
+    planId: string;
+    updatedAt: string;
+    sent: PlanBlock[];
+  } | null>(null);
+
   // `base` is the saved revision the open document's edits were made on top
   // of; without a document (no live editor) the plan as loaded stands in.
   const saveBlocks = async (
     plan: PlanBundleWithHtml["plan"],
     blocks: PlanBlock[],
-    base: PlanBlocksRevision | null | undefined,
+    documentBase: PlanBlocksRevision | null | undefined,
   ) => {
     const planId = plan.id;
     const toRevision = (saved: PlanBundleWithHtml): PlanBlocksRevision => {
@@ -4064,12 +4074,18 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
         blocks: saved.plan.content.blocks,
       };
     };
-    return saveBlocksMergingConflicts({
-      base:
-        base ??
-        (plan.content
-          ? { updatedAt: plan.updatedAt, blocks: plan.content.blocks }
-          : null),
+    const loaded =
+      documentBase ??
+      (plan.content
+        ? { updatedAt: plan.updatedAt, blocks: plan.content.blocks }
+        : null);
+    const own = lastBlockSaveRef.current;
+    const base =
+      own?.planId === planId && (!loaded || own.updatedAt >= loaded.updatedAt)
+        ? { updatedAt: own.updatedAt, blocks: own.sent }
+        : loaded;
+    const saved = await saveBlocksMergingConflicts({
+      base,
       blocks,
       save: async (nextBlocks, expectedUpdatedAt) =>
         toRevision(
@@ -4089,6 +4105,12 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
           ),
         ),
     });
+    lastBlockSaveRef.current = {
+      planId,
+      updatedAt: saved.updatedAt,
+      sent: blocks,
+    };
+    return saved;
   };
 
   const patchStructuredContent = async (

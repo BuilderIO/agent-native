@@ -228,7 +228,7 @@ async function openPair(
     await openEditable(pageB, planId, seedText);
   }
   // Let both editors finish their initial collab handshake.
-  await pageA.waitForTimeout(2_000);
+  await pageA.waitForTimeout(2_000); // e2e-harness-ignore: no signal marks both editors' collab handshake finished
   return { ctxA, ctxB, pageA, pageB, planId };
 }
 
@@ -252,7 +252,7 @@ async function expectEveryViewHas(pair: Pair, tokens: string[]) {
     )
     .toEqual(tokens);
   // Give a late, stale write the chance to overwrite what was just merged.
-  await pageA.waitForTimeout(4_000);
+  await pageA.waitForTimeout(4_000); // e2e-harness-ignore: proving a late stale write never lands means waiting for one
   const persisted = await persistedText(pageA, planId);
   for (const token of tokens) {
     expect(occurrences(persisted, token), `${token} in SQL`).toBe(1);
@@ -333,7 +333,7 @@ test("edits made offline by one user merge after reconnect", async ({
     await ctxB.setOffline(true);
     await typeAtEndOf(pageB, "Bravo block seed.", tokenB);
     await typeAtEndOf(pageA, "Alpha block seed.", tokenA);
-    await pageA.waitForTimeout(3_000);
+    await pageA.waitForTimeout(3_000); // e2e-harness-ignore: the offline window is the thing under test
     await ctxB.setOffline(false);
     await expectEveryViewHas(pair, [tokenA.trim(), tokenB.trim()]);
   } finally {
@@ -395,7 +395,7 @@ test("opening a plan in two editors at once seeds it exactly once", async ({
       { concurrentOpen: true },
     );
     const { pageA, pageB, planId } = pair;
-    await pageA.waitForTimeout(3_000);
+    await pageA.waitForTimeout(3_000); // e2e-harness-ignore: a duplicate seed shows up late, so wait before reading
     for (const page of [pageA, pageB]) {
       expect(
         occurrences(await editorText(page), "Single seed marker line."),

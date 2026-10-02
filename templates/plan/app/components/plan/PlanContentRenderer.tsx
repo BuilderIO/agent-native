@@ -38,7 +38,6 @@ import { usePlanPresence } from "@/hooks/use-plan-presence";
 import {
   PlanBlocksOverlapError,
   type PlanBlocksRevision,
-  type PlanDocumentSnapshot,
 } from "@/lib/plan-block-save";
 import { cn } from "@/lib/utils";
 
@@ -318,9 +317,11 @@ export function PlanContentRenderer({
   const awaitingManualRetryRef = useRef(false);
   const [autosaveFailed, setAutosaveFailed] = useState(false);
 
-  const editorBlocksRef = useRef<(() => PlanDocumentSnapshot | null) | null>(
-    null,
-  );
+  const editorBlocksRef = useRef<
+    ((pending: PlanBlock[]) => PlanBlock[] | null) | null
+  >(null);
+  // The saved revision the pending blocks were edited on top of.
+  const pendingBaseRef = useRef<PlanBlocksRevision | null>(null);
   const flushCollabUpdatesRef = useRef(collabDoc.flushUpdates);
   flushCollabUpdatesRef.current = collabDoc.flushUpdates;
   const persistBlocksRef = useRef<
@@ -347,6 +348,7 @@ export function PlanContentRenderer({
     if (savingRef.current) return;
     const next = pendingBlocksRef.current;
     if (next === null) return;
+    const base = pendingBaseRef.current;
     pendingBlocksRef.current = null;
     savingRef.current = true;
     let failed = false;
@@ -360,10 +362,9 @@ export function PlanContentRenderer({
         if (!delivered) {
           throw new Error("Live edits have not reached the server yet.");
         }
-        const snapshot = editorBlocksRef.current?.() ?? null;
         return persistBlocksRef.current(
-          snapshot?.blocks ?? next,
-          snapshot?.base ?? null,
+          editorBlocksRef.current?.(next) ?? next,
+          base,
         );
       })
       .catch((error) => {
@@ -373,6 +374,7 @@ export function PlanContentRenderer({
           error instanceof PlanBlocksOverlapError;
         if (pendingBlocksRef.current === null) {
           pendingBlocksRef.current = next;
+          pendingBaseRef.current = base;
         }
         // eslint-disable-next-line no-console
         console.error("Failed to autosave plan document:", error);
@@ -419,7 +421,10 @@ export function PlanContentRenderer({
     window.addEventListener("online", onOnline);
     return () => window.removeEventListener("online", onOnline);
   }, [autosaveFailed]);
-  const replaceBlocks = async (nextBlocks: PlanBlock[]) => {
+  const replaceBlocks = async (
+    nextBlocks: PlanBlock[],
+    base: PlanBlocksRevision | null = null,
+  ) => {
     if (
       onOptimisticBlocks &&
       blockStructureSignature(nextBlocks) !==
@@ -428,6 +433,7 @@ export function PlanContentRenderer({
       onOptimisticBlocks(nextBlocks);
     }
     pendingBlocksRef.current = nextBlocks;
+    pendingBaseRef.current = base;
     scheduleSaveRef.current(AUTOSAVE_DEBOUNCE_MS);
   };
   useEffect(

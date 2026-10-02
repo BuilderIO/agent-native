@@ -1,4 +1,5 @@
 import type { Extension, Node, Mark } from "@tiptap/core";
+import { Selection } from "@tiptap/pm/state";
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { StarterKitOptions } from "@tiptap/starter-kit";
 import { useEffect, useMemo, useRef } from "react";
@@ -182,7 +183,8 @@ export function SharedRichEditor({
     {
       extensions,
       content: collab || setContent ? null : value,
-      editable,
+      // A server-seeded document is read-only from creation until its seed lands.
+      editable: editable && !(requestInitialSeed && ydoc),
       editorProps: {
         attributes: {
           class: cn(
@@ -236,8 +238,28 @@ export function SharedRichEditor({
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    editor.setEditable(editable);
-  }, [editable, editor]);
+    // Flipping editability around a server seed is not a content change, so it
+    // must not emit `update`, which would save the document.
+    editor.setEditable(
+      editable && !collabState.initialSeedPending,
+      !requestInitialSeed,
+    );
+  }, [editable, editor, collabState.initialSeedPending, requestInitialSeed]);
+
+  // A document seeded from empty starts with its caret at the very top, where
+  // setContent used to leave it at the end. Put it back so the first keystroke
+  // after the seed lands where it did, until the person clicks somewhere else.
+  const wasSeedPendingRef = useRef(false);
+  useEffect(() => {
+    const pending = collabState.initialSeedPending;
+    const justSeeded = wasSeedPendingRef.current && !pending;
+    wasSeedPendingRef.current = pending;
+    if (!justSeeded || !editor || editor.isDestroyed || editor.isFocused)
+      return;
+    editor.view.dispatch(
+      editor.state.tr.setSelection(Selection.atEnd(editor.state.doc)),
+    );
+  }, [editor, collabState.initialSeedPending]);
 
   useEffect(() => {
     if (editor) onEditorReady?.(editor);

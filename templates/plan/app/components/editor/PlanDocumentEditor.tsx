@@ -47,10 +47,7 @@ import { encodeStateAsUpdate } from "yjs";
 import { Button } from "@/components/ui/button";
 
 import { usePlanImageUpload } from "../../hooks/use-plan-image-upload";
-import type {
-  PlanBlocksRevision,
-  PlanDocumentSnapshot,
-} from "../../lib/plan-block-save";
+import type { PlanBlocksRevision } from "../../lib/plan-block-save";
 import { PlanBlockView } from "../plan/DocumentArea";
 import { PlanImageNode } from "../plan/PlanImageNode";
 import { PlanBlockNode, PlanBlockDataProvider } from "./PlanBlockNode";
@@ -695,11 +692,17 @@ export function PlanDocumentEditor({
   planId?: string | null;
   collabUser?: RichMarkdownCollabUser | null;
   editable: boolean;
-  onBlocksChange: (blocks: PlanBlock[]) => void | Promise<void>;
+  onBlocksChange: (
+    blocks: PlanBlock[],
+    base: PlanBlocksRevision | null,
+  ) => void | Promise<void>;
   onVisualQuestionsSubmit?: (summary: string) => void;
-  /** Filled with a reader of the document's current blocks while mounted. */
+  /**
+   * Filled, while mounted, with a reader that returns `pending` with its prose
+   * replaced by what the live document holds now.
+   */
   blocksReaderRef?: MutableRefObject<
-    (() => PlanDocumentSnapshot | null) | null
+    ((pending: PlanBlock[]) => PlanBlock[] | null) | null
   >;
   sharedCollabDoc?: Pick<
     UseCollaborativeDocResult,
@@ -795,8 +798,11 @@ export function PlanDocumentEditor({
       undoRef.current?.record(blocksRef.current, next);
     }
     rememberEmitted(JSON.stringify(next));
+    // Later reads (`blocksFromSerialized`) must see this commit before the
+    // re-render reassigns the ref from state.
+    blocksRef.current = next;
     setBlocks(next);
-    void onBlocksChange(next);
+    void onBlocksChange(next, adoptedRevisionRef.current);
   };
 
   const docUser =
@@ -1073,7 +1079,7 @@ export function PlanDocumentEditor({
         }
         rememberEmitted(JSON.stringify(restored));
         setBlocks(restored);
-        void onBlocksChange(restored);
+        void onBlocksChange(restored, adoptedRevisionRef.current);
         try {
           rootViewRef.current?.focus();
         } catch {
@@ -1135,7 +1141,10 @@ export function PlanDocumentEditor({
       document.removeEventListener("keydown", onKeyDown, { capture: true });
   }, [collabEnabled]);
 
-  const blocksFromSerialized = (serialized: string): PlanBlock[] | null => {
+  const blocksFromSerialized = (
+    serialized: string,
+    held: PlanBlock[] = blocksRef.current,
+  ): PlanBlock[] | null => {
     let next: PlanBlock[];
     try {
       next = JSON.parse(serialized) as PlanBlock[];
@@ -1147,9 +1156,7 @@ export function PlanDocumentEditor({
     // was built from the blocks as they were when the document last changed, and
     // this runs later: a collaborator's edit adopted since then must not be
     // written back over.
-    const currentById = new Map(
-      blocksRef.current.map((block) => [block.id, block]),
-    );
+    const currentById = new Map(held.map((block) => [block.id, block]));
     next = next.map((block) => {
       const current = currentById.get(block.id);
       return current &&
@@ -1210,18 +1217,20 @@ export function PlanDocumentEditor({
   // A collaborator's text reaches this document through Yjs without going
   // through `handleChange`, so blocks captured at the last local keystroke can
   // be older than the document. Saving reads the document itself.
-  const readCurrentBlocks = (): PlanDocumentSnapshot | null => {
+  const readCurrentBlocks = (pending: PlanBlock[]): PlanBlock[] | null => {
     const editor = editorRef.current;
     if (!editor || editor.isDestroyed || !getMountedEditorView(editor)) {
       return null;
     }
     const next = blocksFromSerialized(
-      JSON.stringify(proseJSONToBlocks(editor.getJSON(), blocksRef.current)),
+      JSON.stringify(proseJSONToBlocks(editor.getJSON(), pending)),
+      pending,
     );
     if (!next) return null;
     rememberEmitted(JSON.stringify(next));
+    blocksRef.current = next;
     setBlocks(next);
-    return { blocks: next, base: adoptedRevisionRef.current };
+    return next;
   };
   if (blocksReaderRef) blocksReaderRef.current = readCurrentBlocks;
   useEffect(
