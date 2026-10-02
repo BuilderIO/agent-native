@@ -464,6 +464,108 @@ describe("cross-screen drag identity provenance", () => {
     );
   });
 
+  it("keeps a cross-screen drag active when parent blur leaves the document focused", async () => {
+    const onCrossScreenElementDrop = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            { id: "source", filename: "source.html", content: "<html></html>" },
+            { id: "target", filename: "target.html", content: "<html></html>" },
+          ]}
+          zoom={100}
+          activeId="source"
+          activeTool="move"
+          geometryById={{
+            source: { x: 0, y: 0, width: 400, height: 300 },
+            target: { x: 600, y: 0, width: 400, height: 300 },
+          }}
+          renderScreenContent={(screen) => (
+            <iframe
+              data-design-preview-iframe=""
+              data-screen-iframe-id={screen.id}
+            />
+          )}
+          onPick={() => {}}
+          onCrossScreenElementDrop={onCrossScreenElementDrop}
+        />,
+      );
+    });
+
+    const iframe = (id: string) =>
+      container.querySelector<HTMLIFrameElement>(
+        `iframe[data-screen-iframe-id="${id}"]`,
+      )!;
+    const sourceWindow = iframe("source").contentWindow!;
+    const targetWindow = iframe("target").contentWindow!;
+    const send = (data: Record<string, unknown>) =>
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:cross-screen-drag", ...data },
+          source: sourceWindow as unknown as Window,
+        }),
+      );
+    vi.spyOn(targetWindow, "postMessage").mockImplementation(((message: {
+      type?: string;
+      correlationId?: string;
+    }) => {
+      if (message.type !== "agent-native:hit-test" || !message.correlationId) {
+        return;
+      }
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:hit-test-result",
+            correlationId: message.correlationId,
+            anchorNodeId: "target-anchor",
+          },
+          source: targetWindow as unknown as Window,
+        }),
+      );
+    }) as typeof targetWindow.postMessage);
+
+    const hasFocus = vi.spyOn(document, "hasFocus").mockReturnValue(true);
+    try {
+      await act(async () => {
+        send({
+          phase: "start",
+          screenId: "source",
+          selector: ".source",
+          sourceId: "source-node",
+          sourceDeleteRequestId: "focus-handoff-request",
+        });
+        send({
+          phase: "move",
+          screenId: "source",
+          selector: ".source",
+          sourceId: "source-node",
+          sourceDeleteRequestId: "focus-handoff-request",
+          iframeX: 650,
+          iframeY: 100,
+          viewportW: 400,
+          viewportH: 300,
+        });
+        await Promise.resolve();
+      });
+      expect(
+        container.querySelector("[data-cross-screen-drag-ghost]"),
+      ).toBeTruthy();
+
+      await act(async () => {
+        window.dispatchEvent(new Event("blur"));
+        await Promise.resolve();
+      });
+
+      expect(document.hasFocus()).toBe(true);
+      expect(
+        container.querySelector("[data-cross-screen-drag-ghost]"),
+      ).toBeTruthy();
+      expect(onCrossScreenElementDrop).not.toHaveBeenCalled();
+    } finally {
+      hasFocus.mockRestore();
+    }
+  });
+
   it("settles overlapping board drops by transaction without leaking pending state", async () => {
     vi.useFakeTimers();
     const runtimeTransactionRef = { current: null as string | null };
