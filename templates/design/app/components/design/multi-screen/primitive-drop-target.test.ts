@@ -1157,6 +1157,82 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     });
   });
 
+  it("does not infer the main axis from a stylesheet flex-direction", () => {
+    const screen = {
+      ...flexScreen,
+      id: "stylesheet-reverse-screen",
+      content: `<!doctype html><html><head><style>
+        .reversed { flex-direction: row-reverse; }
+      </style></head><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" class="reversed" style="position:absolute;left:0;top:0;width:200px;height:120px;display:flex">
+          <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="position:absolute;left:140px;top:20px;width:20px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const parent = primitives.find(
+      (primitive) => primitive.nodeId === "parent",
+    )!;
+
+    expect(parent.autoLayoutAxis).toBeUndefined();
+    expect(parent.autoLayoutFlexDirection).toBeUndefined();
+    expect(
+      findAutoLayoutInsertionAnchor(
+        parent,
+        primitives,
+        { x: 135, y: 30 },
+        null,
+      ),
+    ).toBeNull();
+  });
+
+  it("does not infer left-to-right order from stylesheet direction", () => {
+    const screen = {
+      ...flexScreen,
+      id: "stylesheet-direction-screen",
+      content: `<!doctype html><html><head><style>
+        .rtl { direction: rtl; }
+      </style></head><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" class="rtl" style="position:absolute;left:0;top:0;width:200px;height:120px;display:flex;flex-direction:row">
+          <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="position:absolute;left:140px;top:20px;width:20px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const parent = primitives.find(
+      (primitive) => primitive.nodeId === "parent",
+    )!;
+
+    expect(parent.autoLayoutAxis).toBe("x");
+    expect(parent.autoLayoutOrderKnown).toBe(false);
+    expect(
+      findAutoLayoutInsertionAnchor(
+        parent,
+        primitives,
+        { x: 135, y: 30 },
+        null,
+      ),
+    ).toBeNull();
+  });
+
+  it("does not infer left-to-right insertion order for dir=auto", () => {
+    const screen = {
+      ...flexScreen,
+      id: "dir-auto-order-screen",
+      content: flexScreen.content.replace("<body>", '<body dir="auto">'),
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const parent = primitives.find(
+      (primitive) => primitive.nodeId === "parent",
+    )!;
+
+    expect(parent.autoLayoutAxis).toBe("x");
+    expect(parent.autoLayoutOrderKnown).toBe(false);
+    expect(
+      findAutoLayoutInsertionAnchor(parent, primitives, { x: 25, y: 30 }, null),
+    ).toBeNull();
+  });
+
   it("findAutoLayoutInsertionAnchor excludes the dragged node itself (reordering within its own container)", () => {
     const primitives = parsePrimitivesFromScreen(flexScreen);
     const parent = primitives.find((p) => p.nodeId === "parent")!;

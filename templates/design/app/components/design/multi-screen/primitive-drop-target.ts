@@ -45,6 +45,7 @@ export interface ParsedScreenPrimitive {
   autoLayoutAxis?: CrossScreenDropAxis;
   autoLayoutFlexDirection?: string;
   autoLayoutDirection?: "ltr" | "rtl";
+  autoLayoutOrderKnown?: boolean;
   autoLayoutWrapped?: boolean;
   autoLayoutGrid?: boolean;
   zIndex?: number;
@@ -196,9 +197,50 @@ function computeAutoLayoutAxis(style: {
   return undefined;
 }
 
-function resolveAuthoredDirection(element: Element): "ltr" | "rtl" | undefined {
+function hasMatchingStylesheetValue(
+  doc: Document,
+  element: Element,
+  property: string,
+): boolean {
+  if (doc.querySelector('link[rel~="stylesheet"]')) return true;
+
+  const matchesRule = (rules: CSSRuleList): boolean => {
+    for (const rule of Array.from(rules)) {
+      if (/^@import\b/i.test(rule.cssText)) return true;
+      const styleRule = rule as CSSStyleRule;
+      if (
+        styleRule.selectorText &&
+        styleRule.style?.getPropertyValue(property)
+      ) {
+        try {
+          if (element.matches(styleRule.selectorText)) return true;
+        } catch {
+          return true;
+        }
+      }
+      const nestedRules = (rule as CSSGroupingRule).cssRules;
+      if (nestedRules && matchesRule(nestedRules)) return true;
+    }
+    return false;
+  };
+
+  for (const sheet of Array.from(doc.styleSheets)) {
+    try {
+      if (matchesRule(sheet.cssRules)) return true;
+    } catch {
+      return true;
+    }
+  }
+  return false;
+}
+
+function resolveAuthoredDirection(
+  element: Element,
+  doc: Document,
+): "ltr" | "rtl" | undefined {
   let current: Element | null = element;
   while (current) {
+    if (hasMatchingStylesheetValue(doc, current, "direction")) return undefined;
     const inlineDirection = (current as HTMLElement).style.direction
       .trim()
       .toLowerCase();
@@ -206,12 +248,13 @@ function resolveAuthoredDirection(element: Element): "ltr" | "rtl" | undefined {
       return inlineDirection;
     }
     const dirAttribute = current.getAttribute("dir")?.trim().toLowerCase();
+    if (dirAttribute === "auto") return undefined;
     if (dirAttribute === "ltr" || dirAttribute === "rtl") {
       return dirAttribute;
     }
     current = current.parentElement;
   }
-  return undefined;
+  return "ltr";
 }
 
 function gridTrackCount(template: string): number {
@@ -361,7 +404,7 @@ export function findAutoLayoutInsertionAnchor(
   guidePlacement: "before" | "after";
 } | null {
   const axis = container.autoLayoutAxis;
-  if (!axis) return null;
+  if (!axis || container.autoLayoutOrderKnown === false) return null;
   let best: ParsedScreenPrimitive | null = null;
   let bestDistance = Infinity;
   let placement: "before" | "after" = "after";
@@ -1288,20 +1331,30 @@ export function parsePrimitivesFromScreen(
         display: style.display,
         borderRadius: style.borderRadius,
       });
-      const autoLayoutAxis = computeAutoLayoutAxis({
-        display: style.display,
-        flexDirection: style.flexDirection,
-        flexWrap: style.flexWrap,
-        gridTemplateColumns: style.gridTemplateColumns,
-        gridAutoFlow: style.gridAutoFlow,
-      });
+      const isFlexContainer =
+        style.display === "flex" || style.display === "inline-flex";
+      const flexDirectionKnown =
+        !isFlexContainer ||
+        !hasMatchingStylesheetValue(doc, element, "flex-direction");
+      const autoLayoutAxis = flexDirectionKnown
+        ? computeAutoLayoutAxis({
+            display: style.display,
+            flexDirection: style.flexDirection,
+            flexWrap: style.flexWrap,
+            gridTemplateColumns: style.gridTemplateColumns,
+            gridAutoFlow: style.gridAutoFlow,
+          })
+        : undefined;
       const autoLayoutFlexDirection =
-        style.display === "flex" || style.display === "inline-flex"
+        isFlexContainer && flexDirectionKnown
           ? style.flexDirection || "row"
           : undefined;
       const autoLayoutDirection = autoLayoutFlexDirection
-        ? resolveAuthoredDirection(element)
+        ? resolveAuthoredDirection(element, doc)
         : undefined;
+      const autoLayoutOrderKnown =
+        !isFlexContainer ||
+        (flexDirectionKnown && autoLayoutDirection !== undefined);
       const autoLayoutWrapped =
         (style.display === "flex" || style.display === "inline-flex") &&
         (style.flexWrap === "wrap" || style.flexWrap === "wrap-reverse");
@@ -1376,6 +1429,7 @@ export function parsePrimitivesFromScreen(
         autoLayoutAxis,
         ...(autoLayoutFlexDirection ? { autoLayoutFlexDirection } : {}),
         ...(autoLayoutDirection ? { autoLayoutDirection } : {}),
+        ...(isFlexContainer ? { autoLayoutOrderKnown } : {}),
         ...(autoLayoutWrapped ? { autoLayoutWrapped: true } : {}),
         ...(autoLayoutGrid ? { autoLayoutGrid: true } : {}),
         ...(Number.isFinite(parsedZIndex) && zIndexApplies
