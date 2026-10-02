@@ -1,14 +1,16 @@
-import { callAction } from "@agent-native/core/client/hooks";
-import type { ContentDatabaseNavigationSort } from "@shared/api";
 import type { QueryClient } from "@tanstack/react-query";
 
-import { filesNavigationPageParams } from "@/lib/files-navigation";
+import {
+  filesNavigationPageParams,
+  filesNavigationQueryKey,
+  readFilesNavigationPage,
+} from "@/lib/files-navigation";
 
-// The Files tree's root page is keyed by the space's Files database and the
-// personal view's order, which arrive from two other reads. The inputs this
-// browser last used for the same person in the same active organization let
-// the root page start alongside those reads; when they turn out different,
-// the tree reads again with the confirmed ones and the early read is unused.
+// The Files tree's root page is keyed by the space's Files database, which
+// arrives from another read. The database this browser last used for the same
+// person in the same active organization lets the root page start alongside
+// that read; when it turns out different, the tree reads again with the
+// confirmed one and the early read is unused.
 const FILES_ROOT_HINT_STORAGE_KEY = "content-sidebar-files-root-v1";
 
 export function filesRootHintScope(
@@ -19,11 +21,7 @@ export function filesRootHintScope(
   return account ? JSON.stringify([account, orgId ?? null]) : null;
 }
 
-export type PagedFilesRoot = {
-  databaseId: string;
-  sort: ContentDatabaseNavigationSort;
-  viewId?: string;
-};
+export type PagedFilesRoot = { databaseId: string };
 
 export function readPagedFilesRootHint(scope: string): PagedFilesRoot | null {
   let raw: string | null;
@@ -35,21 +33,11 @@ export function readPagedFilesRootHint(scope: string): PagedFilesRoot | null {
   }
   if (!raw) return null;
   try {
-    const hint = JSON.parse(raw) as Partial<PagedFilesRoot> & {
-      scope?: unknown;
-    };
-    if (
-      hint.scope !== scope ||
-      typeof hint.databaseId !== "string" ||
-      typeof hint.sort !== "string"
-    ) {
+    const hint = JSON.parse(raw) as { scope?: unknown; databaseId?: unknown };
+    if (hint.scope !== scope || typeof hint.databaseId !== "string") {
       return null;
     }
-    return {
-      databaseId: hint.databaseId,
-      sort: hint.sort,
-      ...(typeof hint.viewId === "string" ? { viewId: hint.viewId } : {}),
-    };
+    return { databaseId: hint.databaseId };
   } catch {
     // coercion-ok: a malformed hint is ignored and replaced by the next write.
     return null;
@@ -67,17 +55,16 @@ export function rememberPagedFilesRoot(scope: string, root: PagedFilesRoot) {
   }
 }
 
+/** Starts the root page, with the first pages of `expanded` folders. */
 export function prefetchPagedFilesRoot(
   queryClient: QueryClient,
   root: PagedFilesRoot,
+  expanded: readonly string[] = [],
 ) {
-  const args = filesNavigationPageParams({ ...root, parentId: null });
+  const params = filesNavigationPageParams({ ...root, parentId: null });
   void queryClient.prefetchQuery({
-    queryKey: ["action", "query-content-database-items", args],
+    queryKey: filesNavigationQueryKey(params),
     queryFn: ({ signal }) =>
-      callAction("query-content-database-items", args, {
-        method: "GET",
-        signal,
-      }),
+      readFilesNavigationPage(queryClient, params, expanded, signal),
   });
 }

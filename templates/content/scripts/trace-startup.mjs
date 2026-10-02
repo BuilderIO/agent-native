@@ -189,9 +189,21 @@ function installProbe(options) {
   }
   // Builds deployed before the app's own startup marks still get observed
   // milestones: a newly mounted editor with text, and ten sidebar page links.
+  // The open page's own Files row shows when its expanded ancestors have
+  // loaded, which the first root row does not.
   const seenEditors = new WeakSet();
   let sidebarSeen = false;
+  let activeRowSeen = false;
   const observe = () => {
+    if (
+      !activeRowSeen &&
+      document.querySelector(
+        '[data-paged-files-navigation] [aria-current="page"]',
+      )
+    ) {
+      activeRowSeen = true;
+      performance.mark("trace:sidebar-active-row");
+    }
     for (const editor of document.querySelectorAll(".ProseMirror")) {
       if (seenEditors.has(editor) || !editor.textContent.trim()) continue;
       seenEditors.add(editor);
@@ -268,6 +280,7 @@ function collect([since, documentId]) {
     sidebarPainted: at(mark("sidebar-files-rows-dom:painted")),
     sidebarDom: at(mark("sidebar-files-rows-dom")),
     sidebarObserved: at(mark("trace:sidebar-dom")),
+    sidebarActiveRow: at(mark("trace:sidebar-active-row")),
     editable: at(mark("content-editable")),
     anchors: Object.fromEntries(
       Object.entries(trace.anchors).map(([name, anchor]) => [
@@ -324,6 +337,7 @@ function summarizeRun(result) {
       result.sidebarDom,
       result.sidebarObserved,
     ),
+    sidebarActiveRow: result.sidebarActiveRow,
     editable: result.editable,
     frameworkRequests: requests.length,
     sessionRequests: requests.filter(
@@ -553,6 +567,7 @@ for (let run = 0; run < runs; run += 1) {
       "sidebarDom",
       "bodyObserved",
       "sidebarObserved",
+      "sidebarActiveRow",
       "editable",
     ]) {
       if (result[key] != null) result[key] += offset;
@@ -585,12 +600,14 @@ const report = {
   p50: {
     bodyVisible: percentile(metric("bodyVisible"), 50),
     sidebarUsable: percentile(metric("sidebarUsable"), 50),
+    sidebarActiveRow: percentile(metric("sidebarActiveRow"), 50),
     editable: percentile(metric("editable"), 50),
     frameworkRequests: percentile(metric("frameworkRequests"), 50),
   },
   p90: {
     bodyVisible: percentile(metric("bodyVisible"), 90),
     sidebarUsable: percentile(metric("sidebarUsable"), 90),
+    sidebarActiveRow: percentile(metric("sidebarActiveRow"), 90),
     editable: percentile(metric("editable"), 90),
   },
   max: {

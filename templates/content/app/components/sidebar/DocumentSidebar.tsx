@@ -90,6 +90,7 @@ import {
   contentDatabaseCreationRequest,
   contentDatabaseByIdQueryKey,
   contentDatabaseNavigationQueryFilter,
+  invalidateContentDatabaseNavigationQueries,
   isContentDatabaseUnavailable,
   removeOptimisticItemFromContentDatabase,
   useContentDatabaseById,
@@ -420,6 +421,8 @@ function useDeferredFilesDatabaseId(
   return { databaseId: expanded ? databaseId : null, enabled: ready };
 }
 
+const UNSEEN_PERSONAL_VIEW = Symbol("unseen personal view");
+
 function WorkspaceSidebarItem({
   space,
   selected,
@@ -445,6 +448,8 @@ function WorkspaceSidebarItem({
   compact = false,
   filesPlaceholder,
   onFilesRootShown,
+  filesBranchPlaceholders,
+  onFilesBranchShown,
 }: {
   space: ContentSpaceSummary;
   selected: boolean;
@@ -476,6 +481,8 @@ function WorkspaceSidebarItem({
   compact?: boolean;
   filesPlaceholder?: SidebarRowsHint;
   onFilesRootShown?: (shown: SidebarRowsHint) => void;
+  filesBranchPlaceholders?: Readonly<Record<string, SidebarRowsHint>>;
+  onFilesBranchShown?: (documentId: string, shown: SidebarRowsHint) => void;
 }) {
   const t = useT();
   const [localWorkingCopies, setLocalWorkingCopies] = useState<
@@ -647,22 +654,32 @@ function WorkspaceSidebarItem({
   const queryClient = useQueryClient();
   const { session } = useSession();
   const filesRootScope = filesRootHintScope(session?.email, session?.orgId);
-  const filesRootConfirmed =
-    !localFileMode && expanded && filesPersonalView.isSuccess;
+  const filesRootConfirmed = !localFileMode && expanded;
   useEffect(() => {
     if (!filesRootScope || !filesRootConfirmed) return;
     rememberPagedFilesRoot(filesRootScope, {
       databaseId: space.filesDatabaseId,
-      sort: sidebarOrder.mode,
-      viewId: activeViewId,
     });
-  }, [
-    activeViewId,
-    filesRootConfirmed,
-    filesRootScope,
-    sidebarOrder.mode,
-    space.filesDatabaseId,
-  ]);
+  }, [filesRootConfirmed, filesRootScope, space.filesDatabaseId]);
+  // The server orders the tree by the saved view, so the tree reads again
+  // when that view changes. A change this sidebar is saving waits for the
+  // save: a read during it can still see the old order.
+  const treeOrderedBy = useRef<unknown>(UNSEEN_PERSONAL_VIEW);
+  const pagedViewSettled =
+    !localFileMode &&
+    filesPersonalView.isSuccess &&
+    !filesPersonalView.isPlaceholderData &&
+    !updateFilesPersonalView.isPending;
+  useEffect(() => {
+    if (!pagedViewSettled) return;
+    const previous = treeOrderedBy.current;
+    treeOrderedBy.current = pagedOverrides;
+    if (previous !== UNSEEN_PERSONAL_VIEW && previous !== pagedOverrides) {
+      invalidateContentDatabaseNavigationQueries(queryClient, {
+        databaseId: space.filesDatabaseId,
+      });
+    }
+  }, [pagedOverrides, pagedViewSettled, queryClient, space.filesDatabaseId]);
   const reorderLabels: SidebarReorderLabels = {
     drag: (label) => t("sidebar.dragToReorder", { label }),
     moveUp: t("sidebar.moveUp"),
@@ -957,8 +974,6 @@ function WorkspaceSidebarItem({
           ) : (
             <PagedContentFilesSidebarView
               databaseId={space.filesDatabaseId}
-              sort={sidebarOrder.mode}
-              viewId={activeViewId}
               activeDocumentId={activeDocumentId}
               expandedDocumentIds={expandedDocumentIds}
               onDocumentExpandedChange={onDocumentExpandedChange}
@@ -986,6 +1001,8 @@ function WorkspaceSidebarItem({
               untitledLabel={t("sidebar.untitled")}
               rootPlaceholder={filesPlaceholder}
               onRootPageShown={onFilesRootShown}
+              branchPlaceholders={filesBranchPlaceholders}
+              onBranchShown={onFilesBranchShown}
             />
           )}
         </div>
@@ -1033,7 +1050,9 @@ export function DocumentSidebar({
   useEffect(() => {
     if (!filesRootScope) return;
     const root = readPagedFilesRootHint(filesRootScope);
-    if (root) prefetchPagedFilesRoot(queryClient, root);
+    if (!root) return;
+    const { branches } = readSidebarLayoutHint(filesRootScope, null);
+    prefetchPagedFilesRoot(queryClient, root, Object.keys(branches ?? {}));
   }, [filesRootScope, queryClient]);
   const localFileMode = contentSpacesQuery.data?.sourceMode === "local-files";
   const documentsQuery = useDocuments({ enabled: localFileMode });
@@ -1620,6 +1639,45 @@ export function DocumentSidebar({
     () => new Set([...expandedDocumentIds, ...activeAncestorIds]),
     [activeAncestorIds, expandedDocumentIds],
   );
+  // Open folders are kept by ID with the rows they drew, so the next load
+  // reads them with the tree and holds their rows. Until the stored open
+  // folders arrive, only the active page's ancestors are known to be open, so
+  // folders are dropped from the hint only after that.
+  const rememberFilesBranches = useCallback(
+    (shown?: { documentId: string; rows: SidebarRowsHint }) => {
+      const current = readSidebarLayoutHint(
+        filesRootScope,
+        selectedSpaceId,
+      ).branches;
+      const branches = {
+        ...current,
+        ...(shown ? { [shown.documentId]: shown.rows } : {}),
+      };
+      rememberLayout({
+        branches: Object.fromEntries(
+          Object.entries(branches).filter(
+            ([documentId]) =>
+              !sidebarStateHydratedRef.current ||
+              visibleExpandedDocumentIds.has(documentId),
+          ),
+        ),
+      });
+    },
+    [
+      filesRootScope,
+      rememberLayout,
+      selectedSpaceId,
+      visibleExpandedDocumentIds,
+    ],
+  );
+  const rememberFilesBranch = useCallback(
+    (documentId: string, rows: SidebarRowsHint) =>
+      rememberFilesBranches({ documentId, rows }),
+    [rememberFilesBranches],
+  );
+  useEffect(() => {
+    if (sidebarStateHydratedRef.current) rememberFilesBranches();
+  }, [rememberFilesBranches]);
 
   const expandedIds = new Set(expandedIdsRef.current);
   for (const id of activeAncestorIds) expandedIds.add(id);
@@ -2556,6 +2614,8 @@ export function DocumentSidebar({
       }
       filesPlaceholder={compact ? sidebarLayoutHint.files : undefined}
       onFilesRootShown={compact ? rememberFilesRoot : undefined}
+      filesBranchPlaceholders={compact ? sidebarLayoutHint.branches : undefined}
+      onFilesBranchShown={compact ? rememberFilesBranch : undefined}
     />
   );
 

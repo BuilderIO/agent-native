@@ -1077,6 +1077,11 @@ export interface ContentDatabaseNavigationPageResponse {
     hasMore: boolean;
     nextCursor: string | null;
   };
+  /** First pages of the requested expanded folders, by parent document ID. */
+  branches?: Record<
+    string,
+    Omit<ContentDatabaseNavigationPageResponse, "branches">
+  >;
 }
 
 export interface BuilderActionTiming {

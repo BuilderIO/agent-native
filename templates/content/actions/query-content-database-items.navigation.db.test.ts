@@ -6,9 +6,12 @@ import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { putUserSetting } from "@agent-native/core/settings";
 import { eq, inArray } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION } from "../shared/api.js";
+import {
+  CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+  type ContentDatabaseNavigationPageResponse,
+} from "../shared/api.js";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -223,6 +226,7 @@ async function navigate(
     sort?: "custom" | "name" | "created" | "last_edited";
     viewId?: string;
     cursor?: string;
+    expand?: string[];
   },
   limit?: number,
 ) {
@@ -230,7 +234,36 @@ async function navigate(
     action.run({ databaseId: DATABASE_ID, navigation, limit }, {
       userEmail: OWNER,
     } as any),
-  );
+  ) as Promise<ContentDatabaseNavigationPageResponse>;
+}
+
+async function saveCustomOrder(itemIds: string[]) {
+  const { personalDatabaseViewSettingKey } =
+    await import("./_content-database-personal-view.js");
+  await putUserSetting(OWNER, personalDatabaseViewSettingKey(DATABASE_ID), {
+    version: CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+    activeViewId: "files",
+    views: [
+      {
+        id: "files",
+        sorts: [],
+        filters: [],
+        filterMode: "and",
+        sidebarOrder: { mode: "custom", itemIds },
+      },
+    ],
+  });
+}
+
+// Records the SQL the database client runs while `read` is in flight.
+async function statementsDuring(read: () => Promise<unknown>) {
+  const query = vi.spyOn(getDb().$client, "query");
+  try {
+    await read();
+    return query.mock.calls.map(([text]) => String(text));
+  } finally {
+    query.mockRestore();
+  }
 }
 
 describe("query-content-database-items Files navigation", () => {
@@ -1290,6 +1323,263 @@ describe("query-content-database-items Files navigation", () => {
       canEdit: true,
       canManage: true,
     });
+  });
+
+  it("ranks a child branch from its own siblings in one read", async () => {
+    await addFile({ id: "sibling-rank-parent", position: 900 });
+    for (let index = 0; index < 6; index += 1) {
+      await addFile({
+        id: `sibling-rank-${index}`,
+        parentId: "sibling-rank-parent",
+        position: index,
+      });
+    }
+    await saveCustomOrder([
+      ...Array.from(
+        { length: 400 },
+        (_, index) => `membership-elsewhere-${index}`,
+      ),
+      "membership-sibling-rank-4",
+      "membership-sibling-rank-1",
+    ]);
+
+    let first: ContentDatabaseNavigationPageResponse | undefined;
+    const statements = await statementsDuring(async () => {
+      first = await navigate({ parentId: "sibling-rank-parent" }, 3);
+    });
+    expect(first!.items.map((item) => item.documentId)).toEqual([
+      "sibling-rank-4",
+      "sibling-rank-1",
+      "sibling-rank-0",
+    ]);
+    // One read finds the siblings, ranks them, and returns their row flags;
+    // the saved list is never expanded into rows to walk.
+    expect(
+      statements.filter((text) => text.includes('"documents"."parent_id" = $')),
+    ).toHaveLength(1);
+    expect(statements.join("\n")).not.toContain("jsonb_to_recordset");
+
+    const rest = await navigate(
+      {
+        parentId: "sibling-rank-parent",
+        cursor: first!.pagination.nextCursor!,
+      },
+      3,
+    );
+    expect(rest.items.map((item) => item.documentId)).toEqual([
+      "sibling-rank-2",
+      "sibling-rank-3",
+      "sibling-rank-5",
+    ]);
+    expect(rest.pagination.hasMore).toBe(false);
+  });
+
+  it("returns each row's permissions and favorite state from the page read", async () => {
+    for (const role of ["editor", "viewer", "admin"] as const) {
+      await addFile({ id: `row-flags-${role}`, ownerEmail: OTHER });
+      await getDb()
+        .insert(schema.documentShares)
+        .values({
+          id: `row-flags-${role}-share`,
+          resourceId: `row-flags-${role}`,
+          principalType: "user",
+          principalId: OWNER,
+          role,
+          createdBy: OTHER,
+          createdAt: new Date().toISOString(),
+        });
+    }
+    await addFile({ id: "row-flags-favorite" });
+    const { setFavoriteMembership } = await import("./_content-favorites.js");
+    await setFavoriteMembership({
+      db: getDb(),
+      userEmail: OWNER,
+      documentId: "row-flags-favorite",
+      favorite: true,
+      now: new Date().toISOString(),
+    });
+    await saveCustomOrder([
+      "membership-row-flags-editor",
+      "membership-row-flags-viewer",
+      "membership-row-flags-admin",
+      "membership-row-flags-favorite",
+    ]);
+
+    const roots = await navigate({ parentId: null }, 4);
+    expect(
+      roots.items.map(({ documentId, canEdit, canManage, isFavorite }) => ({
+        documentId,
+        canEdit,
+        canManage,
+        isFavorite,
+      })),
+    ).toEqual([
+      {
+        documentId: "row-flags-editor",
+        canEdit: true,
+        canManage: false,
+        isFavorite: false,
+      },
+      {
+        documentId: "row-flags-viewer",
+        canEdit: false,
+        canManage: false,
+        isFavorite: false,
+      },
+      {
+        documentId: "row-flags-admin",
+        canEdit: true,
+        canManage: true,
+        isFavorite: false,
+      },
+      {
+        documentId: "row-flags-favorite",
+        canEdit: true,
+        canManage: true,
+        isFavorite: true,
+      },
+    ]);
+  });
+
+  it("returns expanded folders' first pages with the tree", async () => {
+    await addFile({ id: "expand-a", position: 1 });
+    await addFile({ id: "expand-b", position: 2 });
+    await addFile({ id: "expand-c", position: 3 });
+    for (let index = 0; index < 3; index += 1) {
+      await addFile({
+        id: `expand-a-${index}`,
+        parentId: "expand-a",
+        position: index,
+      });
+    }
+    await addFile({ id: "expand-a-1-x", parentId: "expand-a-1" });
+    await addFile({ id: "expand-a-1-x-y", parentId: "expand-a-1-x" });
+    await addFile({ id: "expand-b-trashed", parentId: "expand-b" });
+    await getDb()
+      .update(schema.documents)
+      .set({ trashedAt: "2026-01-02T00:00:00.000Z" })
+      .where(eq(schema.documents.id, "expand-b-trashed"));
+    await addFile({ id: "expand-c-0", parentId: "expand-c" });
+    await addFile({ id: "expand-c-0-x", parentId: "expand-c-0" });
+    await addFile({
+      id: "expand-hidden-child",
+      parentId: "expand-a",
+      ownerEmail: OTHER,
+      position: -1,
+    });
+    await addFile({ id: "expand-hidden-x", parentId: "expand-hidden-child" });
+    await saveCustomOrder([
+      "membership-expand-a",
+      "membership-expand-b",
+      "membership-expand-c",
+    ]);
+
+    const tree = await navigate(
+      {
+        parentId: null,
+        expand: [
+          "expand-a",
+          "expand-a-1",
+          "expand-a-1-x",
+          "expand-b",
+          "expand-c-0",
+          "expand-hidden-child",
+          "expand-unknown",
+        ],
+      },
+      3,
+    );
+
+    expect(tree.items.map((item) => item.documentId)).toEqual([
+      "expand-a",
+      "expand-b",
+      "expand-c",
+    ]);
+    // Only expanded folders this read returned, with children the caller can
+    // see, come back; a collapsed folder keeps its expanded descendants out.
+    expect(Object.keys(tree.branches ?? {}).sort()).toEqual([
+      "expand-a",
+      "expand-a-1",
+      "expand-a-1-x",
+    ]);
+    for (const [parentId, branch] of Object.entries(tree.branches!)) {
+      expect(branch).toEqual(await navigate({ parentId }, 3));
+    }
+    expect(
+      tree.branches!["expand-a"]!.items.map((item) => item.documentId),
+    ).toEqual(["expand-a-0", "expand-a-1", "expand-a-2"]);
+
+    expect(await navigate({ parentId: null }, 3)).not.toHaveProperty(
+      "branches",
+    );
+  });
+
+  it("opens expanded folders past their parent's first page only from that first page", async () => {
+    for (const [index, id] of [
+      "past-a",
+      "past-b",
+      "past-c",
+      "past-d",
+    ].entries()) {
+      await addFile({ id, position: index });
+    }
+    await addFile({ id: "past-d-1", parentId: "past-d" });
+    await addFile({ id: "past-d-1-x", parentId: "past-d-1" });
+    await saveCustomOrder([
+      "membership-past-a",
+      "membership-past-b",
+      "membership-past-c",
+      "membership-past-d",
+    ]);
+    const expand = ["past-d", "past-d-1"];
+
+    const first = await navigate({ parentId: null, expand }, 2);
+    expect(first.items.map((item) => item.documentId)).toEqual([
+      "past-a",
+      "past-b",
+    ]);
+    expect(Object.keys(first.branches ?? {}).sort()).toEqual([
+      "past-d",
+      "past-d-1",
+    ]);
+    expect(first.branches!["past-d-1"]).toEqual(
+      await navigate({ parentId: "past-d-1" }, 2),
+    );
+
+    const rest = await navigate(
+      { parentId: null, cursor: first.pagination.nextCursor!, expand },
+      1,
+    );
+    expect(rest.items.map((item) => item.documentId)).toEqual(["past-c"]);
+    expect(rest).not.toHaveProperty("branches");
+  });
+
+  it("caps how many expanded folders one read returns", async () => {
+    const { MAX_NAVIGATION_EXPANDED_BRANCHES } =
+      await import("./_database-navigation.js");
+    const expand: string[] = [];
+    for (const root of ["expand-cap-0", "expand-cap-1"]) {
+      await addFile({ id: root });
+      expand.push(root);
+      for (let index = 0; index < 20; index += 1) {
+        const child = `${root}-${String(index).padStart(2, "0")}`;
+        await addFile({ id: child, parentId: root, position: index });
+        await addFile({ id: `${child}-x`, parentId: child });
+        expand.push(child);
+      }
+    }
+    await saveCustomOrder([
+      "membership-expand-cap-0",
+      "membership-expand-cap-1",
+    ]);
+
+    const tree = await navigate({ parentId: null, expand }, 20);
+
+    expect(Object.keys(tree.branches ?? {})).toHaveLength(
+      MAX_NAVIGATION_EXPANDED_BRANCHES,
+    );
+    expect(tree.branches).toHaveProperty("expand-cap-0");
+    expect(tree.branches).toHaveProperty("expand-cap-1");
   });
 
   it("requires an explicit parent and rejects unsupported pagination combinations", () => {

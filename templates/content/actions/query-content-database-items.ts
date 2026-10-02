@@ -6,7 +6,11 @@ import type {
   ContentDatabaseNavigationPageResponse,
   ContentDatabaseUnavailableResponse,
 } from "../shared/api.js";
-import { getContentDatabaseNavigationPage } from "./_database-navigation.js";
+import { readPersonalDatabaseViewOverrides } from "./_content-database-personal-view.js";
+import {
+  getContentDatabaseNavigationPage,
+  MAX_NAVIGATION_EXPAND_IDS,
+} from "./_database-navigation.js";
 import {
   CONTENT_DATABASE_MAX_READ_LIMIT,
   contentDatabaseTableQuerySchema,
@@ -49,6 +53,13 @@ export default defineAction({
           .min(1)
           .optional()
           .describe("Opaque cursor returned by the previous matching page"),
+        expand: z
+          .array(z.string().min(1))
+          .max(MAX_NAVIGATION_EXPAND_IDS)
+          .optional()
+          .describe(
+            "Expanded document IDs; each one this read returns comes back with its first child page in branches",
+          ),
       })
       .optional()
       .describe(
@@ -84,10 +95,14 @@ export default defineAction({
         statusCode: 400,
       });
     }
-    const resolved = await resolveContentDatabaseRead({
-      databaseId,
-      documentId,
-    });
+    // A person's saved order is theirs alone, so it is read while the
+    // database's access check runs; it is used only if that check passes.
+    const [resolved, earlyOverrides] = await Promise.all([
+      resolveContentDatabaseRead({ databaseId, documentId }),
+      navigation && userEmail && databaseId
+        ? readPersonalDatabaseViewOverrides(userEmail, databaseId)
+        : undefined,
+    ]);
     if (!resolved.available) return resolved;
 
     if (navigation) {
@@ -95,11 +110,19 @@ export default defineAction({
       return getContentDatabaseNavigationPage({
         database: resolved.database,
         userEmail,
+        overrides:
+          earlyOverrides !== undefined
+            ? earlyOverrides
+            : await readPersonalDatabaseViewOverrides(
+                userEmail,
+                resolved.database.id,
+              ),
         parentId: navigation.parentId,
         sort: navigation.sort,
         viewId: navigation.viewId,
         limit: limit ?? 20,
         cursor: navigation.cursor,
+        expand: navigation.expand,
       });
     }
 

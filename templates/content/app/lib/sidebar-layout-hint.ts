@@ -7,12 +7,15 @@ import {
 // that land in any order. What this browser last drew for the same person,
 // organization, and space lets the first frame reserve each section at that
 // size, so later rows fill in place instead of pushing the sections below.
-// Only counts and section settings are kept, never titles.
+// The Files folders that were open are kept by ID, so the next load reads
+// them with the tree. Only counts, IDs, and section settings are kept, never
+// titles.
 const SIDEBAR_LAYOUT_HINT_STORAGE_KEY = "content-sidebar-layout-v1";
 
 // Rows each section shows before "Show more", and the most a hint reserves.
 export const SIDEBAR_SECTION_ROW_LIMIT = 5;
 const MAX_HINTED_FILES_ROWS = 100;
+const MAX_HINTED_FILES_BRANCHES = 32;
 
 export type SidebarRowsHint = { rows: number; more: boolean };
 
@@ -21,6 +24,8 @@ export type SidebarLayoutHint = {
   pinned?: SidebarRowsHint;
   recent?: SidebarRowsHint;
   files?: SidebarRowsHint;
+  /** Rows each open Files folder drew, by folder document ID. */
+  branches?: Record<string, SidebarRowsHint>;
 };
 
 function parseRows(value: unknown, max: number): SidebarRowsHint | undefined {
@@ -30,6 +35,22 @@ function parseRows(value: unknown, max: number): SidebarRowsHint | undefined {
     return undefined;
   }
   return { rows: Math.min(rows, max), more: more === true };
+}
+
+function parseBranches(
+  value: unknown,
+): Record<string, SidebarRowsHint> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .slice(0, MAX_HINTED_FILES_BRANCHES)
+      .flatMap(([documentId, rows]) => {
+        const parsed = parseRows(rows, MAX_HINTED_FILES_ROWS);
+        return parsed ? [[documentId, parsed]] : [];
+      }),
+  );
 }
 
 function readStoredHint(): {
@@ -75,6 +96,7 @@ export function readSidebarLayoutHint(
     pinned: parseRows(stored.hint.pinned, SIDEBAR_SECTION_ROW_LIMIT),
     recent: parseRows(stored.hint.recent, SIDEBAR_SECTION_ROW_LIMIT),
     files: parseRows(stored.hint.files, MAX_HINTED_FILES_ROWS),
+    branches: parseBranches(stored.hint.branches),
   };
 }
 
