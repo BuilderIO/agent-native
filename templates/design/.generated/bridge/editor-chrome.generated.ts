@@ -6467,6 +6467,26 @@ export const editorChromeBridgeScript: string = `"use strict";
         live.removeChild(stale);
       }
     }
+    function reconcileRuntimeVectorStrokeOverlay(live, next, sourceOwned) {
+      if (live.tagName.toLowerCase() !== "svg" || next.tagName.toLowerCase() !== "svg") {
+        return;
+      }
+      var nextChildren = Array.from(next.children);
+      var hasSourceStrokeDefs = nextChildren.some(function(child) {
+        return child.tagName.toLowerCase() === "defs" && child.hasAttribute("data-an-vector-stroke-defs");
+      });
+      var hasSourceStrokeOverlay = nextChildren.some(function(child) {
+        return child.tagName.toLowerCase() === "use" && child.hasAttribute("data-an-vector-stroke-overlay");
+      });
+      if (!hasSourceStrokeDefs || !hasSourceStrokeOverlay) return;
+      Array.from(live.children).forEach(function(child) {
+        if (sourceOwned(child)) return;
+        var tagName = child.tagName.toLowerCase();
+        if (tagName === "defs" && child.hasAttribute("data-an-vector-stroke-defs") || tagName === "use" && child.hasAttribute("data-an-vector-stroke-overlay")) {
+          child.remove();
+        }
+      });
+    }
     function morphElement(live, next, context) {
       morphFormState(live, next);
       var previousSource = sourceMetaFor(live);
@@ -6483,6 +6503,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
       if (declaresRuntimeChildren(next) || declaresRuntimeChildren(live)) return;
+      reconcileRuntimeVectorStrokeOverlay(live, next, isSourceOwned);
       var liveTemplate = templateContentOf(live);
       var nextTemplate = templateContentOf(next);
       if (liveTemplate && nextTemplate) {
@@ -13218,7 +13239,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         activeCrossScreenDeleteRequestId = \`cross-screen-source-\${Date.now().toString(36)}-\${Math.random().toString(36).slice(2)}\`;
         activeCrossScreenStyleSnapshot = options?.styleSnapshot !== void 0 ? options.styleSnapshot : collectPortableStyleSnapshot(el ?? null);
-        activeCrossScreenSourceHtml = el?.outerHTML;
+        activeCrossScreenSourceHtml = el ? cloneHtmlForPersistence(el) : void 0;
         var computed = el ? window.getComputedStyle(el) : null;
         activeCrossScreenComputedSize = crossScreenAutoLayoutSizeFallback(
           el ?? null,
@@ -13289,6 +13310,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         activeCrossScreenDragIdentity = null;
         activeCrossScreenDeleteRequestId = void 0;
       }
+    }
+    function cloneHtmlForPersistence(el) {
+      var clone = el.cloneNode(true);
+      clone.removeAttribute("data-agent-native-transient-drag-clone");
+      return clone.outerHTML;
     }
     var BRIDGE_CONTAINER_TAGS = [
       "div",
@@ -15066,7 +15092,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           sourceRect: rectInfoForElement(cloneEl),
           anchorRect: rectInfoForElement(anchorEl),
           sourceNodeIdMap: Array.isArray(sourceNodeIdMap) ? sourceNodeIdMap : void 0,
-          cloneHtml: cloneEl.outerHTML,
+          cloneHtml: cloneHtmlForPersistence(cloneEl),
           payload: getElementInfo(cloneEl),
           anchorPayload: getElementInfo(anchorEl)
         },
@@ -15868,6 +15894,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var clone = selectedEl.cloneNode(true);
         duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone);
         clone.setAttribute("data-agent-native-clone-root", "true");
+        clone.setAttribute("data-agent-native-transient-drag-clone", "true");
         selectedEl.parentElement.insertBefore(clone, selectedEl.nextSibling);
         resetFlowDuplicateGridPlacement(clone);
         publishSourceDocumentProvenance(void 0, true);
@@ -16138,6 +16165,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           var clone2 = sourceEl.cloneNode(true);
           duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone2);
           clone2.setAttribute("data-agent-native-clone-root", "true");
+          clone2.setAttribute("data-agent-native-transient-drag-clone", "true");
           if (sourceEl.parentElement) {
             sourceEl.parentElement.insertBefore(clone2, sourceEl.nextSibling);
           }
@@ -17113,6 +17141,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var clone2 = source.cloneNode(true);
         duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone2);
         clone2.setAttribute("data-agent-native-clone-root", "true");
+        clone2.setAttribute("data-agent-native-transient-drag-clone", "true");
         source.parentElement.insertBefore(clone2, source.nextSibling);
         clone2.style.position = heldPosition.position;
         clone2.style.left = heldPosition.left;

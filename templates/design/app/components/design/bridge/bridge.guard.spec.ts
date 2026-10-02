@@ -64,6 +64,151 @@ function compileBridgeFunction<T extends (...args: any[]) => any>(
   )(...Object.values(globals)) as T;
 }
 
+describe("source vector stroke overlay reconciliation", () => {
+  type FakeNode = {
+    tagName: string;
+    attributes: Record<string, string>;
+    sourceOwned: boolean;
+    children: FakeNode[];
+    parent: FakeNode | null;
+    hasAttribute: (name: string) => boolean;
+    getAttribute: (name: string) => string | null;
+    remove: () => void;
+  };
+
+  function fakeNode(
+    tagName: string,
+    attributes: Record<string, string> = {},
+    sourceOwned = false,
+  ): FakeNode {
+    const node: FakeNode = {
+      tagName,
+      attributes,
+      sourceOwned,
+      children: [],
+      parent: null,
+      hasAttribute: (name) =>
+        Object.prototype.hasOwnProperty.call(attributes, name),
+      getAttribute: (name) => attributes[name] ?? null,
+      remove: () => {
+        if (!node.parent) return;
+        node.parent.children = node.parent.children.filter(
+          (child) => child !== node,
+        );
+        node.parent = null;
+      },
+    };
+    return node;
+  }
+
+  function append(parent: FakeNode, child: FakeNode): void {
+    child.parent = parent;
+    parent.children.push(child);
+  }
+
+  function strokePair(id: string, sourceOwned: boolean): FakeNode[] {
+    return [
+      fakeNode("defs", { "data-an-vector-stroke-defs": "", id }, sourceOwned),
+      fakeNode(
+        "use",
+        { "data-an-vector-stroke-overlay": "", href: `#${id}` },
+        sourceOwned,
+      ),
+    ];
+  }
+
+  function makeMorphElement() {
+    const reconcile = compileBridgeFunction<
+      (
+        live: FakeNode,
+        next: FakeNode,
+        sourceOwned: (node: FakeNode) => boolean,
+      ) => void
+    >("reconcileRuntimeVectorStrokeOverlay", "morphElement", {});
+    const morphChildren = vi.fn((live: FakeNode, next: FakeNode) => {
+      next.children.forEach((child) => {
+        const marker = child.hasAttribute("data-an-vector-stroke-defs")
+          ? "data-an-vector-stroke-defs"
+          : child.hasAttribute("data-an-vector-stroke-overlay")
+            ? "data-an-vector-stroke-overlay"
+            : null;
+        if (!marker) return;
+        const identity = marker.endsWith("defs") ? "id" : "href";
+        const value = child.getAttribute(identity);
+        const sourceNodeExists = live.children.some(
+          (candidate) =>
+            candidate.sourceOwned &&
+            candidate.tagName === child.tagName &&
+            candidate.hasAttribute(marker) &&
+            candidate.getAttribute(identity) === value,
+        );
+        if (!sourceNodeExists) {
+          append(live, fakeNode(child.tagName, { ...child.attributes }, true));
+        }
+      });
+    });
+    const morphElement = compileBridgeFunction<
+      (live: FakeNode, next: FakeNode, context: object) => void
+    >("morphElement", "morphRuntimeBody", {
+      morphFormState: vi.fn(),
+      sourceMetaFor: vi.fn(),
+      morphAttributes: vi.fn(),
+      declaresRuntimeChildren: vi.fn(() => false),
+      templateContentOf: vi.fn(() => null),
+      reconcileRuntimeVectorStrokeOverlay: reconcile,
+      isSourceOwned: (node: FakeNode) => node.sourceOwned,
+      morphChildren,
+    });
+    return { morphElement, morphChildren };
+  }
+
+  it("replaces the runtime pair with one canonical source pair and keeps unrelated runtime nodes", () => {
+    const live = fakeNode("svg");
+    append(live, fakeNode("path", { d: "M0 0 L10 10" }, true));
+    strokePair("an-vector-stroke-runtime-7-geometry", false).forEach((child) =>
+      append(live, child),
+    );
+    const runtimeWidget = fakeNode("g", { "data-runtime-widget": "" });
+    append(live, runtimeWidget);
+
+    const next = fakeNode("svg");
+    append(next, fakeNode("path", { d: "M0 0 L10 10" }, true));
+    strokePair("an-vector-stroke-pen-1", true).forEach((child) =>
+      append(next, child),
+    );
+
+    makeMorphElement().morphElement(live, next, {});
+
+    const defs = live.children.filter((child) =>
+      child.hasAttribute("data-an-vector-stroke-defs"),
+    );
+    const overlays = live.children.filter((child) =>
+      child.hasAttribute("data-an-vector-stroke-overlay"),
+    );
+    expect(defs).toHaveLength(1);
+    expect(overlays).toHaveLength(1);
+    expect(overlays[0]?.getAttribute("href")).toBe("#an-vector-stroke-pen-1");
+    expect(live.children).toContain(runtimeWidget);
+  });
+
+  it("preserves runtime stroke markup unless source declares the complete pair", () => {
+    const live = fakeNode("svg");
+    strokePair("an-vector-stroke-runtime-7-geometry", false).forEach((child) =>
+      append(live, child),
+    );
+    const next = fakeNode("svg");
+    append(next, fakeNode("defs", { "data-an-vector-stroke-defs": "" }, true));
+
+    makeMorphElement().morphElement(live, next, {});
+
+    expect(
+      live.children.filter((child) =>
+        child.hasAttribute("data-an-vector-stroke-overlay"),
+      ),
+    ).toHaveLength(1);
+  });
+});
+
 const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
   "editor-chrome.bridge.ts": [
     "@agent-native/toolkit/canvas-interactions",

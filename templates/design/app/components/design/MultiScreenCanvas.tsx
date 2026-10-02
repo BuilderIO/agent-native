@@ -3163,11 +3163,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }
         crossScreenTargetRef.current = nextTarget;
         setCrossScreenTarget(nextTarget);
-        claimCrossScreenDrop(sourceScreenId, nextTarget.id !== sourceScreenId);
+        claimCrossScreenDrop(
+          sourceScreenId,
+          nextTarget.id !== sourceScreenId ||
+            (nextTarget.id === boardFileId &&
+              crossScreenDragMsgRef.current?.duplicate === true),
+        );
         setCrossScreenGhost(buildCrossScreenGhost(boardPoint, sourceScreenId));
         requestCrossScreenDropGuide(nextTarget, boardPoint);
       } else if (
-        sourceScreenId !== boardFileId &&
+        (sourceScreenId !== boardFileId ||
+          crossScreenDragMsgRef.current?.duplicate === true) &&
         boardFileId &&
         boardFrameGeometry &&
         boardSurfaceRenderGeometry &&
@@ -3179,7 +3185,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }
         crossScreenTargetRef.current = nextTarget;
         setCrossScreenTarget(nextTarget);
-        claimCrossScreenDrop(sourceScreenId, nextTarget.id !== sourceScreenId);
+        claimCrossScreenDrop(
+          sourceScreenId,
+          nextTarget.id !== sourceScreenId ||
+            (nextTarget.id === boardFileId &&
+              crossScreenDragMsgRef.current?.duplicate === true),
+        );
         setCrossScreenGhost(buildCrossScreenGhost(boardPoint, sourceScreenId));
         requestCrossScreenDropGuide(nextTarget, boardPoint);
       } else {
@@ -3289,8 +3300,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         return;
       }
       const sourceFrameGeometry = frameGeometryRef.current?.[sourceScreenId];
+      const boardSurfaceHit =
+        !!boardFileId &&
+        (sourceScreenId !== boardFileId || payload.duplicate) &&
+        !!boardFrameGeometry &&
+        !!boardSurfaceRenderGeometry &&
+        geometryContainsPoint(boardSurfaceRenderGeometry, lastBoardPoint);
+      const sameBoardDuplicateHit =
+        sourceScreenId === boardFileId && payload.duplicate && boardSurfaceHit;
       const droppedInsideSourceScreen =
         !candidate &&
+        !sameBoardDuplicateHit &&
         !!sourceFrameGeometry &&
         lastBoardPoint.x >= sourceFrameGeometry.x &&
         lastBoardPoint.x <= sourceFrameGeometry.x + sourceFrameGeometry.width &&
@@ -3312,12 +3332,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             ? "moving into candidate"
             : "no candidate — refused unless over the board surface",
       });
-      const boardSurfaceHit =
-        !!boardFileId &&
-        sourceScreenId !== boardFileId &&
-        !!boardFrameGeometry &&
-        !!boardSurfaceRenderGeometry &&
-        geometryContainsPoint(boardSurfaceRenderGeometry, lastBoardPoint);
       const targetCandidate =
         candidate ??
         (boardSurfaceHit && boardFileId && boardFrameGeometry
@@ -11043,6 +11057,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               contentEditable={editableScreenIds?.has(screen.id) === true}
               handlesEnabled={!hasGroupSelection && !readOnly}
               readOnly={readOnly}
+              handToolActive={effectiveTool === "hand"}
               penActive={penActive}
               creationToolActive={creationToolActive}
               canvasGestureActive={canvasGestureActive}
@@ -12421,6 +12436,7 @@ interface ScreenProps {
   groupSelected: boolean;
   contentEditable: boolean;
   handlesEnabled: boolean;
+  handToolActive: boolean;
   penActive: boolean;
   creationToolActive: boolean;
   canvasGestureActive: boolean;
@@ -12490,6 +12506,7 @@ const Screen = memo(function Screen({
   groupSelected,
   contentEditable,
   handlesEnabled,
+  handToolActive,
   penActive,
   creationToolActive,
   canvasGestureActive,
@@ -12564,6 +12581,7 @@ const Screen = memo(function Screen({
       hasScreenChildLayers(screen.content) ||
       contentEditable) &&
     !locked &&
+    !handToolActive &&
     !penActive &&
     !creationToolActive &&
     !canvasGestureActive;
