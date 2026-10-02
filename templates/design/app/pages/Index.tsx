@@ -160,7 +160,6 @@ type HomeSuggestionsResult =
 
 export default function Index() {
   const t = useT();
-  useHomeSearchShortcut(true);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -248,6 +247,13 @@ export default function Index() {
   const recentVisible =
     accessibleDesignsSummary.isSuccess &&
     (accessibleDesignsSummary.data?.totalCount ?? 0) > 0;
+  const revealRecentSearch = useCallback(() => {
+    if (!recentVisible) return false;
+    homeLibraryTabWasSelectedRef.current = true;
+    setHomeSection("recent");
+    return true;
+  }, [recentVisible]);
+  useHomeSearchShortcut(true, revealRecentSearch);
   useEffect(() => {
     if (!accessibleDesignsSummary.isSuccess) return;
 
@@ -1310,7 +1316,7 @@ export default function Index() {
                 : homeSection
             }
             onValueChange={(value) => {
-              if (recentVisible) homeLibraryTabWasSelectedRef.current = true;
+              homeLibraryTabWasSelectedRef.current = true;
               setHomeSection(value);
             }}
             labels={{

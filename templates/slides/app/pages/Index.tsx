@@ -622,7 +622,6 @@ export default function Index({ active = true }: { active?: boolean }) {
           prompt,
         }));
   const navigate = useNavigate();
-  useHomeSearchShortcut(isHome);
   const [searchParams, setSearchParams] = useSearchParams();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
   const [workspaceDefaultCandidate, setWorkspaceDefaultCandidate] =
@@ -688,6 +687,13 @@ export default function Index({ active = true }: { active?: boolean }) {
     useState<SlidesHomeLibraryTab>("templates");
   const homeLibraryTabWasSelectedRef = useRef(false);
   const deckFilterWasSelectedRef = useRef(false);
+  const revealRecentSearch = useCallback(() => {
+    if (decks.length === 0) return false;
+    homeLibraryTabWasSelectedRef.current = true;
+    setHomeSection("recent");
+    return true;
+  }, [decks.length]);
+  useHomeSearchShortcut(isHome, revealRecentSearch);
   useEffect(() => {
     if (deckSearch.trim()) setHomeSection("recent");
   }, [deckSearch]);
@@ -2586,7 +2592,7 @@ export default function Index({ active = true }: { active?: boolean }) {
               : homeSection
           }
           onValueChange={(value) => {
-            if (hasDecks) homeLibraryTabWasSelectedRef.current = true;
+            homeLibraryTabWasSelectedRef.current = true;
             setHomeSection(value);
           }}
           labels={{
