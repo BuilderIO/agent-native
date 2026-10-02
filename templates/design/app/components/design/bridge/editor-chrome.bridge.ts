@@ -7817,6 +7817,46 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
   }
 
+  function reconcileRuntimeVectorStrokeOverlay(
+    live: Element,
+    next: Element,
+    sourceOwned: (node: Node) => boolean,
+  ): void {
+    if (
+      live.tagName.toLowerCase() !== "svg" ||
+      next.tagName.toLowerCase() !== "svg"
+    ) {
+      return;
+    }
+    var nextChildren = Array.from(next.children);
+    var hasSourceStrokeDefs = nextChildren.some(function (child) {
+      return (
+        child.tagName.toLowerCase() === "defs" &&
+        child.hasAttribute("data-an-vector-stroke-defs")
+      );
+    });
+    var hasSourceStrokeOverlay = nextChildren.some(function (child) {
+      return (
+        child.tagName.toLowerCase() === "use" &&
+        child.hasAttribute("data-an-vector-stroke-overlay")
+      );
+    });
+    if (!hasSourceStrokeDefs || !hasSourceStrokeOverlay) return;
+
+    Array.from(live.children).forEach(function (child) {
+      if (sourceOwned(child)) return;
+      var tagName = child.tagName.toLowerCase();
+      if (
+        (tagName === "defs" &&
+          child.hasAttribute("data-an-vector-stroke-defs")) ||
+        (tagName === "use" &&
+          child.hasAttribute("data-an-vector-stroke-overlay"))
+      ) {
+        child.remove();
+      }
+    });
+  }
+
   function morphElement(
     live: Element,
     next: Element,
@@ -7837,6 +7877,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     }
     if (declaresRuntimeChildren(next) || declaresRuntimeChildren(live)) return;
+    reconcileRuntimeVectorStrokeOverlay(live, next, isSourceOwned);
     var liveTemplate = templateContentOf(live);
     var nextTemplate = templateContentOf(next);
     if (liveTemplate && nextTemplate) {

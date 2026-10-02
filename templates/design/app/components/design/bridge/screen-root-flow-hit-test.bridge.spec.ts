@@ -91,4 +91,54 @@ describe("Screen-root auto-layout hit testing", () => {
       await browser.close();
     }
   });
+
+  it("never uses a transient drag copy as its own insertion anchor", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 640, height: 480 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0;width:640px;height:480px;position:relative">
+        <div data-agent-native-node-id="source" data-an-primitive="frame" style="position:absolute;left:40px;top:40px;width:220px;height:160px"></div>
+        <div data-agent-native-clone-root="true" data-agent-native-node-id="copy-root" style="position:absolute;left:480px;top:300px;width:120px;height:80px;display:flex;flex-direction:column">
+          <div data-agent-native-node-id="copy-child" style="height:40px">Copy</div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "transient-copy",
+            x: 520,
+            y: 320,
+            preview: false,
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+
+      const packet = await page.evaluate(
+        () => (window as any).__hitTestResults[0],
+      );
+      expect(packet).toMatchObject({
+        correlationId: "transient-copy",
+        anchorNodeId: "",
+        placement: "inside",
+        dropMode: "flow-insert",
+      });
+      expect(packet.pendingNodeId).toBeUndefined();
+    } finally {
+      await browser.close();
+    }
+  });
 });

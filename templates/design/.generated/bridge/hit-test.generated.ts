@@ -120,7 +120,7 @@ export const hitTestBridgeScript: string = `"use strict";
       for (var i = 0; i < targets.length; i += 1) {
         var target = targets[i];
         if (!target || target.nodeType !== 1) continue;
-        if (isOverlayElement(target)) continue;
+        if (isOverlayElement(target) || isCloneElement(target)) continue;
         if (isLayerInteractionBlocked(target)) return null;
         return target;
       }
@@ -278,7 +278,7 @@ export const hitTestBridgeScript: string = `"use strict";
       return matches.length === 1 && matches[0] === expectedElement;
     }
     function getAnchorNodeProvenance(nodeId, anchor) {
-      if (!anchor || isTemplateCloneElement(anchor)) return void 0;
+      if (!anchor || isCloneElement(anchor)) return void 0;
       var candidate = window.__agentNativeSourceProvenance;
       if (!candidate || typeof candidate !== "object") return void 0;
       var versionHash = typeof candidate.versionHash === "string" && candidate.versionHash ? candidate.versionHash : void 0;
@@ -303,11 +303,14 @@ export const hitTestBridgeScript: string = `"use strict";
       }
       return "";
     }
-    function isTemplateCloneElement(el) {
+    function isCloneElement(el) {
       var node = el;
       while (node && node !== document.documentElement) {
         var parent = node.parentElement;
         if (!parent) return false;
+        if (node.getAttribute("data-agent-native-clone-root") === "true") {
+          return true;
+        }
         if (alpineGeneratedChildrenOf(parent).indexOf(node) !== -1) return true;
         node = parent;
       }
@@ -315,7 +318,7 @@ export const hitTestBridgeScript: string = `"use strict";
     }
     function draggableElementChildren(parent) {
       return Array.prototype.slice.call(parent.children).filter(function(child) {
-        return child.nodeType === 1 && !isOverlayElement(child) && !isLayerInteractionBlocked(child) && !isTemplateCloneElement(child);
+        return child.nodeType === 1 && !isOverlayElement(child) && !isLayerInteractionBlocked(child) && !isCloneElement(child);
       });
     }
     function freshRuntimeNodeId(prefix) {
@@ -337,7 +340,7 @@ export const hitTestBridgeScript: string = `"use strict";
     function getOrMintPendingNodeId(el) {
       if (!el || !el.getAttribute || !el.setAttribute) return "";
       if (el === document.body || el === document.documentElement) return "";
-      if (isTemplateCloneElement(el)) return "";
+      if (isCloneElement(el)) return "";
       var existing = el.getAttribute("data-an-pending-node-id");
       if (existing) return existing;
       var minted = freshRuntimeNodeId("pending");
@@ -482,7 +485,7 @@ export const hitTestBridgeScript: string = `"use strict";
         if (isLayerInteractionBlocked(cursor)) return null;
         var parent = cursor.parentElement;
         if (parent && isAutoLayoutElement(parent)) {
-          if (isTemplateCloneElement(cursor)) {
+          if (isCloneElement(cursor)) {
             var cloneFallback = nearestChildInsertionTarget(
               parent,
               clientX,
@@ -738,7 +741,7 @@ export const hitTestBridgeScript: string = `"use strict";
       );
       var infos = [];
       nodes.forEach(function(node) {
-        if (NON_SELECTABLE_TAGS.indexOf(node.tagName.toLowerCase()) !== -1 || isEditorInjectedElement(node) || isTemplateCloneElement(node) || node.ownerSVGElement) {
+        if (NON_SELECTABLE_TAGS.indexOf(node.tagName.toLowerCase()) !== -1 || isEditorInjectedElement(node) || isCloneElement(node) || node.ownerSVGElement) {
           return;
         }
         var rect = node.getBoundingClientRect();

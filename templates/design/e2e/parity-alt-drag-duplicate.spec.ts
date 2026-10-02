@@ -302,20 +302,35 @@ async function zoomOutToBoardDropPoint(
     width: number;
     height: number;
   }> = [],
+  options: { withinBoardSurface?: boolean } = {},
 ) {
   const zoomControl = page.getByRole("button", { name: /^\d+%$/ }).first();
   await zoomControl.click();
   await page.getByRole("menuitem", { name: "Zoom to 50%" }).click();
   await expect(zoomControl).toHaveText("50%");
-  return page.evaluate((excludedRects) => {
+  const evaluateInput = {
+    excludedRects,
+    withinBoardSurface: options.withinBoardSurface === true,
+  };
+  return page.evaluate((input) => {
+    const { excludedRects, withinBoardSurface } = input;
     const canvas = document.querySelector(
       "[data-multi-screen-canvas-world]",
     )?.parentElement;
     if (!canvas) return null;
     const canvasBounds = canvas.getBoundingClientRect();
+    const boardSurfaceIframe = withinBoardSurface
+      ? document.querySelector<HTMLIFrameElement>(
+          "[data-board-surface-layer] iframe",
+        )
+      : null;
+    const boardSurfaceBounds =
+      boardSurfaceIframe?.getBoundingClientRect() ?? null;
     const iframeBounds = Array.from(
       document.querySelectorAll("iframe[data-screen-iframe-id]"),
-    ).map((iframe) => iframe.getBoundingClientRect());
+    )
+      .filter((iframe) => iframe !== boardSurfaceIframe)
+      .map((iframe) => iframe.getBoundingClientRect());
     const shellBounds = Array.from(
       document.querySelectorAll("[data-screen-shell]"),
     ).map((shell) => shell.getBoundingClientRect());
@@ -336,6 +351,9 @@ async function zoomOutToBoardDropPoint(
         x += 64
       ) {
         if (excluded(x, y)) continue;
+        if (boardSurfaceBounds && !contains(boardSurfaceBounds, x, y)) {
+          continue;
+        }
         if (
           iframeBounds.some((rect) => contains(rect, x, y)) ||
           shellBounds.some((rect) => contains(rect, x, y))
@@ -346,6 +364,7 @@ async function zoomOutToBoardDropPoint(
         if (!hit || hit.closest("[data-design-chrome-region]")) {
           continue;
         }
+        if (boardSurfaceIframe && hit !== boardSurfaceIframe) continue;
         return {
           x,
           y,
@@ -371,7 +390,7 @@ async function zoomOutToBoardDropPoint(
       }
     }
     return null;
-  }, excludedRects);
+  }, evaluateInput);
 }
 
 async function layerNames(page: Page): Promise<string[]> {
@@ -454,8 +473,22 @@ async function dragBoardLayerCopyToEmptyCanvas(
     await fileContent(request, designId, "__board__.html"),
     "root-frame",
   );
-  const emptyPoint = await zoomOutToBoardDropPoint(page, [rootBox]);
+  const emptyPoint = await zoomOutToBoardDropPoint(page, [rootBox], {
+    withinBoardSurface: true,
+  });
   if (!emptyPoint) throw new Error("no unobstructed board drop point");
+  expect(
+    await page.evaluate(({ x, y }) => {
+      const boardSurfaceIframe = document.querySelector(
+        "[data-board-surface-layer] iframe",
+      );
+      return (
+        !!boardSurfaceIframe &&
+        document.elementFromPoint(x, y) === boardSurfaceIframe
+      );
+    }, emptyPoint),
+    "same-board duplicate must be released over the board surface",
+  ).toBe(true);
   const dragBox = await dragSurface.boundingBox();
   if (!dragBox) throw new Error("selected board layer has no drag surface");
   const grabOffset = { x: dragBox.width / 2, y: dragBox.height / 2 };
@@ -507,7 +540,21 @@ async function dragBoardLayerCopyToEmptyCanvas(
     await page.keyboard.up("Alt").catch(() => {});
   }
 
-  await expect(boardRoots).toHaveCount(2, { timeout: 20_000 });
+  try {
+    await expect(boardRoots).toHaveCount(2, { timeout: 20_000 });
+  } catch (error) {
+    console.log(
+      "[board-copy-trace-after-timeout]",
+      JSON.stringify(
+        await page.evaluate(
+          (offset) =>
+            (window as any).__designTrace?.entries?.().slice(offset) ?? [],
+          traceCountBeforeDrag,
+        ),
+      ),
+    );
+    throw error;
+  }
   const rootInfo = await boardRoots.evaluateAll((roots) =>
     roots.map((root) => ({
       id: root.getAttribute("data-agent-native-node-id") ?? "",

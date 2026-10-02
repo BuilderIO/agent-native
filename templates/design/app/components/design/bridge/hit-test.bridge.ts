@@ -204,7 +204,7 @@
     for (var i = 0; i < targets.length; i += 1) {
       var target = targets[i];
       if (!target || target.nodeType !== 1) continue;
-      if (isOverlayElement(target)) continue;
+      if (isOverlayElement(target) || isCloneElement(target)) continue;
       if (isLayerInteractionBlocked(target)) return null;
       return target;
     }
@@ -420,7 +420,7 @@
     nodeId: string,
     anchor: Element | null,
   ): { versionHash?: string; uniqueNodeId?: string } | undefined {
-    if (!anchor || isTemplateCloneElement(anchor)) return undefined;
+    if (!anchor || isCloneElement(anchor)) return undefined;
     var candidate = (window as any).__agentNativeSourceProvenance;
     if (!candidate || typeof candidate !== "object") return undefined;
     var versionHash =
@@ -456,11 +456,14 @@
     return "";
   }
 
-  function isTemplateCloneElement(el: Element | null): boolean {
+  function isCloneElement(el: Element | null): boolean {
     var node: Element | null = el;
     while (node && node !== document.documentElement) {
       var parent = node.parentElement;
       if (!parent) return false;
+      if (node.getAttribute("data-agent-native-clone-root") === "true") {
+        return true;
+      }
       if (alpineGeneratedChildrenOf(parent).indexOf(node) !== -1) return true;
       node = parent;
     }
@@ -475,7 +478,7 @@
         child.nodeType === 1 &&
         !isOverlayElement(child) &&
         !isLayerInteractionBlocked(child) &&
-        !isTemplateCloneElement(child)
+        !isCloneElement(child)
       );
     });
   }
@@ -501,7 +504,7 @@
   function getOrMintPendingNodeId(el: Element | null): string {
     if (!el || !el.getAttribute || !el.setAttribute) return "";
     if (el === document.body || el === document.documentElement) return "";
-    if (isTemplateCloneElement(el)) return "";
+    if (isCloneElement(el)) return "";
     var existing = el.getAttribute("data-an-pending-node-id");
     if (existing) return existing;
     var minted = freshRuntimeNodeId("pending");
@@ -723,7 +726,7 @@
       if (isLayerInteractionBlocked(cursor)) return null;
       var parent: Element | null = cursor.parentElement;
       if (parent && isAutoLayoutElement(parent)) {
-        if (isTemplateCloneElement(cursor)) {
+        if (isCloneElement(cursor)) {
           var cloneFallback = nearestChildInsertionTarget(
             parent,
             clientX,
@@ -1064,7 +1067,7 @@
       if (
         NON_SELECTABLE_TAGS.indexOf(node.tagName.toLowerCase()) !== -1 ||
         isEditorInjectedElement(node) ||
-        isTemplateCloneElement(node) ||
+        isCloneElement(node) ||
         (node as SVGElement).ownerSVGElement
       ) {
         return;
