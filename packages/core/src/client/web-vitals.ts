@@ -277,9 +277,8 @@ export function installWebVitals(
       );
       observer.observe({ type, buffered: true, ...init });
       observers.set(observer, handle);
-    } catch {
-      // An entry type the browser lists but refuses to observe stays absent.
-    }
+      // coercion-ok: an entry type the browser lists but refuses to observe leaves its metric absent from the report, never 0.
+    } catch {}
   };
   const flush = () => {
     for (const [observer, handle] of observers) {
