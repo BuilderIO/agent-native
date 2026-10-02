@@ -1576,7 +1576,10 @@ function mergeAgentKitHistoryArray(
     }
   });
   const matchedAssistantTextPositions = new Set<number>();
-  for (const entry of Array.isArray(incoming) ? incoming : []) {
+  const matchedExisting = new Set<number>();
+  const newIncoming = new Set<unknown>();
+  const incomingEntries = Array.isArray(incoming) ? incoming : [];
+  for (const entry of incomingEntries) {
     const id = snapshotEntryId(entry, kind);
     const idIndex = id ? positions.get(id) : undefined;
     const textKey =
@@ -1593,7 +1596,9 @@ function mergeAgentKitHistoryArray(
     if (index === undefined) {
       if (id) positions.set(id, merged.length);
       merged.push(entry);
+      newIncoming.add(entry);
     } else {
+      matchedExisting.add(index);
       if (kind === "message") matchedAssistantTextPositions.add(index);
       if (id && idIndex === undefined) positions.set(id, index);
       const preferIncoming = preferIncomingSnapshotEntry(
@@ -1610,7 +1615,60 @@ function mergeAgentKitHistoryArray(
       }
     }
   }
-  return merged;
+  if (kind !== "message") return merged;
+  const existingCount = Array.isArray(existing) ? existing.length : 0;
+  const replaced = promptsWithNewReplies(incomingEntries, (entry) =>
+    newIncoming.has(entry),
+  );
+  return merged.filter(
+    (_entry, index) =>
+      index >= existingCount ||
+      matchedExisting.has(index) ||
+      !isSupersededInFlightReply(merged, index, replaced),
+  );
+}
+
+function promptIdBefore(entries: unknown[], index: number): string | undefined {
+  for (let i = index - 1; i >= 0; i--) {
+    const message = getStoredMessage(entries[i]);
+    if (message?.role === "user") return messageId(message);
+  }
+  return undefined;
+}
+
+/** Prompts the incoming save answers with a reply storage does not have yet. */
+function promptsWithNewReplies(
+  incoming: unknown[],
+  isNew: (entry: unknown, index: number) => boolean,
+): Set<string> {
+  const prompts = new Set<string>();
+  incoming.forEach((entry, index) => {
+    if (!isNew(entry, index)) return;
+    if (getStoredMessage(entry)?.role !== "assistant") return;
+    const prompt = promptIdBefore(incoming, index);
+    if (prompt) prompts.add(prompt);
+  });
+  return prompts;
+}
+
+/**
+ * A reloaded page replays an unfinished run under a new message id, so the
+ * reply it had saved mid-stream reaches storage as a second, partial answer
+ * unless a save carrying the replayed reply retires it. A save that has no new
+ * reply to that prompt never saw the run and leaves it alone.
+ */
+function isSupersededInFlightReply(
+  entries: unknown[],
+  index: number,
+  replacedPrompts: Set<string>,
+): boolean {
+  const message = getStoredMessage(entries[index]);
+  if (message?.role !== "assistant") return false;
+  if (message.status !== "streaming" && message.status?.type !== "running") {
+    return false;
+  }
+  const prompt = promptIdBefore(entries, index);
+  return prompt !== undefined && replacedPrompts.has(prompt);
 }
 
 function latestSnapshotRun(runs: unknown): AgentRunSnapshot | undefined {
@@ -1904,6 +1962,7 @@ export function mergeThreadDataForClientSave(
   );
   const usedIncoming = new Set<number>();
   const nextMessages: any[] = [];
+  const unmatchedExisting = new Set<unknown>();
   const idRewrites = new Map<string, string>();
 
   // A message that keeps its own id owns the incoming copy with that id; a
@@ -1953,6 +2012,7 @@ export function mergeThreadDataForClientSave(
       );
 
     if (incomingIndex === -1) {
+      unmatchedExisting.add(existingEntry);
       nextMessages.push(existingEntry);
       continue;
     }
@@ -1990,7 +2050,19 @@ export function mergeThreadDataForClientSave(
       message?.role === "assistant" ? getMessageRunId(message) : null;
     if (runId) serverReplyRuns.add(runId);
   }
-  const keptMessages = nextMessages.filter((entry) => {
+  const replacedPrompts = promptsWithNewReplies(
+    incomingMessages,
+    (entry, index) =>
+      !usedIncoming.has(index) &&
+      !messageContentIsEmpty(getStoredMessage(entry)?.content),
+  );
+  const keptMessages = nextMessages.filter((entry, index) => {
+    if (
+      unmatchedExisting.has(entry) &&
+      isSupersededInFlightReply(nextMessages, index, replacedPrompts)
+    ) {
+      return false;
+    }
     const message = getStoredMessage(entry);
     if (message?.role !== "assistant" || getMessageRunId(message)) return true;
     const runId =

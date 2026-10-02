@@ -2020,6 +2020,110 @@ describe("mergeThreadDataForClientSave", () => {
     ).toEqual([serverReply]);
   });
 
+  // Beta thread 57d652b5 (analytics): the page saved its reply mid-stream,
+  // reloaded, replayed the run into a new message, and the stored partial
+  // came back as a second reply next to the full one.
+  it("drops the partial reply a reloaded page replaced by replaying the run", () => {
+    const user = {
+      id: "message-9f5d83d4",
+      role: "user",
+      parts: [{ type: "text", text: "Write exactly 40 lines." }],
+    };
+    const partial = {
+      id: "message-2d1fbdfa",
+      role: "assistant",
+      status: "streaming",
+      parts: [{ type: "text", text: "927A6CBCE7-L1: Number one begins" }],
+    };
+    const replayed = {
+      id: "message-96e6985a",
+      role: "assistant",
+      status: "streaming",
+      parts: [
+        {
+          type: "text",
+          text: "927A6CBCE7-L1: Number one begins every counting sequence.\n927A6CBCE7-L2: Two",
+        },
+      ],
+    };
+    const runStarted = {
+      id: "run-1:1",
+      runId: "run-1",
+      sequence: 1,
+      type: "run.started",
+    };
+    const entry = (message: any, parentId: string | null) => ({
+      message: {
+        id: message.id,
+        role: message.role,
+        status: message.status,
+        content: message.parts,
+      },
+      parentId,
+    });
+
+    const beforeReload = {
+      messages: [entry(user, null), entry(partial, user.id)],
+      agentKit: { messages: [user, partial], events: [runStarted] },
+    };
+    const afterReload = mergeThreadDataForClientSave(beforeReload, {
+      messages: [entry(user, null), entry(replayed, user.id)],
+      agentKit: {
+        messages: [user, replayed],
+        events: [
+          runStarted,
+          {
+            id: "run-1:2",
+            runId: "run-1",
+            sequence: 2,
+            type: "message.created",
+            message: { id: replayed.id, role: "assistant", parts: [] },
+          },
+        ],
+      },
+    });
+
+    expect(afterReload.agentKit.messages.map((m: any) => m.id)).toEqual([
+      user.id,
+      replayed.id,
+    ]);
+    expect(afterReload.messages.map((e: any) => e.message.id)).toEqual([
+      user.id,
+      replayed.id,
+    ]);
+  });
+
+  it("keeps a stored mid-stream reply a save that never saw it does not answer", () => {
+    const user = {
+      id: "user-1",
+      role: "user",
+      parts: [{ type: "text", text: "Write forty lines" }],
+    };
+    const streaming = {
+      id: "agentkit-reply",
+      role: "assistant",
+      status: "streaming",
+      parts: [{ type: "text", text: "L1 one" }],
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        messages: [userEntry, clientSavedReply("streaming", "L1 one")],
+        agentKit: { messages: [user, streaming] },
+      },
+      { messages: [userEntry], agentKit: { messages: [user] } },
+    );
+
+    expect(merged.agentKit.messages.map((m: any) => m.id)).toEqual([
+      "user-1",
+      "agentkit-reply",
+    ]);
+    expect(merged.messages.map((e: any) => e.message.id)).toEqual([
+      "user-1",
+      "agentkit-reply",
+    ]);
+  });
+
   it("keeps the durable queue over a stale save's copy of it", () => {
     const existing = {
       _claimedQueuedMessageIds: ["queued-1"],
