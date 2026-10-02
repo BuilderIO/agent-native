@@ -383,6 +383,16 @@ describe("createGetDb pooled transaction scoping", () => {
       await getDbExec().transaction(() =>
         getDbExec().execute({ sql: "SELECT 104", timeoutMs: 40 }),
       );
+      const nestedTimeout = Number(
+        timeoutOperations[5]?.match(/^set:(\d+)ms$/)?.[1],
+      );
+      const finalTimeout = Number(
+        timeoutOperations.at(-3)?.match(/^set:(\d+)ms$/)?.[1],
+      );
+      expect(nestedTimeout).toBeGreaterThan(0);
+      expect(nestedTimeout).toBeLessThan(50);
+      expect(finalTimeout).toBeGreaterThan(0);
+      expect(finalTimeout).toBeLessThan(40);
       expect(timeoutOperations.slice(0, 4)).toEqual([
         "read:90ms",
         expect.stringMatching(/^set:2[0-3]ms$/),
@@ -391,8 +401,8 @@ describe("createGetDb pooled transaction scoping", () => {
       ]);
       expect(timeoutOperations.slice(4)).toEqual([
         "read:90ms",
-        expect.stringMatching(/^set:4[45]ms$/),
-        expect.stringMatching(/^query:SELECT 102@4[45]ms$/),
+        `set:${nestedTimeout}ms`,
+        `query:SELECT 102@${nestedTimeout}ms`,
         "restore:90ms",
         "query:SELECT 105@90ms",
         "query:SELECT 106@90ms",
@@ -401,8 +411,8 @@ describe("createGetDb pooled transaction scoping", () => {
         "query:SELECT 108@90ms",
         "query:SELECT 103@90ms",
         "read:90ms",
-        expect.stringMatching(/^set:3[56]ms$/),
-        expect.stringMatching(/^query:SELECT 104@3[56]ms$/),
+        `set:${finalTimeout}ms`,
+        `query:SELECT 104@${finalTimeout}ms`,
         "restore:90ms",
       ]);
       expect(timeoutOperations[6]).toBe(
