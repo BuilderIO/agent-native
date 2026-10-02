@@ -574,6 +574,42 @@ describe("session replay", () => {
     });
   });
 
+  it("uploads a beta app's replay to beta Analytics", async () => {
+    const { fetchMock } = installBrowser(
+      "https://beta.clips.agent-native.com/library",
+      { email: "dev@example.com", userId: "auth-user-1" },
+    );
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    vi.resetModules();
+    const { configureTracking, stopSessionReplay } =
+      await import("./analytics.js");
+
+    configureTracking({});
+    await waitForAssertion(() => expect(recordOptions).toBeDefined());
+
+    recordOptions.emit({ type: 3, data: { href: "/library" } });
+    await stopSessionReplay();
+    await waitForAssertion(() =>
+      expect(
+        fetchMock.mock.calls.some(([url]) =>
+          String(url).includes("/api/analytics/replay"),
+        ),
+      ).toBe(true),
+    );
+
+    const replayCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/api/analytics/replay"),
+    );
+    expect(replayCalls[0][0]).toBe(
+      "https://beta.analytics.agent-native.com/api/analytics/replay",
+    );
+  });
+
   it("reports the replay id once after rrweb starts, including active calls", async () => {
     installBrowser();
     recordMock.mockReturnValue(vi.fn());

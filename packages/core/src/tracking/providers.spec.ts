@@ -64,6 +64,28 @@ describe("tracking providers", () => {
     });
   });
 
+  it("sends a beta app's server events to beta Analytics", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv(
+      "AGENT_NATIVE_ANALYTICS_ENDPOINT",
+      "https://analytics.agent-native.com/track",
+    );
+    vi.stubEnv("APP_URL", "https://beta.clips.agent-native.com");
+    const { flushTracking, registerBuiltinProviders, track } =
+      await freshTrackingModules();
+
+    registerBuiltinProviders();
+    track("qa.event", { app: "clips" }, { userId: "u1" });
+    await flushTracking();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "https://beta.analytics.agent-native.com/track",
+    );
+  });
+
   it("sends server exception events to Agent-Native Analytics when configured", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
     vi.stubGlobal("fetch", fetchMock);

@@ -14,6 +14,7 @@ import {
   ANALYTICS_CLIENT_PLATFORM_PROPERTY,
   type AnalyticsClientPlatform,
 } from "../shared/analytics-platform.js";
+import { resolveLaneEndpoint } from "../shared/environment-lanes.js";
 import {
   classifyErrorNoise,
   type ErrorNoiseFrame,
@@ -2030,12 +2031,14 @@ function sendAgentNativeAnalytics(
       ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
   if (!publicKey) return;
 
-  const endpoint =
+  const endpoint = resolveLaneEndpoint(
     _agentNativeAnalyticsEndpoint ||
-    window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsEndpoint ||
-    (import.meta.env as Record<string, string | undefined>)
-      ?.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
-    AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT;
+      window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsEndpoint ||
+      (import.meta.env as Record<string, string | undefined>)
+        ?.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
+      AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT,
+    window.location.hostname,
+  );
   const userId =
     typeof properties.userId === "string" ? properties.userId : undefined;
   const body = JSON.stringify({

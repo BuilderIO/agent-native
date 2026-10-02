@@ -110,6 +110,8 @@ Multiple providers can be active simultaneously. All receive every event.
 
 Browser-side `trackEvent()` also forwards to Agent-Native Analytics when `VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` is present. Use `VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT` to override the default browser endpoint. The built-in Agent-Native Analytics sender is quiet on localhost/local dev by default; set `AGENT_NATIVE_ANALYTICS_ALLOW_LOCALHOST=true` only for an intentional local ingestion test.
 
+An app served from a hosted beta host (`beta.*.agent-native.com`) reports to beta Analytics: `resolveLaneEndpoint` moves an endpoint on a production lane host to its beta lane for browser events, replay uploads, and server events. Beta and production Analytics share one database, so an ingest change runs on beta traffic first, and checking it on beta proves the merged code rather than production's. An endpoint on any other host is left as configured.
+
 ## Error Capture
 
 Exceptions fan out through `server/capture-error.ts` to every registered

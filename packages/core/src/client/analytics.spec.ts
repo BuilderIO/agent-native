@@ -802,6 +802,25 @@ describe("browser analytics pageviews", () => {
     });
   });
 
+  it("sends a beta app's events to beta Analytics", async () => {
+    installBrowser("https://beta.clips.agent-native.com/library");
+    const { analyticsCalls } = installFetch();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      agentNativeAnalyticsPublicKey: "anpk_ssr_config",
+      agentNativeAnalyticsEndpoint:
+        "https://analytics.agent-native.com/api/analytics/track",
+    };
+    const { configureTracking, trackEvent } = await freshAnalytics();
+
+    configureTracking({ pageviewTracking: false });
+    trackEvent("beta lane event");
+
+    const [url] = analyticsCalls[0];
+    expect(url).toBe(
+      "https://beta.analytics.agent-native.com/api/analytics/track",
+    );
+  });
+
   it("emits canonical browser aliases while retaining legacy events", async () => {
     const { gtag } = installBrowser();
     const { analyticsCalls } = installFetch();

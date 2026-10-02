@@ -1,5 +1,6 @@
 import { getAppConfig } from "../app-config/index.js";
 import { getRequestContext } from "../server/request-context.js";
+import { resolveLaneEndpoint } from "../shared/environment-lanes.js";
 import { isQaTestEmail } from "../shared/qa-test-email.js";
 import { reshapeTrackedExceptionProperties } from "./posthog-exception.js";
 import { registerTrackingProvider } from "./registry.js";
@@ -105,6 +106,16 @@ function isLocalhostUrl(value: string | undefined): boolean {
     );
   } catch {
     return false;
+  }
+}
+
+function hostnameOf(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    return new URL(url).hostname;
+  } catch {
+    // coercion-ok: An unparseable app URL names no lane, so the endpoint stays as configured.
+    return undefined;
   }
 }
 
@@ -483,9 +494,12 @@ export function registerBuiltinProviders(): void {
     registerTrackingProvider(
       createAgentNativeAnalyticsProvider(
         agentNativePublicKey,
-        (
-          agentNativeEndpoint || AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT
-        ).replace(/\/+$/, ""),
+        resolveLaneEndpoint(
+          (
+            agentNativeEndpoint || AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT
+          ).replace(/\/+$/, ""),
+          hostnameOf(getAppConfig().app.url),
+        ),
       ),
     );
   }
