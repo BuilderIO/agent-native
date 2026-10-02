@@ -736,7 +736,7 @@ export async function runAuthoringFuzz(
               style: string;
               attributes: string;
               attributeNames: string;
-              text?: string;
+              text: string;
             }>;
           };
         };
@@ -968,7 +968,9 @@ export async function runAuthoringFuzz(
           ) {
             const parent = current.parentNode;
             const index = parent
-              ? Array.from(parent.childNodes).indexOf(current)
+              ? Array.from(parent.childNodes).findIndex(
+                  (child) => child === current,
+                )
               : -1;
             parts.unshift(`${current.nodeName}[${index}]`);
           }
