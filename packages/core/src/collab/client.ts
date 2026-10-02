@@ -56,6 +56,13 @@ export interface UseCollaborativeDocResult {
   initialization: CollabInitializationState;
   retry: () => void;
   requestSync: () => Promise<CollaborativeDocSyncResult>;
+  /**
+   * Sends every local edit the server has not yet acknowledged. Resolves `true`
+   * once none are outstanding and `false` when delivery failed (offline), so a
+   * caller that saves the same content elsewhere can wait until collaborators
+   * can already receive it through the document instead of inserting it twice.
+   */
+  flushUpdates: () => Promise<boolean>;
   activeUsers: CollabUser[];
   agentActive: boolean;
   agentPresent: boolean;
@@ -237,6 +244,9 @@ const EMPTY_SNAPSHOT: CollabDocSnapshot = Object.freeze({
 
 const requestSyncUnavailable = (): Promise<CollaborativeDocSyncResult> =>
   Promise.resolve({ status: "unavailable" });
+
+// Nothing is outstanding without a connection.
+const flushUpdatesUnavailable = (): Promise<boolean> => Promise.resolve(true);
 
 const DISPOSE_LINGER_MS = 1000;
 
@@ -655,6 +665,22 @@ class CollabDocConnection {
     }
 
     return this.performStateVectorFetch();
+  };
+
+  flushUpdates = async (): Promise<boolean> => {
+    while (!this.disposed && this.pendingUpdates.length > 0) {
+      if (this.updateInFlight) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        continue;
+      }
+      if (this.flushTimer) {
+        clearTimeout(this.flushTimer);
+        this.flushTimer = null;
+      }
+      await this.flushPendingUpdates();
+      if (this.updateErrors > 0) return false;
+    }
+    return this.pendingUpdates.length === 0;
   };
 
   private handleDocUpdate = (update: Uint8Array, origin: unknown): void => {
@@ -1282,6 +1308,7 @@ export function useCollaborativeDoc(
         }
       : () => {},
     requestSync: conn ? conn.requestSync : requestSyncUnavailable,
+    flushUpdates: conn ? conn.flushUpdates : flushUpdatesUnavailable,
     activeUsers: snapshot.activeUsers,
     agentActive: snapshot.agentActive,
     agentPresent: snapshot.agentPresent,

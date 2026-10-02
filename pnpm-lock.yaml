@@ -7145,6 +7145,9 @@ importers:
       '@tiptap/react':
         specifier: 'catalog:'
         version: 3.30.1(@floating-ui/dom@1.7.6)(@tiptap/core@3.30.1(@tiptap/pm@3.30.1))(@tiptap/pm@3.30.1)(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@tiptap/y-tiptap':
+        specifier: 'catalog:'
+        version: 3.0.7(prosemirror-model@1.25.11)(prosemirror-state@1.4.4)(prosemirror-view@1.41.9)(y-protocols@1.0.7(yjs@13.6.33))(yjs@13.6.33)
       diff:
         specifier: 9.0.0
         version: 9.0.0
@@ -7208,6 +7211,9 @@ importers:
       unist-util-visit:
         specifier: ^5.1.0
         version: 5.1.0
+      yjs:
+        specifier: 'catalog:'
+        version: 13.6.33
       zod:
         specifier: ^4.4.3
         version: 4.4.3

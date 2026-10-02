@@ -119,6 +119,12 @@ export interface UseCollabReconcileOptions {
 export interface UseCollabReconcileResult {
   collab: boolean;
   initialSeedFailed: boolean;
+  /**
+   * True from the moment a server-seeded document exists until its first seed
+   * has been applied. The editor must stay read-only meanwhile: text typed into
+   * the still-empty document is merged with the seed rather than placed after it.
+   */
+  initialSeedPending: boolean;
   retryInitialSeed: () => void;
   isSettingContentRef: MutableRefObject<boolean>;
   shouldIgnoreUpdate: (transaction: Transaction) => boolean;
@@ -340,6 +346,11 @@ export function useCollabReconcile({
   }, [collab, awareness, ydoc]);
 
   const seededRef = useRef(false);
+  const [seeded, setSeeded] = useState(false);
+  const markSeeded = () => {
+    seededRef.current = true;
+    if (requestInitialSeed) setSeeded(true);
+  };
   const [initialSeedFailed, setInitialSeedFailed] = useState(false);
   const [initialSeedRetry, setInitialSeedRetry] = useState(0);
   useEffect(() => {
@@ -347,8 +358,8 @@ export function useCollabReconcile({
     if (seededRef.current) return;
     if (!collabSynced) return;
     if (collabBackedSnapshot) {
-      seededRef.current = true;
-      if (requestInitialSeed) editor.setEditable(editable);
+      markSeeded();
+      if (requestInitialSeed) editor.setEditable(editable, false);
       return;
     }
     if (contentRevision) {
@@ -356,7 +367,7 @@ export function useCollabReconcile({
       reportedConflictRevisionRef.current = null;
     }
     if (!value.trim()) {
-      seededRef.current = true;
+      markSeeded();
       const fragment = ydoc.getXmlFragment("default");
       const currentMarkdown = getMarkdown(editor);
       if (fragment.length === 0 && !currentMarkdown.trim()) return;
@@ -393,7 +404,7 @@ export function useCollabReconcile({
     }
     if (!seedLead) {
       const releaseTimer = setTimeout(() => {
-        seededRef.current = true;
+        markSeeded();
       }, 0);
       return () => clearTimeout(releaseTimer);
     }
@@ -411,12 +422,12 @@ export function useCollabReconcile({
           fragmentLength: fragment.length,
         })
       ) {
-        seededRef.current = true;
-        if (requestInitialSeed) editor.setEditable(editable);
+        markSeeded();
+        if (requestInitialSeed) editor.setEditable(editable, false);
         return;
       }
       if (requestInitialSeed) {
-        editor.setEditable(false);
+        editor.setEditable(false, false);
         const initialNodes = fragment.toArray().map((node) => ({
           node,
           serialized: node.toString(),
@@ -438,9 +449,9 @@ export function useCollabReconcile({
               lastAppliedSerializedRef.current = serialized;
               if (contentUpdatedAt)
                 lastAppliedUpdatedAtRef.current = contentUpdatedAt;
-              seededRef.current = true;
+              markSeeded();
               setInitialSeedFailed(false);
-              editor.setEditable(editable);
+              editor.setEditable(editable, false);
             })
             .catch((error: unknown) => {
               if (cancelled || editor.isDestroyed) return;
@@ -478,14 +489,14 @@ export function useCollabReconcile({
       lastAppliedValueRef.current = value;
       lastAppliedSerializedRef.current = serialized;
       if (contentUpdatedAt) lastAppliedUpdatedAtRef.current = contentUpdatedAt;
-      seededRef.current = true;
+      markSeeded();
     }, 0);
     return () => {
       cancelled = true;
       clearTimeout(seedTimer);
       if (retryTimer) clearTimeout(retryTimer);
       if (requestInitialSeed && !editor.isDestroyed)
-        editor.setEditable(editable);
+        editor.setEditable(editable, false);
     };
   }, [
     collab,
@@ -1033,6 +1044,7 @@ export function useCollabReconcile({
   return {
     collab,
     initialSeedFailed,
+    initialSeedPending: Boolean(requestInitialSeed) && collab && !seeded,
     retryInitialSeed: () => {
       setInitialSeedFailed(false);
       setInitialSeedRetry((retry) => retry + 1);

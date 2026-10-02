@@ -185,6 +185,8 @@ const messages = {
       changeStatistics: "Anderungsstatistiken",
       untitledPlan: "Unbenannter Plan",
       saveFailed: "Speichern fehlgeschlagen",
+      openFailed:
+        "Dieser Plan konnte nicht zum Bearbeiten geöffnet werden. Laden Sie die Seite neu und versuchen Sie es erneut.",
     },
     imageViewer: {
       actualSize: "Originalgrosse",

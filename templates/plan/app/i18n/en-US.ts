@@ -184,6 +184,7 @@ const messages = {
       changeStatistics: "Change statistics",
       untitledPlan: "Untitled plan",
       saveFailed: "Couldn't save",
+      openFailed: "Couldn't open this plan for editing. Reload to try again.",
     },
     imageViewer: {
       actualSize: "Actual size",
