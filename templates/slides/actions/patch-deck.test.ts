@@ -201,6 +201,17 @@ describe("applyOperation — patch-slide", () => {
     expect(deck.slides[0].background).toBeUndefined();
   });
 
+  it("treats omitted speaker notes as the blank UI baseline", () => {
+    const deck = { slides: [{ id: "s1", content: "Before" }] };
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { notes: "Speaker notes" },
+      baseFields: { notes: { present: true, value: "" } },
+    });
+    expect(deck.slides[0].notes).toBe("Speaker notes");
+  });
+
   it("refuses content that adds editor-rendered markup", () => {
     const deck = {
       slides: [

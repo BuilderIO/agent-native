@@ -2669,7 +2669,8 @@ pub async fn bubble_drag_end(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(BUBBLE_LABEL) {
         clamp_existing_bubble_window(&app, &window);
     }
-    crate::schedule_popover_dismissal(&app);
+    // Repositioning is still user activity; replaying its blur at release
+    // hides the camera before the user can start recording.
     Ok(())
 }
 

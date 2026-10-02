@@ -560,10 +560,15 @@ export function applyOperation(
           alreadyDesiredFields.add(field);
           continue;
         }
-        const matchesBaseline = baseline.present
-          ? currentValue !== undefined &&
-            stableStringify(currentValue) === stableStringify(baseline.value)
-          : currentValue === undefined;
+        const matchesBaseline =
+          field === "notes"
+            ? stableStringify(currentValue ?? "") ===
+              stableStringify(baseline.present ? (baseline.value ?? "") : "")
+            : baseline.present
+              ? currentValue !== undefined &&
+                stableStringify(currentValue) ===
+                  stableStringify(baseline.value)
+              : currentValue === undefined;
         if (!matchesBaseline) {
           fail(
             `Slide field ${field} changed since it was read. Re-read the slide and reconcile this field before retrying.`,
