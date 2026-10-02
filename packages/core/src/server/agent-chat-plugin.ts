@@ -268,7 +268,7 @@ import {
   registerAuthPublicPaths,
 } from "./auth.js";
 import { captureError } from "./capture-error.js";
-import { completeText } from "./complete-text.js";
+import { chatTitleRequestFromBody, generateChatTitle } from "./chat-title.js";
 import {
   getH3App,
   markDefaultPluginProvided,
@@ -6249,43 +6249,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
           }
 
-          const body = await readBody(event);
-          const message = body?.message;
-          if (!message || typeof message !== "string") {
+          const request = chatTitleRequestFromBody(await readBody(event));
+          if (!request) {
             setResponseStatus(event, 400);
             return { error: "message is required" };
           }
           const orgId = await getOrgIdFromEvent(event);
-          // Strip hidden context and mention markup before title generation.
-          // Never let injected prompt context become a visible tab label.
-          const cleanMessage = message
-            .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "")
-            .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
-            .replace(/<\/context>/gi, "")
-            .replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1")
-            .trim();
           try {
-            const result = await runWithRequestContext(
+            const title = await runWithRequestContext(
               { userEmail: ownerEmail, orgId },
-              () =>
-                completeText({
-                  appId: options?.appId,
-                  systemPrompt:
-                    "Create a concise chat tab title for the user's request. Return only 3-6 words, with no quotes, punctuation, or explanation.",
-                  input: cleanMessage.slice(0, 500),
-                  maxOutputTokens: 30,
-                  temperature: 0,
-                  timeoutMs: 10_000,
-                }),
+              () => generateChatTitle({ ...request, appId: options?.appId }),
             );
-            const title = result.text
-              .replace(/^["'`]+|["'`]+$/g, "")
-              .replace(/\s+/g, " ")
-              .trim()
-              .slice(0, 80);
             return { title };
-          } catch {
-            return { title: "" };
+          } catch (error) {
+            console.warn(
+              `[agent-chat] title generation failed (engine=${request.engine ?? "default"} model=${request.model ?? "default"}): ${error instanceof Error ? error.message : String(error)}`,
+            );
+            setResponseStatus(event, 502);
+            return { error: "Title generation failed" };
           }
         }),
       );

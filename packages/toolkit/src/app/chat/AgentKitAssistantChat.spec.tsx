@@ -779,6 +779,33 @@ afterEach(async () => {
 });
 
 describe("AgentKitAssistantChat host behavior", () => {
+  it("asks for a title on the engine and model the first prompt was sent with", async () => {
+    const onGenerateTitle = vi.fn();
+    const props = baseProps({ onGenerateTitle });
+    await mount(props);
+
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      messages: [
+        {
+          id: "message-user-1",
+          role: "user",
+          parts: [{ type: "text", text: "Write forty lines" }],
+          metadata: { engine: "ai-sdk:openai", model: "gpt-5.6-luna" },
+        },
+      ],
+    };
+    await act(async () => {
+      root.render(<AgentKitAssistantChat {...props} />);
+    });
+
+    expect(onGenerateTitle).toHaveBeenCalledWith(
+      chatMocks.threadId,
+      "Write forty lines",
+      { engine: "ai-sdk:openai", model: "gpt-5.6-luna" },
+    );
+  });
+
   it("shows a retry when chat history fails to load", async () => {
     const retryHistory = vi.fn();
     chatMocks.history = {
