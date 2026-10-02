@@ -4546,6 +4546,18 @@ describe("in-place text session: Content authoring parity", () => {
     );
   });
 
+  it("flattens a merged paragraph when Backspace joins it to a heading", () => {
+    const el = mount(
+      '<div id="t"><h2>Title</h2><p><strong>Body</strong></p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Body"), 0);
+
+    beforeInput(el, "deleteContentBackward");
+
+    expect(el.innerHTML).toBe("<h2>Title<strong>Body</strong></h2>");
+  });
+
   it("handles beforeinput before a child can stop it from bubbling", () => {
     const el = mount('<div id="t"><h2>Title</h2></div>');
     session = startInPlaceTextSession(el);
