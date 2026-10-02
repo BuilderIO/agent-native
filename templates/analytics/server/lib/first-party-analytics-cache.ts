@@ -25,6 +25,7 @@ function inFlightKey(key: string, timeoutMs?: number): string {
 
 export interface FirstPartyCacheOptions {
   timeoutMs?: number;
+  deadlineAt?: number;
 }
 
 /**
@@ -42,7 +43,9 @@ export function firstPartyCacheKey(
     credentialScope: scope.credentialScope ?? null,
   };
   return createHash("sha256")
-    .update(`${JSON.stringify(caller)}\n${scopedSql}\n${JSON.stringify(args)}`)
+    .update(
+      `sql-policy-v2\n${JSON.stringify(caller)}\n${scopedSql}\n${JSON.stringify(args)}`,
+    )
     .digest("hex");
 }
 
@@ -143,7 +146,7 @@ export async function withFirstPartyCache(
   if (l1Hit) return l1Hit;
 
   const timeoutMs = Math.max(1, options.timeoutMs ?? CACHE_IO_TIMEOUT_MS);
-  const deadlineAt = Date.now() + timeoutMs;
+  const deadlineAt = options.deadlineAt ?? Date.now() + timeoutMs;
 
   const requestKey = inFlightKey(key, options.timeoutMs);
   const existing = inFlight.get(requestKey);

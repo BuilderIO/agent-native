@@ -3,6 +3,11 @@ import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const execute = vi.fn();
+const expressionGuard = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/agent-sql", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/agent-sql")>()),
+  verifyAgentPostgresExpressions: expressionGuard,
+}));
 const rollupMocks = vi.hoisted(() => ({
   upsert: vi.fn(),
 }));
@@ -72,7 +77,16 @@ const analyticsDbMocks = vi.hoisted(() => {
 
 vi.mock("@agent-native/core/db", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/db")>()),
-  getDbExec: () => ({ execute }),
+  getDbExec: () => ({
+    execute,
+    transaction: async (callback: (tx: unknown) => Promise<unknown>) =>
+      callback({
+        execute: (input: { sql: string }) =>
+          input.sql === "SET TRANSACTION READ ONLY"
+            ? Promise.resolve({ rows: [], rowsAffected: 0 })
+            : execute(input),
+      }),
+  }),
 }));
 vi.mock("../db/index.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../db/index.js")>()),
@@ -118,6 +132,8 @@ import {
 
 beforeEach(() => {
   execute.mockReset();
+  expressionGuard.mockReset();
+  expressionGuard.mockResolvedValue(undefined);
   analyticsDbMocks.getDb.mockReset();
   analyticsDbMocks.getDb.mockReturnValue(analyticsDbMocks.db);
   analyticsDbMocks.db.transaction.mockClear();
@@ -576,22 +592,22 @@ describe("validateFirstPartyAnalyticsSql", () => {
       validateFirstPartyAnalyticsSql(
         "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL pg_catalog.generate_series(1, 10000000, INTERVAL '1 day') AS days(day)",
       ),
-    ).toThrow("table function pg_catalog.generate_series");
+    ).toThrow("Table functions are not supported");
     expect(() =>
       validateFirstPartyAnalyticsSql(
         "WITH bounds AS (SELECT '2000-01-01'::timestamp AS start_date, 'infinity'::timestamp AS end_date) SELECT e.event_date FROM analytics_events e CROSS JOIN bounds CROSS JOIN LATERAL pg_catalog.generate_series(bounds.start_date, bounds.end_date, INTERVAL '1 day') AS days(day)",
       ),
-    ).toThrow("table function pg_catalog.generate_series");
+    ).toThrow("Table functions are not supported");
     expect(() =>
       validateFirstPartyAnalyticsSql(
         "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL pg_catalog /* split */ . generate_series(1, 10000000, INTERVAL '1 day') AS days(day)",
       ),
-    ).toThrow("table function pg_catalog.generate_series");
+    ).toThrow("Table functions are not supported");
     expect(() =>
       validateFirstPartyAnalyticsSql(
         "SELECT e.event_date FROM analytics_events e CROSS JOIN LATERAL custom_series(1, 2) AS days(day)",
       ),
-    ).toThrow("cannot read from table function custom_series");
+    ).toThrow("Table functions are not supported");
   });
 
   it("rejects set-returning functions in SELECT and CTE expressions", () => {
@@ -662,7 +678,9 @@ describe("validateFirstPartyAnalyticsSql", () => {
       validateFirstPartyAnalyticsSql(
         `SELECT ${expression} FROM analytics_events`,
       ),
-    ).toThrow("cannot call unapproved SQL function");
+    ).toThrow(
+      /cannot call unapproved SQL function|number must not run directly into an identifier/,
+    );
   });
 
   it("rejects direct replay chunk queries", () => {
@@ -946,6 +964,23 @@ describe("scopedAnalyticsSql", () => {
 });
 
 describe("queryFirstPartyAnalytics", () => {
+  it.each([
+    "now()",
+    "to_char(CURRENT_DATE, 'YYYY-MM-DD')",
+    "date_trunc('week', event_date)",
+    "split_part(event_name, ':', 1)",
+  ])(
+    "accepts PostgreSQL translation input %s on BigQuery",
+    async (expression) => {
+      backendMocks.get.mockResolvedValueOnce({ sink: "bigquery" });
+      await queryFirstPartyAnalytics(
+        `SELECT ${expression} FROM analytics_events`,
+        { userEmail: "translation@example.test", orgId: "org_a" },
+      );
+      expect(backendMocks.query).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it("routes event queries to BigQuery after the org cuts over", async () => {
     backendMocks.get.mockResolvedValueOnce({
       sink: "bigquery",
@@ -1023,6 +1058,25 @@ describe("queryFirstPartyAnalytics", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it.each([
+    "project.dataset.helper",
+    "project.dataset.count",
+    "safe.project.helper",
+    "unapproved_helper",
+  ])(
+    "refuses BigQuery routine %s before submitting a query",
+    async (routine) => {
+      backendMocks.get.mockResolvedValueOnce({ sink: "bigquery" });
+      await expect(
+        queryFirstPartyAnalytics(
+          `SELECT ${routine}(id) FROM analytics_events`,
+          { userEmail: "alice@example.test", orgId: "org_a" },
+        ),
+      ).rejects.toThrow(/cannot call unapproved SQL function/);
+      expect(backendMocks.query).not.toHaveBeenCalled();
+    },
+  );
+
   it("keeps ad-hoc first-party reads uncached", async () => {
     execute.mockResolvedValue({ rows: [{ count: "1" }], rowsAffected: 0 });
 
@@ -1034,10 +1088,12 @@ describe("queryFirstPartyAnalytics", () => {
     expect(execute).toHaveBeenCalledTimes(1);
     expect(execute).toHaveBeenCalledWith(
       expect.objectContaining({
-        timeoutMs: 45_000,
+        timeoutMs: expect.any(Number),
         maxAttempts: 1,
       }),
     );
+    expect(execute.mock.calls[0][0].timeoutMs).toBeGreaterThan(0);
+    expect(execute.mock.calls[0][0].timeoutMs).toBeLessThanOrEqual(45_000);
   });
 
   it("marks capped Postgres reads as truncated", async () => {
@@ -1154,6 +1210,93 @@ describe("queryFirstPartyAnalytics", () => {
     }
 
     expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("shares the cache deadline with expression verification", async () => {
+    let now = 4_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    expressionGuard.mockImplementationOnce(async () => {
+      now += 450;
+    });
+    execute.mockImplementation(async ({ sql }: { sql: string }) =>
+      sql.includes("first_party_analytics_cache")
+        ? { rows: [], rowsAffected: 0 }
+        : { rows: [{ count: "1" }], rowsAffected: 0 },
+    );
+    try {
+      await queryFirstPartyAnalytics(
+        "SELECT COUNT(*) FROM analytics_events",
+        { userEmail: "guard-deadline@example.test", orgId: null },
+        { cache: true, timeoutMs: 500 },
+      );
+      expect(execute.mock.calls[0][0].timeoutMs).toBe(50);
+      expect(execute.mock.calls[1][0].timeoutMs).toBe(50);
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+
+  it("coalesces concurrent cached reads after verification takes different time", async () => {
+    let now = 5_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    expressionGuard.mockImplementation(async () => {
+      now += 10;
+    });
+    let releaseCache!: () => void;
+    let markCacheStarted!: () => void;
+    const cacheStarted = new Promise<void>((resolve) => {
+      markCacheStarted = resolve;
+    });
+    const cacheGate = new Promise<void>((resolve) => {
+      releaseCache = resolve;
+    });
+    execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT result FROM first_party_analytics_cache")) {
+        markCacheStarted();
+        await cacheGate;
+        return { rows: [], rowsAffected: 0 };
+      }
+      return { rows: [{ count: "1" }], rowsAffected: 0 };
+    });
+
+    try {
+      const scope = { userEmail: "concurrent-guard@example.test", orgId: null };
+      const first = queryFirstPartyAnalytics(
+        "SELECT COUNT(*) FROM analytics_events",
+        scope,
+        { cache: true, timeoutMs: 500 },
+      );
+      await cacheStarted;
+      const second = queryFirstPartyAnalytics(
+        "SELECT COUNT(*) FROM analytics_events",
+        scope,
+        { cache: true, timeoutMs: 500 },
+      );
+      await vi.waitFor(() => expect(expressionGuard).toHaveBeenCalledTimes(2));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      releaseCache();
+      expect(await first).toEqual(await second);
+      expect(
+        execute.mock.calls.filter(([input]) =>
+          input.sql.includes("SELECT result FROM first_party_analytics_cache"),
+        ),
+      ).toHaveLength(1);
+    } finally {
+      releaseCache();
+      dateNow.mockRestore();
+    }
+  });
+
+  it("refuses a cached query when expression verification is unavailable", async () => {
+    expressionGuard.mockRejectedValueOnce(new Error("metadata unavailable"));
+    await expect(
+      queryFirstPartyAnalytics(
+        "SELECT COUNT(*) FROM analytics_events",
+        { userEmail: "guard-unavailable@example.test", orgId: null },
+        { cache: true },
+      ),
+    ).rejects.toThrow("metadata unavailable");
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("does not hold a successful panel response on the cache write", async () => {

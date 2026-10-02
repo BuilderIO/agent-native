@@ -16,6 +16,14 @@ const database = vi.hoisted(() => ({
       sql: string,
       args: unknown[],
     ) => Promise<{ rows: unknown[]; affectedRows?: number }>;
+    transaction: <T>(
+      callback: (tx: {
+        query: (
+          sql: string,
+          args: unknown[],
+        ) => Promise<{ rows: unknown[]; affectedRows?: number }>;
+      }) => Promise<T>,
+    ) => Promise<T>;
   },
 }));
 
@@ -26,6 +34,20 @@ vi.mock("@agent-native/core/db", async (importOriginal) => ({
       if (!database.client) throw new Error("test database is not open");
       const result = await database.client.query(sql, args ?? []);
       return { rows: result.rows, rowsAffected: result.affectedRows ?? 0 };
+    },
+    transaction: async (callback: (tx: unknown) => Promise<unknown>) => {
+      if (!database.client) throw new Error("test database is not open");
+      return database.client.transaction((tx) =>
+        callback({
+          execute: async ({ sql, args }: { sql: string; args?: unknown[] }) => {
+            const result = await tx.query(sql, args ?? []);
+            return {
+              rows: result.rows,
+              rowsAffected: result.affectedRows ?? 0,
+            };
+          },
+        }),
+      );
     },
   }),
 }));
@@ -128,6 +150,21 @@ describe("first-party session recording reads follow the app's sharing rules (PG
     ]);
   });
 
+  it.each([
+    "SELECT id FROM /* source */ session_recordings ORDER BY id",
+    "SELECT id FROM -- source\rsession_recordings ORDER BY id",
+    'SELECT r.id FROM session_recordings AS "r" ORDER BY r.id',
+    "SELECT id FROM (SELECT id FROM /* nested */ session_recordings) AS r ORDER BY id",
+    "WITH visible(id) AS (SELECT id FROM /* source */ session_recordings) SELECT id FROM visible ORDER BY id",
+  ])("scopes each recording source in %s", async (sql) => {
+    expect(await recordingIds(sql, BOB, { cache: false })).toEqual([
+      "alice-org-visible",
+      "alice-private-shared-with-bob",
+      "alice-private-shared-with-org",
+      "bob-private",
+    ]);
+  });
+
   it("still gives the owner their private and personal recordings", async () => {
     expect(
       await recordingIds(
@@ -211,6 +248,44 @@ describe("first-party session recording reads follow the app's sharing rules (PG
         BOB,
       ),
     ).rejects.toThrow("cannot reference session_recording_shares");
+  });
+
+  it("refuses app routines invoked through recording row attributes", async () => {
+    await client.exec(
+      `CREATE FUNCTION recording_detail(anyelement) RETURNS text LANGUAGE sql AS $$ SELECT string_agg(id, ',') FROM public.session_recordings $$`,
+    );
+    await expect(
+      recordingIds(
+        "SELECT r.recording_detail AS id FROM session_recordings r",
+        BOB,
+      ),
+    ).rejects.toThrow(/recording_detail.*app-defined database function/);
+  });
+
+  it("refuses app operators used in recording predicates", async () => {
+    await client.exec(`
+      CREATE FUNCTION recording_exists(text, text) RETURNS boolean LANGUAGE sql AS $$ SELECT EXISTS (SELECT 1 FROM public.session_recordings WHERE id = $2) $$;
+      CREATE OPERATOR ==== (LEFTARG = text, RIGHTARG = text, FUNCTION = recording_exists);
+    `);
+    await expect(
+      recordingIds(
+        "SELECT id FROM session_recordings WHERE id ==== 'alice-private'",
+        BOB,
+      ),
+    ).rejects.toThrow(/Operator.*app-defined database function/);
+  });
+
+  it("refuses app domains used in recording expressions", async () => {
+    await client.exec(`
+      CREATE FUNCTION recording_value(text) RETURNS boolean LANGUAGE sql AS $$ SELECT EXISTS (SELECT 1 FROM public.session_recordings WHERE id = $1) $$;
+      CREATE DOMAIN recording_id AS text CHECK (recording_value(VALUE));
+    `);
+    await expect(
+      recordingIds(
+        "SELECT 'alice-private'::recording_id AS id FROM session_recordings LIMIT 1",
+        BOB,
+      ),
+    ).rejects.toThrow(/recording_id.*built-in/);
   });
 
   it("does not serve one member's cached recordings to another, cold or warm", async () => {
