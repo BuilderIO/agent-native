@@ -1246,6 +1246,7 @@
         "@agent-native/core/client/i18n",
         "@agent-native/core/client/sharing/useShareButtonController",
         "@agent-native/core/client/sharing/useShareDialogController",
+        "@agent-native/core/client/sign-in-return",
         "@agent-native/core/client/use-action",
         "@agent-native/core/client/use-avatar"
       ]

@@ -89,6 +89,17 @@ export interface ShareableResourceRegistration {
     authCapability?: string;
   };
   ownerAccessIgnoresOrg?: boolean;
+  /**
+   * Whether a row still counts as an openable resource, for example not in
+   * the trash. `columns` are the resource-table keys `isAvailable` reads;
+   * they join the lightweight access projection. A row that fails the rule
+   * reads as missing to anyone who can't open it, and as trashed to anyone
+   * who can. Omit it when every row is available.
+   */
+  availability?: {
+    columns: readonly string[];
+    isAvailable: (resource: any) => boolean;
+  };
   agentReadable?:
     | false
     | {

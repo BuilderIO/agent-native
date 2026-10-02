@@ -10,7 +10,6 @@ import {
   actionErrorMessage,
   callAction,
   setClientAppState,
-  signOut,
   tryCallActionKeepalive,
   useAvatarUrl,
   useDbSync,
@@ -66,7 +65,7 @@ import {
   useState,
 } from "react";
 import type { ClipboardEvent, MutableRefObject, ReactNode } from "react";
-import { Link, Navigate, useLocation, useNavigate } from "react-router";
+import { Navigate, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import type { Doc as YDoc } from "yjs";
 
@@ -128,10 +127,7 @@ import {
   useOptimisticDocumentTitle,
   refreshLandingTitleHintCache,
 } from "@/hooks/use-optimistic-document-title";
-import {
-  CONTENT_LANDING_PATH,
-  rememberContentLandingDocument,
-} from "@/lib/content-landing";
+import { rememberContentLandingDocument } from "@/lib/content-landing";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
 import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
 import { rememberLandingTitleHint } from "@/lib/document-title-hint";
@@ -195,6 +191,7 @@ import {
   authoredCandidateMatchesContent,
   pendingSaveRetrySnapshot,
 } from "./document-save-retry";
+import { DocumentAccessScreen } from "./DocumentAccessScreen";
 import { DocumentBlockFields } from "./DocumentBlockFields";
 import { DocumentDatabase } from "./DocumentDatabase";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
@@ -1145,18 +1142,11 @@ function adoptConfirmedSaveWatermarks({
   }
 }
 
-// A Page link that this account can't read stays on its URL and says so.
-// Opening some other page instead hides the denial from the person who
-// followed the link.
-export function DocumentUnavailable({
-  host,
-}: {
-  host: PageEditorSurfaceProps["host"];
-}) {
+// What an embedded preview shows for a page it can't read. A full page shows
+// DocumentAccessScreen instead.
+function DocumentUnavailable() {
   const t = useT();
   const sidebarTrigger = useSidebarTrigger();
-  const { session } = useSession();
-  const viewerEmail = host === "page" ? (session?.email ?? null) : null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -1176,21 +1166,6 @@ export function DocumentUnavailable({
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
             {t("empty.documentUnavailableDescription")}
           </p>
-          {viewerEmail ? (
-            <p className="mt-4 break-all text-sm text-muted-foreground">
-              {t("empty.signedInAs", { email: viewerEmail })}
-            </p>
-          ) : null}
-          {host === "page" ? (
-            <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-              <Button asChild>
-                <Link to={CONTENT_LANDING_PATH}>{t("empty.goToMyPages")}</Link>
-              </Button>
-              <Button variant="outline" onClick={() => void signOut()}>
-                {t("empty.switchAccount")}
-              </Button>
-            </div>
-          ) : null}
         </div>
       </div>
     </div>
@@ -1292,9 +1267,13 @@ export function PageEditorSurface({
     queryClient,
     documentQueryKeyValue,
   );
-  const [manualRetryDocumentId, setManualRetryDocumentId] = useState<
-    string | null
-  >(null);
+  const [manualRetry, setManualRetry] = useState<{
+    documentId: string;
+    fromAccessScreen: boolean;
+    seq: number;
+  } | null>(null);
+  const manualRetrySeqRef = useRef(0);
+  const isManualRetrying = manualRetry?.documentId === documentId;
   const admittedDocumentIdRef = useRef<string | null>(null);
   const loadFailureRef = useRef<DocumentLoadFailureState | null>(null);
   const document =
@@ -1325,7 +1304,9 @@ export function PageEditorSurface({
     isFetching,
     isError,
     hasLoadFailure: loadFailure.failed,
-    isManualRetrying: manualRetryDocumentId === documentId,
+    isManualRetrying,
+    isAccessRetrying:
+      isManualRetrying && manualRetry?.fromAccessScreen === true,
     error,
   });
   admittedDocumentIdRef.current = loadState.admittedDocumentId;
@@ -1342,8 +1323,10 @@ export function PageEditorSurface({
       loadState.view === "editor",
   );
 
-  async function retryDocumentQuery() {
-    setManualRetryDocumentId(documentId);
+  async function retryDocumentQuery({ fromAccessScreen = false } = {}) {
+    // A newer retry owns the flag; an older one finishing must not clear it.
+    const seq = ++manualRetrySeqRef.current;
+    setManualRetry({ documentId, fromAccessScreen, seq });
     try {
       await queryClient.cancelQueries({
         queryKey: documentQueryKey(documentId, {
@@ -1361,21 +1344,33 @@ export function PageEditorSurface({
       };
       await documentQuery.refetch();
     } finally {
-      setManualRetryDocumentId((current) =>
-        current === documentId ? null : current,
-      );
+      setManualRetry((current) => (current?.seq === seq ? null : current));
     }
   }
 
   if (loadState.view === "unavailable") {
-    return <DocumentUnavailable host={host} />;
+    return host === "page" ? (
+      <DocumentAccessScreen
+        documentId={documentId}
+        loading={
+          <DocumentEditorSkeleton
+            title={optimisticTitle}
+            iconRow={readPageIconRowHint(documentId)}
+          />
+        }
+        reloading={isManualRetrying}
+        onReload={() => void retryDocumentQuery({ fromAccessScreen: true })}
+      />
+    ) : (
+      <DocumentUnavailable />
+    );
   }
 
   if (loadState.view === "error") {
     return (
       <QueryErrorState
         onRetry={() => void retryDocumentQuery()}
-        retrying={manualRetryDocumentId === documentId}
+        retrying={isManualRetrying}
       />
     );
   }
@@ -1388,7 +1383,7 @@ export function PageEditorSurface({
     return host === "page" ? (
       <Navigate to="/home" replace />
     ) : (
-      <DocumentUnavailable host={host} />
+      <DocumentUnavailable />
     );
   }
 
@@ -1471,6 +1466,7 @@ export function documentEditorLoadState({
   isError,
   hasLoadFailure,
   isManualRetrying,
+  isAccessRetrying = false,
   error,
 }: {
   documentId: string;
@@ -1482,6 +1478,11 @@ export function documentEditorLoadState({
   isError: boolean;
   hasLoadFailure: boolean;
   isManualRetrying: boolean;
+  /**
+   * The retry started from the access screen, which stays mounted until the
+   * read settles so it can't remount and retry again.
+   */
+  isAccessRetrying?: boolean;
   error: unknown;
 }) {
   const activeAdmittedDocumentId =
@@ -1508,7 +1509,8 @@ export function documentEditorLoadState({
   if (isManualRetrying || isError || hasLoadFailure) {
     return {
       view:
-        isError && isDocumentLoadUnavailableError(error)
+        (isError && isDocumentLoadUnavailableError(error)) ||
+        (isAccessRetrying && !isError)
           ? ("unavailable" as const)
           : ("error" as const),
       admittedDocumentId: activeAdmittedDocumentId,

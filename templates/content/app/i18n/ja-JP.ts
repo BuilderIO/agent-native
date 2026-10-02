@@ -1348,9 +1348,12 @@ const overrides = {
   },
   empty: {
     noPageTitle: "ページが選択されていません",
-    signedInAs: "ログイン中のアカウント: {{email}}",
+    pageNoAccess: "このページへのアクセス権がありません",
+    pageMissing: "このページは存在しません",
+    pageInTrash: "このページはゴミ箱にあります",
+    pageInTrashAskOwner: "所有者に復元を依頼してください。",
+    openTrash: "ゴミ箱を開く",
     goToMyPages: "自分のページへ",
-    switchAccount: "アカウントを切り替える",
     noPageDescription:
       "サイドバーからページを選ぶか、新しいページを作成してください。",
     newPage: "新しいページ",

@@ -16,17 +16,22 @@ related_features:
     "content.feature.publish-with-confidence",
   ]
 roadmap_boundary: "feature"
-acceptance_summary: "All ambient discovery and derived surfaces close over authorized objects; direct known targets fail honestly without revealing private existence or contents."
+acceptance_summary: "All ambient discovery and derived surfaces close over authorized objects; a direct known link fails honestly, confirming to a signed-in holder at most that the object exists, never its contents, title, owner, visibility, or workspace."
 proof_requirements:
   [
     "Traversal, search, Query, embedding, and export closure",
     "Aggregate and relationship endpoint closure",
-    "Direct-link generic denial distinct from successful absence",
+    "Direct-link denial distinct from absence and from success, revealing nothing beyond existence",
     "Public, agent, source, cache, and access-change regression coverage",
   ]
-evidence: []
+evidence:
+  [
+    "../../../../../packages/core/src/sharing/access-status.spec.ts",
+    "../../../app/components/editor/DocumentAccessScreen.test.tsx",
+    "../../../e2e/unreadable-page-link.spec.ts",
+  ]
 superseded_by: null
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-10-02"
 ---
 
 # Visibility closure
@@ -37,12 +42,13 @@ Access must remain true after information starts moving. A private object cannot
 
 ## Example workflow
 
-An author publishes a Page that references internal research. Public readers see the authorized Page with the private reference omitted or safely degraded; a person with the internal link gets a generic denial rather than a plausible empty success.
+An author publishes a Page that references internal research. Public readers see the authorized Page with the private reference omitted or safely degraded; a signed-in person with the internal link is told they don't have access, without the Page's title or owner, rather than getting a plausible empty success.
 
 ## Product contract
 
 - Search, traversal, Queries, Views, links, embeds, exports, public projections, and agents operate only over authorized closure.
-- A direct known target may return a generic denial; ambient lists and derived results do not confirm its existence.
+- A direct link may tell a signed-in person holding it that the target exists and they can't open it, so they know to ask for access. It never reveals the target's title, owner, visibility, or workspace. A trashed target reads as missing to anyone who couldn't open it, and a signed-out visitor learns nothing about existence.
+- Ambient lists and derived results do not confirm a target's existence.
 - Closure applies recursively to relationship endpoints and transcluded content before rendering or calculating.
 - Caches, previews, snippets, errors, counts, and pagination preserve the same boundary.
 - Access changes take effect before future reads and cannot be masked as normal emptiness.
@@ -61,7 +67,7 @@ Given a Page with a reference or transclusion to a private neighbor, when an una
 
 ### Differentiate denial from absence
 
-Given an unauthorized person has a direct private URL, when they request it, then they receive an honest generic denial rather than a successful empty result that callers may mistake for normal absence.
+Given a signed-in person without access has a direct private URL, when they open it, then they're told they don't have access, without the target's title, owner, visibility, or workspace, rather than a successful empty result that callers may mistake for normal absence. A link to a target that doesn't exist, or is in the trash, says it doesn't exist.
 
 ## Current evidence
 

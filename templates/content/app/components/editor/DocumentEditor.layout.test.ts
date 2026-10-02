@@ -1613,6 +1613,51 @@ describe("document editor layout", () => {
     ).toEqual({ view: "error", admittedDocumentId: null });
   });
 
+  it("keeps the access screen mounted through a retry it started", () => {
+    const retry = {
+      documentId: "document-a",
+      admittedDocumentId: null,
+      isDocumentCreationPending: false,
+      isManualRetrying: true,
+      isAccessRetrying: true,
+      hasLoadFailure: false,
+    };
+    // In flight: React Query clears the error while a query without data
+    // refetches.
+    expect(
+      documentEditorLoadState({
+        ...retry,
+        hasDocument: false,
+        isFetchedAfterMount: false,
+        isFetching: true,
+        isError: false,
+        error: null,
+      }),
+    ).toEqual({ view: "unavailable", admittedDocumentId: null });
+    // Succeeded, but the retry hasn't finished yet.
+    expect(
+      documentEditorLoadState({
+        ...retry,
+        hasDocument: true,
+        isFetchedAfterMount: true,
+        isFetching: false,
+        isError: false,
+        error: null,
+      }),
+    ).toEqual({ view: "unavailable", admittedDocumentId: null });
+    // Failed for a reason other than access.
+    expect(
+      documentEditorLoadState({
+        ...retry,
+        hasDocument: false,
+        isFetchedAfterMount: true,
+        isFetching: false,
+        isError: true,
+        error: { status: 500 },
+      }),
+    ).toEqual({ view: "error", admittedDocumentId: null });
+  });
+
   it("shows a retryable error when a seeded document's first fetch times out", () => {
     expect(
       documentEditorLoadState({
@@ -1763,7 +1808,7 @@ describe("document editor layout", () => {
     );
     expect(source).toContain("queryKey: documentQueryKey(documentId, {");
     expect(source).toContain("await documentQuery.refetch()");
-    expect(source).toContain("retrying={manualRetryDocumentId === documentId}");
+    expect(source).toContain("retrying={isManualRetrying}");
   });
 
   it("resizes the title to its content and reacts only to width changes", () => {
