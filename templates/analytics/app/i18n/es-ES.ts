@@ -1311,6 +1311,7 @@ export default {
     toDate: "Hasta",
     clearFromDate: "Borrar fecha de inicio",
     clearToDate: "Borrar fecha de fin",
+    clearFilters: "Borrar todo",
     signals: "Señales",
     hideEmptySessions: "Ocultar sesiones vacías",
     networkErrors: "Errores de red",

@@ -1306,6 +1306,7 @@ export default {
     toDate: "Até",
     clearFromDate: "Limpar data de início",
     clearToDate: "Limpar data de término",
+    clearFilters: "Limpar tudo",
     signals: "Sinais",
     hideEmptySessions: "Ocultar sessões vazias",
     networkErrors: "Erros de rede",

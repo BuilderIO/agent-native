@@ -1295,6 +1295,7 @@ export default {
     toDate: "終了",
     clearFromDate: "開始日をクリア",
     clearToDate: "終了日をクリア",
+    clearFilters: "すべてクリア",
     signals: "シグナル",
     hideEmptySessions: "空のセッションを非表示",
     networkErrors: "ネットワークエラー",

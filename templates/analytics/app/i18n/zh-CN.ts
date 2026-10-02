@@ -1230,6 +1230,7 @@ export default {
     toDate: "结束",
     clearFromDate: "清除开始日期",
     clearToDate: "清除结束日期",
+    clearFilters: "全部清除",
     signals: "信号",
     hideEmptySessions: "隐藏空会话",
     networkErrors: "网络错误",
