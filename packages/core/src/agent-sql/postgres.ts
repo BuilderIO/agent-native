@@ -1,6 +1,7 @@
 import {
   agentSqlIdentifierNames,
   agentSqlQualifiedReferences,
+  agentSqlTypeNames,
   leadingAgentSqlKeyword,
   splitAgentSqlStatements,
 } from "./analysis.js";
@@ -112,7 +113,11 @@ const DENIED_IDENTIFIER_RES = [
   /^dblink/i,
   // query_to_xml, table_to_xml, schema_to_xml, ... run or dump SQL by name.
   /_to_xml/i,
-  /^(?:set_config|current_setting|setval)$/i,
+  /^(?:set_config|current_setting|nextval|currval|lastval|setval|ts_stat|ts_rewrite)$/i,
+  // These helpers convert fields using a supplied row type or type OID,
+  // which can invoke app-defined input routines and domain checks.
+  /^jsonb?_(?:populate_record(?:set|_valid)?|to_record(?:set)?)$/i,
+  /^(?:array|domain|record|range|multirange)_(?:in|recv)$/i,
 ];
 const ALLOWED_PG_IDENTIFIERS = new Set([
   "pg_typeof",
@@ -124,15 +129,21 @@ const ALLOWED_PG_IDENTIFIERS = new Set([
  * Checks that need only the statement's tokens. Run them on every statement
  * before it reaches the database, and again on the final executed text.
  */
-export function assertAgentPostgresTokenPolicy(
+export function assertAgentPostgresExpressionTokenPolicy(
   statement: AgentPostgresStatement,
 ): void {
-  for (const token of statement.tokens) {
+  for (const [index, token] of statement.tokens.entries()) {
     if (token.kind !== "word" && token.kind !== "quoted-identifier") continue;
     if (Buffer.byteLength(token.value, "utf8") > MAX_IDENTIFIER_BYTES) {
       refuse(
         `Identifier "${token.value.slice(0, 20)}…" is longer than ${MAX_IDENTIFIER_BYTES} bytes.`,
       );
+    }
+    if (
+      token.value === "pg_catalog" &&
+      statement.tokens[index + 1]?.text === "."
+    ) {
+      continue;
     }
     const value = token.value.toLowerCase();
     if (ALLOWED_PG_IDENTIFIERS.has(value)) continue;
@@ -142,7 +153,13 @@ export function assertAgentPostgresTokenPolicy(
       );
     }
   }
+}
 
+/** Includes the schema-qualification restrictions needed by raw DB tools. */
+export function assertAgentPostgresTokenPolicy(
+  statement: AgentPostgresStatement,
+): void {
+  assertAgentPostgresExpressionTokenPolicy(statement);
   for (const reference of agentSqlQualifiedReferences(statement.tokens)) {
     if (reference.qualifiers.length > 1) {
       refuse(
@@ -162,23 +179,16 @@ export interface AgentSqlQueryRunner {
 }
 
 /**
- * Checks how the statement's names resolve in this transaction, after the
- * per-user temporary views exist. Run it immediately before the statement.
- *
- * - String literals must follow the standard rules the lexer assumes.
- * - No qualifier may name a schema or this database.
- * - Every name that resolves to a relation must resolve to one of this
- *   session's temporary views. That covers tables the views do not shadow,
- *   such as materialized views and sequences, and other schemas on the
- *   search path.
- * - No name may match a function or operator outside `pg_catalog` that is
- *   written in SQL or a procedural language, since its body can read tables
- *   without the views.
+ * Checks expression resolution inside the executing transaction. Callers
+ * must separately scope relation reads; this check does not require temp
+ * views. Conversions can invoke a type's input routines or domain checks,
+ * including those nested inside a temporary view's composite row type.
  */
-export async function verifyAgentPostgresResolution(
+export async function verifyAgentPostgresExpressions(
   db: AgentSqlQueryRunner,
   statement: AgentPostgresStatement,
 ): Promise<void> {
+  assertAgentPostgresExpressionTokenPolicy(statement);
   const [setting] = (await db.unsafe(
     "SELECT pg_catalog.current_setting('standard_conforming_strings') AS value",
   )) as Array<{ value?: string }>;
@@ -187,6 +197,78 @@ export async function verifyAgentPostgresResolution(
       "Agent SQL requires standard_conforming_strings to be on for this database connection.",
     );
   }
+
+  const names = [...agentSqlIdentifierNames(statement.tokens)];
+  const typeNames = [...agentSqlTypeNames(statement.tokens)];
+  if (typeNames.length > 0) {
+    const types = (await db.unsafe(
+      `SELECT t.typname AS name
+       FROM pg_catalog.pg_type t
+       JOIN pg_catalog.pg_namespace ns ON ns.oid = t.typnamespace
+      WHERE t.typname = ANY($1::text[])
+        AND ns.nspname <> 'pg_catalog'
+      LIMIT 1`,
+      [typeNames],
+    )) as Array<{ name: string }>;
+    if (types.length > 0) {
+      refuse(
+        `"${types[0].name}" is not a built-in type, so agent SQL cannot convert values to it.`,
+      );
+    }
+  }
+
+  const routines = (await db.unsafe(
+    `SELECT p.proname AS name
+       FROM pg_catalog.pg_proc p
+       JOIN pg_catalog.pg_namespace ns ON ns.oid = p.pronamespace
+      WHERE p.proname = ANY($1::text[])
+        AND ns.nspname <> 'pg_catalog'
+      LIMIT 1`,
+    [names],
+  )) as Array<{ name: string }>;
+  if (routines.length > 0) {
+    refuse(
+      `"${routines[0].name}" matches an app-defined database function, which agent SQL cannot call.`,
+    );
+  }
+
+  const operators = [
+    ...new Set(
+      statement.tokens
+        .filter((token) => token.kind === "operator")
+        .map((token) => token.text),
+    ),
+  ];
+  if (operators.length > 0) {
+    const appOperators = (await db.unsafe(
+      `SELECT o.oprname AS name
+         FROM pg_catalog.pg_operator o
+         JOIN pg_catalog.pg_namespace ns ON ns.oid = o.oprnamespace
+        WHERE o.oprname = ANY($1::text[])
+          AND ns.nspname <> 'pg_catalog'
+        LIMIT 1`,
+      [operators],
+    )) as Array<{ name: string }>;
+    if (appOperators.length > 0) {
+      refuse(
+        `Operator "${appOperators[0].name}" is backed by an app-defined database function, which agent SQL cannot call.`,
+      );
+    }
+  }
+}
+
+/**
+ * Checks expression and relation resolution in the executing transaction,
+ * after the per-user temporary views exist. Every resolved relation must
+ * belong to this session's temp schema; qualifiers cannot name a schema or
+ * this database.
+ */
+export async function verifyAgentPostgresResolution(
+  db: AgentSqlQueryRunner,
+  statement: AgentPostgresStatement,
+): Promise<void> {
+  assertAgentPostgresTokenPolicy(statement);
+  await verifyAgentPostgresExpressions(db, statement);
 
   const names = [...agentSqlIdentifierNames(statement.tokens)];
   if (names.length === 0) return;
@@ -224,49 +306,5 @@ export async function verifyAgentPostgresResolution(
     refuse(
       `"${relations[0].name}" is not one of the app's tables scoped to the current user, so agent SQL cannot read or write it.`,
     );
-  }
-
-  const routines = (await db.unsafe(
-    `SELECT p.proname AS name
-       FROM pg_catalog.pg_proc p
-       JOIN pg_catalog.pg_namespace ns ON ns.oid = p.pronamespace
-       JOIN pg_catalog.pg_language l ON l.oid = p.prolang
-      WHERE p.proname = ANY($1::text[])
-        AND ns.nspname <> 'pg_catalog'
-        AND l.lanname NOT IN ('c', 'internal')
-      LIMIT 1`,
-    [names],
-  )) as Array<{ name: string }>;
-  if (routines.length > 0) {
-    refuse(
-      `"${routines[0].name}" matches an app-defined database function, which agent SQL cannot call.`,
-    );
-  }
-
-  const operators = [
-    ...new Set(
-      statement.tokens
-        .filter((token) => token.kind === "operator")
-        .map((token) => token.text),
-    ),
-  ];
-  if (operators.length > 0) {
-    const appOperators = (await db.unsafe(
-      `SELECT o.oprname AS name
-         FROM pg_catalog.pg_operator o
-         JOIN pg_catalog.pg_namespace ns ON ns.oid = o.oprnamespace
-         JOIN pg_catalog.pg_proc p ON p.oid = o.oprcode
-         JOIN pg_catalog.pg_language l ON l.oid = p.prolang
-        WHERE o.oprname = ANY($1::text[])
-          AND ns.nspname <> 'pg_catalog'
-          AND l.lanname NOT IN ('c', 'internal')
-        LIMIT 1`,
-      [operators],
-    )) as Array<{ name: string }>;
-    if (appOperators.length > 0) {
-      refuse(
-        `Operator "${appOperators[0].name}" is backed by an app-defined database function, which agent SQL cannot call.`,
-      );
-    }
   }
 }

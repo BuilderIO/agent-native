@@ -2,15 +2,57 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { PGlite } from "@electric-sql/pglite";
+import { tablefunc } from "@electric-sql/pglite/contrib/tablefunc";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { runWithRequestContext } from "../../server/request-context.js";
 import { createPostgresScriptClient } from "./postgres-client.js";
+import { finalRawDbSql, verifyRawDbStatement } from "./safety.js";
+import { buildScopingPostgres } from "./scoping.js";
 
 // Two synthetic tenants in a local PGlite database. Each case runs a raw-DB
 // tool as tenant A, checks the refusal, then checks tenant B's row is
 // unchanged and never reached A's output.
 
 const B_SECRET = "B-secret";
+
+it("refuses an extension function that executes SQL outside scoped views", async () => {
+  const client = await PGlite.create({ extensions: { tablefunc } });
+  try {
+    await client.exec(`
+      CREATE EXTENSION tablefunc;
+      CREATE TABLE notes (id text PRIMARY KEY, owner_email text, body text);
+      INSERT INTO notes VALUES
+        ('a1', 'a@example.test', 'A-one'),
+        ('b1', 'b@example.test', 'B-secret');
+    `);
+    const executed = finalRawDbSql(
+      "SELECT body FROM crosstab('SELECT id, ''body'', body FROM public.notes ORDER BY 1') AS result(id text, body text)",
+      "read",
+    );
+    await expect(
+      runWithRequestContext({ userEmail: "a@example.test" }, () =>
+        client.transaction(async (transaction) => {
+          const runner = {
+            unsafe: async (sql: string, args?: unknown[]) =>
+              (await transaction.query(sql, args)).rows,
+          };
+          const scoping = await buildScopingPostgres(runner);
+          for (const setup of scoping.setup) await runner.unsafe(setup);
+          await runner.unsafe("SET TRANSACTION READ ONLY");
+          await verifyRawDbStatement(runner, executed.statement);
+          await runner.unsafe(executed.sql);
+        }),
+      ),
+    ).rejects.toThrow(/"crosstab" matches an app-defined database function/);
+    expect(
+      (await client.query("SELECT body FROM notes ORDER BY id")).rows,
+    ).toEqual([{ body: "A-one" }, { body: "B-secret" }]);
+  } finally {
+    await client.close();
+  }
+});
 
 describe("agent SQL guards keep each tenant to its own rows (e2e, PGlite)", () => {
   let dir: string;
@@ -44,6 +86,11 @@ describe("agent SQL guards keep each tenant to its own rows (e2e, PGlite)", () =
       `CREATE FUNCTION leak_attr(anyelement) RETURNS text LANGUAGE sql AS $$ SELECT string_agg(body, ',') FROM public.notes $$`,
       `CREATE FUNCTION leak_op(text, text) RETURNS boolean LANGUAGE sql AS $$ SELECT EXISTS (SELECT 1 FROM public.notes WHERE body = $2) $$`,
       `CREATE OPERATOR ==== (LEFTARG = text, RIGHTARG = text, FUNCTION = leak_op)`,
+      `CREATE SEQUENCE unrelated_sequence START 7`,
+      `CREATE FUNCTION permitted_value(text) RETURNS boolean LANGUAGE sql AS $$ SELECT EXISTS (SELECT 1 FROM public.notes WHERE body = $1) $$`,
+      `CREATE DOMAIN note_value AS text CHECK (permitted_value(VALUE))`,
+      `CREATE TABLE domain_notes (id text, owner_email text, body note_value)`,
+      `INSERT INTO domain_notes SELECT * FROM notes`,
     ];
     for (const sql of setup) await admin(sql);
     vi.stubEnv("AGENT_USER_EMAIL", "a@x.com");
@@ -129,7 +176,47 @@ describe("agent SQL guards keep each tenant to its own rows (e2e, PGlite)", () =
   }
 
   describe("db-query", () => {
+    it.each([
+      "SELECT '(x,a@x.com,B-secret)'::domain_notes",
+      "SELECT CAST('(x,a@x.com,B-secret)' AS domain_notes)",
+      "SELECT domain_notes('(x,a@x.com,B-secret)')",
+      "SELECT domain_notes '(x,a@x.com,B-secret)'",
+    ])("refuses scoped composite input conversion through %s", async (sql) => {
+      await expectRefused(
+        () => dbQuery(sql),
+        /"domain_notes" is not a built-in type/,
+      );
+    });
+
+    it.each(["json_populate_record", "jsonb_populate_record"])(
+      "refuses implicit domain conversion through %s",
+      async (name) => {
+        await expectRefused(
+          () =>
+            dbQuery(
+              `SELECT (${name}(n, '{"body":"B-secret"}')).body FROM domain_notes n`,
+            ),
+          /"jsonb?_populate_record" is not available in agent SQL/,
+        );
+      },
+    );
+
     const refusedReads: Array<[string, string, RegExp]> = [
+      [
+        "an app-defined domain that invokes a function during a cast",
+        "SELECT 'B-secret'::note_value",
+        /"note_value" is not a built-in type/,
+      ],
+      [
+        "an app-defined domain in CAST syntax",
+        "SELECT CAST('B-secret' AS note_value)",
+        /"note_value" is not a built-in type/,
+      ],
+      [
+        "escape-string continuation with inherited quoting rules",
+        "SELECT E'head'\n'one\\' two' AS label, body FROM public.notes --'",
+        /Continuation after an escape string/,
+      ],
       [
         "a materialized view the per-user views do not shadow",
         "SELECT body FROM notes_mv",
@@ -176,6 +263,16 @@ describe("agent SQL guards keep each tenant to its own rows (e2e, PGlite)", () =
         /"set_config" is not available in agent SQL/,
       ],
       [
+        "text-search statistics that execute SQL text",
+        "SELECT word FROM ts_stat('SELECT to_tsvector(body) FROM public.notes')",
+        /"ts_stat" is not available in agent SQL/,
+      ],
+      [
+        "text-search rewriting that executes SQL text",
+        "SELECT ts_rewrite('needle'::tsquery, 'SELECT ''needle''::tsquery, to_tsquery(body) FROM public.notes')",
+        /"ts_rewrite" is not available in agent SQL/,
+      ],
+      [
         "a data-modifying CTE",
         "WITH gone AS (DELETE FROM notes RETURNING id) SELECT id FROM gone",
         /read-only transaction/,
@@ -207,6 +304,17 @@ describe("agent SQL guards keep each tenant to its own rows (e2e, PGlite)", () =
       expect(row.name).toBeNull();
     });
 
+    it.each(["currval('public.unrelated_sequence')", "lastval()"])(
+      "refuses unrelated sequence state through %s",
+      async (expression) => {
+        await admin("SELECT nextval('public.unrelated_sequence')");
+        await expectRefused(
+          () => dbQuery(`SELECT ${expression}`),
+          /"(?:currval|lastval)" is not available in agent SQL/,
+        );
+      },
+    );
+
     it("applies --limit after a trailing comment", async () => {
       const output = await dbQuery("SELECT body FROM notes -- newest first", [
         "--limit",
@@ -224,9 +332,35 @@ describe("agent SQL guards keep each tenant to its own rows (e2e, PGlite)", () =
         { id: "a2", body: "A-TWO", type: "text" },
       ]);
     });
+
+    it("reads scoped rows whose existing fields have an app-defined domain", async () => {
+      const output = await dbQuery(
+        "SELECT n.id, n.body FROM domain_notes n ORDER BY n.id",
+      );
+      expect(JSON.parse(output).rows).toEqual([
+        { id: "a1", body: "A-one" },
+        { id: "a2", body: "A-two" },
+      ]);
+    });
   });
 
   describe("db-exec", () => {
+    it("refuses sequence advancement without changing the sequence", async () => {
+      await expectRefused(
+        () =>
+          dbExec([
+            "--sql",
+            "UPDATE notes SET body = nextval('public.unrelated_sequence')::text",
+          ]),
+        /"nextval" is not available in agent SQL/,
+      );
+      expect(
+        await admin(
+          "SELECT last_value, is_called FROM public.unrelated_sequence",
+        ),
+      ).toEqual([{ last_value: 7, is_called: false }]);
+    });
+
     const refusedWrites: Array<[string, string, RegExp]> = [
       [
         "an INSERT without a column list into a table with access-control columns",

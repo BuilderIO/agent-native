@@ -10,14 +10,17 @@ export {
   agentSqlCalledNames,
   agentSqlIdentifierNames,
   agentSqlQualifiedReferences,
+  agentSqlTypeNames,
   leadingAgentSqlKeyword,
   splitAgentSqlStatements,
   type AgentSqlQualifiedReference,
 } from "./analysis.js";
 export {
   AgentSqlPolicyError,
+  assertAgentPostgresExpressionTokenPolicy,
   assertAgentPostgresTokenPolicy,
   readAgentPostgresStatement,
+  verifyAgentPostgresExpressions,
   verifyAgentPostgresResolution,
   type AgentPostgresStatement,
   type AgentSqlPolicyErrorCode,
