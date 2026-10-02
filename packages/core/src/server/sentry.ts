@@ -74,18 +74,22 @@ function redactSentryEventPayload(
   sqlFailure = false,
   eventRoot = false,
   seen = new WeakSet<object>(),
+  nestedSqlAssociation = false,
 ): void {
   if (value == null || typeof value !== "object" || seen.has(value)) return;
   seen.add(value);
 
   const record = value as Record<string, unknown>;
-  const redactSqlParams =
+  const directlySqlAssociated =
     sqlFailure ||
     isStructuredSqlQuery(value) ||
     (!eventRoot &&
       Object.values(record).some(
         (child) => typeof child === "string" && isSqlStatementText(child),
       ));
+  const redactSqlParams =
+    directlySqlAssociated ||
+    (nestedSqlAssociation && hasSqlFailureSignal(value));
   const stackContext = { name: record.name, message: record.message };
   for (const [key, child] of Object.entries(record)) {
     if (redactSqlParams && key.toLowerCase() === "params") {
@@ -97,11 +101,18 @@ function redactSentryEventPayload(
             redact(child))
           : redact(child);
     } else {
+      const childNestedSqlAssociation =
+        nestedSqlAssociation ||
+        (eventRoot &&
+          ["contexts", "breadcrumbs", "extra", "exception"].includes(
+            key.toLowerCase(),
+          ));
       redactSentryEventPayload(
         child,
-        eventRoot ? false : redactSqlParams,
+        eventRoot ? false : directlySqlAssociated,
         false,
         seen,
+        childNestedSqlAssociation,
       );
     }
   }

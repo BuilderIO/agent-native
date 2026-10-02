@@ -527,6 +527,53 @@ describe("server/sentry", () => {
       },
     );
 
+    it("redacts params on ancestors of nested SQL and preserves unrelated params", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const privateValue = "private customer value";
+      const query = "SELECT email FROM users WHERE email = $1";
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        contexts: {
+          database: {
+            params: [privateValue],
+            lastQuery: { query, params: [privateValue] },
+            diagnostics: { params: ["diagnostic"] },
+          },
+          unrelated: { params: ["diagnostic"] },
+        },
+        params: [privateValue],
+        extra: {
+          params: [privateValue],
+          unrelated: { params: ["diagnostic"] },
+        },
+      } as never) as {
+        contexts: {
+          database: {
+            params: unknown;
+            lastQuery: { params: unknown };
+            diagnostics: { params: string[] };
+          };
+          unrelated: { params: string[] };
+        };
+        params: unknown;
+        extra: { params: unknown; unrelated: { params: string[] } };
+      };
+
+      expect(result.params).toBe("<redacted>");
+      expect(result.extra.params).toBe("<redacted>");
+      expect(result.contexts.database.params).toBe("<redacted>");
+      expect(result.contexts.database.lastQuery.params).toBe("<redacted>");
+      expect(result.contexts.database.diagnostics.params).toEqual([
+        "diagnostic",
+      ]);
+      expect(result.contexts.unrelated.params).toEqual(["diagnostic"]);
+      expect(result.extra.unrelated.params).toEqual(["diagnostic"]);
+      expect(JSON.stringify(result)).not.toContain(privateValue);
+    });
+
     it("distinguishes CTE queries from diagnostics beginning with with", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
