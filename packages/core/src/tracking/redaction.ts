@@ -52,13 +52,25 @@ function sqlDollarQuoteDelimiter(
   value: string,
   index: number,
 ): string | undefined {
-  if (
-    value[index] !== "$" ||
-    (index > 0 && /[$\p{ID_Continue}]/u.test(value[index - 1]))
-  ) {
+  if (value[index] !== "$" || isSqlIdentifierContinueBefore(value, index)) {
     return undefined;
   }
   return SQL_DOLLAR_QUOTE_RE.exec(value.slice(index))?.[0];
+}
+
+function isSqlIdentifierContinueBefore(value: string, index: number): boolean {
+  if (index <= 0) return false;
+
+  const lastCodeUnit = value.charCodeAt(index - 1);
+  const previousIndex =
+    index > 1 &&
+    lastCodeUnit >= 0xdc00 &&
+    lastCodeUnit <= 0xdfff &&
+    value.charCodeAt(index - 2) >= 0xd800 &&
+    value.charCodeAt(index - 2) <= 0xdbff
+      ? index - 2
+      : index - 1;
+  return /(?:\$|\p{ID_Continue})$/u.test(value.slice(previousIndex, index));
 }
 
 function afterSqlParenthesizedBody(value: string): string | undefined {
@@ -109,8 +121,7 @@ function afterSqlParenthesizedBody(value: string): string | undefined {
     if (value[index] === "'" || value[index] === '"') {
       quote = value[index] as "'" | '"';
       escapeString =
-        quote === "'" &&
-        /(?:^|[^A-Za-z0-9_$])(?:E|U&)$/i.test(value.slice(0, index));
+        quote === "'" && /(?:^|[^A-Za-z0-9_$])E$/i.test(value.slice(0, index));
       continue;
     }
     const delimiter = sqlDollarQuoteDelimiter(value, index);
@@ -216,7 +227,7 @@ function decodeSqlEscapeString(value: string): string | undefined {
   return decoded;
 }
 
-function parseSqlStringConstant(
+function parseSqlStringConstantToken(
   value: string,
 ): { value: string; remainder: string } | undefined {
   const escapeString = /^[eE]'/.test(value);
@@ -230,6 +241,28 @@ function parseSqlStringConstant(
     : literal[1].replace(/''/g, "'");
   if (decoded === undefined) return undefined;
   return { value: decoded, remainder: value.slice(literal[0].length) };
+}
+
+function parseSqlStringConstant(
+  value: string,
+): { value: string; remainder: string } | undefined {
+  const first = parseSqlStringConstantToken(value);
+  if (!first) return undefined;
+
+  let decoded = first.value;
+  let remainder = first.remainder;
+  while (true) {
+    const next = afterLeadingSqlComments(remainder);
+    const separator = remainder.slice(0, remainder.length - next.length);
+    if (!/[\r\n]/u.test(separator)) break;
+
+    const adjacent = parseSqlStringConstantToken(next);
+    if (!adjacent) break;
+    decoded += adjacent.value;
+    remainder = adjacent.remainder;
+  }
+
+  return { value: decoded, remainder };
 }
 
 function afterSqlIdentifier(value: string): string | undefined {
@@ -308,8 +341,7 @@ function afterSqlKeywordOutsideQuotedText(
     if (value[index] === "'" || value[index] === '"') {
       quote = value[index] as "'" | '"';
       escapeString =
-        quote === "'" &&
-        /(?:^|[^A-Za-z0-9_$])(?:E|U&)$/i.test(value.slice(0, index));
+        quote === "'" && /(?:^|[^A-Za-z0-9_$])E$/i.test(value.slice(0, index));
       continue;
     }
 
@@ -321,10 +353,7 @@ function afterSqlKeywordOutsideQuotedText(
     }
 
     const match = token.exec(value.slice(index));
-    if (
-      match &&
-      (index === 0 || !/[$\p{ID_Continue}]/u.test(value[index - 1]))
-    ) {
+    if (match && !isSqlIdentifierContinueBefore(value, index)) {
       return afterLeadingSqlComments(value.slice(index + match[0].length));
     }
   }

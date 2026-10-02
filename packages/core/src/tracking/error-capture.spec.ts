@@ -208,8 +208,20 @@ describe("tracking captureException", () => {
       String.raw`WITH U&"caf\00E9" UESCAPE E'\\' AS (SELECT id FROM users WHERE email = $1) SELECT * FROM U&"caf\00E9" UESCAPE E'\\'`,
     ],
     [
+      "newline-concatenated UESCAPE string constants",
+      "WITH U&\"caf\\00E9\" UESCAPE E'\\\\'\n'' AS (SELECT id FROM users WHERE email = $1) SELECT * FROM U&\"caf\\00E9\" UESCAPE E'\\\\'\n''",
+    ],
+    [
+      "Unicode strings with a custom UESCAPE character",
+      "WITH data AS (SELECT U&'backslash\\''' UESCAPE '!' AS value) SELECT * FROM data",
+    ],
+    [
       "Unicode dollar-quote tags in CTE bodies",
       "WITH data AS (SELECT $é$) ) $é$ AS value) SELECT value FROM data",
+    ],
+    [
+      "dollar-quote-like suffixes after non-BMP identifiers",
+      "WITH data AS (SELECT col𐐀$tag$tail FROM users WHERE email = $1) SELECT col𐐀$tag$tail FROM data",
     ],
     [
       "dollar signs in unquoted CTE body identifiers",
