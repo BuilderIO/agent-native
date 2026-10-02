@@ -217,6 +217,29 @@ describe("built-in functions that escape the per-user views", () => {
 });
 
 describe("sensitive framework tables", () => {
+  it.each([
+    "mcp_oauth_clients",
+    "mcp_oauth_codes",
+    "mcp_oauth_refresh_tokens",
+    "mcp_connect_tokens",
+    "mcp_device_codes",
+  ])(
+    "refuses MCP credential metadata in %s through every raw tool",
+    (table) => {
+      expect(() => readRawDbReadStatement(`SELECT * FROM "${table}"`)).toThrow(
+        /Sensitive framework table/,
+      );
+      expect(() =>
+        readRawDbWriteStatement(
+          `UPDATE ${table} SET issued_for_email = 'other@example.test'`,
+        ),
+      ).toThrow(/Sensitive framework table/);
+      expect(() => assertNoSensitiveFrameworkTables(table, "patch")).toThrow(
+        /Sensitive framework table/,
+      );
+    },
+  );
+
   it("rejects direct and qualified reads", () => {
     expect(() =>
       assertNoSensitiveFrameworkTables("SELECT * FROM oauth_tokens", "read"),

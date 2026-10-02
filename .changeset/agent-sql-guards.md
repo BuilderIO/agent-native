@@ -7,3 +7,5 @@ Read agent SQL the way Postgres does before db-query, db-exec, and db-patch run 
 Adds `readAgentSqlQuery()` and `rewriteAgentSqlQuerySources()` for supported SELECT/WITH source names and exact text spans, and strengthens refusal of functions and operators outside `pg_catalog`, unsafe built-ins, and PostgreSQL escape-string continuation.
 
 Adds `verifyAgentPostgresExpressions()` for routine, operator, and type-conversion resolution checks independently of source-view verification, so Analytics can reuse them in the same verified read-only transaction.
+
+Protects MCP client, authorization-code, refresh-token, connect-token, and device-code metadata from raw SQL reads, writes, and patches.
