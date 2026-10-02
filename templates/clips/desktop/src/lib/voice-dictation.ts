@@ -406,6 +406,7 @@ async function transcribe(
         method: "POST",
         body: form,
         credentials: "include",
+        headers: { "X-Agent-Native-CSRF": "1" },
         signal: controller.signal,
       },
     );
@@ -449,6 +450,7 @@ async function cleanupTranscript(
         method: "POST",
         body: form,
         credentials: "include",
+        headers: { "X-Agent-Native-CSRF": "1" },
         signal: controller.signal,
       },
     );
@@ -1435,7 +1437,7 @@ export function installDesktopVoiceDictation(
           // through to the cleanup below regardless.
         }
       } else if (current.kind === "native") {
-        invoke("native_speech_cancel").catch((err) => {
+        invoke("native_speech_cancel", { owner: "dictation" }).catch((err) => {
           console.warn("[voice-dictation] native_speech_cancel failed:", err);
         });
       } else if (current.kind === "whisper") {
@@ -1497,7 +1499,7 @@ export function installDesktopVoiceDictation(
           // ignore
         }
       } else if (current.kind === "native") {
-        invoke("native_speech_cancel").catch(() => {});
+        invoke("native_speech_cancel", { owner: "dictation" }).catch(() => {});
       } else if (current.kind === "whisper") {
         invoke("audio_transcription_stop").catch(() => {});
       }
@@ -1515,7 +1517,10 @@ export function installDesktopVoiceDictation(
           current.kind === "whisper"
             ? "audio_transcription_stop"
             : "native_speech_stop";
-        invoke(stopCmd).catch((err) => {
+        invoke(
+          stopCmd,
+          current.kind === "native" ? { owner: "dictation" } : undefined,
+        ).catch((err) => {
           console.warn(`[voice-dictation] ${stopCmd} failed:`, err);
         });
         setFlowState("processing", "finalizing");
@@ -1956,7 +1961,7 @@ export function installDesktopVoiceDictation(
         // recorder.stop can throw if not in 'recording' state.
       }
     } else if (target.kind === "native") {
-      invoke("native_speech_cancel").catch((err) => {
+      invoke("native_speech_cancel", { owner: "dictation" }).catch((err) => {
         console.warn(
           "[voice-dictation] native_speech_cancel (dispose) failed:",
           err,
