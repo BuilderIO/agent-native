@@ -12927,6 +12927,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cs = window.getComputedStyle(el);
       return cs.display === "flex" || cs.display === "inline-flex" || cs.display === "grid" || cs.display === "inline-grid";
     }
+    function isAutoLayoutFlowTarget(el) {
+      if (!el) return false;
+      if (isAutoLayoutElement(el)) return true;
+      if (el.getAttribute("data-an-primitive") !== "frame" || !isAutoLayoutElement(el.parentElement)) {
+        return false;
+      }
+      var position = window.getComputedStyle(el).position;
+      return position !== "absolute" && position !== "fixed";
+    }
     var BRIDGE_REPLACED_TAGS = {
       img: true,
       video: true,
@@ -16932,7 +16941,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           return target;
         }
         var container = dropContainerForTarget(target);
-        if (!container || container === dragEl || container === document.body || container === document.documentElement || !isAutoLayoutElement(container)) {
+        if (!container || container === dragEl || container === document.body || container === document.documentElement || !isAutoLayoutFlowTarget(container)) {
           return target;
         }
         var crect = container.getBoundingClientRect();
@@ -16941,16 +16950,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var parent = container.parentElement;
         if (!parent) return null;
-        var pcs = window.getComputedStyle(parent);
-        var pAxis = pcs.flexDirection === "column" || pcs.flexDirection === "column-reverse" ? "y" : "x";
-        var center = pAxis === "x" ? crect.left + crect.width / 2 : crect.top + crect.height / 2;
-        var pointer = pAxis === "x" ? ev ? ev.clientX : center : ev ? ev.clientY : center;
-        return {
-          anchor: container,
-          placement: pointer < center ? "before" : "after",
-          axis: pAxis,
-          dropMode: "flow-insert"
-        };
+        var pointerX = ev ? ev.clientX : crect.left + crect.width / 2;
+        var pointerY = ev ? ev.clientY : crect.top + crect.height / 2;
+        var excluded = [dragEl].concat(groupOthers || []);
+        return nearestChildInsertionTarget(parent, pointerX, pointerY, excluded);
       }
       function cancelAutoLayoutTargetResolution() {
         pendingAutoLayoutTargetPoint = null;

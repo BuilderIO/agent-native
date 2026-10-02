@@ -16273,6 +16273,19 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
+  function isAutoLayoutFlowTarget(el: Element | null): boolean {
+    if (!el) return false;
+    if (isAutoLayoutElement(el)) return true;
+    if (
+      el.getAttribute("data-an-primitive") !== "frame" ||
+      !isAutoLayoutElement(el.parentElement)
+    ) {
+      return false;
+    }
+    var position = window.getComputedStyle(el).position;
+    return position !== "absolute" && position !== "fixed";
+  }
+
   var BRIDGE_REPLACED_TAGS: Record<string, boolean> = {
     img: true,
     video: true,
@@ -21864,7 +21877,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         container === dragEl ||
         container === document.body ||
         container === document.documentElement ||
-        !isAutoLayoutElement(container)
+        !isAutoLayoutFlowTarget(container)
       ) {
         return target;
       }
@@ -21877,23 +21890,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
       var parent = container.parentElement;
       if (!parent) return null;
-      var pcs = window.getComputedStyle(parent);
-      var pAxis =
-        pcs.flexDirection === "column" || pcs.flexDirection === "column-reverse"
-          ? "y"
-          : "x";
-      var center =
-        pAxis === "x"
-          ? crect.left + crect.width / 2
-          : crect.top + crect.height / 2;
-      var pointer =
-        pAxis === "x" ? (ev ? ev.clientX : center) : ev ? ev.clientY : center;
-      return {
-        anchor: container,
-        placement: pointer < center ? "before" : "after",
-        axis: pAxis,
-        dropMode: "flow-insert",
-      };
+      var pointerX = ev ? ev.clientX : crect.left + crect.width / 2;
+      var pointerY = ev ? ev.clientY : crect.top + crect.height / 2;
+      var excluded = [dragEl].concat(groupOthers || []);
+      return nearestChildInsertionTarget(parent, pointerX, pointerY, excluded);
     }
     function cancelAutoLayoutTargetResolution(): void {
       pendingAutoLayoutTargetPoint = null;
