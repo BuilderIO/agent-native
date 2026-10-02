@@ -30,7 +30,18 @@ const listEventCatalog = vi.hoisted(() =>
   })),
 );
 
+const getSessionFrictionDetails = vi.hoisted(() =>
+  vi.fn(async (_scope: unknown, recordings: Array<{ id: string }>) => {
+    return new Map(
+      recordings.map((recording) => [recording.id, { score: 4 }] as const),
+    );
+  }),
+);
+
 vi.mock("@agent-native/core/labs/server", () => ({ getUserLabEnabled }));
+vi.mock("../server/lib/session-friction.js", () => ({
+  getSessionFrictionDetails,
+}));
 vi.mock("@agent-native/core/server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/server")>()),
   getRequestUserEmail: () => "user@example.test",
@@ -63,6 +74,7 @@ describe("Sessions triage Lab guard on event actions", () => {
     labEnabled.value = false;
     getUserLabEnabled.mockClear();
     listSessionRecordingsPage.mockClear();
+    getSessionFrictionDetails.mockClear();
   });
 
   it("keeps plain session lists working with the Lab off", async () => {
@@ -107,6 +119,50 @@ describe("Sessions triage Lab guard on event actions", () => {
       ReturnType<typeof listEventCatalog>
     >;
     expect(catalog.entries[0].description).toBe("A viewer opened a clip.");
+  });
+
+  it("rejects friction filters, sorts, and details with the Lab off", async () => {
+    for (const args of [
+      { frictionSignals: ["dead_clicks"] },
+      { sort: "friction" },
+      { sort: "thumbs_down" },
+      { includeFriction: true },
+    ]) {
+      await expect(
+        listRecordings.run({ paginated: true, ...args } as never),
+      ).rejects.toMatchObject({ statusCode: 403 });
+    }
+    expect(listSessionRecordingsPage).not.toHaveBeenCalled();
+    expect(getSessionFrictionDetails).not.toHaveBeenCalled();
+  });
+
+  it("keeps the plain sorts working with the Lab off", async () => {
+    await listRecordings.run({ paginated: true, sort: "errors" } as never);
+    expect(getUserLabEnabled).not.toHaveBeenCalled();
+    expect(listSessionRecordingsPage).toHaveBeenCalledOnce();
+  });
+
+  it("filters by friction and attaches friction with the Lab on", async () => {
+    labEnabled.value = true;
+    listSessionRecordingsPage.mockResolvedValueOnce({
+      recordings: [{ id: "r1" }] as never[],
+      total: 1,
+      appCounts: [],
+    });
+    const page = (await listRecordings.run({
+      paginated: true,
+      frictionSignals: ["dead_clicks"],
+      sort: "friction",
+      includeFriction: true,
+    } as never)) as { recordings: Array<{ id: string; friction?: unknown }> };
+    expect(listSessionRecordingsPage).toHaveBeenCalledWith(
+      { userEmail: "user@example.test", orgId: "org-1" },
+      expect.objectContaining({
+        frictionSignals: ["dead_clicks"],
+        sort: "friction",
+      }),
+    );
+    expect(page.recordings).toEqual([{ id: "r1", friction: { score: 4 } }]);
   });
 
   it("rejects event range bounds that are not timestamps", () => {

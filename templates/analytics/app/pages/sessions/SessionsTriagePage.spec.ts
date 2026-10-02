@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { readSessionEventFilters } from "../../../shared/session-events";
+import { readSessionFrictionSignals } from "../../../shared/session-friction";
 import {
   readHideEmptyFilter,
   withCustomDate,
   withSessionEventConditions,
   withSessionFilter,
+  withSessionFrictionSignals,
 } from "./SessionsTriagePage";
 
 describe("Sessions filter links", () => {
@@ -102,5 +104,23 @@ describe("Sessions event condition links", () => {
       "d",
       "e",
     ]);
+  });
+});
+
+describe("Sessions friction links", () => {
+  it("round-trips friction signals and resets the page", () => {
+    const next = withSessionFrictionSignals(
+      new URLSearchParams("app=clips&page=3&sort=friction&signal=http_4xx"),
+      ["dead_clicks", "thumbs_down"],
+    );
+
+    expect(readSessionFrictionSignals(next)).toEqual([
+      "dead_clicks",
+      "thumbs_down",
+    ]);
+    expect(next.get("app")).toBe("clips");
+    expect(next.get("sort")).toBe("friction");
+    expect(next.has("page")).toBe(false);
+    expect(withSessionFrictionSignals(next, []).has("signal")).toBe(false);
   });
 });

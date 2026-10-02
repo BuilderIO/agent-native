@@ -5,17 +5,35 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { getSessionFrictionDetails } from "../server/lib/session-friction.js";
 import {
   listSessionRecordings,
   listSessionRecordingsPage,
+  type SessionRecordingSummary,
 } from "../server/lib/session-replay.js";
 import { assertSessionsTriageLabEnabled } from "../server/lib/sessions-triage-lab.js";
 import { MAX_SESSION_EVENT_CONDITIONS } from "../shared/session-events.js";
+import {
+  isSessionFrictionSort,
+  SESSION_FRICTION_SIGNALS,
+  SESSION_FRICTION_SORTS,
+} from "../shared/session-friction.js";
 
 function resolveScope() {
   const userEmail = getRequestUserEmail();
   if (!userEmail) throw new Error("no authenticated user");
   return { userEmail, orgId: getRequestOrgId() || null };
+}
+
+async function withFriction(
+  scope: { userEmail: string; orgId: string | null },
+  recordings: SessionRecordingSummary[],
+): Promise<SessionRecordingSummary[]> {
+  const friction = await getSessionFrictionDetails(scope, recordings);
+  return recordings.map((recording) => ({
+    ...recording,
+    friction: friction.get(recording.id),
+  }));
 }
 
 export default defineAction({
@@ -75,7 +93,19 @@ export default defineAction({
       .string()
       .optional()
       .describe("Exact visitor email domain, without @"),
-    sort: z.enum(["newest", "longest", "errors", "events", "rage"]).optional(),
+    sort: z
+      .enum([
+        "newest",
+        "longest",
+        "errors",
+        "events",
+        "rage",
+        ...SESSION_FRICTION_SORTS,
+      ])
+      .optional()
+      .describe(
+        "Sort order. `friction` (score) and the friction signal names sort measured sessions first and require the Sessions triage Lab.",
+      ),
     offset: z.coerce.number().int().min(0).optional(),
     paginated: z
       .boolean()
@@ -98,6 +128,19 @@ export default defineAction({
       .describe(
         "Only sessions that tracked none of these event names. Requires the Sessions triage Lab; covers sessions recorded after the event index started.",
       ),
+    frictionSignals: z
+      .array(z.enum(SESSION_FRICTION_SIGNALS))
+      .max(SESSION_FRICTION_SIGNALS.length)
+      .optional()
+      .describe(
+        "Only sessions that showed every one of these friction signals. Requires the Sessions triage Lab; covers sessions measured since friction tracking began, and never matches an unmeasured session.",
+      ),
+    includeFriction: z
+      .boolean()
+      .optional()
+      .describe(
+        "Add each recording's friction: score, signal counts, top signals, failed actions and agent failures grouped by cause, and linked Monitoring error issues. A null part means it was not measured, not zero. Requires the Sessions triage Lab.",
+      ),
     limit: z.coerce.number().int().min(1).max(100).optional().default(50),
   }),
   http: { method: "GET" },
@@ -106,11 +149,23 @@ export default defineAction({
   grounding: true,
   run: async (args) => {
     const scope = resolveScope();
-    if (args.didEvents?.length || args.didNotEvents?.length) {
+    if (
+      args.didEvents?.length ||
+      args.didNotEvents?.length ||
+      args.frictionSignals?.length ||
+      isSessionFrictionSort(args.sort) ||
+      args.includeFriction
+    ) {
       await assertSessionsTriageLabEnabled(scope.userEmail, scope.orgId);
     }
-    return args.paginated
-      ? listSessionRecordingsPage(scope, args)
-      : listSessionRecordings(scope, args);
+    const { includeFriction, ...filters } = args;
+    if (!args.paginated) {
+      const recordings = await listSessionRecordings(scope, filters);
+      return includeFriction ? withFriction(scope, recordings) : recordings;
+    }
+    const page = await listSessionRecordingsPage(scope, filters);
+    return includeFriction
+      ? { ...page, recordings: await withFriction(scope, page.recordings) }
+      : page;
   },
 });

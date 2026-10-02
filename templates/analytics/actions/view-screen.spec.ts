@@ -69,6 +69,14 @@ vi.mock("../server/lib/session-replay.js", () => ({
   ),
 }));
 
+const getSessionFrictionDetails = vi.fn(
+  async (_scope: unknown, recordings: Array<{ id: string }>) =>
+    new Map(recordings.map((recording) => [recording.id, { score: 3 }])),
+);
+vi.mock("../server/lib/session-friction.js", () => ({
+  getSessionFrictionDetails,
+}));
+
 const isSessionsTriageLabEnabled = vi.fn(async () => false);
 vi.mock("../server/lib/sessions-triage-lab.js", () => ({
   isSessionsTriageLabEnabled,
@@ -483,6 +491,58 @@ describe("view-screen Sessions context", () => {
     expect(off.sessionReplayPage.eventConditionsNotApplied).toEqual({
       didEvents: ["recording_started"],
       didNotEvents: ["clip_viewed"],
+    });
+  });
+
+  it("applies friction filters, sorts, and row friction only while the Lab is on", async () => {
+    const url = {
+      pathname: "/sessions",
+      search: "?signal=dead_clicks&signal=nope&sort=friction",
+      searchParams: { signal: "dead_clicks", sort: "friction" },
+    };
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
+    setScreen({ view: "sessions" }, url);
+
+    const on = await runScreen();
+
+    expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        frictionSignals: ["dead_clicks"],
+        sort: "friction",
+      }),
+    );
+    expect(on.sessionReplays[0]).toEqual({
+      id: "recording-0",
+      friction: { score: 3 },
+    });
+    expect(on.sessionReplayPage.fullPageAction.args).toMatchObject({
+      frictionSignals: ["dead_clicks"],
+      sort: "friction",
+      includeFriction: true,
+    });
+    expect(on.sessionReplayPage.frictionNotApplied).toBeUndefined();
+
+    getSessionFrictionDetails.mockClear();
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(false);
+    const off = await runScreen();
+
+    expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ sort: "newest" }),
+    );
+    expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.not.objectContaining({ frictionSignals: expect.anything() }),
+    );
+    expect(getSessionFrictionDetails).not.toHaveBeenCalled();
+    expect(off.sessionReplays[0]).toEqual({ id: "recording-0" });
+    expect(off.sessionReplayPage.fullPageAction.args).not.toHaveProperty(
+      "includeFriction",
+    );
+    expect(off.sessionReplayPage.frictionNotApplied).toEqual({
+      signals: ["dead_clicks"],
+      sort: "friction",
     });
   });
 
