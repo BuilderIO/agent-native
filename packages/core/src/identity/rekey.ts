@@ -1003,6 +1003,20 @@ export async function rekeyIdentity(
     throw new Error(
       "Better Auth user table is unavailable; no identity data was changed.",
     );
+  const membershipColumns = await columns(db, "org_members");
+  if (membershipColumns.has("email")) {
+    const order = ["org_id", "id"].filter((column) =>
+      membershipColumns.has(column),
+    );
+    if (!order.length) order.push("email");
+    // Issuance and offboarding lock membership before credentials. Hold the
+    // same fence through every scan, including an initially empty grant store.
+    await db.unsafe(
+      `SELECT ${quote(membershipColumns.has("id") ? "id" : "email")} FROM "org_members"
+       WHERE LOWER("email") = LOWER($1) ORDER BY ${order.map(quote).join(", ")} FOR UPDATE`,
+      [oldEmail],
+    );
+  }
   const users = await db.unsafe(
     `SELECT "id" FROM "user" WHERE LOWER("email") = LOWER($1) FOR UPDATE`,
     [oldEmail],
