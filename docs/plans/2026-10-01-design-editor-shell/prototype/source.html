@@ -49,6 +49,7 @@
   --page-card: hsl(0 0% 97%);
   --page-bg: hsl(0 0% 100%);
   --live: hsl(145 63% 42%);
+  --warn: hsl(36 92% 50%);
   --font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
 }
@@ -381,9 +382,21 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .inp.tokfield { padding-right: 0; }
 .tok-chip { display: inline-flex; align-items: center; gap: 4px; height: 18px; margin-right: auto; padding: 0 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font: 500 11px/18px var(--font); }
 .tok-chip svg.i { width: 12px; height: 12px; }
-/* A URL screen's connection: a status dot, green when the app answers, grey when it doesn't. */
+/* A URL screen's connection: a status dot, green when your code has every edit, amber when some edits haven't
+   reached it yet, grey when the app doesn't answer. */
 .sdot { width: 6px; height: 6px; border-radius: 50%; background: var(--live); flex: none; }
 .sdot.off { background: var(--muted-fg); }
+.sdot.warn { background: var(--warn); }
+.select .unsaved { flex: none; color: var(--muted-fg); font-size: 11px; font-weight: 400; }
+.row .sdot { margin-right: 4px; }
+.sync-list { display: flex; flex-direction: column; margin: -8px -8px 0; }
+.sync-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 40px; padding: 4px 8px; border-radius: 6px; font-size: 12px; }
+.sync-row .p { display: flex; flex-direction: column; min-width: 0; }
+.sync-row .p b { font: 500 12px/16px var(--mono); }
+.sync-row .p small { color: var(--muted-fg); font-size: 12px; line-height: 16px; }
+.sync-row .p small.warn { display: inline-flex; align-items: center; gap: 4px; color: var(--fg); }
+.sync-row .p small.warn svg { color: var(--warn); }
+.sync-row .btn { height: 24px; border-radius: 6px; font-size: 12px; gap: 6px; padding-inline: 8px; }
 .inp.sel .v { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .src-offline { position: absolute; left: 50%; top: 24px; translate: -50% 0; z-index: 3; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 4px 0 12px; border-radius: 8px; background: var(--popover); box-shadow: var(--shadow); font-size: 12px; white-space: nowrap; }
 .src-offline button { height: 24px; padding: 0 8px; border-radius: 6px; background: var(--muted); font-weight: 500; }
@@ -916,7 +929,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
   <button class="chip" id="labs-btn" aria-pressed="false" title="Annotate mode moves behind a Labs flag">Labs: Annotate</button>
   <button class="chip" id="labs-tokens" aria-pressed="true" title="Tokens ships behind a Labs flag">Labs: Tokens</button>
   <label class="chip" title="Compare history as a mode (timeline in the inspector) or today's sheet">History <select id="hist-style"><option value="mode">Mode</option><option value="sheet">Sheet (today)</option></select></label>
-  <label class="chip" title="Show the controls that only appear in some states">Scenario <select id="scenario-sel"><option value="none">Default</option><option value="feedback">Feedback queued</option><option value="rewrite">Changes to review</option><option value="local">Local app screen</option><option value="local-off">Local app stopped</option></select></label>
+  <label class="chip" title="Show the controls that only appear in some states">Scenario <select id="scenario-sel"><option value="none">Default</option><option value="feedback">Feedback queued</option><option value="rewrite">Changes to review</option><option value="local">Local app screen</option><option value="local-off">Local app stopped</option><option value="local-unsaved">Local app, unsaved changes</option></select></label>
   <button class="chip" id="spec-grid-btn" aria-pressed="false" title="Show the indent spacers and the inspector's 88 / 8 / 88 / 8 / 32 grid">Spacing <span class="k">G</span></button>
   <button class="chip" id="theme-btn">Theme</button>
   <button class="chip" id="spec-btn" aria-pressed="false">Spec</button>
@@ -1125,22 +1138,63 @@ const whenMenu = (r) => [{ label: "Container (this layer's parent)" }, ...widthT
 // behind the status dot and tooltip of the top bar's route control, the same control as Interact's address bar. There's no detach: edits write back to the app's code, and
 // turning a live screen static is left to the agent (update-screen-source). Static screens have no source UI.
 const SRC = { name: "Agent-Native Web", host: "localhost:5173", apps: [["Agent-Native Web", "localhost:5173"]] };
-const localApp = () => S.scenario === "local" || S.scenario === "local-off";
+const localApp = () => S.scenario === "local" || S.scenario === "local-off" || S.scenario === "local-unsaved";
 const appConnected = () => localApp() || SRC.joined;
 const urlScreen = localApp;
-const srcUp = () => S.scenario !== "local-off";
-const srcTip = () => srcUp() ? `${SRC.name} · ${SRC.host}` : `Can't reach ${SRC.name} at ${SRC.host}. Is its dev server running?`;
-const sdot = () => `<span class="sdot ${srcUp() ? "" : "off"}" title="${srcTip()}"></span>`;
+// Edits save to the route's file as you make them (SAVE-02). The ones that can't yet (app down, a file changed
+// on disk) stay in Design as unsaved, per route, and the dot and the route control show the count.
+const SYNC = { pending: {}, conflict: new Set() };
+const SYNC_SEED = { "/home": 4, "/docs": 3, "/pricing": 3 };
+const srcUp = () => !SRC.down;
+const unsaved = () => Object.values(SYNC.pending).reduce((a, b) => a + b, 0);
+const changes = n => `${n} change${n === 1 ? "" : "s"}`;
+const srcTip = () => {
+  const n = unsaved(), left = n ? ` ${changes(n)} aren't in your code yet.` : "";
+  return srcUp() ? `${SRC.name} · ${SRC.host}.${left || " Edits save to your code as you make them."}` : `Can't reach ${SRC.name} at ${SRC.host}. Is its dev server running?${left}`;
+};
+const sdot = () => `<span class="sdot ${!srcUp() ? "off" : unsaved() ? "warn" : ""}" title="${srcTip()}"></span>`;
 const routeMenu = () => [...SRC.apps.flatMap(([name]) => [...(SRC.apps.length > 1 ? [{ label: name }] : []), ...ROUTES.map(r => ({ t: r.path, radio: true, on: S.route === r.path, run: () => go(r.path) }))]),
   "-", { t: "Custom path…", toast: "Type a path on this app, like /plans" }];
-const retryConnection = () => { S.scenario = "local"; $("#scenario-sel").value = "local"; render(); toast(`Connected to ${SRC.name}`); };
-// Apply to source (the code's applyToSourcePath) writes the screen back to its route file; it needs the app up.
+const retryConnection = () => { SRC.down = false; render(); toast(unsaved() ? `Connected. ${changes(unsaved())} are ready to save.` : `Connected to ${SRC.name}`); };
+const routeFile = (path = S.route) => path === "/home" ? "_index.tsx" : `${path.slice(1)}.tsx`;
+// Save to your app writes every unsaved change whose file hasn't moved on disk; the rest wait for a merge.
+function saveUnsaved() {
+  const ready = Object.keys(SYNC.pending).filter(p => !SYNC.conflict.has(p));
+  const saved = ready.reduce((n, p) => n + SYNC.pending[p], 0);
+  ready.forEach(p => delete SYNC.pending[p]);
+  render(); document.querySelector("#sync-dlg")?._paint?.();
+  const [held] = [...SYNC.conflict];
+  toast(held ? `Saved ${changes(saved)}. ${routeFile(held)} changed on disk, so its ${changes(SYNC.pending[held])} are waiting.` : `Saved ${changes(saved)} to your app`);
+}
+function mergeWithAgent(path) {
+  toast(`The agent is merging ${changes(SYNC.pending[path])} into ${routeFile(path)}`);
+  setTimeout(() => { delete SYNC.pending[path]; SYNC.conflict.delete(path); render(); document.querySelector("#sync-dlg")?._paint?.(); toast(`Merged into ${routeFile(path)}`); }, 1500);
+}
 const screenMenu = () => [...routeMenu(), "-", { label: SRC.name },
   ...(srcUp()
     ? [{ icon: "external-link", t: "Open in browser", k: SRC.host, toast: `Opens ${SRC.host}${S.route}` }, { icon: "refresh", t: "Reload screen", run: () => { renderPage(); toast(`Reloaded ${S.route}`); } }]
     : [{ icon: "refresh", t: "Retry connection", run: retryConnection }]),
-  { icon: "device-floppy", t: "Apply to source", k: routeFile(), disabled: !srcUp(), toast: `Saved to app/routes/${routeFile()}` }];
-const routeFile = () => S.route === "/home" ? "_index.tsx" : `${S.route.slice(1)}.tsx`;
+  ...(unsaved() ? ["-", { label: `${changes(unsaved())} not in your code` }, { icon: "device-floppy", t: "Save to your app", disabled: !srcUp(), run: saveUnsaved }, { icon: "list-details", t: "Review changes…", run: syncDialog }] : [])];
+function syncDialog() {
+  dialog(`<div class="dlg-h">Unsaved changes<span class="grow"></span><button class="icon-btn xs" data-close aria-label="Close">${ic("x")}</button></div><div class="dlg-b"><div class="sync-list" id="sync-dlg"></div></div><div class="dlg-f" id="sync-f"></div>`, (sc, close) => {
+    const list = sc.querySelector("#sync-dlg"), foot = sc.querySelector("#sync-f");
+    const paint = () => {
+      const rows = Object.entries(SYNC.pending);
+      if (!rows.length) return close();
+      list.innerHTML = rows.map(([path, n]) => {
+        const held = SYNC.conflict.has(path);
+        return `<div class="sync-row"><span class="p"><b>${path}</b>${held ? `<small class="warn">${ic("alert-triangle", "s12")}${routeFile(path)} changed on disk · ${changes(n)}</small>` : `<small>${routeFile(path)} · ${changes(n)}</small>`}</span>${held ? `<button class="btn secondary" data-merge="${path}">${ic("git-merge", "s14")}Ask the agent to merge</button>` : ""}</div>`;
+      }).join("");
+      const ready = rows.filter(([p]) => !SYNC.conflict.has(p)).reduce((a, [, n]) => a + n, 0);
+      foot.innerHTML = `<span class="app-src">${sdot()}${srcUp() ? `Connected to ${SRC.name}` : `Can't reach ${SRC.name}`}</span>${ready ? `<button class="btn primary" style="height:28px;border-radius:8px;font-size:12px" data-save-all ${srcUp() ? "" : "disabled"}>Save ${changes(ready)}</button>` : ""}`;
+    };
+    list._paint = paint; paint();
+    sc.addEventListener("click", e => {
+      if (e.target.closest("[data-save-all]")) return saveUnsaved();
+      const m = e.target.closest("[data-merge]"); if (m) { m.disabled = true; mergeWithAgent(m.dataset.merge); }
+    });
+  });
+}
 // Device sizes use the Frame tool's list, so there's one set of presets; a device sets W and a fixed H.
 const deviceMenu = () => FRAME_PRESETS.map(([key, label, icon, list]) => ({ icon, t: label, sub: list.map(([n, w, h]) => ({ t: n, k: `${w}\u2009×\u2009${h}`, radio: true, on: RESP.w === w && RESP.h === h, run: () => { RESP.h = h; setFrameWidth(w); } })) }));
 // The selected screen's frame, in the code's order: Position (X/Y, size with device presets),
@@ -1250,7 +1304,7 @@ function renderTree() {
   t.innerHTML = h;
   focusPanelSearch(LY, "layer-q");
 }
-const screenRow = (id, icon, label, sel) => `<div class="row" role="treeitem" data-screen="${id}" aria-selected="${sel}" tabindex="-1"><span class="slot ico">${icon}</span><span class="gap"></span><span class="label">${label}</span></div>`;
+const screenRow = (id, icon, label, sel) => `<div class="row" role="treeitem" data-screen="${id}" aria-selected="${sel}" tabindex="-1"><span class="slot ico">${icon}</span><span class="gap"></span><span class="label">${label}</span>${localApp() && SYNC.pending[id] ? `<span class="sdot warn" title="${changes(SYNC.pending[id])} not in your code yet"></span>` : ""}</div>`;
 const DOCS_LAYERS = [{ id: "docs-nav", name: "Nav", kind: "frame" }, { id: "docs-body", name: "Docs", kind: "frame", children: [{ id: "docs-title", name: "Documentation", kind: "text" }, { id: "docs-toc", name: "Toc", kind: "frame" }] }];
 
 /* ───────── top bar ───────── */
@@ -1279,7 +1333,7 @@ function renderTopbar() {
       ${interact ? `<span class="nav-btns"><button class="icon-btn" id="nav-back" title="Back" ${S.hIndex === 0 ? "disabled" : ""}>${ic("arrow-left")}</button><button class="icon-btn" id="nav-fwd" title="Forward" ${S.hIndex >= S.history.length - 1 ? "disabled" : ""}>${ic("arrow-right")}</button></span>
       <button class="select route" id="route-btn" aria-haspopup="menu" title="Go to a route">${localApp() ? sdot() : ic("circle-dashed")}<span class="v">${r.path}</span>${ic("chevron-down", "chev")}</button>
       <span class="nav-btns"><button class="icon-btn" id="nav-reload" title="Reload">${ic("refresh")}</button></span>`
-      : urlScreen() && S.route !== "*" ? `<button class="select route" data-route-menu aria-haspopup="menu" title="${srcTip()}">${sdot()}<span class="v">${S.route}</span>${ic("chevron-down", "chev")}</button>` : ""}
+      : urlScreen() && S.route !== "*" ? `<button class="select route" data-route-menu aria-haspopup="menu" title="${srcTip()}">${sdot()}<span class="v">${S.route}</span>${unsaved() ? `<span class="unsaved">${unsaved()} unsaved</span>` : ""}${ic("chevron-down", "chev")}</button>` : ""}
     </div>
     <div class="tb-zone tb-right">
       ${S.scenario === "rewrite" ? `<button class="btn secondary" style="height:28px;font-size:13px;border-radius:8px" id="review-changes" aria-haspopup="menu">${ic("stack-2", "s14")}Review changes · 2</button>` : ""}
@@ -1360,7 +1414,7 @@ function renderPage() {
   const off = urlScreen() && !srcUp();
   p.classList.toggle("stale", off);
   p.parentElement.querySelector(".src-offline")?.remove();
-  if (off) p.insertAdjacentHTML("afterend", `<div class="src-offline">${sdot()}<span>Can't reach ${SRC.name}</span><button data-app-retry>Retry connection</button></div>`);
+  if (off) p.insertAdjacentHTML("afterend", `<div class="src-offline">${sdot()}<span>Can't reach ${SRC.name}${unsaved() ? ` · ${unsaved()} unsaved` : ""}</span><button data-app-retry>Retry connection</button></div>`);
   applyTokens();
   const scale = S.zoom / 100;
   p.style.transform = scale === 1 ? "" : `scale(${scale})`;
@@ -2016,7 +2070,14 @@ try { const w = +localStorage.getItem("des-panel-w"); if (w) setPanelW(w); } cat
   h.addEventListener("keydown", e => { const cur = +h.getAttribute("aria-valuenow"); if (e.key === "ArrowLeft") { e.preventDefault(); setPanelW(cur - (e.shiftKey ? 40 : 8)); } if (e.key === "ArrowRight") { e.preventDefault(); setPanelW(cur + (e.shiftKey ? 40 : 8)); } });
 })();
 $("#hist-style").addEventListener("change", e => { S.historyStyle = e.target.value; if (H.active && S.historyStyle === "sheet") exitHistory(); });
-$("#scenario-sel").addEventListener("change", e => { S.scenario = e.target.value; if (S.scenario === "feedback") setPanel("comments"); render(); });
+$("#scenario-sel").addEventListener("change", e => {
+  S.scenario = e.target.value; if (S.scenario === "feedback") setPanel("comments");
+  // Local app, unsaved changes: you edited three screens while the app was down; Retry, then save.
+  const backlog = S.scenario === "local-unsaved";
+  SRC.down = S.scenario === "local-off" || backlog;
+  SYNC.pending = backlog ? { ...SYNC_SEED } : {}; SYNC.conflict = new Set(backlog ? ["/docs"] : []);
+  render();
+});
 // Mirrors @agent-native/toolkit AccountMenu (OrgSwitcher) as Design renders it: no utilityLinks, so no Get apps and extensions.
 function openAccountMenu(btn) {
   openMenu(btn, [{ label: "shawn@example.com" },
