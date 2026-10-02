@@ -13,9 +13,16 @@ const SQL_CTE_HEADER_RE =
   /^(?:"(?:[^"]|"")+"|[a-z_][\w$]*)(?:\s*\([^)]*\))?\s+as\s+(?:(?:not\s+)?materialized\s+)?\(/i;
 const SQL_CTE_QUERY_RE =
   /^(?:select|insert|update|delete|merge|values|with|table)\b/i;
-const SQL_CTE_SEARCH_CLAUSE_RE = /^search\s+(?:breadth|depth)\s+first\s+by\b/i;
-const SQL_CTE_CYCLE_CLAUSE_RE =
-  /^cycle\s+(?:"(?:[^"]|"")+"|[a-z_][\w$]*)(?:\s*,\s*(?:"(?:[^"]|"")+"|[a-z_][\w$]*))*\s+set\b/i;
+const SQL_CTE_IDENTIFIER = String.raw`(?:"(?:[^"]|"")+"|[a-z_][\w$]*)`;
+const SQL_CTE_IDENTIFIER_LIST = `${SQL_CTE_IDENTIFIER}(?:\\s*,\\s*${SQL_CTE_IDENTIFIER})*`;
+const SQL_CTE_SEARCH_CLAUSE_RE = new RegExp(
+  String.raw`^search\s+(?:breadth|depth)\s+first\s+by\s+${SQL_CTE_IDENTIFIER_LIST}\s+set\s+${SQL_CTE_IDENTIFIER}(?=$|[\s,])`,
+  "i",
+);
+const SQL_CTE_CYCLE_CLAUSE_RE = new RegExp(
+  String.raw`^cycle\s+${SQL_CTE_IDENTIFIER_LIST}\s+set\s+${SQL_CTE_IDENTIFIER}[\s\S]*?\s+using\s+${SQL_CTE_IDENTIFIER}(?=$|[\s,])`,
+  "i",
+);
 
 export const SECRET_KEY_RE =
   /(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|credential)/i;
@@ -141,12 +148,23 @@ function isSqlCteStatement(value: string): boolean {
     );
     if (afterBody === undefined) return false;
 
-    const remainder = afterLeadingSqlComments(afterBody);
-    if (
-      SQL_CTE_SEARCH_CLAUSE_RE.test(remainder) ||
-      SQL_CTE_CYCLE_CLAUSE_RE.test(remainder)
-    ) {
-      return true;
+    let remainder = afterLeadingSqlComments(afterBody);
+    let searchClauseSeen = false;
+    let cycleClauseSeen = false;
+    while (true) {
+      const searchClause = searchClauseSeen
+        ? null
+        : SQL_CTE_SEARCH_CLAUSE_RE.exec(remainder);
+      const cycleClause =
+        searchClause || cycleClauseSeen
+          ? null
+          : SQL_CTE_CYCLE_CLAUSE_RE.exec(remainder);
+      const clause = searchClause ?? cycleClause;
+      if (!clause) break;
+
+      if (searchClause) searchClauseSeen = true;
+      else cycleClauseSeen = true;
+      remainder = afterLeadingSqlComments(remainder.slice(clause[0].length));
     }
     if (remainder.startsWith(",")) {
       statement = afterLeadingSqlComments(remainder.slice(1));
