@@ -261,7 +261,7 @@ npx @agent-native/core@latest connect https://mail.agent-native.com
 
 ### 401 后重新进行身份验证 {#reconnect}
 
-OAuth 所有者绑定更新要求每个现有的 OAuth 连接[重新连接一次](/docs/external-agents#reconnect)。更新上线后，旧 OAuth 访问令牌会被拒绝。未绑定所有者的旧刷新令牌会返回 `invalid_grant`，尚未使用的旧授权码必须重新开始同意流程。新签发的访问令牌使用配置的有效期，并在每次请求时检查成员资格。此次 OAuth 切换不会更改 Connect 令牌或跨应用 A2A 令牌。
+OAuth 所有者绑定更新要求每个现有的 OAuth 连接[重新连接一次](/docs/external-agents#reconnect)。更新上线后，旧 OAuth 访问令牌会被拒绝。未绑定所有者的旧刷新令牌会返回 `invalid_grant`，尚未使用的旧授权码必须重新开始同意流程。新签发的访问令牌使用配置的有效期，并在每次请求时检查成员资格。此次切换不会更改旧 A2A 格式的 `mcp-connect` 凭据或跨应用 A2A 令牌。使用旧 OAuth 格式 Connect 令牌的连接也必须重新连接。
 
 连接后，身份验证应长期持续 - 访问令牌默认持续 30 天（在服务器上使用 `MCP_OAUTH_ACCESS_TOKEN_TTL` 覆盖，例如 `7d` 或 `12h`），并具有 365 天滑动刷新窗口，因此随机 401 应该很少见。当发生这种情况时，请使用轻量级重新连接命令而不是重新安装：
 

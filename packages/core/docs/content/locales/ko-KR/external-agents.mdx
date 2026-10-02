@@ -264,7 +264,7 @@ npx @agent-native/core@latest connect https://mail.agent-native.com
 
 ### 401 이후 재인증 {#reconnect}
 
-OAuth 소유자 바인딩 업데이트 후 기존 OAuth 연결은 모두 [한 번 다시 연결해야 합니다](/docs/external-agents#reconnect). 업데이트가 적용되면 이전 OAuth 액세스 토큰은 거부됩니다. 소유자 바인딩이 없는 이전 갱신 토큰은 `invalid_grant`를 반환하며 아직 사용하지 않은 이전 인증 코드는 동의 절차를 다시 시작해야 합니다. 새로 발급된 액세스 토큰에는 설정된 유효 기간과 요청마다 수행되는 멤버십 확인이 적용됩니다. 이 OAuth 전환은 Connect 토큰과 앱 간 A2A 토큰을 변경하지 않습니다.
+OAuth 소유자 바인딩 업데이트 후 기존 OAuth 연결은 모두 [한 번 다시 연결해야 합니다](/docs/external-agents#reconnect). 업데이트가 적용되면 이전 OAuth 액세스 토큰은 거부됩니다. 소유자 바인딩이 없는 이전 갱신 토큰은 `invalid_grant`를 반환하며 아직 사용하지 않은 이전 인증 코드는 동의 절차를 다시 시작해야 합니다. 새로 발급된 액세스 토큰에는 설정된 유효 기간과 요청마다 수행되는 멤버십 확인이 적용됩니다. 이 전환은 기존 A2A 형식의 `mcp-connect` 자격 증명과 앱 간 A2A 토큰을 변경하지 않습니다. 이전 OAuth 형식의 Connect 토큰을 사용하는 연결도 다시 연결해야 합니다.
 
 한 번 연결되면 인증은 장기간 지속되어야 합니다. 액세스 토큰은 기본적으로 30일 동안 지속되며(서버에서 `MCP_OAUTH_ACCESS_TOKEN_TTL`로 재정의, 예: `7d` 또는 `12h`) 365일 새로 고침 기간이 있으므로 임의의 401이 거의 발생하지 않습니다. 이런 일이 발생하면 다시 설치하는 대신 간단한 reconnect 명령을 사용하세요.
 

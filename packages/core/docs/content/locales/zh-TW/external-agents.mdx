@@ -261,7 +261,7 @@ npx @agent-native/core@latest connect https://mail.agent-native.com
 
 ### 401 後重新進行驗證 {#reconnect}
 
-OAuth 擁有者繫結更新要求每個現有的 OAuth 連線[重新連線一次](/docs/external-agents#reconnect)。更新上線後，舊 OAuth 存取權杖會遭拒。未繫結擁有者的舊重新整理權杖會傳回 `invalid_grant`，尚未使用的舊授權碼必須重新開始同意流程。新簽發的存取權杖使用設定的有效期限，並在每次請求時檢查成員資格。此次 OAuth 切換不會變更 Connect 權杖或跨應用程式 A2A 權杖。
+OAuth 擁有者繫結更新要求每個現有的 OAuth 連線[重新連線一次](/docs/external-agents#reconnect)。更新上線後，舊 OAuth 存取權杖會遭拒。未繫結擁有者的舊重新整理權杖會傳回 `invalid_grant`，尚未使用的舊授權碼必須重新開始同意流程。新簽發的存取權杖使用設定的有效期限，並在每次請求時檢查成員資格。此次切換不會變更舊 A2A 格式的 `mcp-connect` 認證或跨應用程式 A2A 權杖。使用舊 OAuth 格式 Connect 權杖的連線也必須重新連線。
 
 連線後，驗證應長期持續 - 存取權杖預設持續 30 天（在伺服器上使用 `MCP_OAUTH_ACCESS_TOKEN_TTL` 覆蓋，例如 `7d` 或 `12h`），並具有 365 天滑動重新整理視窗，因此隨機 401 應該很少見。當發生這種情況時，請使用輕量級重新連線指令而不是重新安裝：
 
