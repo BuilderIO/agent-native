@@ -2125,6 +2125,42 @@ describe("unreadable credential store is not 'not configured'", () => {
     );
   });
 
+  it("fails every resolver on an org lookup failure instead of answering with the caller's own credential", async () => {
+    const membershipTimeout = Object.assign(
+      new Error("membership query timed out"),
+      { code: "57014" },
+    );
+    mockResolveOrgIdForEmail.mockRejectedValue(membershipTimeout);
+    mockReadAppSecret.mockImplementation(async ({ scope, key }) =>
+      scope === "user"
+        ? { value: `personal-${key}`, last4: "onal", updatedAt: 1 }
+        : null,
+    );
+
+    await expect(resolveSecretDetailed("SVC_TOKEN")).resolves.toMatchObject({
+      value: null,
+      lookupFailed: true,
+    });
+    await expect(resolveSecret("SVC_TOKEN")).rejects.toBeInstanceOf(
+      CredentialStoreUnavailableError,
+    );
+    await expect(
+      resolveSecretPair(["SVC_ID", "SVC_SECRET"]),
+    ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+
+    // The Builder resolvers read the personal-key policy first; let that read
+    // answer so the failure under test is the resolver's own org lookup.
+    mockResolveOrgIdForEmail.mockResolvedValueOnce(null);
+    await expect(resolveBuilderCredentialsDetailed()).resolves.toMatchObject({
+      privateKey: null,
+      lookupFailed: true,
+    });
+    mockResolveOrgIdForEmail.mockResolvedValueOnce(null);
+    await expect(
+      resolveBuilderCredential("BUILDER_PRIVATE_KEY"),
+    ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+  });
+
   it("still returns null (definitively absent) when the store answers with no row", async () => {
     mockReadAppSecret.mockResolvedValue(null);
     expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();

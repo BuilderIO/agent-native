@@ -474,6 +474,15 @@ async function resolveScopedBuilderCredential(
       }
       return { value: userSecret.value, source: "user", lookupFailed: false };
     };
+    // Before the personal answer: without the org, an owner's role is unknown.
+    if (orgLookupCause !== undefined) {
+      return {
+        value: null,
+        source: null,
+        lookupFailed: true,
+        cause: orgLookupCause,
+      };
+    }
     const personal = await readPersonal();
     if (personal && !(await readsOrgCredentialFirst(orgId, email))) {
       return personal;
@@ -525,15 +534,6 @@ async function resolveScopedBuilderCredential(
       }
     }
     if (personal) return personal;
-
-    if (orgLookupCause !== undefined) {
-      return {
-        value: null,
-        source: null,
-        lookupFailed: true,
-        cause: orgLookupCause,
-      };
-    }
 
     // 3. Solo-workspace fallback: always checked, even when an org id was
     //    found above. Older no-org connect flows wrote here, so a credential
@@ -672,16 +672,16 @@ async function resolveScopedBuilderCredentials(
         : null;
     };
 
+    // Before the personal answer: without the org, an owner's role is unknown.
+    if (orgLookupCause !== undefined) {
+      return { creds: null, lookupFailed: true, cause: orgLookupCause };
+    }
     const personal = await tryPersonal();
     if (personal && !(await readsOrgCredentialFirst(orgId, email))) {
       return { creds: personal, lookupFailed: false };
     }
     const creds = (await tryOrg()) ?? personal;
     if (creds) return { creds, lookupFailed: false };
-
-    if (orgLookupCause !== undefined) {
-      return { creds: null, lookupFailed: true, cause: orgLookupCause };
-    }
 
     scopeAttempted = "workspace-solo";
     const soloScopeId = `solo:${email}`;
@@ -1834,15 +1834,16 @@ export async function resolveSecretPairs(
       lookupFailed = cause !== undefined;
       orgId = resolved.orgId;
     }
-    if (personal && !(await readsOrgCredentialFirst(orgId, email))) {
-      return personal;
-    }
-
+    // Before the personal answer: without the org, an owner's role is unknown.
     if (lookupFailed) {
       const environmentPair = readEnvironmentPairs();
       if (environmentPair) return environmentPair;
       assertCredentialStoreReadable({ lookupFailed, cause });
       return null;
+    }
+
+    if (personal && !(await readsOrgCredentialFirst(orgId, email))) {
+      return personal;
     }
 
     if (orgId) {
@@ -1977,13 +1978,14 @@ export async function resolveSecretDetailed(
         orgId = resolved.orgId;
       }
 
+      // Before the personal answer: without the org, an owner's role is unknown.
+      if (lookupFailed) {
+        return { value: null, lookupFailed: true, cause };
+      }
+
       // An owner or admin runs on the organization's key ahead of their own.
       if (personal && !(await readsOrgCredentialFirst(orgId, email))) {
         return personal;
-      }
-
-      if (lookupFailed) {
-        return { value: null, lookupFailed: true, cause };
       }
 
       if (orgId) {
