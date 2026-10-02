@@ -829,8 +829,4 @@ test.describe("parity: Figma Tutorial 3 - navigation bar and footer", () => {
         `not merely copied`,
     ).toBe(false);
   });
-
-  test("step 12 [no equivalent]: converting a frame to a component has no Design equivalent", async () => {
-    expect(true).toBe(true);
-  });
 });

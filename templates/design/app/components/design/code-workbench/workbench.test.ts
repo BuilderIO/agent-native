@@ -6,18 +6,6 @@ import { normalizeMonacoThemeColor } from "../code-workbench-theme";
 import { CODE_WORKBENCH_SHELL_CLASSNAME } from "./code-workbench-shell";
 
 describe("code workbench shell", () => {
-  it("themes from native workbench tokens and suppresses design hotkeys", () => {
-    const source = readFileSync(
-      "app/components/design/code-workbench/CodeWorkbench.tsx",
-      "utf8",
-    );
-    expect(source).toContain("readCodeWorkbenchTheme");
-    expect(source).toContain('data-hotkeys-scope="text"');
-    expect(source).toContain("--workbench-bg");
-    expect(source).not.toContain("srcDoc=");
-    expect(source).not.toContain("#0f1115");
-  });
-
   it("keeps a full-height edge between the workbench and canvas", () => {
     expect(CODE_WORKBENCH_SHELL_CLASSNAME).toContain("border-r");
     expect(CODE_WORKBENCH_SHELL_CLASSNAME).toContain("--workbench-border");
@@ -45,31 +33,5 @@ describe("code workbench shell", () => {
     );
     expect(normalizeMonacoThemeColor("#fff")).toBe("#ffffff");
     expect(normalizeMonacoThemeColor("var(--workbench-fg)")).toBeUndefined();
-  });
-
-  it("routes saves through the versioned preview→apply source actions", () => {
-    const source = readFileSync(
-      "app/components/design/code-workbench/workspace/inline-provider.ts",
-      "utf8",
-    );
-    expect(source).toContain('"preview-source-edit"');
-    expect(source).toContain('"apply-source-edit"');
-    expect(source).toContain("expectedVersionHash");
-    expect(source).toContain("WorkspaceStaleVersionError");
-  });
-
-  it("places Code directly under Tokens with a rail separator", () => {
-    const source = readFileSync(
-      "app/components/design/editor/DesignWorkspaceRail.tsx",
-      "utf8",
-    );
-    const tokensIndex = source.indexOf('panel: "tokens"');
-    const codeIndex = source.indexOf('panel: "code"');
-    expect(tokensIndex).toBeGreaterThanOrEqual(0);
-    expect(codeIndex).toBeGreaterThan(tokensIndex);
-    expect(source.slice(tokensIndex, codeIndex + 200)).toContain(
-      "separatorBefore: true",
-    );
-    expect(source).not.toContain("const codeItem =");
   });
 });

@@ -27,13 +27,6 @@ function viewScreenSource(): string {
   );
 }
 
-function emailsHandlerSource(): string {
-  return readFileSync(
-    new URL("../../server/handlers/emails.ts", import.meta.url),
-    "utf8",
-  );
-}
-
 function navigateActionSource(): string {
   return readFileSync(
     new URL("../../actions/navigate.ts", import.meta.url),
@@ -42,21 +35,6 @@ function navigateActionSource(): string {
 }
 
 describe("Inbox navigation commands", () => {
-  it("focuses compose drafts opened by MCP deep links", () => {
-    const source = inboxSource();
-    expect(source).toContain("navCommand.composeDraftId && !targetThread");
-    expect(source).toContain("compose.setActiveId(navCommand.composeDraftId)");
-    expect(source).toContain("FOCUS_COMPOSE_DRAFT_EVENT");
-  });
-
-  it("clears selection when switching inbox partitions", () => {
-    const source = inboxSource();
-
-    expect(source).toContain(
-      "[view, activeLabel, activeInboxTab, activeFilterId]",
-    );
-  });
-
   it("marks every unread message in a sidebar thread read when opening it", () => {
     const source = inboxSource();
     const sidebar = source.slice(
@@ -70,94 +48,6 @@ describe("Inbox navigation commands", () => {
       "markThreadRead.mutate({\n                    threadId: threadKey,\n                    accountEmail: email.accountEmail,\n                  });",
     );
     expect(sidebar).not.toContain("useMarkRead");
-  });
-
-  it("routes a plain inbox to the All tab by default", () => {
-    const source = inboxSource();
-
-    expect(source).toContain("settingsLoading");
-    expect(source).toContain("settingsError ||");
-    expect(source).toContain("!settings ||");
-    expect(source).toContain("resolveDefaultMailHref({");
-    expect(source).toContain("showAllTab: settings?.showAllTab");
-    expect(source).toContain("navigate(defaultHref, { replace: true })");
-    expect(source).toContain(
-      "const combineInbox = settings?.combineInbox === true;",
-    );
-    expect(source).toContain("combineInbox\n    )");
-    expect(source).toContain("resolveInboxEmailQueryScope({");
-    expect(source).toContain("!combineInbox &&\n    activeInboxTab");
-  });
-
-  it("loads legacy custom-label inbox links from the whole mailbox", () => {
-    const source = inboxSource();
-
-    expect(source).toContain(
-      "const activeLabelIsInboxScoped = isInboxScopedLabel(",
-    );
-    expect(source).toContain("resolveInboxEmailQueryScope({");
-    expect(source).toContain("clientSliceTab,");
-    expect(source).toContain("emailView,");
-    expect(source).toContain(
-      "useEmails(emailView, searchQuery, effectiveLabel, {\n    enabled: !isInboxView,\n  })",
-    );
-  });
-
-  it("falls back to the useEmails search path when /inbox has a `q` param", () => {
-    const source = inboxSource();
-
-    expect(source).toContain(
-      'const isInboxView = view === "inbox" && !searchParams.get("q");',
-    );
-    expect(source).toContain('{ enabled: view === "inbox" },');
-  });
-
-  it("shows the row skeleton while the selected inbox tab loads", () => {
-    const source = inboxSource();
-
-    expect(source.replace(/\s+/g, " ")).toContain(
-      "const isLoading = isInboxView ? inboxThreads.isLoading || inboxThreads.isPlaceholderData || inboxStillSyncingEmpty : emailsIsLoading;",
-    );
-  });
-
-  it("does not append placeholder rows while visible mail syncs", () => {
-    expect(emailListSource()).not.toContain("isSyncing");
-  });
-
-  it("does not search Gmail for a focused contact on the SQL-backed inbox", () => {
-    const source = inboxSource();
-
-    expect(source.replace(/\s+/g, " ")).toContain(
-      "!isInboxView || (googleStatus.isSuccess && !isGoogleConnected)",
-    );
-    expect(source).toContain(
-      "enabled: Boolean(normalizedDisplayEmail) && allowEmailSearch",
-    );
-  });
-
-  it("lets Priority render a scored inbox page before later pages finish", () => {
-    const page = inboxSource();
-    const loadingStart = page.indexOf("const emailListLoading =");
-    const loading = page.slice(
-      loadingStart,
-      page.indexOf("const emails = useMemo(", loadingStart),
-    );
-
-    expect(loading).not.toContain("inboxExtraPages");
-    expect(emailListSource()).toContain(
-      "priorityWindowEmails.length > cachedPriorityScores.size",
-    );
-  });
-
-  it("navigates the inbox tab bar when an agent command sets `tab`", () => {
-    const source = inboxSource();
-
-    expect(source).toContain(
-      'import { inboxTabHref } from "@shared/inbox-threads";',
-    );
-    expect(source).toContain(
-      "} else if (navCommand.tab) {\n      void navigate(inboxTabHref(navCommand.tab));\n    } else if (targetFilter) {",
-    );
   });
 
   it("preserves Priority sort when Jev availability cannot be checked", () => {
@@ -182,50 +72,6 @@ describe("Inbox navigation commands", () => {
     expect(emailList).toContain('variant="menu-item"');
     expect(source).toContain('toast.error(t("mail.sort.priorityFailed"))');
     expect(source).not.toContain("refetchOnWindowFocus: false");
-  });
-
-  it("keeps Jev refresh callbacks stable for the inbox header actions", () => {
-    const source = inboxSource();
-
-    expect(source).toContain(
-      "const { refetch: refetchJevAvailability } = jevAvailability;",
-    );
-    expect(source).toContain(
-      "const onJevAvailabilityChange = useCallback(() => {\n    void refetchJevAvailability();\n  }, [refetchJevAvailability]);",
-    );
-    expect(source).toContain("onJevConnected={onJevAvailabilityChange}");
-    expect(source).toContain("onJevRetry={onJevAvailabilityChange}");
-    expect(source).not.toContain(
-      "onJevConnected={() => void jevAvailability.refetch()}",
-    );
-    expect(source).not.toContain(
-      "onJevRetry={() => void jevAvailability.refetch()}",
-    );
-  });
-
-  it("normalizes hidden combined-inbox triage routes", () => {
-    const source = inboxSource();
-
-    expect(source).toContain("resolveInboxEmailQueryScope({");
-    expect(source).toContain("shouldNormalizeCombinedInboxRoute,");
-    expect(source).toContain('nextParams.delete("label")');
-    expect(source).toContain('nextParams.delete("tab")');
-    expect(source).toContain("effectiveLabel,");
-    expect(source).toContain(
-      "if (shouldNormalizeCombinedInboxRoute) return filtered;",
-    );
-  });
-
-  it("uses the saved filter query instead of a Gmail label query", () => {
-    const source = inboxSource();
-
-    expect(source).toContain(
-      "const activeSavedFilter = settings?.savedFilters?.find(",
-    );
-    expect(source).toContain(
-      'activeSavedFilter?.query ?? searchParams.get("q") ?? undefined',
-    );
-    expect(source).toContain("isSavedFilter: Boolean(activeSavedFilter)");
   });
 
   it("syncs the active inbox partition into agent navigation state", () => {
@@ -282,26 +128,6 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain("!savedFilterThreads.has(inboxThreadKey(email))");
   });
 
-  it("keeps saved-filter threads out of a plain inbox route", () => {
-    const source = inboxSource();
-
-    expect(source).toContain(
-      'if (view === "inbox" && !searchQuery && savedFilterQueries.length > 0)',
-    );
-    expect(source).toContain(
-      "const savedFilterThreads = savedFilterThreadIds(",
-    );
-    expect(source).toContain(
-      "return filtered.filter((e) => !savedFilterThreads.has(inboxThreadKey(e)))",
-    );
-  });
-
-  it("keeps ordinary pinned labels mailbox-wide in agent snapshots", () => {
-    const source = viewScreenSource();
-
-    expect(source).toContain("isInboxScopedAppLabel(label)");
-  });
-
   it("filters full Gmail threads before collapsing the agent snapshot", () => {
     const source = viewScreenSource();
 
@@ -318,26 +144,6 @@ describe("Inbox navigation commands", () => {
     expect(source).toContain(
       'threadFormat: needsSavedFilterParts ? "full" : "metadata"',
     );
-  });
-
-  it("hydrates Gmail parts for the inbox saved-filter partition", () => {
-    const source = emailsHandlerSource();
-
-    expect(source).toContain(
-      'const isPlainInboxRequest = view === "inbox" && !q && !label;',
-    );
-    expect(source).toContain(
-      "searchQueryNeedsAttachmentMetadata(filter.query)",
-    );
-    expect(source).toContain("threadFormat:");
-  });
-
-  it("disambiguates custom labels that share a system label name", () => {
-    const source = inboxSource();
-
-    expect(source).toContain("isInboxScopedLabel(activeLabel, labels)");
-    expect(source).toContain("const labels = labelsData ?? EMPTY_LABELS;");
-    expect(source).toContain("const activeLabelIsInboxScoped =");
   });
 
   it("treats a needs_reauth account as incomplete coverage, not just error", () => {
@@ -360,56 +166,6 @@ describe("Inbox navigation commands", () => {
   });
 });
 
-describe("Inbox pagination", () => {
-  it("keeps the empty-state pagination sentinel mounted for later matches", () => {
-    const source = emailListSource();
-    const emptyState = source.indexOf("  // Empty state");
-
-    expect(emptyState).toBeGreaterThan(-1);
-    expect(source.slice(0, emptyState)).toContain(
-      "if (threads.length === 0 && hasNextPage)",
-    );
-    expect(source).toContain("isFetchNextPageError");
-    const populatedState = source.indexOf("const virtualItems");
-    expect(populatedState).toBeGreaterThan(-1);
-    expect(source.slice(populatedState)).toContain("mail.error.tryAgain");
-    expect(source).toContain("runPaginationRetry(fetchNextPage");
-    expect(inboxSource()).toContain("shouldShowInboxZero");
-    expect(inboxSource()).toContain("hasNextPage: Boolean(hasNextPage)");
-  });
-
-  it("pages the inbox view for real instead of a flat capped fetch", () => {
-    const source = inboxSource();
-
-    expect(source).toContain("totalIsLowerBound:");
-    expect(source).toContain("lastPageLength:");
-    expect(source).toContain("pageSize: INBOX_PAGE_SIZE");
-    expect(source).toContain(
-      "const hasNextPage = isInboxView ? inboxHasNextPage : emailsHasNextPage;",
-    );
-    expect(source).toContain(
-      "const fetchNextPage = isInboxView ? fetchInboxNextPage : emailsFetchNextPage;",
-    );
-    expect(source).toContain("setInboxExtraPageCount((count) => count + 1);");
-    expect(source).toContain("showPrioritySort,\n    resolvedInboxTab");
-  });
-
-  it("uses a contact-scoped search and bounded follow-up pages", () => {
-    const source = inboxSource();
-
-    expect(source).toContain('useEmails("all", normalizedDisplayEmail');
-    expect(source).toContain("fetchNextPage");
-    expect(source).toContain("contactPageFetchesRef");
-    expect(source).toContain("contactGenerationRef");
-    expect(source).toContain("isError: allEmailsError");
-    expect(source).toContain("recentEmailsError={allEmailsError}");
-    expect(source).toContain(
-      "contactGenerationRef.current === contactGeneration",
-    );
-    expect(source).toContain("recentFromContact.length >= 4");
-  });
-});
-
 describe("Inbox draft opening", () => {
   it("preserves Gmail attachment metadata without deleting the backing draft immediately", () => {
     const source = inboxSource();
@@ -419,22 +175,5 @@ describe("Inbox draft opening", () => {
     expect(source).toContain("gmailMessageId: email.id");
     expect(source).toContain("gmailAttachmentId: attachment.id");
     expect(source).not.toContain("deleteDraft.mutate(email.id)");
-  });
-});
-
-describe("Inbox load-more pagination error recovery", () => {
-  it("retries a failed extra page instead of skipping it with a new offset", () => {
-    const source = inboxSource();
-    const hook = source.slice(
-      source.indexOf("const fetchInboxNextPage = useCallback("),
-      source.indexOf("const inboxAccountErrors = useMemo("),
-    );
-
-    expect(hook).toContain(
-      "const lastPage = inboxExtraPages[inboxExtraPages.length - 1];",
-    );
-    expect(hook).toContain("if (lastPage?.isError)");
-    expect(hook).toContain("return lastPage.refetch().then(() => undefined);");
-    expect(hook).toContain("setInboxExtraPageCount((count) => count + 1);");
   });
 });

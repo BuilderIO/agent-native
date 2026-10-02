@@ -58,7 +58,7 @@ export interface DesignCanvasInteractionAdapter extends CanvasInteractionAdapter
   dispatchKeyboardEvent(event: KeyboardEvent): CanvasCommandDispatchResult;
 }
 
-export const DESIGN_CANVAS_INTERACTION_CAPABILITIES = {
+const DESIGN_CANVAS_INTERACTION_CAPABILITIES = {
   selection: true,
   multiSelection: true,
   marquee: true,

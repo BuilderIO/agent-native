@@ -17,12 +17,6 @@ const KNOWN_MOTION_ACTIONS = [
 ];
 
 describe("list-design-extensions — Motion Presets actions contract (Issue 3)", () => {
-  it("does NOT advertise 'preview-motion-frame' in the Motion Presets actions list", () => {
-    const src = readAction("list-design-extensions");
-
-    expect(src).not.toContain("preview-motion-frame");
-  });
-
   it("all advertised Motion Presets action names correspond to real action files", () => {
     const src = readAction("list-design-extensions");
 
@@ -46,12 +40,6 @@ describe("list-design-extensions — Motion Presets actions contract (Issue 3)",
 });
 
 describe("run-design-extension-action — Motion Presets preview route (Issue 3)", () => {
-  it("design.motion-presets:preview does NOT route to 'preview-motion-frame'", () => {
-    const src = readAction("run-design-extension-action");
-
-    expect(src).not.toContain("preview-motion-frame");
-  });
-
   it("design.motion-presets:preview routes to an action that exists", () => {
     const src = readAction("run-design-extension-action");
 

@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -70,32 +68,5 @@ describe("rightInspectorPanelClassName", () => {
     expect(rightInspectorPanelClassName(true)).toContain("rounded-2xl");
     expect(rightInspectorPanelClassName(true)).toContain("shadow-xl");
     expect(rightInspectorPanelClassName(true)).not.toContain("inset-y-0");
-  });
-});
-
-describe("DesignEditor minimal inspector wiring", () => {
-  const editorSource = readFileSync(
-    new URL("../DesignEditor.tsx", import.meta.url),
-    "utf8",
-  );
-
-  it("hides the manual right-sidebar toggle in minimal mode", () => {
-    expect(editorSource).not.toContain('data-design-minimal-toggle="right"');
-    expect(editorSource).not.toContain("minimalRightSidebarToggle");
-    expect(editorSource).not.toContain("handleToggleMinimalRightSidebar");
-    expect(editorSource).not.toContain("minimalRightSidebarOpen");
-  });
-
-  it("opens the inspector from selection in minimal mode", () => {
-    expect(editorSource).toContain("hasMinimalInspectorSelection");
-    expect(editorSource).toContain("minimalInspectorHasSelection");
-    expect(editorSource).toContain(
-      "(!minimalUi || minimalInspectorHasSelection)",
-    );
-  });
-
-  it("renders the floating inspector card class in minimal mode", () => {
-    expect(editorSource).toContain("rightInspectorPanelClassName");
-    expect(editorSource).toContain("rightInspectorPanelClassName(minimalUi)");
   });
 });

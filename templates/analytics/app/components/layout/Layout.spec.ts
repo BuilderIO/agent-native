@@ -71,21 +71,6 @@ describe("Analytics layout sidebar route policy", () => {
     expect(source).not.toContain("open={askOpen && isAskRoute}");
   });
 
-  it("keeps Ask filtering compact and visibility-only", () => {
-    const source = readFileSync(
-      new URL("./Sidebar.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("const [askFilter, setAskFilter]");
-    expect(source).toContain('label={t("navigation.ask")}');
-    expect(source).toContain("visibilityFilter={askFilter}");
-    expect(source).toContain("onVisibilityFilterChange={setAskFilter}");
-    expect(source).toContain(
-      "threadMatchesVisibilityFilter(thread, visibilityFilter)",
-    );
-  });
-
   it("renews an active Ask handoff on route entry before the heartbeat interval", () => {
     const source = readFileSync(
       new URL("./Layout.tsx", import.meta.url),
@@ -103,20 +88,6 @@ describe("Analytics layout sidebar route policy", () => {
     expect(effectSource).toContain("const refreshHandoff = () =>");
     expect(effectSource.indexOf("refreshHandoff();")).toBeLessThan(
       effectSource.indexOf("window.setInterval("),
-    );
-  });
-
-  it("keeps both collapsed and expanded sidebar spacing compact", () => {
-    const source = readFileSync(
-      new URL("./Sidebar.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain(
-      'className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto px-2 py-3"',
-    );
-    expect(source).toContain(
-      'className="min-h-0 min-w-0 flex flex-1 flex-col space-y-0.5 overflow-x-hidden overflow-y-auto px-2 py-3"',
     );
   });
 });

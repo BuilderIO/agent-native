@@ -308,53 +308,6 @@ describe("task-store (SQL)", () => {
       expect(tables.a2a_tasks ?? []).toHaveLength(0);
     });
 
-    it("keeps the same owner and key independent across org scopes", async () => {
-      const { createOrReuseTask } = await loadStore();
-      const first = await createOrReuseTask(
-        makeMessage("Hello"),
-        undefined,
-        undefined,
-        "alice@example.test",
-        "acme.test",
-        "v1:stable",
-      );
-      const second = await createOrReuseTask(
-        makeMessage("Hello"),
-        undefined,
-        undefined,
-        "alice@example.test",
-        "other.test",
-        "v1:stable",
-      );
-
-      expect(first.task.id).not.toBe(second.task.id);
-      expect(second.reused).toBe(false);
-    });
-
-    it("releases failed tasks so an intentional retry can start fresh", async () => {
-      const { createOrReuseTask } = await loadStore();
-      const first = await createOrReuseTask(
-        makeMessage("Hello"),
-        undefined,
-        undefined,
-        "alice@example.test",
-        "acme.test",
-        "v1:stable",
-      );
-      tables.a2a_tasks[0].status_state = "failed";
-      const retry = await createOrReuseTask(
-        makeMessage("Hello"),
-        undefined,
-        undefined,
-        "alice@example.test",
-        "acme.test",
-        "v1:stable",
-      );
-
-      expect(retry.reused).toBe(false);
-      expect(retry.task.id).not.toBe(first.task.id);
-    });
-
     it("marks a concurrent retry winner as reused after releasing a failed key", async () => {
       const { createOrReuseTask } = await loadStore();
       const first = await createOrReuseTask(

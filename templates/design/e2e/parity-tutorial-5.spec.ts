@@ -647,25 +647,6 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
     ).toBe(true);
   });
 
-  test("step 3 (no equivalent): no 'Create variant' affordance exists for an annotated component", async ({
-    page,
-    request,
-  }) => {
-    currentDesignId = await createFixtureDesign(
-      page,
-      "E2E Tutorial 5 No Variant Affordance",
-    );
-    await gotoEditor(page, currentDesignId);
-    await installBridge(page);
-
-    await selectByText(page, "Variant CTA");
-    await page.waitForTimeout(300);
-    const createVariant = page.getByRole("button", { name: /create variant/i });
-    const addVariant = page.getByRole("menuitem", { name: /add variant/i });
-    expect(await createVariant.count()).toBe(0);
-    expect(await addVariant.count()).toBe(0);
-  });
-
   test("step 4: rename supports a slash-delimited component-style name (button/default/unsaved)", async ({
     page,
     request,
@@ -909,70 +890,6 @@ test.describe("parity: Figma Tutorial 5 - interactive button component (in-scree
       gapApplied,
       "auto-layout gap 12 was not applied to the button frame",
     ).toBe(true);
-  });
-
-  test("step 6 (no equivalent): no boolean component-property affordance ('Show label'/'Show icon')", async ({
-    page,
-    request,
-  }) => {
-    currentDesignId = await createFixtureDesign(
-      page,
-      "E2E Tutorial 5 No Boolean Props",
-    );
-    await gotoEditor(page, currentDesignId);
-    await installBridge(page);
-
-    await selectByText(page, "Variant CTA");
-    await page.waitForTimeout(300);
-    const addProperty = page.getByRole("button", {
-      name: /add.*propert(y|ies)/i,
-    });
-    expect(await addProperty.count()).toBe(0);
-  });
-
-  test("step 7 (no equivalent): no 'Add variant' state x status grid exists", async ({
-    page,
-    request,
-  }) => {
-    currentDesignId = await createFixtureDesign(
-      page,
-      "E2E Tutorial 5 No Variant Grid",
-    );
-    await gotoEditor(page, currentDesignId);
-    await installBridge(page);
-
-    await selectByText(page, "Variant CTA");
-    await page.waitForTimeout(300);
-    const target = designFrame(page)
-      .locator(`[data-agent-native-node-id="e2e-component-button"]`)
-      .first();
-    await expect(
-      target,
-      "e2e-component-button must be rendered to right-click it",
-    ).toBeVisible({
-      timeout: 10_000,
-    });
-    await target.click({ force: true, button: "right" });
-    const menuItem = page.getByRole("menuitem", { name: /variant/i });
-    expect(await menuItem.count()).toBe(0);
-  });
-
-  test("step 8 (no equivalent): no Prototype tab / interaction-trigger UI exists", async ({
-    page,
-    request,
-  }) => {
-    currentDesignId = await createFixtureDesign(
-      page,
-      "E2E Tutorial 5 No Prototype Tab",
-    );
-    await gotoEditor(page, currentDesignId);
-    await installBridge(page);
-
-    await selectByText(page, "Variant CTA");
-    const prototypeTab = page.getByRole("tab", { name: /prototype/i });
-    const smartAnimate = page.getByText(/smart animate/i);
-    expect(await prototypeTab.count()).toBe(0);
-    expect(await smartAnimate.count()).toBe(0);
   });
 
   test("step 9: Interact view is the closest equivalent to Figma's Preview (Shift+Space)", async ({

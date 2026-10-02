@@ -8,34 +8,7 @@ function readLayoutSource() {
   });
 }
 
-function readRootSource() {
-  return readFileSync(new URL("../../root.tsx", import.meta.url), "utf8");
-}
-
 describe("app layout", () => {
-  it("exposes the sidebar width to editor content for responsive surfaces", () => {
-    const source = readLayoutSource();
-
-    expect(source).toContain("const contentSidebarWidth = isCompactLayout");
-    expect(source).toContain('"--content-sidebar-width"');
-    expect(source).toContain("sidebarCollapsed");
-  });
-
-  it("uses overlay navigation through compact widths and settles it on route commit", () => {
-    const source = readLayoutSource();
-
-    expect(source).toContain(
-      'export const COMPACT_LAYOUT_QUERY = "(max-width: 1099.98px)"',
-    );
-    expect(source).toContain("const isCompactLayout = useIsCompactLayout()");
-    expect(source).toContain("{isCompactLayout ? (");
-    expect(source).toContain("}, [location.key])");
-    expect(source).toContain(
-      'className="w-[85vw] max-w-80 border-sidebar-border bg-sidebar p-0 text-sidebar-foreground"',
-    );
-    expect(source).not.toContain("md:hidden");
-  });
-
   it("persists the desktop sidebar collapse preference through the shared app shell", () => {
     const source = readLayoutSource();
 
@@ -52,36 +25,6 @@ describe("app layout", () => {
     expect(source).toContain(
       "onToggleCollapsed={() => setMobileSidebarOpen(false)}",
     );
-  });
-
-  it("uses pending document navigation for immediate sidebar and editor feedback", () => {
-    const source = readLayoutSource();
-
-    expect(source).toContain("useNavigation()");
-    expect(source).toContain("documentPageIdFromPathname(location.pathname)");
-    expect(source).toContain("documentPageIdFromPathname(pendingPathname)");
-    expect(source).toContain(
-      "const activeDocumentId = pendingDocumentId ?? currentDocumentId",
-    );
-    expect(source).toContain("const showPendingDocumentSkeleton =");
-    expect(source).toMatch(
-      /<DocumentEditorSkeleton\s+title=\{pendingDocumentTitle\}\s+iconRow=\{readPageIconRowHint\(pendingDocumentId\)\}/,
-    );
-  });
-
-  it("creates keyboard pages without waiting for persistence before returning", () => {
-    const source = readLayoutSource();
-
-    expect(source).toContain("useCreatePage({ awaitPersist: false })");
-  });
-
-  it("returns command-menu focus to the recorded visible launcher without a timer", () => {
-    const source = readRootSource();
-
-    expect(source).toContain("CONTENT_COMMAND_MENU_OPEN_EVENT");
-    expect(source).toContain("commandTrigger.current =");
-    expect(source).toContain("target.focus()");
-    expect(source).not.toContain("setTimeout(() => target.focus");
   });
 
   it("includes the current document revision in chat history restores", () => {

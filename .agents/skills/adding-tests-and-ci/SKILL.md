@@ -29,6 +29,9 @@ root script test forces a full run.
 
 ## Adding a test
 
+First decide whether the test should exist: `test-audit` owns that gate and
+its junk patterns. This section covers where it lives and what runs it.
+
 - **Put it in the workspace of the code it proves.** Targeted runs test the
   changed packages and their dependents (`...{packages/core}`), so a test
   in another package either runs on unrelated changes or never runs on

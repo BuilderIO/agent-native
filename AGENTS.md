@@ -24,6 +24,8 @@ A few entry points:
 - `verifying-changes` — exercise the broken path before reporting a fix done.
 - `adding-tests-and-ci` — read before adding a test, CI job, or workflow
   trigger.
+- `test-audit` — the value bar a test must clear; read before adding or
+  pruning tests.
 - `reporting-progress` — read during long runs and before asking for status.
 - `concurrent-agents` — read before working in a shared checkout.
 - `ship` — normal guarded ship; beta/docs deploy automatically, other

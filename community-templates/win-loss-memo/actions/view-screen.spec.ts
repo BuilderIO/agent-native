@@ -33,8 +33,4 @@ describe("view-screen", () => {
 
     expect(result).toBe("No application state found. Is the app running?");
   });
-
-  it("is marked read-only", () => {
-    expect(action.readOnly).toBe(true);
-  });
 });

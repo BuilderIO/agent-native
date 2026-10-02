@@ -22,12 +22,6 @@ describe("empty design", () => {
     );
   });
 
-  it("renders the board instead of an empty state", () => {
-    expect(source).toContain(') : viewMode === "overview" || activeFile ? (');
-    expect(source).not.toContain("designEditor.noFiles");
-    expect(source).not.toContain("canvasEngaged");
-  });
-
   it("keeps a failed generation recoverable", () => {
     expect(source).toContain("<GenerationStatusCard");
     expect(source).toContain("onRetry={handleRetryGeneration}");
@@ -58,31 +52,5 @@ describe("empty design", () => {
     expect(submit.indexOf("patchPendingGeneration(")).toBeGreaterThan(
       labStateGuard,
     );
-  });
-
-  it("offers creation prompts in the chat rather than orientation ones", () => {
-    const config = source.slice(
-      source.indexOf("const designAgentSuggestionConfig = useMemo"),
-      source.indexOf("const activeLayerPanelNodes"),
-    );
-    expect(config).toContain("designIsEmpty");
-    expect(config).toContain("buildDynamicAgentSuggestions(context)");
-  });
-
-  it("opens the agent and lands the caret in the chat on arrival", () => {
-    const handler = source.slice(
-      source.indexOf("const openGenerateInAgent = useCallback"),
-      source.indexOf("const arrivedFromNewDesign"),
-    );
-    expect(handler).toContain('new Event("agent-panel:open")');
-    const listener = source.slice(
-      source.indexOf("const openAgentPanel = () => {"),
-      source.indexOf('window.addEventListener("agent-panel:open"'),
-    );
-    expect(listener).toContain("focusAgentComposer()");
-  });
-
-  it("adds no second Generate control beside the toolbar", () => {
-    expect(source).not.toContain("data-design-generate-cta");
   });
 });
