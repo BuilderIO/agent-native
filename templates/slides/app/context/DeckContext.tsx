@@ -1696,7 +1696,16 @@ function drainPendingDeckOps(
         replayedByKeepalive = keepaliveResult?.status === "fulfilled";
       }
       if (!isCurrentGeneration()) return;
-      console.error(`Failed to save deck ${deckId}:`, err);
+      const handledConflict =
+        Boolean(
+          err &&
+          typeof err === "object" &&
+          "errorCode" in err &&
+          err.errorCode === "slide_content_stale",
+        ) || isDeckRevisionConflict(err);
+      if (!handledConflict) {
+        console.error(`Failed to save deck ${deckId}:`, err);
+      }
       const pending = pendingOpsQueue.get(deckId) ?? [];
       const pendingHandlers = pendingPersistedResultHandlers.get(deckId) ?? [];
       if (

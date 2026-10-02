@@ -394,7 +394,6 @@ function useSlideAutofit(
 
     let raf = 0;
     let disposed = false;
-    let editingMarkup: string | null = null;
     // Measuring costs a full-document reflow per slide (every descendant is
     // read with getBoundingClientRect, interleaved with style writes). A deck
     // with dozens of slides mounts that many renderers at once, so off-screen
@@ -424,16 +423,11 @@ function useSlideAutofit(
       target.removeAttribute("data-fmd-autofit-active");
     };
 
-    const measureNow = () => {
-      if (disposed) return;
+    const isEditing = () => !!root.querySelector('[contenteditable="true"]');
 
-      const isEditing = !!root.querySelector('[contenteditable="true"]');
-      const currentEditingMarkup = isEditing ? root.innerHTML : null;
-      const shouldMeasureEditedMarkup =
-        isEditing &&
-        editingMarkup !== null &&
-        currentEditingMarkup !== editingMarkup;
-      editingMarkup = currentEditingMarkup;
+    const measureNow = () => {
+      if (disposed || isEditing()) return;
+
       const rawTargets = ensureRawHtmlFitLayers(root);
       const targets =
         rawTargets.length > 0
@@ -445,11 +439,6 @@ function useSlideAutofit(
       let worstInfo: SlideOverflowInfo | null = null;
 
       for (const target of targets) {
-        if (isEditing && !shouldMeasureEditedMarkup) {
-          // Keep the transform on entry, then fit changed markup before exit.
-          continue;
-        }
-
         resetTarget(target);
         const bounds = measureContentBounds(target);
         const viewportWidth = target.clientWidth || canvasWidth;
@@ -490,23 +479,21 @@ function useSlideAutofit(
         }
       }
 
-      if (!isEditing) {
-        overflowCallbackRef.current?.(
-          worstInfo ?? {
-            verticalOverflow: 0,
-            horizontalOverflow: 0,
-            contentHeight: 0,
-            contentWidth: 0,
-            viewportHeight: 0,
-            viewportWidth: 0,
-          },
-        );
-        autofitSettledRef.current?.();
-      }
+      overflowCallbackRef.current?.(
+        worstInfo ?? {
+          verticalOverflow: 0,
+          horizontalOverflow: 0,
+          contentHeight: 0,
+          contentWidth: 0,
+          viewportHeight: 0,
+          viewportWidth: 0,
+        },
+      );
+      autofitSettledRef.current?.();
     };
 
     const scheduleMeasure = () => {
-      if (disposed) return;
+      if (disposed || isEditing()) return;
       if (!visible) {
         measurePending = true;
         return;

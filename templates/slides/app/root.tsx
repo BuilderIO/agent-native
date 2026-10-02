@@ -219,7 +219,12 @@ function AppContent() {
     setCmdkOpen(true);
   }, []);
   const shouldHandleContentEditableCommandMenuShortcut = useCallback(
-    () => location.pathname !== "/home",
+    (event: KeyboardEvent) =>
+      location.pathname !== "/home" &&
+      !(
+        event.target instanceof Element &&
+        event.target.closest('[data-editing-block="true"]')
+      ),
     [location.pathname],
   );
   useCommandMenuShortcut(handleCommandMenuShortcut, {
