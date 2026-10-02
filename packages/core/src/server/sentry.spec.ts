@@ -245,6 +245,26 @@ describe("server/sentry", () => {
       expect(result.contexts.report.params).toEqual([diagnosticValue]);
     });
 
+    it("preserves params in free-form diagnostics that begin with select", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const { initServerSentry } = await import("./sentry.js");
+      await initServerSentry();
+
+      const diagnostic =
+        "Select a customer before retrying\nparams: report lookup details";
+      const beforeSend = sentryMock.init.mock.calls[0][0].beforeSend;
+      const result = beforeSend({
+        message: diagnostic,
+        exception: { values: [{ type: "Error", value: diagnostic }] },
+      } as never) as {
+        message: string;
+        exception: { values: Array<{ value: string }> };
+      };
+
+      expect(result.message).toBe(diagnostic);
+      expect(result.exception.values[0]?.value).toBe(diagnostic);
+    });
+
     it("keeps parameters for structured search queries", async () => {
       process.env.SENTRY_SERVER_DSN = "https://test@example/123";
       const { initServerSentry } = await import("./sentry.js");
@@ -753,6 +773,11 @@ describe("server/sentry", () => {
           __serialized__: {
             cause: {
               params: [privateValue],
+              cause: {
+                params: [privateValue],
+                diagnostics: { params: ["nested cause diagnostic"] },
+                unrelated: { params: ["nested cause sibling"] },
+              },
               diagnostics: { params: ["cause diagnostic"] },
             },
             unrelated: { params: ["diagnostic"] },
@@ -761,7 +786,15 @@ describe("server/sentry", () => {
       } as never) as {
         extra: {
           __serialized__: {
-            cause: { params: unknown; diagnostics: { params: string[] } };
+            cause: {
+              params: unknown;
+              cause: {
+                params: unknown;
+                diagnostics: { params: string[] };
+                unrelated: { params: string[] };
+              };
+              diagnostics: { params: string[] };
+            };
             unrelated: { params: string[] };
           };
         };
@@ -769,6 +802,13 @@ describe("server/sentry", () => {
 
       expect(JSON.stringify(result)).not.toContain(privateValue);
       expect(result.extra.__serialized__.cause.params).toBe("<redacted>");
+      expect(result.extra.__serialized__.cause.cause.params).toBe("<redacted>");
+      expect(
+        result.extra.__serialized__.cause.cause.diagnostics.params,
+      ).toEqual(["nested cause diagnostic"]);
+      expect(result.extra.__serialized__.cause.cause.unrelated.params).toEqual([
+        "nested cause sibling",
+      ]);
       expect(result.extra.__serialized__.cause.diagnostics.params).toEqual([
         "cause diagnostic",
       ]);

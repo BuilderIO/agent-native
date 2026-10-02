@@ -447,7 +447,55 @@ function isSqlCteStatement(value: string): boolean {
   }
 }
 
-function startsWithSqlStatement(value: string): boolean {
+function hasSqlStatementStructure(statement: string): boolean {
+  const match = SQL_STATEMENT_RE.exec(statement);
+  if (!match) return false;
+
+  const body = afterLeadingSqlComments(statement.slice(match[0].length));
+  switch (match[0].toLowerCase()) {
+    case "select":
+      return (
+        /\b(?:from|where|join|union|intersect|except|group\s+by|order\s+by|having|limit|offset|returning|into)\b/i.test(
+          body,
+        ) ||
+        /\$[0-9]+|[?=*<>]/u.test(body) ||
+        /^[0-9]|^\x27|^"/u.test(body.trimStart()) ||
+        body.trimStart().startsWith("(")
+      );
+    case "insert":
+      return (
+        /^into\b/i.test(body) &&
+        /\b(?:values|select|default\s+values)\b/i.test(body)
+      );
+    case "update":
+      return /^[^\s]+\s+set\b/i.test(body);
+    case "delete":
+      return /^from\b/i.test(body);
+    case "merge":
+      return /^into\b/i.test(body) && /\busing\b/i.test(body);
+    case "values":
+      return /^\s*\(/u.test(body);
+    case "call":
+      return /^[\w.$"]+\s*\(/u.test(body);
+    case "execute":
+      return /^[\w.$"]+(?:\s*\(|\s+using\b)/iu.test(body);
+    case "copy":
+      return /\b(?:from|to)\b/i.test(body);
+    case "declare":
+      return /^[^\s]+\s+cursor\b/i.test(body) && /\bfor\b/i.test(body);
+    case "explain":
+      return /\b(?:select|insert|update|delete|merge|values|with|table)\b/i.test(
+        body,
+      );
+    default:
+      return false;
+  }
+}
+
+function startsWithSqlStatement(
+  value: string,
+  requireStructure = true,
+): boolean {
   let statement = afterLeadingSqlComments(value);
   const errorPrefix = /^Error:\s*/i.exec(statement);
   if (errorPrefix) {
@@ -458,14 +506,17 @@ function startsWithSqlStatement(value: string): boolean {
     return isSqlCteStatement(statement);
   }
 
-  return SQL_STATEMENT_RE.test(statement);
+  return (
+    SQL_STATEMENT_RE.test(statement) &&
+    (!requireStructure || hasSqlStatementStructure(statement))
+  );
 }
 
 export function isSqlQueryFailureText(value: string): boolean {
   const match = SQL_QUERY_FAILURE_RE.exec(value);
   return (
     match !== null &&
-    startsWithSqlStatement(value.slice(match.index + match[0].length))
+    startsWithSqlStatement(value.slice(match.index + match[0].length), false)
   );
 }
 

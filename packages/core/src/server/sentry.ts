@@ -69,6 +69,22 @@ function isSqlLogEntryFailure(value: unknown): boolean {
   );
 }
 
+function redactSerializedCauseParams(value: unknown): void {
+  const seen = new WeakSet<object>();
+  let cause = value;
+  while (
+    cause !== null &&
+    typeof cause === "object" &&
+    !Array.isArray(cause) &&
+    !seen.has(cause)
+  ) {
+    seen.add(cause);
+    const record = cause as Record<string, unknown>;
+    if ("params" in record) record.params = "<redacted>";
+    cause = record.cause;
+  }
+}
+
 function redactSentryEventPayload(
   value: unknown,
   sqlFailure = false,
@@ -174,15 +190,9 @@ export function initServerSentry(): Promise<boolean> {
             serialized !== null &&
             typeof serialized === "object"
           ) {
-            const cause = (serialized as Record<string, unknown>).cause;
-            if (
-              cause !== null &&
-              typeof cause === "object" &&
-              !Array.isArray(cause) &&
-              "params" in cause
-            ) {
-              (cause as Record<string, unknown>).params = "<redacted>";
-            }
+            redactSerializedCauseParams(
+              (serialized as Record<string, unknown>).cause,
+            );
           }
           if (hasSqlFailure) {
             const root = event as unknown as Record<string, unknown>;
