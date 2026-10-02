@@ -129,6 +129,19 @@ describe("render-export-png action", () => {
     expect(playwrightMocks.launchChromium).toHaveBeenCalledOnce();
   });
 
+  it("accepts a quoted SVG data URL with spaces and nested parentheses", async () => {
+    makeRenderer([undefined, completeResources, { width: 800, height: 600 }]);
+    const svg =
+      "data:image/svg+xml,%3Csvg xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22 width%3D%2224%22 height%3D%2224%22%3E%3Cdefs%3E%3Cfilter id%3D%22n%22%3E%3CfeGaussianBlur stdDeviation%3D%220%22%2F%3E%3C%2Ffilter%3E%3C%2Fdefs%3E%3Cpath filter%3D%22url(%23n)%22 fill%3D%22%237c3aed%22 d%3D%22M0 0h4v4H0z%22%2F%3E%3C%2Fsvg%3E";
+
+    await expect(
+      runAction({
+        html: `<style>.background { background-image: url("${svg}"); }</style>`,
+      }),
+    ).resolves.toMatchObject({ status: 200 });
+    expect(playwrightMocks.launchChromium).toHaveBeenCalledOnce();
+  });
+
   it("rejects a full-page raster over the pixel cap even when the viewport fits", async () => {
     const { page } = makeRenderer([
       undefined,

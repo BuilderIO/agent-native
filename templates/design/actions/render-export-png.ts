@@ -171,13 +171,44 @@ type SnapshotHtmlNode = {
 };
 
 function addDataUrls(value: string, urls: Set<string>): void {
-  for (const match of value.matchAll(/data:[^\s"'()<>]+/gi)) {
-    urls.add(dataUrlKey(match[0]));
+  const wholeValue = value.trim();
+  if (wholeValue.toLowerCase().startsWith("data:")) {
+    urls.add(dataUrlKey(wholeValue));
     if (urls.size > MAX_DATA_RESOURCES) {
       fail("PNG export contains too many embedded resources.", {
         errorCode: "export_too_large",
         statusCode: 413,
       });
+    }
+    return;
+  }
+
+  let quote: "'" | '"' | null = null;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (character === "\\") {
+      index += 1;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = null;
+    } else if (character === "'" || character === '"') {
+      quote = character;
+    } else if (value.slice(index, index + 5).toLowerCase() === "data:") {
+      let end = index + 5;
+      while (end < value.length) {
+        const next = value[end];
+        if (quote ? next === quote : /[\s"'()<>]/.test(next)) break;
+        end += 1;
+      }
+      urls.add(dataUrlKey(value.slice(index, end)));
+      index = end - 1;
+      if (urls.size > MAX_DATA_RESOURCES) {
+        fail("PNG export contains too many embedded resources.", {
+          errorCode: "export_too_large",
+          statusCode: 413,
+        });
+      }
     }
   }
 }
