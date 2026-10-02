@@ -2000,25 +2000,44 @@ describe("DeckContext deck creation persistence", () => {
         ?.slides.find((slide) => slide.id === "slide-1")?.notes,
     ).toBe("Local notes");
 
+    const secondPeerDeck = getAccessibleDeck();
+    if (!secondPeerDeck) throw new Error("Expected the accessible deck");
+    setAccessibleDeck({
+      ...secondPeerDeck,
+      updatedAt: nextDeckRevision(secondPeerDeck.updatedAt),
+      slides: secondPeerDeck.slides.map((slide) =>
+        slide.id === "slide-1" ? { ...slide, notes: "Peer notes 2" } : slide,
+      ),
+    });
+    await act(async () => {
+      await result.current.refreshOpenDeck(deckId);
+    });
+
+    expect(
+      result.current.decks
+        .find((deck) => deck.id === deckId)
+        ?.slides.find((slide) => slide.id === "slide-1")?.notes,
+    ).toBe("Local notes");
+
     act(() => result.current.undo(deckId));
     await waitFor(() =>
       expect(
         result.current.decks
           .find((deck) => deck.id === deckId)
           ?.slides.find((slide) => slide.id === "slide-1")?.notes,
-      ).toBe("Peer notes"),
+      ).toBe("Peer notes 2"),
     );
     await act(async () => {
       await result.current.flushDeckSave(deckId);
     });
 
     expect(getPatchAttempts(deckId)).toBe(1);
-    expect(getAccessibleDeck()?.slides[0]?.notes).toBe("Peer notes");
+    expect(getAccessibleDeck()?.slides[0]?.notes).toBe("Peer notes 2");
     expect(
       result.current.decks
         .find((deck) => deck.id === deckId)
         ?.slides.find((slide) => slide.id === "slide-1")?.notes,
-    ).toBe("Peer notes");
+    ).toBe("Peer notes 2");
     expect(hasFailedDeckSave(deckId)).toBe(false);
     expect(hasUnsavedDeckChanges(deckId)).toBe(false);
   });

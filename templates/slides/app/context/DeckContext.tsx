@@ -261,6 +261,23 @@ function withStaleSlideFieldDrafts(deck: Deck): Deck {
   };
 }
 
+function refreshStaleSlideFieldBaselines(deck: Deck) {
+  const drafts = staleSlideFieldDrafts.get(deck.id);
+  if (!drafts) return;
+  const slides = new Map(deck.slides.map((slide) => [slide.id, slide]));
+  for (const draft of drafts.values()) {
+    const slide = slides.get(draft.slideId);
+    if (!slide) continue;
+    const remoteValue = (slide as unknown as Record<string, unknown>)[
+      draft.field
+    ];
+    draft.remoteBaseline =
+      remoteValue === undefined
+        ? { present: false }
+        : { present: true, value: structuredClone(remoteValue) };
+  }
+}
+
 function restoreStaleSlideFieldDrafts(
   deck: Deck,
   drafts: readonly StaleSlideFieldDraft[],
@@ -4407,6 +4424,7 @@ export function DeckProvider({
         fetchedServerDeck,
         snapshotGeneration,
       );
+      refreshStaleSlideFieldBaselines(serverDeck);
       const clientDeck = decksRef.current.find((d) => d.id === currentOpenId);
       if (staleFullReplaceDrafts.has(currentOpenId)) {
         return { read: "ok", deck: serverDeck };
