@@ -375,6 +375,17 @@ the whole history — external/agent edits must not wipe the user's undo stack.
   sanctioned `setContent` is gated by `updatedAt` and guarded by
   `isReconcileLeadClient`. Calling it from elsewhere duplicates content across
   the CRDT or re-applies stale snapshots.
+- **Save to SQL only after the edit reached the document** — a client that
+  saves the same text to SQL while its Yjs update is still queued (offline,
+  backoff) lets peers adopt the saved copy and then apply the late update
+  again, duplicating the text. Await `flushUpdates()` from
+  `useCollaborativeDoc` before the save; `false` means delivery failed, so retry
+  later instead of saving. Build the saved value from the live document at that
+  moment, not from a snapshot taken at the last keystroke.
+- **Seed an empty document on the server** — two editors opening a new doc each
+  seed it locally and the copies merge into duplicated text. Pass
+  `requestInitialSeed` (backed by `seedXmlFragmentIfEmpty`) so the server seeds
+  once and every editor adopts that copy.
 - **Add packages to `optimizeDeps`** — Vite won't pre-bundle Yjs correctly
   otherwise, causing runtime errors in dev.
 - **One `Y.Doc` per document** — Don't create multiple Y.Doc instances for the
