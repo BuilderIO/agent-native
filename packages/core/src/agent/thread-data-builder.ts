@@ -1033,13 +1033,13 @@ function engineMessageTextLength(message: EngineMessage): number {
   );
 }
 
-export function recoverThreadHistoryForRequest(
-  threadData: string | Record<string, unknown> | null | undefined,
+function boundedHistoryWindow(
+  messages: EngineMessage[],
   limits?: { maxMessages?: number; maxChars?: number },
 ): EngineMessage[] {
   const maxMessages = limits?.maxMessages ?? MAX_RECOVERED_HISTORY_MESSAGES;
   const maxChars = limits?.maxChars ?? MAX_RECOVERED_HISTORY_CHARS;
-  const window = threadDataToEngineMessages(threadData).slice(-maxMessages);
+  const window = messages.slice(-maxMessages);
   let total = window.reduce(
     (sum, message) => sum + engineMessageTextLength(message),
     0,
@@ -1047,7 +1047,51 @@ export function recoverThreadHistoryForRequest(
   while (window.length > 1 && total > maxChars) {
     total -= engineMessageTextLength(window.shift()!);
   }
+  // Providers reject a tool result whose call was cut from the window.
+  while (window[0]?.content.some((part) => part.type === "tool-result")) {
+    window.shift();
+  }
   return window;
+}
+
+export function recoverThreadHistoryForRequest(
+  threadData: string | Record<string, unknown> | null | undefined,
+  limits?: { maxMessages?: number; maxChars?: number },
+): EngineMessage[] {
+  return boundedHistoryWindow(threadDataToEngineMessages(threadData), limits);
+}
+
+/**
+ * History for resuming a stopped turn: earlier turns get the recovery window,
+ * while the turn itself, from its last user message on, stays whole so every
+ * finished tool call keeps its result. Without a user message, the turn's
+ * prompt is not in the thread: `foundTurnPrompt` is false and every message is
+ * returned unbounded.
+ */
+export function resumeThreadHistoryForRequest(
+  threadData: string | Record<string, unknown> | null | undefined,
+): { messages: EngineMessage[]; foundTurnPrompt: boolean } {
+  const messages = threadDataToEngineMessages(threadData, {
+    includeToolCalls: true,
+  });
+  let turnStart = messages.length - 1;
+  while (
+    turnStart >= 0 &&
+    !(
+      messages[turnStart]!.role === "user" &&
+      messages[turnStart]!.content.some((part) => part.type === "text")
+    )
+  ) {
+    turnStart--;
+  }
+  if (turnStart < 0) return { messages, foundTurnPrompt: false };
+  return {
+    messages: [
+      ...boundedHistoryWindow(messages.slice(0, turnStart)),
+      ...messages.slice(turnStart),
+    ],
+    foundTurnPrompt: true,
+  };
 }
 
 const MAX_INTEGRATION_ARTIFACTS_IN_CONTEXT = 12;
