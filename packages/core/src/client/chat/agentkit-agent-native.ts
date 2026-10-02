@@ -750,20 +750,19 @@ function reconcileDurableMessages(
           }
         : message;
     const lastPart = reconciled.parts.at(-1);
-    const completesFoldedRun = stored !== matched;
-    if (lastPart && lastPart.type !== "text" && !completesFoldedRun) {
-      return reconciled;
-    }
+    const foldedRunIds = durableRunIds(stored);
+    const spansRuns = foldedRunIds.length > 1;
+    if (lastPart && lastPart.type !== "text" && !spansRuns) return reconciled;
     // Only the last message the page saved for a folded reply takes the
     // continuation, and it is measured against everything the page saved.
-    const foldedGroup = completesFoldedRun
+    const foldedGroup = spansRuns
       ? projectedMessages.filter(
           (candidate) =>
             candidate.role === "assistant" &&
-            durableRunIds(stored).includes(snapshotRunId(candidate) ?? ""),
+            foldedRunIds.includes(snapshotRunId(candidate) ?? ""),
         )
       : [reconciled];
-    if (completesFoldedRun && foldedGroup.at(-1) !== message) return message;
+    if (spansRuns && foldedGroup.at(-1) !== message) return reconciled;
     const currentText = textOf(foldedGroup.flatMap((entry) => entry.parts));
     const storedText = textOf(stored.parts);
     if (
