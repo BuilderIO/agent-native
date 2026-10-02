@@ -33,7 +33,10 @@ stores their events or replays, and the read scope filters `user_id` (events,
 replays) and `user_key` (user-days). Pass `includeTestIdentities: true` to
 `query-agent-native-analytics` only to debug those accounts. Daily event
 rollups and BigQuery-source panels that query the raw warehouse table directly
-are clean from ingest onward but are not filtered at read time.
+are clean from ingest onward but are not filtered at read time. The one
+exception is the legacy `@app_events` table, which keeps a test identity's
+`$exception` rows marked `JSON_VALUE(data, '$.test_identity') = 'true'`;
+exclude those from any metric over it.
 
 Before a large or historical first-party query, call
 `get-first-party-analytics-health`. Keep Neon as the default while its status is

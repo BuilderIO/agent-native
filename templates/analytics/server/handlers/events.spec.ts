@@ -19,8 +19,14 @@ vi.mock("../lib/credentials", () => ({
   getCredentialContextFromEvent: mocks.getCredentialContextFromEvent,
   resolveCredential: mocks.resolveCredential,
 }));
-vi.mock("../lib/bigquery", () => ({ getAppEventsTable: vi.fn() }));
-vi.mock("../lib/gcloud", () => ({ getAccessToken: vi.fn() }));
+vi.mock("../lib/bigquery", () => ({
+  getAppEventsTable: async () => ({
+    projectId: "example-project",
+    datasetId: "analytics",
+    tableId: "events_partitioned",
+  }),
+}));
+vi.mock("../lib/gcloud", () => ({ getAccessToken: async () => "token" }));
 
 import { resetAppConfigForTests } from "@agent-native/core/app-config";
 
@@ -100,5 +106,59 @@ describe("handleTrackEvent", () => {
     await handleTrackEvent({} as any);
 
     expect(mocks.resolveCredential).toHaveBeenCalledTimes(4);
+  });
+
+  describe("a retained exception", () => {
+    async function storedRow(body: Record<string, unknown>) {
+      const fetchMock = vi.fn(async () => new Response("{}"));
+      vi.stubGlobal("fetch", fetchMock);
+      mocks.resolveCredential.mockResolvedValue("configured");
+      mocks.readBody.mockResolvedValueOnce(body);
+      try {
+        await handleTrackEvent({} as any);
+        const [, init] = fetchMock.mock.calls[0] as unknown as [
+          string,
+          { body: string },
+        ];
+        const row = JSON.parse(init.body).rows[0].json;
+        return { ...row, data: JSON.parse(row.data) };
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    }
+
+    it("carries the session's test identity when the client sends an opaque uid", async () => {
+      vi.stubEnv("AGENT_NATIVE_TEST_IDENTITY_EMAILS", "qa@corp.example");
+      resetAppConfigForTests();
+      try {
+        mocks.getCredentialContextFromEvent.mockResolvedValue({
+          userEmail: "qa@corp.example",
+          orgId: null,
+        });
+        const row = await storedRow({
+          event: "$exception",
+          userId: "firebase-uid-123",
+          data: { message: "boom" },
+        });
+        expect(row.userEmail).toBe("qa@corp.example");
+        expect(row.data).toMatchObject({
+          message: "boom",
+          test_identity: true,
+        });
+      } finally {
+        vi.unstubAllEnvs();
+        resetAppConfigForTests();
+      }
+    });
+
+    it("drops a client-set marker from a real user's exception", async () => {
+      const row = await storedRow({
+        event: "$exception",
+        userId: "firebase-uid-456",
+        data: { message: "boom", test_identity: true },
+      });
+      expect(row.userEmail).toBeNull();
+      expect(row.data).toEqual({ message: "boom" });
+    });
   });
 });
