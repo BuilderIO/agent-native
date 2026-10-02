@@ -28,6 +28,7 @@ import {
   useState,
 } from "react";
 import { useLocation, useNavigate } from "react-router";
+import { toast } from "sonner";
 
 import { useDecks } from "@/context/DeckContext";
 import { useSidebarCollapsed } from "@/hooks/use-sidebar-collapsed";
@@ -259,7 +260,13 @@ export function Layout({ children }: LayoutProps) {
     if (!deckScope) return undefined;
     const deckId = deckScope.id;
     return {
-      beforeStart: () => flushDeckSave(deckId),
+      beforeStart: async () => {
+        try {
+          await flushDeckSave(deckId);
+        } catch {
+          toast.error(t("settings.saveFailed"));
+        }
+      },
       list: {
         action: "list-deck-versions",
         args: (threadId) => ({
@@ -286,7 +293,7 @@ export function Layout({ children }: LayoutProps) {
         beforeRestore: () => flushDeckSave(deckId),
       },
     };
-  }, [deckScope, flushDeckSave]);
+  }, [deckScope, flushDeckSave, t]);
 
   useAgentChatHomeHandoffLinks({
     storageKey: "slides",

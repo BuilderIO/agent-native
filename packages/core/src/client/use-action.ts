@@ -373,6 +373,8 @@ async function performActionFetch<T>(
       );
       (error as any).status = 409;
       (error as any).code = "client_build_mismatch";
+      (error as any).serverBuildId = serverBuildId;
+      (error as any).requiredCompatibility = requiredCompatibility;
       throw error;
     }
 

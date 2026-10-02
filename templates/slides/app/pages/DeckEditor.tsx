@@ -571,7 +571,7 @@ export default function DeckEditor() {
       presentNavigationRef.current = false;
     };
   }, [id]);
-  usePendingDeckUnloadGuard(hasPendingDeckWrites);
+  usePendingDeckUnloadGuard(hasPendingDeckEdits);
   const pendingDeckNavigationBlocker = useBlocker(
     useCallback(
       ({ currentLocation, nextLocation }) =>

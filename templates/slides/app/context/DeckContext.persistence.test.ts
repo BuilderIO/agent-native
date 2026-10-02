@@ -43,9 +43,11 @@ vi.mock("@agent-native/core/client/org", () => ({
 
 import {
   DeckProvider,
+  DeckSaveError,
   clearSlideEditingActive,
   deckContentSignature,
   flushPendingSaves,
+  getDeckSaveError,
   getStaleContentConflictSlideId,
   hasFailedDeckSave,
   hasUnsavedDeckChanges,
@@ -121,6 +123,7 @@ function setupFetch(options?: {
   staleContentFailures?: { deckId: string; count: number };
   getDeckFailures?: { deckId: string; count: number };
   putFailures?: { deckId: string; count: number };
+  patchStatus?: number;
   patchResponse?: unknown | ((body: Record<string, unknown>) => unknown);
   putResponse?: unknown | ((body: Record<string, unknown>) => unknown);
 }) {
@@ -694,9 +697,12 @@ function setupFetch(options?: {
         typeof options?.patchResponse === "function"
           ? options.patchResponse(body)
           : (options?.patchResponse ?? { ok: true });
-      if (applied.deck) accessibleDeck = applied.deck;
+      const status = options?.patchStatus ?? 200;
+      if (applied.deck && status >= 200 && status < 300) {
+        accessibleDeck = applied.deck;
+      }
       return Promise.resolve(
-        new Response(JSON.stringify(response), { status: 200 }),
+        new Response(JSON.stringify(response), { status }),
       );
     }
 
@@ -1790,6 +1796,103 @@ describe("DeckContext deck creation persistence", () => {
 
     expect(getPatchAttempts(initial.id)).toBe(1);
     expect(deckFetchCalls(fetchMock)).toHaveLength(readsBeforeConflict);
+  });
+
+  it("fails fast on validation errors without exposing a redundant retry", async () => {
+    const { setAccessibleDeck, getPatchAttempts } = setupFetch({
+      patchStatus: 400,
+      patchResponse: {
+        error: "Slide content hash is required",
+        errorCode: "slide_content_hash_required",
+      },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "validation-error-deck",
+      title: "Validation error deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: "One", notes: "", layout: "title" }],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => result.current.reloadDecks());
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { notes: "Changed" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await expect(
+        result.current.flushDeckSave(initial.id),
+      ).rejects.toBeInstanceOf(DeckSaveError);
+    });
+
+    expect(getPatchAttempts(initial.id)).toBe(1);
+    expect(getDeckSaveError(initial.id)).toMatchObject({
+      status: 400,
+      errorCode: "slide_content_hash_required",
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(getPatchAttempts(initial.id)).toBe(1);
+    expect(getDeckSaveError(initial.id)).toMatchObject({
+      status: 400,
+      errorCode: "slide_content_hash_required",
+      retryable: false,
+    });
+    await act(async () => {
+      await expect(
+        result.current.retryDeckSave(initial.id),
+      ).rejects.toBeInstanceOf(DeckSaveError);
+    });
+    expect(getPatchAttempts(initial.id)).toBe(1);
+  });
+
+  it("allows a deliberate retry after transient save retries are exhausted", async () => {
+    const { setAccessibleDeck, getPatchAttempts } = setupFetch({
+      patchFailures: { deckId: "retryable-save-deck", count: 3 },
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const initial: Deck = {
+      id: "retryable-save-deck",
+      title: "Retryable save deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: "One", notes: "", layout: "title" }],
+    };
+    setAccessibleDeck(initial);
+    await act(async () => result.current.reloadDecks());
+
+    vi.useFakeTimers();
+    act(() => {
+      result.current.updateSlide(
+        initial.id,
+        "slide-1",
+        { notes: "Changed" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_250);
+    });
+    expect(getPatchAttempts(initial.id)).toBe(3);
+    expect(getDeckSaveError(initial.id)?.retryable).toBe(true);
+
+    await act(async () => result.current.retryDeckSave(initial.id));
+
+    expect(getPatchAttempts(initial.id)).toBe(4);
+    expect(getDeckSaveError(initial.id)).toBeUndefined();
   });
 
   it("hashes successive inline drafts from the last persisted draft", async () => {

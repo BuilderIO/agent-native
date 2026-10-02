@@ -3364,6 +3364,7 @@ export function createAgentChatPlugin(
             (await resolveOwnerContext(event)).authUserId,
           getUserNameFromEvent,
           appId: options?.appId,
+          clientCompatibilityVersion: options?.clientCompatibilityVersion,
           resolveOrgId: options?.resolveOrgId,
           actionRouteAuth: options?.actionRouteAuth,
         });

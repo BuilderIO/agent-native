@@ -88,7 +88,9 @@ import { hasUiActionCapability } from "./ui-action-capability.js";
 declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
 declare const __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: string | undefined;
 
-function requiredClientCompatibilityVersion(): string {
+function requiredClientCompatibilityVersion(appVersion?: string): string {
+  const configuredAppVersion = appVersion?.trim();
+  if (configuredAppVersion) return configuredAppVersion;
   const configured =
     typeof __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__ === "string"
       ? __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__
@@ -312,6 +314,7 @@ export interface ActionRouteAuthAdapter {
 }
 
 export interface MountActionRoutesOptions {
+  clientCompatibilityVersion?: string;
   getOwnerFromEvent?: (event: any) => string | Promise<string>;
   getAuthUserIdFromEvent?: (
     event: any,
@@ -574,7 +577,9 @@ function mountActionRoutesInternal(
           return { error: `Method not allowed. Use ${method}.` };
         }
 
-        const requiredCompatibility = requiredClientCompatibilityVersion();
+        const requiredCompatibility = requiredClientCompatibilityVersion(
+          options?.clientCompatibilityVersion,
+        );
         if (isFrontendActionRequest(event) && requiredCompatibility) {
           const receivedCompatibility = getHeader(
             event,

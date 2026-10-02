@@ -80,6 +80,7 @@ export interface AgentChatPluginOptions {
         | Record<string, MentionProvider>
         | Promise<Record<string, MentionProvider>>);
   appId?: string;
+  clientCompatibilityVersion?: string;
   connectApps?: boolean;
   backgroundMcpTools?: "requested" | "all";
   resolveMcpActionEntry?: McpActionEntryOptions["resolveActionEntry"];

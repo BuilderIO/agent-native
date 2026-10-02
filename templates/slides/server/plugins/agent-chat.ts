@@ -5,6 +5,7 @@ import {
 import { assertAccess } from "@agent-native/core/sharing";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { CLIENT_COMPATIBILITY_VERSION } from "../../shared/client-compatibility.js";
 import { resolveSlidesRequestAuthContext } from "../handlers/request-auth-context.js";
 import { prepareSlidesChatAttachments } from "../lib/chat-attachments.js";
 import { CHATGPT_DIRECTORY_PROFILE } from "../lib/chatgpt-directory-tools.js";
@@ -188,6 +189,7 @@ async function autosaveDeckBeforeAgentTurn(
 
 export default createAgentChatPlugin({
   appId: "slides",
+  clientCompatibilityVersion: CLIENT_COMPATIBILITY_VERSION,
   onAgentTurnStart: autosaveDeckBeforeAgentTurn,
   onAgentTurnComplete: autosaveDeckAfterAgentTurn,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
