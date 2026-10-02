@@ -980,8 +980,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "Deine vorherige Seite ist nicht mehr verfügbar. Daher wurde die Willkommensseite geöffnet.",
-  requestedPageUnavailable:
-    "Diese Seite ist für dein Konto nicht verfügbar. Daher wurde die Willkommensseite geöffnet.",
   saveFailed: "Deine Position konnte nicht gespeichert werden",
   workspaceWelcomeUnavailableTitle: "Hier ist noch nichts geöffnet",
   workspaceWelcomeUnavailableDescription:
@@ -1388,6 +1386,9 @@ const overrides = {
   },
   empty: {
     noPageTitle: "Keine Seite ausgewählt",
+    signedInAs: "Angemeldet als {{email}}",
+    goToMyPages: "Zu meinen Seiten",
+    switchAccount: "Konto wechseln",
     noPageDescription:
       "Wähle eine Seite in der Seitenleiste oder erstelle eine neue.",
     newPage: "Neue Seite",

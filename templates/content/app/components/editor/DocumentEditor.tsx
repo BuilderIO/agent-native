@@ -10,6 +10,7 @@ import {
   actionErrorMessage,
   callAction,
   setClientAppState,
+  signOut,
   tryCallActionKeepalive,
   useAvatarUrl,
   useDbSync,
@@ -65,7 +66,7 @@ import {
   useState,
 } from "react";
 import type { ClipboardEvent, MutableRefObject, ReactNode } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router";
+import { Link, Navigate, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 import type { Doc as YDoc } from "yjs";
 
@@ -129,7 +130,6 @@ import {
 } from "@/hooks/use-optimistic-document-title";
 import {
   CONTENT_LANDING_PATH,
-  contentLandingRecoveryTarget,
   rememberContentLandingDocument,
 } from "@/lib/content-landing";
 import type { DesktopContentFileRevision } from "@/lib/desktop-content-files";
@@ -1143,9 +1143,18 @@ function adoptConfirmedSaveWatermarks({
   }
 }
 
-function DocumentUnavailable() {
+// A Page link that this account can't read stays on its URL and says so.
+// Opening some other page instead hides the denial from the person who
+// followed the link.
+export function DocumentUnavailable({
+  host,
+}: {
+  host: PageEditorSurfaceProps["host"];
+}) {
   const t = useT();
   const sidebarTrigger = useSidebarTrigger();
+  const { session } = useSession();
+  const viewerEmail = host === "page" ? (session?.email ?? null) : null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -1165,6 +1174,21 @@ function DocumentUnavailable() {
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
             {t("empty.documentUnavailableDescription")}
           </p>
+          {viewerEmail ? (
+            <p className="mt-4 break-all text-sm text-muted-foreground">
+              {t("empty.signedInAs", { email: viewerEmail })}
+            </p>
+          ) : null}
+          {host === "page" ? (
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+              <Button asChild>
+                <Link to={CONTENT_LANDING_PATH}>{t("empty.goToMyPages")}</Link>
+              </Button>
+              <Button variant="outline" onClick={() => void signOut()}>
+                {t("empty.switchAccount")}
+              </Button>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -1241,7 +1265,6 @@ export function PageEditorSurface({
     isError,
     isFetching,
   } = documentQuery;
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const documentQueryKeyValue = documentQueryKey(documentId, {
     databaseId,
@@ -1342,26 +1365,8 @@ export function PageEditorSurface({
     }
   }
 
-  const landingRecovery =
-    loadState.view === "unavailable"
-      ? contentLandingRecoveryTarget({ host, documentId })
-      : null;
-  const landingRecoveryDocumentId =
-    landingRecovery?.state.unavailableDocumentId ?? null;
-  useEffect(() => {
-    if (!landingRecoveryDocumentId) return;
-    void navigate(CONTENT_LANDING_PATH, {
-      replace: true,
-      state: { unavailableDocumentId: landingRecoveryDocumentId },
-    });
-  }, [landingRecoveryDocumentId, navigate]);
-
   if (loadState.view === "unavailable") {
-    return landingRecovery ? (
-      <DocumentEditorSkeleton />
-    ) : (
-      <DocumentUnavailable />
-    );
+    return <DocumentUnavailable host={host} />;
   }
 
   if (loadState.view === "error") {
@@ -1381,7 +1386,7 @@ export function PageEditorSurface({
     return host === "page" ? (
       <Navigate to="/home" replace />
     ) : (
-      <DocumentUnavailable />
+      <DocumentUnavailable host={host} />
     );
   }
 

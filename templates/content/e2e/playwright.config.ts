@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: ".",
   testMatch:
-    /(registry-blocks|local-files|database-preview-menu|sidebar-delete|shared-personal-page|signup-landing)\.spec\.ts/,
+    /(registry-blocks|local-files|database-preview-menu|sidebar-delete|shared-personal-page|unreadable-page-link)\.spec\.ts/,
   fullyParallel: true,
   workers: process.env.CI ? 2 : 3,
   retries: 2,

@@ -1106,8 +1106,6 @@ const enUS = {
   landing: {
     previousPageUnavailable:
       "Your previous page is no longer available, so we opened Welcome.",
-    requestedPageUnavailable:
-      "That page is not available to your account, so we opened Welcome.",
     saveFailed: "Your place could not be saved",
     workspaceWelcomeUnavailableTitle: "Nothing is open here yet",
     workspaceWelcomeUnavailableDescription:
@@ -1176,6 +1174,9 @@ const enUS = {
     documentUnavailable: "Document unavailable",
     documentUnavailableDescription:
       "This page may have been deleted, or it has not been shared with your account.",
+    signedInAs: "Signed in as {{email}}",
+    goToMyPages: "Go to my pages",
+    switchAccount: "Switch account",
     documentNotFound: "Document not found",
     newPage: "New page",
     createFailed: "Failed to create page",

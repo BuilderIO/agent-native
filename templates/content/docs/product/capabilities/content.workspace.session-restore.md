@@ -23,9 +23,11 @@ evidence:
   [
     "../../../actions/resolve-content-landing.db.test.ts",
     "../../../app/lib/content-landing.test.ts",
+    "../../../app/components/editor/DocumentEditor.unavailable.test.tsx",
+    "../../../e2e/unreadable-page-link.spec.ts",
   ]
 superseded_by: null
-last_reviewed: "2026-09-18"
+last_reviewed: "2026-10-02"
 ---
 
 # Session resumption
@@ -50,6 +52,7 @@ If the Page was deleted or access changed, Content opens a safe fallback and exp
 - Explicit Content-space switches restore that person's last authorized Page or Database View in the selected space. A missing saved View may use that Database's current valid View; an unavailable Page or Database falls back to a real welcome Page created through the space's ordinary permissions.
 - A person who can view a space but cannot create its personal welcome fallback sees a permission-aware landing with Files still reachable.
 - Explicit Page links take precedence over root-route restoration. A fallback does not reveal the unavailable Page's title, preview, or owning context.
+- An explicit Page link the person can't open stays on its URL and shows a no-access state with the signed-in account, a way to their own landing, and Switch account. It never opens another Page in its place, and it doesn't say whether the Page was deleted or isn't shared.
 
 ## Boundaries and non-goals
 

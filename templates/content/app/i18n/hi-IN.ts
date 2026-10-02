@@ -937,8 +937,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "आपका पिछला पेज अब उपलब्ध नहीं है, इसलिए हमने स्वागत पेज खोल दिया है।",
-  requestedPageUnavailable:
-    "वह पेज आपके खाते के लिए उपलब्ध नहीं है, इसलिए हमने स्वागत पेज खोल दिया है।",
   saveFailed: "आपकी जगह सेव नहीं की जा सकी",
   workspaceWelcomeUnavailableTitle: "यहाँ अभी कुछ भी खुला नहीं है",
   workspaceWelcomeUnavailableDescription:
@@ -1325,6 +1323,9 @@ const overrides = {
   },
   empty: {
     noPageTitle: "कोई page selected नहीं",
+    signedInAs: "{{email}} के रूप में साइन इन हैं",
+    goToMyPages: "मेरे पेज पर जाएं",
+    switchAccount: "खाता बदलें",
     noPageDescription: "sidebar से page चुनें या नया बनाएं।",
     newPage: "नया page",
     createFailed: "page create नहीं हो सका",

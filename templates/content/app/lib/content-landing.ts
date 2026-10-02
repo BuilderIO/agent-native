@@ -7,32 +7,6 @@ import {
 
 export const CONTENT_LANDING_PATH = "/home";
 
-export type ContentLandingRecoveryState = {
-  unavailableDocumentId: string;
-};
-
-export function contentLandingRecoveryTarget(input: {
-  host: string;
-  documentId: string;
-}): { pathname: string; state: ContentLandingRecoveryState } | null {
-  if (input.host !== "page" || !input.documentId) return null;
-  return {
-    pathname: CONTENT_LANDING_PATH,
-    state: { unavailableDocumentId: input.documentId },
-  };
-}
-
-export function readContentLandingRecovery(
-  state: unknown,
-): ContentLandingRecoveryState | null {
-  if (!state || typeof state !== "object") return null;
-  const documentId = (state as { unavailableDocumentId?: unknown })
-    .unavailableDocumentId;
-  return typeof documentId === "string" && documentId
-    ? { unavailableDocumentId: documentId }
-    : null;
-}
-
 let landingWriteQueue = Promise.resolve();
 
 export function rememberContentLandingDocument(
