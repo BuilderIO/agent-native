@@ -14,16 +14,24 @@ import {
 
 it("preserves live CSSOM rules in direct export clones", () => {
   const source = document.implementation.createHTMLDocument();
-  const style = source.createElement("style");
-  style.textContent = ".runtime-rule { color: red; }";
-  source.head.appendChild(style);
   const link = source.createElement("link");
   link.rel = "stylesheet";
   link.href = "https://example.test/css/runtime.css";
   source.head.appendChild(link);
+  const style = source.createElement("style");
+  style.textContent = ".runtime-rule { color: red; }";
+  source.head.appendChild(style);
   Object.defineProperty(source, "styleSheets", {
     configurable: true,
     value: [
+      {
+        disabled: false,
+        ownerNode: link,
+        cssRules: [
+          { cssText: ".runtime-image { background: url(icon.png); }" },
+        ],
+        href: "https://example.test/css/runtime.css",
+      },
       {
         disabled: false,
         ownerNode: style,
@@ -33,27 +41,21 @@ it("preserves live CSSOM rules in direct export clones", () => {
         ],
         href: null,
       },
-      {
-        disabled: false,
-        ownerNode: link,
-        cssRules: [
-          { cssText: ".runtime-image { background: url(icon.png); }" },
-        ],
-        href: "https://example.test/css/runtime.css",
-      },
     ] as unknown as StyleSheetList,
   });
 
   const cloned = source.cloneNode(true) as Document;
-  expect(cloned.querySelector("style")?.textContent).not.toContain(
-    "background: blue",
-  );
+  expect(
+    cloned.querySelector("style:not([data-agent-native-stylesheet-base])")
+      ?.textContent,
+  ).not.toContain("background: blue");
 
   preserveLiveStylesheets(source, cloned);
 
-  expect(cloned.querySelector("style")?.textContent).toContain(
-    "background: blue",
-  );
+  expect(
+    cloned.querySelector("style:not([data-agent-native-stylesheet-base])")
+      ?.textContent,
+  ).toContain("background: blue");
   const linkedRules = cloned.querySelector<HTMLStyleElement>(
     "style[data-agent-native-stylesheet-base]",
   );

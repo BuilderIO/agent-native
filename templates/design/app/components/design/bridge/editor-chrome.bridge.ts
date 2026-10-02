@@ -2486,11 +2486,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     complete: boolean;
     errorCode?: "export_too_large" | "export_resources_unavailable";
   }> {
-    var resourceSignal = AbortSignal.timeout(15_000);
+    var resourceAbortController = new AbortController();
+    var resourceSignal = resourceAbortController.signal;
+    var resourceTimedOut = false;
+    var resourceBudgetExceeded = false;
+    var resourceTimeoutSignal = AbortSignal.timeout(15_000);
+    resourceTimeoutSignal.addEventListener(
+      "abort",
+      function () {
+        resourceTimedOut = true;
+        resourceAbortController.abort();
+      },
+      { once: true },
+    );
     var parsed = new DOMParser().parseFromString(html, "text/html");
     var resourceData = new Map<string, string>();
     var totalBytes = 0;
     var complete = true;
+    var maxResourceBytes = 4_000_000;
+    var maxTotalBytes = 8_000_000;
     var failures = (
       parsed.documentElement.getAttribute(
         "data-agent-native-export-resource-failures",
@@ -2501,7 +2515,131 @@ declare var __INITIAL_SOURCE_HEAD__: string;
 
     function markFailure(reason: string): void {
       complete = false;
-      failures.push(reason);
+      if (!failures.includes(reason)) failures.push(reason);
+    }
+
+    async function readBoundedBody(response: Response): Promise<Blob | null> {
+      if (!response.body) return new Blob([]);
+      var reader = response.body.getReader();
+      var chunks: BlobPart[] = [];
+      var resourceBytes = 0;
+      try {
+        while (true) {
+          var result = await reader.read();
+          if (result.done) break;
+          var chunk = result.value;
+          if (
+            resourceBytes + chunk.byteLength > maxResourceBytes ||
+            totalBytes + chunk.byteLength > maxTotalBytes
+          ) {
+            resourceBudgetExceeded = true;
+            markFailure("export-resource-size-limit");
+            try {
+              await reader.cancel();
+            } catch {
+              markFailure("resource-cancel");
+            }
+            resourceAbortController.abort();
+            return null;
+          }
+          resourceBytes += chunk.byteLength;
+          totalBytes += chunk.byteLength;
+          chunks.push(
+            chunk.buffer.slice(
+              chunk.byteOffset,
+              chunk.byteOffset + chunk.byteLength,
+            ) as ArrayBuffer,
+          );
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      return new Blob(chunks, {
+        type: response.headers.get("content-type") || "",
+      });
+    }
+
+    function cssCodeMask(css: string): Uint8Array {
+      var mask = new Uint8Array(css.length);
+      for (var index = 0; index < css.length; index += 1) {
+        var character = css[index];
+        if (character === "/" && css[index + 1] === "*") {
+          var commentEnd = css.indexOf("*/", index + 2);
+          index = commentEnd < 0 ? css.length : commentEnd + 1;
+        } else if (character === "'" || character === '"') {
+          var quote = character;
+          for (index += 1; index < css.length; index += 1) {
+            if (css[index] === "\\") index += 1;
+            else if (css[index] === quote) break;
+          }
+        } else if (character === "\\") {
+          index += 1;
+        } else {
+          mask[index] = 1;
+        }
+      }
+      return mask;
+    }
+
+    function cssNameCharacter(character: string | undefined): boolean {
+      return !!character && /[\w-\\]/.test(character);
+    }
+
+    function findCssUrlTokens(
+      css: string,
+    ): Array<{ start: number; end: number; value: string }> {
+      var codeMask = cssCodeMask(css);
+      var tokens: Array<{ start: number; end: number; value: string }> = [];
+      for (var index = 0; index < css.length; index += 1) {
+        if (
+          !codeMask[index] ||
+          css.slice(index, index + 3).toLowerCase() !== "url" ||
+          cssNameCharacter(css[index - 1]) ||
+          css[index + 3] !== "("
+        ) {
+          continue;
+        }
+        var quote = "";
+        var end = -1;
+        for (var cursor = index + 4; cursor < css.length; cursor += 1) {
+          var character = css[cursor];
+          if (character === "/" && css[cursor + 1] === "*") {
+            var commentEnd = css.indexOf("*/", cursor + 2);
+            if (commentEnd < 0) break;
+            cursor = commentEnd + 1;
+          } else if (quote) {
+            if (character === "\\") cursor += 1;
+            else if (character === quote) quote = "";
+          } else if (character === "'" || character === '"') {
+            quote = character;
+          } else if (character === "\\") {
+            cursor += 1;
+          } else if (character === ")") {
+            end = cursor + 1;
+            break;
+          }
+        }
+        if (end < 0) continue;
+        var value = css.slice(index + 4, end - 1).trim();
+        if (value.startsWith("'") || value.startsWith('"')) {
+          var valueQuote = value[0];
+          var valueEnd = -1;
+          for (var valueIndex = 1; valueIndex < value.length; valueIndex += 1) {
+            if (value[valueIndex] === "\\") valueIndex += 1;
+            else if (value[valueIndex] === valueQuote) {
+              valueEnd = valueIndex;
+              break;
+            }
+          }
+          if (valueEnd < 0 || value.slice(valueEnd + 1).trim()) continue;
+          value = value.slice(1, valueEnd);
+        } else {
+          value = value.replace(/\/\*[\s\S]*?\*\//g, "").trim();
+        }
+        if (value) tokens.push({ start: index, end: end, value: value });
+        index = end - 1;
+      }
+      return tokens;
     }
 
     async function resourceDataUrl(
@@ -2542,12 +2680,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           signal: resourceSignal,
         });
         if (!response.ok) throw new Error("resource unavailable");
-        var blob = await response.blob();
-        if (blob.size > 4_000_000 || totalBytes + blob.size > 8_000_000) {
-          markFailure("export-resource-size-limit");
-          return null;
-        }
-        totalBytes += blob.size;
+        var blob = await readBoundedBody(response);
+        if (!blob) return null;
         var dataUrl: string = await new Promise(function (resolve, reject) {
           var reader = new FileReader();
           reader.onload = function () {
@@ -2563,9 +2697,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return dataUrl + fragment;
       } catch {
         markFailure(
-          resourceSignal.aborted
+          resourceTimedOut
             ? "resource-timeout"
-            : "resource-fetch-" + resourceKind,
+            : resourceBudgetExceeded
+              ? "export-resource-size-limit"
+              : "resource-fetch-" + resourceKind,
         );
         return null;
       }
@@ -2575,28 +2711,27 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       css: string,
       baseUrl: string,
     ): Promise<string> {
-      var expression =
-        /url\(\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|((?:\\.|[^)])*))\s*\)/gi;
-      var matches = Array.from(css.matchAll(expression));
+      var matches = findCssUrlTokens(css);
       var replacements = await Promise.all(
         matches.map(async function (match) {
-          var rawUrl = String(match[1] ?? match[2] ?? match[3] ?? "").trim();
+          var rawUrl = match.value;
           if (!rawUrl || /^(?:data|about):/i.test(rawUrl)) return null;
           var dataUrl = await resourceDataUrl(rawUrl, baseUrl);
-          return dataUrl ? { rawUrl: match[0], dataUrl: dataUrl } : null;
+          return dataUrl ? { dataUrl: dataUrl } : null;
         }),
       );
-      var result = css;
+      var result = "";
+      var cursor = 0;
       for (var index = 0; index < matches.length; index += 1) {
+        var match = matches[index]!;
         var replacement = replacements[index];
-        if (replacement) {
-          result = result.replace(
-            replacement.rawUrl,
-            'url("' + replacement.dataUrl + '")',
-          );
-        }
+        result += css.slice(cursor, match.start);
+        result += replacement
+          ? 'url("' + replacement.dataUrl + '")'
+          : css.slice(match.start, match.end);
+        cursor = match.end;
       }
-      return result;
+      return result + css.slice(cursor);
     }
 
     async function inlineStylesheet(
@@ -2609,9 +2744,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         markFailure("stylesheet-import-depth");
         return css;
       }
+      var codeMask = cssCodeMask(css);
       var importExpression =
         /@import\s+(?:url\(\s*)?(['"]?)([^'")\s]+)\1\s*\)?\s*([^;]*);/gi;
-      var imports = Array.from(css.matchAll(importExpression));
+      var imports = Array.from(css.matchAll(importExpression)).filter(
+        function (match) {
+          var start = match.index ?? 0;
+          return codeMask[start] === 1 && !cssNameCharacter(css[start - 1]);
+        },
+      );
       if (imports.length === 0) return inlineCssUrls(css, baseUrl);
 
       var result = "";
@@ -2641,17 +2782,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             signal: resourceSignal,
           });
           if (!importedResponse.ok) throw new Error("stylesheet unavailable");
-          var importedBlob = await importedResponse.blob();
-          if (
-            importedBlob.size > 4_000_000 ||
-            totalBytes + importedBlob.size > 8_000_000
-          ) {
-            markFailure("export-resource-size-limit");
+          var importedBlob = await readBoundedBody(importedResponse);
+          if (!importedBlob) {
             result += importMatch[0];
             cursor = start + importMatch[0].length;
             continue;
           }
-          totalBytes += importedBlob.size;
           var importedCss = await inlineStylesheet(
             await importedBlob.text(),
             importedUrl.href,
@@ -2681,7 +2817,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             ";";
         } catch {
           markFailure(
-            resourceSignal.aborted ? "resource-timeout" : "stylesheet-import",
+            resourceTimedOut
+              ? "resource-timeout"
+              : resourceBudgetExceeded
+                ? "export-resource-size-limit"
+                : "stylesheet-import",
           );
           result += importMatch[0];
         }
@@ -2713,14 +2853,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           signal: resourceSignal,
         });
         if (!sheetResponse.ok) throw new Error("stylesheet unavailable");
-        var sheetBlob = await sheetResponse.blob();
-        if (
-          sheetBlob.size > 4_000_000 ||
-          totalBytes + sheetBlob.size > 8_000_000
-        ) {
-          throw new Error("stylesheet exceeds export size limit");
+        var sheetBlob = await readBoundedBody(sheetResponse);
+        if (!sheetBlob) {
+          link.replaceWith(replacementStyle);
+          continue;
         }
-        totalBytes += sheetBlob.size;
         replacementStyle.textContent = await inlineStylesheet(
           await sheetBlob.text(),
           sheetUrl.href,
@@ -2729,7 +2866,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
       } catch {
         markFailure(
-          resourceSignal.aborted ? "resource-timeout" : "stylesheet-link",
+          resourceTimedOut
+            ? "resource-timeout"
+            : resourceBudgetExceeded
+              ? "export-resource-size-limit"
+              : "stylesheet-link",
         );
       }
       link.replaceWith(replacementStyle);
@@ -2850,6 +2991,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         runtimeLayerSnapshotPendingPostReadinessRequestId = null;
       }
     }
+    function postSnapshotTooLargeError(): void {
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:runtime-layer-snapshot-error",
+          payload: {
+            ok: false,
+            reason: "snapshot-too-large",
+            requestId,
+            documentId: runtimeDocumentId,
+            ...(Number.isSafeInteger(postReadinessRequestId)
+              ? { readinessRequestId: postReadinessRequestId }
+              : {}),
+            ...(reservationToken ? { reservationToken: reservationToken } : {}),
+          },
+        },
+        "*",
+      );
+      clearPendingPostReadiness();
+    }
     var snapshot = serializeRuntimeLayerSnapshot();
     if (!snapshot.ok) {
       (window.parent as Window).postMessage(
@@ -2870,28 +3030,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       clearPendingPostReadiness();
       return;
     }
-    void inlineRuntimeSnapshotResources(snapshot.html)
+    void inlineRuntimeSnapshotResources(snapshot.html, 5_000_000)
       .then(function (inlined) {
         if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
         snapshot.html = inlined.html;
-        if (snapshot.html.length > 14_000_000) {
-          (window.parent as Window).postMessage(
-            {
-              type: "agent-native:runtime-layer-snapshot-error",
-              payload: {
-                ok: false,
-                reason: "snapshot-too-large",
-                requestId,
-                documentId: runtimeDocumentId,
-                ...(Number.isSafeInteger(postReadinessRequestId)
-                  ? { readinessRequestId: postReadinessRequestId }
-                  : {}),
-                ...(reservationToken ? { reservationToken } : {}),
-              },
-            },
-            "*",
-          );
-          clearPendingPostReadiness();
+        if (
+          inlined.errorCode === "export_too_large" ||
+          snapshot.html.length > 14_000_000
+        ) {
+          postSnapshotTooLargeError();
           return;
         }
         var snapshotReservationToken = reservationToken || "";
@@ -2918,20 +3065,25 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           clearPendingPostReadiness();
           return;
         }
-        lastRuntimeLayerSnapshotHtml = snapshot.html;
-        lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
         if (requestId !== undefined) snapshot.requestId = requestId;
         if (Number.isSafeInteger(postReadinessRequestId)) {
           snapshot.readinessRequestId = postReadinessRequestId;
         }
         if (reservationToken) snapshot.reservationToken = reservationToken;
-        (window.parent as Window).postMessage(
-          {
-            type: "agent-native:runtime-layer-snapshot",
-            payload: snapshot,
-          },
-          "*",
-        );
+        var snapshotMessage = {
+          type: "agent-native:runtime-layer-snapshot",
+          payload: snapshot,
+        };
+        if (
+          new TextEncoder().encode(JSON.stringify(snapshotMessage)).byteLength >
+          5_000_000
+        ) {
+          postSnapshotTooLargeError();
+          return;
+        }
+        lastRuntimeLayerSnapshotHtml = snapshot.html;
+        lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
+        (window.parent as Window).postMessage(snapshotMessage, "*");
         clearPendingPostReadiness();
       })
       .catch(function () {

@@ -86,6 +86,7 @@ describe("launchChromium", () => {
   });
 
   it("fails closed with a typed error when no safe renderer is available", async () => {
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
     const launch = vi.fn().mockRejectedValue(new Error("sandbox unavailable"));
     const chromium = {
       connectOverCDP: vi.fn(),
@@ -109,5 +110,9 @@ describe("launchChromium", () => {
       ),
     ).toBe(true);
     expect(launch).toHaveBeenCalledWith({ chromiumSandbox: true });
+    expect(errorLog).toHaveBeenCalledWith(
+      "Design export could not launch sandboxed local Chromium:",
+      expect.objectContaining({ message: "sandbox unavailable" }),
+    );
   });
 });

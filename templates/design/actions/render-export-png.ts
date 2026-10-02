@@ -179,7 +179,8 @@ export default defineAction({
   maxBodyBytes: MAX_RENDER_REQUEST_BYTES,
   http: { method: "POST" },
   run: async ({ html, width, height, scale, clip }) => {
-    assertRasterSize(clip?.width ?? width, clip?.height ?? height, scale);
+    assertRasterSize(width, height, scale);
+    if (clip) assertRasterSize(clip.width, clip.height, scale);
 
     const releaseRenderSlot = acquireRenderSlot();
     const lease = acquireBrowser();

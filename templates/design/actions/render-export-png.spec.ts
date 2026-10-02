@@ -136,6 +136,18 @@ describe("render-export-png action", () => {
     );
   });
 
+  it("rejects a viewport over the pixel cap even when its crop fits", async () => {
+    await expect(
+      runAction({
+        width: 10_000,
+        height: 7_000,
+        scale: 1,
+        clip: { x: 4_000, y: 6_000, width: 100, height: 80 },
+      }),
+    ).rejects.toMatchObject({ errorCode: "export_too_large", statusCode: 413 });
+    expect(playwrightMocks.launchChromium).not.toHaveBeenCalled();
+  });
+
   it("rejects fonts that are still loading after the readiness timeout", async () => {
     const { page } = makeRenderer([
       undefined,

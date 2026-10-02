@@ -10924,14 +10924,16 @@ it(
           receivedSignal = init?.signal ?? undefined;
           return Promise.resolve({
             ok: true,
-            blob: () =>
-              new Promise<Blob>((_resolve, reject) => {
+            body: new ReadableStream<Uint8Array>({
+              start(controller) {
                 receivedSignal?.addEventListener(
                   "abort",
-                  () => reject(new DOMException("Aborted", "AbortError")),
+                  () =>
+                    controller.error(new DOMException("Aborted", "AbortError")),
                   { once: true },
                 );
-              }),
+              },
+            }),
           } as Response);
         }) as typeof fetch;
         try {
@@ -10957,6 +10959,213 @@ it(
       expect(result.complete).toBe(false);
       expect(result.errorCode).toBe("export_resources_unavailable");
       expect(result.html).toContain("resource-timeout");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "runtime export resource streams cancel when a resource exceeds its byte cap",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+      const result = await page.evaluate(async () => {
+        const bridge = (window as any).__anEditorChromeBridgeInstance;
+        const originalFetch = window.fetch;
+        let reads = 0;
+        let canceled = false;
+        window.fetch = (async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              pull(controller) {
+                reads += 1;
+                controller.enqueue(new Uint8Array(4_000_001));
+              },
+              cancel() {
+                canceled = true;
+              },
+            }),
+            { headers: { "content-type": "image/png" } },
+          )) as typeof fetch;
+        try {
+          const exportResult = await bridge.inlineExportResources(
+            '<!doctype html><html><body><img src="https://export.test/large.png"></body></html>',
+          );
+          return { ...exportResult, reads, canceled };
+        } finally {
+          window.fetch = originalFetch;
+        }
+      });
+
+      expect(result.complete).toBe(false);
+      expect(result.errorCode).toBe("export_too_large");
+      expect(result.html).toContain("export-resource-size-limit");
+      expect(result.reads).toBeLessThanOrEqual(2);
+      expect(result.canceled).toBe(true);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "runtime export resource streams enforce the shared byte cap",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+      const result = await page.evaluate(async () => {
+        const bridge = (window as any).__anEditorChromeBridgeInstance;
+        const originalFetch = window.fetch;
+        window.fetch = (async () => {
+          let sent = false;
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              pull(controller) {
+                if (sent) controller.close();
+                else {
+                  sent = true;
+                  controller.enqueue(new Uint8Array(3_000_000));
+                }
+              },
+            }),
+            { headers: { "content-type": "image/png" } },
+          );
+        }) as typeof fetch;
+        try {
+          const exportResult = await bridge.inlineExportResources(
+            `<!doctype html><html><head><style>
+.card { background-image: url("https://export.test/one.png"), url("https://export.test/two.png"), url("https://export.test/three.png"); }
+</style></head><body></body></html>`,
+          );
+          return exportResult;
+        } finally {
+          window.fetch = originalFetch;
+        }
+      });
+
+      expect(result.complete).toBe(false);
+      expect(result.errorCode).toBe("export_too_large");
+      expect(result.html).toContain("export-resource-size-limit");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "runtime layer snapshots reject serialized resource payloads above 5 MB",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.route("https://export.test/**", (route) => route.abort());
+      await page.setContent(`<!doctype html><html><body>
+<img id="snapshot-image" src="https://export.test/large.png" width="1" height="1">
+</body></html>`);
+      await collectBridgeMessages(page);
+      await page.evaluate(() => {
+        window.fetch = (async () =>
+          new Response(
+            new Blob([new Uint8Array(3_800_000)], { type: "image/png" }),
+          )) as typeof fetch;
+      });
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(true),
+      });
+      await page.waitForFunction(
+        () =>
+          ((window as any).__bridgeMessages ?? []).some(
+            (message: any) =>
+              message.type === "agent-native:runtime-layer-snapshot-error" &&
+              message.payload?.reason === "snapshot-too-large",
+          ),
+        undefined,
+        { timeout: 10_000 },
+      );
+      const result = await page.evaluate(() => {
+        const messages = (window as any).__bridgeMessages ?? [];
+        return {
+          errors: messages.filter(
+            (message: any) =>
+              message.type === "agent-native:runtime-layer-snapshot-error" &&
+              message.payload?.reason === "snapshot-too-large",
+          ).length,
+          snapshots: messages.filter(
+            (message: any) =>
+              message.type === "agent-native:runtime-layer-snapshot",
+          ).length,
+        };
+      });
+
+      expect(result.errors).toBe(1);
+      expect(result.snapshots).toBe(0);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "CSS resource rewriting ignores comments and strings",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+      const result = await page.evaluate(async () => {
+        const bridge = (window as any).__anEditorChromeBridgeInstance;
+        const originalFetch = window.fetch;
+        (window as any).__resourceRequests = [];
+        window.fetch = (async (input: RequestInfo | URL) => {
+          (window as any).__resourceRequests.push(String(input));
+          return new Response(new Blob(["pixel"], { type: "image/png" }), {
+            status: 200,
+          });
+        }) as typeof fetch;
+        try {
+          const exportResult = await bridge.inlineExportResources(
+            `<!doctype html><html><head><style>
+/* @import url("https://export.test/comment.css"); url("https://export.test/comment.png") */
+.card { content: "url(https://export.test/string.png)"; background-image: url("https://export.test/image.png"); }
+</style></head><body></body></html>`,
+          );
+          const doc = new DOMParser().parseFromString(
+            exportResult.html,
+            "text/html",
+          );
+          return {
+            ...exportResult,
+            css: doc.querySelector("style")?.textContent,
+            requests: (window as any).__resourceRequests,
+          };
+        } finally {
+          window.fetch = originalFetch;
+        }
+      });
+
+      expect(result.complete).toBe(true);
+      expect(result.requests).toEqual(["https://export.test/image.png"]);
+      expect(result.css).toContain("https://export.test/comment.png");
+      expect(result.css).toContain("https://export.test/string.png");
+      expect(result.css).toContain("data:image/png;base64,");
     } finally {
       await browser.close();
     }

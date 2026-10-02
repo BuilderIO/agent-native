@@ -79,6 +79,10 @@ export async function launchChromium(
   } catch (localBrowserError) {
     const describe = (error: unknown) =>
       error instanceof Error ? error.message : String(error);
+    console.error(
+      "Design export could not launch sandboxed local Chromium:",
+      localBrowserError,
+    );
     throw new ChromiumUnavailableError(
       new Error(
         `Builder Browser unavailable: ${describe(builderBrowserError)}; ` +

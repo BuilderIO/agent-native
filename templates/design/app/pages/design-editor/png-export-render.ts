@@ -123,16 +123,31 @@ export function preserveLiveStylesheets(
       .filter(Boolean),
   );
 
-  for (const sheet of Array.from(sourceDocument.styleSheets)) {
-    if (sheet.disabled || !sheet.ownerNode || sheet.ownerNode.nodeType !== 1) {
-      continue;
-    }
-    const sourceNode = sheet.ownerNode as Element;
-    const clonedNode = resolveClonedElement(
-      sourceDocument,
-      clonedDocument,
-      sourceNode,
-    );
+  const mappedSheets = Array.from(sourceDocument.styleSheets).flatMap(
+    (sheet) => {
+      if (
+        sheet.disabled ||
+        !sheet.ownerNode ||
+        sheet.ownerNode.nodeType !== 1
+      ) {
+        return [];
+      }
+      const sourceNode = sheet.ownerNode as Element;
+      return [
+        {
+          sheet,
+          sourceNode,
+          clonedNode: resolveClonedElement(
+            sourceDocument,
+            clonedDocument,
+            sourceNode,
+          ),
+        },
+      ];
+    },
+  );
+
+  for (const { sheet, sourceNode, clonedNode } of mappedSheets) {
     if (!clonedNode) {
       failures.add("stylesheet-cssom-unavailable");
       continue;
