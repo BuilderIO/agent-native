@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Brain are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-02
+
+### Improved
+
+- With Jev as the privacy classifier, routine messages that mention words like "investigating", "interview", or "reorg" are no longer dropped automatically. Jev now decides whether they are sensitive. Credentials are still always blocked.
+
 ## 2026-10-01
 
 ### Improved

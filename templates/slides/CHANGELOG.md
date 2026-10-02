@@ -3,14 +3,35 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-02
+
+### Fixed
+
+- Heading text stays intact when Backspace joins it into a styled block.
+- Slide text editing now preserves formatting and caret placement across browsers.
+
 ## 2026-10-01
 
 ### Improved
 
+- Recover failed deck saves with explicit retry or reload
 - The observability settings tab is now labeled Observability.
 
 ### Fixed
 
+- A prompt you send before connecting AI is sent automatically once you connect, and a deck generation that ends without slides shows Try again instead of an empty canvas.
+- Blank speaker notes can be edited and saved without a conflict.
+- New deck prompts no longer add a default design system unless you choose one, and empty failed generations explain what happened.
+- Home prompt suggestions no longer fail when the model's answer runs long.
+- Images can be removed from chat without opening their preview
+- Markdown bullet shortcuts work after you press Enter.
+- Preserve concurrent slide metadata edits while saving
+- Selected slide text can be linked with the keyboard shortcut
+- New slide decks are persisted only after generation setup is ready.
+- Slide edits preserve unrelated changes when another editor updates the same field
+- Slides warns before refreshing a tab with unsaved edits
+- Undoing a conflicting slide edit preserves the latest update from another editor
+- When an attached file can't be read, Slides now says so instead of showing an internal error code.
 - Importing a PDF or other file from chat no longer fails with an invalid uploaded file error, and a failed import now offers a retry instead of showing page text
 - Shift-clicking images selects them together on a slide
 - Slides keeps sidebar navigation beside the single home toolbar and shows credit usage only near the limit.

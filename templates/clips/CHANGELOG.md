@@ -3,10 +3,30 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
-## 2026-10-01
+## 2026-10-02
 
 ### Fixed
 
+- Recording reminders and other actionable notifications show their message above the buttons
+- Temporary upload authorization failures remain retryable, while permanently rejected Builder credentials trigger storage setup errors.
+
+## 2026-10-01
+
+### Improved
+
+- Clip pages show layout-matched skeletons while loading
+- Signed-out viewers now see that they need to sign in before commenting on shared clips.
+- The Connect storage card is simpler: one Create Builder.io account button opens the same account popover as the rest of the app, with S3-compatible storage as the alternative
+- You can start recording before connecting storage: the web recorder keeps a copy in your browser and the desktop app saves to Movies/Clips, and the recording uploads once you connect storage. If an upload is interrupted, Clips offers to finish it the next time you open it
+
+### Fixed
+
+- Camera repositioning keeps the recording controls visible
+- Desktop clips no longer play as a short fragment when a video chunk loads incompletely while the clip is still being processed
+- Existing Builder connections sign in from storage setup
+- Loom imports no longer stay stuck if their upload worker stops.
+- Storage setup recovers when Builder connects after cancellation
+- The dictation shortcut now responds to every quick tap, the voice bar no longer disappears mid-dictation, and AI cleanup works again.
 - Deleted dictations disappear from your history right away instead of after a few seconds
 - Dictation shortcuts stay hidden when voice dictation is disabled.
 - Opening a recording link no longer flashes a "Recording not found" message before the recording loads
