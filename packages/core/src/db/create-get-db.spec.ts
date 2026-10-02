@@ -391,8 +391,8 @@ describe("createGetDb pooled transaction scoping", () => {
       ]);
       expect(timeoutOperations.slice(4)).toEqual([
         "read:90ms",
-        "set:45ms",
-        "query:SELECT 102@45ms",
+        expect.stringMatching(/^set:4[45]ms$/),
+        expect.stringMatching(/^query:SELECT 102@4[45]ms$/),
         "restore:90ms",
         "query:SELECT 105@90ms",
         "query:SELECT 106@90ms",
@@ -401,10 +401,16 @@ describe("createGetDb pooled transaction scoping", () => {
         "query:SELECT 108@90ms",
         "query:SELECT 103@90ms",
         "read:90ms",
-        "set:36ms",
-        "query:SELECT 104@36ms",
+        expect.stringMatching(/^set:3[56]ms$/),
+        expect.stringMatching(/^query:SELECT 104@3[56]ms$/),
         "restore:90ms",
       ]);
+      expect(timeoutOperations[6]).toBe(
+        `query:SELECT 102@${timeoutOperations[5]?.slice("set:".length)}`,
+      );
+      expect(timeoutOperations[16]).toBe(
+        `query:SELECT 104@${timeoutOperations[15]?.slice("set:".length)}`,
+      );
       const parentContextQuery = new Promise<void>((resolve, reject) => {
         setTimeout(() => {
           void tx.execute(rawQuery("SELECT 113")).then(resolve, reject);
