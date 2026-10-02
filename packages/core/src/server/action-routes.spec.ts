@@ -1649,6 +1649,62 @@ describe("mountActionRoutes", () => {
     expect(mockNotifyActionChange).not.toHaveBeenCalled();
   });
 
+  it.each([
+    {
+      source: "Web Request URL",
+      event: {
+        req: {
+          url: "http://app.test/_agent-native/actions/list-things?q=hello&__an_embed_token=embed-test-token&__an_embed_target=%2Fdesign%2F1",
+        },
+      },
+    },
+    {
+      source: "parsed H3 query object",
+      event: {
+        req: {},
+        _query: {
+          q: "hello",
+          "__an_embed_token[]": ["embed-test-token"],
+          "__an_embed_target[]": ["/design/1"],
+        },
+      },
+    },
+  ])(
+    "does not pass embed auth query parameters from $source to GET actions",
+    async ({ event }) => {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+      const run = vi.fn(async (params) => ({ ok: true, params }));
+      const actions: Record<string, ActionEntry> = {
+        "list-things": {
+          http: { method: "GET" },
+          readOnly: true,
+          run,
+        } as any,
+      };
+
+      mountActionRoutes(nitroApp, actions);
+
+      const result = await mounted[0].handler({ _method: "GET", ...event });
+
+      expect(result).toEqual({ ok: true, params: { q: "hello" } });
+      expect(run).toHaveBeenCalledWith(
+        { q: "hello" },
+        {
+          userEmail: undefined,
+          orgId: null,
+          caller: "http",
+          actionName: "list-things",
+        },
+      );
+    },
+  );
+
   it("passes a run ctx with resolved identity and caller=http", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
