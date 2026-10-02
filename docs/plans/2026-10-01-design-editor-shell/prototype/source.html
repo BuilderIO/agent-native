@@ -181,15 +181,17 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 
 /* top bar */
 /* Three columns so the route is centred on the bar. Equal 1fr sides; when one side outgrows its half it widens and the centre shifts instead of overlapping. */
-.topbar { grid-row: 1; grid-column: 3 / 5; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 1fr auto 1fr auto; align-items: center; column-gap: 8px; padding: 8px; min-width: 0; background: var(--bg); }
-.tb-left { justify-self: start; min-width: max-content; gap: 8px; }
+.topbar { grid-row: 1; grid-column: 3 / 5; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr) auto; align-items: center; column-gap: 8px; padding: 8px; min-width: 0; background: var(--bg); }
+/* The side columns never go below their content (.tb-zone's min-width: 0 would let them), so when the bar runs
+   short the address bar shrinks and moves off center instead of sliding under the pickers. */
+.tb-left { justify-self: start; gap: 8px; }
 .tb-left-extra { gap: 8px; }
-.tb-right { justify-self: end; min-width: max-content; }
+.tb-right { justify-self: end; }
 /* Over the inspector, column 4 starts at its left edge (240 minus the bar's 8px padding), so zoom ends 8px before it
    and the avatars and actions get the inspector's width. */
-.app:not(.no-inspector) .topbar { grid-template-columns: 1fr auto 1fr 232px; }
+.app:not(.no-inspector) .topbar { grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr) 232px; }
 .tb-insp { justify-self: end; min-width: 0; display: flex; align-items: center; gap: 12px; }
-@media (max-width: 1100px) { .app:not(.no-inspector) .topbar { grid-template-columns: 1fr auto 1fr auto; } }
+@media (max-width: 1100px) { .app:not(.no-inspector) .topbar { grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr) auto; } }
 .seg { display: inline-flex; padding: 4px; border-radius: 14px; background: var(--muted); flex: none; }
 .seg button { height: 20px; padding-inline: 6px; border-radius: 8px; font-size: 12px; font-weight: 500; line-height: 16px; color: var(--muted-fg); }
 .seg button[aria-pressed="true"] { background: var(--bg); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / 10%), 0 1px 1.5px rgb(0 0 0 / 10%); }
@@ -876,13 +878,16 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .spec-b li .today + .change { margin-top: 2px; }
 .spec-b code { font-family: var(--mono); font-size: 12px; background: var(--muted); padding: 0 4px; border-radius: 4px; }
 
-/* Below 1200px the three groups no longer fit around a centred route: the route takes the leftover middle instead. */
-@media (max-width: 1199px) { .topbar { grid-template-columns: max-content minmax(0, 1fr) max-content; } .tb-center { min-width: 0; } .tb-center .select.route { width: auto; flex: 1; min-width: 120px; max-width: 264px; } .tb-right .avatars { display: none; } }
-@media (max-width: 1100px) { .app { grid-template-columns: 56px var(--panel-w) minmax(0, 1fr) 0; } .insp { display: none; } }
+/* Below 1200px the groups no longer fit around a centred route: the route takes the leftover middle instead, and
+   the inspector's group keeps its own column so it never wraps under the bar. */
+@media (max-width: 1199px) { .topbar, .app:not(.no-inspector) .topbar { grid-template-columns: max-content minmax(0, 1fr) max-content max-content; } .tb-center { min-width: 0; } .tb-center .select.route { width: auto; flex: 1; min-width: 96px; max-width: 264px; } .tb-insp .avatars { display: none; } }
+.tb-left-extra .select .nar { display: none; }
+/* Without the inspector, Interact's device and theme pickers drop their labels to leave the route room. */
+@media (max-width: 1100px) { .app { grid-template-columns: 56px var(--panel-w) minmax(0, 1fr) 0; } .insp { display: none; } .tb-left-extra .select .v { display: none; } .tb-left-extra .select .nar { display: contents; } }
+@media (max-width: 900px) { .tb-insp .btns .bsplit:first-child, .tb-left-extra .select .chev { display: none; } .tb-left-extra .select { padding-inline: 4px; } .tb-center .select.route { min-width: 64px; } }
 @media (max-width: 820px) {
   .app, .app.no-panel { grid-template-columns: 56px 0 minmax(0, 1fr) 0; } .panel { display: none; }
-  .topbar { gap: 8px; } .tb-left-extra, .avatars, .review .ver, .chip .k { display: none; } .topbar { grid-template-columns: auto minmax(0, 1fr) auto; } .select.route { width: 100%; min-width: 0; }
-  .tb-right .btns .btn.secondary { display: none; }
+  .topbar { gap: 8px; } .tb-left-extra, .avatars, .review .ver, .chip .k { display: none; } .topbar, .app:not(.no-inspector) .topbar { grid-template-columns: auto minmax(0, 1fr) auto auto; } .tb-center .select.route { width: 100%; min-width: 0; } .tb-center .nav-btns:first-child { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
@@ -1247,7 +1252,7 @@ function renderTopbar() {
         <button data-mode="design" aria-pressed="${S.mode === "design"}" title="Design">Design</button>
         ${S.labs ? `<button data-mode="annotate" aria-pressed="${S.mode === "annotate"}" title="Annotate (Labs)">Annotate</button>` : ""}
       </div>
-      ${interact ? `<span class="tb-zone tb-left-extra"><button class="select" id="device-btn" aria-haspopup="menu"><span class="v">${S.device}</span>${ic("chevron-down", "chev")}</button>
+      ${interact ? `<span class="tb-zone tb-left-extra"><button class="select" id="device-btn" aria-haspopup="menu" title="${S.device}"><span class="nar">${ic(DEVICES.find(d => d.name === S.device)?.icon || "device-desktop")}</span><span class="v">${S.device}</span>${ic("chevron-down", "chev")}</button>
       <button class="select" id="scheme-btn" aria-haspopup="menu" title="Appearance">${ic(SCHEME_ICON[S.scheme])}<span class="v">${SCHEME_LABEL[S.scheme]}</span>${ic("chevron-down", "chev")}</button></span>` : ""}
     </div>
     <div class="tb-zone tb-center">
