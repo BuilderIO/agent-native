@@ -1336,6 +1336,135 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  // A continuation run folds into the first run's durable reply. The page saw
+  // the first run, then reloaded before the continuation finished.
+  function foldedContinuationThread(options: {
+    snapshotSawContinuation: boolean;
+  }) {
+    const assistantEvent = (runId: string, id: string) => ({
+      id: `event-${runId}`,
+      type: "message.created",
+      threadId: "thread-folded",
+      runId,
+      sequence: 1,
+      occurredAt: "2026-10-01T23:54:00.000Z",
+      message: { id, role: "assistant", parts: [] },
+    });
+    return {
+      id: "thread-folded",
+      threadData: JSON.stringify({
+        messages: [
+          {
+            message: {
+              id: "user-1",
+              role: "user",
+              status: "complete",
+              content: [{ type: "text", text: "Write forty lines" }],
+            },
+            parentId: null,
+          },
+          {
+            message: {
+              id: "server-run-2",
+              role: "assistant",
+              status: { type: "complete", reason: "stop" },
+              content: [{ type: "text", text: "First half. Second half." }],
+              metadata: {
+                runId: "run-2",
+                custom: { foldedRunIds: ["run-1", "run-2"] },
+              },
+            },
+            parentId: "user-1",
+          },
+        ],
+        agentKit: {
+          messages: [
+            reloadedPrompt,
+            {
+              id: "message-1",
+              role: "assistant",
+              status: "complete",
+              parts: [{ type: "text", text: "First half." }],
+            },
+            ...(options.snapshotSawContinuation
+              ? [
+                  {
+                    id: "message-2",
+                    role: "assistant",
+                    status: "complete",
+                    parts: [{ type: "text", text: " Second half." }],
+                  },
+                ]
+              : []),
+          ],
+          events: [
+            assistantEvent("run-1", "message-1"),
+            ...(options.snapshotSawContinuation
+              ? [assistantEvent("run-2", "message-2")]
+              : []),
+          ],
+          runs: ["run-1", "run-2"].map((id) => ({
+            id,
+            threadId: "thread-folded",
+            status: "completed",
+            startedAt: "2026-10-01T23:54:00.000Z",
+            lastSequence: 0,
+          })),
+          activeRunIds: [],
+        },
+      }),
+    };
+  }
+
+  it("completes the first run's reply with a continuation the reloaded page never saw", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "complete" })
+          : json(foldedContinuationThread({ snapshotSawContinuation: false })),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-folded",
+    });
+
+    expect(snapshot?.messages).toMatchObject([
+      { id: "user-1", role: "user" },
+      {
+        id: "message-1",
+        parts: [{ type: "text", text: "First half. Second half." }],
+      },
+    ]);
+    await transport.dispose();
+  });
+
+  it("keeps separate messages for continuation runs the page did watch", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "complete" })
+          : json(foldedContinuationThread({ snapshotSawContinuation: true })),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-folded",
+    });
+
+    expect(
+      snapshot?.messages.map((message) => [
+        message.id,
+        message.parts.map((part) => (part.type === "text" ? part.text : "")),
+      ]),
+    ).toEqual([
+      ["user-1", ["Write forty lines"]],
+      ["message-1", ["First half."]],
+      ["message-2", [" Second half."]],
+    ]);
+    await transport.dispose();
+  });
+
   it("does not replace unrelated or reordered AgentKit content with durable text", async () => {
     const transport = createAgentNativeAgentKitTransport({
       fetch: vi.fn(async (input: string | URL | Request) =>

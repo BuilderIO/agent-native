@@ -269,6 +269,19 @@ function storedMessages(
   });
 }
 
+/** A durable reply's terminal run plus every continuation run folded into it. */
+function durableRunIds(message: AgentMessage): string[] {
+  const metadata = asRecord(message.metadata);
+  const folded = asRecord(metadata?.custom)?.foldedRunIds;
+  return [
+    ...new Set(
+      [metadata?.runId, ...(Array.isArray(folded) ? folded : [])].filter(
+        (id): id is string => typeof id === "string",
+      ),
+    ),
+  ];
+}
+
 function reconcileDurableAssistantText(
   messages: AgentMessage[],
   durable: AgentMessage[],
@@ -295,9 +308,9 @@ function reconcileDurableAssistantText(
   const durableByRun = new Map<string, AgentMessage | null>();
   for (const message of durable) {
     if (message.role !== "assistant") continue;
-    const runId = asRecord(message.metadata)?.runId;
-    if (typeof runId !== "string") continue;
-    durableByRun.set(runId, durableByRun.has(runId) ? null : message);
+    for (const runId of durableRunIds(message)) {
+      durableByRun.set(runId, durableByRun.has(runId) ? null : message);
+    }
   }
 
   return messages.map((message) => {
@@ -307,6 +320,16 @@ function reconcileDurableAssistantText(
       durableById.get(message.id) ??
       (runId ? durableByRun.get(runId) : undefined);
     if (stored?.role !== "assistant") return message;
+    // A page that watched the continuation saved it as its own message; folding
+    // the continuation's text into this one would show it twice.
+    const terminalRunId = asRecord(stored.metadata)?.runId;
+    if (
+      typeof terminalRunId === "string" &&
+      terminalRunId !== runId &&
+      assistantIdsByRun.has(terminalRunId)
+    ) {
+      return message;
+    }
     const lastPart = message.parts.at(-1);
     if (lastPart && lastPart.type !== "text") return message;
     const currentText = message.parts
@@ -374,12 +397,7 @@ function restoreUnsavedRunReplies(
   const restoredIds = new Set(restored.map((message) => message.id));
   for (const message of durable) {
     if (message.role !== "assistant" || restoredIds.has(message.id)) continue;
-    const metadata = asRecord(message.metadata);
-    const folded = asRecord(metadata?.custom)?.foldedRunIds;
-    const runIds = [
-      metadata?.runId,
-      ...(Array.isArray(folded) ? folded : []),
-    ].filter((id): id is string => typeof id === "string");
+    const runIds = durableRunIds(message);
     if (
       !runIds.some((id) => completedRunIds.has(id)) ||
       runIds.some((id) => answeredRunIds.has(id))

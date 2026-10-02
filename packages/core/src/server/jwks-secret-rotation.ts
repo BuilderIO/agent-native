@@ -24,7 +24,10 @@ const JWKS_DECRYPT_ERROR_SNIPPET = "Failed to decrypt private key";
  * live key: `/jwks` publishes `{"keys":[]}` after the grace period, and every
  * signature mints another key the next read cannot see (2026-09-01 the plan
  * app grew 18k keys this way; 2026-10-01 its JWKS went empty). Reading newest
- * first keeps the live and recently rotated keys in the window.
+ * first keeps the live and recently rotated keys in the window. Token
+ * verification reads the same window; tokens live 15 minutes and are signed by
+ * the newest live key, so the keys that can still verify one are always the
+ * newest ones.
  */
 export async function readNewestJwks(
   adapter: Parameters<typeof getCurrentAdapter>[0],
