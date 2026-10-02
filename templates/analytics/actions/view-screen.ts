@@ -290,11 +290,16 @@ export default defineAction({
               ? params.slow
               : undefined;
             // Match the page: event and slow conditions, and the speed hints
-            // on each row, apply only with the Lab on.
-            const labEnabled = await isSessionsTriageLabEnabled(
-              email,
-              scope.orgId,
-            );
+            // on each row, apply only with the Lab on. A failed Lab read is
+            // reported, and the base list is still read without them.
+            let labEnabled = false;
+            let labStateError: string | undefined;
+            try {
+              labEnabled = await isSessionsTriageLabEnabled(email, scope.orgId);
+            } catch (error) {
+              labStateError =
+                error instanceof Error ? error.message : String(error);
+            }
             const eventsLabEnabled = urlHasEventConditions && labEnabled;
             if (labEnabled) filters.includePerformance = true;
             if (urlSlow && labEnabled) filters.slow = urlSlow;
@@ -322,6 +327,7 @@ export default defineAction({
               total: result.total,
               returnedCount: result.recordings.length,
               excerptLimit: SESSION_EXCERPT_SIZE,
+              ...(labStateError ? { labStateError } : {}),
               ...(urlHasEventConditions && !eventsLabEnabled
                 ? { eventConditionsNotApplied: urlEventConditions }
                 : {}),

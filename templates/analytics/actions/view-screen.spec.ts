@@ -548,6 +548,30 @@ describe("view-screen Sessions context", () => {
     ).toBeUndefined();
   });
 
+  it("keeps the base list and reports a Lab state that fails to load", async () => {
+    isSessionsTriageLabEnabled.mockRejectedValueOnce(
+      new Error("settings unavailable"),
+    );
+    setScreen(
+      { view: "sessions" },
+      { pathname: "/sessions", searchParams: { slow: "vitals" } },
+    );
+
+    const out = await runScreen();
+
+    expect(out.sessionReplayError).toBeUndefined();
+    expect(out.sessionReplays).toHaveLength(25);
+    expect(out.sessionReplayPage).toMatchObject({
+      total: 137,
+      labStateError: "settings unavailable",
+      slowFilterNotApplied: "vitals",
+    });
+    expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.not.objectContaining({ slow: expect.anything() }),
+    );
+  });
+
   it("keeps an unsafe page out of the backend offset and context", async () => {
     setScreen(
       { view: "sessions" },
