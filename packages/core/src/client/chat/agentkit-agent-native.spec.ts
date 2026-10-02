@@ -2493,7 +2493,7 @@ describe("createAgentNativeAgentKitTransport", () => {
     const transport = createAgentNativeAgentKitTransport({
       fetch: fetcher as typeof fetch,
       runtime: createHttpAgentChatRuntime({
-        kind: "external-agent",
+        kind: "agent-native",
         endpoint: "/external-agent-chat",
         fetch: fetcher as typeof fetch,
       }),
@@ -2736,67 +2736,76 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
-  it("uses durable completion when an idle server leaves a stale run marked running", async () => {
-    const threadId = "thread-stale-run";
-    const transport = createAgentNativeAgentKitTransport({
-      fetch: vi.fn(async (input: string | URL | Request) => {
-        const url = String(input);
-        if (url.includes("/runs/active")) {
-          return json({ active: false, status: "idle" });
-        }
-        return json({
-          id: threadId,
-          threadData: JSON.stringify({
-            messages: [
-              {
-                message: {
-                  id: "durable-user-stale",
-                  role: "user",
-                  content: [{ type: "text", text: "Summarize this" }],
-                  createdAt: "2026-09-01T00:00:00.000Z",
-                  metadata: { custom: { submittedRunId: "run-stale" } },
-                },
-              },
-              {
-                message: {
-                  id: "durable-assistant-stale",
-                  role: "assistant",
-                  content: [{ type: "text", text: "The summary." }],
-                  createdAt: "2026-09-01T00:00:01.000Z",
-                  status: { type: "complete" },
-                  metadata: { runId: "run-stale" },
-                },
-              },
-            ],
-            agentKit: {
-              messages: [],
-              activeRunIds: ["run-stale"],
-              runs: [
+  it.each([
+    { userStopped: false, expectedStatus: "completed" },
+    { userStopped: true, expectedStatus: "cancelled" },
+  ] as const)(
+    "restores a stale run as $expectedStatus when its durable reply is userStopped=$userStopped",
+    async ({ userStopped, expectedStatus }) => {
+      const threadId = "thread-stale-run";
+      const transport = createAgentNativeAgentKitTransport({
+        fetch: vi.fn(async (input: string | URL | Request) => {
+          const url = String(input);
+          if (url.includes("/runs/active")) {
+            return json({ active: false, status: "idle" });
+          }
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({
+              messages: [
                 {
-                  id: "run-stale",
-                  threadId,
-                  status: "running",
-                  lastSequence: 1,
+                  message: {
+                    id: "durable-user-stale",
+                    role: "user",
+                    content: [{ type: "text", text: "Summarize this" }],
+                    createdAt: "2026-09-01T00:00:00.000Z",
+                    metadata: { custom: { submittedRunId: "run-stale" } },
+                  },
+                },
+                {
+                  message: {
+                    id: "durable-assistant-stale",
+                    role: "assistant",
+                    content: [{ type: "text", text: "The summary." }],
+                    createdAt: "2026-09-01T00:00:01.000Z",
+                    status: { type: "complete" },
+                    metadata: {
+                      runId: "run-stale",
+                      custom: { ...(userStopped ? { userStopped: true } : {}) },
+                    },
+                  },
                 },
               ],
-            },
-          }),
-        });
-      }) as typeof fetch,
-    });
+              agentKit: {
+                messages: [],
+                activeRunIds: ["run-stale"],
+                runs: [
+                  {
+                    id: "run-stale",
+                    threadId,
+                    status: "running",
+                    lastSequence: 1,
+                  },
+                ],
+              },
+            }),
+          });
+        }) as typeof fetch,
+      });
 
-    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+      const snapshot = await transport.getThreadSnapshot?.({ threadId });
 
-    expect(snapshot?.messages.map((message) => message.id)).toEqual([
-      "durable-user-stale",
-      "durable-assistant-stale",
-    ]);
-    expect(snapshot?.runs).toContainEqual(
-      expect.objectContaining({ id: "run-stale", status: "completed" }),
-    );
-    expect(snapshot?.activeRunIds).not.toContain("run-stale");
-    await transport.dispose();
-  });
+      expect(snapshot?.messages.map((message) => message.id)).toEqual([
+        "durable-user-stale",
+        "durable-assistant-stale",
+      ]);
+      expect(snapshot?.runs).toContainEqual(
+        expect.objectContaining({ id: "run-stale", status: expectedStatus }),
+      );
+      expect(snapshot?.activeRunIds).not.toContain("run-stale");
+      await transport.dispose();
+    },
+  );
 
   it.each([
     { status: "awaiting_approval", active: true },
@@ -3290,6 +3299,105 @@ describe("createAgentNativeAgentKitTransport", () => {
     expect(snapshot?.messages.map((message) => message.id)).toEqual([
       "snapshot-prompt-one",
       "snapshot-prompt-two",
+    ]);
+    await transport.dispose();
+  });
+
+  it("uses the submitted AgentKit message ID to match differently timed prompts", async () => {
+    const threadId = "thread-agentkit-message-id-reconcile";
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/runs/active")) {
+          return json({ active: false, status: "idle" });
+        }
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "durable-prompt",
+                  role: "user",
+                  content: [{ type: "text", text: "One submitted prompt" }],
+                  createdAt: "2026-09-03T00:00:00.500Z",
+                  metadata: {
+                    custom: {
+                      submittedRunId: "run-one",
+                      agentKitMessageId: "message-agentkit-one",
+                    },
+                  },
+                },
+              },
+            ],
+            agentKit: {
+              messages: [
+                {
+                  id: "message-agentkit-one",
+                  role: "user",
+                  parts: [{ type: "text", text: "One submitted prompt" }],
+                  createdAt: "2026-09-03T00:00:00.000Z",
+                },
+              ],
+            },
+          }),
+        });
+      }) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(snapshot?.messages.map((message) => message.id)).toEqual([
+      "message-agentkit-one",
+    ]);
+    await transport.dispose();
+  });
+
+  it("keeps equal text from different AgentKit message IDs as separate turns", async () => {
+    const threadId = "thread-agentkit-message-id-distinct";
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).includes("/runs/active")) {
+          return json({ active: false, status: "idle" });
+        }
+        return json({
+          id: threadId,
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "durable-new-repeat",
+                  role: "user",
+                  content: [{ type: "text", text: "Repeat this prompt" }],
+                  createdAt: "2026-09-04T00:00:00.000Z",
+                  metadata: {
+                    custom: {
+                      submittedRunId: "run-new-repeat",
+                      agentKitMessageId: "message-new-repeat",
+                    },
+                  },
+                },
+              },
+            ],
+            agentKit: {
+              messages: [
+                {
+                  id: "message-old-repeat",
+                  role: "user",
+                  parts: [{ type: "text", text: "Repeat this prompt" }],
+                  createdAt: "2026-09-04T00:00:00.000Z",
+                },
+              ],
+            },
+          }),
+        });
+      }) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({ threadId });
+
+    expect(snapshot?.messages.map((message) => message.id)).toEqual([
+      "message-old-repeat",
+      "durable-new-repeat",
     ]);
     await transport.dispose();
   });

@@ -37,6 +37,7 @@ import {
 import { trackRunOutcome } from "./run-outcome-telemetry.js";
 import {
   createAgentNativeChatRuntime,
+  isAgentNativeChatRuntime,
   type AgentChatRuntime,
   type CreateAgentNativeChatRuntimeOptions,
 } from "./runtime.js";
@@ -367,6 +368,21 @@ function completedDurableRunIds(messages: AgentMessage[]): Set<string> {
       return message.role === "assistant" &&
         message.status === "complete" &&
         custom?.continued !== true &&
+        custom?.userStopped !== true &&
+        typeof runId === "string"
+        ? [runId]
+        : [];
+    }),
+  );
+}
+
+function userStoppedDurableRunIds(messages: AgentMessage[]): Set<string> {
+  return new Set(
+    messages.flatMap((message) => {
+      const runId = asRecord(message.metadata)?.runId;
+      const custom = asRecord(asRecord(message.metadata)?.custom);
+      return message.role === "assistant" &&
+        custom?.userStopped === true &&
         typeof runId === "string"
         ? [runId]
         : [];
@@ -420,6 +436,22 @@ function reconcileDurableMessages(
     const value = asRecord(asRecord(message.metadata)?.custom)?.submittedRunId;
     return typeof value === "string" ? value : undefined;
   };
+  const submittedAgentKitMessageId = (message: AgentMessage) => {
+    const value = asRecord(
+      asRecord(message.metadata)?.custom,
+    )?.agentKitMessageId;
+    return typeof value === "string" ? value : undefined;
+  };
+  const sameSubmittedPrompt = (
+    snapshot: AgentMessage,
+    stored: AgentMessage,
+  ) => {
+    const storedMessageId = submittedAgentKitMessageId(stored);
+    return (
+      (storedMessageId === undefined || storedMessageId === snapshot.id) &&
+      sameUserPrompt(snapshot, stored)
+    );
+  };
   const submittedUsers = durable.filter(
     (message) =>
       message.role === "user" &&
@@ -436,6 +468,18 @@ function reconcileDurableMessages(
     submittedUsersByRun.set(
       runId,
       submittedUsersByRun.has(runId) ? null : stored,
+    );
+  }
+  const submittedUsersByAgentKitMessageId = new Map<
+    string,
+    AgentMessage | null
+  >();
+  for (const stored of submittedUsers) {
+    const messageId = submittedAgentKitMessageId(stored);
+    if (!messageId) continue;
+    submittedUsersByAgentKitMessageId.set(
+      messageId,
+      submittedUsersByAgentKitMessageId.has(messageId) ? null : stored,
     );
   }
   const durableById = new Map(durable.map((message) => [message.id, message]));
@@ -478,11 +522,16 @@ function reconcileDurableMessages(
       asRecord(message.metadata)?.hideUserMessage !== true
     ) {
       const runId = submittedRunId(message);
-      const represented = submittedIds.has(message.id)
-        ? durableById.get(message.id)
-        : runId
-          ? submittedUsersByRun.get(runId)
-          : undefined;
+      const hasAgentKitMessageId = submittedUsersByAgentKitMessageId.has(
+        message.id,
+      );
+      const represented = hasAgentKitMessageId
+        ? submittedUsersByAgentKitMessageId.get(message.id)
+        : submittedIds.has(message.id)
+          ? durableById.get(message.id)
+          : runId
+            ? submittedUsersByRun.get(runId)
+            : undefined;
       if (represented?.role === "user") {
         representedSubmittedUserIds.add(represented.id);
       } else if (!runId) {
@@ -503,14 +552,14 @@ function reconcileDurableMessages(
     const candidates = submittedUsers.filter(
       (message) =>
         !representedSubmittedUserIds.has(message.id) &&
-        sameUserPrompt(snapshotUser, message),
+        sameSubmittedPrompt(snapshotUser, message),
     );
     if (candidates.length !== 1) continue;
     const stored = candidates[0]!;
     const matchingSnapshots = unmatchedSnapshotUsers.filter(
       (message) =>
         !matchedSnapshotUserIds.has(message.id) &&
-        sameUserPrompt(message, stored),
+        sameSubmittedPrompt(message, stored),
     );
     if (matchingSnapshots.length !== 1) continue;
     representedSubmittedUserIds.add(stored.id);
@@ -523,13 +572,15 @@ function reconcileDurableMessages(
     const candidates = submittedUsers.filter(
       (message) =>
         !representedSubmittedUserIds.has(message.id) &&
-        sameUserPrompt(snapshotUser, message),
+        sameSubmittedPrompt(snapshotUser, message),
     );
     if (candidates.length < 2) continue;
     const matchingSnapshots = unmatchedSnapshotUsers.filter(
       (message) =>
         !matchedSnapshotUserIds.has(message.id) &&
-        candidates.every((candidate) => sameUserPrompt(message, candidate)),
+        candidates.every((candidate) =>
+          sameSubmittedPrompt(message, candidate),
+        ),
     );
     if (matchingSnapshots.length !== candidates.length) continue;
     for (const candidate of candidates) {
@@ -1519,7 +1570,7 @@ export function createAgentNativeAgentKitTransport(
     const stored = await fetchThread(threadId);
     const thread = stored ? projectThread(threadId, stored) : null;
     if (!stored || !thread) return thread;
-    if (options.runtime && options.runtime.kind !== "agent-native") {
+    if (options.runtime && !isAgentNativeChatRuntime(options.runtime)) {
       return withoutParkedMessages(thread);
     }
     const durableMessages = storedMessages(
@@ -1527,6 +1578,7 @@ export function createAgentNativeAgentKitTransport(
       options.adapter?.textFormat,
     );
     const completedRunIds = completedDurableRunIds(durableMessages);
+    const userStoppedRunIds = userStoppedDurableRunIds(durableMessages);
     const durableFailures = durableRunFailures(durableMessages);
     const activeRun = await activeRunSnapshot(threadId);
     if (activeRun === undefined) return withoutParkedMessages(thread);
@@ -1548,6 +1600,13 @@ export function createAgentNativeAgentKitTransport(
     const runs = (thread.runs ?? [])
       .filter((entry) => entry.id !== discoveredRun?.id)
       .map((run) => {
+        if (
+          activeRun === null &&
+          run.status === "running" &&
+          userStoppedRunIds.has(run.id)
+        ) {
+          return { ...run, status: "cancelled" as const };
+        }
         if (
           activeRun === null &&
           run.status === "running" &&

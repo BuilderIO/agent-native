@@ -2912,6 +2912,7 @@ describe("createProductionAgentHandler", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           message: "Run the queued prompt",
+          agentKitMessageId: " message-agentkit-1 ",
           queuedMessageId: " queued-1 ",
         }),
       }),
@@ -2925,6 +2926,7 @@ describe("createProductionAgentHandler", () => {
     expect(onRunPrepared).toHaveBeenCalledWith(
       expect.objectContaining({
         message: "Run the queued prompt",
+        agentKitMessageId: "message-agentkit-1",
         queuedMessageId: "queued-1",
         turnId: expect.any(String),
       }),

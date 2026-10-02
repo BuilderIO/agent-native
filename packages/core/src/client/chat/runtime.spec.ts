@@ -477,6 +477,35 @@ describe("createAgentNativeChatRuntime", () => {
     });
   });
 
+  it("forwards the submitted AgentKit message ID to durable chat persistence", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }], "run-identity"));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({ id: "thread-identity" });
+    const turn = await session.startTurn({
+      prompt: "Submit this message",
+      messages: [
+        {
+          id: "message-agentkit-1",
+          role: "user",
+          content: [{ type: "text", text: "Submit this message" }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)),
+    ).toMatchObject({
+      message: "Submit this message",
+      agentKitMessageId: "message-agentkit-1",
+    });
+  });
+
   it("preserves workspace connection source metadata in connection requests", async () => {
     const source = {
       id: "google_drive",

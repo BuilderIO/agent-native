@@ -2627,12 +2627,13 @@ export function createAgentNativeChatRuntime(
       },
     },
     mapRequest: ({ session, turn, turnId }) => {
+      const latestUserMessage = [...(turn.messages ?? [])]
+        .reverse()
+        .find((message) => message.role === "user");
       const prompt =
         turn.prompt ??
-        [...(turn.messages ?? [])]
-          .reverse()
-          .find((message) => message.role === "user")
-          ?.content.map((part) => (part.type === "text" ? part.text : ""))
+        latestUserMessage?.content
+          .map((part) => (part.type === "text" ? part.text : ""))
           .join("\n") ??
         "";
       const approvedToolCalls = metadataStringList(
@@ -2656,6 +2657,9 @@ export function createAgentNativeChatRuntime(
           : [];
       return {
         message: prompt,
+        ...(latestUserMessage?.id
+          ? { agentKitMessageId: latestUserMessage.id }
+          : {}),
         displayMessage: prompt,
         history,
         ...(pendingApprovalHistory.length
@@ -2889,7 +2893,7 @@ export function createAgentNativeChatRuntime(
     };
   };
 
-  return {
+  const runtime: AgentChatRuntime<AgentChatRuntimeKnownEvent> = {
     ...nativeRuntime,
     readRunState,
     resume: async (input) => {
@@ -2925,6 +2929,16 @@ export function createAgentNativeChatRuntime(
       };
     },
   };
+  agentNativeChatRuntimes.add(runtime);
+  return runtime;
+}
+
+const agentNativeChatRuntimes = new WeakSet<object>();
+
+export function isAgentNativeChatRuntime(
+  runtime: AgentChatRuntime | undefined,
+): boolean {
+  return runtime !== undefined && agentNativeChatRuntimes.has(runtime);
 }
 
 const SERVER_RUN_STATUSES = [

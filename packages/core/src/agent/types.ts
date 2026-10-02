@@ -280,6 +280,8 @@ export interface AgentChatHarnessRequest {
 
 export interface AgentChatRequest {
   message: string;
+  /** AgentKit's submitted user message ID, used only to reconcile projections. */
+  agentKitMessageId?: string;
   actionScope?: AgentActionScope;
   queuedMessageId?: string;
   displayMessage?: string;
