@@ -1,6 +1,29 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import type { DbExec } from "../db/client.js";
+import { __resetSchemaSnapshotForTests } from "../db/ddl-guard.js";
+import {
+  ensureConnectTables,
+  isJtiRevoked,
+  recordMintedToken,
+} from "../mcp/connect-store.js";
+import { withMcpCredentialIssuance } from "../mcp/credential-issuance.js";
+import {
+  createOAuthCode,
+  createOAuthRefreshToken,
+  ensureOAuthTables,
+  getOAuthCode,
+  getOAuthRefreshToken,
+} from "../mcp/oauth-store.js";
+
+const issuanceDb = vi.hoisted(() => ({
+  exec: undefined as DbExec | undefined,
+}));
+vi.mock("../db/client.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../db/client.js")>();
+  return { ...actual, getDbExec: () => issuanceDb.exec ?? actual.getDbExec() };
+});
 
 vi.mock("../audit/store.js", () => ({
   ensureAuditTables: vi.fn(async () => undefined),
@@ -12,14 +35,15 @@ import {
   registerIdentityColumns,
 } from "./rekey.js";
 
-function dbExec(db: Awaited<ReturnType<typeof createTestPglite>>) {
+function dbExec(db: Awaited<ReturnType<typeof createTestPglite>>): DbExec {
   const wrap = (client: {
     query: (sql: string, args?: unknown[]) => Promise<any>;
-  }) => ({
-    async execute(query: { sql: string; args?: unknown[] }) {
+  }): DbExec => ({
+    async execute(query) {
+      const statement = typeof query === "string" ? { sql: query } : query;
       const result = await client.query(
-        postgresSql(query.sql),
-        query.args ?? [],
+        postgresSql(statement.sql),
+        statement.args ?? [],
       );
       return {
         rows: result.rows,
@@ -31,10 +55,7 @@ function dbExec(db: Awaited<ReturnType<typeof createTestPglite>>) {
     let index = 0;
     return sql.replace(/\?/g, () => `$${++index}`);
   };
-  const exec = wrap(db as any) as {
-    execute: (query: { sql: string; args?: unknown[] }) => Promise<any>;
-    transaction<T>(run: (tx: any) => Promise<T>): Promise<T>;
-  };
+  const exec = wrap(db);
   exec.transaction = (run) =>
     db.db.transaction((tx: any) => run(wrap(tx) as any));
   return exec;
@@ -44,12 +65,14 @@ describe("offboardMember", () => {
   let pglite: Awaited<ReturnType<typeof createTestPglite>> | undefined;
 
   afterEach(async () => {
+    issuanceDb.exec = undefined;
+    __resetSchemaSnapshotForTests();
     await pglite?.close();
     pglite = undefined;
     __resetAppIdentityColumnsForTests();
   });
 
-  it("locks the removed member on the transaction before sweeping any credentials", async () => {
+  it("locks the removed member before taking the credential schema snapshot or sweeping credentials", async () => {
     const queries: string[] = [];
     const tx = {
       execute: vi.fn(
@@ -107,6 +130,11 @@ describe("offboardMember", () => {
       /^(UPDATE|DELETE|INSERT)/.test(sql) ? [index] : [],
     );
     expect(lock).toBeGreaterThanOrEqual(0);
+    const schemaRead = queries.findIndex((sql) =>
+      sql.includes("information_schema.columns"),
+    );
+    expect(schemaRead).toBeGreaterThan(lock);
+    expect(queries[lock]).toMatch(/ORDER BY org_id, id FOR UPDATE/);
     expect(mutations.length).toBeGreaterThan(0);
     expect(mutations.every((index) => index > lock)).toBe(true);
     expect(
@@ -114,6 +142,151 @@ describe("offboardMember", () => {
     ).toBe(true);
     expect(db.execute).not.toHaveBeenCalled();
   });
+
+  it("sweeps first-time Connect and OAuth issuance committed before the member lock and keeps grants revoked after re-add", async () => {
+    pglite = await createTestPglite();
+    await pglite.exec(`
+      CREATE TABLE organizations (id TEXT PRIMARY KEY, identity_authority TEXT, identity_id TEXT);
+      CREATE TABLE org_members (
+        id TEXT PRIMARY KEY, org_id TEXT, email TEXT, role TEXT,
+        federation_removal_pending_at BIGINT
+      );
+      CREATE TABLE agent_audit_log (
+        id TEXT PRIMARY KEY, created_at BIGINT, action TEXT, caller TEXT,
+        actor_kind TEXT, actor_email TEXT, org_id TEXT, target_type TEXT,
+        target_id TEXT, status TEXT, summary TEXT, input TEXT,
+        owner_email TEXT, visibility TEXT
+      );
+      INSERT INTO organizations VALUES ('org-1', NULL, NULL);
+      INSERT INTO org_members VALUES
+        ('member-1', 'org-1', 'old@example.test', 'member', NULL),
+        ('member-2', 'org-1', 'new@example.test', 'member', NULL);
+    `);
+    const exec = dbExec(pglite);
+    issuanceDb.exec = exec;
+    expect(
+      await pglite
+        .prepare("SELECT to_regclass('mcp_connect_tokens') AS name")
+        .get(),
+    ).toEqual({ name: null });
+
+    let issued = false;
+    let oauthCode = "";
+    const snapshots: string[][] = [];
+    const tx: DbExec = {
+      async execute(query) {
+        const sql = typeof query === "string" ? query : query.sql;
+        if (sql.includes("FOR UPDATE")) {
+          expect(issued).toBe(false);
+          issued = true;
+          await ensureConnectTables();
+          await ensureOAuthTables();
+          await withMcpCredentialIssuance(
+            { orgId: "org-1", email: "old@example.test" },
+            async (issuer) => {
+              await recordMintedToken(
+                {
+                  jti: "example-first-connect-grant",
+                  ownerEmail: "old@example.test",
+                  orgId: "org-1",
+                },
+                issuer,
+              );
+              const grant = {
+                clientId: "example-oauth-client",
+                ownerEmail: "old@example.test",
+                orgId: "org-1",
+                scope: "mcp",
+                resource: "https://app.example.test/mcp",
+              };
+              oauthCode = (
+                await createOAuthCode(
+                  {
+                    ...grant,
+                    redirectUri: "https://client.example.test/callback",
+                    codeChallenge: "example-pkce-challenge",
+                    codeChallengeMethod: "S256",
+                  },
+                  issuer,
+                )
+              ).code;
+              await createOAuthRefreshToken(
+                { ...grant, refreshToken: "example-first-oauth-refresh" },
+                issuer,
+              );
+            },
+          );
+          expect(await isJtiRevoked("example-first-connect-grant")).toBe(false);
+        }
+        const result = await exec.execute(query);
+        if (sql.includes("information_schema.columns")) {
+          snapshots.push(result.rows.map((row) => String(row.table_name)));
+        }
+        return result;
+      },
+    };
+    // Stage a separate issuer commit before the fence. PGlite cannot run
+    // concurrent transaction sessions; the adapter test proves tx use.
+    await offboardMember(
+      {
+        execute: async () => {
+          throw new Error("offboarding escaped its transaction");
+        },
+        transaction: async (run) => run(tx),
+      },
+      "old@example.test",
+      { transferTo: "new@example.test", orgId: "org-1" },
+    );
+    expect(issued).toBe(true);
+    await pglite.exec(`
+      INSERT INTO org_members VALUES
+        ('readded-member', 'org-1', 'old@example.test', 'member', NULL);
+    `);
+    expect(await isJtiRevoked("example-first-connect-grant")).toBe(true);
+    expect(await getOAuthCode(oauthCode)).toBeNull();
+    expect(
+      await getOAuthRefreshToken("example-first-oauth-refresh"),
+    ).toBeNull();
+    expect(snapshots).toHaveLength(1);
+    expect(snapshots[0]).toContain("mcp_connect_tokens");
+    expect(snapshots[0]).toContain("mcp_device_codes");
+    expect(snapshots[0]).toContain("mcp_oauth_codes");
+    expect(snapshots[0]).toContain("mcp_oauth_refresh_tokens");
+    expect(
+      await pglite.prepare("SELECT owner_email FROM mcp_connect_tokens").all(),
+    ).toEqual([{ owner_email: "old@example.test" }]);
+    expect(
+      await pglite
+        .prepare(
+          "SELECT owner_email, issued_for_email, revoked_at FROM mcp_oauth_refresh_tokens",
+        )
+        .get(),
+    ).toEqual({
+      owner_email: "old@example.test",
+      issued_for_email: "old@example.test",
+      revoked_at: expect.any(Number),
+    });
+  }, 30_000);
+
+  it("refuses missing membership schema without transferring account-owned rows", async () => {
+    pglite = await createTestPglite();
+    await pglite.exec(`
+      CREATE TABLE "user" (id TEXT PRIMARY KEY, email TEXT UNIQUE);
+      CREATE TABLE workspace_connections (id TEXT PRIMARY KEY, owner_email TEXT);
+      INSERT INTO "user" VALUES ('old-id', 'old@example.test'), ('new-id', 'new@example.test');
+      INSERT INTO workspace_connections VALUES ('connection-1', 'old@example.test');
+    `);
+    await expect(
+      offboardMember(dbExec(pglite), "old@example.test", {
+        transferTo: "new@example.test",
+      }),
+    ).rejects.toThrow('relation "org_members" does not exist');
+    expect(
+      await pglite
+        .prepare("SELECT owner_email FROM workspace_connections")
+        .get(),
+    ).toEqual({ owner_email: "old@example.test" });
+  }, 30_000);
 
   it("transfers owned rows, removes access, revokes sessions, and audits", async () => {
     pglite = await createTestPglite();

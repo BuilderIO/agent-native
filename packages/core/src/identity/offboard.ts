@@ -106,6 +106,14 @@ export async function offboardMember(
           : "Transfer target does not exist",
       );
 
+    // An earlier issuer may also prepare its credential tables. Take the
+    // authoritative schema snapshot only after its membership fence releases.
+    await tx.execute({
+      sql: `SELECT id FROM org_members WHERE LOWER(email) = ?${orgId ? " AND org_id = ?" : ""}
+            ORDER BY org_id, id FOR UPDATE`,
+      args: orgId ? [oldEmail, orgId] : [oldEmail],
+    });
+
     const schema = await tx.execute({
       sql: `SELECT table_name, column_name FROM information_schema.columns
             WHERE table_schema = 'public'
@@ -122,16 +130,6 @@ export async function offboardMember(
       const columns = tableColumns.get(table) ?? new Set<string>();
       columns.add(column);
       tableColumns.set(table, columns);
-    }
-
-    if (tableColumns.has("org_members")) {
-      // Credential issuance holds these rows until its writes commit. Lock
-      // before every sweep so any earlier issuance is included in cleanup.
-      await tx.execute({
-        sql: `SELECT id FROM org_members WHERE LOWER(email) = ?${orgId ? " AND org_id = ?" : ""}
-              ORDER BY org_id, id FOR UPDATE`,
-        args: orgId ? [oldEmail, orgId] : [oldEmail],
-      });
     }
 
     // A member removal scoped to one organization must not touch
