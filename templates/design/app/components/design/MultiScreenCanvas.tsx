@@ -762,6 +762,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     },
     [],
   );
+  const finishTrackedBoardCrossScreenDrop = (transactionId?: string) => {
+    if (
+      !transactionId ||
+      !boardCrossScreenDropTransactionSeqRef.current.has(transactionId)
+    ) {
+      return;
+    }
+    finishBoardCrossScreenDrop({
+      transactionId,
+      preserveTransaction: true,
+    });
+  };
   useEffect(() => {
     const transactionId = boardRuntimeStructureInsertRequest?.transactionId;
     if (!transactionId || !boardCrossScreenDropPendingRef.current) return;
@@ -3972,6 +3984,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             {
               type: "agent-native:cross-screen-modifier-snapshot-probe",
               requestId,
+              snapshotId: payload.sourceDeleteRequestId,
             },
             "*",
           );
@@ -10792,6 +10805,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                       !transactionId ||
                       expectedTransactionId !== transactionId
                     ) {
+                      if (
+                        reason !== "board-drop-timeout" ||
+                        !rollbackScheduled
+                      ) {
+                        finishTrackedBoardCrossScreenDrop(transactionId);
+                      }
                       return;
                     }
                     if (reason === "board-drop-timeout") {
@@ -10813,6 +10832,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                       expectedTransactionId !== details.transactionId
                     ) {
                       handleBoardRuntimeStructureInsertApplied(details);
+                      finishTrackedBoardCrossScreenDrop(details.transactionId);
                       return;
                     }
                     if (details.applied !== false) {
@@ -10833,6 +10853,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                       expectedTransactionId !== details.transactionId
                     ) {
                       handleBoardRuntimeStructureRollbackResult(details);
+                      finishTrackedBoardCrossScreenDrop(details.transactionId);
                       return;
                     }
                     if (details.applied) setBoardRuntimeSurfaceActive(null);

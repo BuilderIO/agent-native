@@ -622,30 +622,97 @@ it(
       await page.mouse.up();
       await page.keyboard.up("s");
 
-      const releaseSnapshot = await page.evaluate(() => {
+      await page.waitForFunction(() =>
+        (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).some(
+          (message) =>
+            message.type === "agent-native:cross-screen-drag" &&
+            message.phase === "end",
+        ),
+      );
+      const firstSnapshotId = await page.evaluate(
+        () =>
+          (
+            (window as any).__bridgeMessages as Array<Record<string, unknown>>
+          ).find(
+            (message) =>
+              message.type === "agent-native:cross-screen-drag" &&
+              message.phase === "end",
+          )?.sourceDeleteRequestId,
+      );
+      expect(firstSnapshotId).toEqual(expect.any(String));
+
+      await page.mouse.click(160, 140);
+      await page.mouse.move(160, 140);
+      await page.mouse.down();
+      await page.mouse.move(200, 180, { steps: 4 });
+      await page.waitForFunction(
+        () =>
+          (
+            (window as any).__bridgeMessages as Array<Record<string, unknown>>
+          ).filter(
+            (message) =>
+              message.type === "agent-native:cross-screen-drag" &&
+              message.phase === "start",
+          ).length >= 2,
+      );
+      await page.mouse.up();
+      await page.waitForFunction(
+        () =>
+          (
+            (window as any).__bridgeMessages as Array<Record<string, unknown>>
+          ).filter(
+            (message) =>
+              message.type === "agent-native:cross-screen-drag" &&
+              message.phase === "end",
+          ).length >= 2,
+      );
+      const snapshotIds = await page.evaluate(() =>
+        ((window as any).__bridgeMessages as Array<Record<string, unknown>>)
+          .filter(
+            (message) =>
+              message.type === "agent-native:cross-screen-drag" &&
+              message.phase === "end",
+          )
+          .map((message) => message.sourceDeleteRequestId),
+      );
+      expect(snapshotIds).toHaveLength(2);
+      expect(snapshotIds[0]).toBe(firstSnapshotId);
+
+      const releaseSnapshots = await page.evaluate((ids) => {
         const messages = (window as any).__bridgeMessages as Array<
           Record<string, unknown>
         >;
         messages.length = 0;
-        window.dispatchEvent(
-          new MessageEvent("message", {
-            data: {
-              type: "agent-native:cross-screen-modifier-snapshot-probe",
-              requestId: "ended-drag",
-            },
-            source: window,
-          }),
+        ids.forEach((snapshotId, index) =>
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              data: {
+                type: "agent-native:cross-screen-modifier-snapshot-probe",
+                requestId: `ended-drag-${index}`,
+                snapshotId,
+              },
+              source: window,
+            }),
+          ),
         );
-        return messages.find(
+        return messages.filter(
           (message) =>
             message.type === "agent-native:cross-screen-modifier-snapshot",
         );
-      });
-      expect(releaseSnapshot).toMatchObject({
-        requestId: "ended-drag",
+      }, snapshotIds);
+      expect(releaseSnapshots).toHaveLength(2);
+      expect(releaseSnapshots[0]).toMatchObject({
+        requestId: "ended-drag-0",
         ignoreAutoLayout: true,
       });
-      expect(releaseSnapshot?.changedAt).toEqual(expect.any(Number));
+      expect(releaseSnapshots[1]).toMatchObject({
+        requestId: "ended-drag-1",
+        ignoreAutoLayout: false,
+      });
+      expect(releaseSnapshots[0].changedAt).toEqual(expect.any(Number));
+      expect(releaseSnapshots[1].changedAt).toEqual(expect.any(Number));
     } finally {
       await browser.close();
     }

@@ -6614,10 +6614,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var bridgeSpaceKeyPressed = false;
   var bridgeIgnoreAutoLayoutKeyPressed = false;
   var bridgeIgnoreAutoLayoutChangedAt: number | undefined;
-  var endedCrossScreenModifierSnapshot: {
-    ignoreAutoLayout: boolean;
-    changedAt?: number;
-  } | null = null;
+  var endedCrossScreenModifierSnapshots = new Map<
+    string,
+    {
+      ignoreAutoLayout: boolean;
+      changedAt?: number;
+      timeoutId: ReturnType<typeof setTimeout>;
+    }
+  >();
   var hostIgnoreAutoLayoutAtPointerDown = false;
   var bridgeSpaceKeyConsumedByDrag = false;
 
@@ -16623,7 +16627,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (phase === "start") {
-      endedCrossScreenModifierSnapshot = null;
       activeCrossScreenDeleteRequestId = `cross-screen-source-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
       activeCrossScreenStyleSnapshot =
         options?.styleSnapshot !== undefined
@@ -16663,6 +16666,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             y: ev.clientY - rect.top,
           }
         : undefined);
+    if (phase === "end" && activeCrossScreenDeleteRequestId) {
+      var endedSnapshotId = activeCrossScreenDeleteRequestId;
+      var endedSnapshot = {
+        ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
+        changedAt: bridgeIgnoreAutoLayoutChangedAt,
+        timeoutId: setTimeout(function () {
+          endedCrossScreenModifierSnapshots.delete(endedSnapshotId);
+        }, 1000),
+      };
+      endedCrossScreenModifierSnapshots.set(endedSnapshotId, endedSnapshot);
+    }
     (window.parent as Window).postMessage(
       {
         type: "agent-native:cross-screen-drag",
@@ -16701,10 +16715,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       "*",
     );
     if (phase === "end") {
-      endedCrossScreenModifierSnapshot = {
-        ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
-        changedAt: bridgeIgnoreAutoLayoutChangedAt,
-      };
       // A non-Apple S keyup can land in the overview host after this source
       // iframe loses focus. End the source gesture's modifier scope here so a
       // missed iframe keyup cannot affect the next drag, but preserve its
@@ -25954,11 +25964,20 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!e.data) return;
     if (e.data.type === "agent-native:cross-screen-modifier-snapshot-probe") {
       if (typeof e.data.requestId !== "string") return;
-      var snapshot = endedCrossScreenModifierSnapshot ?? {
+      var snapshotId =
+        typeof e.data.snapshotId === "string" ? e.data.snapshotId : undefined;
+      var endedSnapshot = snapshotId
+        ? endedCrossScreenModifierSnapshots.get(snapshotId)
+        : undefined;
+      if (snapshotId && !endedSnapshot) return;
+      var snapshot = endedSnapshot ?? {
         ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
         changedAt: bridgeIgnoreAutoLayoutChangedAt,
       };
-      endedCrossScreenModifierSnapshot = null;
+      if (snapshotId && endedSnapshot) {
+        clearTimeout(endedSnapshot.timeoutId);
+        endedCrossScreenModifierSnapshots.delete(snapshotId);
+      }
       (window.parent as Window).postMessage(
         {
           type: "agent-native:cross-screen-modifier-snapshot",

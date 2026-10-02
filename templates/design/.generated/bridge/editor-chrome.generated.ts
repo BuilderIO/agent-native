@@ -5625,7 +5625,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var bridgeSpaceKeyPressed = false;
     var bridgeIgnoreAutoLayoutKeyPressed = false;
     var bridgeIgnoreAutoLayoutChangedAt;
-    var endedCrossScreenModifierSnapshot = null;
+    var endedCrossScreenModifierSnapshots = /* @__PURE__ */ new Map();
     var hostIgnoreAutoLayoutAtPointerDown = false;
     var bridgeSpaceKeyConsumedByDrag = false;
     function resetBridgeDragModifierStateOnCancel() {
@@ -13185,7 +13185,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         return;
       }
       if (phase === "start") {
-        endedCrossScreenModifierSnapshot = null;
         activeCrossScreenDeleteRequestId = \`cross-screen-source-\${Date.now().toString(36)}-\${Math.random().toString(36).slice(2)}\`;
         activeCrossScreenStyleSnapshot = options?.styleSnapshot !== void 0 ? options.styleSnapshot : collectPortableStyleSnapshot(el ?? null);
         activeCrossScreenSourceHtml = el?.outerHTML;
@@ -13213,6 +13212,17 @@ export const editorChromeBridgeScript: string = `"use strict";
         x: ev.clientX - rect.left,
         y: ev.clientY - rect.top
       } : void 0);
+      if (phase === "end" && activeCrossScreenDeleteRequestId) {
+        var endedSnapshotId = activeCrossScreenDeleteRequestId;
+        var endedSnapshot = {
+          ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
+          changedAt: bridgeIgnoreAutoLayoutChangedAt,
+          timeoutId: setTimeout(function() {
+            endedCrossScreenModifierSnapshots.delete(endedSnapshotId);
+          }, 1e3)
+        };
+        endedCrossScreenModifierSnapshots.set(endedSnapshotId, endedSnapshot);
+      }
       window.parent.postMessage(
         {
           type: "agent-native:cross-screen-drag",
@@ -13246,10 +13256,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         "*"
       );
       if (phase === "end") {
-        endedCrossScreenModifierSnapshot = {
-          ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
-          changedAt: bridgeIgnoreAutoLayoutChangedAt
-        };
         bridgeIgnoreAutoLayoutKeyPressed = false;
         bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(ev) ?? Date.now();
         activeCrossScreenStyleSnapshot = void 0;
@@ -20380,11 +20386,17 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!e.data) return;
       if (e.data.type === "agent-native:cross-screen-modifier-snapshot-probe") {
         if (typeof e.data.requestId !== "string") return;
-        var snapshot = endedCrossScreenModifierSnapshot ?? {
+        var snapshotId = typeof e.data.snapshotId === "string" ? e.data.snapshotId : void 0;
+        var endedSnapshot = snapshotId ? endedCrossScreenModifierSnapshots.get(snapshotId) : void 0;
+        if (snapshotId && !endedSnapshot) return;
+        var snapshot = endedSnapshot ?? {
           ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
           changedAt: bridgeIgnoreAutoLayoutChangedAt
         };
-        endedCrossScreenModifierSnapshot = null;
+        if (snapshotId && endedSnapshot) {
+          clearTimeout(endedSnapshot.timeoutId);
+          endedCrossScreenModifierSnapshots.delete(snapshotId);
+        }
         window.parent.postMessage(
           {
             type: "agent-native:cross-screen-modifier-snapshot",

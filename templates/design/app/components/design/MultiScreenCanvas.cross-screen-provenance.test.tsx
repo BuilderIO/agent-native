@@ -434,12 +434,12 @@ describe("cross-screen drag identity provenance", () => {
     );
   });
 
-  it("keeps the first pending board drop mounted when a second board release overlaps", async () => {
+  it("settles overlapping board drops by transaction without leaking pending state", async () => {
     const runtimeTransactionRef = { current: null as string | null };
+    let dropIndex = 0;
     const onCrossScreenElementDrop = vi.fn(() => {
-      if (!runtimeTransactionRef.current) {
-        runtimeTransactionRef.current = "first-transaction";
-      }
+      dropIndex += 1;
+      runtimeTransactionRef.current = `${dropIndex === 1 ? "first" : "second"}-transaction`;
     });
     const onBoardRuntimeStructureInsertApplied = vi.fn();
     await act(async () => {
@@ -461,7 +461,7 @@ describe("cross-screen drag identity provenance", () => {
             />
           )}
           boardFileId="board"
-          boardFileContent="<!doctype html><html><body></body></html>"
+          boardFileContent=""
           boardFrameGeometry={{ x: 0, y: 0, width: 1200, height: 600 }}
           boardEditMode
           runtimeStructurePendingTransactionRef={runtimeTransactionRef}
@@ -617,7 +617,7 @@ describe("cross-screen drag identity provenance", () => {
       ),
     ).toBe(boardIframe);
     expect(onCrossScreenElementDrop).toHaveBeenCalledTimes(2);
-    expect(runtimeTransactionRef.current).toBe("first-transaction");
+    expect(runtimeTransactionRef.current).toBe("second-transaction");
 
     await act(async () => {
       window.dispatchEvent(
@@ -627,6 +627,7 @@ describe("cross-screen drag identity provenance", () => {
             requestId: "first-request",
             transactionId: "first-transaction",
             selector: ".first-node",
+            applied: false,
           },
           origin: window.location.origin,
           source: boardWindow as unknown as Window,
@@ -635,8 +636,39 @@ describe("cross-screen drag identity provenance", () => {
       await Promise.resolve();
     });
     expect(onBoardRuntimeStructureInsertApplied).toHaveBeenCalledWith(
-      expect.objectContaining({ transactionId: "first-transaction" }),
+      expect.objectContaining({
+        transactionId: "first-transaction",
+        applied: false,
+      }),
     );
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "runtime-structure-insert-applied",
+            requestId: "second-request",
+            transactionId: "second-transaction",
+            selector: ".second-node",
+            applied: false,
+          },
+          origin: window.location.origin,
+          source: boardWindow as unknown as Window,
+        }),
+      );
+      await Promise.resolve();
+    });
+    expect(onBoardRuntimeStructureInsertApplied).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transactionId: "second-transaction",
+        applied: false,
+      }),
+    );
+    expect(
+      container.querySelector(
+        "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+      ),
+    ).toBeNull();
   });
 
   it("finalizes a release the source frame never saw and ends its gesture", async () => {
