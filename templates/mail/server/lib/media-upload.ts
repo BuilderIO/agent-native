@@ -112,7 +112,7 @@ export async function storeMediaUpload(input: {
 
   if (process.env.NODE_ENV === "production") {
     throw new MediaStorageSetupError(
-      "File storage is not configured. Connect Builder.io (free tier available) or another upload provider before attaching files in hosted environments.",
+      "File storage is not configured. Use Builder.io (free tier available) or another upload provider before attaching files in hosted environments.",
     );
   }
 

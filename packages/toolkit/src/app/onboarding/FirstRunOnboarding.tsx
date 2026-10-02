@@ -546,11 +546,7 @@ export function FirstRunOnboarding({
       handleFinish(null);
       return;
     }
-    setBuilderConnectionMode(
-      provisionAccount && canActivateBuilderFreeCredits
-        ? "provision"
-        : "existing",
-    );
+    setBuilderConnectionMode(provisionAccount ? "provision" : "existing");
     setScreen("connecting");
     connectFlow.start({
       trackingSource: "first_run_onboarding",
@@ -731,10 +727,10 @@ export function FirstRunOnboarding({
                 </div>
                 <div className="flex flex-col gap-1 rounded-[10px] bg-emerald-50 px-4 py-3 dark:bg-emerald-950/30">
                   <p className="text-[13px] font-semibold text-foreground">
-                    Included free with a Builder.io account
+                    {t("agentChat.onboarding.builderIncludedFreeWithAccount")}
                   </p>
                   <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                    60 monthly Agent Credits
+                    {t("agentChat.onboarding.builderMonthlyCredits")}
                   </p>
                 </div>
                 <div className="flex flex-col gap-1">

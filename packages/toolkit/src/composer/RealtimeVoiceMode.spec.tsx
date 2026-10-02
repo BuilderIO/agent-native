@@ -19,8 +19,8 @@ const copy: RealtimeVoiceModeCopy = {
     "Voice mode keeps listening while the agent navigates and takes actions.",
   setupTitle: "Set up voice mode",
   setupDescription:
-    "Connect Builder.io to use managed voice with free credits, or add your own keys.",
-  connectBuilder: "Connect Builder.io",
+    "Use Builder.io for managed voice with free credits, or add your own keys.",
+  connectBuilder: "Use Builder.io",
   useOpenAiKey: "Add your own keys",
   startWithOpenAiKey: "Start with OpenAI key",
   startVoiceMode: "Start voice chat",
@@ -333,11 +333,11 @@ describe("RealtimeVoiceMode", () => {
       document.querySelectorAll<HTMLButtonElement>("button"),
     );
     expect(
-      buttons.find((button) => button.textContent === "Connect Builder.io"),
+      buttons.find((button) => button.textContent === "Use Builder.io"),
     ).toBeDefined();
     act(() =>
       buttons
-        .find((button) => button.textContent === "Connect Builder.io")
+        .find((button) => button.textContent === "Use Builder.io")
         ?.click(),
     );
     // No consent popover is wired here, so the click signs in instead of

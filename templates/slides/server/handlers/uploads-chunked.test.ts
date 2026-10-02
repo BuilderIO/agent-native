@@ -181,7 +181,7 @@ describe("chunked reference uploads", () => {
 
     await expect(uploadChunkedChunk({} as never)).resolves.toEqual({
       error:
-        "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
+        "No object storage is connected. Use Builder.io's managed storage (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
       errorCode: "attachment_storage_unavailable",
       details: {
         attachmentStatus: "storageUnavailable",

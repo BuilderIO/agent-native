@@ -377,9 +377,9 @@ const messages = {
       "اسمح لوكيلنا السحابي بإجراء التغييرات نيابةً عنك. ستحصل على رابط للمعاينة والنشر.",
     codeChangeTitle: "وهذا يتطلب تغيير التعليمات البرمجية",
     codeChangeBadge: "تغيير الكود",
-    connectBuilderTitle: "اتصال Builder.io",
+    connectBuilderTitle: "استخدم Builder.io",
     connectBuilderDescription:
-      "قم بتوصيل Builder (free tier available) لتمكين تغييرات التعليمات البرمجية المستندة إلى السحابة من هذا التطبيق.",
+      "استخدم Builder.io (تتوفر طبقة مجانية) لتمكين تغييرات التعليمات البرمجية المستندة إلى السحابة من هذا التطبيق.",
     setupRequired: "الإعداد مطلوب",
     branchCreated: "تم إنشاء الفرع",
     close: "إغلاق",
@@ -636,7 +636,7 @@ const messages = {
     back: "رجوع",
     agentEngineRequired: "مطلوب محرك الوكيل",
     agentEngineDescription:
-      "Connect Builder.io (free tier available) or an LLM key before {{platform}} can answer.",
+      "استخدم Builder.io (تتوفر طبقة مجانية) أو مفتاح LLM قبل أن يتمكن {{platform}} من الإجابة.",
     openLlm: "افتح LLM",
     setup: "Setup",
     shareDocumentsWith: "مشاركة المستندات مع",

@@ -104,7 +104,7 @@ export async function requireAgentChatAiSetup(): Promise<void> {
 
   throw createError({
     statusCode: 403,
-    statusMessage: "Connect Builder AI or a provider API key before chatting.",
+    statusMessage: "Use Builder.io or a provider API key before chatting.",
     data: { code: AGENT_CHAT_AI_SETUP_REQUIRED_CODE },
   });
 }

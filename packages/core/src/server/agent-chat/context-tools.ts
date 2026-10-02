@@ -112,9 +112,9 @@ If the user says yes, call \`manage-jobs\` (action: "create") with the original 
 
 Do NOT add this offer for one-shot work: lookups (find Alice, what's the schema, who reported X), single drafts/replies, navigation requests, or any task whose value is in the moment. Skip it when the prompt is already explicitly recurring (the user said "every morning…" — you'd be asking what they already told you). One short sentence at most; do not turn it into a list of cadence options.`,
 
-  builder: `### Connecting Builder.io
+  builder: `### Using Builder.io
 
-When the user asks to connect Builder.io or you hit a "Builder not configured" error, call the \`connect-builder\` tool. It renders a Connect/code-change card inline — do NOT write out multi-step setup instructions yourself. Inspect the returned \`builderEnabled\` flag: \`true\` means Builder Cloud Agents can take the code-change handoff, while \`false\` means this requires a code change and the user should edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way they like. If Builder Cloud Agents are not available for this workspace, never send the user to Builder org settings or beta settings.`,
+When the user asks to use Builder.io or you hit a "Builder not configured" error, call the \`connect-builder\` tool. It renders a Builder.io setup/code-change card inline — do NOT write out multi-step setup instructions yourself. Inspect the returned \`builderEnabled\` flag: \`true\` means Builder Cloud Agents can take the code-change handoff, while \`false\` means this requires a code change and the user should edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way they like. If Builder Cloud Agents are not available for this workspace, never send the user to Builder org settings or beta settings.`,
 
   browser: `### Browser Automation
 

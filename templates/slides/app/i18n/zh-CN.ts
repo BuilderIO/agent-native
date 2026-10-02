@@ -934,8 +934,8 @@ const messages = {
           "阅读提供的公司网站并创建公司介绍演示文稿。访问失败时请报告错误，不要编造事实。",
       },
     },
-    connectBuilderIo: "连接 Builder.io",
-    connectingBuilder: "正在连接 Builder.io…",
+    connectBuilderIo: "使用 Builder.io",
+    connectingBuilder: "正在设置 Builder.io…",
     recent: "最近",
     starters: {
       pitch: {

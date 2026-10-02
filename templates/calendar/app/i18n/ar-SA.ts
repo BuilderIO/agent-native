@@ -247,7 +247,7 @@ export default {
     eventRulesAutomationLink: "لإجراءات أخرى، أنشئ أتمتة.",
     eventRulesConnectJev: "اربط Jev لتشغيل قواعد الدعوات",
     eventRulesFreeBuilderOrApiKey: "مجانًا عبر Builder.io، أو أضف مفتاح API.",
-    eventRulesConnectBuilder: "ربط Builder.io",
+    eventRulesConnectBuilder: "استخدم Builder.io",
     eventRulesAddJevApiKey: "إضافة مفتاح API",
     eventRulesTabRules: "القواعد",
     eventRulesHelpLabel: "حول تعليمات قواعد الدعوات",

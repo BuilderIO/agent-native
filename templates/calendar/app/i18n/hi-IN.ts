@@ -230,7 +230,7 @@ export default {
     eventRulesAutomationLink: "अन्य कार्रवाइयों के लिए ऑटोमेशन बनाएँ।",
     eventRulesConnectJev: "निमंत्रण नियम चलाने के लिए Jev कनेक्ट करें",
     eventRulesFreeBuilderOrApiKey: "Builder.io के साथ मुफ़्त, या API कुंजी जोड़ें।",
-    eventRulesConnectBuilder: "Builder.io कनेक्ट करें",
+    eventRulesConnectBuilder: "Builder.io इस्तेमाल करें",
     eventRulesAddJevApiKey: "API कुंजी जोड़ें",
     eventRulesTabRules: "नियम",
     eventRulesHelpLabel: "निमंत्रण नियम प्रॉम्प्ट के बारे में",

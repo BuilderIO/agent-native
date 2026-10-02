@@ -125,9 +125,9 @@ const FEEDBACK_PLACEHOLDER = "Tell us what's on your mind...";
 const FEEDBACK_SUBMIT_TEXT = "Send feedback";
 const FEEDBACK_SUCCESS_MESSAGE = "Thanks for the feedback!";
 const STORAGE_SETUP_REQUIRED_MESSAGE =
-  "Connect storage to finish saving this clip: Builder.io (free tier storage + AI) or S3-compatible storage.";
+  "Use Builder.io storage (free tier storage + AI) or S3-compatible storage to finish saving this clip.";
 const STORAGE_SETUP_FAILURE_RE =
-  /video storage is not connected|no video storage configured|file upload provider|storage provider|connect builder|s3-compatible/i;
+  /video storage is not connected|no video storage configured|file upload provider|storage provider|(?:connect|use) builder|s3-compatible/i;
 const feedbackTarget = parseFeedbackTarget(FEEDBACK_URL);
 const feedbackSchemaCache = new Map<string, Promise<FeedbackFormSchema>>();
 
@@ -1280,7 +1280,7 @@ async function init(): Promise<void> {
       setStorageHelp(storageSetupFailure);
       setStatus(
         storageSetupFailure
-          ? "Connect storage in Clips first: Builder.io (free tier storage + AI) or S3-compatible storage."
+          ? "Use Builder.io storage (free tier storage + AI) or S3-compatible storage in Clips first."
           : message,
         "error",
       );
@@ -1300,7 +1300,7 @@ async function init(): Promise<void> {
       setStorageHelp(storageSetupFailure);
       setStatus(
         storageSetupFailure
-          ? "Connect storage in Clips first: Builder.io (free tier storage + AI) or S3-compatible storage."
+          ? "Use Builder.io storage (free tier storage + AI) or S3-compatible storage in Clips first."
           : message,
         "error",
       );

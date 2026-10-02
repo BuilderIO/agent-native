@@ -1560,7 +1560,7 @@ function looksLikeSingleAppUiWordingCorrection(
 }
 
 const NON_DURABLE_FAILURE_TERMS =
-  /\b(credits[- ]?limit|daily ai credits|current plan|missing[_ -]?credentials|no llm provider|provider key|connect builder\.io|email[_ -]?verification[_ -]?required|verify their email|gateway)\b/i;
+  /\b(credits[- ]?limit|daily ai credits|current plan|missing[_ -]?credentials|no llm provider|provider key|(?:connect|use) builder\.io|email[_ -]?verification[_ -]?required|verify their email|gateway)\b/i;
 
 function isDurableFailureEvidence(entry: DreamEvidence): boolean {
   if (entry.kind === "eval-failure") return false;

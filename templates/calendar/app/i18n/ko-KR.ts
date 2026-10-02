@@ -234,7 +234,7 @@ export default {
     eventRulesConnectJev: "초대 규칙을 실행하려면 Jev를 연결하세요",
     eventRulesFreeBuilderOrApiKey:
       "Builder.io로 무료 이용하거나 API 키를 추가하세요.",
-    eventRulesConnectBuilder: "Builder.io 연결",
+    eventRulesConnectBuilder: "Builder.io 사용",
     eventRulesAddJevApiKey: "API 키 추가",
     eventRulesTabRules: "규칙",
     eventRulesHelpLabel: "초대 규칙 프롬프트 안내",

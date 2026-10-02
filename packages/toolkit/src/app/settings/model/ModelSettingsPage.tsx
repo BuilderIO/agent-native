@@ -608,7 +608,9 @@ function BuilderRow({
             disabled={flow.connecting}
           >
             {flow.connecting ? <Spinner /> : null}
-            {flow.connecting ? t(`${K}connecting`) : t(`${K}connect`)}
+            {flow.connecting
+              ? t("agentChat.composer.connectingBuilder")
+              : t("agentChat.setup.connectBuilder")}
           </Button>
         </DeferredBuilderConnectPopover>
       );

@@ -126,6 +126,7 @@ function batchProvider(provider: Provider | null): Provider {
 export function VoiceTranscriptionSection({
   compact = false,
 }: { compact?: boolean } = {}) {
+  const t = useT();
   const [transcriptionMode, setTranscriptionMode] =
     useState<TranscriptionMode | null>(null);
   const [provider, setProvider] = useState<Provider>(DEFAULT_BATCH_PROVIDER);
@@ -445,7 +446,7 @@ export function VoiceTranscriptionSection({
               googleRealtimeReady
                 ? "BYOK only for v1. Streams live partials and finals through Google Speech-to-Text."
                 : googleRealtimeConfigured
-                  ? "Google credentials are set. Connect Builder completely (free tier available) to mint the managed realtime session."
+                  ? t("agentChat.voiceMode.googleRealtimeDescription")
                   : "BYOK only for v1. Configure Google service account before selecting this source."
             }
             rightSlot={
@@ -463,7 +464,7 @@ export function VoiceTranscriptionSection({
                     type="button"
                     className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/40 hover:text-foreground"
                   >
-                    Connect Builder.io
+                    {t("agentChat.setup.connectBuilder")}
                   </button>
                 </DeferredBuilderConnectPopover>
               ) : (
@@ -552,7 +553,7 @@ export function VoiceTranscriptionSection({
               title="Google Speech-to-Text service account"
               subtitle={
                 googleRealtimeConfigured
-                  ? "Service-account JSON is set. Connect Builder (free tier available) to mint the managed realtime WebSocket session."
+                  ? t("agentChat.voiceMode.serviceAccountRealtimeDescription")
                   : "Service-account JSON for the dedicated realtime WebSocket to Google StreamingRecognize."
               }
               rightSlot={
@@ -571,7 +572,7 @@ export function VoiceTranscriptionSection({
                       type="button"
                       className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
                     >
-                      Connect Builder.io
+                      {t("agentChat.setup.connectBuilder")}
                     </button>
                   </DeferredBuilderConnectPopover>
                 ) : (
@@ -605,11 +606,11 @@ export function VoiceTranscriptionSection({
               }
               onSelect={() => chooseBatchProvider("builder-gemini")}
               disabled={!builderStatus?.configured}
-              title="Builder.io Connect"
+              title={t("agentChat.setup.connectBuilder")}
               subtitle={
                 builderStatus?.configured
                   ? "Use Builder-hosted Gemini Flash-Lite for batch transcription and Luna for text cleanup."
-                  : "One-click connect for Gemini Flash-Lite transcription and Luna text cleanup. No Google key needed."
+                  : t("agentChat.voiceMode.builderGeminiDescription")
               }
               rightSlot={
                 builderStatus?.configured ? (
@@ -626,7 +627,7 @@ export function VoiceTranscriptionSection({
                       type="button"
                       className="inline-flex items-center gap-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent/40"
                     >
-                      Connect Builder.io
+                      {t("agentChat.setup.connectBuilder")}
                     </button>
                   </DeferredBuilderConnectPopover>
                 )

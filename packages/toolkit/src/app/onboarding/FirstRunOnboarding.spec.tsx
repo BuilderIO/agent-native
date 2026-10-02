@@ -990,7 +990,7 @@ describe("FirstRunOnboarding", () => {
       provisionAccount: false,
     });
     expect(document.body.textContent).toContain(
-      "Connecting Builder.io free credits",
+      "Setting up Builder.io credits",
     );
   });
 

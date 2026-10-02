@@ -174,9 +174,9 @@ export default {
     notificationsSoundGroup: "الصوت",
     replayStorage: "تخزين إعادة عرض الجلسات",
     replayStorageDescription:
-      "تحتاج تسجيلات إعادة عرض الجلسات إلى مزوّد مُهيّأ لرفع الملفات. اربط Builder.io للحصول على تخزين كائنات بالباقة المجانية، أو استخدم حاوية متوافقة مع S3 خاصة بك.",
+      "تحتاج تسجيلات إعادة عرض الجلسات إلى مزوّد مُهيّأ لرفع الملفات. استخدم Builder.io للحصول على تخزين كائنات بالباقة المجانية، أو استخدم حاوية متوافقة مع S3 خاصة بك.",
     connected: "متصل",
-    connectBuilder: "ربط Builder.io",
+    connectBuilder: "استخدم Builder.io",
     checkingBuilder: "جارٍ التحقق من Builder.io...",
     builderConnected: "تم ربط Builder.io",
     builderConnectedToast: "تم ربط Builder.io",
@@ -1443,7 +1443,7 @@ export default {
     time: "الوقت",
     storageSetupTitle: "ربط مساحة تخزين التسجيلات",
     storageSetupDescription:
-      "تحتاج تسجيلات إعادة عرض الجلسات إلى مساحة تخزين قبل أن يتسنى حفظ الأجزاء. اربط Builder.io للحصول على تخزين بالباقة المجانية، أو هيّئ حاوية متوافقة مع S3 خاصة بك.",
+      "تحتاج تسجيلات إعادة عرض الجلسات إلى مساحة تخزين قبل أن يتسنى حفظ الأجزاء. استخدم Builder.io للحصول على تخزين بالباقة المجانية، أو هيّئ حاوية متوافقة مع S3 خاصة بك.",
     storageConnected: "تم ربط مساحة التخزين",
     connectBuilder: "استخدام Builder.io",
     configureS3: "تهيئة تخزين S3",

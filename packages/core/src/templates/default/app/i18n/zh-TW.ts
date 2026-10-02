@@ -346,9 +346,9 @@ const messages = {
       "讓我們的雲端代理為您進行更改。您將獲得預覽和部署的連結。",
     codeChangeTitle: "這需要更改程式碼",
     codeChangeBadge: "程式碼變更",
-    connectBuilderTitle: "連線 Builder.io",
+    connectBuilderTitle: "使用 Builder.io",
     connectBuilderDescription:
-      "Connect Builder（提供免費方案）可從此應用程式啟用基於雲端的程式碼更改。",
+      "使用 Builder.io（提供免費方案）即可從此應用程式啟用雲端程式碼變更。",
     setupRequired: "需要設定",
     branchCreated: "已建立分支",
     close: "關閉",
@@ -586,7 +586,7 @@ const messages = {
     back: "返回",
     agentEngineRequired: "需要代理引擎",
     agentEngineDescription:
-      "請先連線 Builder.io 或 LLM 金鑰，{{platform}} 才能回覆。",
+      "請先使用 Builder.io（提供免費方案）或 LLM 金鑰，{{platform}} 才能回覆。",
     openLlm: "開啟 LLM",
     setup: "Setup",
     shareDocumentsWith: "與以下人員共用檔案",

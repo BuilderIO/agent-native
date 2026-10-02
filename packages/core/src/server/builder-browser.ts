@@ -2131,7 +2131,7 @@ async function resolveBuilderApiAuthorization(
   });
   if (!authorization) {
     throw new ActionContractError(
-      "Builder.io is not connected. Connect Builder.io in Settings.",
+      "Builder.io is not connected. Sign in to Builder.io in Settings to continue.",
       { errorCode: "builder_not_connected", statusCode: 400 },
     );
   }

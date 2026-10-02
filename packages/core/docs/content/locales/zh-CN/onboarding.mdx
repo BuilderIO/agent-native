@@ -17,7 +17,7 @@ description: "首次运行配置的设置清单 - API 密钥、OAuth 和提供�
   <div class="diagram-card">
     <span class="diagram-pill warn">required</span><strong>连接 AI 引擎</strong
     ><small class="diagram-muted"
-      >Connect Builder (one click) or paste an LLM key</small
+      >使用 Builder.io (one click) or paste an LLM key</small
     >
   </div>
   <div class="diagram-card">
@@ -78,9 +78,7 @@ description: "首次运行配置的设置清单 - API 密钥、OAuth 和提供�
 要求。首先显示主要路径；辅助路径保持紧凑
 当一个步骤有多个等效提供者时，在选择器或披露后面。
 
-- **连接服务（一键点击）** — 例如*连接 Builder* 进行托管
-  人工智能网关。单击按钮，打开一个窗口，您登录，窗口关闭，
-  并且该步骤被标记为完成。没有要复制的密钥。
+- **设置服务（一键）** — 例如，使用 _Builder.io_ 提供托管 AI 网关。直接在应用中创建或激活账户；已有账户时选择登录。无需复制密钥。
 - **粘贴 API 密钥或填写表格** - 例如选择 LLM 提供商、数据库，
   OAuth 提供商或电子邮件提供商，粘贴值，然后单击 **保存**。
   秘密字段使用密码输入，因此该值不会显示在屏幕上。已保存
@@ -240,7 +238,7 @@ isComplete: async () => {
 | ------------------ | ----------------------------------------------------- | -------------------------------------- |
 | `link`             | `{ url, external? }`                                  | 将用户发送到 OAuth 流程或文档页面      |
 | `form`             | `{ fields, writeScope? }`                             | 收集环境变量（密钥、秘密、URL）        |
-| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Connect Builder (unlocks shared infra) |
+| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | 使用 Builder.io (unlocks shared infra) |
 | `agent-task`       | `{ prompt }`                                          | 向客服聊天发送提示进行处理             |
 | `file-storage`     | -                                                     | 显示共享的 S3 兼容存储表单             |
 

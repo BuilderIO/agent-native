@@ -1,4 +1,4 @@
-import { createApp, defineEventHandler } from "h3";
+import { createApp } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -57,7 +57,6 @@ import {
 import {
   createBuilderProvisionHandler,
   getBuilderConnectErrorKey,
-  sendBuilderActivationPopup,
   type BuilderOwnerContext,
 } from "./core-routes-plugin.js";
 
@@ -227,7 +226,7 @@ describe("POST /builder/provision", () => {
       ok: false,
       code: "account_exists",
       message:
-        "A Builder account already exists for this email. Log in to connect it.",
+        "A Builder.io account already exists for this email. Sign in to Builder.io to use it.",
     });
     expect(mocks.writeBuilderCredentials).not.toHaveBeenCalled();
     expect(trackedEvents("builder connect failed")).toEqual([
@@ -434,63 +433,5 @@ describe("POST /builder/provision", () => {
 
     expect(response.status).toBe(400);
     expect(upstream).not.toHaveBeenCalled();
-  });
-});
-
-describe("popup-era GET /builder/connect provision mode", () => {
-  function popupApp(provisioningToken: string | null) {
-    const app = createApp();
-    app.use(
-      "/_agent-native/builder/connect",
-      defineEventHandler((event) =>
-        sendBuilderActivationPopup(event, {
-          ownerEmail: OWNER,
-          session: session(),
-          provisioningToken,
-          requestedScope: null,
-          member: null,
-          connectAttemptId: "attempt-1",
-          tracking: {},
-        }),
-      ),
-    );
-    return app;
-  }
-
-  it("runs the same activation and hands success to the opener", async () => {
-    const response = await popupApp(
-      signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
-    ).fetch(new Request(`${ORIGIN}/_agent-native/builder/connect`));
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toContain("text/html");
-    expect(await response.text()).toContain("builder-connect-success");
-    expect(upstream).toHaveBeenCalledOnce();
-    expect(mocks.writeBuilderCredentials).toHaveBeenCalledOnce();
-    expect(trackedEvents("builder connect succeeded")).toEqual([
-      expect.objectContaining({
-        stage: "provision",
-        account_provisioned: true,
-      }),
-    ]);
-  });
-
-  it("leaves the opener's fallback error row when activation fails", async () => {
-    upstreamAnswers(409, { code: "account_exists" });
-
-    const response = await popupApp(
-      signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
-    ).fetch(new Request(`${ORIGIN}/_agent-native/builder/connect`));
-
-    expect(response.status).toBe(409);
-    expect(await response.text()).toContain("builder-connect-error");
-    expect(
-      mocks.settings.get(getBuilderConnectErrorKey(OWNER, "attempt-1")),
-    ).toMatchObject({
-      message:
-        "A Builder account already exists for this email. Log in to connect it.",
-      code: "account_exists",
-      attemptId: "attempt-1",
-    });
   });
 });

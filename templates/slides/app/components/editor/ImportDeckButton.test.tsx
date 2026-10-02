@@ -61,7 +61,7 @@ vi.mock("@/components/editor/UploadStorageGate", () => ({
             Retry
           </button>
         ) : (
-          <button type="button">Connect Builder.io</button>
+          <button type="button">Use Builder.io</button>
         )}
       </div>
     ) : null,

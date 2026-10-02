@@ -129,13 +129,16 @@ const messages: ToolkitAgentChatTranslation = {
     "한 번의 클릭으로 Builder.io 계정을 생성하거나 재사용하고 무료 크레딧을 활성화합니다.",
   "onboarding.builderActiveCredits": "활성 Builder.io 무료 크레딧에 포함",
   "onboarding.builderCredits": "Builder.io 무료 크레딧에 포함",
+  "onboarding.builderIncludedFreeWithAccount": "Builder.io 계정에 무료로 포함",
+  "onboarding.builderMonthlyCredits": "매월 60 Agent Credits",
   "onboarding.builderActivateTitle": "무료 크레딧 활성화",
   "onboarding.builderAccountExistsTitle": "이미 Builder.io 계정이 있습니다",
-  "onboarding.builderAccountExistsDescription": "연결하려면 로그인하세요.",
+  "onboarding.builderAccountExistsDescription":
+    "계정을 사용하려면 로그인하세요.",
   "onboarding.builderActivationDescription":
     "한 번의 클릭으로 Builder.io 계정을 자동으로 생성합니다.",
   "onboarding.builderOrgActivationDescription":
-    "한 번의 클릭으로 Builder.io 계정을 만들고 조직용으로 연결합니다.",
+    "한 번의 클릭으로 Builder.io 계정을 만들어 조직에서 사용할 수 있도록 합니다.",
   "onboarding.builderCreateAndActivate": "생성 및 활성화",
   "onboarding.builderConsentPrefix": "Builder.io 계정을 만들면 당사의",
   "onboarding.builderTerms": "서비스 약관",
@@ -143,7 +146,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConsentAnd": "및",
   "onboarding.builderExistingAccount": "Builder.io 계정이 있습니다",
   "onboarding.builderActivating": "Builder.io 무료 크레딧 활성화 중",
-  "onboarding.builderConnecting": "Builder.io 무료 크레딧 연결 중",
+  "onboarding.builderConnecting": "Builder.io 무료 크레딧 설정 중",
   "onboarding.builderProvisioningDescription":
     "Builder.io 계정을 생성하거나 재사용하는 중입니다. 보통 몇 초 정도 걸립니다.",
   "onboarding.builderConnectionDescription":
@@ -158,8 +161,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.fileStorage.title": "파일 업로드를 위해 저장소 연결",
   "onboarding.fileStorage.statusUnavailable": "저장소를 확인할 수 없습니다",
   "onboarding.fileStorage.description":
-    "Builder.io(무료)를 연결하거나 자체 S3 호환 객체 스토리지를 구성하세요.",
-  "onboarding.fileStorage.reconnectBuilder": "Builder.io 다시 연결",
+    "Builder.io(무료)를 사용하거나 자체 S3 호환 객체 스토리지를 구성하세요.",
+  "onboarding.fileStorage.reconnectBuilder": "Builder.io 사용",
   "onboarding.fileStorage.custom": "사용자 지정 키 사용",
   "onboarding.fileStorage.customDescription":
     "안정적인 공개 URL을 사용하는 S3 호환 버킷을 구성하세요.",
@@ -385,9 +388,9 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.closePreview": "미리보기 닫기",
   "composer.configureProviderKeys": "Anthropic, OpenAI 또는 다른 제공업체 설정",
   "composer.connectAbove": "계속하려면 위에서 AI를 연결하세요...",
-  "composer.connectBuilder": "Builder.io 연결",
+  "composer.connectBuilder": "Builder.io 사용",
   "composer.connectKeys": "키 연결",
-  "composer.connectingBuilder": "Builder.io 연결 중…",
+  "composer.connectingBuilder": "Builder.io 설정 중…",
   "composer.costHigher": "높은 비용",
   "composer.costLower": "낮은 비용",
   "composer.costMedium": "중간 비용",
@@ -505,7 +508,7 @@ const messages: ToolkitAgentChatTranslation = {
   "voice.dictation.start": "받아쓰기({{shortcut}})",
   "voice.dictation.stopRecording": "녹음 중지",
   "voice.dictation.transcribing": "텍스트로 변환 중…",
-  "voiceMode.connectBuilder": "Builder.io 연결",
+  "voiceMode.connectBuilder": "Builder.io 사용",
   "voiceMode.end": "음성 모드 종료",
   "voiceMode.entryButtonLabel": "마이크 사용",
   "voiceMode.errors.channelDisconnected":
@@ -560,7 +563,15 @@ const messages: ToolkitAgentChatTranslation = {
   "voiceMode.settings.voiceDescriptions.verse": "표현력이 풍부하고 다재다능함",
   "voiceMode.settings.voiceStyle": "음성 스타일",
   "voiceMode.setupDescription":
-    "Builder.io를 연결하여 무료 크레딧이 포함된 관리형 음성을 사용하거나 직접 키를 추가하세요.",
+    "무료 크레딧이 제공되는 관리형 음성에는 Builder.io를 사용하거나 직접 키를 추가하세요.",
+  "transcription.builderCtaDescription":
+    "무료 크레딧과 API 키 없이 더 높은 품질의 텍스트 변환을 위해 Builder.io를 사용하세요.",
+  "voiceMode.googleRealtimeDescription":
+    "Google 자격 증명이 설정되었습니다. 관리형 실시간 세션을 만들려면 Builder.io(무료 플랜 제공)를 사용하세요.",
+  "voiceMode.serviceAccountRealtimeDescription":
+    "서비스 계정 JSON이 설정되었습니다. 관리형 실시간 WebSocket 세션을 만들려면 Builder.io(무료 플랜 제공)를 사용하세요.",
+  "voiceMode.builderGeminiDescription":
+    "Gemini Flash-Lite 텍스트 변환과 Luna 텍스트 정리에 Builder.io를 사용하세요. Google 키가 필요하지 않습니다.",
   "voiceMode.setupTitle": "음성 모드 설정",
   "voiceMode.showChat": "채팅 표시",
   "voiceMode.start": "음성 채팅 시작",
@@ -590,7 +601,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.attachmentPasswordProtected":
     "이 PDF는 비밀번호로 보호되어 있어 읽을 수 없습니다. 비밀번호 보호를 해제하거나 관련 텍스트를 붙여넣은 후 다시 시도하세요.",
   "errorMessages.builderAuthentication":
-    "Builder가 연결된 자격 증명을 거부했습니다. 설정에서 Builder.io를 다시 연결한 후 다시 시도하세요.",
+    "Builder가 연결된 자격 증명을 거부했습니다. 설정에서 Builder.io를 다시 사용한 다음 다시 시도하세요.",
   "errorMessages.builderModelUnauthorized":
     "이 모델의 제공업체가 요청을 거부했습니다. 다른 모델을 선택한 후 다시 시도하세요.",
   "errorMessages.errorPrefix": "오류: {{message}}",
@@ -616,7 +627,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.malformedRequestAttachment":
     "모델이 첨부 파일을 거부하여 이 메시지는 전송되지 않았습니다. 첨부를 제거하고 다시 시도하세요. PDF, 일반 텍스트 파일, JPEG·PNG·GIF·WebP 이미지는 직접 읽을 수 있지만 다른 형식은 업로드한 뒤 링크해야 합니다.",
   "errorMessages.noProviderConnected":
-    "연결된 LLM 제공업체가 없습니다. 설정 > 에이전트 > AI 제공업체를 연 다음 Builder.io(무료 요금제 제공)를 연결하거나 제공업체 키를 추가하세요.",
+    "연결된 LLM 제공업체가 없습니다. 설정 > 에이전트 > AI 제공업체를 열고 Builder.io(무료 플랜 제공)를 사용하거나 제공업체 키를 추가하세요.",
   "errorMessages.openBuilderSpaceSettings": "Builder 스페이스 설정 열기",
   "errorMessages.providerAuthentication":
     "모델 제공업체가 저장된 API 키를 거부했습니다. 설정 → 연동 → API 키에서 키를 업데이트한 후 다시 시도하세요.",
@@ -1086,7 +1097,7 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.steerHint": "이 메시지를 다음에 보내기",
   "queue.moreActions": "추가 작업",
   "queue.moveToTop": "맨 위로 이동",
-  "recovery.connectingBuilder": "Builder.io에 연결 중",
+  "recovery.connectingBuilder": "Builder.io 설정 중",
   "recovery.copyDebug": "디버그 정보 복사",
   "recovery.copyFailed": "복사 실패",
   "recovery.retryAttachmentUnavailable":
@@ -1096,7 +1107,7 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.credentialRejected":
     "모델 제공업체가 저장된 자격 증명을 거부했습니다. Builder.io 연결 또는 제공업체 키를 업데이트한 후 이 메시지를 다시 시도하세요.",
   "codeRequired.builderAgentNotConnected":
-    "Builder Cloud Agents가 연결되지 않았습니다. 이 호스팅 코드 변경 작업을 실행하려면 설정에서 Builder.io를 연결하세요. 모델 제공업체 키는 채팅과 기타 AI 기능에서 계속 사용할 수 있지만 Builder Cloud Agent를 인증하지는 않습니다.",
+    "Builder Cloud Agents가 연결되지 않았습니다. 호스팅 코드 변경 작업을 실행하려면 설정에서 Builder.io를 사용하세요. 모델 제공업체 키는 채팅과 기타 AI 기능에서 계속 사용할 수 있지만 Builder Cloud Agent를 인증하지는 않습니다.",
   "recovery.diagnoseRetry": "진단 후 다시 시도",
   "recovery.forkDescription": "이 대화를 별도의 채팅 스레드로 분기합니다.",
   "recovery.forkFailed":
@@ -1118,7 +1129,7 @@ const messages: ToolkitAgentChatTranslation = {
     "에이전트가 아직 작업 중인지 확인하기 위해 서버에 연결할 수 없습니다. 메시지를 다시 보내 재시도하세요.",
   "recovery.streamEnded":
     "이전 에이전트 스트림이 실행 복구 중 종료되었습니다. 계속하거나 다시 시도하여 실행에 다시 연결하세요.",
-  "recovery.reconnectBuilder": "Builder.io 다시 연결",
+  "recovery.reconnectBuilder": "Builder.io 사용",
   "secrets.addCustomKeyNamed": '사용자 지정 키로 "{{name}}" 추가',
   "secrets.chooseKey": "키 선택",
   "secrets.customKey": "사용자 지정 키",
@@ -1161,7 +1172,9 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.builderOrOwnKeys":
     "Builder.io(무료 크레딧)를 사용하거나 직접 제공업체 키를 추가하세요.",
   "setup.connectAi": "AI 연결",
-  "setup.connectBuilder": "Builder.io 연결",
+  "setup.connectBuilder": "Builder.io 사용",
+  "setup.connectionsDescription":
+    "설정 상태, Builder.io 액세스, 앱 시크릿, 워크스페이스 연결을 한곳에서 관리하세요.",
   "setup.connectPlaceholder": "AI를 연결하여 채팅 시작...",
   "setup.connectToChat": "AI를 연결하여 채팅",
   "setup.connectToStart": "AI를 연결하여 채팅 시작",
@@ -1925,7 +1938,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.whatsNewViewAll": "모든 업데이트 보기",
   "settingsShell.backToApp": "{{app}}(으)로 돌아가기",
   "settingsShell.breadcrumbLabel": "탐색 경로",
-  "settingsShell.builder.connect": "연결",
+  "settingsShell.builder.connect": "Builder.io 사용",
   "settingsShell.builder.connected": "연결됨",
   "settingsShell.builder.connectedTo": "연결됨 · {{space}}",
   "settingsShell.builder.connection": "연결",
@@ -1937,6 +1950,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io 연결을 해제하지 못했습니다.",
   "settingsShell.builder.disconnectTitle": "Builder.io 연결을 해제할까요?",
   "settingsShell.builder.grantsFailed": "Builder.io 연결을 읽지 못했습니다.",
+  "settingsShell.builder.setupStartFailed":
+    "Builder.io 설정을 시작할 수 없습니다. 이 페이지를 새로고침한 후 다시 시도하세요.",
+  "settingsShell.builder.setupHostFailed":
+    "이 채팅 호스트에서 Builder를 열 수 없습니다. 브라우저 탭에서 앱을 열고 Builder.io 설정을 다시 시도하세요(무료 플랜 제공).",
+  "settingsShell.builder.setupFailed":
+    "Builder.io 설정이 완료되지 않았습니다. 다시 시도하거나 직접 키를 사용하세요.",
   "settingsShell.builder.loss.defaultStops":
     "조직 제공자를 추가할 때까지 채팅이 중지됩니다.",
   "settingsShell.builder.loss.defaultSwitches":
@@ -1952,9 +1971,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.needsReconnect": "다시 연결해야 합니다.",
   "settingsShell.builder.orgFallback": "조직",
   "settingsShell.builder.orgNotConnectedAdmin":
-    "연결되지 않았습니다. 연결하면 {{org}}의 모든 사람이 사용할 수 있습니다.",
+    "연결되지 않았습니다. Builder.io를 사용하면 {{org}}의 모든 사용자가 이용할 수 있습니다.",
   "settingsShell.builder.orgNotConnectedMember":
-    "연결되지 않았습니다. 소유자나 관리자가 연결할 수 있습니다.",
+    "연결되지 않았습니다. 소유자나 관리자가 모두를 위해 Builder.io를 활성화할 수 있습니다.",
   "settingsShell.builder.organization": "조직",
   "settingsShell.builder.personal": "개인",
   "settingsShell.builder.personalConnected": "연결됨. 나만 사용합니다.",
@@ -1965,7 +1984,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.personalConnectedToOverOrg":
     "연결됨 · {{space}}. 조직 연결 대신 나만 사용합니다.",
   "settingsShell.builder.personalNotConnected":
-    "내 계정을 연결하세요. 나만 사용합니다.",
+    "내 Builder.io 계정을 사용하세요. 나만 사용할 수 있습니다.",
   "settingsShell.builder.personalRestricted":
     "소유자와 관리자가 개인 API 키를 제한했습니다.",
   "settingsShell.builder.personalRestrictedUnused":
@@ -2507,7 +2526,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.builderConnected":
     "연결됨. Builder.io로 표시된 모든 서비스는 계정 크레딧으로 작동합니다.",
   "settingsInfra.builderNotConnected":
-    "연결되지 않음. 각 서비스를 직접 설정하거나 Builder.io를 연결해 계정 크레딧을 사용하세요.",
+    "연결되지 않았습니다. 각 서비스를 직접 설정하거나 Builder.io를 사용해 계정 크레딧을 적용하세요.",
+  "settingsInfra.builderOverrideDescription":
+    "배포 대체 설정을 사용할 수 있습니다. 이를 재정의하려면 내 Builder.io 계정을 사용하세요.",
+  "settingsInfra.builderStorageHint":
+    "객체 스토리지는 업로드 파일을 보존하고 스레드 전체에서 URL을 재사용할 수 있게 합니다. 아래에서 Builder.io 또는 S3 호환 버킷을 사용하세요.",
   "settingsInfra.builderUnknown": "Builder.io 연결을 확인할 수 없습니다.",
   "settingsInfra.manage": "관리",
   "settingsInfra.connect": "연결",
@@ -2678,13 +2701,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.builderConnected": "연결됨 · {{space}}",
   "settingsModel.builderConnectedPlain": "연결됨",
   "settingsModel.builderOrgNotConnectedAdmin":
-    "연결되지 않았습니다. 연결하면 {{org}}의 모든 사용자가 사용할 수 있습니다.",
+    "연결되지 않았습니다. Builder.io를 사용하면 {{org}}의 모든 사용자가 이용할 수 있습니다.",
   "settingsModel.builderOrgNotConnectedMember":
-    "연결되지 않았습니다. 소유자나 관리자가 연결할 수 있습니다.",
+    "연결되지 않았습니다. 소유자나 관리자가 모두를 위해 Builder.io를 활성화할 수 있습니다.",
   "settingsModel.builderPersonalConnect":
-    "내 계정을 연결해 내 Builder.io 크레딧을 사용하세요.",
+    "내 Builder.io 계정을 사용해 계정 크레딧에 액세스하세요.",
   "settingsModel.builderPersonalInsteadOfOrg":
-    "내 계정을 연결해 조직 연결 대신 사용하세요.",
+    "조직 연결 대신 내 Builder.io 계정을 사용하세요.",
   "settingsModel.builderPersonalOverOrg":
     "연결됨 · {{space}}. 조직 연결 대신 사용됩니다.",
   "settingsModel.builderPersonalOverOrgPlain":

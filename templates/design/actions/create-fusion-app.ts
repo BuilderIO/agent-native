@@ -96,9 +96,9 @@ export default defineAction({
             kind: "connect-builder" as const,
             label: "Build a real app",
             description:
-              "Connect Builder.io (free tier available) to build this design as a real running app " +
+              "Use Builder.io (free tier available) to build this design as a real running app " +
               "with a live container, branches, and deploys.",
-            primaryAction: "Connect Builder.io",
+            primaryAction: "Use Builder.io",
             connectUrl,
           },
           message:

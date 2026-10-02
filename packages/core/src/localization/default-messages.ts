@@ -45,7 +45,7 @@ const messages = {
   composer: {
     sendMessage: "Send message",
     queueMessage: "Queue message",
-    connectBuilder: "Connect Builder.io",
+    connectBuilder: "Use Builder.io",
   },
   home: {
     settingsTitle: "Settings",
@@ -93,8 +93,8 @@ const messages = {
     fileStorage: {
       title: "Connect storage to upload files",
       description:
-        "Connect Builder.io (free) or configure your own S3-compatible object storage.",
-      reconnectBuilder: "Reconnect Builder.io",
+        "Use Builder.io's managed storage (free) or configure your own S3-compatible object storage.",
+      reconnectBuilder: "Sign in to Builder.io again",
       custom: "Use custom keys",
       customDescription:
         "Configure an S3-compatible bucket with a stable public URL.",
@@ -737,9 +737,9 @@ const messages = {
     askAgentTitle: "Ask the agent",
     askAgentPlaceholder: "Tell the agent what you want to do…",
     connectAi: "Connect AI",
-    builderOrOwnKeys: "Choose Builder.io or custom keys.",
-    connectBuilderIo: "Connect Builder.io",
-    connectingBuilder: "Connecting Builder.io…",
+    builderOrOwnKeys: "Use Builder.io or custom keys.",
+    connectBuilderIo: "Use Builder.io",
+    connectingBuilder: "Setting up Builder.io…",
     builderModelCredits: "Free credits for Claude, OpenAI & Gemini",
     addOwnKeys: "Custom keys",
     configureProviderKeys: "Choose a provider.",
@@ -807,8 +807,8 @@ const messages = {
         "Voice mode keeps listening while the agent navigates and takes actions.",
       setupTitle: "Set up voice mode",
       setupDescription:
-        "Connect Builder.io to use managed voice with free credits, or add your own keys.",
-      connectBuilder: "Connect Builder.io",
+        "Use Builder.io for managed voice with free credits, or add your own keys.",
+      connectBuilder: "Use Builder.io",
       useOpenAiKey: "Custom keys",
       startWithOpenAiKey: "Start with OpenAI key",
       start: "Start voice chat",
@@ -1166,9 +1166,9 @@ const messages = {
       "Let our cloud agent make the changes for you. You'll get a link to preview and deploy.",
     codeChangeTitle: "This requires a code change",
     codeChangeBadge: "Code change",
-    connectBuilderTitle: "Connect Builder.io",
+    connectBuilderTitle: "Use Builder.io",
     connectBuilderDescription:
-      "Connect Builder (free tier available) to enable cloud-based code changes from this app.",
+      "Use Builder.io (free tier available) to enable cloud-based code changes from this app.",
     setupRequired: "Setup required",
     branchCreated: "Branch created",
     close: "Close",
@@ -1462,7 +1462,7 @@ const messages = {
     back: "Back",
     agentEngineRequired: "Agent engine required",
     agentEngineDescription:
-      "Connect Builder.io (free tier available) or an LLM key before {{platform}} can answer.",
+      "Use Builder.io (free tier available) or an LLM key before {{platform}} can answer.",
     openLlm: "Open LLM",
     setup: "Setup",
     shareDocumentsWith: "Share documents with",

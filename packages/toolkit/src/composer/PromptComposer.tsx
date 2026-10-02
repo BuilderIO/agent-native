@@ -253,7 +253,7 @@ export interface PromptComposerProps {
   ) => void;
   /**
    * Override the Builder.io connect action in the model picker. When provided,
-   * clicking "Connect Builder.io" calls this instead of opening a browser popup.
+   * clicking "Use Builder.io" calls this instead of opening a browser popup.
    * Used by the Electron desktop app to route through the native IPC handler.
    */
   onConnectProvider?: () => void;

@@ -4,7 +4,7 @@ const messages = {
   },
   agentChat: {
     setup: {
-      connectBuilder: "Conectar Builder.io",
+      connectBuilder: "Usar Builder.io",
       providerStatusUnavailable: "No se pudo confirmar que la IA esté lista.",
     },
     common: { retry: "Reintentar" },
@@ -224,7 +224,7 @@ const messages = {
     sharedWithYou: "Compartido contigo",
     storageStillDisconnected: "El almacenamiento aún no está conectado",
     finishBuilderOrS3:
-      "Finalice la ventana emergente Builder.io o configure el almacenamiento S3 y vuelva a intentarlo.",
+      "Usa el almacenamiento de Builder.io o configura almacenamiento compatible con S3 y vuelve a intentarlo.",
     loomImportResumed: "Se reanudó la importación de Loom",
     clipUploadResumed: "Se reanudó la carga del clip",
     couldNotRetryLoom: "No se pudo volver a intentar importar Loom",
@@ -271,9 +271,9 @@ const messages = {
     savingWentWrong: "Algo salió mal al guardar este clip.",
     finishingClip: "Terminando tu clip...",
     loomSourcePreserved:
-      "Se conserva el enlace fuente de Loom. Conecte el almacenamiento Builder.io o S3 y Clips volverá a intentar guardar su propia copia.",
+      "Se conserva el enlace fuente de Loom. Usa el almacenamiento de Builder.io (almacenamiento e IA en el plan gratuito) o almacenamiento compatible con S3; Clips volverá a intentar guardar su propia copia.",
     clipDataPreserved:
-      "Los datos de su clip aún se conservan. Conecte el almacenamiento Builder.io o S3 y Clips lo cargará automáticamente.",
+      "Los datos de tu clip siguen conservados. Usa el almacenamiento de Builder.io (almacenamiento e IA en el plan gratuito) o almacenamiento compatible con S3; Clips lo subirá automáticamente.",
     details: "Detalles",
     importingLoom: "Importando Loom...",
     uploadingSavedClip: "Subiendo clip guardado...",
@@ -400,13 +400,13 @@ const messages = {
     savingWentWrong: "Algo salió mal al guardar este clip.",
     finishingClip: "Terminando este clip...",
     loomPreservedManage:
-      "Se conserva el enlace fuente de Loom. Conecte el almacenamiento Builder.io o S3 y luego vuelva a intentar la importación.",
+      "Se conserva el enlace fuente de Loom. Usa el almacenamiento de Builder.io (almacenamiento e IA en el plan gratuito) o almacenamiento compatible con S3 y vuelve a intentar la importación.",
     videoPreservedManage:
-      "El vídeo se conserva. Conecte el almacenamiento Builder.io o S3 y Clips terminará de cargarlo.",
+      "El vídeo sigue conservado. Usa el almacenamiento de Builder.io (almacenamiento e IA en el plan gratuito) o almacenamiento compatible con S3; Clips terminará de subirlo.",
     creatorNeedsStorage:
-      "El creador debe conectar el almacenamiento Builder.io o S3 antes de que este clip pueda finalizar.",
+      "El creador debe usar el almacenamiento de Builder.io (almacenamiento e IA en el plan gratuito) o almacenamiento compatible con S3 para terminar este clip.",
     signInStorage:
-      "Si este es su clip, inicie sesión aquí para conectar el almacenamiento Builder.io o S3 y finalizar la carga.",
+      "Si este es tu clip, inicia sesión aquí para usar el almacenamiento de Builder.io (almacenamiento e IA en el plan gratuito) o almacenamiento compatible con S3 y terminar la subida.",
     uploadNotCompleteSession:
       "La carga aún no se ha completado. Abra el panel de este clip o pídale al creador que verifique el almacenamiento.",
     uploadNotCompleteSignIn:
@@ -549,9 +549,8 @@ const messages = {
     cleanupBuilderFailed:
       "La limpieza no pudo finalizar aunque Builder.io esté conectado. Se mantuvo la transcripción nativa.",
     cleanupPaused:
-      "La limpieza está en pausa. Conecte IA en Configuración: Builder.io (créditos gratis) o su propia clave LLM.",
-    builderNoResponse:
-      "No recibí respuesta del constructor. Permita ventanas emergentes e inténtelo de nuevo.",
+      "La limpieza está en pausa. Usa Builder.io en Configuración para IA (créditos gratis) o añade tu propia clave LLM.",
+    builderNoResponse: "No recibí respuesta de Builder. Inténtalo de nuevo.",
     saveFailed: "Error al guardar ({{status}})",
     savedRetrying: "Guardado. Reintentando la transcripción...",
     getGroqKey: "Obtener la clave Groq",
@@ -1131,7 +1130,7 @@ const messages = {
     videoUrlMissing:
       "Una o más grabaciones aún no tienen una URL de video lista",
     connectStorage:
-      "Conecta almacenamiento antes de unir grabaciones: Builder.io (almacenamiento + IA en el plan gratuito) o almacenamiento compatible con S3.",
+      "Usa el almacenamiento de Builder.io (almacenamiento e IA en el plan gratuito) o almacenamiento compatible con S3 antes de unir grabaciones.",
     created: "Grabación unida creada",
     failed: "No se pudieron unir las grabaciones",
     noOtherRecordings: "No hay otras grabaciones disponibles.",
@@ -1485,12 +1484,12 @@ const messages = {
   },
   storageSetup: {
     builderConnectPopupError:
-      "No se pudo abrir Builder.io. Si esta aplicación está integrada en un chat, ábrela en una pestaña del navegador; de lo contrario, permite las ventanas emergentes para este sitio e inténtalo de nuevo.",
+      "No se pudo abrir Builder.io. Si esta aplicación está integrada en un chat, ábrela en una pestaña del navegador; de lo contrario, inténtalo de nuevo.",
     builderConnectError:
-      "No se pudo conectar Builder.io. Inténtalo de nuevo o contacta con el soporte.",
+      "No se pudo configurar Builder.io. Inténtalo de nuevo o contacta con el soporte.",
     checkingBuilderConnection: "Comprobando la conexión con Builder…",
     builderTimeout:
-      "No hubo respuesta de Builder en 5 minutos. Revisa la ventana emergente e inténtalo de nuevo.",
+      "No hubo respuesta de Builder en 5 minutos. Inténtalo de nuevo.",
     builderConnected: "Builder.io conectado",
     waitingForBuilder: "Esperando a Builder...",
     description:
@@ -1500,7 +1499,7 @@ const messages = {
     free: "Gratis",
     whyPrompt: "¿Por qué veo esto?",
     whyDescription:
-      "Clips es 100% gratis y de código abierto, así que necesitas conectar una forma de almacenar clips. Conecta almacenamiento con Builder.io para almacenamiento e IA en el plan gratuito, o usa almacenamiento compatible con S3 y tus propias claves LLM.",
+      "Clips es 100 % gratis y de código abierto, así que necesitas una forma de almacenar tus clips. Usa Builder.io para el almacenamiento y la IA del plan gratuito, o almacenamiento de objetos compatible con S3 y tus propias claves LLM.",
   },
   captureInstall: {
     title: "Choose your recorder",
@@ -1832,9 +1831,9 @@ const messages = {
     storageConnectedReopeningRecorder:
       "Almacenamiento conectado. Volviendo a abrir la grabadora...",
     connectStorageToFinish:
-      "Conecta almacenamiento en la siguiente pantalla: Builder.io (almacenamiento + IA en el plan gratuito) o almacenamiento compatible con S3. Clips terminará de guardarlo.",
+      "En la siguiente pantalla, usa el almacenamiento de Builder.io (almacenamiento e IA en el plan gratuito) o configura almacenamiento compatible con S3. Clips terminará de guardarlo.",
     connectStorageToRetryLoom:
-      "Conecta almacenamiento en la siguiente pantalla: Builder.io (almacenamiento + IA en el plan gratuito) o almacenamiento compatible con S3. Clips reintentará la importación.",
+      "En la siguiente pantalla, usa el almacenamiento de Builder.io (almacenamiento e IA en el plan gratuito) o configura almacenamiento compatible con S3. Clips volverá a intentar la importación.",
     leaveConfirmTitle: "¿Salir de esta grabación?",
     leaveConfirmDescription:
       "Esta grabación solo está en esta pestaña. Si sales, se eliminará a menos que descargues una copia antes.",

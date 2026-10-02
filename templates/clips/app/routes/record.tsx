@@ -1733,7 +1733,7 @@ export default function RecordRoute() {
           markStorageConfigured(status);
           if (!status.configured) {
             throw new Error(
-              "No video storage configured. Connect storage: Builder.io (free tier storage + AI) or S3-compatible storage.",
+              "No video storage configured. Use Builder.io (free tier storage + AI) or S3-compatible storage.",
             );
           }
         }

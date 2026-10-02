@@ -79,7 +79,7 @@ vi.mock(
       >
         Connect AI
         <button type="button" onClick={onConnected}>
-          Connect Builder.io
+          Use Builder.io
         </button>
         <a href="/settings/keys">Custom keys</a>
       </div>
@@ -567,7 +567,7 @@ describe("Index skip to editor", () => {
     expect(container.textContent).toContain("Connect AI");
     expect(container.textContent).toContain("Custom keys");
     const connect = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Connect Builder.io"),
+      (button) => button.textContent?.includes("Use Builder.io"),
     );
     expect(connect).toBeDefined();
     expect(

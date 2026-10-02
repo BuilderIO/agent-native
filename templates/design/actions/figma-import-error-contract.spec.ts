@@ -314,9 +314,7 @@ describe("figma import failure contract", () => {
     });
     expect(failure.userFacing).toBe(true);
     expect(failure.errorCode).toBe("figma_storage_unavailable");
-    expect(failure.message).toMatch(
-      /Settings > File uploads|Connect Builder\.io/,
-    );
+    expect(failure.message).toMatch(/Settings > File uploads|Use Builder\.io/);
   });
 
   it("names an unauthenticated import instead of returning a generic 500", async () => {

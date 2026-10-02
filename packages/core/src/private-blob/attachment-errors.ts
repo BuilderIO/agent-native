@@ -75,7 +75,7 @@ function describeStorageUnavailable(
   const cause = (() => {
     switch (failure.reason) {
       case "not_configured":
-        return "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.";
+        return "No object storage is connected. Use Builder.io's managed storage (free) or configure your own S3-compatible storage keys in Settings → File uploads.";
       case "encryption_key_unavailable":
         return "File storage is unavailable because this deployment has no encryption key configured.";
       case "misconfigured":

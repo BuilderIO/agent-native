@@ -166,9 +166,9 @@ export default {
     notificationsSoundGroup: "声音",
     replayStorage: "会话回放存储",
     replayStorageDescription:
-      "会话回放录制需要配置文件上传服务商。可连接 Builder.io 使用免费层对象存储，或使用您自己的 S3 兼容存储桶。",
+      "会话回放录制需要配置文件上传服务商。可使用 Builder.io 使用免费层对象存储，或使用您自己的 S3 兼容存储桶。",
     connected: "已连接",
-    connectBuilder: "连接 Builder.io",
+    connectBuilder: "使用 Builder.io",
     checkingBuilder: "正在检查 Builder.io...",
     builderConnected: "Builder.io 已连接",
     builderConnectedToast: "Builder.io 已连接",
@@ -1392,7 +1392,7 @@ export default {
     time: "时间",
     storageSetupTitle: "连接回放存储",
     storageSetupDescription:
-      "保存会话回放录制片段前需要先配置存储。可连接 Builder.io 使用免费层存储，或配置您自己的 S3 兼容存储桶。",
+      "保存会话回放录制片段前需要先配置存储。可使用 Builder.io 使用免费层存储，或配置您自己的 S3 兼容存储桶。",
     storageConnected: "存储已连接",
     connectBuilder: "使用 Builder.io",
     configureS3: "配置 S3 存储",

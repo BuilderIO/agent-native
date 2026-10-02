@@ -127,13 +127,13 @@ function providerStatusCopy(provider: CodeAgentProviderStatus | undefined): {
 function builderConnectErrorMessage(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
   if (message.includes("ERR_ABORTED") || message.includes("loading 'http")) {
-    return "Builder.io connect was opened. Finish the browser flow to continue.";
+    return "Builder.io sign-in was opened. Finish the browser flow to continue.";
   }
   if (
     message.includes("No handler registered") ||
     message.includes("code-agents:provider-builder:connect")
   ) {
-    return "Restart Agent-Native Desktop to finish enabling Builder connect.";
+    return "Restart Agent-Native Desktop to finish Builder.io sign-in.";
   }
   return message;
 }
@@ -232,7 +232,7 @@ export function CodeProviderSettings({
       }
       setBuilderConnecting(true);
       setProviderMessage(
-        "Opened Builder.io in your browser. Finish the flow there to continue.",
+        "Builder.io sign-in opened in your browser. Finish the flow there to continue.",
       );
       try {
         const result = await api.connectBuilderProvider();
@@ -349,7 +349,7 @@ export function CodeProviderSettings({
                 {builderConnecting ? (
                   <IconLoader2 size={14} className="settings-update-spin" />
                 ) : null}
-                {builderConnected ? "Reconnect" : "Connect Builder.io"}
+                Use Builder.io
               </button>
               {builderSavedKeys ? (
                 <button

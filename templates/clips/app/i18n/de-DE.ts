@@ -2,7 +2,7 @@ const messages = {
   meetingAsk: { resizeOrDismissAnswers: "Antworten anpassen oder schließen" },
   agentChat: {
     setup: {
-      connectBuilder: "Builder.io verbinden",
+      connectBuilder: "Builder.io nutzen",
       providerStatusUnavailable:
         "Es konnte nicht bestätigt werden, ob die KI bereit ist.",
     },
@@ -226,7 +226,7 @@ const messages = {
     sharedWithYou: "Mit Ihnen geteilt",
     storageStillDisconnected: "Der Speicher ist immer noch nicht verbunden",
     finishBuilderOrS3:
-      "Beenden Sie das Builder.io-Popup oder konfigurieren Sie den S3-Speicher und versuchen Sie es dann erneut.",
+      "Nutze Builder.io-Speicher oder konfiguriere S3-kompatiblen Speicher und versuche es erneut.",
     loomImportResumed: "Loom-Import wurde fortgesetzt",
     clipUploadResumed: "Der Clip-Upload wurde fortgesetzt",
     couldNotRetryLoom: "Der Import von Loom konnte nicht wiederholt werden",
@@ -273,9 +273,9 @@ const messages = {
     savingWentWrong: "Beim Speichern dieses Clips ist ein Fehler aufgetreten.",
     finishingClip: "Ich beende deinen Clip …",
     loomSourcePreserved:
-      "Der Loom-Quelllink bleibt erhalten. Schließen Sie den Speicher Builder.io oder S3 an und Clips versucht erneut, seine eigene Kopie zu speichern.",
+      "Der Loom-Quelllink ist weiterhin vorhanden. Nutze Builder.io-Speicher (Speicher und KI im kostenlosen Tarif) oder S3-kompatiblen Speicher. Clips versucht dann erneut, eine eigene Kopie zu speichern.",
     clipDataPreserved:
-      "Ihre Clipdaten bleiben weiterhin erhalten. Schließen Sie den Speicher Builder.io oder S3 an und Clips lädt ihn automatisch hoch.",
+      "Deine Clipdaten sind weiterhin vorhanden. Nutze Builder.io-Speicher (Speicher und KI im kostenlosen Tarif) oder S3-kompatiblen Speicher. Clips lädt die Daten automatisch hoch.",
     details: "Übersetzt: Details",
     importingLoom: "Loom wird importiert...",
     uploadingSavedClip: "Gespeicherter Clip wird hochgeladen…",
@@ -405,13 +405,13 @@ const messages = {
     savingWentWrong: "Beim Speichern dieses Clips ist ein Fehler aufgetreten.",
     finishingClip: "Ich schließe diesen Clip ab...",
     loomPreservedManage:
-      "Der Loom-Quelllink bleibt erhalten. Verbinden Sie den Builder.io- oder S3-Speicher und versuchen Sie dann den Import erneut.",
+      "Der Loom-Quelllink ist weiterhin vorhanden. Nutze Builder.io-Speicher (Speicher und KI im kostenlosen Tarif) oder S3-kompatiblen Speicher und versuche den Import erneut.",
     videoPreservedManage:
-      "Das Video bleibt erhalten. Schließen Sie den Speicher Builder.io oder S3 an und Clips beendet den Upload.",
+      "Das Video ist weiterhin vorhanden. Nutze Builder.io-Speicher (Speicher und KI im kostenlosen Tarif) oder S3-kompatiblen Speicher. Clips schließt den Upload ab.",
     creatorNeedsStorage:
-      "Der Ersteller muss den Builder.io- oder S3-Speicher verbinden, bevor dieser Clip fertiggestellt werden kann.",
+      "Der Ersteller muss Builder.io-Speicher (Speicher und KI im kostenlosen Tarif) oder S3-kompatiblen Speicher nutzen, damit dieser Clip fertiggestellt werden kann.",
     signInStorage:
-      "Wenn dies Ihr Clip ist, melden Sie sich hier an, um den Builder.io- oder S3-Speicher zu verbinden und den Upload abzuschließen.",
+      "Wenn dies dein Clip ist, melde dich hier an, um Builder.io-Speicher (Speicher und KI im kostenlosen Tarif) oder S3-kompatiblen Speicher zu nutzen und den Upload abzuschließen.",
     uploadNotCompleteSession:
       "Der Upload ist noch nicht abgeschlossen. Öffnen Sie das Dashboard für diesen Clip oder bitten Sie den Ersteller, den Speicher zu überprüfen.",
     uploadNotCompleteSignIn:
@@ -554,9 +554,8 @@ const messages = {
     cleanupBuilderFailed:
       "Die Bereinigung konnte nicht abgeschlossen werden, obwohl Builder.io verbunden ist. Das native Transkript wurde aufbewahrt.",
     cleanupPaused:
-      "Die Bereinigung ist pausiert. Verbinde KI in den Einstellungen: Builder.io (kostenlose Credits) oder deinen eigenen LLM-Schlüssel.",
-    builderNoResponse:
-      "Ich habe keine Antwort von Builder erhalten. Lassen Sie Popups zu und versuchen Sie es erneut.",
+      "Die Bereinigung ist pausiert. Nutze Builder.io in den Einstellungen für KI (kostenlose Credits) oder deinen eigenen LLM-Schlüssel.",
+    builderNoResponse: "Von Builder kam keine Antwort. Versuche es erneut.",
     saveFailed: "Speichern fehlgeschlagen ({{status}})",
     savedRetrying: "Gespeichert. Transkription wird erneut versucht…",
     getGroqKey: "Holen Sie sich den Groq-Schlüssel",
@@ -1136,7 +1135,7 @@ const messages = {
     videoUrlMissing:
       "Eine oder mehrere Aufzeichnungen haben noch keine fertige Video-URL",
     connectStorage:
-      "Verbinde Speicher vor dem Zusammenfügen von Aufzeichnungen: Builder.io (Speicher + KI im kostenlosen Tarif) oder S3-kompatibler Speicher.",
+      "Nutze Builder.io-Speicher (Speicher und KI im kostenlosen Tarif) oder S3-kompatiblen Speicher, bevor du Aufnahmen zusammenfügst.",
     created: "Zusammengefügte Aufzeichnung erstellt",
     failed: "Aufzeichnungen konnten nicht zusammengefügt werden",
     noOtherRecordings: "Keine anderen Aufzeichnungen verfügbar.",
@@ -1487,12 +1486,12 @@ const messages = {
   },
   storageSetup: {
     builderConnectPopupError:
-      "Builder.io konnte nicht geöffnet werden. Wenn diese App in einem Chat eingebettet ist, öffne sie in einem Browser-Tab. Andernfalls erlaube Pop-ups für diese Website und versuche es erneut.",
+      "Builder.io konnte nicht geöffnet werden. Wenn diese App in einem Chat eingebettet ist, öffne sie in einem Browser-Tab; versuche es andernfalls erneut.",
     builderConnectError:
-      "Builder.io konnte nicht verbunden werden. Bitte erneut versuchen oder den Support kontaktieren.",
+      "Builder.io konnte nicht eingerichtet werden. Bitte erneut versuchen oder den Support kontaktieren.",
     checkingBuilderConnection: "Builder-Verbindung wird geprüft…",
     builderTimeout:
-      "Nach 5 Minuten kam keine Antwort von Builder. Prüfe das Popup und versuche es erneut.",
+      "Nach 5 Minuten kam keine Antwort von Builder. Versuche es erneut.",
     builderConnected: "Builder.io verbunden",
     waitingForBuilder: "Warten auf Builder...",
     description:
@@ -1502,7 +1501,7 @@ const messages = {
     free: "Kostenlos",
     whyPrompt: "Warum sehe ich das?",
     whyDescription:
-      "Clips ist 100 % kostenlos und Open Source, deshalb musst du eine Möglichkeit zum Speichern deiner Clips verbinden. Verbinde Speicher mit Builder.io für Speicher und KI im kostenlosen Tarif, oder nutze S3-kompatiblen Objektspeicher und deine eigenen LLM-Schlüssel.",
+      "Clips ist zu 100 % kostenlos und Open Source. Du brauchst daher einen Speicher für deine Clips. Nutze Builder.io für Speicher und KI im kostenlosen Tarif oder S3-kompatiblen Objektspeicher mit deinen eigenen LLM-Schlüsseln.",
   },
   captureInstall: {
     title: "Choose your recorder (Lokalisiert)",
@@ -1839,9 +1838,9 @@ const messages = {
     storageConnectedReopeningRecorder:
       "Speicher verbunden. Recorder wird erneut geöffnet...",
     connectStorageToFinish:
-      "Verbinde Speicher im nächsten Bildschirm: Builder.io (Speicher + KI im kostenlosen Tarif) oder S3-kompatibler Speicher. Clips schließt das Speichern ab.",
+      "Nutze im nächsten Bildschirm Builder.io-Speicher (Speicher und KI im kostenlosen Tarif) oder konfiguriere S3-kompatiblen Speicher. Clips schließt das Speichern ab.",
     connectStorageToRetryLoom:
-      "Verbinde Speicher im nächsten Bildschirm: Builder.io (Speicher + KI im kostenlosen Tarif) oder S3-kompatibler Speicher. Clips versucht den Import erneut.",
+      "Nutze im nächsten Bildschirm Builder.io-Speicher (Speicher und KI im kostenlosen Tarif) oder konfiguriere S3-kompatiblen Speicher. Clips versucht den Import erneut.",
     leaveConfirmTitle: "Diese Aufnahme verlassen?",
     leaveConfirmDescription:
       "Diese Aufnahme gibt es nur in diesem Tab. Wenn du die Seite verlässt, wird sie gelöscht, außer du lädst vorher eine Kopie herunter.",

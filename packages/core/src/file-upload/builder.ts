@@ -303,13 +303,13 @@ async function assetAuthorization(
   const publicKey = credentials.publicKey?.trim();
   if (!privateKey || !publicKey) {
     throw new Error(
-      "Builder personal access token connection is missing its space id. Reconnect Builder.io to continue.",
+      "Builder personal access token connection is missing its space id. Sign in to Builder.io again to continue.",
     );
   }
   const authorized = authorization.replace(/^Bearer\s+/i, "").trim();
   if (privateKey !== authorized) {
     throw new Error(
-      "Builder credential scope mismatch: the connection holding the upload space is not the one authorized for this request. Reconnect Builder.io to continue.",
+      "Builder credential scope mismatch: the connection holding the upload space is not the one authorized for this request. Sign in to Builder.io again to continue.",
     );
   }
   return { authorization, apiKey: publicKey };

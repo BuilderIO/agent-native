@@ -63,7 +63,7 @@ export default defineAction({
   description:
     "Start Builder DSI design-system indexing from connected code, a GitHub repository, code/design files, and optional design.md guidance. " +
     "Use this instead of legacy local code import when the user wants a reusable brand kit or slide design system. " +
-    "Requires Builder.io to be connected (free tier available); Builder owns the indexed design-system docs, generated guidance, token/component extraction, and job state.",
+    "Use Builder.io (free tier available) to index design systems; Builder owns the indexed design-system docs, generated guidance, token/component extraction, and job state.",
   schema: z.object({
     projectName: z
       .string()

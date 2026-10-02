@@ -283,7 +283,7 @@ my-company-platform/
 
 Quelques flux d'intégration sont prêts à l'emploi et adaptés à l'espace de travail :
 
-- **Builder OAuth**: clicking "Connect Builder" authorizes the signed-in user with the least-privilege `builder:ai:invoke` scope and stores the token in encrypted per-user custody. Legacy Builder keys remain available only to existing uncovered integrations.
+- **Builder OAuth**: clicking "Utilisez Builder.io" authorizes the signed-in user with the least-privilege `builder:ai:invoke` scope and stores the token in encrypted per-user custody. Legacy Builder keys remain available only to existing uncovered integrations.
 - **Compatibility key route** (`POST /_agent-native/env-vars`): older onboarding forms still call this route name, but it now saves values as scoped DB secrets. Pass `scope: "workspace"` to share with the active org, or omit it for a per-user key.
 
 ## Identifiants partagés {#shared-credentials}

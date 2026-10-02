@@ -2,7 +2,7 @@ const messages = {
   meetingAsk: { resizeOrDismissAnswers: "Resize or dismiss answers" },
   agentChat: {
     setup: {
-      connectBuilder: "Connect Builder.io",
+      connectBuilder: "Use Builder.io",
       providerStatusUnavailable: "Couldn't confirm AI is ready.",
     },
     common: { retry: "Retry" },
@@ -159,7 +159,7 @@ const messages = {
     sharedWithYou: "Shared with you",
     storageStillDisconnected: "Storage still isn't connected",
     finishBuilderOrS3:
-      "Finish the Builder.io popup or configure S3-compatible storage, then try again.",
+      "Use Builder.io storage or configure S3-compatible storage, then try again.",
     loomImportResumed: "Loom import resumed",
     clipUploadResumed: "Clip upload resumed",
     couldNotRetryLoom: "Couldn't retry Loom import",
@@ -206,9 +206,9 @@ const messages = {
     savingWentWrong: "Something went wrong while saving this clip.",
     finishingClip: "Finishing up your clip…",
     loomSourcePreserved:
-      "The Loom source link is preserved. Connect storage with Builder.io (free tier storage + AI) or S3-compatible storage, and Clips will retry saving its own copy.",
+      "The Loom source link is preserved. Use Builder.io storage (free tier storage + AI) or S3-compatible storage, and Clips will retry saving its own copy.",
     clipDataPreserved:
-      "Your clip data is still preserved. Connect storage with Builder.io (free tier storage + AI) or S3-compatible storage, and Clips will upload it automatically.",
+      "Your clip data is still preserved. Use Builder.io storage (free tier storage + AI) or S3-compatible storage, and Clips will upload it automatically.",
     details: "Details",
     importingLoom: "Importing Loom...",
     uploadingSavedClip: "Uploading saved clip…",
@@ -329,13 +329,13 @@ const messages = {
     savingWentWrong: "Something went wrong while saving this clip.",
     finishingClip: "Finishing up this clip...",
     loomPreservedManage:
-      "The Loom source link is preserved. Connect storage with Builder.io (free tier storage + AI) or S3-compatible storage, then retry the import.",
+      "The Loom source link is preserved. Use Builder.io storage (free tier storage + AI) or S3-compatible storage, then retry the import.",
     videoPreservedManage:
-      "The video is preserved. Connect storage with Builder.io (free tier storage + AI) or S3-compatible storage, and Clips will finish uploading it.",
+      "The video is preserved. Use Builder.io storage (free tier storage + AI) or S3-compatible storage, and Clips will finish uploading it.",
     creatorNeedsStorage:
-      "The creator needs to connect storage before this clip can finish: Builder.io (free tier storage + AI) or S3-compatible storage.",
+      "The creator needs to use Builder.io storage (free tier storage + AI) or S3-compatible storage before this clip can finish.",
     signInStorage:
-      "If this is your clip, sign in here to connect storage with Builder.io (free tier storage + AI) or S3-compatible storage and finish the upload.",
+      "If this is your clip, sign in here to use Builder.io storage (free tier storage + AI) or S3-compatible storage and finish the upload.",
     uploadNotCompleteSession:
       "The upload has not completed yet. Open the dashboard for this clip or ask the creator to check storage.",
     uploadNotCompleteSignIn:
@@ -469,9 +469,8 @@ const messages = {
     cleanupBuilderFailed:
       "Cleanup could not finish even though Builder.io is connected. Native transcript was kept.",
     cleanupPaused:
-      "Cleanup is paused. Connect AI in Settings: Builder.io (free credits) or your own LLM key.",
-    builderNoResponse:
-      "Didn't hear back from Builder. Allow popups and try again.",
+      "Cleanup is paused. Use Builder.io in Settings for AI (free credits), or add your own LLM key.",
+    builderNoResponse: "Didn't hear back from Builder. Try again.",
     saveFailed: "Save failed ({{status}})",
     savedRetrying: "Saved. Retrying transcription…",
     getGroqKey: "Get Groq key",
@@ -1033,7 +1032,7 @@ const messages = {
     pickAtLeastTwo: "Pick at least 2 recordings to stitch together",
     videoUrlMissing: "One or more recordings don't have a ready video URL yet",
     connectStorage:
-      "Connect storage before stitching recordings: Builder.io (free tier storage + AI) or S3-compatible storage.",
+      "Use Builder.io storage (free tier storage + AI) or S3-compatible storage before stitching recordings.",
     created: "Stitched recording created",
     failed: "Failed to stitch recordings",
     noOtherRecordings: "No other recordings available.",
@@ -1379,12 +1378,11 @@ const messages = {
   },
   storageSetup: {
     builderConnectPopupError:
-      "Builder.io couldn't open. If this app is embedded in a chat, open it in a browser tab; otherwise, allow popups for this site and try again.",
+      "Builder.io couldn't open. If this app is embedded in a chat, open it in a browser tab; otherwise, try again.",
     builderConnectError:
-      "Couldn't connect Builder.io. Try again or contact support.",
+      "Couldn't set up Builder.io. Try again or contact support.",
     checkingBuilderConnection: "Checking Builder connection…",
-    builderTimeout:
-      "Didn't hear back from Builder in 5 minutes. Check the popup and try again.",
+    builderTimeout: "Didn't hear back from Builder in 5 minutes. Try again.",
     builderConnected: "Builder.io connected",
     waitingForBuilder: "Waiting for Builder...",
     description:
@@ -1394,7 +1392,7 @@ const messages = {
     free: "Free",
     whyPrompt: "Why am I seeing this?",
     whyDescription:
-      "Clips is 100% free and open source, so you need to hook up a way to store clips. Connect storage with Builder.io for free-tier storage and AI, or use S3-compatible object storage and your own LLM keys.",
+      "Clips is 100% free and open source, so you need a way to store clips. Use Builder.io for free-tier storage and AI, or use S3-compatible object storage and your own LLM keys.",
   },
   captureInstall: {
     title: "Choose your recorder",
@@ -1780,9 +1778,9 @@ const messages = {
     storageConnectedReopeningRecorder:
       "Storage connected. Reopening recorder...",
     connectStorageToFinish:
-      "Connect storage on the next screen: Builder.io (free tier storage + AI) or S3-compatible storage. Clips will finish saving it.",
+      "On the next screen, use Builder.io storage (free tier storage + AI) or configure S3-compatible storage. Clips will finish saving it.",
     connectStorageToRetryLoom:
-      "Connect storage on the next screen: Builder.io (free tier storage + AI) or S3-compatible storage. Clips will retry the import.",
+      "On the next screen, use Builder.io storage (free tier storage + AI) or configure S3-compatible storage. Clips will retry the import.",
     leaveConfirmTitle: "Leave this recording?",
     leaveConfirmDescription:
       "This recording is only in this tab. Leaving deletes it unless you download a copy first.",

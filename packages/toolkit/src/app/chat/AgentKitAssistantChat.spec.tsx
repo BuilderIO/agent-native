@@ -4307,7 +4307,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     };
     chatMocks.failureError = {
       code: "AGENT_CHAT_AI_SETUP_REQUIRED",
-      message: "Connect Builder AI or a provider API key before chatting.",
+      message: "Use Builder.io or a provider API key before chatting.",
     };
 
     await mount(
@@ -4529,7 +4529,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     it("keeps references, model, effort and mode when the refusal arrives as a connection error", async () => {
       chatMocks.connectionError = refuse({
         code: "AGENT_CHAT_AI_SETUP_REQUIRED",
-        message: "Connect Builder AI or a provider API key before chatting.",
+        message: "Use Builder.io or a provider API key before chatting.",
       });
       chatMocks.failureCopies = 0;
       const props = baseProps({ providerStatusChecksEnabled: true });
@@ -4581,7 +4581,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     it("finds the refused prompt after a reload and resends it with its context, once per run", async () => {
       chatMocks.connectionError = refuse({
         code: "AGENT_CHAT_AI_SETUP_REQUIRED",
-        message: "Connect Builder AI or a provider API key before chatting.",
+        message: "Use Builder.io or a provider API key before chatting.",
       });
       chatMocks.failureCopies = 0;
       chatMocks.thread.messages = [reloadedRefusal];
@@ -4671,7 +4671,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     it("does not resend an attachment that has nothing to upload", async () => {
       chatMocks.connectionError = refuse({
         code: "AGENT_CHAT_AI_SETUP_REQUIRED",
-        message: "Connect Builder AI or a provider API key before chatting.",
+        message: "Use Builder.io or a provider API key before chatting.",
       });
       chatMocks.failureCopies = 0;
       chatMocks.thread.messages = [

@@ -186,10 +186,6 @@ export function StorageSetupCard({
     },
     [builderConnect.start],
   );
-  const provisionAccount =
-    !hasBuilderAccount &&
-    builderConnect.statusResolved &&
-    builderConnect.agentNativeProvisioningEnabled;
   const handleBuilderCancel = useCallback(() => {
     connectIntentExpiresAtRef.current =
       Date.now() + CANCELLED_SETUP_RECOVERY_MS;
@@ -249,11 +245,7 @@ export function StorageSetupCard({
               ? t("storageSetup.builderConnected")
               : actionConnecting
                 ? t("storageSetup.waitingForBuilder")
-                : provisionAccount
-                  ? t("storageSetup.createBuilderAccount")
-                  : hasBuilderAccount
-                    ? t("storageSetup.signInWithBuilderAccount")
-                    : t("agentChat.setup.connectBuilder")}
+                : t("agentChat.setup.connectBuilder")}
           </Button>
         </BuilderConnectPopover>
         {!connected && storageSetupHref ? (

@@ -6,7 +6,7 @@ import {
 } from "@agent-native/core/server";
 
 export const REPLAY_STORAGE_SETUP_REQUIRED_REASON =
-  "Session replay storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage to record replays.";
+  "Session replay storage is not connected yet. Use Builder.io (free tier available) or configure S3-compatible storage to record replays.";
 
 function appDatabaseUrl(): string {
   const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");

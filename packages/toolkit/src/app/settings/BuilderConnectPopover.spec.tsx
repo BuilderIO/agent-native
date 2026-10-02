@@ -189,6 +189,10 @@ describe("BuilderConnectPopover before the status read resolves", () => {
       p.querySelector("a"),
     );
     expect(create && signIn && terms).toBeTruthy();
+    expect(consent?.textContent).toContain(
+      "Included free with a Builder.io account",
+    );
+    expect(consent?.textContent).toContain("60 monthly Agent Credits");
     expect(signIn?.parentElement).toBe(create?.parentElement);
     expect(create!.compareDocumentPosition(signIn!)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,

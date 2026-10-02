@@ -406,8 +406,8 @@ describe("InfrastructureSettingsPage", () => {
     const primaries = [...container.querySelectorAll("button")].filter(
       (candidate) => candidate.classList.contains("bg-primary"),
     );
-    expect(primaries).toEqual([button(row("builder"), "Connect")]);
-    act(() => button(row("builder"), "Connect").click());
+    expect(primaries).toEqual([button(row("builder"), "Use Builder.io")]);
+    act(() => button(row("builder"), "Use Builder.io").click());
     expect(state.builder.start).toHaveBeenCalledWith({
       provisionAccount: false,
       scope: "org",
@@ -426,10 +426,10 @@ describe("InfrastructureSettingsPage", () => {
       );
       expect(row(id).textContent).toContain("Available with Builder.io · ");
       expect(row(id).textContent).not.toContain("Not available");
-      const connect = button(row(id), "Connect Builder.io");
+      const connect = button(row(id), "Use Builder.io");
       expect(connect.classList.contains("border")).toBe(true);
     }
-    act(() => button(row("browser-automation"), "Connect Builder.io").click());
+    act(() => button(row("browser-automation"), "Use Builder.io").click());
     expect(state.builder.start).toHaveBeenCalledWith({
       provisionAccount: false,
       scope: "org",

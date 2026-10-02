@@ -993,8 +993,8 @@ const messages = {
           "Lee la web de la empresa indicada y crea una presentación sobre ella. Informa de errores de acceso en lugar de inventar datos.",
       },
     },
-    connectBuilderIo: "Conectar Builder.io",
-    connectingBuilder: "Conectando Builder.io…",
+    connectBuilderIo: "Usar Builder.io",
+    connectingBuilder: "Configurando Builder.io…",
     recent: "Recientes",
     starters: {
       pitch: {

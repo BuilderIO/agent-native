@@ -24,15 +24,13 @@ Instanz hinzufügen.
 
 [Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment)
 ist ein separater verwalteter, code-fähiger Workflow, bei dem ein Agent die UI
-Ihrer App in Produktion ändern kann. Verbinden Sie Ihr Repository mit
-Builder.io (kostenloser Tarif verfügbar) und fordern Sie UI-Änderungen direkt
-an. Keine erneute Bereitstellung nötig.
+Ihrer App in Produktion ändern kann. Verwenden Sie Builder.io mit Ihrem Repository (kostenloser Tarif verfügbar) und fordern Sie UI-Änderungen direkt an. Keine erneute Bereitstellung nötig.
 
-**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
+Die Aktion **Builder.io verwenden** in den Einstellungen startet Builder OAuth (`builder:ai:invoke`) mit einem HTTPS-Callback derselben Herkunft unter `/_agent-native/builder/callback`. Dadurch funktionieren gehostete Ursprünge wie Railway ohne Domain-Allowlist. Alte private `BUILDER_*`-Schlüssel bleiben für bestehende Verbindungen ein Laufzeit-Fallback.
 
 **So funktioniert es:**
 
-1. Verbinden Sie Ihr agentennatives Repository mit Builder.io (kostenloser Tarif verfügbar)
+1. Verwenden Sie Builder.io mit Ihrem agentennativen Repository (kostenloser Tarif verfügbar)
 2. Builder.io stellt einen Cloud-Frame mit dem Agenten, visuellem Bearbeiten und Zusammenarbeit in Echtzeit bereit
 3. Fordern Sie den Agenten auf, UI-Änderungen vorzunehmen. Er bearbeitet Ihre Komponenten, Routen und Stile live
 4. Änderungen werden zurück in Ihr Repository committet

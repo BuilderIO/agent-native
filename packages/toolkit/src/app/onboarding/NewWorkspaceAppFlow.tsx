@@ -4,6 +4,7 @@ import {
   appBasePath,
 } from "@agent-native/core/client/api-path";
 import { isInBuilderFrame } from "@agent-native/core/client/builder-frame";
+import { useT } from "@agent-native/core/client/i18n";
 import { useDevMode } from "@agent-native/core/client/use-dev-mode";
 import { docsUrl } from "@agent-native/core/shared/docs-url";
 import { getWorkspaceAppIdValidationError } from "@agent-native/core/shared/workspace-app-id";
@@ -173,6 +174,7 @@ export function NewWorkspaceAppFlow({
   className = "",
   dispatchBasePath,
 }: NewWorkspaceAppFlowProps) {
+  const t = useT();
   const [selectedSecretIds, setSelectedSecretIds] = useState<string[]>([]);
   const [selectedResourceIds, setSelectedResourceIds] = useState<string[]>([]);
   const [secrets, setSecrets] = useState<VaultSecretOption[]>([]);
@@ -425,8 +427,8 @@ export function NewWorkspaceAppFlow({
                       className="inline-flex w-fit cursor-pointer items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {connectFlow.connecting
-                        ? "Connecting..."
-                        : "Connect Builder"}
+                        ? t("agentChat.composer.connectingBuilder")
+                        : t("agentChat.setup.connectBuilder")}
                     </button>
                   </DeferredBuilderConnectPopover>
                   <a

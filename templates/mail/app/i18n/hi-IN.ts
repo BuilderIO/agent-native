@@ -462,7 +462,7 @@ const messages = {
         "भेजने से पहले प्राप्तकर्ता जोड़ें या दर्ज किया गया टेक्स्ट हटाएँ।",
       pleaseAddRecipient: "Añade al menos un destinatario",
       aiEngineRequired:
-        "Conecta Builder u otro motor de IA antes de usar Generar.",
+        "Generate इस्तेमाल करने से पहले Builder.io (मुफ़्त स्तर उपलब्ध) या कोई अन्य AI इंजन इस्तेमाल करें।",
       couldNotUnsubscribe: "No se pudo cancelar la suscripción",
       unsubscribeSent: "Solicitud de baja enviada",
       draftQueued: "Borrador en cola.",
@@ -705,7 +705,7 @@ const messages = {
       connectJevToRunTriage: "ट्रायेज चलाने के लिए Jev कनेक्ट करें",
       freeBuilderOrApiKey: "Builder.io के साथ मुफ़्त, या API कुंजी जोड़ें।",
       jevAvailabilityFailed: "Jev उपलब्ध है या नहीं, इसकी जाँच नहीं हो सकी।",
-      connectBuilder: "Builder.io कनेक्ट करें",
+      connectBuilder: "Builder.io इस्तेमाल करें",
       addJevApiKey: "API कुंजी जोड़ें",
     },
     draftQueue: {

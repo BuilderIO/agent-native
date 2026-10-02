@@ -177,9 +177,9 @@ export default {
     notificationsSoundGroup: "サウンド",
     replayStorage: "セッションリプレイのストレージ",
     replayStorageDescription:
-      "セッションリプレイの録画には、ファイルアップロードプロバイダーの設定が必要です。Builder.io の無料枠オブジェクトストレージを接続するか、独自の S3 互換バケットをご利用ください。",
+      "セッションリプレイの録画には、ファイルアップロードプロバイダーの設定が必要です。Builder.io の無料枠オブジェクトストレージを使うか、独自の S3 互換バケットをご利用ください。",
     connected: "接続済み",
-    connectBuilder: "Builder.io を接続",
+    connectBuilder: "Builder.io を使う",
     checkingBuilder: "Builder.io を確認中...",
     builderConnected: "Builder.io 接続済み",
     builderConnectedToast: "Builder.io を接続しました",
@@ -1467,7 +1467,7 @@ export default {
     time: "時刻",
     storageSetupTitle: "リプレイストレージを接続",
     storageSetupDescription:
-      "セッションリプレイの録画を保存するには、まずストレージが必要です。Builder.io の無料枠ストレージを接続するか、独自の S3 互換バケットを設定してください。",
+      "セッションリプレイの録画を保存するには、まずストレージが必要です。Builder.io の無料枠ストレージを使うか、独自の S3 互換バケットを設定してください。",
     storageConnected: "ストレージ接続済み",
     connectBuilder: "Builder.io を使う",
     configureS3: "S3 ストレージを設定",

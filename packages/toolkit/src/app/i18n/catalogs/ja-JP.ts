@@ -133,15 +133,18 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderActiveCredits":
     "有効な Builder.io 無料クレジットに含まれるもの",
   "onboarding.builderCredits": "Builder.io 無料クレジットに含まれるもの",
+  "onboarding.builderIncludedFreeWithAccount":
+    "Builder.io アカウントに無料で含まれます",
+  "onboarding.builderMonthlyCredits": "月間 60 Agent Credits",
   "onboarding.builderActivateTitle": "無料クレジットを有効化",
   "onboarding.builderAccountExistsTitle":
     "Builder.io アカウントをすでにお持ちです",
   "onboarding.builderAccountExistsDescription":
-    "接続するにはログインしてください。",
+    "ログインしてアカウントを使用してください。",
   "onboarding.builderActivationDescription":
     "ワンクリックで Builder.io アカウントを自動的に作成します。",
   "onboarding.builderOrgActivationDescription":
-    "ワンクリックで Builder.io アカウントを作成し、組織用に接続します。",
+    "ワンクリックで Builder.io アカウントを作成し、組織で使えるようにします。",
   "onboarding.builderCreateAndActivate": "作成して有効化",
   "onboarding.builderConsentPrefix":
     "Builder.io アカウントを作成すると、当社の",
@@ -150,7 +153,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConsentAnd": "および",
   "onboarding.builderExistingAccount": "Builder.io アカウントを持っています",
   "onboarding.builderActivating": "Builder.io 無料クレジットを有効化しています",
-  "onboarding.builderConnecting": "Builder.io 無料クレジットに接続しています",
+  "onboarding.builderConnecting": "Builder.io の無料クレジットを設定しています",
   "onboarding.builderProvisioningDescription":
     "Builder.io アカウントを作成または再利用しています。通常は数秒かかります。",
   "onboarding.builderConnectionDescription":
@@ -167,8 +170,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.fileStorage.statusUnavailable":
     "ストレージを確認できませんでした",
   "onboarding.fileStorage.description":
-    "Builder.io（無料）を接続するか、独自のS3互換オブジェクトストレージを設定してください。",
-  "onboarding.fileStorage.reconnectBuilder": "Builder.ioを再接続",
+    "Builder.io（無料）を使用するか、ご自身の S3 互換オブジェクトストレージを設定してください。",
+  "onboarding.fileStorage.reconnectBuilder": "Builder.io を使用",
   "onboarding.fileStorage.custom": "カスタムキーを使用",
   "onboarding.fileStorage.customDescription":
     "安定した公開URLを持つS3互換バケットを設定します。",
@@ -399,9 +402,9 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.configureProviderKeys":
     "Anthropic、OpenAI、または別のプロバイダーを設定",
   "composer.connectAbove": "続行するには上で AI に接続してください...",
-  "composer.connectBuilder": "Builder.io に接続",
+  "composer.connectBuilder": "Builder.io を使用",
   "composer.connectKeys": "キーを接続",
-  "composer.connectingBuilder": "Builder.io に接続中…",
+  "composer.connectingBuilder": "Builder.io を設定中…",
   "composer.costHigher": "高コスト",
   "composer.costLower": "低コスト",
   "composer.costMedium": "中程度のコスト",
@@ -523,7 +526,7 @@ const messages: ToolkitAgentChatTranslation = {
   "voice.dictation.start": "音声入力（{{shortcut}}）",
   "voice.dictation.stopRecording": "録音を停止",
   "voice.dictation.transcribing": "文字起こし中…",
-  "voiceMode.connectBuilder": "Builder.io に接続",
+  "voiceMode.connectBuilder": "Builder.io を使用",
   "voiceMode.end": "音声モードを終了",
   "voiceMode.entryButtonLabel": "マイクを使用",
   "voiceMode.errors.channelDisconnected":
@@ -579,7 +582,15 @@ const messages: ToolkitAgentChatTranslation = {
   "voiceMode.settings.voiceDescriptions.verse": "表現豊かで多彩",
   "voiceMode.settings.voiceStyle": "音声スタイル",
   "voiceMode.setupDescription":
-    "Builder.io に接続して無料クレジット付きの管理音声を使用するか、独自のキーを追加します。",
+    "無料クレジット付きのマネージド音声には Builder.io を使用するか、ご自身のキーを追加してください。",
+  "transcription.builderCtaDescription":
+    "無料クレジット付きで API キーなしの高品質な文字起こしに Builder.io を使用してください。",
+  "voiceMode.googleRealtimeDescription":
+    "Google の認証情報は設定済みです。管理されたリアルタイムセッションを作成するには Builder.io（無料プランあり）を使用してください。",
+  "voiceMode.serviceAccountRealtimeDescription":
+    "サービスアカウントの JSON は設定済みです。管理されたリアルタイム WebSocket セッションを作成するには Builder.io（無料プランあり）を使用してください。",
+  "voiceMode.builderGeminiDescription":
+    "Gemini Flash-Lite の文字起こしと Luna のテキスト整形には Builder.io を使用してください。Google キーは不要です。",
   "voiceMode.setupTitle": "音声モードを設定",
   "voiceMode.showChat": "チャットを表示",
   "voiceMode.start": "音声チャットを開始",
@@ -609,7 +620,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.attachmentPasswordProtected":
     "このPDFはパスワードで保護されているため読み取れません。パスワード保護を解除するか、関連するテキストを貼り付けてから再試行してください。",
   "errorMessages.builderAuthentication":
-    "Builder が接続済みの認証情報を拒否しました。設定で Builder.io に再接続してから再試行してください。",
+    "Builder が接続済みの認証情報を拒否しました。設定で Builder.io をもう一度使用してから再試行してください。",
   "errorMessages.builderModelUnauthorized":
     "このモデルのプロバイダーがリクエストを拒否しました。別のモデルを選択して再試行してください。",
   "errorMessages.errorPrefix": "エラー：{{message}}",
@@ -635,7 +646,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.malformedRequestAttachment":
     "モデルが添付ファイルを拒否したため、このメッセージは送信されませんでした。添付を削除して再試行してください。PDF、プレーンテキスト、JPEG・PNG・GIF・WebP の画像は直接読み取れますが、その他の形式はアップロードしてリンクする必要があります。",
   "errorMessages.noProviderConnected":
-    "LLM プロバイダーが接続されていません。設定 > エージェント > AI プロバイダーを開き、Builder.io（無料プランあり）に接続するか、プロバイダーキーを追加してください。",
+    "LLM プロバイダーが接続されていません。設定 > エージェント > AI プロバイダーを開き、Builder.io（無料プランあり）を使用するか、プロバイダーキーを追加してください。",
   "errorMessages.openBuilderSpaceSettings": "Builder スペース設定を開く",
   "errorMessages.providerAuthentication":
     "モデルプロバイダーが保存済みの API キーを拒否しました。設定 → 連携 → API キーでキーを更新してから再試行してください。",
@@ -1108,7 +1119,7 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.steerHint": "このメッセージを次に送信",
   "queue.moreActions": "その他のアクション",
   "queue.moveToTop": "先頭に移動",
-  "recovery.connectingBuilder": "Builder.io に接続中",
+  "recovery.connectingBuilder": "Builder.io を設定中",
   "recovery.copyDebug": "デバッグ情報をコピー",
   "recovery.copyFailed": "コピーに失敗しました",
   "recovery.retryAttachmentUnavailable":
@@ -1118,7 +1129,7 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.credentialRejected":
     "モデルプロバイダーが保存済みの認証情報を拒否しました。Builder.io への接続またはプロバイダーキーを更新してから、このメッセージを再試行してください。",
   "codeRequired.builderAgentNotConnected":
-    "Builder Cloud Agents に接続されていません。このホスト型コード変更を実行するには、設定で Builder.io に接続してください。モデルプロバイダーキーはチャットやその他の AI 機能で引き続き使えますが、Builder Cloud Agent の認証には使えません。",
+    "Builder Cloud Agents は接続されていません。このホスト型コード変更を実行するには、セットアップで Builder.io を使用してください。モデルプロバイダーキーはチャットやその他の AI 機能では引き続き使えますが、Builder Cloud Agent の認証には使えません。",
   "recovery.diagnoseRetry": "診断して再試行",
   "recovery.forkDescription": "この会話を別のチャットスレッドに分岐します。",
   "recovery.forkFailed":
@@ -1140,7 +1151,7 @@ const messages: ToolkitAgentChatTranslation = {
     "エージェントがまだ動作中か確認するためのサーバー接続に失敗しました。メッセージを再送信して再試行してください。",
   "recovery.streamEnded":
     "前回のエージェントストリームは実行の復元中に終了しました。続行するか再試行して、実行に再接続してください。",
-  "recovery.reconnectBuilder": "Builder.io に再接続",
+  "recovery.reconnectBuilder": "Builder.io を使用",
   "secrets.addCustomKeyNamed": "「{{name}}」をカスタムキーとして追加",
   "secrets.chooseKey": "キーを選択",
   "secrets.customKey": "カスタムキー",
@@ -1182,7 +1193,9 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.builderOrOwnKeys":
     "Builder.io（無料クレジット付き）を使用するか、独自のプロバイダーキーを追加します。",
   "setup.connectAi": "AI に接続",
-  "setup.connectBuilder": "Builder.io に接続",
+  "setup.connectBuilder": "Builder.io を使用",
+  "setup.connectionsDescription":
+    "セットアップ状況、Builder.io へのアクセス、アプリのシークレット、ワークスペースの接続を 1 か所で管理します。",
   "setup.connectPlaceholder": "AI に接続してチャットを開始...",
   "setup.connectToChat": "AI に接続してチャット",
   "setup.connectToStart": "AI に接続してチャットを開始",
@@ -1956,7 +1969,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.whatsNewViewAll": "すべての更新を表示",
   "settingsShell.backToApp": "{{app}} に戻る",
   "settingsShell.breadcrumbLabel": "パンくずリスト",
-  "settingsShell.builder.connect": "接続",
+  "settingsShell.builder.connect": "Builder.io を使用",
   "settingsShell.builder.connected": "接続済み",
   "settingsShell.builder.connectedTo": "接続済み · {{space}}",
   "settingsShell.builder.connection": "接続",
@@ -1969,6 +1982,12 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.disconnectTitle": "Builder.io の接続を解除しますか？",
   "settingsShell.builder.grantsFailed":
     "Builder.io の接続を読み込めませんでした。",
+  "settingsShell.builder.setupStartFailed":
+    "Builder.io のセットアップを開始できませんでした。このページを更新して、もう一度お試しください。",
+  "settingsShell.builder.setupHostFailed":
+    "このチャットホストから Builder を開けませんでした。このアプリをブラウザーのタブで開き、Builder.io のセットアップを再試行してください（無料プランあり）。",
+  "settingsShell.builder.setupFailed":
+    "Builder.io のセットアップが完了しませんでした。もう一度お試しいただくか、ご自身のキーを使用してください。",
   "settingsShell.builder.loss.defaultStops":
     "組織のプロバイダーを追加するまでチャットは停止します。",
   "settingsShell.builder.loss.defaultSwitches":
@@ -1984,9 +2003,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.needsReconnect": "再接続が必要です。",
   "settingsShell.builder.orgFallback": "組織",
   "settingsShell.builder.orgNotConnectedAdmin":
-    "未接続です。接続すると {{org}} の全員が使えます。",
+    "未接続です。Builder.io を使用すると、{{org}} の全員がアクセスできます。",
   "settingsShell.builder.orgNotConnectedMember":
-    "未接続です。オーナーまたは管理者が接続できます。",
+    "未接続です。オーナーまたは管理者が全員向けに Builder.io を有効にできます。",
   "settingsShell.builder.organization": "組織",
   "settingsShell.builder.personal": "個人",
   "settingsShell.builder.personalConnected":
@@ -1998,7 +2017,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.builder.personalConnectedToOverOrg":
     "接続済み · {{space}}。組織の接続の代わりに、あなただけが使います。",
   "settingsShell.builder.personalNotConnected":
-    "自分のアカウントを接続します。使うのはあなただけです。",
+    "ご自身の Builder.io アカウントを使用してください。利用できるのはご本人だけです。",
   "settingsShell.builder.personalRestricted":
     "オーナーと管理者が個人の API キーを制限しています。",
   "settingsShell.builder.personalRestrictedUnused":
@@ -2548,7 +2567,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsInfra.builderConnected":
     "接続済み。Builder.io と表示されたサービスはすべてアカウントのクレジットで動きます。",
   "settingsInfra.builderNotConnected":
-    "未接続。各サービスを自分で設定するか、Builder.io を接続してアカウントのクレジットを使います。",
+    "未接続です。各サービスを個別に設定するか、Builder.io を使用してアカウントのクレジットを適用してください。",
+  "settingsInfra.builderOverrideDescription":
+    "デプロイのフォールバックを利用できます。上書きするには、ご自身の Builder.io アカウントを使用してください。",
+  "settingsInfra.builderStorageHint":
+    "オブジェクトストレージはアップロードしたファイルを保持し、スレッド全体で URL を再利用できるようにします。以下では Builder.io または S3 互換バケットを使用してください。",
   "settingsInfra.builderUnknown": "Builder.io の接続を確認できませんでした。",
   "settingsInfra.manage": "管理",
   "settingsInfra.connect": "接続",
@@ -2718,13 +2741,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.builderConnected": "接続済み · {{space}}",
   "settingsModel.builderConnectedPlain": "接続済み",
   "settingsModel.builderOrgNotConnectedAdmin":
-    "未接続です。接続すると {{org}} の全員が使えるようになります。",
+    "未接続です。Builder.io を使用すると、{{org}} の全員がアクセスできます。",
   "settingsModel.builderOrgNotConnectedMember":
-    "未接続です。オーナーまたは管理者が接続できます。",
+    "未接続です。オーナーまたは管理者が全員向けに Builder.io を有効にできます。",
   "settingsModel.builderPersonalConnect":
-    "自分のアカウントを接続すると、自分の Builder.io クレジットを使えます。",
+    "ご自身の Builder.io アカウントを使用して、アカウントのクレジットを利用してください。",
   "settingsModel.builderPersonalInsteadOfOrg":
-    "自分のアカウントを接続すると、組織の接続の代わりに使えます。",
+    "組織の接続の代わりに、ご自身の Builder.io アカウントを使用してください。",
   "settingsModel.builderPersonalOverOrg":
     "接続済み · {{space}}。組織の接続の代わりに使われます。",
   "settingsModel.builderPersonalOverOrgPlain":

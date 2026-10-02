@@ -860,7 +860,7 @@ function DatabaseSettingsSourcePanel({
                 ) : (
                   <IconExternalLink className="mr-1.5 size-3.5" />
                 )}
-                Connect Builder
+                Use Builder.io
               </Button>
             </BuilderConnectPopover>
           </div>

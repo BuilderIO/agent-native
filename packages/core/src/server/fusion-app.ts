@@ -64,7 +64,7 @@ async function resolveFusionAuth(
   });
   if (!authorization) {
     throw new Error(
-      "Builder.io is not connected. Connect Builder.io in Settings.",
+      "Builder.io is not connected. Sign in to Builder.io in Settings to continue.",
     );
   }
   if (authorization.source === "legacy" && !authorization.legacyPublicKey) {

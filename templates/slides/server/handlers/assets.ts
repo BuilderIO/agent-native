@@ -278,7 +278,7 @@ export async function uploadImageAsset(args: {
 
   if (!result) {
     const err: Error & { statusCode?: number } = new Error(
-      "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
+      "No object storage is connected. Use Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
     );
     err.statusCode = 503;
     throw err;

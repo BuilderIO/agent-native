@@ -361,9 +361,9 @@ export default {
     notificationsSoundGroup: "Sound",
     replayStorage: "Session replay storage",
     replayStorageDescription:
-      "Session replay recordings need a configured file-upload provider. Connect Builder.io for free-tier object storage, or use your own S3-compatible bucket.",
+      "Session replay recordings need a configured file-upload provider. Use Builder.io for free-tier object storage, or use your own S3-compatible bucket.",
     connected: "Connected",
-    connectBuilder: "Connect Builder.io",
+    connectBuilder: "Use Builder.io",
     checkingBuilder: "Checking Builder.io...",
     builderConnected: "Builder.io connected",
     builderConnectedToast: "Builder.io connected",
@@ -1537,7 +1537,7 @@ export default {
     time: "Time",
     storageSetupTitle: "Connect replay storage",
     storageSetupDescription:
-      "Session replay recordings need storage before chunks can be saved. Connect Builder.io for free-tier storage, or configure your own S3-compatible bucket.",
+      "Session replay recordings need storage before chunks can be saved. Use Builder.io for free-tier storage, or configure your own S3-compatible bucket.",
     storageConnected: "Storage connected",
     connectBuilder: "Use Builder.io",
     configureS3: "Configure S3 storage",

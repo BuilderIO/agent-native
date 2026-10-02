@@ -47,7 +47,7 @@ export async function transcribeWithBuilder(
   const auth = await resolveBuilderGatewayAuth();
   if (!auth) {
     throw new Error(
-      "Builder private key not configured. Connect your Builder.io account (free tier available) in Settings.",
+      "Builder private key is not configured. Use Builder.io (free tier available) in Settings to set it up.",
     );
   }
 

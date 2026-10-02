@@ -227,7 +227,7 @@ export default {
     eventRulesConnectJev: "连接 Jev 以运行邀请规则",
     eventRulesFreeBuilderOrApiKey:
       "通过 Builder.io 免费使用，或添加 API 密钥。",
-    eventRulesConnectBuilder: "连接 Builder.io",
+    eventRulesConnectBuilder: "使用 Builder.io",
     eventRulesAddJevApiKey: "添加 API 密钥",
     eventRulesTabRules: "规则",
     eventRulesHelpLabel: "了解邀请规则提示",

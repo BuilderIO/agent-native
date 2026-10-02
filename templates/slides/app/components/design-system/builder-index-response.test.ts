@@ -34,7 +34,7 @@ describe("readBuilderIndexResponse", () => {
       readBuilderIndexResponse(
         new Response(
           JSON.stringify({
-            error: "Connect Builder.io before indexing a design system.",
+            error: "Use Builder.io before indexing a design system.",
             builderConnectUrl: "/_agent-native/builder/connect",
           }),
           {
@@ -43,7 +43,7 @@ describe("readBuilderIndexResponse", () => {
           },
         ),
       ),
-    ).rejects.toThrow("Connect Builder.io before indexing a design system.");
+    ).rejects.toThrow("Use Builder.io before indexing a design system.");
   });
 
   it("turns non-JSON 413 responses into the expected file-size error", async () => {

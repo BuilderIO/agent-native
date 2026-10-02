@@ -992,8 +992,8 @@ const messages = {
           "Lies die angegebene Unternehmenswebsite und erstelle eine Präsentation über das Unternehmen. Melde Zugriffsfehler, statt Fakten zu erfinden.",
       },
     },
-    connectBuilderIo: "Builder.io verbinden",
-    connectingBuilder: "Builder.io wird verbunden…",
+    connectBuilderIo: "Builder.io verwenden",
+    connectingBuilder: "Builder.io wird eingerichtet…",
     recent: "Zuletzt verwendet",
     starters: {
       pitch: {

@@ -262,7 +262,7 @@ describe("createBuilderEngine", () => {
         type: "stop",
         reason: "error",
         errorCode: "builder_auth_error",
-        error: expect.stringContaining("Reconnect Builder"),
+        error: expect.stringContaining("Sign in to Builder.io again"),
       }),
     );
     expect(fetchSpy).not.toHaveBeenCalled();

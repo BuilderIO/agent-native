@@ -179,9 +179,9 @@ export default {
     notificationsSoundGroup: "Sonido",
     replayStorage: "Almacenamiento de repeticiones de sesión",
     replayStorageDescription:
-      "Las grabaciones de repetición de sesión necesitan un proveedor de subida de archivos configurado. Conecta Builder.io para usar almacenamiento de objetos de nivel gratuito o usa tu propio bucket compatible con S3.",
+      "Las grabaciones de repetición de sesión necesitan un proveedor de subida de archivos configurado. Usa el almacenamiento de objetos incluido en Builder.io o tu propio bucket compatible con S3.",
     connected: "Conectado",
-    connectBuilder: "Conectar Builder.io",
+    connectBuilder: "Usar Builder.io",
     checkingBuilder: "Comprobando Builder.io...",
     builderConnected: "Builder.io conectado",
     builderConnectedToast: "Builder.io conectado",
@@ -1483,7 +1483,7 @@ export default {
     time: "Hora",
     storageSetupTitle: "Conectar almacenamiento de repeticiones",
     storageSetupDescription:
-      "Las grabaciones de repetición de sesión necesitan almacenamiento antes de poder guardar los fragmentos. Conecta Builder.io para usar almacenamiento de nivel gratuito o configura tu propio bucket compatible con S3.",
+      "Las grabaciones de repetición de sesión necesitan almacenamiento antes de poder guardar los fragmentos. Usa el almacenamiento de nivel gratuito de Builder.io o configura tu propio bucket compatible con S3.",
     storageConnected: "Almacenamiento conectado",
     connectBuilder: "Usar Builder.io",
     configureS3: "Configurar almacenamiento S3",

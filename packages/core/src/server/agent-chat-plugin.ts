@@ -1050,11 +1050,11 @@ export function resolveHostedBuilderHandoff(
 
 /** Setup CTAs that must be callable on the very first request.
  *
- *  Both are recovery actions: the agent should answer "connect Builder for me"
+ *  Both are recovery actions: the agent should answer "use Builder.io for me"
  *  or a failed upload by rendering the inline card, not by spending a turn in
  *  `tool-search` first. `connect-builder` is registered in every registry that
  *  receives `browserTools`, local dev included, so naming it only through the
- *  hosted-only handoff left local dev advertising "Connect Builder.io" in the
+ *  hosted-only handoff left local dev advertising "Use Builder.io" in the
  *  UI while the agent was never told the tool existed. Names the registry does
  *  not have are dropped by `filterInitialEngineTools`, so listing both here is
  *  safe for lean registries. */
@@ -7514,7 +7514,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             message:
               error.statusMessage ??
               error.message ??
-              "Connect Builder AI or a provider API key before chatting.",
+              "Use Builder.io or a provider API key before chatting.",
           },
         });
       };

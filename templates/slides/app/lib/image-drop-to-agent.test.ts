@@ -51,7 +51,7 @@ describe("isMissingUploadProviderError", () => {
     expect(
       isMissingUploadProviderError(
         503,
-        "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys.",
+        "No object storage is connected. Use Builder.io (free) or configure your own S3-compatible storage keys.",
       ),
     ).toBe(true);
   });
@@ -60,7 +60,7 @@ describe("isMissingUploadProviderError", () => {
     expect(
       isMissingUploadProviderError(
         400,
-        "No file upload provider is configured. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
+        "No file upload provider is configured. Use Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
       ),
     ).toBe(true);
   });
@@ -69,7 +69,7 @@ describe("isMissingUploadProviderError", () => {
     expect(
       isStorageSetupRequiredError(
         new Error(
-          "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
+          "No object storage is connected. Use Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
         ),
       ),
     ).toBe(true);
@@ -148,7 +148,7 @@ describe("buildImageDropAgentPayload", () => {
           ok: false,
           status: 503,
           error:
-            "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
+            "No object storage is connected. Use Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
         },
         dataUrl,
       }),

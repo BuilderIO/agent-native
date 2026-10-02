@@ -92,7 +92,7 @@ async function resolveBuilderPublishAuthorization(
     if (!server) continue;
     if (!server.oauthSecretKey) {
       throw new ActionContractError(
-        "Builder Publish is configured without OAuth custody. Reconnect Builder.io Publish in Settings to continue.",
+        "Builder.io Publish is configured without OAuth custody. Sign in to Builder.io Publish again in Settings to continue.",
         {
           errorCode: "builder_oauth_reauthorization_required",
           statusCode: 400,
@@ -131,7 +131,7 @@ async function resolveBuilderPublishAuthorization(
       )
     ) {
       throw new ActionContractError(
-        "Builder Publish access needs re-authorizing to grant mcp:publish:read. Open Settings and reconnect Builder.io Publish.",
+        "Builder.io Publish access needs re-authorizing to grant mcp:publish:read. Open Settings and authorize Builder.io Publish again.",
         {
           errorCode: "builder_oauth_reauthorization_required",
           statusCode: 400,
@@ -147,7 +147,7 @@ async function resolveBuilderPublishAuthorization(
     const match = authorization?.match(/^Bearer\s+(.+)$/i);
     if (!match?.[1]) {
       throw new ActionContractError(
-        "Builder Publish access expired. Reconnect Builder.io Publish in Settings to continue.",
+        "Builder.io Publish access expired. Sign in to Builder.io Publish again in Settings to continue.",
         {
           errorCode: "builder_oauth_reauthorization_required",
           statusCode: 400,
@@ -167,7 +167,7 @@ async function resolveBuilderPublishAuthorization(
     );
     if (personalServer) {
       throw new ActionContractError(
-        "Builder Publish is connected only for this user. Remove it and reconnect Builder.io Publish for the workspace.",
+        "Builder.io Publish is connected only for this user. Remove it and sign in to Builder.io Publish for the workspace.",
         {
           errorCode: "builder_oauth_reauthorization_required",
           statusCode: 400,
@@ -197,7 +197,7 @@ export async function resolveBuilderRequestAuthorization(
     if (publishAuthorization) return publishAuthorization;
     if (ownerEmail && (await readOAuthCustody(ownerEmail, orgId))) {
       throw new ActionContractError(
-        "Builder Publish access is not connected for this workspace. Connect Builder.io Publish in Settings to grant mcp:publish:read.",
+        "Builder.io Publish access is not connected for this workspace. Sign in to Builder.io Publish in Settings to grant mcp:publish:read.",
         {
           errorCode: "builder_oauth_reauthorization_required",
           statusCode: 400,

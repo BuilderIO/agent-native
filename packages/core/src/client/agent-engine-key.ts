@@ -352,7 +352,7 @@ export async function saveAgentEngineProviderSettings({
     throw new Error(
       message ??
         (res.status === 401
-          ? "Sign in to save a key, or connect Builder with a free tier instead."
+          ? "Sign in to save a key, or use Builder.io (free tier available) instead."
           : `Could not save provider settings (HTTP ${res.status}).`),
     );
   }

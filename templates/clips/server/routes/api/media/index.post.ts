@@ -23,7 +23,7 @@ import { requireOrganizationAccess } from "../../../lib/recordings.js";
 const MAX_BYTES = 5 * 1024 * 1024;
 
 const STORAGE_SETUP_REQUIRED_REASON =
-  "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.";
+  "No object storage is connected. Use Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.";
 
 function randId(): string {
   const chars =

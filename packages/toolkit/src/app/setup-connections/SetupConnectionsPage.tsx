@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { cn } from "@agent-native/toolkit/utils";
 import type { ReactNode } from "react";
 
@@ -23,7 +24,7 @@ export interface SetupConnectionsPageProps {
 
 export function SetupConnectionsPage({
   title = "Setup & connections",
-  description = "Manage setup status, Builder connect, app secrets, and workspace connections from one standard surface.",
+  description,
   onboardingTitle = "Setup checklist",
   focusSecretKey,
   providerReadiness,
@@ -35,6 +36,7 @@ export function SetupConnectionsPage({
   showIntegrations = false,
   className,
 }: SetupConnectionsPageProps) {
+  const t = useT();
   return (
     <div className={cn("min-h-full bg-background p-4 sm:p-6", className)}>
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
@@ -43,7 +45,7 @@ export function SetupConnectionsPage({
             {title}
           </h1>
           <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-            {description}
+            {description ?? t("agentChat.setup.connectionsDescription")}
           </p>
         </header>
 

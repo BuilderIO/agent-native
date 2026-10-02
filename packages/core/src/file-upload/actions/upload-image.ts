@@ -558,7 +558,7 @@ async function fetchRemote(url: string): Promise<{
 function uploadNotConfiguredError(): string {
   return [
     "No object storage is connected.",
-    "Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
+    "Use Builder.io's managed storage (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
   ].join(" ");
 }
 

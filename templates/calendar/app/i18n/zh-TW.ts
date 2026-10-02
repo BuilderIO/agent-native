@@ -225,7 +225,7 @@ export default {
     eventRulesConnectJev: "連接 Jev 以執行邀請規則",
     eventRulesFreeBuilderOrApiKey:
       "透過 Builder.io 免費使用，或新增 API 金鑰。",
-    eventRulesConnectBuilder: "連接 Builder.io",
+    eventRulesConnectBuilder: "使用 Builder.io",
     eventRulesAddJevApiKey: "新增 API 金鑰",
     eventRulesTabRules: "規則",
     eventRulesHelpLabel: "瞭解邀請規則提示",

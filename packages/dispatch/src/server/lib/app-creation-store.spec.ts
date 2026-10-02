@@ -1799,7 +1799,7 @@ describe("startWorkspaceAppCreation", () => {
       providerLabel: "Builder.io",
     });
     expect(result.message).toContain("Builder.io is not connected");
-    expect(result.message).toContain("Connect Builder.io");
+    expect(result.message).toContain("Use Builder.io");
     expect(result.message).not.toContain("try again");
   });
 
@@ -1880,7 +1880,7 @@ describe("startWorkspaceAppCreation", () => {
 
     expect(result.mode).toBe("builder");
     expect(result.connectRequired).toBeUndefined();
-    expect(result.message).not.toContain("Connect Builder.io");
+    expect(result.message).not.toContain("Use Builder.io");
   });
 
   it("provisions and remembers the workspace Builder project when none is configured", async () => {

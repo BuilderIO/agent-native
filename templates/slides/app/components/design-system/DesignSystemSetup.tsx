@@ -674,7 +674,7 @@ function DesignSystemSetupContent({
           })),
           null,
           2,
-        )}\n\`\`\`\n\nBuilder is the source of truth for repo/code design-system indexing. The action creates one local selectable proxy design system for Slides flows. If Builder is not connected, stop and tell me to connect Builder (free tier available) from Settings.`,
+        )}\n\`\`\`\n\nBuilder is the source of truth for repo/code design-system indexing. The action creates one local selectable proxy design system for Slides flows. If Builder is not connected, stop and tell me to use Builder.io (free tier available) from Settings.`,
       );
     }
 

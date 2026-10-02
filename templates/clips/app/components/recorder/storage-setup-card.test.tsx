@@ -133,9 +133,7 @@ describe("StorageSetupCard", () => {
   it("shows one Builder action and no inline terms or icons", async () => {
     await renderCard();
 
-    expect(container.textContent).toContain(
-      "storageSetup.createBuilderAccount",
-    );
+    expect(container.textContent).toContain("agentChat.setup.connectBuilder");
     expect(container.textContent).toContain("storageSetup.description");
     expect(container.textContent).not.toContain(CONSENT);
     expect(container.querySelector('a[href*="builder.io/legal"]')).toBeNull();
@@ -156,9 +154,7 @@ describe("StorageSetupCard", () => {
       flowState({ accountExists: true }),
     );
     await renderCard();
-    expect(container.textContent).toContain(
-      "storageSetup.signInWithBuilderAccount",
-    );
+    expect(container.textContent).toContain("agentChat.setup.connectBuilder");
   });
 
   it("creates an account only from the consent popover", async () => {
@@ -421,7 +417,7 @@ describe("StorageSetupCard", () => {
       statusReadSettledCount: 1,
       hasFetchedStatus: true,
       error:
-        "Couldn't open Builder from this chat host. Open this app in a browser tab and try Connect Builder again.",
+        "Couldn't open Builder from this chat host. Open this app in a browser tab and try Use Builder.io again.",
     });
 
     act(() => {

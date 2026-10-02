@@ -1101,7 +1101,7 @@ export interface TiptapComposerProps {
   providerConnectStatusEnabled?: boolean;
   /**
    * Override the Builder.io connect action in the model picker. When provided,
-   * clicking "Connect Builder.io" calls this instead of opening a browser popup.
+   * clicking "Use Builder.io" calls this instead of opening a browser popup.
    * Used by the Electron desktop app to route through the native IPC handler.
    */
   onConnectProvider?: () => void;
@@ -2274,10 +2274,10 @@ function ModelSelector({
                                       {builderFlow.connecting
                                         ? t("agentPanel.connectingBuilder", {
                                             defaultValue:
-                                              "Connecting Builder.io…",
+                                              "Setting up Builder.io…",
                                           })
                                         : t("agentPanel.connectBuilderIo", {
-                                            defaultValue: "Connect Builder.io",
+                                            defaultValue: "Use Builder.io",
                                           })}
                                     </span>
                                     <span className="block text-[11px] text-muted-foreground">
@@ -2312,10 +2312,10 @@ function ModelSelector({
                                     {builderFlow.connecting
                                       ? t("agentPanel.connectingBuilder", {
                                           defaultValue:
-                                            "Connecting Builder.io…",
+                                            "Setting up Builder.io…",
                                         })
                                       : t("agentPanel.connectBuilderIo", {
-                                          defaultValue: "Connect Builder.io",
+                                          defaultValue: "Use Builder.io",
                                         })}
                                   </span>
                                   <span className="block text-[11px] text-muted-foreground">

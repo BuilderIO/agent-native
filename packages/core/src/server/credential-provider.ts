@@ -121,7 +121,7 @@ export class FeatureNotConfiguredError extends Error {
   }) {
     super(
       opts.message ??
-        `Feature requires credential "${opts.requiredCredential}". Connect Builder (free tier available) or set your own key.`,
+        `Feature requires credential "${opts.requiredCredential}". Use Builder.io (free tier available) or set your own key.`,
     );
     this.name = "FeatureNotConfiguredError";
     this.requiredCredential = opts.requiredCredential;
@@ -1254,7 +1254,7 @@ export async function getBuilderCredentialAuthFailure(
       message:
         typeof row.message === "string" && row.message
           ? row.message
-          : "Builder rejected the connected credentials. Reconnect Builder.io (free tier available).",
+          : "Builder rejected the connected credentials. Sign in to Builder.io again (free tier available).",
       status: typeof row.status === "number" ? row.status : undefined,
       code: typeof row.code === "string" ? row.code : undefined,
       at,
@@ -1286,7 +1286,7 @@ export async function recordBuilderCredentialAuthFailure(details?: {
       fingerprint,
       message:
         details?.message ||
-        "Builder rejected the connected credentials. Reconnect Builder.io (free tier available).",
+        "Builder rejected the connected credentials. Sign in to Builder.io again (free tier available).",
       ...(typeof details?.status === "number" && { status: details.status }),
       ...(details?.code && { code: details.code }),
       strikes,

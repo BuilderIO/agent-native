@@ -1458,7 +1458,7 @@ export default function CodeAgentsApp({
           description: "Agent can now use Builder credits.",
         });
       } else {
-        toast("Builder.io connect did not finish", {
+        toast("Builder.io sign-in did not finish", {
           description: message,
         });
       }
@@ -1506,7 +1506,7 @@ export default function CodeAgentsApp({
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setBuilderConnectMessage(message);
-      toast("Builder.io connect did not finish", { description: message });
+      toast("Builder.io sign-in did not finish", { description: message });
     } finally {
       setBuilderConnecting(false);
     }
@@ -4203,7 +4203,7 @@ export function getProviderGate(
   ) {
     return {
       blocked: true,
-      description: "Connect Builder.io or add custom keys to start coding.",
+      description: "Use Builder.io or add custom keys to start coding.",
     };
   }
   return {
@@ -4257,7 +4257,9 @@ function ProviderGateNotice({
       className="code-agents-provider-gate"
       title="Connect AI"
       description={message ?? description}
-      primaryActionLabel={connecting ? "Waiting..." : "Connect Builder.io"}
+      primaryActionLabel={
+        connecting ? "Signing in to Builder.io…" : "Use Builder.io"
+      }
       primaryDisabled={connecting}
       onPrimaryAction={onConnectBuilder}
       bouncePulse={bouncePulse}
@@ -5458,10 +5460,10 @@ function RunDetailCard({
           title="Connect AI"
           description={
             builderConnectMessage ??
-            "Connect Builder.io or add custom keys to continue coding."
+            "Use Builder.io or add custom keys to continue coding."
           }
           primaryActionLabel={
-            builderConnecting ? "Waiting..." : "Connect Builder.io"
+            builderConnecting ? "Signing in to Builder.io…" : "Use Builder.io"
           }
           primaryDisabled={builderConnecting}
           onPrimaryAction={onConnectBuilder}

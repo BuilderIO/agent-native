@@ -723,7 +723,7 @@ export function ErrorRow({
   const isMissingAiKey = errorCode === "missing_api_key";
   const isSetupUnavailable = errorCode === "chat_setup_unavailable";
   const displayedError = isMissingAiKey
-    ? "Connect Builder AI or a custom provider API key in settings to start chatting."
+    ? "Use Builder.io or a custom provider API key in settings to start chatting."
     : isAuth
       ? "Your session expired. Sign in again to keep chatting."
       : error;
@@ -742,7 +742,7 @@ export function ErrorRow({
             onPress={onOpenSettings}
           >
             <Text className="text-xs font-bold text-primary-foreground">
-              Connect
+              Use Builder.io
             </Text>
           </Pressable>
         )}

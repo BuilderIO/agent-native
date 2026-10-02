@@ -595,7 +595,9 @@ export function CreateAppFlow({
                   disabled={connectFlow.connecting}
                   className="w-fit"
                 >
-                  {connectFlow.connecting ? "Connecting..." : "Connect Builder"}
+                  {connectFlow.connecting
+                    ? "Setting up Builder.io…"
+                    : "Use Builder.io"}
                 </Button>
               </BuilderConnectPopover>
               <a

@@ -4025,7 +4025,7 @@ export function permanentPreconditionRemedy(message: string): string | null {
 const PERMANENT_PRECONDITION_PATTERNS: readonly RegExp[] = [
   /\b(?:api[ -]?keys?|access tokens?|credentials?|secrets?)\b[^.]{0,60}\bnot (?:configured|set|connected|available)\b/i,
   /\bsave [A-Z][A-Z0-9_]{3,} in (?:the )?settings\b/i,
-  /(?:^|[.:!?]\s+)Connect [A-Z][\w.-]*[^;]{0,40}?\b(?:before|first|in settings)\b/,
+  /(?:^|[.:!?]\s+)(?:Connect|Use) [A-Z][\w.-]*[^;]{0,40}?\b(?:before|first|in settings|to)\b/,
   /\bplan mode blocked\b/i,
   /\bno authenticated user\b/i,
   /\bssrf blocked\b/i,

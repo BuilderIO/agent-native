@@ -370,9 +370,9 @@ const messages = {
       "Deixe nosso agente de nuvem fazer as alterações para você. Você receberá um link para visualizar e implantar.",
     codeChangeTitle: "Isso requer uma mudança de código",
     codeChangeBadge: "Mudança de código",
-    connectBuilderTitle: "Conectar Builder.io",
+    connectBuilderTitle: "Usar o Builder.io",
     connectBuilderDescription:
-      "Connect Builder (nível gratuito disponível) para permitir alterações de código baseadas em nuvem deste aplicativo.",
+      "Use o Builder.io (nível gratuito disponível) para permitir alterações de código baseadas em nuvem deste aplicativo.",
     setupRequired: "Configuração necessária",
     branchCreated: "Filial criada",
     close: "Fechar",
@@ -626,7 +626,7 @@ const messages = {
     back: "Voltar",
     agentEngineRequired: "Mecanismo de agente necessário",
     agentEngineDescription:
-      "Connect Builder.io (nível gratuito disponível) or an LLM key before {{platform}} can answer.",
+      "Use o Builder.io (nível gratuito disponível) ou uma chave de LLM antes que {{platform}} possa responder.",
     openLlm: "Abra LLM",
     setup: "Setup",
     shareDocumentsWith: "Compartilhe documentos com",

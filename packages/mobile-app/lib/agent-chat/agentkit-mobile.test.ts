@@ -192,7 +192,7 @@ describe("mobile AgentKit adapter", () => {
       type: "error",
       errorCode: "builder_auth_error",
       error:
-        "Error: Builder rejected the connected credentials. Reconnect Builder.io (free tier available) in Settings, then retry.",
+        "Error: Builder rejected the connected credentials. Sign in to Builder.io again (free tier available) in Settings, then retry.",
     });
     expect(mobileAgentKitEventToWireEvent(event)?.error).not.toContain(
       "secret-token-123",
@@ -516,7 +516,7 @@ describe("mobile AgentKit adapter", () => {
     getSessionTokenMock.mockResolvedValue("test-session-token");
     expoFetchMock.mockClear();
     const guidance =
-      "No object storage is connected. Connect Builder.io or add S3-compatible storage in Settings → File uploads.";
+      "No object storage is connected. Use Builder.io's managed storage (free) or add your own S3-compatible storage keys in Settings → File uploads.";
     expoFetchMock.mockResolvedValue(
       Response.json({ error: guidance }, { status: 503 }),
     );
@@ -649,7 +649,7 @@ describe("mobile AgentKit adapter", () => {
 
     expect(agentKitThreadToMobileTurnState(thread)).toMatchObject({
       error:
-        "Error: Builder rejected the connected credentials. Reconnect Builder.io (free tier available) in Settings, then retry.",
+        "Error: Builder rejected the connected credentials. Sign in to Builder.io again (free tier available) in Settings, then retry.",
       errorCode: "builder_auth_error",
     });
   });

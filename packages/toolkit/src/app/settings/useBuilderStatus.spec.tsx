@@ -1,9 +1,11 @@
-import { openMcpAppHostLink } from "@agent-native/core/client/mcp-app-host";
 // @vitest-environment happy-dom
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
+import { openMcpAppHostLink } from "@agent-native/core/client/mcp-app-host";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createToolkitI18nCatalog } from "../i18n.js";
 import { BuilderConnectPopover } from "./BuilderConnectPopover.js";
 import {
   isBuilderConnectComplete,
@@ -12,6 +14,8 @@ import {
   withBuilderConnectTrackingParams,
   type BuilderConnectionScope,
 } from "./useBuilderStatus.js";
+
+const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
 
 vi.mock("@agent-native/core/client/mcp-app-host", () => ({
   openMcpAppHostLink: vi.fn(() => false),
@@ -43,7 +47,7 @@ function setEmbeddedWindow(embedded: boolean) {
   });
 }
 
-function BuilderConnectProbe({
+function BuilderConnectProbeContent({
   enabled = true,
   popupUrl,
   provisionAccount = false,
@@ -103,12 +107,36 @@ function BuilderConnectProbe({
   );
 }
 
-function BuilderConnectPopoverProbe() {
+function BuilderConnectProbe(
+  props: React.ComponentProps<typeof BuilderConnectProbeContent>,
+) {
+  return (
+    <AgentNativeI18nProvider
+      catalog={toolkitI18nCatalog}
+      persistPreference={false}
+    >
+      <BuilderConnectProbeContent {...props} />
+    </AgentNativeI18nProvider>
+  );
+}
+
+function BuilderConnectPopoverProbeContent() {
   const flow = useBuilderConnectFlow();
   return (
     <BuilderConnectPopover flow={flow}>
       <button type="button">Connect</button>
     </BuilderConnectPopover>
+  );
+}
+
+function BuilderConnectPopoverProbe() {
+  return (
+    <AgentNativeI18nProvider
+      catalog={toolkitI18nCatalog}
+      persistPreference={false}
+    >
+      <BuilderConnectPopoverProbeContent />
+    </AgentNativeI18nProvider>
   );
 }
 
@@ -816,7 +844,7 @@ describe("useBuilderConnectFlow", () => {
       expect(activationAttempts).toBe(1);
       expect(container.textContent).toContain("configured idle resolved");
       expect(container.textContent).not.toContain(
-        "Couldn't start Builder connect.",
+        "Couldn't start Builder.io setup.",
       );
       expect(onConnected).toHaveBeenCalled();
       expect(openSpy).not.toHaveBeenCalled();
@@ -852,7 +880,7 @@ describe("useBuilderConnectFlow", () => {
 
       expect(container.textContent).toContain("configured idle");
       expect(container.textContent).toContain(
-        "Couldn't start Builder connect. Refresh this page and try again.",
+        "Couldn't start Builder.io setup. Refresh this page and try again.",
       );
       expect(onConnected).not.toHaveBeenCalled();
     });
@@ -868,7 +896,7 @@ describe("useBuilderConnectFlow", () => {
 
       expect(container.textContent).toContain("not-configured idle");
       expect(container.textContent).toContain(
-        "Couldn't start Builder connect. Refresh this page and try again.",
+        "Couldn't start Builder.io setup. Refresh this page and try again.",
       );
     });
 
@@ -918,7 +946,7 @@ describe("useBuilderConnectFlow", () => {
       expect(posts).toHaveLength(2);
       expect(container.textContent).toContain("not-configured idle");
       expect(container.textContent).toContain(
-        "Couldn't start Builder connect. Refresh this page and try again.",
+        "Couldn't start Builder.io setup. Refresh this page and try again.",
       );
     });
 
@@ -1001,7 +1029,7 @@ describe("useBuilderConnectFlow", () => {
 
       expect(container.textContent).toContain("not-configured idle");
       expect(container.textContent).toContain(
-        "Couldn't start Builder connect. Refresh this page and try again.",
+        "Couldn't start Builder.io setup. Refresh this page and try again.",
       );
       expect(onConnected).not.toHaveBeenCalled();
       expect(openSpy).not.toHaveBeenCalled();
@@ -1063,33 +1091,41 @@ describe("useBuilderConnectFlow", () => {
     });
   });
 
-  it("uses the click-time provisioning capability instead of a stale closure", async () => {
-    setUserAgent("Mozilla/5.0 Chrome/140.0");
-    const popup = createPopupStub();
-    openSpy.mockReturnValue(popup);
+  it("refreshes stale provisioning capability and never opens OAuth to create", async () => {
     vi.mocked(fetch).mockReset();
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(
-        jsonResponse({
+    let statusReads = 0;
+    let activationPosts = 0;
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/_agent-native/builder/provision") {
+        activationPosts += 1;
+        return jsonResponse({ ok: true, scope: "personal" });
+      }
+      statusReads += 1;
+      if (statusReads === 1) {
+        return jsonResponse({
           configured: false,
           agentNativeProvisioningEnabled: false,
           envManaged: false,
           builderEnabled: true,
           orgName: null,
           connectUrl: signedConnectUrl,
-        }),
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          configured: false,
-          agentNativeProvisioningEnabled: true,
-          agentNativeProvisioningToken: provisioningToken,
-          envManaged: false,
-          builderEnabled: true,
-          orgName: null,
-          connectUrl: signedConnectUrl,
-        }),
+        });
+      }
+      return jsonResponse(
+        activationPosts
+          ? connectedBuilderStatus
+          : {
+              configured: false,
+              agentNativeProvisioningEnabled: true,
+              agentNativeProvisioningToken: provisioningToken,
+              envManaged: false,
+              builderEnabled: true,
+              orgName: null,
+              connectUrl: signedConnectUrl,
+            },
       );
+    });
 
     await act(async () => {
       root.render(<BuilderConnectProbe provisionAccount />);
@@ -1105,19 +1141,12 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
-    expect(withoutConnectAttempt(popup.location.href)).toBe(
-      expectedProvisionedConnectUrl(signedConnectUrl),
-    );
-    expect(
-      new URL(popup.location.href).searchParams.get("_an_connect_attempt"),
-    ).toMatch(/^[0-9a-f-]{36}$/);
+    expect(activationPosts).toBe(1);
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("configured idle resolved");
   });
 
-  it("keeps account provisioning dormant when the server does not advertise it", async () => {
-    setUserAgent("Mozilla/5.0 Chrome/140.0");
-    const popup = createPopupStub();
-    openSpy.mockReturnValue(popup);
-
+  it("does not open OAuth when one-click provisioning is unavailable", async () => {
     await act(async () => {
       root.render(<BuilderConnectProbe provisionAccount />);
       await Promise.resolve();
@@ -1132,8 +1161,9 @@ describe("useBuilderConnectFlow", () => {
       await Promise.resolve();
     });
 
-    expect(withoutConnectAttempt(popup.location.href)).toBe(
-      expectedConnectUrl(signedConnectUrl),
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(
+      "Couldn't start Builder.io setup. Refresh this page and try again.",
     );
   });
 
@@ -1286,7 +1316,7 @@ describe("useBuilderConnectFlow", () => {
       expectedConnectUrl(signedConnectUrl),
     );
     expect(container.textContent).not.toContain(
-      "Couldn't start Builder connect",
+      "Couldn't start Builder.io setup",
     );
   });
 
@@ -1807,7 +1837,7 @@ describe("useBuilderConnectFlow", () => {
       expectedConnectUrl(signedConnectUrl),
     );
     expect(container.textContent).not.toContain(
-      "Couldn't start Builder connect",
+      "Couldn't start Builder.io setup",
     );
 
     resolveInitialFetch(jsonResponse({ configured: false }));
@@ -1969,7 +1999,7 @@ describe("useBuilderConnectFlow", () => {
 
     expect(container.textContent).toContain("not-configured connecting");
     expect(container.textContent).not.toContain(
-      "Couldn't start Builder connect",
+      "Couldn't start Builder.io setup",
     );
   });
 
@@ -2055,7 +2085,7 @@ describe("useBuilderConnectFlow", () => {
 
     expect(container.textContent).toContain("configured idle resolved");
     expect(container.textContent).not.toContain(
-      "Couldn't start Builder connect",
+      "Couldn't start Builder.io setup",
     );
   });
 
@@ -2110,7 +2140,7 @@ describe("useBuilderConnectFlow", () => {
 
     expect(container.textContent).toContain("not-configured connecting");
     expect(container.textContent).not.toContain(
-      "Couldn't start Builder connect",
+      "Couldn't start Builder.io setup",
     );
 
     await act(async () => {
@@ -2272,7 +2302,7 @@ describe("useBuilderConnectFlow", () => {
 
     expect(container.textContent).toContain("not-configured idle");
     expect(container.textContent).toContain(
-      "Didn't finish connecting to Builder.io",
+      "Builder.io setup didn't finish. Try again, or use your own keys.",
     );
 
     const button = container.querySelector("button");
@@ -2339,7 +2369,7 @@ describe("useBuilderConnectFlow", () => {
 
     expect(container.textContent).toContain("not-configured idle");
     expect(container.textContent).toContain(
-      "Didn't finish connecting to Builder.io",
+      "Builder.io setup didn't finish. Try again, or use your own keys.",
     );
   });
 
@@ -2416,7 +2446,7 @@ describe("useBuilderConnectFlow", () => {
 
     expect(container.textContent).toContain("configured idle resolved");
     expect(container.textContent).not.toContain(
-      "Didn't finish connecting to Builder.io",
+      "Builder.io setup didn't finish. Try again, or use your own keys.",
     );
   });
 
@@ -2488,7 +2518,7 @@ describe("useBuilderConnectFlow", () => {
 
     expect(container.textContent).toContain("not-configured idle");
     expect(container.textContent).toContain(
-      "Didn't finish connecting to Builder.io",
+      "Builder.io setup didn't finish. Try again, or use your own keys.",
     );
   });
 
@@ -2592,7 +2622,7 @@ describe("useBuilderConnectFlow", () => {
 
     expect(container.textContent).toContain("not-configured idle");
     expect(container.textContent).toContain(
-      "Didn't finish connecting to Builder.io",
+      "Builder.io setup didn't finish. Try again, or use your own keys.",
     );
   });
 
@@ -2716,7 +2746,7 @@ describe("useBuilderConnectFlow", () => {
 
     expect(container.textContent).toContain("not-configured idle");
     expect(container.textContent).toContain(
-      "Didn't finish connecting to Builder.io",
+      "Builder.io setup didn't finish. Try again, or use your own keys.",
     );
   });
 
@@ -2802,7 +2832,7 @@ describe("useBuilderConnectFlow", () => {
     });
     expect(container.textContent).toContain("not-configured idle");
     expect(container.textContent).toContain(
-      "Didn't finish connecting to Builder.io",
+      "Builder.io setup didn't finish. Try again, or use your own keys.",
     );
     releaseStalledStatus?.();
   });

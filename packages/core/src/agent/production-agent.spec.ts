@@ -8524,7 +8524,7 @@ describe("runAgentLoop", () => {
   it("classifies permanent preconditions and leaves recoverable failures alone", () => {
     for (const permanent of [
       "Error running generate-slides-ai: Gemini API key not configured. Save GEMINI_API_KEY in settings.",
-      "Error running index-design-system-with-builder: Connect Builder.io before indexing a design system from Figma or code.",
+      "Error running index-design-system-with-builder: Use Builder.io (free tier available) to index a design system from Figma or code.",
       "Error running connect-google-calendar: Connect Google Calendar in settings first.",
       "Plan mode blocked `update-extension`. Switch to Act mode after the user approves the plan, then retry the action.",
       "no authenticated user",
