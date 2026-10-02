@@ -374,38 +374,59 @@ describe("OAuth credential lifecycle", () => {
   });
 
   it("renews the lease while a slow rotating refresh is in flight", async () => {
-    await saveOAuthCredential(
-      identity,
-      credential({ expiresAt: Date.now() - 1 }),
-    );
-    const refresh = vi.fn(async ({ credential: current }) => {
-      await new Promise((resolve) => setTimeout(resolve, 40));
-      return {
-        ...current,
-        tokens: {
-          ...current.tokens,
-          access_token: "<SLOW_ROTATED_ACCESS_TOKEN>",
-          refresh_token: "<SLOW_ROTATED_REFRESH_TOKEN>",
-        },
-        tokenExpiresAt: Date.now() + 3_600_000,
+    vi.useFakeTimers();
+    try {
+      await saveOAuthCredential(
+        identity,
+        credential({ expiresAt: Date.now() - 1 }),
+      );
+      let finishRefresh!: () => void;
+      const refreshGate = new Promise<void>((resolve) => {
+        finishRefresh = resolve;
+      });
+      const refresh = vi.fn(async ({ credential: current }) => {
+        await refreshGate;
+        return {
+          ...current,
+          tokens: {
+            ...current.tokens,
+            access_token: "<SLOW_ROTATED_ACCESS_TOKEN>",
+            refresh_token: "<SLOW_ROTATED_REFRESH_TOKEN>",
+          },
+          tokenExpiresAt: Date.now() + 3_600_000,
+        };
+      });
+      const options = {
+        refresh,
+        leaseMs: 12,
+        waitMs: 1,
+        maxWaitMs: 1_000,
       };
-    });
-    const options = {
-      refresh,
-      leaseMs: 12,
-      waitMs: 1,
-      maxWaitMs: 1_000,
-    };
 
-    const first = resolveOAuthCredentialAccess(identity, options);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    const second = resolveOAuthCredentialAccess(identity, options);
+      const first = resolveOAuthCredentialAccess(identity, options);
+      for (
+        let attempts = 0;
+        attempts < 10 && !refresh.mock.calls.length;
+        attempts++
+      ) {
+        await Promise.resolve();
+      }
+      expect(refresh).toHaveBeenCalledTimes(1);
 
-    await expect(Promise.all([first, second])).resolves.toEqual([
-      expect.objectContaining({ accessToken: "<SLOW_ROTATED_ACCESS_TOKEN>" }),
-      expect.objectContaining({ accessToken: "<SLOW_ROTATED_ACCESS_TOKEN>" }),
-    ]);
-    expect(refresh).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(20);
+      const second = resolveOAuthCredentialAccess(identity, options);
+      await vi.advanceTimersByTimeAsync(2);
+      finishRefresh();
+      await vi.advanceTimersByTimeAsync(4);
+
+      await expect(Promise.all([first, second])).resolves.toEqual([
+        expect.objectContaining({ accessToken: "<SLOW_ROTATED_ACCESS_TOKEN>" }),
+        expect.objectContaining({ accessToken: "<SLOW_ROTATED_ACCESS_TOKEN>" }),
+      ]);
+      expect(refresh).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not steal an active revisionless lease during a rolling deployment", async () => {

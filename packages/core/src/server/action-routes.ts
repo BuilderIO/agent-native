@@ -53,6 +53,7 @@ import {
   countActionFailure,
   countCredentialState,
 } from "../tracking/failure-counters.js";
+import { redact, redactErrorStack } from "../tracking/redaction.js";
 import { notifyActionChange } from "./action-change.js";
 import {
   readBrowserSessionIdHeader,
@@ -1116,7 +1117,7 @@ function mountActionRoutesInternal(
                 action: name,
                 ...(requestId ? { requestId } : {}),
                 ...(captureId ? { captureId } : {}),
-                error: err?.stack ?? String(err),
+                error: redactErrorStack(err) ?? redact(String(err)),
               });
               return { error: "Internal server error" };
             }
