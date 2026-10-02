@@ -173,6 +173,9 @@ describe("ResourceAccessScreen", () => {
 
     expect(onRequest).toHaveBeenCalledWith("Need this for the launch review.");
     expect(document.body.querySelector("textarea")).toBeNull();
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(container.querySelector("h1"));
+    });
   });
 
   it("says the request was sent and stops offering another", () => {

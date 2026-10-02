@@ -12,7 +12,14 @@ import {
   IconLogin2,
   IconTrash,
 } from "@tabler/icons-react";
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 
 export type ResourceAccessScreenState =
   | "denied"
@@ -227,6 +234,7 @@ export function ResourceAccessScreen({
           open={requestOpen}
           onOpenChange={setRequestOpen}
           request={request}
+          sentFocusRef={headingRef}
         />
       ) : null}
     </Root>
@@ -237,14 +245,18 @@ function RequestAccessDialog({
   open,
   onOpenChange,
   request,
+  sentFocusRef,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   request: ResourceAccessScreenRequest;
+  sentFocusRef: RefObject<HTMLElement | null>;
 }) {
   const t = useT();
   const [note, setNote] = useState("");
   const [failed, setFailed] = useState(false);
+  // Once sent, Request access is gone, so focus can't return to it.
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
   const errorCode = failed ? (request.error?.errorCode ?? null) : null;
 
   const send = async () => {
@@ -252,6 +264,7 @@ function RequestAccessDialog({
     try {
       await request.onRequest(note);
       setNote("");
+      restoreFocusRef.current = sentFocusRef.current;
       onOpenChange(false);
     } catch {
       setFailed(true);
@@ -270,6 +283,7 @@ function RequestAccessDialog({
       })}
       closeLabel={t("agentChat.accessGate.cancel", { defaultValue: "Cancel" })}
       size="small"
+      restoreFocusRef={restoreFocusRef}
       footer={
         <div className="flex justify-end gap-2">
           <ActionButton emphasis="outline" onPress={() => onOpenChange(false)}>
