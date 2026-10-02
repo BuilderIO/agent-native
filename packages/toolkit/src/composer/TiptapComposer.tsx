@@ -104,8 +104,22 @@ import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
  */
 export interface ComposerDraftSnapshot {
   text: string;
+  /** Each reference exactly as it would be submitted, stably serialized. */
   referenceKeys: string[];
   attachmentIds: string[];
+}
+
+/** The same value always serializes the same, whatever order its keys were set in. */
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
 }
 
 const attachmentFileInstances = new WeakMap<object, number>();
@@ -139,9 +153,7 @@ export function composerDraftSnapshot(
 ): ComposerDraftSnapshot {
   return {
     text,
-    referenceKeys: references.map(
-      (ref) => `${ref.type}:${ref.path}:${ref.refId ?? ""}:${ref.name}`,
-    ),
+    referenceKeys: references.map((ref) => stableJson(ref)),
     attachmentIds: attachments.map(composerAttachmentIdentity),
   };
 }
