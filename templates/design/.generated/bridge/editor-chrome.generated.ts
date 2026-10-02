@@ -5624,6 +5624,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     var activeEditorDragId = "";
     var bridgeSpaceKeyPressed = false;
     var bridgeIgnoreAutoLayoutKeyPressed = false;
+    var bridgeIgnoreAutoLayoutChangedAt;
+    var endedCrossScreenModifierSnapshots = /* @__PURE__ */ new Map();
     var hostIgnoreAutoLayoutAtPointerDown = false;
     var bridgeSpaceKeyConsumedByDrag = false;
     function resetBridgeDragModifierStateOnCancel() {
@@ -5636,6 +5638,35 @@ export const editorChromeBridgeScript: string = `"use strict";
     var activeCrossScreenComputedSize;
     var activeCrossScreenDeleteRequestId = void 0;
     var activeCrossScreenDragIdentity = null;
+    function rememberEndedCrossScreenModifierSnapshot(snapshotId) {
+      var previousSnapshot = endedCrossScreenModifierSnapshots.get(snapshotId);
+      if (previousSnapshot) clearTimeout(previousSnapshot.timeoutId);
+      var endedSnapshot;
+      var timeoutId = setTimeout(function() {
+        if (endedCrossScreenModifierSnapshots.get(snapshotId) === endedSnapshot) {
+          endedCrossScreenModifierSnapshots.delete(snapshotId);
+        }
+      }, 1e3);
+      endedSnapshot = {
+        ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
+        changedAt: bridgeIgnoreAutoLayoutChangedAt,
+        timeoutId
+      };
+      endedCrossScreenModifierSnapshots.set(snapshotId, endedSnapshot);
+    }
+    function postCrossScreenModifierState(ignoreAutoLayout, event) {
+      var changedAt = eventEpochMilliseconds(event);
+      bridgeIgnoreAutoLayoutChangedAt = changedAt;
+      if (!activeCrossScreenDragIdentity) return;
+      window.parent.postMessage(
+        {
+          type: "agent-native:cross-screen-modifiers",
+          ignoreAutoLayout,
+          changedAt
+        },
+        "*"
+      );
+    }
     var spacingDrag = null;
     var lockedSelectors = [];
     var hiddenSelectors = [];
@@ -6436,6 +6467,26 @@ export const editorChromeBridgeScript: string = `"use strict";
         live.removeChild(stale);
       }
     }
+    function reconcileRuntimeVectorStrokeOverlay(live, next, sourceOwned) {
+      if (live.tagName.toLowerCase() !== "svg" || next.tagName.toLowerCase() !== "svg") {
+        return;
+      }
+      var nextChildren = Array.from(next.children);
+      var hasSourceStrokeDefs = nextChildren.some(function(child) {
+        return child.tagName.toLowerCase() === "defs" && child.hasAttribute("data-an-vector-stroke-defs");
+      });
+      var hasSourceStrokeOverlay = nextChildren.some(function(child) {
+        return child.tagName.toLowerCase() === "use" && child.hasAttribute("data-an-vector-stroke-overlay");
+      });
+      if (!hasSourceStrokeDefs || !hasSourceStrokeOverlay) return;
+      Array.from(live.children).forEach(function(child) {
+        if (sourceOwned(child)) return;
+        var tagName = child.tagName.toLowerCase();
+        if (tagName === "defs" && child.hasAttribute("data-an-vector-stroke-defs") || tagName === "use" && child.hasAttribute("data-an-vector-stroke-overlay")) {
+          child.remove();
+        }
+      });
+    }
     function morphElement(live, next, context) {
       morphFormState(live, next);
       var previousSource = sourceMetaFor(live);
@@ -6452,6 +6503,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
       if (declaresRuntimeChildren(next) || declaresRuntimeChildren(live)) return;
+      reconcileRuntimeVectorStrokeOverlay(live, next, isSourceOwned);
       var liveTemplate = templateContentOf(live);
       var nextTemplate = templateContentOf(next);
       if (liveTemplate && nextTemplate) {
@@ -12896,6 +12948,15 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cs = window.getComputedStyle(el);
       return cs.display === "flex" || cs.display === "inline-flex" || cs.display === "grid" || cs.display === "inline-grid";
     }
+    function isAutoLayoutFlowTarget(el) {
+      if (!el) return false;
+      if (isAutoLayoutElement(el)) return true;
+      if (el.getAttribute("data-an-primitive") !== "frame" || !isAutoLayoutElement(el.parentElement)) {
+        return false;
+      }
+      var position = window.getComputedStyle(el).position;
+      return position !== "absolute" && position !== "fixed";
+    }
     var BRIDGE_REPLACED_TAGS = {
       img: true,
       video: true,
@@ -13141,33 +13202,44 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       return result.width !== void 0 || result.height !== void 0 ? result : void 0;
     }
-    function eventEpochMilliseconds(ev) {
+    function eventEpochMilliseconds(ev, eventWindow) {
+      var eventPerformance = (eventWindow || window).performance;
       if (ev?.isTrusted === false) {
-        return performance.timeOrigin + performance.now();
+        return eventPerformance.timeOrigin + eventPerformance.now();
       }
       if (typeof ev?.timeStamp !== "number" || !Number.isFinite(ev.timeStamp)) {
         return void 0;
       }
-      return ev.timeStamp >= 1e12 ? ev.timeStamp : performance.timeOrigin + ev.timeStamp;
+      return ev.timeStamp >= 1e12 ? ev.timeStamp : eventPerformance.timeOrigin + ev.timeStamp;
     }
     function postCrossScreenDrag(phase, el, ev, options) {
       dndLog("post:cross-screen", { phase, el: getSelector(el ?? null) });
       if (phase === "cancel") {
+        const sourceDeleteRequestId = activeCrossScreenDeleteRequestId;
         activeCrossScreenStyleSnapshot = void 0;
         activeCrossScreenSourceHtml = void 0;
         activeCrossScreenComputedSize = void 0;
         activeCrossScreenDragIdentity = null;
         activeCrossScreenDeleteRequestId = void 0;
         window.parent.postMessage(
-          { type: "agent-native:cross-screen-drag", phase: "cancel" },
+          {
+            type: "agent-native:cross-screen-drag",
+            phase: "cancel",
+            sourceDeleteRequestId
+          },
           "*"
         );
         return;
       }
       if (phase === "start") {
+        if (activeCrossScreenDeleteRequestId && activeCrossScreenDragIdentity) {
+          rememberEndedCrossScreenModifierSnapshot(
+            activeCrossScreenDeleteRequestId
+          );
+        }
         activeCrossScreenDeleteRequestId = \`cross-screen-source-\${Date.now().toString(36)}-\${Math.random().toString(36).slice(2)}\`;
         activeCrossScreenStyleSnapshot = options?.styleSnapshot !== void 0 ? options.styleSnapshot : collectPortableStyleSnapshot(el ?? null);
-        activeCrossScreenSourceHtml = el?.outerHTML;
+        activeCrossScreenSourceHtml = el ? cloneHtmlForPersistence(el) : void 0;
         var computed = el ? window.getComputedStyle(el) : null;
         activeCrossScreenComputedSize = crossScreenAutoLayoutSizeFallback(
           el ?? null,
@@ -13192,6 +13264,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         x: ev.clientX - rect.left,
         y: ev.clientY - rect.top
       } : void 0);
+      if (phase === "end" && activeCrossScreenDeleteRequestId) {
+        rememberEndedCrossScreenModifierSnapshot(
+          activeCrossScreenDeleteRequestId
+        );
+      }
       window.parent.postMessage(
         {
           type: "agent-native:cross-screen-drag",
@@ -13219,18 +13296,25 @@ export const editorChromeBridgeScript: string = `"use strict";
           modifiers: options?.modifiers,
           duplicate: options?.duplicate === true ? true : void 0,
           sourceCloneHtml: phase === "start" || phase === "end" ? activeCrossScreenSourceHtml : void 0,
+          startedAt: phase === "start" ? eventEpochMilliseconds(ev) : void 0,
           releasedAt: phase === "end" ? eventEpochMilliseconds(ev) : void 0
         },
         "*"
       );
       if (phase === "end") {
         bridgeIgnoreAutoLayoutKeyPressed = false;
+        bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(ev) ?? Date.now();
         activeCrossScreenStyleSnapshot = void 0;
         activeCrossScreenSourceHtml = void 0;
         activeCrossScreenComputedSize = void 0;
         activeCrossScreenDragIdentity = null;
         activeCrossScreenDeleteRequestId = void 0;
       }
+    }
+    function cloneHtmlForPersistence(el) {
+      var clone = el.cloneNode(true);
+      clone.removeAttribute("data-agent-native-transient-drag-clone");
+      return clone.outerHTML;
     }
     var BRIDGE_CONTAINER_TAGS = [
       "div",
@@ -15008,7 +15092,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           sourceRect: rectInfoForElement(cloneEl),
           anchorRect: rectInfoForElement(anchorEl),
           sourceNodeIdMap: Array.isArray(sourceNodeIdMap) ? sourceNodeIdMap : void 0,
-          cloneHtml: cloneEl.outerHTML,
+          cloneHtml: cloneHtmlForPersistence(cloneEl),
           payload: getElementInfo(cloneEl),
           anchorPayload: getElementInfo(anchorEl)
         },
@@ -15810,6 +15894,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var clone = selectedEl.cloneNode(true);
         duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone);
         clone.setAttribute("data-agent-native-clone-root", "true");
+        clone.setAttribute("data-agent-native-transient-drag-clone", "true");
         selectedEl.parentElement.insertBefore(clone, selectedEl.nextSibling);
         resetFlowDuplicateGridPlacement(clone);
         publishSourceDocumentProvenance(void 0, true);
@@ -16080,6 +16165,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           var clone2 = sourceEl.cloneNode(true);
           duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone2);
           clone2.setAttribute("data-agent-native-clone-root", "true");
+          clone2.setAttribute("data-agent-native-transient-drag-clone", "true");
           if (sourceEl.parentElement) {
             sourceEl.parentElement.insertBefore(clone2, sourceEl.nextSibling);
           }
@@ -16883,7 +16969,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           return target;
         }
         var container = dropContainerForTarget(target);
-        if (!container || container === dragEl || container === document.body || container === document.documentElement || !isAutoLayoutElement(container)) {
+        if (!container || container === dragEl || container === document.body || container === document.documentElement || !isAutoLayoutFlowTarget(container)) {
           return target;
         }
         var crect = container.getBoundingClientRect();
@@ -16892,16 +16978,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var parent = container.parentElement;
         if (!parent) return null;
-        var pcs = window.getComputedStyle(parent);
-        var pAxis = pcs.flexDirection === "column" || pcs.flexDirection === "column-reverse" ? "y" : "x";
-        var center = pAxis === "x" ? crect.left + crect.width / 2 : crect.top + crect.height / 2;
-        var pointer = pAxis === "x" ? ev ? ev.clientX : center : ev ? ev.clientY : center;
-        return {
-          anchor: container,
-          placement: pointer < center ? "before" : "after",
-          axis: pAxis,
-          dropMode: "flow-insert"
-        };
+        var pointerX = ev ? ev.clientX : crect.left + crect.width / 2;
+        var pointerY = ev ? ev.clientY : crect.top + crect.height / 2;
+        var excluded = [dragEl].concat(groupOthers || []);
+        return nearestChildInsertionTarget(parent, pointerX, pointerY, excluded);
       }
       function cancelAutoLayoutTargetResolution() {
         pendingAutoLayoutTargetPoint = null;
@@ -17061,6 +17141,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         var clone2 = source.cloneNode(true);
         duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone2);
         clone2.setAttribute("data-agent-native-clone-root", "true");
+        clone2.setAttribute("data-agent-native-transient-drag-clone", "true");
         source.parentElement.insertBefore(clone2, source.nextSibling);
         clone2.style.position = heldPosition.position;
         clone2.style.left = heldPosition.left;
@@ -17284,7 +17365,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             modifiers: {
               metaKey: !!ev.metaKey,
               ctrlKey: !!ev.ctrlKey,
-              ignoreAutoLayout: ignoreAutoLayoutHeld(ev),
+              ignoreAutoLayout: isIgnoreAutoLayoutChordForDragPoint(ev),
               forceNestedAutoLayout: isPlatformPrimaryChord(ev)
             }
           });
@@ -19279,7 +19360,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       function(e) {
         if (interactionMode) return;
         if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+          var wasIgnoreAutoLayoutPressed = bridgeIgnoreAutoLayoutKeyPressed;
           bridgeIgnoreAutoLayoutKeyPressed = true;
+          if (!wasIgnoreAutoLayoutPressed) {
+            postCrossScreenModifierState(true, e);
+          }
         }
         if (e.key === " " && e.code === "Space" && !activeTextEditEl && !isEditorTypingTarget(e.target)) {
           bridgeSpaceKeyPressed = true;
@@ -19390,11 +19475,23 @@ export const editorChromeBridgeScript: string = `"use strict";
       modifierListenerWindows.get(window)?.cleanup();
       var onParentModifierKeyDown = function(e) {
         if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+          if (!bridgeIgnoreAutoLayoutKeyPressed) {
+            bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(
+              e,
+              window.parent
+            );
+          }
           bridgeIgnoreAutoLayoutKeyPressed = true;
         }
       };
       var onParentModifierKeyUp = function(e) {
         if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+          if (bridgeIgnoreAutoLayoutKeyPressed) {
+            bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(
+              e,
+              window.parent
+            );
+          }
           bridgeIgnoreAutoLayoutKeyPressed = false;
         }
       };
@@ -19424,7 +19521,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       "keyup",
       function(e) {
         if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+          var wasIgnoreAutoLayoutPressed = bridgeIgnoreAutoLayoutKeyPressed;
           bridgeIgnoreAutoLayoutKeyPressed = false;
+          if (wasIgnoreAutoLayoutPressed) {
+            postCrossScreenModifierState(false, e);
+          }
         }
         if (e.key !== " " || e.code !== "Space") return;
         bridgeSpaceKeyPressed = false;
@@ -19446,6 +19547,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       window.setTimeout(function() {
         if (!activeDragCancel) {
           bridgeIgnoreAutoLayoutKeyPressed = false;
+          bridgeIgnoreAutoLayoutChangedAt = Date.now();
           hostIgnoreAutoLayoutAtPointerDown = false;
         }
       }, 0);
@@ -20336,6 +20438,34 @@ export const editorChromeBridgeScript: string = `"use strict";
     window.addEventListener("message", function(e) {
       if (e.source !== window.parent) return;
       if (!e.data) return;
+      if (e.data.type === "agent-native:cross-screen-modifier-snapshot-probe") {
+        if (typeof e.data.requestId !== "string") return;
+        var snapshotId = typeof e.data.snapshotId === "string" ? e.data.snapshotId : void 0;
+        var endedSnapshot = snapshotId ? endedCrossScreenModifierSnapshots.get(snapshotId) : void 0;
+        var activeSnapshot = snapshotId === activeCrossScreenDeleteRequestId && activeCrossScreenDragIdentity ? {
+          ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
+          changedAt: bridgeIgnoreAutoLayoutChangedAt
+        } : void 0;
+        if (snapshotId && !endedSnapshot && !activeSnapshot) return;
+        var snapshot = endedSnapshot ?? activeSnapshot ?? {
+          ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
+          changedAt: bridgeIgnoreAutoLayoutChangedAt
+        };
+        if (snapshotId && endedSnapshot) {
+          clearTimeout(endedSnapshot.timeoutId);
+          endedCrossScreenModifierSnapshots.delete(snapshotId);
+        }
+        window.parent.postMessage(
+          {
+            type: "agent-native:cross-screen-modifier-snapshot",
+            requestId: e.data.requestId,
+            ignoreAutoLayout: snapshot.ignoreAutoLayout,
+            changedAt: snapshot.changedAt
+          },
+          "*"
+        );
+        return;
+      }
       if (e.data.type === "measurement-modifier-release") {
         hideMeasurements();
         lastHoverInfoPostedEl = hoveredEl;

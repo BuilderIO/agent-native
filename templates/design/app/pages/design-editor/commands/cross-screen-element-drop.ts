@@ -388,11 +388,11 @@ export function runCrossScreenElementDrop(
     node: sourceNodeId ?? sourceSelector,
     blocked: !canEditDesign
       ? "read-only design"
-      : sourceScreenId === targetScreenId
+      : sourceScreenId === targetScreenId && !duplicate
         ? "same screen — nothing to move"
         : null,
   });
-  if (sourceScreenId === targetScreenId) return;
+  if (sourceScreenId === targetScreenId && !duplicate) return;
 
   const findLayerOwner = (
     screenId: string,

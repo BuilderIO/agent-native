@@ -707,6 +707,22 @@ describe("document editor layout", () => {
     expect(precise.map((part) => part.beforeText)).toEqual([",", "good"]);
     expect(precise.map((part) => part.afterText)).toEqual(["", "excellent"]);
   });
+  it("CSD-12: presents whole words for a saved replacement on a formatted page", () => {
+    const before =
+      "- **Release:** Wrenfield goes on sale Thursday, October 3.\n- **Styles:** Light to Black.";
+    const after = before.replace("Thursday, October 3", "Friday, October 2");
+    const saved = markdownSuggestionOperation(before, after)!;
+    expect(saved.kind).toBe("replace_text");
+    const precise = suggestionPresentations(
+      { id: "existing", status: "pending", operations: [saved] },
+      before,
+    );
+    expect(precise.map((part) => part.id)).toEqual(["existing", "existing"]);
+    expect(precise.map((part) => [part.beforeText, part.afterText])).toEqual([
+      ["Thursday", "Friday"],
+      ["3", "2"],
+    ]);
+  });
   it("replaces every accepted span while preserving another proposal's precise spans", () => {
     const before = "We shipped quickly, and the results were good.";
     const after = "We shipped quickly and the results were excellent.";
