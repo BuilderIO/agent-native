@@ -2023,44 +2023,54 @@ describe("mergeThreadDataForClientSave", () => {
   // Beta thread 57d652b5 (analytics): the page saved its reply mid-stream,
   // reloaded, replayed the run into a new message, and the stored partial
   // came back as a second reply next to the full one.
-  it("drops the partial reply a reloaded page replaced by replaying the run", () => {
-    const user = {
-      id: "message-9f5d83d4",
-      role: "user",
-      parts: [{ type: "text", text: "Write exactly 40 lines." }],
-    };
-    const partial = {
-      id: "message-2d1fbdfa",
-      role: "assistant",
-      status: "streaming",
-      parts: [{ type: "text", text: "927A6CBCE7-L1: Number one begins" }],
-    };
-    const replayed = {
-      id: "message-96e6985a",
-      role: "assistant",
-      status: "streaming",
-      parts: [
-        {
-          type: "text",
-          text: "927A6CBCE7-L1: Number one begins every counting sequence.\n927A6CBCE7-L2: Two",
-        },
-      ],
-    };
-    const runStarted = {
-      id: "run-1:1",
-      runId: "run-1",
-      sequence: 1,
-      type: "run.started",
-    };
-    const entry = (message: any, parentId: string | null) => ({
-      message: {
-        id: message.id,
-        role: message.role,
-        status: message.status,
-        content: message.parts,
+  const reloadUser = {
+    id: "message-9f5d83d4",
+    role: "user",
+    parts: [{ type: "text", text: "Write exactly 40 lines." }],
+  };
+  const reloadPartial = {
+    id: "message-2d1fbdfa",
+    role: "assistant",
+    status: "streaming",
+    parts: [{ type: "text", text: "927A6CBCE7-L1: Number one begins" }],
+  };
+  const reloadReplayed = {
+    id: "message-96e6985a",
+    role: "assistant",
+    status: "streaming",
+    parts: [
+      {
+        type: "text",
+        text: "927A6CBCE7-L1: Number one begins every counting sequence.\n927A6CBCE7-L2: Two",
       },
-      parentId,
-    });
+    ],
+  };
+  const runStarted = {
+    id: "run-1:1",
+    runId: "run-1",
+    sequence: 1,
+    type: "run.started",
+  };
+  const messageCreated = (id: string, runId = "run-1") => ({
+    id: `${runId}:${id}`,
+    runId,
+    type: "message.created",
+    message: { id, role: "assistant", parts: [] },
+  });
+  const entry = (message: any, parentId: string | null) => ({
+    message: {
+      id: message.id,
+      role: message.role,
+      status: message.status,
+      content: message.parts,
+    },
+    parentId,
+  });
+
+  it("drops the partial reply a reloaded page replaced by replaying the run", () => {
+    const user = reloadUser;
+    const partial = reloadPartial;
+    const replayed = reloadReplayed;
 
     const beforeReload = {
       messages: [entry(user, null), entry(partial, user.id)],
@@ -2070,16 +2080,7 @@ describe("mergeThreadDataForClientSave", () => {
       messages: [entry(user, null), entry(replayed, user.id)],
       agentKit: {
         messages: [user, replayed],
-        events: [
-          runStarted,
-          {
-            id: "run-1:2",
-            runId: "run-1",
-            sequence: 2,
-            type: "message.created",
-            message: { id: replayed.id, role: "assistant", parts: [] },
-          },
-        ],
+        events: [runStarted, messageCreated(replayed.id)],
       },
     });
 
@@ -2091,6 +2092,98 @@ describe("mergeThreadDataForClientSave", () => {
       user.id,
       replayed.id,
     ]);
+  });
+
+  it("drops the partial reply once the replayed reply finishes, even when a save still carries both", () => {
+    const finished = { ...reloadReplayed, status: "complete" };
+    const merged = mergeThreadDataForClientSave(
+      {
+        messages: [
+          entry(reloadUser, null),
+          entry(reloadPartial, reloadUser.id),
+        ],
+        agentKit: {
+          messages: [reloadUser, reloadPartial],
+          events: [runStarted, messageCreated(reloadPartial.id)],
+        },
+      },
+      {
+        messages: [
+          entry(reloadUser, null),
+          entry(reloadPartial, reloadUser.id),
+          entry(finished, reloadUser.id),
+        ],
+        agentKit: {
+          messages: [reloadUser, reloadPartial, finished],
+          events: [
+            runStarted,
+            messageCreated(reloadPartial.id),
+            messageCreated(finished.id),
+          ],
+        },
+      },
+    );
+
+    expect(merged.agentKit.messages.map((m: any) => m.id)).toEqual([
+      reloadUser.id,
+      finished.id,
+    ]);
+    expect(merged.messages.map((e: any) => e.message.id)).toEqual([
+      reloadUser.id,
+      finished.id,
+    ]);
+  });
+
+  it("keeps a streaming reply a save carries while its prompt's newer reply is unfinished or from another run", () => {
+    const otherRun = {
+      ...reloadReplayed,
+      id: "message-other-run",
+      status: "complete",
+    };
+    const unfinished = { ...reloadReplayed, status: "streaming" };
+    for (const [newer, runId] of [
+      [otherRun, "run-2"],
+      [unfinished, "run-1"],
+    ] as const) {
+      const merged = mergeThreadDataForClientSave(
+        {
+          messages: [
+            entry(reloadUser, null),
+            entry(reloadPartial, reloadUser.id),
+          ],
+          agentKit: {
+            messages: [reloadUser, reloadPartial],
+            events: [runStarted, messageCreated(reloadPartial.id)],
+          },
+        },
+        {
+          messages: [
+            entry(reloadUser, null),
+            entry(reloadPartial, reloadUser.id),
+            entry(newer, reloadUser.id),
+          ],
+          agentKit: {
+            messages: [reloadUser, reloadPartial, newer],
+            events: [
+              runStarted,
+              messageCreated(reloadPartial.id),
+              messageCreated(newer.id, runId),
+            ],
+          },
+        },
+      );
+
+      expect(merged.agentKit.messages.map((m: any) => m.id)).toEqual([
+        reloadUser.id,
+        reloadPartial.id,
+        newer.id,
+      ]);
+      expect(merged.messages.map((e: any) => e.message.id)).toEqual([
+        reloadUser.id,
+        reloadPartial.id,
+        newer.id,
+      ]);
+    }
   });
 
   it("keeps a stored mid-stream reply a save that never saw it does not answer", () => {

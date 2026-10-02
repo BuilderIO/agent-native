@@ -1620,11 +1620,19 @@ function mergeAgentKitHistoryArray(
   const replaced = promptsWithNewReplies(incomingEntries, (entry) =>
     newIncoming.has(entry),
   );
+  const runOf = (message: any) =>
+    getMessageRunId(message) ??
+    (typeof message?.id === "string"
+      ? (incomingMessageRunIds.get(message.id) ??
+        existingMessageRunIds.get(message.id))
+      : undefined);
   return merged.filter(
     (_entry, index) =>
-      index >= existingCount ||
-      matchedExisting.has(index) ||
-      !isSupersededInFlightReply(merged, index, replaced),
+      !isSupersededInFlightReply(merged, index, {
+        unmatched: index < existingCount && !matchedExisting.has(index),
+        replacedPrompts: replaced,
+        runOf,
+      }),
   );
 }
 
@@ -1651,16 +1659,26 @@ function promptsWithNewReplies(
   return prompts;
 }
 
+function storedMessageText(message: any): string {
+  return messageText(message?.content ?? message?.parts);
+}
+
 /**
  * A reloaded page replays an unfinished run under a new message id, so the
  * reply it had saved mid-stream reaches storage as a second, partial answer
- * unless a save carrying the replayed reply retires it. A save that has no new
- * reply to that prompt never saw the run and leaves it alone.
+ * unless a save retires it. A stored copy the save dropped gives way to any new
+ * reply to its prompt; a save that has no new reply never saw the run and
+ * leaves it alone. A copy the save still carries gives way only once a reply of
+ * the same run has finished past its text, so a reply still in flight stays.
  */
 function isSupersededInFlightReply(
   entries: unknown[],
   index: number,
-  replacedPrompts: Set<string>,
+  options: {
+    unmatched: boolean;
+    replacedPrompts: Set<string>;
+    runOf: (message: any) => string | undefined;
+  },
 ): boolean {
   const message = getStoredMessage(entries[index]);
   if (message?.role !== "assistant") return false;
@@ -1668,7 +1686,26 @@ function isSupersededInFlightReply(
     return false;
   }
   const prompt = promptIdBefore(entries, index);
-  return prompt !== undefined && replacedPrompts.has(prompt);
+  if (prompt === undefined) return false;
+  if (options.unmatched && options.replacedPrompts.has(prompt)) return true;
+  const runId = options.runOf(message);
+  if (!runId) return false;
+  const text = storedMessageText(message);
+  for (let later = index + 1; later < entries.length; later++) {
+    const reply = getStoredMessage(entries[later]);
+    if (reply?.role === "user") return false;
+    const replyText = storedMessageText(reply);
+    if (
+      reply?.role === "assistant" &&
+      (reply.status === "complete" || reply.status?.type === "complete") &&
+      options.runOf(reply) === runId &&
+      replyText.length > text.length &&
+      replyText.startsWith(text)
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function latestSnapshotRun(runs: unknown): AgentRunSnapshot | undefined {
@@ -2058,8 +2095,15 @@ export function mergeThreadDataForClientSave(
   );
   const keptMessages = nextMessages.filter((entry, index) => {
     if (
-      unmatchedExisting.has(entry) &&
-      isSupersededInFlightReply(nextMessages, index, replacedPrompts)
+      isSupersededInFlightReply(nextMessages, index, {
+        unmatched: unmatchedExisting.has(entry),
+        replacedPrompts,
+        runOf: (message) =>
+          getMessageRunId(message) ??
+          (typeof message?.id === "string"
+            ? eventRunIds.get(message.id)
+            : undefined),
+      })
     ) {
       return false;
     }
