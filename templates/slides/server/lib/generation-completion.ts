@@ -1,3 +1,9 @@
+import {
+  deleteSetting,
+  getSetting,
+  listSettingsByPrefix,
+  putSetting,
+} from "@agent-native/core/settings";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { track, type TrackingSource } from "@agent-native/core/tracking";
 
@@ -15,12 +21,14 @@ export interface GenerationFirstOutput {
   targetSlideCount: number | null;
 }
 
-// ponytail: per-process map keyed by turn id. A continuation run keeps its
-// turn id but gets a new run id, so a turn that resumes in another process
-// never reports; that undercounts, it does not report a partial deck. Upgrade
-// to a persisted marker if long chained generations need to be counted.
 const MAX_TRACKED_TURNS = 500;
 const firstOutputsByTurn = new Map<string, GenerationFirstOutput[]>();
+
+// A continuation run keeps its turn id but may run in another process, so a
+// turn that hands off moves its markers to shared storage; a row only outlives
+// its turn when the turn never finishes, and then it expires.
+const PENDING_KEY_PREFIX = "slides-generation-pending:";
+const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
 
 export function noteGenerationFirstOutput(
   turnKey: string | undefined,
@@ -39,6 +47,58 @@ export function noteGenerationFirstOutput(
   firstOutputsByTurn.set(turnKey, [...outputs, output]);
 }
 
+function mergeOutputs(
+  ...lists: readonly GenerationFirstOutput[][]
+): GenerationFirstOutput[] {
+  const byDeck = new Map<string, GenerationFirstOutput>();
+  for (const output of lists.flat()) {
+    if (!byDeck.has(output.deckId)) byDeck.set(output.deckId, output);
+  }
+  return [...byDeck.values()];
+}
+
+function isFirstOutput(value: unknown): value is GenerationFirstOutput {
+  const output = value as Partial<GenerationFirstOutput> | null;
+  return (
+    typeof output?.deckId === "string" &&
+    typeof output.generationAttemptId === "string" &&
+    (output.targetSlideCount === null ||
+      typeof output.targetSlideCount === "number")
+  );
+}
+
+async function loadPendingOutputs(
+  turnKey: string,
+): Promise<GenerationFirstOutput[]> {
+  const stored = await getSetting(`${PENDING_KEY_PREFIX}${turnKey}`);
+  if (!stored) return [];
+  if (typeof stored.expiresAt === "number" && stored.expiresAt <= Date.now()) {
+    await deleteSetting(`${PENDING_KEY_PREFIX}${turnKey}`);
+    return [];
+  }
+  if (!Array.isArray(stored.outputs) || !stored.outputs.every(isFirstOutput)) {
+    throw new Error(`Malformed pending generation marker for turn ${turnKey}.`);
+  }
+  return stored.outputs;
+}
+
+async function storePendingOutputs(
+  turnKey: string,
+  outputs: GenerationFirstOutput[],
+): Promise<void> {
+  const merged = mergeOutputs(await loadPendingOutputs(turnKey), outputs);
+  await putSetting(`${PENDING_KEY_PREFIX}${turnKey}`, {
+    outputs: merged,
+    expiresAt: Date.now() + PENDING_TTL_MS,
+  });
+  // Written first, so a failed sweep cannot lose the marker.
+  for (const { key, value } of await listSettingsByPrefix(PENDING_KEY_PREFIX)) {
+    if (typeof value.expiresAt === "number" && value.expiresAt <= Date.now()) {
+      await deleteSetting(key);
+    }
+  }
+}
+
 export async function trackGenerationCompletedForRun(
   run: { runId: string; turnId?: string; threadId?: string; status: string },
   outcome: { turnContinues: boolean },
@@ -46,13 +106,33 @@ export async function trackGenerationCompletedForRun(
   source?: TrackingSource,
 ): Promise<void> {
   const turnKey = run.turnId || run.runId;
-  const outputs = firstOutputsByTurn.get(turnKey);
-  if (!outputs) return;
-  if (outcome.turnContinues && run.status !== "aborted") return;
-  firstOutputsByTurn.delete(turnKey);
-  if (run.status !== "completed") return;
+  const local = firstOutputsByTurn.get(turnKey) ?? [];
+  if (outcome.turnContinues && run.status !== "aborted") {
+    if (local.length > 0) {
+      await storePendingOutputs(turnKey, local);
+      firstOutputsByTurn.delete(turnKey);
+    }
+    return;
+  }
+  const outputs = mergeOutputs(await loadPendingOutputs(turnKey), local);
+  if (outputs.length === 0) return;
+  const settle = async () => {
+    firstOutputsByTurn.delete(turnKey);
+    await deleteSetting(`${PENDING_KEY_PREFIX}${turnKey}`);
+  };
+  if (run.status !== "completed") {
+    await settle();
+    return;
+  }
+  // Every read happens before the markers are dropped, so a failed read leaves
+  // them for a later run of the turn and nothing is reported twice.
+  const counts = new Map<string, number | null>();
   for (const output of outputs) {
-    const slideCount = await readSlideCount(output.deckId);
+    counts.set(output.deckId, await readSlideCount(output.deckId));
+  }
+  await settle();
+  for (const output of outputs) {
+    const slideCount = counts.get(output.deckId) ?? null;
     if (slideCount === null || slideCount === 0) continue;
     track(
       "generation_completed",

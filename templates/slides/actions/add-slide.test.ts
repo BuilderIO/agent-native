@@ -158,6 +158,19 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
 
+const settingsStore = new Map<string, Record<string, unknown>>();
+vi.mock("@agent-native/core/settings", () => ({
+  getSetting: async (key: string) => settingsStore.get(key) ?? null,
+  putSetting: async (key: string, value: Record<string, unknown>) => {
+    settingsStore.set(key, value);
+  },
+  deleteSetting: async (key: string) => settingsStore.delete(key),
+  listSettingsByPrefix: async (prefix: string) =>
+    [...settingsStore]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, value]) => ({ key, value })),
+}));
+
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestContext: () => undefined,
   getRequestRunContext: () => undefined,
@@ -170,6 +183,7 @@ const finished = { turnContinues: false };
 
 beforeEach(() => {
   vi.clearAllMocks();
+  settingsStore.clear();
   mockGetGenerationCreativeContext.mockResolvedValue(null);
   mockTrack.mockReset();
   deckData = {
@@ -328,7 +342,50 @@ describe("add-slide", () => {
       expect(reported()).toHaveLength(0);
     });
 
-    it("surfaces a slide-count read failure instead of reporting nothing", async () => {
+    it("keeps a handed-off turn's marker in shared storage until its final run reports", async () => {
+      await writeFirstSlide("turn-shared", "run-chunk-1");
+
+      await trackGenerationCompletedForRun(
+        { runId: "run-chunk-1", turnId: "turn-shared", status: "completed" },
+        { turnContinues: true },
+        async () => 2,
+      );
+      expect([...settingsStore.keys()]).toEqual([
+        "slides-generation-pending:turn-shared",
+      ]);
+
+      await trackGenerationCompletedForRun(
+        { runId: "run-chunk-2", turnId: "turn-shared", status: "completed" },
+        finished,
+        async () => 5,
+      );
+      expect(reported()).toHaveLength(1);
+      expect(settingsStore.size).toBe(0);
+    });
+
+    it("drops an expired shared marker instead of reporting it", async () => {
+      settingsStore.set("slides-generation-pending:turn-old", {
+        outputs: [
+          {
+            deckId: "deck-1",
+            generationAttemptId: "a-old",
+            targetSlideCount: null,
+          },
+        ],
+        expiresAt: Date.now() - 1,
+      });
+
+      await trackGenerationCompletedForRun(
+        { runId: "run-late", turnId: "turn-old", status: "completed" },
+        finished,
+        async () => 5,
+      );
+
+      expect(reported()).toHaveLength(0);
+      expect(settingsStore.size).toBe(0);
+    });
+
+    it("keeps the marker when the slide count cannot be read and reports once on a later run", async () => {
       await writeFirstSlide("turn-read", "run-read");
 
       await expect(
@@ -341,6 +398,18 @@ describe("add-slide", () => {
         ),
       ).rejects.toThrow("database unavailable");
       expect(reported()).toHaveLength(0);
+
+      await trackGenerationCompletedForRun(
+        { runId: "run-read-2", turnId: "turn-read", status: "completed" },
+        finished,
+        async () => 5,
+      );
+      await trackGenerationCompletedForRun(
+        { runId: "run-read-3", turnId: "turn-read", status: "completed" },
+        finished,
+        async () => 5,
+      );
+      expect(reported()).toHaveLength(1);
     });
   });
 
