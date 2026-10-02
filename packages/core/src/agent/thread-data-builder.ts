@@ -1382,6 +1382,76 @@ export function claimQueuedMessage(repo: any, messageId: string): any {
   return pruneClaimedQueuedMessages(normalized);
 }
 
+export function applySubmittedUserMessage(
+  repo: any,
+  userMessage: UserMessage,
+  queuedMessage?: { id: string; claimId?: string; now?: number },
+):
+  | { status: "submitted" | "already_submitted"; repo: any }
+  | { status: "already_claimed" | "claim_expired" } {
+  if (!queuedMessage) {
+    return { status: "submitted", repo: upsertUserMessage(repo, userMessage) };
+  }
+
+  const userCustom = userMessage.metadata.custom as
+    | Record<string, unknown>
+    | undefined;
+  const wasSubmitted = Array.isArray(repo?.messages)
+    ? repo.messages.some((entry: unknown) => {
+        const outer = entry as Record<string, unknown> | null;
+        const message = outer?.message ?? outer;
+        if (!message || typeof message !== "object") return false;
+        const metadata = (message as Record<string, unknown>).metadata;
+        if (!metadata || typeof metadata !== "object") return false;
+        const custom = (metadata as Record<string, unknown>).custom;
+        return (
+          custom !== null &&
+          typeof custom === "object" &&
+          (custom as Record<string, unknown>).agentNativeQueuedMessageId ===
+            queuedMessage.id &&
+          (custom as Record<string, unknown>).submittedRunId ===
+            userCustom?.submittedRunId
+        );
+      })
+    : false;
+  if (wasSubmitted) {
+    return {
+      status: "already_submitted",
+      repo: claimQueuedMessage(repo, queuedMessage.id),
+    };
+  }
+  if (hasClaimedQueuedMessage(repo, queuedMessage.id)) {
+    return { status: "already_claimed" };
+  }
+
+  const queued = Array.isArray(repo?.queuedMessages)
+    ? repo.queuedMessages.find(
+        (message: unknown) =>
+          message &&
+          typeof message === "object" &&
+          (message as Record<string, unknown>).id === queuedMessage.id,
+      )
+    : undefined;
+  const claim = queued?.promotionClaim;
+  if (
+    !queued ||
+    typeof queuedMessage.claimId !== "string" ||
+    claim?.id !== queuedMessage.claimId ||
+    typeof claim.expiresAt !== "number" ||
+    claim.expiresAt <= (queuedMessage.now ?? Date.now())
+  ) {
+    return { status: "claim_expired" };
+  }
+
+  return {
+    status: "submitted",
+    repo: upsertUserMessage(
+      claimQueuedMessage(repo, queuedMessage.id),
+      userMessage,
+    ),
+  };
+}
+
 function snapshotEntryId(entry: any, kind: "message" | "toolCall" | "widget") {
   if (!entry || typeof entry !== "object") return undefined;
   if (kind === "widget") {

@@ -60,7 +60,7 @@ async function startHostServer(): Promise<ViteDevServer> {
   <head><title>Extension E2E</title></head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/client/extensions/AgentNativeExtensionFrame.e2e-host.tsx"></script>
+    <script type="module" src="/src/app/extensions/AgentNativeExtensionFrame.e2e-host.tsx"></script>
   </body>
 </html>`);
           });

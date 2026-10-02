@@ -2,6 +2,10 @@ import crypto from "node:crypto";
 import nodePath from "node:path";
 
 import {
+  AgentProtocolValidationError,
+  parseAgentRunOptions,
+} from "@agent-native/agentkit/protocol";
+import {
   createError,
   defineEventHandler,
   setResponseStatus,
@@ -116,15 +120,13 @@ import {
 import {
   buildAssistantMessage,
   buildUserMessage,
-  claimQueuedMessage,
+  applySubmittedUserMessage,
   extractThreadMeta,
   foldAssistantTurn,
   foldThreadRunSuggestions,
   foldUnstartedTurnFailure,
-  hasClaimedQueuedMessage,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
-  upsertUserMessage,
   type ThreadSuggestionRun,
 } from "../agent/thread-data-builder.js";
 import { appendThreadDebugHistory } from "../agent/thread-debug-history.js";
@@ -673,6 +675,40 @@ export function resolveInteractiveAgentRunOptions(
     runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
     durableBackgroundRuns: options?.durableBackgroundRuns,
   };
+}
+
+export function parseQueuedMessageForThread(
+  value: unknown,
+  threadId: string,
+): QueuedMessage | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const queued = value as Record<string, unknown>;
+  if (
+    typeof queued.id !== "string" ||
+    !queued.id ||
+    typeof queued.text !== "string" ||
+    (queued.threadId !== undefined && queued.threadId !== threadId) ||
+    (queued.createdAt !== undefined && typeof queued.createdAt !== "string") ||
+    (queued.attachments !== undefined && !Array.isArray(queued.attachments)) ||
+    (queued.metadata !== undefined &&
+      (!queued.metadata ||
+        typeof queued.metadata !== "object" ||
+        Array.isArray(queued.metadata)))
+  ) {
+    return null;
+  }
+  if (queued.options !== undefined) {
+    try {
+      parseAgentRunOptions(queued.options, "queuedMessage.options");
+    } catch (error) {
+      if (error instanceof AgentProtocolValidationError) return null;
+      throw error;
+    }
+  }
+  const { promotionClaim: _claim, ...message } = queued;
+  return { ...message, threadId } as QueuedMessage;
 }
 
 export function createSerializedA2ATaskStatusWriter(
@@ -3714,6 +3750,7 @@ export function createAgentChatPlugin(
         agentKitMessageId?: string;
         attachments?: AgentChatAttachment[];
         queuedMessageId?: string;
+        queuedMessageClaimId?: string;
         /** The turn was refused before a run started; record why in the thread. */
         failure?: { code: string; message: string };
         /** What a retry of the refused turn sends besides text and attachments. */
@@ -3782,51 +3819,89 @@ export function createAgentChatPlugin(
             };
           }
 
-          let repo = JSON.parse(thread.threadData || "{}");
-
-          if (details.queuedMessageId) {
-            if (hasClaimedQueuedMessage(repo, details.queuedMessageId)) {
-              throw createError({
-                statusCode: 409,
-                statusMessage: "Queued message was already submitted",
-              });
-            }
-            repo = claimQueuedMessage(repo, details.queuedMessageId);
-          }
-
-          repo = upsertUserMessage(
-            repo,
-            buildUserMessage({
-              text: details.message,
-              attachments: details.attachments,
-              runId: details.runId,
-              turnId: details.turnId,
-              agentKitMessageId: details.agentKitMessageId,
-              queuedMessageId: details.queuedMessageId,
-              ...(details.failure
-                ? { refusedRetry: details.retryContext ?? {} }
-                : {}),
-            }),
-          );
-          if (details.failure) {
-            repo = foldUnstartedTurnFailure(repo, {
-              runId: details.runId,
-              threadId,
-              turnId: details.turnId,
-              ...details.failure,
-            });
-          }
-
-          const meta = extractThreadMeta(repo);
+          const userMessage = buildUserMessage({
+            text: details.message,
+            attachments: details.attachments,
+            runId: details.runId,
+            turnId: details.turnId,
+            agentKitMessageId: details.agentKitMessageId,
+            queuedMessageId: details.queuedMessageId,
+            ...(details.failure
+              ? { refusedRetry: details.retryContext ?? {} }
+              : {}),
+          });
+          let submissionFailure:
+            | "already_claimed"
+            | "claim_expired"
+            | "invalid_thread_data"
+            | undefined;
           await updateThreadData(
             threadId,
-            JSON.stringify(repo),
-            thread.title,
-            meta.preview || thread.preview,
-            Array.isArray(repo.messages)
-              ? repo.messages.length
-              : thread.messageCount,
+            "{}",
+            "",
+            thread.preview,
+            thread.messageCount,
+            {
+              transformThreadData: (threadData) => {
+                submissionFailure = undefined;
+                let repo: unknown;
+                try {
+                  repo = JSON.parse(threadData || "{}");
+                } catch {
+                  submissionFailure = "invalid_thread_data";
+                  return threadData;
+                }
+                if (!repo || typeof repo !== "object" || Array.isArray(repo)) {
+                  submissionFailure = "invalid_thread_data";
+                  return threadData;
+                }
+                const result = applySubmittedUserMessage(
+                  repo,
+                  userMessage,
+                  details.queuedMessageId
+                    ? {
+                        id: details.queuedMessageId,
+                        claimId: details.queuedMessageClaimId,
+                      }
+                    : undefined,
+                );
+                if (!("repo" in result)) {
+                  submissionFailure = result.status;
+                  return threadData;
+                }
+                const submitted = details.failure
+                  ? foldUnstartedTurnFailure(result.repo, {
+                      runId: details.runId,
+                      threadId,
+                      turnId: details.turnId,
+                      ...details.failure,
+                    })
+                  : result.repo;
+                const meta = extractThreadMeta(submitted);
+                return {
+                  threadData: JSON.stringify(submitted),
+                  preview: meta.preview || thread.preview,
+                };
+              },
+            },
           );
+          if (submissionFailure === "already_claimed") {
+            throw createError({
+              statusCode: 409,
+              statusMessage: "Queued message was already submitted",
+              data: { code: "queued_message_already_submitted" },
+            });
+          }
+          if (submissionFailure === "claim_expired") {
+            throw createError({
+              statusCode: 409,
+              statusMessage: "Queued message promotion claim expired",
+              data: { code: "run_slot_busy", retryable: true },
+            });
+          }
+          if (submissionFailure === "invalid_thread_data") {
+            throw new TypeError("Agent chat thread data is not valid JSON.");
+          }
         });
       };
 
@@ -6970,61 +7045,35 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 !Array.isArray(rawMutation)
                   ? (rawMutation as Record<string, unknown>)
                   : null;
-              const message = (value: unknown): QueuedMessage | null => {
-                if (
-                  !value ||
-                  typeof value !== "object" ||
-                  Array.isArray(value)
-                ) {
-                  return null;
-                }
-                const queued = value as Record<string, unknown>;
-                if (
-                  typeof queued.id !== "string" ||
-                  !queued.id ||
-                  typeof queued.text !== "string" ||
-                  (queued.threadId !== undefined &&
-                    queued.threadId !== threadId) ||
-                  (queued.createdAt !== undefined &&
-                    typeof queued.createdAt !== "string") ||
-                  (queued.attachments !== undefined &&
-                    !Array.isArray(queued.attachments)) ||
-                  (queued.metadata !== undefined &&
-                    (!queued.metadata ||
-                      typeof queued.metadata !== "object" ||
-                      Array.isArray(queued.metadata)))
-                ) {
-                  return null;
-                }
-                return { ...queued, threadId } as QueuedMessage;
-              };
               let mutation: ThreadQueuedMessageMutation | null = null;
-              if (record?.type === "append" || record?.type === "restore") {
-                const queued = message(record.message);
+              if (record?.type === "append") {
+                const queued = parseQueuedMessageForThread(
+                  record.message,
+                  threadId,
+                );
                 if (queued) {
-                  mutation =
-                    record.type === "append"
-                      ? { type: "append", message: queued }
-                      : typeof record.index === "number" &&
-                          Number.isInteger(record.index) &&
-                          (record.index as number) >= 0
-                        ? {
-                            type: "restore",
-                            message: queued,
-                            index: record.index as number,
-                          }
-                        : null;
+                  mutation = { type: "append", message: queued };
                 }
               } else if (
-                (record?.type === "remove" ||
-                  record?.type === "moveToTop" ||
-                  record?.type === "claim") &&
+                (record?.type === "remove" || record?.type === "moveToTop") &&
                 typeof record.messageId === "string" &&
                 record.messageId
               ) {
                 mutation = {
                   type: record.type,
                   messageId: record.messageId,
+                };
+              } else if (
+                (record?.type === "claim" || record?.type === "release") &&
+                typeof record.messageId === "string" &&
+                record.messageId &&
+                typeof record.claimId === "string" &&
+                record.claimId
+              ) {
+                mutation = {
+                  type: record.type,
+                  messageId: record.messageId,
+                  claimId: record.claimId,
                 };
               }
               if (!mutation) {
@@ -7044,7 +7093,36 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
-              return result;
+              if (result.claimBusy) {
+                setResponseStatus(event, 409);
+                return {
+                  error: "Run already in progress for this thread",
+                  code: "run_slot_busy",
+                  retryable: true,
+                };
+              }
+              if (result.promotionBusy) {
+                setResponseStatus(event, 409);
+                return {
+                  error: "Queue item is being promoted",
+                  code: "queue_item_busy",
+                  retryable: true,
+                };
+              }
+              const withoutClaim = (message: QueuedMessage) => {
+                const { promotionClaim: _claim, ...safeMessage } = message;
+                return safeMessage;
+              };
+              return {
+                ...result,
+                queuedMessages: result.queuedMessages.map(withoutClaim),
+                ...(result.message
+                  ? { message: withoutClaim(result.message) }
+                  : {}),
+                ...(result.claimedMessage
+                  ? { claimedMessage: withoutClaim(result.claimedMessage) }
+                  : {}),
+              };
             }
 
             if (method === "POST" && isThreadSubroute("rename")) {

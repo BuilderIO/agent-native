@@ -2969,6 +2969,9 @@ export function createAgentKitProtocolAdapter(
       const turn = await session.startTurn({
         prompt: latestUserPrompt(input.messages),
         messages,
+        ...(input.queuePromotion
+          ? { queuePromotion: input.queuePromotion }
+          : {}),
         ...(attachments.length ? { attachments } : {}),
         model: input.options?.model,
         reasoningEffort: input.options?.reasoningEffort,
@@ -3076,9 +3079,24 @@ export function createAgentKitProtocolAdapter(
     },
     async cancelRun(input) {
       pruneRetainedRuns();
-      const run = runs.get(input.runId);
-      if (!run || run.threadId !== input.threadId) {
+      let run = runs.get(input.runId);
+      if (run && run.threadId !== input.threadId) {
         throw new Error(`Unknown AgentKit run: ${input.runId}`);
+      }
+      if (!run) {
+        if (runtime.cancel) {
+          const session = await getSession(input.threadId);
+          const result = await runtime.cancel({
+            sessionId: session.id,
+            runId: input.runId,
+            reason: "protocol-cancel",
+          });
+          if (result.status !== "unsupported") {
+            return;
+          }
+        }
+        run = await restoreRunFromRuntime(input);
+        runs.set(input.runId, run);
       }
       touchRun(run);
       if (run.terminal) return;
