@@ -57,6 +57,7 @@ const {
   reapExpiredUploads,
   renewUploadLease,
   UPLOAD_LEASE_EXPIRED_REASON,
+  UPLOAD_LEASE_MS,
   uploadLeaseExpiry,
   WAITING_STORAGE_EXPIRED_REASON,
   WAITING_STORAGE_LEASE_MS,
@@ -222,6 +223,28 @@ describe("upload lease", () => {
     expect(unchangedUploadingRows[0]?.upload_lease_expires_at).toBe(
       iso(-1_000),
     );
+  });
+
+  it("clears a stale parked reason once the upload is live again", async () => {
+    await insertRecording({
+      id: "resumed",
+      status: "uploading",
+      lease: iso(-1_000),
+    });
+    await execute(client, {
+      sql: `UPDATE recordings SET failure_reason = ? WHERE id = ?`,
+      args: ["Connect storage to finish saving.", "resumed"],
+    });
+
+    expect(await renewUploadLease("resumed", { now: NOW })).toEqual({
+      held: true,
+    });
+    const reaped = await reapExpiredUploads({ now: NOW + UPLOAD_LEASE_MS + 1 });
+
+    expect(reaped.failed).toBe(1);
+    expect(await statusOf("resumed")).toMatchObject({
+      failure_code: "upload_timed_out",
+    });
   });
 
   it("leaves a leased, actively-uploading recording alone", async () => {

@@ -1862,6 +1862,22 @@ const messages = {
     claimRecordingPrompt:
       "Esta gravação ainda não está vinculada a nenhuma conta. Enviar para {{email}}?",
     claimRecording: "Enviar para minha conta",
+    lowBrowserStorage:
+      "Este navegador está com pouco espaço, então uma gravação longa pode não caber na cópia de segurança. Mantenha esta aba aberta até o envio terminar.",
+    recordingEndMissing:
+      "O final desta gravação não foi salvo. O Clips envia o que tem e mantém sua cópia.",
+    uploadedPartialCopyKept:
+      "Enviamos o que este navegador salvou. O final pode estar faltando, então o Clips manteve sua cópia aqui.",
+    uploadUnverifiedCopyKept:
+      "O Clips não conseguiu confirmar que a gravação inteira foi enviada, então manteve sua cópia aqui.",
+    copyKeptAfterUpload:
+      "Esta gravação foi enviada, mas o Clips não conseguiu confirmar que está completa, então manteve sua cópia aqui.",
+    localCopyLockUnavailable:
+      "O Clips não consegue confirmar que nenhuma outra aba está usando esta gravação, então não vai enviá-la nem excluí-la daqui. Baixe uma cópia.",
+    uploadAgain: "Enviar de novo",
+    keptCopyWaiting: "O Clips manteve a cópia de uma gravação neste navegador",
+    savedRecordingsUnreadable:
+      "O Clips não conseguiu ler as gravações salvas neste navegador.",
   },
   importRoute: {
     pageTitle: "Importar Loom — Clips",

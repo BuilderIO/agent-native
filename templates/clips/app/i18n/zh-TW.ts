@@ -1744,6 +1744,21 @@ const messages = {
     reviewRecording: "檢視",
     claimRecordingPrompt: "這段錄影尚未連結任何帳號。要上傳到 {{email}} 嗎？",
     claimRecording: "上傳到我的帳號",
+    lowBrowserStorage:
+      "此瀏覽器的儲存空間不足，較長的錄影可能放不進安全副本。請保持此分頁開啟直到上傳完成。",
+    recordingEndMissing:
+      "這段錄影的結尾沒有儲存。Clips 會上傳已有的部分並保留你的副本。",
+    uploadedPartialCopyKept:
+      "已上傳此瀏覽器儲存的內容。結尾可能遺失，因此 Clips 在這裡保留了你的副本。",
+    uploadUnverifiedCopyKept:
+      "Clips 無法確認整段錄影都已上傳，因此在這裡保留了你的副本。",
+    copyKeptAfterUpload:
+      "這段錄影已上傳，但 Clips 無法確認它是否完整，因此在這裡保留了你的副本。",
+    localCopyLockUnavailable:
+      "Clips 無法確認沒有其他分頁在使用這段錄影，因此不會從這裡上傳或刪除它。請改為下載副本。",
+    uploadAgain: "重新上傳",
+    keptCopyWaiting: "Clips 在此瀏覽器中保留了一段錄影的副本",
+    savedRecordingsUnreadable: "Clips 無法讀取此瀏覽器中儲存的錄影。",
   },
   importRoute: {
     pageTitle: "匯入 Loom — Clips",

@@ -1,15 +1,9 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  listRecordingBackupMetas: vi.fn(),
-  liveRecordingBackupIds: vi.fn(async () => new Set<string>()),
-  deleteRecordingBackup: vi.fn(async () => {}),
   fetchServerUploadStatus: vi.fn(),
   trashStaleServerRecordings: vi.fn(async () => {}),
-  claimRecordingBackupOwner: vi.fn(
-    async (recordingId: string, ownerEmail: string) =>
-      ({ recordingId, ownerEmail }) as unknown,
-  ),
   toastWarning: vi.fn(),
   toastInfo: vi.fn(),
 }));
@@ -17,25 +11,62 @@ const mocks = vi.hoisted(() => ({
 vi.mock("sonner", () => ({
   toast: { warning: mocks.toastWarning, info: mocks.toastInfo },
 }));
-
-vi.mock("@/lib/recording-backup", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/recording-backup")>()),
-  listRecordingBackupMetas: mocks.listRecordingBackupMetas,
-  liveRecordingBackupIds: mocks.liveRecordingBackupIds,
-  deleteRecordingBackup: mocks.deleteRecordingBackup,
-  claimRecordingBackupOwner: mocks.claimRecordingBackupOwner,
-}));
 vi.mock("@/lib/local-recording-upload", () => ({
   fetchServerUploadStatus: mocks.fetchServerUploadStatus,
   trashStaleServerRecordings: mocks.trashStaleServerRecordings,
 }));
 
-import type { RecordingBackupMeta } from "@/lib/recording-backup";
+import {
+  claimRecordingBackupLock,
+  getRecordingBackupMeta,
+  putRecordingBackupChunk,
+  putRecordingBackupMeta,
+  type RecordingBackupMeta,
+} from "@/lib/recording-backup";
 
 import {
   findLocalRecordingsToFinish,
   offerLocalRecording,
+  watchLocalRecordings,
 } from "./use-local-recording-recovery";
+
+/**
+ * Web Locks shared by every "tab" in one origin. Grants happen a microtask
+ * later, as in browsers, so a caller that does not await sees nothing held.
+ */
+class FakeLockManager {
+  readonly held = new Set<string>();
+
+  async request(
+    name: string,
+    optionsOrCallback:
+      | { ifAvailable?: boolean }
+      | ((lock: { name: string } | null) => unknown),
+    maybeCallback?: (lock: { name: string } | null) => unknown,
+  ): Promise<unknown> {
+    const options =
+      typeof optionsOrCallback === "function" ? {} : optionsOrCallback;
+    const callback =
+      typeof optionsOrCallback === "function"
+        ? optionsOrCallback
+        : maybeCallback!;
+    await Promise.resolve();
+    if (this.held.has(name)) {
+      if (options.ifAvailable) return callback(null);
+      throw new Error("FakeLockManager does not model queued waiters");
+    }
+    this.held.add(name);
+    try {
+      return await callback({ name });
+    } finally {
+      this.held.delete(name);
+    }
+  }
+
+  async query() {
+    return { held: [...this.held].map((name) => ({ name })), pending: [] };
+  }
+}
 
 function meta(
   recordingId: string,
@@ -44,88 +75,194 @@ function meta(
   return {
     recordingId,
     mimeType: "video/webm",
-    durationMs: 1_000,
+    durationMs: 4_000,
     width: 1,
     height: 1,
     hasAudio: true,
     hasCamera: false,
-    bytes: 10,
-    chunkCount: 1,
+    bytes: 4,
+    chunkCount: 2,
     savedAt: "2026-10-01T10:00:00.000Z",
-    completedAt: null,
+    completedAt: "2026-10-01T10:00:04.000Z",
     ownerEmail: "me@example.com",
     ...overrides,
   };
 }
 
-afterEach(() => vi.clearAllMocks());
+async function saveCopy(m: RecordingBackupMeta) {
+  await putRecordingBackupChunk(m.recordingId, 0, new Blob(["ab"]));
+  await putRecordingBackupChunk(m.recordingId, 1, new Blob(["cd"]));
+  await putRecordingBackupMeta(m);
+}
 
-describe("findLocalRecordingsToFinish", () => {
-  it("offers unfinished copies and cleans up the ones the server already has", async () => {
-    mocks.listRecordingBackupMetas.mockResolvedValue([
-      meta("never-uploaded", { localOnly: true }),
-      meta("uploaded-and-ready", {
-        serverRecordingId: "srv-ready",
-        staleServerRecordingIds: ["srv-old"],
-      }),
-      meta("still-processing", { serverRecordingId: "srv-processing" }),
-      meta("interrupted", { serverRecordingId: "srv-failed" }),
-      meta("other-account", { ownerEmail: "someone@example.com" }),
-      meta("legacy-unknown-row", { ownerEmail: null }),
-    ]);
-    mocks.fetchServerUploadStatus.mockImplementation(async (id: string) => {
-      if (id === "srv-ready") return { found: true, status: "ready" };
-      if (id === "srv-processing") return { found: true, status: "processing" };
-      if (id === "srv-failed") return { found: true, status: "failed" };
-      return { found: false };
+function ready(sourceSizeBytes: number | null, durationMs = 4_000) {
+  return {
+    found: true,
+    status: "ready",
+    verificationPending: false,
+    sourceSizeBytes,
+    durationMs,
+  };
+}
+
+let locks: FakeLockManager;
+
+beforeEach(() => {
+  locks = new FakeLockManager();
+  vi.stubGlobal("indexedDB", new IDBFactory());
+  vi.stubGlobal("IDBKeyRange", IDBKeyRange);
+  vi.stubGlobal("navigator", { locks });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
+});
+
+describe("local copy ownership across tabs", () => {
+  it("resolves a claim only once the lock is granted", async () => {
+    const claim = claimRecordingBackupLock("rec-1");
+    expect(locks.held.size).toBe(0);
+    await expect(claim).resolves.toMatchObject({ status: "held" });
+    expect(locks.held.has("clips-local-recording:rec-1")).toBe(true);
+  });
+
+  it("never lets a second tab see or take a copy the recording tab holds", async () => {
+    const recordingTab = await claimRecordingBackupLock("live");
+    await saveCopy(meta("live", { completedAt: null, state: "recording" }));
+
+    const scan = await findLocalRecordingsToFinish("me@example.com");
+    expect(scan.pending).toEqual([]);
+    await expect(claimRecordingBackupLock("live")).resolves.toEqual({
+      status: "busy",
     });
 
-    const pending = await findLocalRecordingsToFinish("me@example.com");
+    if (recordingTab.status === "held") recordingTab.release();
+    await vi.waitFor(() => expect(locks.held.size).toBe(0));
+    const after = await findLocalRecordingsToFinish("me@example.com");
+    expect(after.pending.map((m) => m.recordingId)).toEqual(["live"]);
+  });
 
-    expect(pending.map((m) => m.recordingId)).toEqual([
-      "never-uploaded",
-      "interrupted",
-      "legacy-unknown-row",
-    ]);
-    expect(pending[pending.length - 1]?.ownerEmail).toBeNull();
-    expect(mocks.claimRecordingBackupOwner).not.toHaveBeenCalled();
-    expect(mocks.trashStaleServerRecordings).toHaveBeenCalledWith(["srv-old"]);
-    expect(mocks.deleteRecordingBackup).toHaveBeenCalledWith(
-      "uploaded-and-ready",
+  it("refuses ownership without Web Locks instead of assuming it", async () => {
+    vi.stubGlobal("navigator", {});
+    await expect(claimRecordingBackupLock("rec-1")).resolves.toEqual({
+      status: "unavailable",
+    });
+  });
+});
+
+describe("findLocalRecordingsToFinish", () => {
+  it("deletes a copy only when the server proves it holds every byte", async () => {
+    await saveCopy(meta("proven", { serverRecordingId: "srv-1" }));
+    await saveCopy(meta("short", { serverRecordingId: "srv-2" }));
+    await saveCopy(meta("no-proof", { serverRecordingId: "srv-3" }));
+    mocks.fetchServerUploadStatus.mockImplementation(async (id: string) =>
+      id === "srv-1" ? ready(4) : id === "srv-2" ? ready(2) : ready(null),
     );
-    expect(mocks.deleteRecordingBackup).toHaveBeenCalledTimes(1);
+
+    const scan = await findLocalRecordingsToFinish("me@example.com");
+
+    expect(await getRecordingBackupMeta("proven")).toBeNull();
+    expect(scan.pending.map((m) => m.recordingId).sort()).toEqual([
+      "no-proof",
+      "short",
+    ]);
   });
 
-  it("still offers a copy when the server can't be reached", async () => {
-    mocks.listRecordingBackupMetas.mockResolvedValue([
-      meta("offline", { serverRecordingId: "srv-1" }),
-    ]);
-    mocks.fetchServerUploadStatus.mockRejectedValue(new TypeError("offline"));
+  it("keeps a copy that was cut short even when the server matches it", async () => {
+    await saveCopy(
+      meta("cut-short", { serverRecordingId: "srv-1", incomplete: true }),
+    );
+    mocks.fetchServerUploadStatus.mockResolvedValue(ready(4));
 
-    const pending = await findLocalRecordingsToFinish("me@example.com");
+    const scan = await findLocalRecordingsToFinish("me@example.com");
 
-    expect(pending.map((m) => m.recordingId)).toEqual(["offline"]);
-    expect(mocks.deleteRecordingBackup).not.toHaveBeenCalled();
+    expect(await getRecordingBackupMeta("cut-short")).not.toBeNull();
+    expect(scan.pending.map((m) => m.recordingId)).toEqual(["cut-short"]);
   });
 
-  it("stamps an ownerless copy whose server row this account can read", async () => {
-    mocks.listRecordingBackupMetas.mockResolvedValue([
-      meta("ownerless-mine", { ownerEmail: null, serverRecordingId: "srv-1" }),
-    ]);
+  it("still offers a copy whose check fails instead of hiding the rest", async () => {
+    await saveCopy(
+      meta("broken", { ownerEmail: null, serverRecordingId: "s1" }),
+    );
+    await saveCopy(meta("fine", { localOnly: true }));
     mocks.fetchServerUploadStatus.mockResolvedValue({
       found: true,
       status: "failed",
+      verificationPending: false,
+      sourceSizeBytes: null,
+      durationMs: null,
+    });
+    vi.stubGlobal("navigator", {
+      locks: {
+        query: async () => ({ held: [], pending: [] }),
+      },
+    });
+    // The owner stamp needs IndexedDB writes; break them for this copy only.
+    const original = IDBFactory.prototype.open;
+    let opens = 0;
+    vi.spyOn(IDBFactory.prototype, "open").mockImplementation(function (
+      this: IDBFactory,
+      ...args: Parameters<IDBFactory["open"]>
+    ) {
+      opens += 1;
+      // 1: the scan's list read; 2: stamping the ownerless copy.
+      if (opens === 2) throw new Error("disk read failed");
+      return original.apply(this, args);
     });
 
-    const pending = await findLocalRecordingsToFinish("me@example.com");
+    const scan = await findLocalRecordingsToFinish("me@example.com");
 
-    expect(mocks.claimRecordingBackupOwner).toHaveBeenCalledWith(
-      "ownerless-mine",
-      "me@example.com",
-    );
-    expect(pending).toEqual([
-      { recordingId: "ownerless-mine", ownerEmail: "me@example.com" },
+    expect(scan.pending.map((m) => m.recordingId).sort()).toEqual([
+      "broken",
+      "fine",
     ]);
+  });
+});
+
+describe("watchLocalRecordings", () => {
+  it("rechecks a processing copy and deletes it only after a proven ready", async () => {
+    await saveCopy(meta("processing", { serverRecordingId: "srv-1" }));
+    mocks.fetchServerUploadStatus
+      .mockResolvedValueOnce({
+        found: true,
+        status: "processing",
+        verificationPending: true,
+        sourceSizeBytes: null,
+        durationMs: null,
+      })
+      .mockResolvedValue(ready(4));
+    const results: number[] = [];
+
+    const stop = watchLocalRecordings(
+      "me@example.com",
+      {
+        onResult: (scan) => results.push(scan.waitingOnServer),
+        onError: () => {},
+      },
+      [20],
+    );
+
+    await vi.waitFor(() => expect(results).toEqual([1, 0]));
+    expect(await getRecordingBackupMeta("processing")).toBeNull();
+    expect(mocks.fetchServerUploadStatus).toHaveBeenCalledTimes(2);
+    stop();
+  });
+
+  it("reports an unreadable store as an error, never as nothing to recover", async () => {
+    vi.spyOn(IDBFactory.prototype, "open").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    const onError = vi.fn();
+    const onResult = vi.fn();
+
+    const stop = watchLocalRecordings("me@example.com", { onResult, onError });
+
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+    expect(onResult).not.toHaveBeenCalled();
+    expect(typeof onError.mock.calls[0]![1]).toBe("function");
+    stop();
   });
 });
 
@@ -151,7 +288,7 @@ describe("offerLocalRecording", () => {
   }
 
   it("re-checks the copy's lock at click time before finishing in place", async () => {
-    mocks.liveRecordingBackupIds.mockResolvedValueOnce(new Set(["rec-1"]));
+    await claimRecordingBackupLock("rec-1");
     const { onFinish, navigate } = clickOffer();
     await vi.waitFor(() =>
       expect(mocks.toastInfo).toHaveBeenCalledWith(

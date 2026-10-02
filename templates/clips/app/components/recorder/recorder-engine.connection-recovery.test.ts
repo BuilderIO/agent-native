@@ -8,7 +8,10 @@ import { uploadChunkRequest } from "@/lib/upload-request";
 
 import { RecorderEngine } from "./recorder-engine";
 
-vi.mock("@/lib/recording-backup", () => ({
+vi.mock("@/lib/recording-backup", async (importOriginal) => ({
+  verifyServerCopy: (
+    await importOriginal<typeof import("@/lib/recording-backup")>()
+  ).verifyServerCopy,
   deleteRecordingBackup: vi.fn(async () => {}),
   putRecordingBackupChunk: vi.fn(async () => {}),
   putRecordingBackupMeta: vi.fn(async () => {}),

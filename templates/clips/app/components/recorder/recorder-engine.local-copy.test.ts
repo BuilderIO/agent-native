@@ -4,12 +4,16 @@ import {
   deleteRecordingBackup,
   putRecordingBackupChunk,
   putRecordingBackupMeta,
+  updateRecordingBackupMeta,
 } from "@/lib/recording-backup";
 import { uploadChunkRequest } from "@/lib/upload-request";
 
 import { RecorderEngine } from "./recorder-engine";
 
-vi.mock("@/lib/recording-backup", () => ({
+vi.mock("@/lib/recording-backup", async (importOriginal) => ({
+  verifyServerCopy: (
+    await importOriginal<typeof import("@/lib/recording-backup")>()
+  ).verifyServerCopy,
   deleteRecordingBackup: vi.fn(async () => {}),
   putRecordingBackupChunk: vi.fn(async () => {}),
   putRecordingBackupMeta: vi.fn(async () => {}),
@@ -97,6 +101,7 @@ async function flush(engine: RecorderEngine) {
 describe("RecorderEngine local copy", () => {
   beforeEach(() => {
     vi.stubGlobal("window", { setTimeout, clearTimeout });
+    vi.mocked(putRecordingBackupChunk).mockResolvedValue(undefined);
     vi.stubGlobal("MediaStream", FakeMediaStream);
     vi.stubGlobal("MediaRecorder", FakeMediaRecorder);
   });
@@ -218,6 +223,41 @@ describe("RecorderEngine local copy", () => {
 
       expect(putRecordingBackupChunk).toHaveBeenCalledTimes(4);
       expect(onLocalCopyFailed).toHaveBeenCalledWith("unavailable");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("marks the copy incomplete and says so when the final chunk never arrives", async () => {
+    vi.useFakeTimers();
+    try {
+      const onIncompleteCapture = vi.fn();
+      const engine = new RecorderEngine({
+        recordingId: "__pending__",
+        mode: "screen",
+        uploadUrl: "",
+        abortUrl: "",
+        onIncompleteCapture,
+      });
+      engine.setLocalOnlyTarget("local-1");
+      (engine as unknown as { displayStream: FakeMediaStream }).displayStream =
+        new FakeMediaStream([new FakeVideoTrack()]);
+      await engine.start();
+      const recorder = FakeMediaRecorder.instance!;
+      recorder.stop = function stopWithoutFinalChunk(this: FakeMediaRecorder) {
+        this.state = "inactive";
+      };
+      recorder.emitChunk(new Blob(["a"]));
+
+      const stopping = engine.stop();
+      await vi.advanceTimersByTimeAsync(10_000);
+      await stopping;
+
+      expect(onIncompleteCapture).toHaveBeenCalledOnce();
+      expect(updateRecordingBackupMeta).toHaveBeenCalledWith("local-1", {
+        incomplete: true,
+      });
+      expect(engine.getBufferedRecordingSource()?.whole).toBe(false);
     } finally {
       vi.useRealTimers();
     }

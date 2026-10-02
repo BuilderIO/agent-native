@@ -4,6 +4,7 @@ import {
   nextLocalRecordingState,
   recoverableBackupChunks,
   selectRecoverableRecordingBackups,
+  verifyServerCopy,
   type RecordingBackupChunk,
   type RecordingBackupMeta,
 } from "./recording-backup";
@@ -100,8 +101,6 @@ describe("recoverableBackupChunks", () => {
 });
 
 describe("selectRecoverableRecordingBackups", () => {
-  const now = Date.parse("2026-10-01T12:00:00.000Z");
-
   it("offers this account's copies and ownerless ones to claim, never another account's", () => {
     const picked = selectRecoverableRecordingBackups(
       [
@@ -117,7 +116,7 @@ describe("selectRecoverableRecordingBackups", () => {
           chunkCount: 0,
         }),
       ],
-      { liveIds: new Set(["live"]), ownerEmail: "me@example.com", nowMs: now },
+      { liveIds: new Set(["live"]), ownerEmail: "me@example.com" },
     );
     expect(picked.map((m) => m.recordingId)).toEqual([
       "mine",
@@ -126,23 +125,26 @@ describe("selectRecoverableRecordingBackups", () => {
     ]);
   });
 
-  it("treats a recently written copy as live when Web Locks are unavailable", () => {
+  it("lists every copy without Web Locks instead of guessing liveness from age", () => {
     const picked = selectRecoverableRecordingBackups(
       [
         meta({
           recordingId: "fresh",
           ownerEmail: "me@example.com",
-          savedAt: new Date(now - 5_000).toISOString(),
+          savedAt: new Date().toISOString(),
         }),
         meta({
-          recordingId: "stale",
+          recordingId: "unparseable-date",
           ownerEmail: "me@example.com",
-          savedAt: new Date(now - 120_000).toISOString(),
+          savedAt: "not a date",
         }),
       ],
-      { liveIds: null, ownerEmail: "me@example.com", nowMs: now },
+      { liveIds: null, ownerEmail: "me@example.com" },
     );
-    expect(picked.map((m) => m.recordingId)).toEqual(["stale"]);
+    expect(picked.map((m) => m.recordingId)).toEqual([
+      "fresh",
+      "unparseable-date",
+    ]);
   });
 
   it("lists the newest copy first", () => {
@@ -159,8 +161,32 @@ describe("selectRecoverableRecordingBackups", () => {
           savedAt: "2026-10-01T11:00:00.000Z",
         }),
       ],
-      { liveIds: new Set(), ownerEmail: "me@example.com", nowMs: now },
+      { liveIds: new Set(), ownerEmail: "me@example.com" },
     );
     expect(picked.map((m) => m.recordingId)).toEqual(["new", "old"]);
+  });
+});
+
+describe("verifyServerCopy", () => {
+  const local = { bytes: 1_000, durationMs: 60_000 };
+
+  it("verifies only the exact bytes with a matching duration", () => {
+    expect(
+      verifyServerCopy({ sourceSizeBytes: 1_000, durationMs: 60_400 }, local),
+    ).toBe("verified");
+  });
+
+  it("flags a short server assembly even when it reads ready", () => {
+    expect(
+      verifyServerCopy({ sourceSizeBytes: 600, durationMs: 60_000 }, local),
+    ).toBe("mismatch");
+    expect(
+      verifyServerCopy({ sourceSizeBytes: 1_000, durationMs: 30_000 }, local),
+    ).toBe("mismatch");
+  });
+
+  it("never counts a status without measurements as proof", () => {
+    expect(verifyServerCopy({}, local)).toBe("unverified");
+    expect(verifyServerCopy({ durationMs: 60_000 }, local)).toBe("unverified");
   });
 });

@@ -13,6 +13,7 @@ import {
   nextLocalRecordingState,
   readRecoverableRecordingBackup,
   updateRecordingBackupMeta,
+  verifyServerCopy,
   type LocalRecordingState,
   type RecordingBackupMeta,
 } from "./recording-backup";
@@ -29,6 +30,8 @@ export type LocalUploadFailureCode =
   | "unreadable_local_copy"
   | "owner_unconfirmed"
   | "owner_mismatch"
+  | "lock_unavailable"
+  | "copy_kept"
   | "storage_setup_required"
   | "session_expired"
   | "recording_too_large"
@@ -48,6 +51,8 @@ const SERVER_FAILURE_CODE: Record<LocalUploadFailureCode, string> = {
   unreadable_local_copy: "upload_failed",
   owner_unconfirmed: "upload_failed",
   owner_mismatch: "upload_failed",
+  lock_unavailable: "upload_failed",
+  copy_kept: "upload_failed",
   storage_setup_required: "storage_setup_required",
   session_expired: "upload_interrupted",
   recording_too_large: "recording_too_large",
@@ -161,9 +166,16 @@ export function newRecordingId(size = 12): string {
   return id;
 }
 
-type ServerUploadStatus =
+export type ServerUploadStatus =
   | { found: false }
-  | { found: true; status: string; verificationPending: boolean };
+  | {
+      found: true;
+      status: string;
+      verificationPending: boolean;
+      /** Bytes finalize received; null when the server did not report them. */
+      sourceSizeBytes: number | null;
+      durationMs: number | null;
+    };
 
 export async function fetchServerUploadStatus(
   recordingId: string,
@@ -179,7 +191,12 @@ export async function fetchServerUploadStatus(
     );
   }
   const body = (await response.json()) as {
-    recording?: { status?: unknown; verificationPending?: unknown };
+    recording?: {
+      status?: unknown;
+      verificationPending?: unknown;
+      sourceSizeBytes?: unknown;
+      durationMs?: unknown;
+    };
   };
   if (typeof body.recording?.status !== "string") {
     throw new LocalRecordingUploadError(
@@ -191,6 +208,14 @@ export async function fetchServerUploadStatus(
     found: true,
     status: body.recording.status,
     verificationPending: body.recording.verificationPending === true,
+    sourceSizeBytes:
+      typeof body.recording.sourceSizeBytes === "number"
+        ? body.recording.sourceSizeBytes
+        : null,
+    durationMs:
+      typeof body.recording.durationMs === "number"
+        ? body.recording.durationMs
+        : null,
   };
 }
 
@@ -216,7 +241,14 @@ export interface LocalUploadOptions {
     title?: string | null;
     /** The account that recorded it; the stored copy's owner wins. */
     ownerEmail?: string | null;
+    /** False when the recorder never delivered its final chunk. */
+    whole?: boolean;
   };
+  /**
+   * Upload again even though an earlier attempt reads ready, because that
+   * server copy did not match this one.
+   */
+  reuploadMismatched?: boolean;
   onProgress?: (fraction: number) => void;
   /** Delays between attempts of one chunk; one attempt more than entries. */
   retryDelaysMs?: readonly number[];
@@ -227,6 +259,12 @@ export interface LocalUploadOptions {
 export type LocalUploadResult = {
   recordingId: string;
   status: "ready" | "processing";
+  /**
+   * Set when the local copy was kept after the upload: "partial" when the
+   * copy itself is not the whole recording, "unverified" when the server did
+   * not report what it received, "mismatch" when it reported less.
+   */
+  kept?: "partial" | "unverified" | "mismatch";
 };
 
 const DEFAULT_RETRY_DELAYS_MS = [1_000, 3_000, 8_000, 15_000] as const;
@@ -268,6 +306,7 @@ export async function uploadLocalRecording(
           completedAt: new Date().toISOString(),
         } satisfies RecordingBackupMeta,
         blob: memorySource.blob,
+        whole: memorySource.whole !== false,
       }
     : stored;
   if (!copy) {
@@ -276,7 +315,7 @@ export async function uploadLocalRecording(
       "This recording's local copy is no longer in this browser.",
     );
   }
-  const { meta, blob } = copy;
+  const { meta, blob, whole } = copy;
   if (!blob) {
     throw new LocalRecordingUploadError(
       "unreadable_local_copy",
@@ -304,15 +343,34 @@ export async function uploadLocalRecording(
         })
       : updateRecordingBackupMeta(localId, patch);
 
+  const local = { bytes: blob.size, durationMs: meta.durationMs };
+  // Only a whole copy that the server proves it received in full is deleted;
+  // anything else stays in this browser until the user decides.
+  const settleReady = async (
+    serverId: string,
+    proof: ReturnType<typeof verifyServerCopy>,
+  ): Promise<LocalUploadResult> => {
+    if (proof === "verified" && whole) {
+      await trashStaleServerRecordings([...staleServerIds]);
+      await deleteRecordingBackup(localId);
+      return { recordingId: serverId, status: "ready" };
+    }
+    const kept =
+      proof === "mismatch" ? "mismatch" : !whole ? "partial" : "unverified";
+    await persist({ state: "uploaded", keptAfterUpload: kept });
+    return { recordingId: serverId, status: "ready", kept };
+  };
+
   const staleServerIds = new Set(meta.staleServerRecordingIds ?? []);
   const previousServerId =
     meta.serverRecordingId ?? (meta.localOnly ? null : meta.recordingId);
   if (previousServerId) {
     const previous = await fetchServerUploadStatus(previousServerId, signal);
     if (previous.found && previous.status === "ready") {
-      await trashStaleServerRecordings([...staleServerIds]);
-      await deleteRecordingBackup(localId);
-      return { recordingId: previousServerId, status: "ready" };
+      const proof = verifyServerCopy(previous, local);
+      if (proof !== "mismatch" || !options.reuploadMismatched) {
+        return settleReady(previousServerId, proof);
+      }
     }
     if (previous.found && previous.status === "processing") {
       await persist({ state: "uploaded" });
@@ -337,9 +395,9 @@ export async function uploadLocalRecording(
     lastError: null,
   });
 
-  let status: "ready" | "processing";
+  let uploaded: Awaited<ReturnType<typeof createAndUpload>>;
   try {
-    ({ status } = await createAndUpload(serverId, meta, blob, options));
+    uploaded = await createAndUpload(serverId, meta, blob, options);
   } catch (error) {
     const failure =
       error instanceof LocalRecordingUploadError
@@ -370,18 +428,26 @@ export async function uploadLocalRecording(
 
   // The server holds the clip now; bookkeeping below can only leave a stale
   // local copy, which the next recovery scan reconciles once it reads ready.
-  // Stale rows go first so a page closing mid-way still has their ids.
-  if (status === "ready") {
-    await trashStaleServerRecordings([...staleServerIds]);
+  if (uploaded.status === "processing") {
+    await persist({ state: "uploaded" }).catch(() => {
+      // coercion-ok: see above; a leftover copy is reconciled, never re-uploaded.
+    });
+    return { recordingId: serverId, status: "processing" };
   }
-  await (
-    status === "ready"
-      ? deleteRecordingBackup(localId)
-      : persist({ state: "uploaded" })
-  ).catch(() => {
-    // coercion-ok: see above; a leftover copy is reconciled, never re-uploaded.
-  });
-  return { recordingId: serverId, status };
+  return settleReady(serverId, verifyServerCopy(uploaded, local)).catch(
+    (error: unknown) => {
+      console.warn(
+        "[clips] local copy bookkeeping after upload failed:",
+        error,
+      );
+      // coercion-ok: the clip is saved; a leftover copy is reconciled by the next scan.
+      return {
+        recordingId: serverId,
+        status: "ready" as const,
+        kept: "unverified" as const,
+      };
+    },
+  );
 }
 
 /**
@@ -410,7 +476,11 @@ async function createAndUpload(
   meta: RecordingBackupMeta,
   blob: Blob,
   options: LocalUploadOptions,
-): Promise<{ status: "ready" | "processing" }> {
+): Promise<{
+  status: "ready" | "processing";
+  sourceSizeBytes: number | null;
+  durationMs: number | null;
+}> {
   const { signal } = options;
   type UploadTarget = {
     id?: string;
@@ -534,9 +604,17 @@ async function createAndUpload(
   const status = finalBody?.status;
   const waitingForStorage =
     status === "waiting_storage" || finalBody?.waitingForStorage === true;
-  if (status === "ready") return { status: "ready" };
+  const proof = {
+    sourceSizeBytes:
+      typeof finalBody?.sourceSizeBytes === "number"
+        ? finalBody.sourceSizeBytes
+        : null,
+    durationMs:
+      typeof finalBody?.durationMs === "number" ? finalBody.durationMs : null,
+  };
+  if (status === "ready") return { status: "ready", ...proof };
   if (status === "processing" && !waitingForStorage) {
-    return { status: "processing" };
+    return { status: "processing", ...proof };
   }
   throw withAbortUrl(
     new LocalRecordingUploadError(

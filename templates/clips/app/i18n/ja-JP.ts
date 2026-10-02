@@ -1856,6 +1856,22 @@ const messages = {
     claimRecordingPrompt:
       "この録画はまだどのアカウントにも紐づいていません。{{email}} にアップロードしますか？",
     claimRecording: "自分のアカウントにアップロード",
+    lowBrowserStorage:
+      "このブラウザの空き容量が少ないため、長い録画は予備コピーに収まらない可能性があります。アップロードが終わるまでこのタブを開いたままにしてください。",
+    recordingEndMissing:
+      "この録画の最後が保存されませんでした。Clips は保存できた分をアップロードし、コピーを残します。",
+    uploadedPartialCopyKept:
+      "このブラウザに保存された分をアップロードしました。最後が欠けている可能性があるため、Clips はコピーをここに残しました。",
+    uploadUnverifiedCopyKept:
+      "録画全体がアップロードされたことを Clips が確認できなかったため、コピーをここに残しました。",
+    copyKeptAfterUpload:
+      "この録画はアップロードされましたが、完全かどうかを Clips が確認できなかったため、コピーをここに残しました。",
+    localCopyLockUnavailable:
+      "ほかのタブがこの録画を使っていないことを Clips が確認できないため、ここからアップロードも削除もしません。代わりにコピーをダウンロードしてください。",
+    uploadAgain: "もう一度アップロード",
+    keptCopyWaiting: "Clips がこのブラウザに録画のコピーを残しています",
+    savedRecordingsUnreadable:
+      "このブラウザに保存された録画を Clips が読み取れませんでした。",
   },
   importRoute: {
     pageTitle: "Loom をインポート — Clips",

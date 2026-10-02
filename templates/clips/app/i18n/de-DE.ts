@@ -1881,6 +1881,23 @@ const messages = {
     claimRecordingPrompt:
       "Diese Aufnahme ist noch mit keinem Konto verknüpft. In {{email}} hochladen?",
     claimRecording: "In mein Konto hochladen",
+    lowBrowserStorage:
+      "Dieser Browser hat wenig Speicher frei, daher passt eine lange Aufnahme womöglich nicht in die Sicherungskopie. Lass diesen Tab geöffnet, bis sie hochgeladen ist.",
+    recordingEndMissing:
+      "Das Ende dieser Aufnahme wurde nicht gespeichert. Clips lädt hoch, was vorhanden ist, und behält deine Kopie.",
+    uploadedPartialCopyKept:
+      "Hochgeladen, was dieser Browser gespeichert hat. Das Ende fehlt womöglich, daher hat Clips deine Kopie hier behalten.",
+    uploadUnverifiedCopyKept:
+      "Clips konnte nicht bestätigen, dass die ganze Aufnahme hochgeladen wurde, und hat deine Kopie hier behalten.",
+    copyKeptAfterUpload:
+      "Diese Aufnahme wurde hochgeladen, aber Clips konnte nicht bestätigen, dass sie vollständig ist, und hat deine Kopie hier behalten.",
+    localCopyLockUnavailable:
+      "Clips kann nicht bestätigen, dass kein anderer Tab diese Aufnahme verwendet, und lädt sie deshalb von hier weder hoch noch löscht sie. Lade stattdessen eine Kopie herunter.",
+    uploadAgain: "Erneut hochladen",
+    keptCopyWaiting:
+      "Clips hat eine Kopie einer Aufnahme in diesem Browser behalten",
+    savedRecordingsUnreadable:
+      "Clips konnte die in diesem Browser gespeicherten Aufnahmen nicht lesen.",
   },
   importRoute: {
     pageTitle: "Loom importieren — Clips",

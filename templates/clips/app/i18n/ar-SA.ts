@@ -1834,6 +1834,22 @@ const messages = {
     claimRecordingPrompt:
       "هذا التسجيل غير مرتبط بأي حساب بعد. هل تريد رفعه إلى {{email}}؟",
     claimRecording: "الرفع إلى حسابي",
+    lowBrowserStorage:
+      "مساحة هذا المتصفح منخفضة، لذا قد لا يتسع التسجيل الطويل لنسخته الاحتياطية. أبقِ علامة التبويب مفتوحة حتى يُرفع.",
+    recordingEndMissing:
+      "لم تُحفظ نهاية هذا التسجيل. سيرفع Clips ما لديه ويحتفظ بنسختك.",
+    uploadedPartialCopyKept:
+      "رُفع ما حفظه هذا المتصفح. قد تكون النهاية مفقودة، لذا احتفظ Clips بنسختك هنا.",
+    uploadUnverifiedCopyKept:
+      "تعذّر على Clips التأكد من رفع التسجيل كاملًا، لذا احتفظ بنسختك هنا.",
+    copyKeptAfterUpload:
+      "رُفع هذا التسجيل، لكن تعذّر على Clips التأكد من اكتماله، لذا احتفظ بنسختك هنا.",
+    localCopyLockUnavailable:
+      "لا يستطيع Clips التأكد من أن علامة تبويب أخرى لا تستخدم هذا التسجيل، لذا لن يرفعه أو يحذفه من هنا. نزّل نسخة بدلًا من ذلك.",
+    uploadAgain: "الرفع مرة أخرى",
+    keptCopyWaiting: "احتفظ Clips بنسخة من تسجيل في هذا المتصفح",
+    savedRecordingsUnreadable:
+      "تعذّر على Clips قراءة التسجيلات المحفوظة في هذا المتصفح.",
   },
   importRoute: {
     pageTitle: "استيراد Loom — Clips",

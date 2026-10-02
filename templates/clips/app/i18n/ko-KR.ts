@@ -1829,6 +1829,22 @@ const messages = {
     claimRecordingPrompt:
       "이 녹화는 아직 어떤 계정과도 연결되지 않았습니다. {{email}}에 업로드할까요?",
     claimRecording: "내 계정에 업로드",
+    lowBrowserStorage:
+      "이 브라우저의 저장 공간이 부족해 긴 녹화는 안전 사본에 들어가지 않을 수 있습니다. 업로드가 끝날 때까지 이 탭을 열어 두세요.",
+    recordingEndMissing:
+      "이 녹화의 마지막 부분이 저장되지 않았습니다. Clips가 있는 만큼 업로드하고 사본을 보관합니다.",
+    uploadedPartialCopyKept:
+      "이 브라우저에 저장된 만큼 업로드했습니다. 끝부분이 빠졌을 수 있어 Clips가 사본을 여기에 보관했습니다.",
+    uploadUnverifiedCopyKept:
+      "Clips가 녹화 전체가 업로드되었는지 확인하지 못해 사본을 여기에 보관했습니다.",
+    copyKeptAfterUpload:
+      "이 녹화는 업로드되었지만 Clips가 완전한지 확인하지 못해 사본을 여기에 보관했습니다.",
+    localCopyLockUnavailable:
+      "다른 탭이 이 녹화를 사용하고 있지 않은지 Clips가 확인할 수 없어 여기서 업로드하거나 삭제하지 않습니다. 대신 사본을 다운로드하세요.",
+    uploadAgain: "다시 업로드",
+    keptCopyWaiting: "Clips가 이 브라우저에 녹화 사본을 보관하고 있습니다",
+    savedRecordingsUnreadable:
+      "Clips가 이 브라우저에 저장된 녹화를 읽지 못했습니다.",
   },
   importRoute: {
     pageTitle: "Loom 가져오기 — Clips",

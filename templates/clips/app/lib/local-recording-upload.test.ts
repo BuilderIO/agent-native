@@ -63,6 +63,7 @@ function copy(overrides: Partial<RecordingBackupMeta> = {}, bytes = 10) {
       ...overrides,
     } satisfies RecordingBackupMeta,
     blob: new Blob([new Uint8Array(bytes)], { type: "video/webm" }),
+    whole: true,
   };
 }
 
@@ -73,6 +74,16 @@ function created(id: string) {
     abortUrl: `/api/uploads/${id}/abort`,
     uploadMode: "streaming",
   };
+}
+
+/** A final-chunk response that proves the server holds `bytes` in full. */
+function readyFor(bytes: number, durationMs = 5_000) {
+  return json({
+    ok: true,
+    status: "ready",
+    sourceSizeBytes: bytes,
+    durationMs,
+  });
 }
 
 function json(body: unknown, status = 200) {
@@ -140,7 +151,7 @@ describe("uploadLocalRecording", () => {
     mocks.readRecoverableRecordingBackup.mockResolvedValue(copy({}, size));
     mocks.uploadChunkRequest
       .mockResolvedValueOnce(json({ ok: true }))
-      .mockResolvedValueOnce(json({ ok: true, status: "ready" }));
+      .mockResolvedValueOnce(readyFor(size));
 
     const result = await uploadLocalRecording("local-1", ME);
 
@@ -170,7 +181,7 @@ describe("uploadLocalRecording", () => {
     mocks.uploadChunkRequest
       .mockRejectedValueOnce(new TypeError("Failed to fetch"))
       .mockResolvedValueOnce(json({ error: "busy" }, 503))
-      .mockResolvedValueOnce(json({ ok: true, status: "ready" }));
+      .mockResolvedValueOnce(readyFor(10));
 
     const result = await uploadLocalRecording("local-1", {
       ...ME,
@@ -249,7 +260,14 @@ describe("uploadLocalRecording", () => {
       copy({ serverRecordingId: "srv-1", state: "uploading" }),
     );
     fetchMock.mockResolvedValueOnce(
-      json({ recording: { status: "ready", verificationPending: false } }),
+      json({
+        recording: {
+          status: "ready",
+          verificationPending: false,
+          sourceSizeBytes: 10,
+          durationMs: 5_000,
+        },
+      }),
     );
 
     const result = await uploadLocalRecording("local-1", ME);
@@ -273,9 +291,7 @@ describe("uploadLocalRecording", () => {
     fetchMock.mockResolvedValueOnce(
       json({ recording: { status: "failed", verificationPending: false } }),
     );
-    mocks.uploadChunkRequest.mockResolvedValue(
-      json({ ok: true, status: "ready" }),
-    );
+    mocks.uploadChunkRequest.mockResolvedValue(readyFor(10));
 
     const result = await uploadLocalRecording("srv-old", ME);
 
@@ -301,9 +317,7 @@ describe("uploadLocalRecording", () => {
       new DOMException("Quota exceeded", "QuotaExceededError"),
     );
     mocks.updateRecordingBackupMeta.mockRejectedValue(new Error("missing"));
-    mocks.uploadChunkRequest.mockResolvedValue(
-      json({ ok: true, status: "ready" }),
-    );
+    mocks.uploadChunkRequest.mockResolvedValue(readyFor(4, 2_000));
 
     const result = await uploadLocalRecording("local-9", {
       ...ME,
@@ -401,5 +415,73 @@ describe("uploadLocalRecording", () => {
     expect((error as LocalRecordingUploadError).code).toBe(
       "unreadable_local_copy",
     );
+  });
+
+  it("keeps the copy when a short server assembly still reports ready", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(copy({}, 10));
+    mocks.uploadChunkRequest.mockResolvedValue(readyFor(6));
+
+    const result = await uploadLocalRecording("local-1", ME);
+
+    expect(result).toMatchObject({ status: "ready", kept: "mismatch" });
+    expect(mocks.deleteRecordingBackup).not.toHaveBeenCalled();
+    expect(mocks.updateRecordingBackupMeta).toHaveBeenLastCalledWith(
+      "local-1",
+      { state: "uploaded", keptAfterUpload: "mismatch" },
+    );
+  });
+
+  it("keeps the copy when the server reports ready without proof", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(copy());
+    mocks.uploadChunkRequest.mockResolvedValue(
+      json({ ok: true, status: "ready" }),
+    );
+
+    const result = await uploadLocalRecording("local-1", ME);
+
+    expect(result.kept).toBe("unverified");
+    expect(mocks.deleteRecordingBackup).not.toHaveBeenCalled();
+  });
+
+  it("keeps a copy that was cut short after uploading what it has", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue({
+      ...copy({ completedAt: null, state: "recording" }),
+      whole: false,
+    });
+    mocks.uploadChunkRequest.mockResolvedValue(readyFor(10));
+
+    const result = await uploadLocalRecording("local-1", ME);
+
+    expect(result.kept).toBe("partial");
+    expect(mocks.deleteRecordingBackup).not.toHaveBeenCalled();
+  });
+
+  it("does not upload again over a mismatched ready clip unless asked to", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(
+      copy({ serverRecordingId: "srv-1", state: "uploaded" }),
+    );
+    fetchMock.mockImplementation(async () =>
+      json({
+        recording: {
+          status: "ready",
+          verificationPending: false,
+          sourceSizeBytes: 3,
+          durationMs: 5_000,
+        },
+      }),
+    );
+    mocks.uploadChunkRequest.mockResolvedValue(readyFor(10));
+
+    const kept = await uploadLocalRecording("local-1", ME);
+    expect(kept).toMatchObject({ recordingId: "srv-1", kept: "mismatch" });
+    expect(mocks.callAction).not.toHaveBeenCalled();
+
+    const again = await uploadLocalRecording("local-1", {
+      ...ME,
+      reuploadMismatched: true,
+    });
+    expect(again.recordingId).not.toBe("srv-1");
+    expect(again.kept).toBeUndefined();
+    expect(mocks.deleteRecordingBackup).toHaveBeenCalledWith("local-1");
   });
 });

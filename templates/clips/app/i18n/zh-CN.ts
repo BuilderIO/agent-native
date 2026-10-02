@@ -1758,6 +1758,21 @@ const messages = {
     reviewRecording: "查看",
     claimRecordingPrompt: "此录制尚未关联任何账号。要上传到 {{email}} 吗？",
     claimRecording: "上传到我的账号",
+    lowBrowserStorage:
+      "此浏览器存储空间不足，较长的录制可能放不进安全副本。请保持此标签页打开直到上传完成。",
+    recordingEndMissing:
+      "此录制的结尾没有保存。Clips 会上传已有的部分并保留你的副本。",
+    uploadedPartialCopyKept:
+      "已上传此浏览器保存的内容。结尾可能缺失，因此 Clips 在这里保留了你的副本。",
+    uploadUnverifiedCopyKept:
+      "Clips 无法确认整个录制都已上传，因此在这里保留了你的副本。",
+    copyKeptAfterUpload:
+      "此录制已上传，但 Clips 无法确认它是否完整，因此在这里保留了你的副本。",
+    localCopyLockUnavailable:
+      "Clips 无法确认没有其他标签页在使用此录制，因此不会从这里上传或删除它。请改为下载一份副本。",
+    uploadAgain: "重新上传",
+    keptCopyWaiting: "Clips 在此浏览器中保留了一份录制副本",
+    savedRecordingsUnreadable: "Clips 无法读取此浏览器中保存的录制。",
   },
   importRoute: {
     pageTitle: "导入 Loom — Clips",

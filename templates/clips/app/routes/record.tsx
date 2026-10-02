@@ -104,8 +104,7 @@ import {
   claimRecordingBackupOwner,
   deleteRecordingBackup,
   getRecordingBackupMeta,
-  holdRecordingBackupLock,
-  liveRecordingBackupIds,
+  claimRecordingBackupLock,
   readRecoverableRecordingBackup,
   recordingBackupFilename,
   updateRecordingBackupMeta,
@@ -728,6 +727,10 @@ function localUploadFailureLabel(
       return t("recordRoute.localCopyUnreadable");
     case "owner_mismatch":
       return t("recordRoute.recordingOwnedByAnotherAccount");
+    case "lock_unavailable":
+      return t("recordRoute.localCopyLockUnavailable");
+    case "copy_kept":
+      return t("recordRoute.copyKeptAfterUpload");
     case "network":
     case "server_unavailable":
       return withNote(
@@ -739,6 +742,9 @@ function localUploadFailureLabel(
       return withNote(t("recordRoute.uploadDidNotFinish"));
   }
 }
+
+/** Below this much free browser storage a long recording may not fit. */
+const LOW_LOCAL_COPY_SPACE_BYTES = 500 * 1024 * 1024;
 
 /** Waits between automatic retries of a network or 5xx failure while online. */
 const LOCAL_UPLOAD_AUTO_RETRY_MS = [5_000, 15_000, 30_000, 60_000, 120_000];
@@ -1232,22 +1238,58 @@ export default function RecordRoute() {
   // Holds the stopped engine only while its in-memory chunks are the sole
   // full copy (the local copy failed to write), so Download still works.
   const bufferedEngineRef = useRef<RecorderEngine | null>(null);
-  const localCopyLockRef = useRef<{ id: string; release: () => void } | null>(
-    null,
-  );
+  // The local copy this tab owns. "held": its Web Lock is granted.
+  // "unavailable": the browser has no Web Locks, so only a copy this tab
+  // recorded itself (`recordedHereIdsRef`) may be uploaded or deleted.
+  const localCopyLockRef = useRef<{
+    id: string;
+    release: () => void;
+    status: "pending" | "held" | "unavailable";
+  } | null>(null);
+  const recordedHereIdsRef = useRef(new Set<string>());
   const localUploadAbortRef = useRef<AbortController | null>(null);
   const localAutoRetryRef = useRef(0);
-  const holdLocalCopy = useCallback((recordingId: string) => {
-    if (localCopyLockRef.current?.id === recordingId) return;
-    localCopyLockRef.current?.release();
-    localCopyLockRef.current = {
-      id: recordingId,
-      release: holdRecordingBackupLock(recordingId),
-    };
-  }, []);
+  const holdLocalCopy = useCallback(
+    async (recordingId: string): Promise<"held" | "busy" | "unavailable"> => {
+      const current = localCopyLockRef.current;
+      if (current?.id === recordingId && current.status !== "pending") {
+        return current.status;
+      }
+      current?.release();
+      const reservation = {
+        id: recordingId,
+        release: () => {},
+        status: "pending" as const,
+      };
+      localCopyLockRef.current = reservation;
+      const claim = await claimRecordingBackupLock(recordingId);
+      const release = claim.status === "held" ? claim.release : () => {};
+      if (localCopyLockRef.current !== reservation) {
+        // Released (or replaced) while the claim was in flight.
+        release();
+        return claim.status;
+      }
+      localCopyLockRef.current =
+        claim.status === "busy"
+          ? null
+          : { id: recordingId, release, status: claim.status };
+      return claim.status;
+    },
+    [],
+  );
   const releaseLocalCopy = useCallback(() => {
     localCopyLockRef.current?.release();
     localCopyLockRef.current = null;
+  }, []);
+  /** Whether this tab may upload or delete this local copy. */
+  const ownsLocalCopy = useCallback((recordingId: string) => {
+    const lock = localCopyLockRef.current;
+    if (lock?.id !== recordingId) return false;
+    return (
+      lock.status === "held" ||
+      (lock.status === "unavailable" &&
+        recordedHereIdsRef.current.has(recordingId))
+    );
   }, []);
   const countdownAudioCueRef = useRef<CountdownAudioCue | null>(null);
   const confettiRef = useRef<ConfettiHandle>(null);
@@ -1275,6 +1317,33 @@ export default function RecordRoute() {
       previewVideoRef.current.play().catch(() => {});
     }
   }, [previewStream]);
+
+  // Ask the browser not to evict local copies, and warn (never block) when
+  // it is nearly out of space for one.
+  const protectLocalCopyStorage = useCallback(async () => {
+    const storage = typeof navigator !== "undefined" ? navigator.storage : null;
+    if (!storage) return;
+    try {
+      const persisted = (await storage.persisted?.()) ?? false;
+      const granted = persisted || ((await storage.persist?.()) ?? false);
+      trackEvent("clips_local_copy_persist", {
+        app_name: "clips",
+        granted,
+      });
+      const estimate = await storage.estimate?.();
+      if (
+        estimate?.quota !== undefined &&
+        estimate.usage !== undefined &&
+        estimate.quota - estimate.usage < LOW_LOCAL_COPY_SPACE_BYTES
+      ) {
+        toast.warning(t("recordRoute.lowBrowserStorage"), {
+          duration: 12_000,
+        });
+      }
+    } catch (err) {
+      console.warn("[recorder] browser storage check failed:", err);
+    }
+  }, [t]);
 
   const showRecordingErrorToast = useCallback(
     (message: string) => {
@@ -1365,6 +1434,11 @@ export default function RecordRoute() {
           },
           onWarning: (message) => {
             toast.warning(message);
+          },
+          onIncompleteCapture: () => {
+            toast.warning(t("recordRoute.recordingEndMissing"), {
+              duration: 12_000,
+            });
           },
           onLocalCopyFailed: (reason) => {
             toast.warning(
@@ -1607,7 +1681,11 @@ export default function RecordRoute() {
           };
           engine.setLocalOnlyTarget(localId);
         }
-        holdLocalCopy(pendingRef.current.id);
+        // Own the copy before the countdown, so no chunk is ever written to a
+        // copy another tab could see as abandoned.
+        recordedHereIdsRef.current.add(pendingRef.current.id);
+        await holdLocalCopy(pendingRef.current.id);
+        void protectLocalCopyStorage();
 
         setPreviewStream(ps);
         setCameraStream(cs);
@@ -1666,6 +1744,7 @@ export default function RecordRoute() {
       holdLocalCopy,
       liveTranscription,
       markStorageConfigured,
+      protectLocalCopyStorage,
       releaseLocalCopy,
       showRecordingErrorToast,
     ],
@@ -2424,13 +2503,17 @@ export default function RecordRoute() {
       completeUploadToast,
       infoUploadToast,
       navigate,
+      releaseLocalCopy,
       showSavedToast,
       t,
     ],
   );
 
   const uploadPendingLocal = useCallback(
-    async (recordingId: string) => {
+    async (
+      recordingId: string,
+      options: { reuploadMismatched?: boolean } = {},
+    ) => {
       if (localUploadAbortRef.current) return;
       const isCurrent = () => pendingLocalRef.current?.id === recordingId;
       const update = (patch: Partial<PendingLocalUpload>) =>
@@ -2443,6 +2526,12 @@ export default function RecordRoute() {
       const ownerEmail = authSessionEmailRef.current;
       if (!ownerEmail) {
         update({ uploading: false, error: { code: "session_expired" } });
+        localUploadAbortRef.current = null;
+        return;
+      }
+      if (!ownsLocalCopy(recordingId)) {
+        // Another tab may be uploading or still recording this copy.
+        update({ uploading: false, error: { code: "lock_unavailable" } });
         localUploadAbortRef.current = null;
         return;
       }
@@ -2483,7 +2572,19 @@ export default function RecordRoute() {
         const result = await uploadLocalRecording(recordingId, {
           ownerEmail,
           signal: abort.signal,
-          memorySource: memory ?? undefined,
+          reuploadMismatched: options.reuploadMismatched,
+          // A memory-only copy recorded in this tab belongs to whoever was
+          // signed in at Stop, even if the session loaded after it started.
+          memorySource: memory
+            ? {
+                ...memory,
+                ownerEmail:
+                  memory.ownerEmail ??
+                  (recordedHereIdsRef.current.has(recordingId)
+                    ? ownerEmail
+                    : null),
+              }
+            : undefined,
           folderId: folderIdFromUrl,
           spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
           onProgress: (fraction) => {
@@ -2492,6 +2593,21 @@ export default function RecordRoute() {
         });
         if (abort.signal.aborted) return;
         localAutoRetryRef.current = 0;
+        if (result.kept) {
+          // The clip is saved, but the copy stays until the user decides.
+          update({
+            uploading: false,
+            progress: null,
+            error: { code: "copy_kept" },
+          });
+          toast.warning(
+            result.kept === "partial"
+              ? t("recordRoute.uploadedPartialCopyKept")
+              : t("recordRoute.uploadUnverifiedCopyKept"),
+            { duration: 12_000 },
+          );
+          return;
+        }
         trackEvent("clips_local_recording_uploaded", {
           app_name: "clips",
           output_id: result.recordingId,
@@ -2551,6 +2667,7 @@ export default function RecordRoute() {
       finishSavedRecording,
       folderIdFromUrl,
       markStorageConfigured,
+      ownsLocalCopy,
       queryClient,
       releaseLocalCopy,
       spaceIdFromUrl,
@@ -2569,7 +2686,6 @@ export default function RecordRoute() {
       engineRef.current = null;
       // Keep the stopped engine only when its memory is the sole full copy.
       bufferedEngineRef.current = engine?.getBackupError() ? engine : null;
-      holdLocalCopy(recordingId);
       dismissUploadToast();
       setCameraStream(null);
       setPreviewStream(null);
@@ -2595,6 +2711,7 @@ export default function RecordRoute() {
       // copy is never stamped here: an ownerless one needs an explicit claim.
       const ownerEmail = authSessionEmailRef.current;
       void (async () => {
+        await holdLocalCopy(recordingId);
         if (recordedHere && ownerEmail) {
           await claimRecordingBackupOwner(recordingId, ownerEmail).catch(
             (err) => {
@@ -2613,16 +2730,31 @@ export default function RecordRoute() {
     const pending = pendingLocalRef.current;
     const ownerEmail = authSessionEmailRef.current;
     if (!pending || !ownerEmail) return;
-    try {
-      await claimRecordingBackupOwner(pending.id, ownerEmail);
-    } catch (err) {
-      console.warn("[recorder] claiming the local copy failed:", err);
-      setPendingLocal((prev) =>
-        prev?.id === pending.id
-          ? { ...prev, needsOwner: false, error: { code: "owner_mismatch" } }
-          : prev,
-      );
-      return;
+    if (!bufferedEngineRef.current) {
+      try {
+        await claimRecordingBackupOwner(pending.id, ownerEmail);
+      } catch (err) {
+        console.warn("[recorder] claiming the local copy failed:", err);
+        const otherAccount =
+          err instanceof Error && /another account/i.test(err.message);
+        setPendingLocal((prev) =>
+          prev?.id === pending.id
+            ? {
+                ...prev,
+                needsOwner: false,
+                error: {
+                  code: otherAccount
+                    ? "owner_mismatch"
+                    : "unreadable_local_copy",
+                },
+              }
+            : prev,
+        );
+        return;
+      }
+    } else {
+      // A memory-only copy has no stored owner to stamp; this tab recorded it.
+      recordedHereIdsRef.current.add(pending.id);
     }
     setPendingLocal((prev) =>
       prev?.id === pending.id ? { ...prev, needsOwner: false } : prev,
@@ -2631,6 +2763,22 @@ export default function RecordRoute() {
   }, [uploadPendingLocal]);
   const enterPendingUploadRef = useRef(enterPendingUpload);
   enterPendingUploadRef.current = enterPendingUpload;
+
+  // A copy left by another visit is taken only once this tab holds its lock;
+  // one that another tab owns is never uploaded or deleted from here.
+  const openRecoveredCopy = useCallback(
+    async (recordingId: string) => {
+      const status = await holdLocalCopy(recordingId);
+      if (status === "busy") {
+        toast.info(t("recordRoute.localRecordingOpenElsewhere"));
+        return;
+      }
+      enterPendingUploadRef.current(recordingId);
+    },
+    [holdLocalCopy, t],
+  );
+  const openRecoveredCopyRef = useRef(openRecoveredCopy);
+  openRecoveredCopyRef.current = openRecoveredCopy;
 
   // `/record?localRecording=<id>` finishes a copy left by a closed tab, a
   // reload, or a trip to Settings; the recovery prompt links here.
@@ -2651,8 +2799,6 @@ export default function RecordRoute() {
         if (!cancelled) toast.error(t("recordRoute.noLocalRecordingData"));
         return;
       }
-      // coercion-ok: null is "liveness unknown"; this tab then takes the copy.
-      const liveIds = await liveRecordingBackupIds().catch(() => null);
       if (cancelled) return;
       if (!meta) {
         // Already uploaded: the copy is deleted once the clip reads ready.
@@ -2668,11 +2814,7 @@ export default function RecordRoute() {
         void navigate("/record", { replace: true });
         return;
       }
-      if (liveIds?.has(resumeLocalRecordingId)) {
-        toast.info(t("recordRoute.localRecordingOpenElsewhere"));
-        return;
-      }
-      enterPendingUploadRef.current(resumeLocalRecordingId);
+      await openRecoveredCopyRef.current(resumeLocalRecordingId);
     })();
     return () => {
       cancelled = true;
@@ -2699,7 +2841,7 @@ export default function RecordRoute() {
   useLocalRecordingRecovery(
     uiState === "idle" && !resumeLocalRecordingId && !clipIntake,
     useCallback((recordingId: string) => {
-      enterPendingUploadRef.current(recordingId);
+      void openRecoveredCopyRef.current(recordingId);
     }, []),
   );
 
@@ -2938,7 +3080,7 @@ export default function RecordRoute() {
     }
     saveBlobToDisk(download.blob, download.filename);
     toast.success(t("recordRoute.recordingDownloadStarted"));
-  }, []);
+  }, [t]);
 
   const downloadPendingLocal = useCallback(async () => {
     const recordingId = pendingLocalRef.current?.id;
@@ -2993,6 +3135,8 @@ export default function RecordRoute() {
     engineRef.current = null;
     pendingRef.current = null;
     const discardedLocalId = pendingLocalRef.current?.id;
+    const mayDeleteLocal =
+      !!discardedLocalId && ownsLocalCopy(discardedLocalId);
     if (discardedLocalId) {
       localUploadAbortRef.current?.abort(makeAbortError("Upload cancelled"));
       localUploadAbortRef.current = null;
@@ -3003,6 +3147,8 @@ export default function RecordRoute() {
         const meta = await getRecordingBackupMeta(discardedLocalId).catch(
           () => null,
         );
+        // Without ownership another tab may still be using this copy.
+        if (!mayDeleteLocal) return;
         if (meta?.serverRecordingId) {
           await callAction(
             "trash-recording" as any,
@@ -3086,6 +3232,7 @@ export default function RecordRoute() {
     dismissUploadToast,
     extensionCapture,
     liveTranscription,
+    ownsLocalCopy,
     releaseLocalCopy,
   ]);
 
@@ -3382,7 +3529,10 @@ export default function RecordRoute() {
   offerContextRef.current = { t, navigate };
   useEffect(() => {
     let released = false;
-    const releaseCapture = () => {
+    // On pagehide the lock is kept: the browser frees it when the page is
+    // discarded, after any in-flight write. On unmount (an in-app leave) it
+    // is released only once the recorder's final chunk has been written.
+    const releaseCapture = async (reason: "pagehide" | "unmount") => {
       if (released) return;
       released = true;
       startSessionRef.current += 1;
@@ -3407,14 +3557,17 @@ export default function RecordRoute() {
       setPreviewStream(null);
       localUploadAbortRef.current?.abort(makeAbortError("Recorder closed"));
       localUploadAbortRef.current = null;
-      localCopyLockRef.current?.release();
-      localCopyLockRef.current = null;
-      if (!engine) return;
+      const lock = reason === "unmount" ? localCopyLockRef.current : null;
+      if (lock) localCopyLockRef.current = null;
+      if (!engine) {
+        lock?.release();
+        return;
+      }
       // Never discard here: the tab is closing or the recorder unmounted, and
       // the local copy is what the next visit offers to finish uploading.
       const unsaved = engine.hasRecordingAtRisk();
       const fence = engine.getUploadAbortFence();
-      engine.release();
+      const flushed = engine.release();
       if (unsaved && pending && !pending.localOnly && pending.abortUrl) {
         fetch(pending.abortUrl, {
           method: "POST",
@@ -3429,7 +3582,10 @@ export default function RecordRoute() {
           // coercion-ok: the page is closing; the lease reaper is the fallback.
         });
       }
+      await flushed;
+      lock?.release();
     };
+    const onPageHide = () => void releaseCapture("pagehide");
 
     // Back/forward cache: the page returns with the upload pagehide aborted
     // still marked in flight. Re-take the copy's lock and show Retry.
@@ -3438,7 +3594,7 @@ export default function RecordRoute() {
       released = false;
       const pending = pendingLocalRef.current;
       if (!pending) return;
-      holdLocalCopy(pending.id);
+      void holdLocalCopy(pending.id);
       setPendingLocal((prev) =>
         prev?.id === pending.id && prev.uploading
           ? {
@@ -3451,9 +3607,7 @@ export default function RecordRoute() {
       );
     };
     // Leaving in-app keeps the copy; offer it where the user lands.
-    const offerKeptCopy = () => {
-      const keptId =
-        localCopyLockRef.current?.id ?? pendingLocalRef.current?.id;
+    const offerKeptCopy = (keptId: string | undefined) => {
       if (!keptId) return;
       void getRecordingBackupMeta(keptId)
         .then((meta) => {
@@ -3466,13 +3620,14 @@ export default function RecordRoute() {
         });
     };
 
-    window.addEventListener("pagehide", releaseCapture);
+    window.addEventListener("pagehide", onPageHide);
     window.addEventListener("pageshow", restoreFromCache);
     return () => {
-      window.removeEventListener("pagehide", releaseCapture);
+      window.removeEventListener("pagehide", onPageHide);
       window.removeEventListener("pageshow", restoreFromCache);
-      offerKeptCopy();
-      releaseCapture();
+      const keptId =
+        localCopyLockRef.current?.id ?? pendingLocalRef.current?.id;
+      void releaseCapture("unmount").then(() => offerKeptCopy(keptId));
     };
   }, [extensionCapture, holdLocalCopy, stopLiveTranscription]);
 
@@ -3670,14 +3825,21 @@ export default function RecordRoute() {
                         {t("recordRoute.retryUpload")}
                       </Button>
                     </div>
-                  ) : (
+                  ) : pendingLocal.error.code === "lock_unavailable" ? null : (
                     <Button
                       type="button"
                       className="w-full gap-2"
-                      onClick={() => void uploadPendingLocal(pendingLocal.id)}
+                      onClick={() =>
+                        void uploadPendingLocal(pendingLocal.id, {
+                          reuploadMismatched:
+                            pendingLocal.error?.code === "copy_kept",
+                        })
+                      }
                     >
                       <IconRefresh className="size-4" />
-                      {t("recordRoute.retryUpload")}
+                      {pendingLocal.error.code === "copy_kept"
+                        ? t("recordRoute.uploadAgain")
+                        : t("recordRoute.retryUpload")}
                     </Button>
                   )
                 ) : null}
@@ -3694,15 +3856,17 @@ export default function RecordRoute() {
                 <IconDownload className="size-4" />
                 {t("recordRoute.downloadCopy")}
               </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="text-muted-foreground hover:text-destructive"
-                onClick={() => requestDiscard()}
-              >
-                {t("recordingToolbar.discardRecording")}
-              </Button>
+              {ownsLocalCopy(pendingLocal.id) ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground hover:text-destructive"
+                  onClick={() => requestDiscard()}
+                >
+                  {t("recordingToolbar.discardRecording")}
+                </Button>
+              ) : null}
             </div>
           </div>
         </RecorderRouteViewport>

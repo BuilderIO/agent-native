@@ -73,6 +73,13 @@ export interface RecordingBackupMeta {
   transcript?: string | null;
   transcriptFailureReason?: string | null;
   lastError?: string | null;
+  /** The recorder never delivered its final chunk, so the end may be missing. */
+  incomplete?: boolean;
+  /**
+   * The server has a clip from this copy, but Clips could not confirm it is
+   * the whole recording, so the copy is kept until the user decides.
+   */
+  keptAfterUpload?: "partial" | "unverified" | "mismatch" | null;
 }
 
 export function localRecordingState(
@@ -389,6 +396,11 @@ export function recordingBackupFilename(meta: RecordingBackupMeta): string {
   return `clips-recording-${stamp}.${extension}`;
 }
 
+/**
+ * The copy's recoverable bytes. `whole` is true only for a finished copy with
+ * every chunk; anything else (cut off mid-recording, a missing final chunk, a
+ * gap) uploads what is there but is never deleted automatically afterwards.
+ */
 export async function readRecoverableRecordingBackup(recordingId: string) {
   const [meta, chunks] = await Promise.all([
     getRecordingBackupMeta(recordingId),
@@ -396,34 +408,89 @@ export async function readRecoverableRecordingBackup(recordingId: string) {
   ]);
   if (!meta) return null;
   const usable = recoverableBackupChunks(meta, chunks);
-  if (!usable) return { meta, blob: null };
+  if (!usable) return { meta, blob: null, whole: false };
   return {
     meta,
     blob: new Blob(
       usable.map((chunk) => chunk.blob),
       { type: meta.mimeType },
     ),
+    whole:
+      !meta.incomplete && !!meta.completedAt && usable.length === chunks.length,
   };
 }
 
+/** Same tolerance the desktop app applies to a finalize receipt. */
+function durationToleranceMs(localDurationMs: number): number {
+  return Math.max(5_000, localDurationMs * 0.02);
+}
+
 /**
- * Holds a Web Lock for as long as this tab owns a local copy, so other tabs
- * never offer to upload (or discard) a recording that is still live here.
- * The browser releases it when the page goes away.
+ * Whether the server's copy matches the local one: the exact source bytes
+ * when the server reports them, and a duration within tolerance. A "ready"
+ * status alone is never proof; without either measure the result is
+ * "unverified" and the local copy must be kept.
  */
-export function holdRecordingBackupLock(recordingId: string): () => void {
+export function verifyServerCopy(
+  server: { sourceSizeBytes?: number | null; durationMs?: number | null },
+  local: { bytes: number; durationMs: number },
+): "verified" | "mismatch" | "unverified" {
+  const bytes = server.sourceSizeBytes;
+  const duration = server.durationMs;
+  const hasBytes = typeof bytes === "number" && bytes > 0;
+  const hasDuration =
+    typeof duration === "number" && duration > 0 && local.durationMs > 0;
+  if (hasBytes && bytes !== local.bytes) return "mismatch";
+  if (
+    hasDuration &&
+    Math.abs(duration - local.durationMs) >
+      durationToleranceMs(local.durationMs)
+  ) {
+    return "mismatch";
+  }
+  return hasBytes ? "verified" : "unverified";
+}
+
+export type RecordingBackupLockClaim =
+  | { status: "held"; release: () => void }
+  | { status: "busy" }
+  | { status: "unavailable" };
+
+/**
+ * Claim this tab's ownership of a local copy. Resolves only once decided:
+ * "held" once the Web Lock is granted (kept until `release`, or until the
+ * page goes away), "busy" when another tab owns the copy, "unavailable" when
+ * the browser has no Web Locks or refused the request. Only "held" (or a copy
+ * this tab recorded itself) may upload or delete a copy.
+ */
+export function claimRecordingBackupLock(
+  recordingId: string,
+): Promise<RecordingBackupLockClaim> {
   const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
-  if (!locks?.request) return () => {};
-  let release: () => void = () => {};
-  const held = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  void locks
-    .request(`${LOCK_PREFIX}${recordingId}`, () => held)
-    .catch(() => {
-      // coercion-ok: a lock request only fails when the page is going away.
+  if (!locks?.request) return Promise.resolve({ status: "unavailable" });
+  return new Promise((resolve) => {
+    let release: () => void = () => {};
+    const held = new Promise<void>((done) => {
+      release = done;
     });
-  return release;
+    locks
+      .request(
+        `${LOCK_PREFIX}${recordingId}`,
+        { ifAvailable: true },
+        (lock) => {
+          if (!lock) {
+            resolve({ status: "busy" });
+            return undefined;
+          }
+          resolve({ status: "held", release });
+          return held;
+        },
+      )
+      .catch((err: unknown) => {
+        console.warn("[clips] local copy lock request failed:", err);
+        resolve({ status: "unavailable" });
+      });
+  });
 }
 
 /** Ids another tab (or this one) still owns; null when the browser can't say. */
@@ -440,25 +507,27 @@ export async function liveRecordingBackupIds(): Promise<Set<string> | null> {
   return ids;
 }
 
-const UNLOCKED_LIVENESS_MS = 30_000;
+function savedAtMs(meta: RecordingBackupMeta): number {
+  const ms = Date.parse(meta.savedAt);
+  return Number.isFinite(ms) ? ms : 0;
+}
 
 /**
  * The local copies this signed-in user can finish uploading from this tab.
  * Copies owned by another account stay in this browser, untouched, until that
  * account signs in here again; they are never uploaded anywhere else. An
  * ownerless copy (recorded before the session loaded) is returned so the user
- * can claim it explicitly. A copy still owned by a live tab is left alone;
- * without Web Locks, a copy written in the last 30s counts as live.
+ * can claim it explicitly. A copy whose Web Lock another tab holds is live
+ * there and left alone. Without Web Locks every copy is listed, because the
+ * upload and delete paths refuse to act on a copy they cannot lock.
  */
 export function selectRecoverableRecordingBackups(
   metas: RecordingBackupMeta[],
   options: {
     liveIds: Set<string> | null;
     ownerEmail: string | null;
-    nowMs?: number;
   },
 ): RecordingBackupMeta[] {
-  const nowMs = options.nowMs ?? Date.now();
   return metas
     .filter((meta) => meta.bytes > 0 || meta.chunkCount > 0)
     .filter(
@@ -466,12 +535,8 @@ export function selectRecoverableRecordingBackups(
         !meta.ownerEmail ||
         meta.ownerEmail.toLowerCase() === options.ownerEmail?.toLowerCase(),
     )
-    .filter((meta) =>
-      options.liveIds
-        ? !options.liveIds.has(meta.recordingId)
-        : nowMs - Date.parse(meta.savedAt) > UNLOCKED_LIVENESS_MS,
-    )
-    .sort((a, b) => Date.parse(b.savedAt) - Date.parse(a.savedAt));
+    .filter((meta) => !options.liveIds?.has(meta.recordingId))
+    .sort((a, b) => savedAtMs(b) - savedAtMs(a));
 }
 
 export async function hasRecordingBackup(

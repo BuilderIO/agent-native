@@ -48,6 +48,7 @@ import {
   putRecordingBackupChunk,
   putRecordingBackupMeta,
   updateRecordingBackupMeta,
+  verifyServerCopy,
 } from "@/lib/recording-backup";
 import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
 import { uploadChunkRequest } from "@/lib/upload-request";
@@ -134,6 +135,9 @@ async function retryBackupWrite(write: () => Promise<unknown>): Promise<void> {
   }
 }
 
+/** How long a released recorder may take to hand over its final chunk. */
+const RELEASE_FINAL_CHUNK_TIMEOUT_MS = 5_000;
+
 const RECORDING_AT_RISK_STATES = new Set<RecorderState>([
   "recording",
   "paused",
@@ -170,6 +174,8 @@ export interface RecorderEngineOptions {
    * still in memory; the UI warns once, in the user's language.
    */
   onLocalCopyFailed?: (reason: "quota" | "unavailable") => void;
+  /** Stop finished without the recorder's final chunk; the end may be lost. */
+  onIncompleteCapture?: () => void;
   onCameraEnded?: () => void;
   onDisplayTrackEnded?: () => void;
   onResolvedDisplaySurface?: (surface: DisplaySurface | null) => void;
@@ -492,6 +498,10 @@ export class RecorderEngine {
   private backupChunkIndex = 0;
   private backupMirrorQueue: Promise<void> = Promise.resolve();
   private backupError: Error | null = null;
+  /** Set by an explicit discard; later recorder data must not recreate the copy. */
+  private discarded = false;
+  /** False when the recorder never delivered its final chunk on Stop. */
+  private captureComplete = true;
   private backupDetails: {
     ownerEmail: string | null;
     title: string | null;
@@ -790,6 +800,7 @@ export class RecorderEngine {
     hasAudio: boolean;
     hasCamera: boolean;
     ownerEmail: string | null;
+    whole: boolean;
   } | null {
     const meta = this.lastFinalizeMeta;
     if (!meta || this.localChunks.length === 0) return null;
@@ -803,6 +814,7 @@ export class RecorderEngine {
       hasAudio: meta.hasAudio,
       hasCamera: meta.hasCamera,
       ownerEmail: this.backupDetails?.ownerEmail ?? null,
+      whole: this.captureComplete,
     };
   }
 
@@ -1184,6 +1196,8 @@ export class RecorderEngine {
     this.lastFinalizeMeta = null;
     this.backupChunkIndex = 0;
     this.backupError = null;
+    this.discarded = false;
+    this.captureComplete = true;
     this.uploadAbort = new AbortController();
     this.uploadMode = this.opts.uploadMode ?? "buffered";
     this.uploadAttemptId = null;
@@ -1200,7 +1214,7 @@ export class RecorderEngine {
     const recorder = this.recorder!;
     recorder.addEventListener("dataavailable", (event) => {
       const blob = event.data;
-      if (!blob || blob.size === 0) return;
+      if (!blob || blob.size === 0 || this.discarded) return;
       this.localChunks.push(blob);
       this.totalRecordedBytes += blob.size;
       this.localChunkRevision += 1;
@@ -1343,8 +1357,14 @@ export class RecorderEngine {
       hasCamera,
     };
     this.lastFinalizeMeta = finalizeMeta;
+    this.captureComplete = backupCaptureComplete;
     if (backupCaptureComplete) {
       this.markRecordingBackupComplete(finalizeMeta);
+    } else {
+      // The end of the recording never arrived: the copy uploads what it has
+      // but is never deleted automatically, and the user is told.
+      this.updateRecordingBackup({ incomplete: true });
+      this.opts.onIncompleteCapture?.();
     }
 
     this.cameraLive = false;
@@ -1483,6 +1503,34 @@ export class RecorderEngine {
       });
     }
     if (result?.status !== "ready") return;
+    // "ready" is not proof: the copy goes only when the server reports the
+    // exact bytes this recorder produced and the recording ended cleanly.
+    const proof = verifyServerCopy(
+      {
+        sourceSizeBytes:
+          typeof result.sourceSizeBytes === "number"
+            ? result.sourceSizeBytes
+            : null,
+        durationMs:
+          typeof result.durationMs === "number" ? result.durationMs : null,
+      },
+      {
+        bytes: this.totalRecordedBytes,
+        durationMs: this.lastFinalizeMeta?.durationMs ?? 0,
+      },
+    );
+    if (!this.captureComplete || proof !== "verified") {
+      this.updateRecordingBackup({
+        state: "uploaded",
+        serverRecordingId: this.opts.recordingId,
+        keptAfterUpload: !this.captureComplete
+          ? "partial"
+          : proof === "mismatch"
+            ? "mismatch"
+            : "unverified",
+      });
+      return;
+    }
     this.localChunks = [];
     this.lastFinalizeMeta = null;
     this.clearRecordingBackup();
@@ -1724,6 +1772,9 @@ export class RecorderEngine {
   }
 
   async cancel(failureCode = "unknown"): Promise<void> {
+    // Before the recorder stops: its final chunk arrives afterwards and must
+    // not write a new copy behind the delete.
+    this.discarded = true;
     this.streamingRecoveryGeneration += 1;
     this.streamingRecovery.reset();
     this.streamingUploadGeneration += 1;
@@ -1763,6 +1814,7 @@ export class RecorderEngine {
     this.lastFinalizeMeta = null;
     this.clearRecordingBackup();
     this.transition("idle");
+    await this.backupMirrorQueue;
 
     if (this.opts.abortUrl) {
       try {
@@ -1794,16 +1846,23 @@ export class RecorderEngine {
    * is closing or the recorder unmounted, and the local copy is what a later
    * visit recovers. Only `cancel()` (an explicit discard) deletes it.
    */
-  release(): void {
+  release(): Promise<void> {
     this.streamingRecoveryGeneration += 1;
     this.streamingRecovery.reset();
     this.streamingUploadGeneration += 1;
+    let stopped: Promise<void> = Promise.resolve();
+    const recorder = this.recorder;
     try {
-      if (this.recorder && this.recorder.state !== "inactive") {
-        this.recorder.stop();
+      if (recorder && recorder.state !== "inactive") {
+        stopped = new Promise<void>((resolve) => {
+          recorder.addEventListener("stop", () => resolve(), { once: true });
+          setTimeout(resolve, RELEASE_FINAL_CHUNK_TIMEOUT_MS);
+        });
+        recorder.stop();
       }
     } catch {
       // coercion-ok: a recorder that already stopped has nothing to release.
+      stopped = Promise.resolve();
     }
     const releaseErr = makeAbortError("Recorder released");
     this.compressionAbort?.abort(releaseErr);
@@ -1812,6 +1871,9 @@ export class RecorderEngine {
     this.uploadAbort = null;
     this.cleanupTracks();
     this.transition("idle");
+    // The final chunk lands just before `stop`; the copy is whole (and safe
+    // for another tab to take) only once it and every queued write settle.
+    return stopped.then(() => this.backupMirrorQueue);
   }
 
   private buildMixedAudioTrack(

@@ -1820,6 +1820,22 @@ const messages = {
     claimRecordingPrompt:
       "This recording isn't linked to an account yet. Upload it to {{email}}?",
     claimRecording: "Upload to my account",
+    lowBrowserStorage:
+      "This browser is low on storage, so a long recording may not fit in its safety copy. Keep this tab open until it uploads.",
+    recordingEndMissing:
+      "The end of this recording didn't save. Clips uploads what it has and keeps your copy.",
+    uploadedPartialCopyKept:
+      "Uploaded what this browser saved. The end may be missing, so Clips kept your copy here.",
+    uploadUnverifiedCopyKept:
+      "Clips couldn't confirm the whole recording uploaded, so it kept your copy here.",
+    copyKeptAfterUpload:
+      "This recording uploaded, but Clips couldn't confirm it's complete, so it kept your copy here.",
+    localCopyLockUnavailable:
+      "Clips can't confirm that no other tab is using this recording, so it won't upload or delete it from here. Download a copy instead.",
+    uploadAgain: "Upload again",
+    keptCopyWaiting: "Clips kept a copy of a recording in this browser",
+    savedRecordingsUnreadable:
+      "Clips couldn't read the recordings saved in this browser.",
   },
   importRoute: {
     pageTitle: "Import Loom — Clips",

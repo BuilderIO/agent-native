@@ -1883,6 +1883,23 @@ const messages = {
     claimRecordingPrompt:
       "Cet enregistrement n'est encore lié à aucun compte. L'importer dans {{email}} ?",
     claimRecording: "Importer dans mon compte",
+    lowBrowserStorage:
+      "Ce navigateur manque d'espace : un long enregistrement risque de ne pas tenir dans sa copie de secours. Gardez cet onglet ouvert jusqu'à la fin de l'importation.",
+    recordingEndMissing:
+      "La fin de cet enregistrement n'a pas été sauvegardée. Clips importe ce qu'il a et conserve votre copie.",
+    uploadedPartialCopyKept:
+      "Ce que ce navigateur a sauvegardé a été importé. La fin manque peut-être, donc Clips a conservé votre copie ici.",
+    uploadUnverifiedCopyKept:
+      "Clips n'a pas pu confirmer que tout l'enregistrement a été importé, donc il a conservé votre copie ici.",
+    copyKeptAfterUpload:
+      "Cet enregistrement a été importé, mais Clips n'a pas pu confirmer qu'il est complet, donc il a conservé votre copie ici.",
+    localCopyLockUnavailable:
+      "Clips ne peut pas confirmer qu'aucun autre onglet n'utilise cet enregistrement : il ne l'importera ni ne le supprimera d'ici. Téléchargez plutôt une copie.",
+    uploadAgain: "Importer à nouveau",
+    keptCopyWaiting:
+      "Clips a conservé la copie d'un enregistrement dans ce navigateur",
+    savedRecordingsUnreadable:
+      "Clips n'a pas pu lire les enregistrements sauvegardés dans ce navigateur.",
   },
   importRoute: {
     pageTitle: "Importer Loom — Clips",

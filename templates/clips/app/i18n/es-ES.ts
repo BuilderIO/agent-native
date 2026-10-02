@@ -1874,6 +1874,23 @@ const messages = {
     claimRecordingPrompt:
       "Esta grabación aún no está vinculada a ninguna cuenta. ¿Subirla a {{email}}?",
     claimRecording: "Subir a mi cuenta",
+    lowBrowserStorage:
+      "Este navegador tiene poco espacio, así que una grabación larga podría no caber en su copia de seguridad. Mantén esta pestaña abierta hasta que se suba.",
+    recordingEndMissing:
+      "El final de esta grabación no se guardó. Clips sube lo que tiene y conserva tu copia.",
+    uploadedPartialCopyKept:
+      "Se subió lo que guardó este navegador. Puede que falte el final, así que Clips conservó tu copia aquí.",
+    uploadUnverifiedCopyKept:
+      "Clips no pudo confirmar que se subiera la grabación completa, así que conservó tu copia aquí.",
+    copyKeptAfterUpload:
+      "Esta grabación se subió, pero Clips no pudo confirmar que esté completa, así que conservó tu copia aquí.",
+    localCopyLockUnavailable:
+      "Clips no puede confirmar que ninguna otra pestaña esté usando esta grabación, así que no la subirá ni la eliminará desde aquí. Descarga una copia.",
+    uploadAgain: "Subir de nuevo",
+    keptCopyWaiting:
+      "Clips conservó una copia de una grabación en este navegador",
+    savedRecordingsUnreadable:
+      "Clips no pudo leer las grabaciones guardadas en este navegador.",
   },
   importRoute: {
     pageTitle: "Importar Loom — Clips",

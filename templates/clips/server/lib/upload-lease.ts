@@ -79,6 +79,9 @@ export async function renewUploadLease(
     .update(schema.recordings)
     .set({
       uploadLeaseExpiresAt: uploadLeaseExpiry(now),
+      // A live upload is not parked: a reason left from an earlier pause
+      // would make the reaper call a later lapse storage_setup_required.
+      failureReason: sql`CASE WHEN ${schema.recordings.status} = 'uploading' THEN NULL ELSE ${schema.recordings.failureReason} END`,
       updatedAt: new Date(now).toISOString(),
       ...(claimScoped
         ? { loomImportClaimedAt: new Date(now).toISOString() }
