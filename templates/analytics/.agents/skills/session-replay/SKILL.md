@@ -129,9 +129,11 @@ agent answers about browser recordings in the Analytics template.
   hidden or cancelled are not counted.
 - Ingest strips NUL and replaces lone surrogates in `route`, `app`, and the
   session id before hashing, as Postgres would store them; otherwise two
-  values that store alike collide in one upsert and fail the batch. Durations
-  and `sample_weight` beyond their bounds are capped into the open top
-  bucket, not dropped.
+  values that store alike collide in one upsert and fail the batch.
+  Measurements above `performanceCeiling` (the open top bucket's floor: 64 s,
+  CLS 5) are capped there rather than dropped, and `sample_weight` at 10,000.
+  A session value at the ceiling is a floor: summaries list it in `atLeast`
+  and the row hint shows it with ≥.
 - `recordSessionPerformance` keeps each session's worst vitals and its slow
   requests in `analytics_session_performance`, inside the ingest transaction
   under a savepoint, with the same gap and coverage rules as the event index.
@@ -139,9 +141,13 @@ agent answers about browser recordings in the Analytics template.
   `analytics_route_performance_daily` after commit, in its own short
   transaction. A failed write records a gap: `session_id = ''` marks a
   route day, read as `incompleteDates`; a session id marks that session,
-  read as `performance.incomplete` and kept by the slow filter, since missing
-  data cannot rule it out. Bucket edges are positional, so changing them needs
-  a new `PERFORMANCE_HISTOGRAM_VERSION`.
+  read as `performance.incomplete` and kept by `slow: any` only, since
+  missing data cannot rule it out; `vitals` and `requests` need a measured
+  slow value. The slow filter correlates on each recording's own tenant, so
+  a recording shared from another tenant is judged by that tenant's
+  aggregates. A summary's `slowRequests` is null when the session made no
+  measured request. Bucket edges are positional, so changing them needs a new
+  `PERFORMANCE_HISTOGRAM_VERSION`.
 - Percentiles interpolate inside one bucket, so they are within about 28% of
   the exact value; a value in the open top bucket is reported as `atLeast`.
   A metric with no samples is null: no data, never fast. Before the migration
@@ -151,11 +157,18 @@ agent answers about browser recordings in the Analytics template.
 - The replay's slow-request markers show only what the row count counts:
   action requests made while the page was visible (replay network events
   carry `pageHidden`). Replay times a request to its response headers, so
-  one just over 1 s may be counted without a marker.
+  one just over 1 s may be counted without a marker, and a failed or timed-out
+  action request is marked as failed even when the count includes it.
 - `slow` and `includePerformance` on `list-session-recordings`,
-  `list-route-performance`, and the replay's vitals and slow-request markers
-  exist only while the Sessions triage Lab is on; `view-screen` then passes
-  `includePerformance` so the agent reads the same rows as the page.
+  `list-session-performance`, `list-route-performance`, and the replay's
+  vitals and slow-request markers exist only while the Sessions triage Lab is
+  on; `view-screen` then passes `includePerformance` so the agent reads the
+  same rows as the page.
+- Lab state never holds up the base list. The page waits for it only when the
+  URL carries Lab-only conditions (`slow`, did/didn't events), and loads row
+  speed hints beside the list through `list-session-performance`, keyed on
+  the visible recording ids. `view-screen` reads Lab state in its own `try`
+  and reports a failure as `labStateError` beside the base list.
 
 ## Agent Diagnostics Surface
 

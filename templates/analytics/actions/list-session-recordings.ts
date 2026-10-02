@@ -103,13 +103,13 @@ export default defineAction({
       .enum(SLOW_SESSION_FILTERS)
       .optional()
       .describe(
-        "Only slow sessions: vitals = a page view with a poor Core Web Vital (LCP > 4 s, INP > 500 ms, CLS > 0.25, or TTFB > 1.8 s); requests = an action request of 1 s or more; any = either. Sessions without measurements never match; a session whose measurements failed to save always does, since missing data cannot rule it out. Requires the Sessions triage Lab.",
+        "Only slow sessions: vitals = a page view with a poor Core Web Vital (LCP > 4 s, INP > 500 ms, CLS > 0.25, or TTFB > 1.8 s); requests = an action request of 1 s or more; any = either, plus sessions whose measurements failed to save, since missing data cannot rule them out. Sessions without measurements never match. Requires the Sessions triage Lab.",
       ),
     includePerformance: z
       .boolean()
       .optional()
       .describe(
-        "Attach each recording's worst measured page-view vitals and slow-request count as performance (null when never measured; incomplete: true when some measurements failed to save, so it may be slower), plus performanceCoverageStartedAt. Requires the Sessions triage Lab.",
+        "Attach each recording's speed summary as performance, plus performanceCoverageStartedAt: worst measured page-view vitals, slowRequests (null when no request was measured), maxRequestMs, atLeast (fields that hit the measurement ceiling, so each is a floor), and incomplete (some measurements failed to save, so it may be slower). performance is null when never measured. Requires the Sessions triage Lab.",
       ),
     limit: z.coerce.number().int().min(1).max(100).optional().default(50),
   }),

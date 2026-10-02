@@ -10,13 +10,17 @@ const mocks = vi.hoisted(() => ({
   total: 0,
   pending: false,
   recordings: [] as Record<string, unknown>[],
-  lab: { enabled: false, isLoading: false },
+  speed: {} as Record<string, unknown>,
+  lab: { enabled: false, isLoading: false, isError: false },
   error: null as Error | null,
   refetch: vi.fn(),
-  useActionQuery: vi.fn(() => ({
-    data: mocks.pending
-      ? undefined
-      : { recordings: mocks.recordings, total: mocks.total, appCounts: [] },
+  useActionQuery: vi.fn((name: string) => ({
+    data:
+      name === "list-session-performance"
+        ? { performance: mocks.speed, coverageStartedAt: null }
+        : mocks.pending
+          ? undefined
+          : { recordings: mocks.recordings, total: mocks.total, appCounts: [] },
     error: mocks.error,
     isPending: mocks.pending,
     isLoading: false,
@@ -78,7 +82,8 @@ describe("Sessions empty states", () => {
     mocks.total = 0;
     mocks.pending = false;
     mocks.recordings = [];
-    mocks.lab = { enabled: false, isLoading: false };
+    mocks.speed = {};
+    mocks.lab = { enabled: false, isLoading: false, isError: false };
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -345,75 +350,125 @@ describe("Sessions empty states", () => {
     ).toBe(false);
   });
 
-  it("fetches the list once, with speed hints, after the Lab state loads", async () => {
-    mocks.lab = { enabled: false, isLoading: true };
-    const page = () => (
-      <MemoryRouter initialEntries={["/sessions"]}>
-        <SessionsTriagePage />
-      </MemoryRouter>
+  type QueryCall = [string, Record<string, unknown>, { enabled?: boolean }];
+  const queryCalls = () =>
+    mocks.useActionQuery.mock.calls as unknown as QueryCall[];
+  const listCalls = () =>
+    queryCalls().filter(
+      ([name, args]) =>
+        name === "list-session-recordings" && args.limit === 100,
     );
-    await act(async () => root.render(page()));
-    mocks.lab = { enabled: true, isLoading: false };
-    await act(async () => root.render(page()));
-
-    const listFetches = (
-      mocks.useActionQuery.mock.calls as unknown as [
-        string,
-        Record<string, unknown>,
-        { enabled?: boolean },
-      ][]
-    ).filter(
-      ([name, args, options]) =>
-        name === "list-session-recordings" &&
-        args.limit === 100 &&
-        options.enabled !== false,
-    );
-    expect(listFetches.length).toBeGreaterThan(0);
-    for (const [, args] of listFetches) {
-      expect(args).toHaveProperty("includePerformance", true);
-    }
-  });
-
-  it("says when a session's speed data is incomplete", async () => {
-    mocks.lab = { enabled: true, isLoading: false };
-    mocks.total = 1;
-    mocks.recordings = [
-      {
-        id: "r1",
-        sessionId: "s1",
-        userId: "user@example.test",
-        userKey: null,
-        anonymousId: null,
-        startedAt: "2026-09-20T00:00:00.000Z",
-        durationMs: 60_000,
-        eventCount: 10,
-        pageCount: 1,
-        errorCount: 0,
-        networkErrorCount: 0,
-        rageClickCount: 0,
-        app: "clips",
-        template: null,
-        path: "/r/1",
-        hostname: null,
-        performance: {
-          ttfbMs: null,
-          lcpMs: null,
-          inpMs: null,
-          cls: null,
-          slowRequests: 0,
-          maxRequestMs: null,
-          incomplete: true,
-        },
-      },
-    ];
+  const speedCalls = () =>
+    queryCalls().filter(([name]) => name === "list-session-performance");
+  const recording = {
+    id: "r1",
+    sessionId: "s1",
+    userId: "user@example.test",
+    userKey: null,
+    anonymousId: null,
+    startedAt: "2026-09-20T00:00:00.000Z",
+    durationMs: 60_000,
+    eventCount: 10,
+    pageCount: 1,
+    errorCount: 0,
+    networkErrorCount: 0,
+    rageClickCount: 0,
+    app: "clips",
+    template: null,
+    path: "/r/1",
+    hostname: null,
+  };
+  async function renderSessions(path = "/sessions") {
     await act(async () => {
       root.render(
-        <MemoryRouter initialEntries={["/sessions"]}>
+        <MemoryRouter initialEntries={[path]}>
           <SessionsTriagePage />
         </MemoryRouter>,
       );
     });
+  }
 
+  it("lists sessions without waiting for a Lab state that is loading or hung", async () => {
+    mocks.lab = { enabled: false, isLoading: true, isError: false };
+    mocks.total = 1;
+    mocks.recordings = [recording];
+    await renderSessions();
+
+    expect(listCalls().length).toBeGreaterThan(0);
+    for (const [, , options] of listCalls()) {
+      expect(options.enabled).toBe(true);
+    }
+    for (const [, , options] of speedCalls()) {
+      expect(options.enabled).toBe(false);
+    }
+    expect(container.querySelector('a[href="/sessions/r1"]')).not.toBeNull();
+  });
+
+  it("lists sessions when the Lab state fails to load", async () => {
+    mocks.lab = { enabled: false, isLoading: false, isError: true };
+    mocks.total = 1;
+    mocks.recordings = [recording];
+    await renderSessions();
+
+    for (const [, , options] of listCalls()) {
+      expect(options.enabled).toBe(true);
+    }
+    for (const [, , options] of speedCalls()) {
+      expect(options.enabled).toBe(false);
+    }
+    expect(container.querySelector('a[href="/sessions/r1"]')).not.toBeNull();
+  });
+
+  it("holds a shared slow link until the Lab state loads", async () => {
+    mocks.lab = { enabled: false, isLoading: true, isError: false };
+    await renderSessions("/sessions?slow=vitals");
+
+    expect(listCalls().length).toBeGreaterThan(0);
+    for (const [, , options] of listCalls()) {
+      expect(options.enabled).toBe(false);
+    }
+  });
+
+  it("loads speed hints beside the list once the Lab is on, without refetching the list", async () => {
+    mocks.lab = { enabled: false, isLoading: true, isError: false };
+    mocks.total = 1;
+    mocks.recordings = [recording];
+    await renderSessions();
+    mocks.lab = { enabled: true, isLoading: false, isError: false };
+    await renderSessions();
+
+    // One query key for the list across both states: it is fetched once.
+    expect(
+      new Set(listCalls().map(([, args]) => JSON.stringify(args))).size,
+    ).toBe(1);
+    const speed = speedCalls();
+    expect(speed[speed.length - 1]).toEqual([
+      "list-session-performance",
+      { recordingIds: ["r1"] },
+      expect.objectContaining({ enabled: true }),
+    ]);
+  });
+
+  it("marks incomplete speed data and values that hit the ceiling", async () => {
+    mocks.lab = { enabled: true, isLoading: false, isError: false };
+    mocks.total = 1;
+    mocks.recordings = [recording];
+    mocks.speed = {
+      r1: {
+        ttfbMs: null,
+        lcpMs: 64_000,
+        inpMs: null,
+        cls: null,
+        slowRequests: null,
+        maxRequestMs: null,
+        atLeast: ["lcpMs"],
+        incomplete: true,
+      },
+    };
+    await renderSessions();
+
+    expect(container.textContent).toContain("LCP sessions.perfAtLeast");
     expect(container.textContent).toContain("sessions.speedIncomplete");
+    expect(container.textContent).not.toContain("sessions.slowRequestCount");
   });
 });

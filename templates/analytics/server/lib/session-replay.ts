@@ -37,6 +37,7 @@ import {
 
 import type {
   SessionPerformanceSummary,
+  SessionRecordingPerformance,
   SlowSessionFilter,
 } from "../../shared/session-performance.js";
 import {
@@ -1880,6 +1881,52 @@ async function sessionRecordingPerformance(
   return { coverageStartedAt };
 }
 
+/**
+ * Performance summaries for recordings the viewer can read, such as the rows
+ * of one list page, so speed hints load beside the list instead of in it.
+ */
+export async function getSessionRecordingPerformance(
+  scope: SessionReplayScope,
+  recordingIds: readonly string[],
+): Promise<SessionRecordingPerformance> {
+  const ids = [...new Set(recordingIds)];
+  const db = getDb() as any;
+  const r = schema.sessionRecordings;
+  const [recordings, coverageStartedAt] = await Promise.all([
+    ids.length
+      ? db
+          .select({
+            id: r.id,
+            sessionId: r.sessionId,
+            ownerEmail: r.ownerEmail,
+            orgId: r.orgId,
+          })
+          .from(r)
+          .where(
+            and(
+              accessFilter(r, schema.sessionRecordingShares, {
+                userEmail: scope.userEmail,
+                orgId: scope.orgId ?? undefined,
+              }),
+              inArray(r.id, ids),
+            ),
+          )
+          .limit(ids.length)
+      : Promise.resolve([]),
+    getPerformanceCoverageStart(scope),
+  ]);
+  const summaries = await getSessionPerformanceSummaries(recordings);
+  return {
+    performance: Object.fromEntries(
+      recordings.map((recording: { id: string }) => [
+        recording.id,
+        summaries.get(recording.id) ?? null,
+      ]),
+    ),
+    coverageStartedAt,
+  };
+}
+
 export async function listSessionRecordingsPage(
   scope: SessionReplayScope,
   filters: SessionReplayListFilters = {},
@@ -1975,7 +2022,7 @@ export async function listSessionRecordingsPage(
       didEvents: filters.didEvents,
       didNotEvents: filters.didNotEvents,
     })),
-    ...(await slowSessionConditions(scope, filters.slow)),
+    ...(await slowSessionConditions(filters.slow)),
   );
   const appConditions = [...conditions];
   if (filters.app)

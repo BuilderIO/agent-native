@@ -109,6 +109,15 @@ export function histogramEdges(metric: PerformanceMetric): readonly number[] {
   return metric === "cls" ? CLS_EDGES : DURATION_EDGES_MS;
 }
 
+/**
+ * The open top bucket's floor. Ingest caps measurements here, so a stored
+ * value at the ceiling means "at least this", never this exactly.
+ */
+export function performanceCeiling(metric: PerformanceMetric): number {
+  const edges = histogramEdges(metric);
+  return edges[edges.length - 1];
+}
+
 export function histogramBucket(
   metric: PerformanceMetric,
   value: number,
@@ -230,14 +239,36 @@ export function summarizeRequestHistogram(
   };
 }
 
+export const SESSION_PERFORMANCE_VALUES = {
+  ttfbMs: "ttfb",
+  lcpMs: "lcp",
+  inpMs: "inp",
+  cls: "cls",
+  maxRequestMs: "request",
+} as const satisfies Record<string, PerformanceMetric>;
+export type SessionPerformanceValue = keyof typeof SESSION_PERFORMANCE_VALUES;
+
 /** A recording's worst measured page view and its slow requests. */
 export interface SessionPerformanceSummary {
   ttfbMs: number | null;
   lcpMs: number | null;
   inpMs: number | null;
   cls: number | null;
-  slowRequests: number;
+  /** Requests of at least `SLOW_REQUEST_THRESHOLD_MS`; null when none was measured. */
+  slowRequests: number | null;
   maxRequestMs: number | null;
+  /** Values that reached `performanceCeiling`, so each is a floor, not exact. */
+  atLeast: SessionPerformanceValue[];
   /** Some of this session's measurements failed to save; it may be slower. */
   incomplete: boolean;
+}
+
+export interface SessionRecordingPerformance {
+  /**
+   * Each readable recording's summary, or null when it was never measured.
+   * Ids the viewer cannot read are absent.
+   */
+  performance: Record<string, SessionPerformanceSummary | null>;
+  /** When the viewer's performance aggregates began; null when they have not. */
+  coverageStartedAt: string | null;
 }

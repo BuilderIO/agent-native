@@ -53,6 +53,7 @@ import {
   isSlowSessionFilter,
   rateWebVital,
   type SessionPerformanceSummary,
+  type SessionRecordingPerformance,
   SLOW_SESSION_FILTERS,
   type SlowSessionFilter,
 } from "../../../shared/session-performance";
@@ -88,14 +89,12 @@ type Recording = {
   template: string | null;
   path: string | null;
   hostname: string | null;
-  performance?: SessionPerformanceSummary | null;
 };
 
 type Page = {
   recordings: Recording[];
   total: number;
   appCounts: { app: string; count: number }[];
-  performanceCoverageStartedAt?: string | null;
 };
 
 const RANGES: Range[] = ["24h", "7d", "30d", "90d", "all"];
@@ -224,9 +223,11 @@ export function SessionsTriagePage() {
   const slow: SlowSessionFilter | undefined =
     eventsLabEnabled && isSlowSessionFilter(urlSlow) ? urlSlow : undefined;
   const urlHasSlowFilter = isSlowSessionFilter(urlSlow);
-  // The list waits for the Lab state: the Lab changes the query, so fetching
-  // first would load the page twice and briefly list a shared link unfiltered.
-  const waitingForEventsLab = eventsLab.isLoading;
+  // A shared link with event or slow conditions waits for the Lab state
+  // instead of briefly listing unfiltered sessions. Nothing else waits: a slow
+  // or failed Lab read must not hold up the base list.
+  const waitingForEventsLab =
+    (urlHasEventConditions || urlHasSlowFilter) && eventsLab.isLoading;
 
   useEffect(() => {
     if (requestedPage === null || requestedPage === String(page)) return;
@@ -338,7 +339,6 @@ export function SessionsTriagePage() {
         ? eventConditions.didNotEvents
         : undefined,
       slow,
-      includePerformance: eventsLabEnabled || undefined,
       sort,
       offset: (page - 1) * SESSION_PAGE_SIZE,
       limit: SESSION_PAGE_SIZE,
@@ -347,6 +347,13 @@ export function SessionsTriagePage() {
   );
   const recordings = data?.recordings ?? [];
   const total = data?.total ?? 0;
+  // Speed hints load beside the list, keyed on its rows, so turning the Lab
+  // on adds them without fetching the list again.
+  const { data: speed } = useActionQuery<SessionRecordingPerformance>(
+    "list-session-performance",
+    { recordingIds: recordings.map((recording) => recording.id) },
+    { staleTime: 30_000, enabled: eventsLabEnabled && data !== undefined },
+  );
   const lastPage = Math.max(1, Math.ceil(total / SESSION_PAGE_SIZE));
   useEffect(() => {
     if (!data || isPending || isFetching || error || page <= lastPage) return;
@@ -706,12 +713,12 @@ export function SessionsTriagePage() {
                     ))}
                   </SelectContent>
                 </Select>
-                {data ? (
+                {speed ? (
                   <p className="text-xs text-muted-foreground">
-                    {data.performanceCoverageStartedAt
+                    {speed.coverageStartedAt
                       ? t("sessions.speedCoverageSince", {
                           date: new Date(
-                            data.performanceCoverageStartedAt,
+                            speed.coverageStartedAt,
                           ).toLocaleDateString(),
                         })
                       : t("sessions.speedCoverageStarting")}
@@ -898,11 +905,9 @@ export function SessionsTriagePage() {
                             )}
                           </span>
                         )}
-                        {recording.performance ? (
-                          <PerformanceHints
-                            performance={recording.performance}
-                          />
-                        ) : null}
+                        <PerformanceHints
+                          performance={speed?.performance[recording.id]}
+                        />
                       </span>
                     </Link>
                   ))}
@@ -954,15 +959,23 @@ const POOR_VITAL_HINTS = [
 function PerformanceHints({
   performance,
 }: {
-  performance: SessionPerformanceSummary;
+  performance: SessionPerformanceSummary | null | undefined;
 }) {
   const t = useT();
+  if (!performance) return null;
   const poor = POOR_VITAL_HINTS.flatMap(([metric, key, name]) => {
     const value = performance[key];
-    return value !== null && rateWebVital(metric, value) === "poor"
-      ? [`${name} ${formatPerformanceValue(metric, value)}`]
-      : [];
+    if (value === null || rateWebVital(metric, value) !== "poor") return [];
+    const formatted = formatPerformanceValue(metric, value);
+    return [
+      `${name} ${
+        performance.atLeast.includes(key)
+          ? t("sessions.perfAtLeast", { value: formatted })
+          : formatted
+      }`,
+    ];
   });
+  const { slowRequests } = performance;
   return (
     <>
       {poor.map((hint) => (
@@ -970,13 +983,13 @@ function PerformanceHints({
           {hint}
         </span>
       ))}
-      {performance.slowRequests > 0 ? (
+      {slowRequests !== null && slowRequests > 0 ? (
         <span>
           {t(
-            performance.slowRequests === 1
+            slowRequests === 1
               ? "sessions.slowRequestCountSingular"
               : "sessions.slowRequestCount",
-            { count: performance.slowRequests.toLocaleString() },
+            { count: slowRequests.toLocaleString() },
           )}
         </span>
       ) : null}

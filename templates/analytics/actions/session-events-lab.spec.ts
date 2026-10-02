@@ -6,6 +6,9 @@ const listSessionRecordings = vi.hoisted(() => vi.fn(async () => []));
 const listSessionRecordingsPage = vi.hoisted(() =>
   vi.fn(async () => ({ recordings: [], total: 0, appCounts: [] })),
 );
+const getSessionRecordingPerformance = vi.hoisted(() =>
+  vi.fn(async () => ({ performance: {}, coverageStartedAt: null })),
+);
 const listRoutePerformance = vi.hoisted(() =>
   vi.fn(async () => ({ routes: [], coverageStartedAt: null })),
 );
@@ -49,6 +52,7 @@ vi.mock("@agent-native/core/settings", () => ({
   listSettingsByPrefix: vi.fn(async () => []),
 }));
 vi.mock("../server/lib/session-replay.js", () => ({
+  getSessionRecordingPerformance,
   listSessionRecordings,
   listSessionRecordingsPage,
 }));
@@ -65,6 +69,7 @@ const { default: listRecordings } = await import("./list-session-recordings");
 const { default: listEventNames } = await import("./list-session-event-names");
 const { default: listCatalog } = await import("./list-event-catalog");
 const { default: listRoutes } = await import("./list-route-performance");
+const { default: listSpeed } = await import("./list-session-performance");
 
 describe("Sessions triage Lab guard on event actions", () => {
   beforeEach(() => {
@@ -73,6 +78,7 @@ describe("Sessions triage Lab guard on event actions", () => {
     listSessionRecordingsPage.mockClear();
     listRoutePerformance.mockClear();
     listSessionRecordings.mockClear();
+    getSessionRecordingPerformance.mockClear();
   });
 
   it("keeps plain session lists working with the Lab off", async () => {
@@ -115,15 +121,24 @@ describe("Sessions triage Lab guard on event actions", () => {
     await expect(listRoutes.run({} as never)).rejects.toMatchObject({
       statusCode: 403,
     });
+    await expect(
+      listSpeed.run({ recordingIds: ["r1"] } as never),
+    ).rejects.toMatchObject({ statusCode: 403 });
     expect(listSessionRecordingsPage).not.toHaveBeenCalled();
     expect(listSessionRecordings).not.toHaveBeenCalled();
     expect(listRoutePerformance).not.toHaveBeenCalled();
+    expect(getSessionRecordingPerformance).not.toHaveBeenCalled();
 
     labEnabled.value = true;
     await listRoutes.run({} as never);
     expect(listRoutePerformance).toHaveBeenCalledWith(
       { userEmail: "user@example.test", orgId: "org-1" },
       {},
+    );
+    await listSpeed.run({ recordingIds: ["r1"] } as never);
+    expect(getSessionRecordingPerformance).toHaveBeenCalledWith(
+      { userEmail: "user@example.test", orgId: "org-1" },
+      ["r1"],
     );
   });
 
@@ -142,6 +157,15 @@ describe("Sessions triage Lab guard on event actions", () => {
       ReturnType<typeof listEventCatalog>
     >;
     expect(catalog.entries[0].description).toBe("A viewer opened a clip.");
+  });
+
+  it("bounds speed lookups to one page of recordings", () => {
+    expect(listSpeed.schema.parse({})).toEqual({ recordingIds: [] });
+    expect(
+      listSpeed.schema.safeParse({
+        recordingIds: Array.from({ length: 101 }, (_, index) => `r${index}`),
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects event range bounds that are not timestamps", () => {

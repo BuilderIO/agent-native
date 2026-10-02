@@ -18,10 +18,13 @@ import {
   histogramEdges,
   PERFORMANCE_HISTOGRAM_VERSION,
   PERFORMANCE_METRICS,
+  performanceCeiling,
   type PerformanceMetric,
   type RoutePerformanceResult,
   type RoutePerformanceRow,
+  SESSION_PERFORMANCE_VALUES,
   type SessionPerformanceSummary,
+  type SessionPerformanceValue,
   type SlowSessionFilter,
   summarizeHistogram,
   summarizeRequestHistogram,
@@ -57,8 +60,6 @@ import {
 const ACTION_RESPONSE_EVENT_NAME = "action.response";
 const MAX_ROUTE_LENGTH = 200;
 const MAX_APP_LENGTH = 100;
-const MAX_DURATION_MS = 10 * 60_000;
-const MAX_CLS = 100;
 const MAX_SAMPLE_WEIGHT = 10_000;
 const SESSION_PERFORMANCE_RETENTION_BUFFER_DAYS = 2;
 export const ROUTE_PERFORMANCE_RETENTION_DAYS = 180;
@@ -94,8 +95,8 @@ interface ParsedPerformanceRow {
 
 /**
  * A measurement above `max` is capped rather than dropped: dropping the
- * slowest samples would bias every percentile toward fast. The cap sits in
- * the open top bucket, which reads as "at least".
+ * slowest samples would bias every percentile toward fast. Measurements cap
+ * at `performanceCeiling`, so a stored maximum there reads as "at least".
  */
 function numberOf(value: unknown, max: number): number | null {
   const parsed =
@@ -166,13 +167,13 @@ function parsePerformanceRow(
   if (!properties) return null;
   const samples: PerformanceSample[] = [];
   if (row.eventName === WEB_VITALS_EVENT_NAME) {
-    for (const [metric, key, max] of [
-      ["ttfb", "ttfb_ms", MAX_DURATION_MS],
-      ["lcp", "lcp_ms", MAX_DURATION_MS],
-      ["inp", "inp_ms", MAX_DURATION_MS],
-      ["cls", "cls", MAX_CLS],
+    for (const [metric, key] of [
+      ["ttfb", "ttfb_ms"],
+      ["lcp", "lcp_ms"],
+      ["inp", "inp_ms"],
+      ["cls", "cls"],
     ] as const) {
-      const value = numberOf(properties[key], max);
+      const value = numberOf(properties[key], performanceCeiling(metric));
       if (value !== null) samples.push({ metric, value, weight: 1 });
     }
   } else {
@@ -180,7 +181,10 @@ function parsePerformanceRow(
     // so neither duration is what a person waited for.
     if (properties.page_hidden === true) return null;
     if (properties.outcome === "cancelled") return null;
-    const value = numberOf(properties.duration_ms, MAX_DURATION_MS);
+    const value = numberOf(
+      properties.duration_ms,
+      performanceCeiling("request"),
+    );
     const weight = requestWeight(properties);
     if (value === null || weight === null) return null;
     samples.push({ metric: "request", value, weight });
@@ -550,13 +554,13 @@ function tenantOf(recording: { orgId: AnyColumn; ownerEmail: AnyColumn }) {
 /**
  * Conditions on `session_recordings` for the slow-session filter, correlated
  * to each recording's own tenant and session so they can never widen the
- * recording access filter they are combined with. A session without
- * measurements is never slow, and never shown as fast either. A session with
- * a gap marker matches too: its missing measurements cannot rule it out, and
- * its summary says it is incomplete.
+ * recording access filter they are combined with, and so a recording shared
+ * from another tenant is judged by that tenant's aggregates. A session
+ * without measurements is never slow, and never shown as fast either. `any`
+ * also keeps a session with a gap marker, since its missing measurements
+ * cannot rule it out; `vitals` and `requests` need a measured slow value.
  */
 export async function slowSessionConditions(
-  scope: SessionEventScope,
   filter: SlowSessionFilter | undefined,
 ) {
   if (!filter) return [];
@@ -564,7 +568,6 @@ export async function slowSessionConditions(
   const r = schema.sessionRecordings;
   const p = schema.analyticsSessionPerformance;
   const gaps = schema.analyticsPerformanceGaps;
-  const tenantKeys = viewerTenantKeys(scope);
   const poorVitals = sql`(${p.maxLcpMs} > ${WEB_VITAL_THRESHOLDS.lcp.poor} or ${p.maxInpMs} > ${WEB_VITAL_THRESHOLDS.inp.poor} or ${p.maxCls} > ${WEB_VITAL_THRESHOLDS.cls.poor} or ${p.maxTtfbMs} > ${WEB_VITAL_THRESHOLDS.ttfb.poor})`;
   const slowRequests = sql`${p.slowRequests} > 0`;
   const slow =
@@ -573,11 +576,10 @@ export async function slowSessionConditions(
       : filter === "requests"
         ? slowRequests
         : sql`(${poorVitals} or ${slowRequests})`;
-  // The constant tenant list lets the planner probe each table's
-  // (tenant_key, session_id) index; the correlation keeps every match on the
-  // recording's own tenant.
+  const measured = sql`exists (select 1 from ${p} where ${p.tenantKey} = ${tenantOf(r)} and ${p.sessionId} = ${r.sessionId} and ${slow})`;
+  if (filter !== "any") return [measured];
   return [
-    sql`(exists (select 1 from ${p} where ${inArray(p.tenantKey, tenantKeys)} and ${p.tenantKey} = ${tenantOf(r)} and ${p.sessionId} = ${r.sessionId} and ${slow}) or exists (select 1 from ${gaps} where ${inArray(gaps.tenantKey, tenantKeys)} and ${gaps.tenantKey} = ${tenantOf(r)} and ${gaps.sessionId} = ${r.sessionId} and ${gaps.sessionId} <> ''))`,
+    sql`(${measured} or exists (select 1 from ${gaps} where ${gaps.tenantKey} = ${tenantOf(r)} and ${gaps.sessionId} = ${r.sessionId} and ${gaps.sessionId} <> ''))`,
   ];
 }
 
@@ -675,27 +677,37 @@ export async function getSessionPerformanceSummaries(
     value === null || value === undefined ? null : Number(value);
   for (const row of rows) {
     const key = pairKey(row.tenantKey, row.sessionId);
-    byKey.set(key, {
-      ttfbMs: nullable(row.maxTtfbMs),
-      lcpMs: nullable(row.maxLcpMs),
-      inpMs: nullable(row.maxInpMs),
-      cls: nullable(row.maxCls),
-      slowRequests: Number(row.slowRequests),
-      maxRequestMs: nullable(row.maxRequestMs),
-      incomplete: incomplete.has(key),
-    });
+    byKey.set(
+      key,
+      sessionSummary(
+        {
+          ttfbMs: nullable(row.maxTtfbMs),
+          lcpMs: nullable(row.maxLcpMs),
+          inpMs: nullable(row.maxInpMs),
+          cls: nullable(row.maxCls),
+          maxRequestMs: nullable(row.maxRequestMs),
+        },
+        Number(row.slowRequests),
+        incomplete.has(key),
+      ),
+    );
   }
   for (const key of incomplete) {
     if (byKey.has(key)) continue;
-    byKey.set(key, {
-      ttfbMs: null,
-      lcpMs: null,
-      inpMs: null,
-      cls: null,
-      slowRequests: 0,
-      maxRequestMs: null,
-      incomplete: true,
-    });
+    byKey.set(
+      key,
+      sessionSummary(
+        {
+          ttfbMs: null,
+          lcpMs: null,
+          inpMs: null,
+          cls: null,
+          maxRequestMs: null,
+        },
+        0,
+        true,
+      ),
+    );
   }
   for (const recording of recordings) {
     const summary = byKey.get(
@@ -707,6 +719,29 @@ export async function getSessionPerformanceSummaries(
     if (summary) summaries.set(recording.id, summary);
   }
   return summaries;
+}
+
+function sessionSummary(
+  values: Record<SessionPerformanceValue, number | null>,
+  slowRequests: number,
+  incomplete: boolean,
+): SessionPerformanceSummary {
+  const atLeast = (
+    Object.keys(SESSION_PERFORMANCE_VALUES) as SessionPerformanceValue[]
+  ).filter((key) => {
+    const value = values[key];
+    return (
+      value !== null &&
+      value >= performanceCeiling(SESSION_PERFORMANCE_VALUES[key])
+    );
+  });
+  return {
+    ...values,
+    // A session that made no measured request has no count, not zero.
+    slowRequests: values.maxRequestMs === null ? null : slowRequests,
+    atLeast,
+    incomplete,
+  };
 }
 
 export async function listRoutePerformance(

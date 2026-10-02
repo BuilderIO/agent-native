@@ -18,7 +18,10 @@ vi.mock("../db/index.js", async () => {
   return { ...actual, getDb: getDbMock };
 });
 
-import { histogramEdges } from "../../shared/session-performance";
+import {
+  histogramEdges,
+  performanceCeiling,
+} from "../../shared/session-performance";
 import { schema } from "../db/index.js";
 import type { SessionEventIndexInputRow } from "./session-event-index";
 import {
@@ -140,7 +143,10 @@ describe("aggregatePerformanceRows", () => {
       response("s1", { duration_ms: 400, sample_weight: 50_000 }),
     ]);
     expect(sessions).toEqual([
-      expect.objectContaining({ maxLcpMs: 600_000, maxCls: 100 }),
+      expect.objectContaining({
+        maxLcpMs: performanceCeiling("lcp"),
+        maxCls: performanceCeiling("cls"),
+      }),
     ]);
     expect(
       routeBuckets.map(({ metric, bucket, weight }) => ({
@@ -248,7 +254,7 @@ describe("performance aggregates on Postgres", () => {
     const rows = await db
       .select({ id: r.id })
       .from(r)
-      .where(and(...(await slowSessionConditions(scope, filter))))
+      .where(and(...(await slowSessionConditions(filter))))
       .orderBy(asc(r.id));
     return rows.map((row: { id: string }) => row.id);
   }
@@ -313,16 +319,36 @@ describe("performance aggregates on Postgres", () => {
       ownerEmail: "other@example.com",
       orgId: "org_2",
     });
+    // A recording shared from another tenant is judged by its own tenant's
+    // aggregates, which the viewer's tenant list does not include.
+    await ingest([
+      vitals(
+        "s-shared",
+        { lcp_ms: 5_000 },
+        { ownerEmail: "other@example.com", orgId: "org_2" },
+      ),
+    ]);
+    await addRecording("r-shared", "s-shared", {
+      ownerEmail: "other@example.com",
+      orgId: "org_2",
+    });
 
-    expect(await slowRecordings("vitals")).toEqual(["r-poor-lcp"]);
+    expect(await slowRecordings("vitals")).toEqual(["r-poor-lcp", "r-shared"]);
     expect(await slowRecordings("requests")).toEqual(["r-slow-request"]);
     expect(await slowRecordings("any")).toEqual([
       "r-poor-lcp",
+      "r-shared",
       "r-slow-request",
     ]);
 
     const summaries = await getSessionPerformanceSummaries([
       { id: "r-fast", sessionId: "s-fast", ownerEmail: OWNER, orgId: ORG },
+      {
+        id: "r-poor-lcp",
+        sessionId: "s-poor-lcp",
+        ownerEmail: OWNER,
+        orgId: ORG,
+      },
       {
         id: "r-unmeasured",
         sessionId: "s-unmeasured",
@@ -337,9 +363,32 @@ describe("performance aggregates on Postgres", () => {
       cls: 0,
       slowRequests: 0,
       maxRequestMs: 400,
+      atLeast: [],
       incomplete: false,
     });
+    // It made no measured request, so it has no count rather than zero.
+    expect(summaries.get("r-poor-lcp")).toMatchObject({
+      lcpMs: 4_200,
+      slowRequests: null,
+    });
     expect(summaries.has("r-unmeasured")).toBe(false);
+  });
+
+  it("marks a session value that hit the ceiling as a floor", async () => {
+    await ingest([
+      vitals("s1", { lcp_ms: 3_600_000, cls: 0.3 }),
+      response("s1", { duration_ms: 900_000 }),
+    ]);
+    const summaries = await getSessionPerformanceSummaries([
+      { id: "r1", sessionId: "s1", ownerEmail: OWNER, orgId: ORG },
+    ]);
+    expect(summaries.get("r1")).toMatchObject({
+      lcpMs: performanceCeiling("lcp"),
+      cls: 0.3,
+      maxRequestMs: performanceCeiling("request"),
+      slowRequests: 1,
+      atLeast: ["lcpMs", "maxRequestMs"],
+    });
   });
 
   it("scopes route performance to the viewer's tenants", async () => {
@@ -393,17 +442,20 @@ describe("performance aggregates on Postgres", () => {
       lcpMs: null,
       inpMs: null,
       cls: null,
-      slowRequests: 0,
+      slowRequests: null,
       maxRequestMs: null,
+      atLeast: [],
       incomplete: true,
     });
     expect(summaries.get("r-partial")).toMatchObject({
       lcpMs: 900,
       incomplete: true,
     });
-    // Nothing measured rules them out, so the filter keeps them.
-    expect(await slowRecordings("vitals")).toEqual(["r-lost", "r-partial"]);
-    expect(await slowRecordings("requests")).toEqual(["r-lost", "r-partial"]);
+    // Nothing measured rules them out, so `any` keeps them; the specific
+    // filters need a measured slow value.
+    expect(await slowRecordings("any")).toEqual(["r-lost", "r-partial"]);
+    expect(await slowRecordings("vitals")).toEqual([]);
+    expect(await slowRecordings("requests")).toEqual([]);
     // The route samples were written in full, so the day is complete.
     const result = await listRoutePerformance(scope, { from: DAY, to: DAY });
     expect(result.incompleteDates).toEqual([]);
