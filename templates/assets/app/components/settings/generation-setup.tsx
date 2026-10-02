@@ -373,7 +373,7 @@ function CredentialForm({
 
       {saveScope.roleUnavailable ? (
         <p role="alert" className="text-sm text-destructive">
-          {t("agentPanel.saveScopeRoleUnavailable")}{" "}
+          {t("settings.scopeRoleUnavailable")}{" "}
           <Button
             type="button"
             variant="link"
@@ -381,7 +381,7 @@ function CredentialForm({
             className="h-auto p-0"
             onClick={saveScope.retry}
           >
-            {t("agentChat.common.retry")}
+            {t("settings.retry")}
           </Button>
         </p>
       ) : null}
