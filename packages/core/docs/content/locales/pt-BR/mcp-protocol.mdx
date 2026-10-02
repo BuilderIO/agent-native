@@ -350,6 +350,10 @@ Tokens de acesso são JWTs assinados cujo público é exatamente o recurso MCP U
 
 Os tokens de atualização são armazenados apenas como hashes e não são alternados: uma atualização retorna o mesmo token e define sua expiração para 365 dias a partir daquele momento. Cada solicitação e cada atualização verificam novamente se o usuário ainda pertence à organização do token, então um membro removido perde o acesso MCP na próxima solicitação. `npx @agent-native/core@latest connect` grava esta entrada OAuth somente URL para clientes de código Claude por padrão; mantenha a página Connect, `npx @agent-native/core@latest connect --token <token>` e a configuração do portador estático para proxy stdio local, clientes mais antigos e fluxos de emergência/depuração.
 
+Os novos códigos de autorização e tokens de atualização mantêm o vínculo com seu proprietário na emissão. Concessões antigas sem vínculo e divergências de proprietário retornam `invalid_grant`. Renovar uma concessão revogada ou excluída retorna `invalid_grant` mesmo quando a atualização não afeta nenhuma linha. Uma falha de gravação na renovação retorna HTTP 503, que permite nova tentativa, com `Retry-After: 5`. Nenhuma dessas falhas emite um token de acesso.
+
+A atualização do vínculo de proprietário do OAuth exige que cada conexão OAuth existente com token de atualização [se reconecte uma vez](/docs/external-agents#reconnect). Os códigos de autorização antigos pendentes devem reiniciar o consentimento. Os tokens de acesso já emitidos mantêm sua validade atual e as verificações de associação a cada solicitação.
+
 ## Configuração MCP personalizada {#custom-setup}
 
 O servidor MCP é montado automaticamente pelo plugin de chat do agente. Para a maioria dos aplicativos, nenhuma configuração é necessária. Se precisar de um comportamento personalizado, você pode montá-lo manualmente em um plugin de servidor:

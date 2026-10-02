@@ -347,6 +347,10 @@ Les jetons d'accès sont des JWT signés dont l'audience est exactement la resso
 
 Les jetons d'actualisation sont stockés uniquement sous forme de hachages et ne font pas l'objet d'une rotation : une actualisation renvoie le même jeton et repousse son expiration à 365 jours à partir de ce moment. Chaque requête et chaque actualisation vérifient à nouveau que l'utilisateur appartient toujours à l'organisation du jeton ; un membre retiré perd donc l'accès MCP dès sa requête suivante. `npx @agent-native/core@latest connect` écrit par défaut cette entrée OAuth uniquement URL pour les clients de code Claude ; conservez la page Connect, `npx @agent-native/core@latest connect --token <token>` et la configuration du support statique pour le proxy stdio local, les clients plus anciens et les flux d'urgence/débogage.
 
+Les nouveaux codes d'autorisation et jetons d'actualisation conservent leur lien avec le propriétaire à l'émission. Les anciennes autorisations sans lien et les propriétaires non concordants renvoient `invalid_grant`. Renouveler une autorisation révoquée ou supprimée renvoie `invalid_grant` même lorsque la mise à jour ne touche aucune ligne. Un échec d'écriture du renouvellement renvoie HTTP 503, permettant une nouvelle tentative, avec `Retry-After: 5`. Aucun de ces échecs n'émet de jeton d'accès.
+
+La mise à jour du lien de propriété OAuth impose à chaque connexion OAuth existante utilisant un jeton d'actualisation de [se reconnecter une fois](/docs/external-agents#reconnect). Les anciens codes d'autorisation encore en attente doivent reprendre le consentement. Les jetons d'accès déjà émis conservent leur durée de validité actuelle et les vérifications d'appartenance à chaque requête.
+
 ## Configuration MCP personnalisée {#custom-setup}
 
 Le serveur MCP est monté automatiquement par le plugin agent-chat. Pour la plupart des applications, aucune configuration n'est nécessaire. Si vous avez besoin d'un comportement personnalisé, vous pouvez le monter manuellement dans un plugin serveur :

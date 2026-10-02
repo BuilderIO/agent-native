@@ -382,6 +382,10 @@ Access tokens are signed JWTs whose audience is the exact MCP resource URL. The 
 
 Refresh tokens are stored only as hashes and are not rotated: a refresh returns the same token and resets its expiry to 365 days out. Every request and every refresh re-checks that the user still belongs to the token's organization, so a removed member loses MCP access on their next request. `npx @agent-native/core@latest connect` writes this URL-only OAuth entry for Claude Code clients by default; keep the Connect page, `npx @agent-native/core@latest connect --token <token>`, and static bearer config for local stdio proxying, older clients, and emergency/debug flows.
 
+New authorization codes and refresh tokens retain their issuance owner binding. Unbound legacy grants and owner mismatches return `invalid_grant`. Renewing a revoked or deleted grant returns `invalid_grant` even when the update affects no rows. A failed renewal write returns retryable HTTP 503 with `Retry-After: 5`. Neither failure issues an access token.
+
+The OAuth owner-binding update requires every existing OAuth refresh connection to [reconnect once](/docs/external-agents#reconnect). Pending old authorization codes must restart consent. Already-issued access tokens retain their existing lifetime and live membership checks.
+
 ## Custom MCP setup {#custom-setup}
 
 The MCP server is auto-mounted by the agent-chat plugin. For most apps, no configuration is needed. If you need custom behavior, you can mount it manually in a server plugin:

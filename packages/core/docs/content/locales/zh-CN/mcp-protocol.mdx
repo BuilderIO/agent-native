@@ -344,6 +344,10 @@ WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.w
 
 刷新令牌仅存储为哈希值，且不会轮换：刷新时返回同一个令牌，并将其有效期重设为自该次刷新起 365 天。每次请求和每次刷新都会重新检查用户是否仍属于令牌所属的组织，因此被移除的成员会在下一次请求时失去 MCP 访问权限。默认情况下，`npx @agent-native/core@latest connect` 为 Claude 代码客户端写入仅 URL 的 OAuth 条目；保留连接页面、`npx @agent-native/core@latest connect --token <token>` 和静态承载配置以用于本地 stdio 代理、旧客户端和紧急/调试流程。
 
+新的授权码和刷新令牌保留签发时的所有者绑定。未绑定所有者的旧授权和所有者不匹配的授权会返回 `invalid_grant`。续期已撤销或已删除的授权时，即使更新没有影响任何行，也会返回 `invalid_grant`。续期写入失败时，会返回可重试的 HTTP 503 和 `Retry-After: 5`。这两种失败都不会签发访问令牌。
+
+OAuth 所有者绑定更新要求每个现有的 OAuth 刷新连接[重新连接一次](/docs/external-agents#reconnect)。尚未使用的旧授权码必须重新开始同意流程。已签发的访问令牌保留现有有效期，并继续在每次请求时检查成员资格。
+
 ## 自定义 MCP 设置 {#custom-setup}
 
 MCP 服务器由代理聊天插件自动安装。对于大多数应用程序，无需配置。如果您需要自定义行为，您可以在服务器插件中手动安装它：

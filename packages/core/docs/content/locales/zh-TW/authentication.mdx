@@ -313,6 +313,10 @@ https://mail.agent-native.com/mcp
 
 設定時存取權杖使用 `A2A_SECRET` 進行簽名，否則使用 `BETTER_AUTH_SECRET` 進行簽名。它們攜帶簽名的使用者/組織身分和 `mcp:read`、`mcp:write` 和/或 `mcp:apps` 範圍，並且受眾綁定到確切的 MCP 資源 URL。重新整理權杖僅儲存為雜湊值，且不會輪換：重新整理時會傳回同一個權杖，並將其有效期限重設為自該次重新整理起 365 天。每次請求和每次重新整理都會重新檢查使用者是否仍屬於權杖所屬的組織，因此被移除的成員會在下一次請求時失去 MCP 存取權。工具呼叫和 MCP Apps 資源讀取在與登入使用者相同的請求脈絡中執行；嵌入式 MCP 應用程式 iframe 永遠不會接收原始 OAuth 權杖。
 
+新的 MCP 授權碼和重新整理權杖會記錄簽發時的擁有者。權杖交換會以 `invalid_grant` 拒絕未繫結擁有者的舊授權或擁有者繫結不符的授權，不會推斷舊授權的擁有者。有意變更電子郵件地址時，簽發身分也會更新。成員離職處理會撤銷或刪除授權，不會將簽發繫結轉移給他人。
+
+OAuth 擁有者繫結更新要求每個現有的 OAuth 重新整理連線[重新連線一次](/docs/external-agents#reconnect)。尚未使用的舊授權碼必須重新開始同意流程。已簽發的存取權杖保留現有有效期限，並繼續在每次請求時檢查成員資格。
+
 `npx @agent-native/core@latest connect <url> --client claude-code` 為此標準流程寫入僅 URL 的 MCP 條目。對於無法執行遠端 MCP OAuth 的用戶端，請使用“連線”頁面或 `npx @agent-native/core@latest connect --token <token>` 回退來寫入顯式不記名權杖條目。
 
 ## 自帶驗證 {#byoa}

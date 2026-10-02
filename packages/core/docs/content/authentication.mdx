@@ -371,6 +371,10 @@ Unauthenticated MCP requests return a `WWW-Authenticate` challenge pointing at `
 
 Access tokens are signed with `A2A_SECRET` when set, otherwise `BETTER_AUTH_SECRET`. They carry the signed user/org identity and the `mcp:read`, `mcp:write`, `mcp:apps`, and/or `offline_access` scopes, and are audience-bound to the exact MCP resource URL. `offline_access` is advertised for hosts such as ChatGPT that require it before retaining refresh access. Refresh tokens are stored only as hashes and are not rotated: a refresh returns the same token and resets its expiry to 365 days out. Every request and every refresh re-checks that the user still belongs to the token's organization, so a removed member loses MCP access on their next request. Tool calls and MCP Apps resource reads run inside the same request context as the signed-in user; the embedded MCP App iframe never receives raw OAuth tokens.
 
+New MCP authorization codes and refresh tokens record their owner at issuance. Token exchanges reject unbound legacy grants or an owner-binding mismatch with `invalid_grant`, without inferring a legacy owner. An intentional email rekey updates the issuance identity. Offboarding revokes or deletes grants without transferring the issuance binding.
+
+The OAuth owner-binding update requires every existing OAuth refresh connection to [reconnect once](/docs/external-agents#reconnect). Pending old authorization codes must restart consent. Already-issued access tokens retain their existing lifetime and live membership checks.
+
 `npx @agent-native/core@latest connect <url> --client claude-code` writes the URL-only MCP entry for this standard flow. For clients that cannot perform remote MCP OAuth, use the Connect page or `npx @agent-native/core@latest connect --token <token>` fallback to write an explicit bearer-token entry.
 
 ## Bring Your Own Auth {#byoa}

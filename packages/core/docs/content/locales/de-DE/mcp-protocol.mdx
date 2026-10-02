@@ -347,6 +347,10 @@ Zugriffstoken sind signierte JWTs, deren Zielgruppe genau die MCP-Ressource URL 
 
 Aktualisierungstoken werden nur als Hashes gespeichert und nicht rotiert: Eine Aktualisierung gibt dasselbe Token zurück und setzt seinen Ablauf auf 365 Tage ab diesem Zeitpunkt. Jede Anfrage und jede Aktualisierung prüft erneut, ob der Benutzer noch zur Organisation des Tokens gehört, sodass ein entferntes Mitglied den MCP-Zugriff bei seiner nächsten Anfrage verliert. `npx @agent-native/core@latest connect` schreibt standardmäßig diesen nur für URL gültigen OAuth-Eintrag für Claude-Code-Clients. Behalten Sie die Connect-Seite, `npx @agent-native/core@latest connect --token <token>` und die statische Bearer-Konfiguration für lokales Standard-Proxying, ältere Clients und Notfall-/Debug-Flows bei.
 
+Neue Autorisierungscodes und Aktualisierungstoken behalten ihre Eigentümerbindung vom Zeitpunkt der Ausstellung. Ungebundene bestehende Grants und abweichende Eigentümer liefern `invalid_grant`. Die Verlängerung eines widerrufenen oder gelöschten Grants liefert auch dann `invalid_grant`, wenn die Aktualisierung keine Zeile betrifft. Ein fehlgeschlagener Schreibvorgang bei der Verlängerung liefert einen wiederholbaren HTTP-503-Fehler mit `Retry-After: 5`. Bei keinem dieser Fehler wird ein Zugriffstoken ausgestellt.
+
+Die Aktualisierung zur OAuth-Eigentümerbindung erfordert für jede bestehende OAuth-Verbindung mit Aktualisierungstoken eine [einmalige erneute Verbindung](/docs/external-agents#reconnect). Für noch ausstehende alte Autorisierungscodes muss der Zustimmungsablauf neu gestartet werden. Bereits ausgestellte Zugriffstoken behalten ihre bisherige Gültigkeitsdauer und die laufenden Mitgliedschaftsprüfungen.
+
 ## Benutzerdefiniertes MCP-Setup {#custom-setup}
 
 Der MCP-Server wird vom Agent-Chat-Plugin automatisch gemountet. Für die meisten Apps ist keine Konfiguration erforderlich. Wenn Sie benutzerdefiniertes Verhalten benötigen, können Sie es manuell in einem Server-Plugin bereitstellen:

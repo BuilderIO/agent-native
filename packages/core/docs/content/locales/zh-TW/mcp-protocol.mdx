@@ -345,6 +345,10 @@ WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.w
 
 重新整理權杖僅儲存為雜湊值，且不會輪換：重新整理時會傳回同一個權杖，並將其有效期限重設為自該次重新整理起 365 天。每次請求和每次重新整理都會重新檢查使用者是否仍屬於權杖所屬的組織，因此被移除的成員會在下一次請求時失去 MCP 存取權。預設情況下，`npx @agent-native/core@latest connect` 為 Claude 程式碼用戶端寫入僅 URL 的 OAuth 條目；保留連線頁面、`npx @agent-native/core@latest connect --token <token>` 和靜態承載設定以用於本機 stdio 代理、舊用戶端和緊急/偵錯流程。
 
+新的授權碼和重新整理權杖保留簽發時的擁有者繫結。未繫結擁有者的舊授權和擁有者不符的授權會傳回 `invalid_grant`。續期已撤銷或已刪除的授權時，即使更新沒有影響任何資料列，也會傳回 `invalid_grant`。續期寫入失敗時，會傳回可重試的 HTTP 503 和 `Retry-After: 5`。這兩種失敗都不會簽發存取權杖。
+
+OAuth 擁有者繫結更新要求每個現有的 OAuth 重新整理連線[重新連線一次](/docs/external-agents#reconnect)。尚未使用的舊授權碼必須重新開始同意流程。已簽發的存取權杖保留現有有效期限，並繼續在每次請求時檢查成員資格。
+
 ## 自訂 MCP 設定 {#custom-setup}
 
 MCP 伺服器由代理聊天外掛自動安裝。對於大多數應用程式，無需設定。如果您需要自訂行為，您可以在伺服器外掛中手動安裝它：
