@@ -1849,8 +1849,9 @@ export interface SessionRecordingPage {
   appCounts: Array<{ app: string; count: number }>;
   /**
    * Present when a friction filter or sort applied: when friction coverage
-   * began for the viewer, or null when nothing is measured yet. Sessions
-   * that started earlier never match a friction filter.
+   * began for the viewer's own tenants, or null when part of the range has
+   * no coverage at all. Sessions that started earlier never match a
+   * friction filter.
    */
   frictionCoverageStartedAt?: string | null;
 }
@@ -2017,7 +2018,12 @@ export async function listSessionRecordingsPage(
       .where(and(...appConditions))
       .groupBy(schema.sessionRecordings.app)
       .orderBy(desc(sql`count(*)`)),
-    frictionApplied ? getSessionFrictionCoverageStart(scope) : undefined,
+    frictionApplied
+      ? getSessionFrictionCoverageStart(scope, {
+          from: filters.from,
+          to: filters.to,
+        })
+      : undefined,
   ]);
   if (totalRows.length !== 1) {
     throw new Error("Session recording total query returned no count");

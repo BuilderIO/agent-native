@@ -209,9 +209,10 @@ providers build it.
   `$ai_feedback` has no browser session. Every `pageview` carries
   `agent_signals: 1` (`AGENT_SIGNALS_PAGEVIEW_PROPERTY`): clients before it
   sampled stops at 10% and sent no ratings, so Analytics reads a session's
-  cancelled runs and thumbs-down as measured only after seeing the marker,
-  and counts only stops sent unsampled. Keep both guarantees while the
-  marker ships.
+  cancelled runs and thumbs-down as measured only after seeing the marker
+  and while no unmarked pageview or sampled stop shares the session (tabs
+  share one session id), and counts only stops sent unsampled. Keep both
+  guarantees while the marker ships.
   `session_navigation` is one event per document that left because of the
   session (`reason`, and for `signed_out` the `evidence`: `signed_out_body` or
   `http_401`), never the destination. Both are emitted from the single place

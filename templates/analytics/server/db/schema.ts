@@ -419,9 +419,14 @@ export const analyticsSessionFriction = table(
     cancelledRuns: integer("cancelled_runs").notNull().default(0),
     agentFailures: integer("agent_failures").notNull().default(0),
     quickBacks: integer("quick_backs").notNull().default(0),
-    // Set once a pageview from a client that reports every stop and rating
-    // arrives; until then cancelled runs and thumbs-down read as unmeasured.
+    // Cancelled runs and thumbs-down read as measured only while a pageview
+    // from a client that reports every stop and rating has arrived and no
+    // older tab of the same session (an unmarked pageview or a sampled stop)
+    // has: the session id is shared across tabs.
     agentSignalsMeasured: boolean("agent_signals_measured")
+      .notNull()
+      .default(false),
+    agentSignalsMissing: boolean("agent_signals_missing")
       .notNull()
       .default(false),
     score: integer("score").notNull().default(0),

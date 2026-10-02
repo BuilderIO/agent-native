@@ -1297,7 +1297,8 @@ export default {
     issueLinksUnavailable: "問題へのリンクは利用できません",
     frictionCoverageSince:
       "フリクションは {{date}} 以降のセッションが対象です。",
-    frictionCoverageNone: "フリクションを計測したセッションはまだありません。",
+    frictionCoverageIncomplete:
+      "この期間のすべてのセッションでフリクションが計測されているわけではありません。",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:
       "このリンクはフリクションで絞り込みまたは並べ替えをしています。適用するには、設定で「セッションの絞り込み」Lab をオンにしてください。",

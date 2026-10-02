@@ -383,7 +383,9 @@ describe("Sessions empty states", () => {
       root.render(view());
     });
     expect(container.textContent).toContain("sessions.noSessions");
-    expect(container.textContent).toContain("sessions.frictionCoverageNone");
+    expect(container.textContent).toContain(
+      "sessions.frictionCoverageIncomplete",
+    );
 
     mocks.coverage = "2026-09-20T00:00:00.000Z";
     await act(async () => {
@@ -391,7 +393,7 @@ describe("Sessions empty states", () => {
     });
     expect(container.textContent).toContain("sessions.frictionCoverageSince");
     expect(container.textContent).not.toContain(
-      "sessions.frictionCoverageNone",
+      "sessions.frictionCoverageIncomplete",
     );
   });
 

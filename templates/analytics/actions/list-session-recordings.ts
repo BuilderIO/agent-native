@@ -133,7 +133,7 @@ export default defineAction({
       .max(SESSION_FRICTION_SIGNALS.length)
       .optional()
       .describe(
-        "Only sessions that showed every one of these friction signals. Requires the Sessions triage Lab and never matches an unmeasured session. With a friction filter or sort the response has `frictionCoverageStartedAt`: sessions before it were not measured, and null means nothing is measured yet, so read an empty result against it before calling it zero.",
+        "Only sessions that showed every one of these friction signals. Requires the Sessions triage Lab and never matches an unmeasured session. With a friction filter or sort the response has `frictionCoverageStartedAt` for the viewer's own org and personal recordings: sessions before it were not measured, and null means some sessions in the range have no friction coverage at all, so read an empty result against it before calling it zero. A recording shared from elsewhere reads unmeasured on its own row.",
       ),
     includeFriction: z
       .boolean()
