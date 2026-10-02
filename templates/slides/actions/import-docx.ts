@@ -23,8 +23,8 @@ export default defineAction({
         "If true, also returns pre-converted slide HTML for each section (default: true)",
       ),
   }),
-  run: async ({ filePath, convertToSlides }) => {
-    const { data: fileBuffer } = await readUserUploadedFile(filePath);
+  run: async ({ filePath, convertToSlides }, ctx) => {
+    const { data: fileBuffer } = await readUserUploadedFile(filePath, ctx);
     const doc = await parseDocx(fileBuffer);
 
     const result: Record<string, unknown> = {

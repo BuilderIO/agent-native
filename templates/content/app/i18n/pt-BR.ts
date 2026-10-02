@@ -1276,6 +1276,7 @@ const overrides = {
   localFiles: localFiles,
   root: {
     commandContent: "Conteúdo",
+    loadingContent: "Carregando conteúdo",
     commandSearchDocuments: "Buscar documentos",
     searchSince: "Desde {{date}}",
     searchModifiedSince: "Modificado desde {{date}}",

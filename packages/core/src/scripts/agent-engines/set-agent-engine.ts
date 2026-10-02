@@ -45,7 +45,7 @@ export const tool: ActionTool = {
       model: {
         type: "string",
         description:
-          "Model ID to use with this engine (e.g. 'gpt-5.6-sol', 'claude-sonnet-5'). Defaults to the engine's default model if omitted.",
+          "Model ID to use with this engine (e.g. 'gpt-5.6-sol', 'claude-sonnet-5-5'). Defaults to the engine's default model if omitted.",
       },
     },
     required: ["engine"],

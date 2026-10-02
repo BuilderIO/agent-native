@@ -531,6 +531,312 @@ it("keeps cancel cleanup compatible with held modifiers", () => {
   expect(cancel).not.toContain("bridgeIgnoreAutoLayoutKeyPressed = false");
 });
 
+it(
+  "answers cross-screen modifier snapshot probes with the current S-key state",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`<!doctype html>
+<html>
+  <head><style>html, body { margin: 0; width: 100%; height: 100%; } #target { position: absolute; left: 100px; top: 100px; width: 120px; height: 80px; }</style></head>
+  <body><div id="target" data-agent-native-node-id="target"></div></body>
+</html>`);
+      await page.evaluate(() => {
+        Object.defineProperty(navigator, "platform", {
+          configurable: true,
+          value: "Linux x86_64",
+        });
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const snapshots = await page.evaluate(() => {
+        const messages: Array<Record<string, unknown>> = [];
+        (window as any).__bridgeMessages = messages;
+        window.postMessage = ((message: unknown) => {
+          messages.push(message as Record<string, unknown>);
+        }) as typeof window.postMessage;
+        const requestSnapshot = (requestId: string) =>
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              data: {
+                type: "agent-native:cross-screen-modifier-snapshot-probe",
+                requestId,
+              },
+              source: window,
+            }),
+          );
+
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "s", bubbles: true }),
+        );
+        requestSnapshot("held");
+        document.dispatchEvent(
+          new KeyboardEvent("keyup", { key: "s", bubbles: true }),
+        );
+        requestSnapshot("released");
+
+        return messages.filter(
+          (message) =>
+            message.type === "agent-native:cross-screen-modifier-snapshot",
+        );
+      });
+
+      expect(snapshots).toHaveLength(2);
+      expect(snapshots[0]).toMatchObject({
+        requestId: "held",
+        ignoreAutoLayout: true,
+      });
+      expect(snapshots[1]).toMatchObject({
+        requestId: "released",
+        ignoreAutoLayout: false,
+      });
+      expect(snapshots[0].changedAt).toEqual(expect.any(Number));
+      expect(snapshots[1].changedAt).toEqual(expect.any(Number));
+      expect(snapshots[1].changedAt as number).toBeGreaterThanOrEqual(
+        snapshots[0].changedAt as number,
+      );
+
+      await page.mouse.click(160, 140);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && getComputedStyle(overlay).display === "block";
+      });
+      await page.mouse.move(160, 140);
+      await page.mouse.down();
+      await page.mouse.move(200, 180, { steps: 4 });
+      await page.waitForFunction(() =>
+        (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).some(
+          (message) =>
+            message.type === "agent-native:cross-screen-drag" &&
+            message.phase === "start",
+        ),
+      );
+      await page.keyboard.down("s");
+      const activeSnapshotId = await page.evaluate(() => {
+        const dragStarts = (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).filter(
+          (message) =>
+            message.type === "agent-native:cross-screen-drag" &&
+            message.phase === "start",
+        );
+        return dragStarts[dragStarts.length - 1]?.sourceDeleteRequestId as
+          | string
+          | undefined;
+      });
+      expect(activeSnapshotId).toEqual(expect.any(String));
+      const activeSnapshot = await page.evaluate((snapshotId: string) => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: {
+              type: "agent-native:cross-screen-modifier-snapshot-probe",
+              requestId: "active-release",
+              snapshotId,
+            },
+            source: window,
+          }),
+        );
+        return (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).find(
+          (message) =>
+            message.type === "agent-native:cross-screen-modifier-snapshot" &&
+            message.requestId === "active-release",
+        );
+      }, activeSnapshotId!);
+      expect(activeSnapshot).toMatchObject({
+        ignoreAutoLayout: true,
+      });
+      await page.mouse.up();
+      await page.keyboard.up("s");
+
+      await page.waitForFunction(() =>
+        (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).some(
+          (message) =>
+            message.type === "agent-native:cross-screen-drag" &&
+            message.phase === "end",
+        ),
+      );
+      const firstSnapshotId = await page.evaluate(
+        () =>
+          (
+            (window as any).__bridgeMessages as Array<Record<string, unknown>>
+          ).find(
+            (message) =>
+              message.type === "agent-native:cross-screen-drag" &&
+              message.phase === "end",
+          )?.sourceDeleteRequestId,
+      );
+      expect(firstSnapshotId).toEqual(expect.any(String));
+
+      await page.mouse.click(160, 140);
+      await page.mouse.move(160, 140);
+      await page.mouse.down();
+      await page.mouse.move(200, 180, { steps: 4 });
+      await page.waitForFunction(
+        () =>
+          (
+            (window as any).__bridgeMessages as Array<Record<string, unknown>>
+          ).filter(
+            (message) =>
+              message.type === "agent-native:cross-screen-drag" &&
+              message.phase === "start",
+          ).length >= 2,
+      );
+      await page.mouse.up();
+      await page.waitForFunction(
+        () =>
+          (
+            (window as any).__bridgeMessages as Array<Record<string, unknown>>
+          ).filter(
+            (message) =>
+              message.type === "agent-native:cross-screen-drag" &&
+              message.phase === "end",
+          ).length >= 2,
+      );
+      const snapshotIds = await page.evaluate(() =>
+        ((window as any).__bridgeMessages as Array<Record<string, unknown>>)
+          .filter(
+            (message) =>
+              message.type === "agent-native:cross-screen-drag" &&
+              message.phase === "end",
+          )
+          .map((message) => message.sourceDeleteRequestId),
+      );
+      expect(snapshotIds).toHaveLength(2);
+      expect(snapshotIds[0]).toBe(firstSnapshotId);
+
+      const releaseSnapshots = await page.evaluate((ids) => {
+        const messages = (window as any).__bridgeMessages as Array<
+          Record<string, unknown>
+        >;
+        messages.length = 0;
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "s", bubbles: true }),
+        );
+        ids.forEach((snapshotId, index) =>
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              data: {
+                type: "agent-native:cross-screen-modifier-snapshot-probe",
+                requestId: `ended-drag-${index}`,
+                snapshotId,
+              },
+              source: window,
+            }),
+          ),
+        );
+        return messages.filter(
+          (message) =>
+            message.type === "agent-native:cross-screen-modifier-snapshot",
+        );
+      }, snapshotIds);
+      expect(releaseSnapshots).toHaveLength(2);
+      expect(releaseSnapshots[0]).toMatchObject({
+        requestId: "ended-drag-0",
+        ignoreAutoLayout: true,
+      });
+      expect(releaseSnapshots[1]).toMatchObject({
+        requestId: "ended-drag-1",
+        ignoreAutoLayout: false,
+      });
+      expect(releaseSnapshots[0].changedAt).toEqual(expect.any(Number));
+      expect(releaseSnapshots[1].changedAt).toEqual(expect.any(Number));
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "timestamps parent modifier transitions on the parent window's clock",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(
+        '<iframe id="source" srcdoc="<!doctype html><html><body></body></html>"></iframe>',
+      );
+      const sourceFrame = page.frames()[1]!;
+      await sourceFrame.evaluate(() => {
+        Object.defineProperty(navigator, "platform", {
+          configurable: true,
+          value: "Linux x86_64",
+        });
+      });
+      await sourceFrame.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+      await sourceFrame.waitForSelector(
+        '[data-agent-native-edit-overlay="shield"]',
+      );
+      const skewedSourceTimeOrigin = await sourceFrame.evaluate(() => {
+        const timeOrigin = Date.now() + 60_000;
+        Object.defineProperty(window, "performance", {
+          configurable: true,
+          value: { timeOrigin, now: () => 0 },
+        });
+        return timeOrigin;
+      });
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        window.addEventListener("message", (event) => {
+          if (
+            (event.data as Record<string, unknown> | null)?.type ===
+            "agent-native:cross-screen-modifier-snapshot"
+          ) {
+            (window as any).__bridgeMessages.push(event.data);
+          }
+        });
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "s", bubbles: true }),
+        );
+      });
+      await sourceFrame.evaluate(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: {
+              type: "agent-native:cross-screen-modifier-snapshot-probe",
+              requestId: "parent-clock",
+            },
+            source: window.parent,
+          }),
+        );
+      });
+      await page.waitForFunction(() =>
+        (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).some((message) => message.requestId === "parent-clock"),
+      );
+      const snapshot = await page.evaluate(() =>
+        (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).find((message) => message.requestId === "parent-clock"),
+      );
+      const parentNow = await page.evaluate(
+        () => performance.timeOrigin + performance.now(),
+      );
+      expect(snapshot?.ignoreAutoLayout).toBe(true);
+      expect(snapshot?.changedAt).toBeLessThan(skewedSourceTimeOrigin - 1_000);
+      expect(
+        Math.abs((snapshot?.changedAt as number) - parentNow),
+      ).toBeLessThan(1_000);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 describe("generated bridge modules", () => {
   const bridgeFiles = getBridgeFiles();
 
@@ -1106,12 +1412,6 @@ it(
         viewport: { width: 900, height: 700 },
       });
       page.on("pageerror", (err) => pageErrors.push(err.message));
-      await page.evaluate(() => {
-        (window as any).__bridgeMessages = [];
-        window.addEventListener("message", (event: MessageEvent) => {
-          (window as any).__bridgeMessages.push(event.data);
-        });
-      });
 
       await page.setContent(`<!doctype html>
 <html>
@@ -1136,6 +1436,12 @@ it(
     <button id="target" data-agent-native-node-id="target-button">Target</button>
   </body>
 </html>`);
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          (window as any).__bridgeMessages.push(event.data);
+        });
+      });
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 
@@ -1172,6 +1478,19 @@ it(
           messageTypes: ((window as any).__bridgeMessages ?? []).map(
             (message: { type?: string }) => message.type,
           ),
+          cancelRequestIds: (
+            (window as any).__bridgeMessages as Array<{
+              type?: string;
+              phase?: string;
+              sourceDeleteRequestId?: string;
+            }>
+          )
+            .filter(
+              (message) =>
+                message.type === "agent-native:cross-screen-drag" &&
+                message.phase === "cancel",
+            )
+            .map((message) => message.sourceDeleteRequestId),
         };
       });
 
@@ -1179,6 +1498,8 @@ it(
       expect(result.top).toBe("140px");
       expect(result.messageTypes).not.toContain("visual-style-change");
       expect(result.messageTypes).not.toContain("visual-structure-change");
+      expect(result.cancelRequestIds.length).toBeGreaterThan(0);
+      expect(result.cancelRequestIds.every(Boolean)).toBe(true);
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();
@@ -10990,6 +11311,7 @@ it("editor chrome bridge promotes an empty body drop through clipped frames to t
     },
     nearestChildInsertionTarget: () => null,
     isEmptyDropContainer: () => false,
+    elementFromEditorPointIgnoring: () => body,
   });
 
   expect(flowMoveTargetForPoint(el, 500, 500)).toMatchObject({
@@ -11038,7 +11360,7 @@ it("editor chrome bridge keeps a top-level plain-frame receiver distinct from a 
   };
   const flowMoveTargetForPoint = compileBridgeFunction<
     (el: Element, x: number, y: number) => Record<string, unknown>
-  >("flowMoveTargetForPoint", "clipsOverflow", {
+  >("flowMoveTargetForPoint", "ignoreAutoLayoutForDropTarget", {
     document,
     window: {
       getComputedStyle: () => ({ display: "block" }),
@@ -11054,8 +11376,14 @@ it("editor chrome bridge keeps a top-level plain-frame receiver distinct from a 
       receiverIsAutoLayout && element === receiver,
     isContainerDropTarget: (element: Element) =>
       element === receiver || element === exitedFrame,
+    elementFromEditorPointIgnoring: () => pointHit,
     parentFlowAxis: () => "y",
     isEmptyDropContainer: () => false,
+    unnestAbsoluteToScreenRoot: () => ({
+      anchor: receiver,
+      placement: "after",
+      dropMode: "absolute-container",
+    }),
   });
 
   expect(flowMoveTargetForPoint(child, 240, 150)).toMatchObject({
@@ -11929,7 +12257,28 @@ it(
             .textContent?.trim(),
         };
       });
-      expect(chipResult.childIds).toEqual(["itemB", "itemA"]);
+      const chipMoves = (await readBridgeMessages(page))
+        .filter(
+          (message) =>
+            message.type === "visual-structure-change" &&
+            (message as { sourceId?: string }).sourceId === "itemA",
+        )
+        .map((message) => {
+          const move = message as {
+            anchorSourceId?: string;
+            placement?: string;
+            dropMode?: string;
+          };
+          return {
+            anchorSourceId: move.anchorSourceId,
+            placement: move.placement,
+            dropMode: move.dropMode,
+          };
+        });
+      expect(
+        chipResult.childIds,
+        JSON.stringify({ chipMoves, pageErrors }),
+      ).toEqual(["itemB", "itemA"]);
       expect(chipResult.itemBText).toBe("Beta");
       const chipMove = (await readBridgeMessages(page)).find(
         (message) =>

@@ -10,7 +10,11 @@ import Index from "./Index";
 
 const mocks = vi.hoisted(() => ({
   systemsEnabled: true,
+  systemsLoading: false,
+  systemsError: null as unknown,
+  systemIds: ["default-system", "linked-system", "override-system"],
   systemsQuery: vi.fn(),
+  refetchSystems: vi.fn(),
   createDesign: vi.fn(),
   createFromTemplate: vi.fn(),
   generateTitle: vi.fn(),
@@ -37,6 +41,8 @@ const mocks = vi.hoisted(() => ({
   refetch: vi.fn(),
   focusComposer: vi.fn(),
   submitWithText: vi.fn(),
+  submitDraft: vi.fn(async () => true),
+  getDraftSnapshot: vi.fn(),
   agentEngine: { state: "configured", missing: false },
   fetchAgentEngineConfiguredState: vi.fn(
     async () => "missing" as AgentEngineConfiguredState,
@@ -175,6 +181,7 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
       }
       return {
         data: {
+          status: "ready",
           suggestions: [
             {
               id: "design-suggestion",
@@ -281,6 +288,8 @@ vi.mock("@/components/editor/PromptDialog", () => ({
       props.composerRef.current = {
         focus: mocks.focusComposer,
         submitWithText: mocks.submitWithText,
+        submit: mocks.submitDraft,
+        getDraftSnapshot: mocks.getDraftSnapshot,
       };
     return null;
   },
@@ -317,33 +326,38 @@ vi.mock("@/hooks/use-design-systems", () => ({
   useDesignSystems: (enabled: boolean) => (
     mocks.systemsQuery(enabled),
     {
-      designSystems: [
-        {
-          id: "default-system",
-          title: "Default system",
-          isDefault: true,
-          data: "{}",
-        },
-        {
-          id: "linked-system",
-          title: "Linked system",
-          isDefault: false,
-          data: "{}",
-        },
-        {
-          id: "override-system",
-          title: "Override system",
-          isDefault: false,
-          data: "{}",
-        },
-      ],
+      designSystems:
+        mocks.systemsLoading || mocks.systemsError
+          ? []
+          : [
+              {
+                id: "default-system",
+                title: "Default system",
+                isDefault: true,
+                data: "{}",
+              },
+              {
+                id: "linked-system",
+                title: "Linked system",
+                isDefault: false,
+                data: "{}",
+              },
+              {
+                id: "override-system",
+                title: "Override system",
+                isDefault: false,
+                data: "{}",
+              },
+            ].filter((system) => mocks.systemIds.includes(system.id)),
       defaultSystem: {
         id: "default-system",
         title: "Default system",
         isDefault: true,
         data: "{}",
       },
-      isLoading: false,
+      isLoading: mocks.systemsLoading,
+      error: mocks.systemsError,
+      refetch: mocks.refetchSystems,
     }
   ),
 }));
@@ -370,6 +384,7 @@ beforeEach(async () => {
     globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
+  mocks.refetchSystems.mockReset();
   mocks.nanoid.mockReturnValue("design-1");
   mocks.createFromTemplate.mockResolvedValue({
     id: "copied-design",
@@ -384,6 +399,9 @@ beforeEach(async () => {
   mocks.headerActions = null;
   mocks.fullAppBuilding = false;
   mocks.systemsEnabled = true;
+  mocks.systemsLoading = false;
+  mocks.systemsError = null;
+  mocks.systemIds = ["default-system", "linked-system", "override-system"];
   mocks.ownCount = 0;
   mocks.ownedCount = 0;
   mocks.ownStatus = "success";
@@ -433,6 +451,25 @@ it("does not query or apply a default system when workflows are disabled", async
   );
 });
 
+it("does not auto-attach the default design system to a fresh prompt", async () => {
+  expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
+  expect(mocks.promptProps?.contextItems).not.toContainEqual(
+    expect.objectContaining({ title: "Default system" }),
+  );
+
+  await act(async () => {
+    await mocks.promptProps?.onSubmit?.("New design", [], {});
+  });
+
+  expect(mocks.createDesign).toHaveBeenCalledWith(
+    expect.objectContaining({ designSystemId: null }),
+  );
+  expect(mocks.writePendingGeneration).toHaveBeenCalledWith(
+    "design-1",
+    expect.objectContaining({ designSystemId: null }),
+  );
+});
+
 describe("Index skip to editor", () => {
   it("explains an unaccepted quick start without replacing the draft or creating a design", async () => {
     mocks.submitWithText.mockResolvedValueOnce(false);
@@ -476,6 +513,7 @@ describe("Index skip to editor", () => {
     );
 
     expect(mocks.promptProps?.skipLabel).toBe("Skip prompt");
+    expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
     let skipPromise: Promise<void> | undefined;
     await act(async () => {
       skipPromise = mocks.promptProps?.onSkip();
@@ -487,7 +525,7 @@ describe("Index skip to editor", () => {
       id: "design-1",
       title: "Untitled Design",
       projectType: "prototype",
-      designSystemId: "default-system",
+      designSystemId: null,
     });
     expect(mocks.navigate).not.toHaveBeenCalled();
     expect(mocks.writePendingGeneration).not.toHaveBeenCalled();
@@ -657,6 +695,53 @@ describe("Index skip to editor", () => {
     expect(container.textContent).not.toContain("Connect AI");
   });
 
+  describe("a send held back for missing AI setup", () => {
+    const submittedDraft = {
+      text: "A landing page for a bakery",
+      referenceKeys: [],
+      attachmentIds: ["file-1"],
+    };
+
+    async function holdBackThenConnect(liveDraft: typeof submittedDraft) {
+      mocks.agentEngine = { state: "missing", missing: true };
+      mocks.fetchAgentEngineConfiguredState.mockResolvedValue("missing");
+      mocks.submitDraft.mockClear();
+      mocks.getDraftSnapshot.mockReturnValue(liveDraft);
+      await act(async () => root.render(<Index />));
+      let canSubmit: unknown;
+      await act(async () => {
+        canSubmit = await mocks.promptProps?.onBeforeSubmit?.(submittedDraft);
+      });
+      expect(canSubmit).toBe(false);
+      expect(mocks.submitDraft).not.toHaveBeenCalled();
+
+      mocks.agentEngine = { state: "configured", missing: false };
+      await act(async () => root.render(<Index />));
+      await act(async () => root.render(<Index />));
+    }
+
+    it("is sent once after AI setup becomes ready", async () => {
+      await holdBackThenConnect({ ...submittedDraft });
+
+      expect(mocks.submitDraft).toHaveBeenCalledOnce();
+    });
+
+    it("is left in the composer when its text was edited while connecting", async () => {
+      await holdBackThenConnect({
+        ...submittedDraft,
+        text: "A landing page for a bakery, now with a pricing table",
+      });
+
+      expect(mocks.submitDraft).not.toHaveBeenCalled();
+    });
+
+    it("is left in the composer when its attachments changed while connecting", async () => {
+      await holdBackThenConnect({ ...submittedDraft, attachmentIds: [] });
+
+      expect(mocks.submitDraft).not.toHaveBeenCalled();
+    });
+  });
+
   it("hides home suggestions while provider setup is pending", async () => {
     mocks.agentEngine = { state: "missing", missing: true };
     await act(async () => root.render(<Index />));
@@ -759,6 +844,164 @@ describe("Index skip to editor", () => {
     expect(mocks.writePendingGeneration).not.toHaveBeenCalled();
     expect(mocks.navigate).toHaveBeenCalledWith("/design/copied-design");
     expect(shouldClose).toBe(false);
+  });
+
+  it("resolves a linked system after the design systems finish loading", async () => {
+    mocks.systemsLoading = true;
+    await act(async () => root.render(<Index />));
+    await act(async () => {
+      mocks.promptProps?.onTemplateChange("saved-template");
+    });
+    expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
+
+    mocks.systemsLoading = false;
+    await act(async () => root.render(<Index />));
+    expect(mocks.promptProps?.selectedDesignSystemId).toBe("linked-system");
+  });
+
+  it("resolves the linked template system before creating an app while systems load", async () => {
+    mocks.fullAppBuilding = true;
+    mocks.systemsLoading = true;
+    mocks.refetchSystems.mockResolvedValue({
+      isSuccess: true,
+      data: {
+        designSystems: [{ id: "linked-system" }],
+      },
+    });
+    await act(async () => root.render(<Index />));
+    await act(async () => mocks.promptProps?.onCreationModeChange("app"));
+    await act(async () =>
+      mocks.promptProps?.onTemplateChange("saved-template"),
+    );
+
+    await act(async () => {
+      await mocks.promptProps?.onSubmit("Build an app", [], {});
+    });
+
+    expect(mocks.refetchSystems).toHaveBeenCalledOnce();
+    expect(mocks.createDesign).toHaveBeenCalledWith(
+      expect.objectContaining({ designSystemId: "linked-system" }),
+    );
+    expect(mocks.createFromTemplate).not.toHaveBeenCalled();
+  });
+
+  it("retries systems lookup before app creation when the initial query failed", async () => {
+    mocks.fullAppBuilding = true;
+    mocks.systemsError = new Error("systems query failed");
+    mocks.refetchSystems.mockResolvedValue({
+      isSuccess: true,
+      data: {
+        designSystems: [{ id: "linked-system" }],
+      },
+    });
+    await act(async () => root.render(<Index />));
+    await act(async () => mocks.promptProps?.onCreationModeChange("app"));
+    await act(async () =>
+      mocks.promptProps?.onTemplateChange("saved-template"),
+    );
+
+    await act(async () => {
+      await mocks.promptProps?.onSubmit("Build an app", [], {});
+    });
+
+    expect(mocks.refetchSystems).toHaveBeenCalledOnce();
+    expect(mocks.createDesign).toHaveBeenCalledWith(
+      expect.objectContaining({ designSystemId: "linked-system" }),
+    );
+  });
+
+  it("resolves a template system before skipping to a blank app after query failure", async () => {
+    mocks.fullAppBuilding = true;
+    mocks.systemsError = new Error("systems query failed");
+    mocks.refetchSystems.mockResolvedValue({
+      isSuccess: true,
+      data: {
+        designSystems: [{ id: "linked-system" }],
+      },
+    });
+    await act(async () => root.render(<Index />));
+    await act(async () => mocks.promptProps?.onCreationModeChange("app"));
+    await act(async () =>
+      mocks.promptProps?.onTemplateChange("saved-template"),
+    );
+
+    await act(async () => {
+      await mocks.promptProps?.onSkip();
+    });
+
+    expect(mocks.refetchSystems).toHaveBeenCalledOnce();
+    expect(mocks.createDesign).toHaveBeenCalledWith(
+      expect.objectContaining({ designSystemId: "linked-system" }),
+    );
+  });
+
+  it("clears an inaccessible linked system after loading before template copy", async () => {
+    mocks.systemsLoading = true;
+    await act(async () => root.render(<Index />));
+    await act(async () => {
+      mocks.promptProps?.onTemplateChange("saved-template");
+    });
+    expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
+
+    mocks.systemIds = ["default-system", "override-system"];
+    mocks.systemsLoading = false;
+    await act(async () => root.render(<Index />));
+    expect(mocks.promptProps?.selectedDesignSystemId).toBeNull();
+
+    await act(async () => {
+      await mocks.promptProps?.onSubmit("Copy this template", [], {});
+    });
+    expect(mocks.createFromTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({ templateId: "saved-template" }),
+    );
+    expect(mocks.createFromTemplate.mock.calls[0][0]).not.toHaveProperty(
+      "designSystemId",
+    );
+  });
+
+  it("leaves template system resolution to the copy action while systems load", async () => {
+    mocks.systemsLoading = true;
+    await act(async () => root.render(<Index />));
+    await act(async () => {
+      mocks.promptProps?.onTemplateChange("saved-template");
+    });
+
+    await act(async () => {
+      await mocks.promptProps?.onSubmit("Copy this template", [], {});
+    });
+    expect(mocks.createFromTemplate).toHaveBeenCalledTimes(1);
+    expect(mocks.createFromTemplate.mock.calls[0][0]).not.toHaveProperty(
+      "designSystemId",
+    );
+  });
+
+  it("keeps the template-copy retry identity stable as systems load", async () => {
+    mocks.nanoid
+      .mockReturnValueOnce("first-copy")
+      .mockReturnValue("second-copy");
+    mocks.createFromTemplate.mockRejectedValueOnce(new Error("response lost"));
+    mocks.systemsLoading = true;
+    await act(async () => root.render(<Index />));
+    await act(async () => {
+      mocks.promptProps?.onTemplateChange("saved-template");
+    });
+
+    await act(async () => {
+      await expect(
+        mocks.promptProps?.onSubmit("Copy this template", [], {}),
+      ).rejects.toThrow("response lost");
+    });
+    const firstCopy = mocks.createFromTemplate.mock.calls[0][0];
+
+    mocks.systemsLoading = false;
+    await act(async () => root.render(<Index />));
+    await act(async () => {
+      await mocks.promptProps?.onSubmit("Copy this template", [], {});
+    });
+    const retry = mocks.createFromTemplate.mock.calls[1][0];
+    expect(retry.newId).toBe(firstCopy.newId);
+    expect(retry.retryKey).toBe(firstCopy.retryKey);
+    expect(retry).not.toHaveProperty("designSystemId");
   });
 
   it("opens a copied template without waiting for the designs list to refresh", async () => {

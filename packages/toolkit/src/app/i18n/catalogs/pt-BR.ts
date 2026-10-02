@@ -381,7 +381,7 @@ const messages: ToolkitAgentChatTranslation = {
     "O limite de uso do seu plano do ChatGPT foi atingido.",
   "error.chatgptPlanUsageUnavailable":
     "A OpenAI não conseguiu verificar o limite de uso deste plano do ChatGPT. Confira seu uso do ChatGPT ou tente outro modelo.",
-  "error.failed": "O agente encontrou um erro",
+  "error.failed": "A execução do agente falhou antes de ser concluída.",
   "error.render": "Não foi possível exibir este conteúdo.",
   "error.stopped": "O agente parou antes de concluir",
   "header.switchToCli": "Mudar para a CLI",
@@ -1231,6 +1231,14 @@ const messages: ToolkitAgentChatTranslation = {
     "O esquema de uma ferramenta era inválido, então o modelo rejeitou a solicitação antes de iniciá-la. Você pode ignorar a ferramenta inválida e tentar novamente.",
   "errorMessages.malformedRequest":
     "O provedor do modelo rejeitou esta solicitação por estar malformada, então ela não foi repetida. Tente novamente ou inicie um novo chat se continuar acontecendo.",
+  "errorMessages.requestTooLarge":
+    "Esta solicitação excedeu o limite de tamanho do servidor (HTTP 413). Inicie um novo chat ou remova anexos ou referências grandes e tente novamente.",
+  "errorMessages.runInterrupted": "O agente parou antes de terminar.",
+  "errorMessages.runFailed": "A execução do agente falhou.",
+  "errorMessages.runUnverified":
+    "Este chat perdeu o acompanhamento do agente, que ainda pode estar em execução. Recarregue para ver o progresso.",
+  "errorMessages.runSignedOut":
+    "Você saiu da sua conta, então este chat não consegue acompanhar o agente. Entre novamente e recarregue.",
   "errorMessages.malformedRequestAttachment":
     "O modelo rejeitou um arquivo anexado, então esta mensagem nunca foi enviada. Remova o anexo e tente novamente: um PDF, um arquivo de texto simples ou uma imagem JPEG, PNG, GIF ou WebP é lido diretamente; outros formatos precisam ser enviados e vinculados.",
   "errorMessages.noProviderConnected":

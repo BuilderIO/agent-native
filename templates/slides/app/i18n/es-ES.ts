@@ -46,7 +46,7 @@ const messages = {
     designSystems: "Sistemas de diseño",
   },
   settings: {
-    agentObservability: "Observabilidad del agente",
+    agentObservability: "Observabilidad",
     title: "Ajustes",
     labs: "Labs",
     labsIntro: "Prueba funciones experimentales antes de su lanzamiento.",
@@ -58,6 +58,7 @@ const messages = {
     commentsAndRepliesDescription:
       "Cuando alguien comenta o responde en tu presentación.",
     retry: "Reintentar",
+    reload: "Recargar",
     mcpAbout:
       "Conecta Slides con Claude, ChatGPT, Cursor o cualquier app de IA compatible con MCP. Esa app podrá trabajar en Slides por ti: crear presentaciones, añadir diapositivas y exportar a PowerPoint. Solo ve lo que tú puedes ver.",
     workspaceTitle: "Espacio de trabajo",
@@ -777,6 +778,8 @@ const messages = {
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
+    agentRunFailed:
+      "La ejecución del agente falló antes de crear diapositivas. Consulta los detalles del chat y vuelve a intentarlo.",
     deckHasNoSlides: "El deck no tiene diapositivas.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",

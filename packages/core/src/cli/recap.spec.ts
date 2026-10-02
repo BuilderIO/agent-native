@@ -2972,7 +2972,7 @@ describe("bundled PR visual recap workflow", () => {
       ),
     ]) {
       expect(workflow).toContain(
-        'CLAUDE_ARGS+=(--model "${VISUAL_RECAP_MODEL:-claude-sonnet-5}")',
+        'CLAUDE_ARGS+=(--model "${VISUAL_RECAP_MODEL:-claude-sonnet-5-5}")',
       );
       expect(workflow).not.toContain(
         'if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CLAUDE_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi',

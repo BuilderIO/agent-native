@@ -1,9 +1,9 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
-import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
 import { resolveDefaultMailHref } from "@/lib/inbox-tabs";
+import { InboxPage } from "@/pages/InboxPage";
 
 const SEO_TITLE =
   "Mail - Open Source AI email client and Superhuman alternative";
@@ -87,7 +87,7 @@ export async function clientLoader({ request }: LoaderFunctionArgs) {
 }
 
 export function HydrateFallback() {
-  return <DefaultSpinner />;
+  return <InboxPage />;
 }
 
 export default function IndexRoute() {

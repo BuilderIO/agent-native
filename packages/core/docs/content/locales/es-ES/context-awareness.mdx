@@ -408,6 +408,12 @@ El `TAB_ID` importado desde `app/lib/tab-id.ts` es el valor de `getBrowserTabId(
 | `getNavigationState`: asigna el URL al estado semántico   | Escrituras `navigation`, con alcance de tabulación más una clave alternativa global                                      |
 | `getCommandPath`: asigna un comando `navigate` a una ruta | sondeo de comandos, eliminación después de lectura, protección de comandos duplicados, etiquetado de fuente de solicitud |
 
+Las rutas devueltas como cadenas siempre son locales a esta aplicación, aunque
+comiencen con la ruta de montaje de otra aplicación del espacio de trabajo. Para
+navegar intencionalmente a una aplicación hermana, devuelve
+`{ type: "workspace-app", path: "/seo-application/settings" }` con la ruta de
+montaje completa.
+
 `useAgentRouteState` asume el enrutador React. Cuando la navegación no reside en el URL (un paso del asistente, una selección de lienzo, un shell que no es un enrutador), descienda al `useSemanticNavigationState` de nivel inferior: le entrega un valor `state` listo para usar más `navigationKeys`/`commandKeys` y una devolución de llamada `onCommand`, y se mantiene completamente independiente del enrutador React.
 
 ## Prevención de inquietud {#jitter-prevention}

@@ -47,7 +47,7 @@ const messages = {
     designSystems: "デザインシステム",
   },
   settings: {
-    agentObservability: "エージェントの可観測性",
+    agentObservability: "可観測性",
     title: "設定",
     labs: "Labs",
     labsIntro: "リリース前に実験的な機能をプレビューできます。",
@@ -59,6 +59,7 @@ const messages = {
     commentsAndRepliesDescription:
       "誰かがあなたのデッキにコメントまたは返信したとき。",
     retry: "再試行",
+    reload: "再読み込み",
     mcpAbout:
       "Slides を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって Slides で作業できます。デッキの作成、スライドの追加、PowerPoint への書き出しなどです。アプリが見られるのは、あなたが見られるものだけです。",
     workspaceTitle: "ワークスペース",
@@ -761,6 +762,8 @@ const messages = {
     imageAdded: "图片已添加",
     imageUploadError: "上传此图片时出了点问题。",
     exportFailed: "导出失败",
+    agentRunFailed:
+      "スライドを作成する前にエージェントの実行が失敗しました。チャットで詳細を確認して、もう一度お試しください。",
     deckHasNoSlides: "このデッキにはスライドがありません。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",

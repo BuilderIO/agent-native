@@ -27,6 +27,7 @@ import {
   deckVersionChangeGroupFromAction,
   deckVersionChatContextFromAction,
 } from "../server/lib/deck-versions.js";
+import { noteGenerationFirstOutput } from "../server/lib/generation-completion.js";
 import { repairGeneratedDeckTitle } from "../shared/deck-title.js";
 import {
   createLayoutFitRevision,
@@ -352,8 +353,9 @@ export default defineAction({
         contextPackId !== undefined &&
         contextPackId !== existingContext.contextPackId
       ) {
-        throw new Error(
+        fail(
           "The added slide must use the deck's existing creative-context pack",
+          { errorCode: "creative_context_pack_mismatch", statusCode: 409 },
         );
       }
       const effectivePackId = contextPackId ?? existingContext?.contextPackId;
@@ -550,6 +552,17 @@ export default defineAction({
         typeof generationContext?.generationAttemptId === "string"
           ? generationContext.generationAttemptId
           : undefined;
+      if (
+        shouldRepairTitle &&
+        generationAttemptId &&
+        generationContext?.generationMode !== "action"
+      ) {
+        noteGenerationFirstOutput(ctx?.turnId || ctx?.runId, {
+          deckId,
+          generationAttemptId,
+          targetSlideCount,
+        });
+      }
 
       track(
         "deck_edited",

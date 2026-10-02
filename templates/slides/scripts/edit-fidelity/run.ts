@@ -28,7 +28,9 @@ import {
 } from "../export-fidelity/resolve-pkg.ts";
 import {
   assertAuthoringPersistence,
+  authoringFuzzProfileIndex,
   canonicalizeAuthoringFuzzPersistence,
+  lineNavigationKeys,
   runAuthoringFuzz,
   type AuthoringFuzzPersistence,
 } from "./authoring-fuzz.ts";
@@ -45,7 +47,6 @@ import {
 import {
   diffPngs,
   diffSnapshots,
-  followsCenteredFlexReflow,
   findBaselineProblems,
   hardFailures,
   isDraftRevert,
@@ -53,7 +54,9 @@ import {
   keepaliveMismatches,
   lineDiff,
   orphanedBaselineKeys,
+  outsideChangesFor,
   padRect,
+  p95IndexFromThresholdedSamples,
   ratchetBaselineEntry,
   resized,
   restyledAddedText,
@@ -147,10 +150,12 @@ const update = argv.includes("--update");
 const acceptFailing = argv.includes("--accept-failing");
 const headed = argv.includes("--headed");
 const typingChatOnly = argv.includes("--typing-chat");
+const caretQaOnly = argv.includes("--caret-qa");
 const imeEscapeOnly = argv.includes("--ime-escape");
 const textSurfaceQaOnly = argv.includes("--text-surface-qa");
-const lineStartKey = process.platform === "darwin" ? "Meta+ArrowLeft" : "Home";
-const lineEndKey = process.platform === "darwin" ? "Meta+ArrowRight" : "End";
+const { start: lineStartKey, end: lineEndKey } = lineNavigationKeys(
+  process.platform,
+);
 const authoringOnly = argv.includes("--authoring");
 const authoringCorpusOnly = argv.includes("--authoring-corpus");
 const authoringFuzzOnly = argv.includes("--authoring-fuzz");
@@ -169,14 +174,18 @@ if (!["chromium", "webkit", "firefox"].includes(browserName)) {
 }
 if (
   browserName !== "chromium" &&
+  !caretQaOnly &&
   !textSurfaceQaOnly &&
   !authoringOnly &&
   !authoringCorpusOnly &&
   !authoringFuzzOnly
 ) {
   fatal(
-    "--browser webkit|firefox is supported with --authoring, --authoring-corpus, --authoring-fuzz, or --text-surface-qa",
+    "--browser webkit|firefox is supported with --caret-qa, --authoring, --authoring-corpus, --authoring-fuzz, or --text-surface-qa",
   );
+}
+if (caretQaOnly && browserName !== "chromium") {
+  fatal("--caret-qa is supported in Chromium only");
 }
 for (const s of scenarios) {
   if (!SCENARIOS.includes(s))
@@ -500,6 +509,7 @@ async function startServer(): Promise<{
       "dev",
       "--port",
       String(port),
+      "--inspect=0",
     ],
     { cwd: WORKTREE_ROOT, detached: true, stdio: ["ignore", log, log] },
   );
@@ -1206,7 +1216,12 @@ async function runImeEscapeRegression(
   }
 }
 
-async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
+async function runTextSurfaceQa(
+  page: Page,
+  base: string,
+  browserName: string,
+  caretOnly = false,
+) {
   const problems: string[] = [];
   const usesChromiumIme = browserName === "chromium";
   const modifier = process.platform === "darwin" ? "Meta" : "Control";
@@ -1628,6 +1643,16 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
         "slide text: line-start key did not put the caret at the line start",
       );
     }
+    const caretInside = async () =>
+      editor.evaluate((element: HTMLElement) => {
+        const focus = window.getSelection()?.focusNode;
+        return Boolean(focus && element.contains(focus));
+      });
+    if (!(await caretInside())) {
+      problems.push(
+        "slide text: line-start key moved the caret outside the editor",
+      );
+    }
     await editor.press(lineEndKey);
     await editor.pressSequentially(" caret end");
     expectedSlideText += " caret end";
@@ -1636,6 +1661,12 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
         "slide text: line-end key did not put the caret at the line end",
       );
     }
+    if (!(await caretInside())) {
+      problems.push(
+        "slide text: line-end key moved the caret outside the editor",
+      );
+    }
+    if (caretOnly) return problems;
     const titleInput = page
       .locator('[data-slides-editor-root="true"] input[type="text"]')
       .first();
@@ -2335,6 +2366,47 @@ async function runAuthoringParityQa(page: Page, base: string, outRoot: string) {
       throw new Error(`expected authoring markup ${selector} in ${html}`);
     }
   };
+  const assertBulletShortcut = async (editor: any) => {
+    const state = await editor.evaluate((root: HTMLElement) => {
+      const listItems = Array.from(root.querySelectorAll("ul > li"));
+      const rows = [
+        ...(root.matches("div") ? [root] : []),
+        ...Array.from(root.querySelectorAll<HTMLElement>("div")),
+      ];
+      const bulletRows = rows.filter((row) => {
+        const marker = row.firstElementChild;
+        const text = row.lastElementChild;
+        return (
+          getComputedStyle(row).display === "flex" &&
+          marker?.tagName === "SPAN" &&
+          /^[•●◦▪‣·⁃–—-]+$/u.test(marker.textContent?.trim() ?? "") &&
+          text?.tagName === "SPAN"
+        );
+      });
+      const authoredListText = [
+        ...listItems.map((item) => item.textContent ?? ""),
+        ...bulletRows.map((row) => row.textContent ?? ""),
+      ];
+      const text = root.textContent ?? "";
+      return {
+        bulletCount: listItems.length + bulletRows.length,
+        tailInBullet: authoredListText.some((value) => value.includes("Tail")),
+        retainedSourceText: text.includes("Alpha"),
+        hasTypedText: text.includes("Tail"),
+        html: root.innerHTML,
+      };
+    });
+    if (
+      state.bulletCount === 0 ||
+      !state.tailInBullet ||
+      !state.retainedSourceText ||
+      !state.hasTypedText
+    ) {
+      throw new Error(
+        `bullet shortcut did not create a new bullet containing the inserted text: ${JSON.stringify(state)}`,
+      );
+    }
+  };
   const assertPlainLine = async (editor: any) => {
     const found = await editor.evaluate((element: HTMLElement) =>
       Array.from(element.querySelectorAll("p, div")).some(
@@ -2368,7 +2440,7 @@ async function runAuthoringParityQa(page: Page, base: string, outRoot: string) {
         await finish(index, async () => {
           const result = test.result;
           if (result === "bullet") {
-            await assertBlock(editor, 'div[style*="display: flex"] > span');
+            await assertBulletShortcut(editor);
           } else if (result === "ordered") {
             await assertBlock(editor, "ol > li");
           } else if (result === "bold") {
@@ -2946,6 +3018,10 @@ async function runAuthoringCorpusQa(
           if (!target) {
             throw new Error(`no visible ${source.testTarget} text target`);
           }
+          const viewBefore = await snapshot(page, slideId, {
+            targetIndex: target.index,
+            targetBuilderId: target.builderId ?? undefined,
+          });
           if (!(await enterEdit(page, slideId, target.point, []))) {
             throw new Error("could not enter in-place text editing");
           }
@@ -3016,9 +3092,20 @@ async function runAuthoringCorpusQa(
             }
             if (scaled) await assertSlashPopoverGeometry(editor);
             await page.keyboard.press("Enter");
-            if (!(await editorHas(editor, "h2"))) {
+            const expectedTag = target.tag.toLowerCase() === "h2" ? "p" : "h2";
+            if (!(await editorHas(editor, expectedTag))) {
+              const actualTag = await editor.evaluate(
+                (element: HTMLElement) => ({
+                  root: element.tagName.toLowerCase(),
+                  descendants: Array.from(
+                    element.querySelectorAll<HTMLElement>("*"),
+                  )
+                    .map((child) => child.tagName.toLowerCase())
+                    .slice(0, 20),
+                }),
+              );
               throw new Error(
-                "the Heading 2 slash command did not create an H2",
+                `the Heading 2 slash command expected <${expectedTag}> from <${target.tag}>; got ${JSON.stringify(actualTag)}`,
               );
             }
           } else if (flow === "paste") {
@@ -3043,6 +3130,11 @@ async function runAuthoringCorpusQa(
                 bubbles: true,
                 cancelable: true,
               });
+              // Firefox ignores ClipboardEventInit.clipboardData.
+              if (event.clipboardData !== clipboard)
+                Object.defineProperty(event, "clipboardData", {
+                  value: clipboard,
+                });
               element.dispatchEvent(event);
               if (!event.defaultPrevented) {
                 throw new Error(
@@ -3239,17 +3331,21 @@ async function runAuthoringCorpusQa(
               );
             }
           }
-          const mutationMarker = `authoring-${flow}-${Date.now()}`;
-          await editor.press(lineEndKey);
-          await editor.pressSequentially(` ${mutationMarker}`);
-          if (!(await editorText(editor)).includes(mutationMarker)) {
-            throw new Error(
-              `${flow} marker did not enter the edited slide: ${JSON.stringify(await editorDetails(editor))}`,
-            );
-          }
+          const authoredText = await editorText(editor);
+          const authoredTarget = {
+            text: authoredText,
+            targetBuilderId: editedBuilderId,
+          };
+          const editingAfter = await snapshot(page, slideId, {
+            ...authoredTarget,
+          });
           if (!(await exitEdit(page, slideId, "escape"))) {
             throw new Error("Escape did not leave in-place text editing");
           }
+          await settle(page);
+          const viewAfterExit = await snapshot(page, slideId, {
+            ...authoredTarget,
+          });
           const live = await page
             .locator(`${canvasSelector(slideId)} .slide-content`)
             .innerHTML();
@@ -3270,64 +3366,93 @@ async function runAuthoringCorpusQa(
             );
           }
           const after = await snapshot(page, slideId, {
-            marker: mutationMarker,
-            targetBuilderId: editedBuilderId,
+            ...authoredTarget,
           });
-          const outside = diffSnapshots(before, after);
-          const targetResized =
-            before.editedRect !== null &&
-            after.editedRect !== null &&
-            (Math.abs(before.editedRect.width - after.editedRect.width) > 1 ||
-              Math.abs(before.editedRect.height - after.editedRect.height) > 1);
-          const naturalReflow =
-            targetResized && before.editedInFlow && after.editedInFlow;
+          const beforeToAfter = outsideChangesFor(before, after);
+          const phases = [
+            {
+              name: "edit entry",
+              before: viewBefore,
+              after: before,
+              ...outsideChangesFor(viewBefore, before),
+            },
+            {
+              name: "in-place authoring",
+              before,
+              after: editingAfter,
+              ...outsideChangesFor(before, editingAfter),
+            },
+            {
+              name: "edit exit",
+              before: viewBefore,
+              after: viewAfterExit,
+              ...outsideChangesFor(viewBefore, viewAfterExit),
+            },
+          ];
+          const valueProps = new Set([
+            "bottom",
+            "transform",
+            "transform-origin",
+          ]);
+          const phaseProblems = phases.flatMap(
+            ({ name, before: phaseBefore, after: phaseAfter, changes }) => {
+              if (!changes.length) return [];
+              const beforeRecords = new Map(
+                phaseBefore.records.map((record) => [record.key, record]),
+              );
+              const afterRecords = new Map(
+                phaseAfter.records.map((record) => [record.key, record]),
+              );
+              const details = changes.slice(0, 4).map((change) => {
+                const previous = beforeRecords.get(change.key);
+                const current = afterRecords.get(change.key);
+                const record = previous ?? current;
+                const index = Number(/#(\d+)$/.exec(change.key)?.[1]);
+                return {
+                  kind:
+                    "prop" in change
+                      ? "property"
+                      : previous
+                        ? "missing"
+                        : "added",
+                  element: record?.kind,
+                  tag: record?.tag,
+                  index: Number.isFinite(index) ? index : undefined,
+                  prop: "prop" in change ? change.prop : undefined,
+                  from: "a" in change ? change.a : undefined,
+                  to: "b" in change ? change.b : undefined,
+                  beforeFlow: previous?.downstreamFlow,
+                  afterFlow: current?.downstreamFlow,
+                  beforeRect: previous?.rect,
+                  afterRect: current?.rect,
+                };
+              });
+              const props = new Set(
+                changes.flatMap((change) => {
+                  if (!("prop" in change) || typeof change.prop !== "string")
+                    return [];
+                  const detail =
+                    valueProps.has(change.prop) &&
+                    "a" in change &&
+                    "b" in change
+                      ? ` ${String(change.a)} -> ${String(change.b)}`
+                      : "";
+                  return [`${change.prop}${detail}`];
+                }),
+              );
+              return [
+                `${name}: ${changes.length} outside style/geometry changes (${[...props].join(", ")}); target=${JSON.stringify({ before: phaseBefore.editedRect, after: phaseAfter.editedRect, beforeInFlow: phaseBefore.editedInFlow, afterInFlow: phaseAfter.editedInFlow })}; ${JSON.stringify(details)}`,
+              ];
+            },
+          );
+          const outside = beforeToAfter.outside;
+          const outsideChanges = beforeToAfter.changes;
           const beforeRecords = new Map(
             before.records.map((record) => [record.key, record]),
           );
           const afterRecords = new Map(
             after.records.map((record) => [record.key, record]),
           );
-          const followsNaturalReflow = (
-            change: (typeof outside.geometry)[number],
-          ) => {
-            if (
-              !naturalReflow ||
-              (change.prop !== "x" && change.prop !== "y") ||
-              !beforeRecords.get(change.key)?.downstreamFlow ||
-              !afterRecords.get(change.key)?.downstreamFlow ||
-              !before.editedRect ||
-              !after.editedRect
-            ) {
-              return false;
-            }
-            const position =
-              change.prop === "x" ? ("x" as const) : ("y" as const);
-            const extent =
-              change.prop === "x" ? ("width" as const) : ("height" as const);
-            const expectedShift =
-              after.editedRect[position] +
-              after.editedRect[extent] -
-              before.editedRect[position] -
-              before.editedRect[extent];
-            const actualShift = Number(change.b) - Number(change.a);
-            return (
-              Math.abs(actualShift - expectedShift) <= 1 ||
-              followsCenteredFlexReflow(
-                beforeRecords.get(change.key),
-                afterRecords.get(change.key),
-                change.prop,
-                actualShift,
-              )
-            );
-          };
-          const outsideChanges = [
-            ...outside.deltas,
-            ...outside.geometry.filter(
-              (change) => !followsNaturalReflow(change),
-            ),
-            ...outside.missing,
-            ...outside.added,
-          ].filter((change) => !change.inside);
           if (outsideChanges.length) {
             const records = new Map(
               [...before.records, ...after.records].map((record) => [
@@ -3352,13 +3477,27 @@ async function runAuthoringCorpusQa(
               ...outside.geometry
                 .filter((change) => !change.inside)
                 .slice(0, 4)
-                .map(({ key, prop, a, b }) => ({
-                  kind: "geometry",
-                  ...describe(key),
-                  prop,
-                  a,
-                  b,
-                })),
+                .map(({ key, prop, a, b }) => {
+                  const beforeRecord = beforeRecords.get(key);
+                  const afterRecord = afterRecords.get(key);
+                  return {
+                    kind: "geometry",
+                    ...describe(key),
+                    prop,
+                    a,
+                    b,
+                    beforeFlow: beforeRecord?.downstreamFlow,
+                    afterFlow: afterRecord?.downstreamFlow,
+                    beforeDisplay: beforeRecord?.props.display,
+                    afterDisplay: afterRecord?.props.display,
+                    beforeRect: beforeRecord?.rect,
+                    afterRect: afterRecord?.rect,
+                    beforeFlex: beforeRecord?.flexCrossAlignment,
+                    afterFlex: afterRecord?.flexCrossAlignment,
+                    beforeLayout: beforeRecord?.layoutPath?.slice(0, 5),
+                    afterLayout: afterRecord?.layoutPath?.slice(0, 5),
+                  };
+                }),
               ...outside.deltas
                 .filter((change) => !change.inside)
                 .slice(0, 4)
@@ -3376,10 +3515,11 @@ async function runAuthoringCorpusQa(
                 .slice(0, 4)
                 .map(() => ({ kind: "added" })),
             ].slice(0, 12);
-            throw new Error(
-              `${outsideChanges.length} style/geometry records changed outside the edited block (target ${JSON.stringify({ before: before.editedRect, after: after.editedRect })}): ${JSON.stringify(outsideSamples)}`,
+            phaseProblems.push(
+              `${outsideChanges.length} style/geometry records changed outside the edited block (target ${JSON.stringify({ before: before.editedRect, after: after.editedRect, beforeInFlow: before.editedInFlow, afterInFlow: after.editedInFlow, beforeLayout: before.editedLayoutPath?.slice(0, 5), afterLayout: after.editedLayoutPath?.slice(0, 5) })}): ${JSON.stringify(outsideSamples)}`,
             );
           }
+          if (phaseProblems.length) throw new Error(phaseProblems.join("; "));
           console.log(
             `[edit-fidelity] corpus ${source.id}/${flow}: save-reload markup and outside-block snapshot passed`,
           );
@@ -3508,7 +3648,8 @@ async function runAuthoringCorpusQa(
     }
     const editor = page.locator(selectorFor(latencySlideId));
     await editor.press(lineEndKey);
-    await editor.evaluate((element: HTMLElement) => {
+    const eventTimingThreshold = 16;
+    await editor.evaluate((element: HTMLElement, threshold: number) => {
       const metrics = {
         mode: "first-rAF-layout-proxy" as
           | "first-rAF-layout-proxy"
@@ -3558,7 +3699,7 @@ async function runAuthoringCorpusQa(
           metrics.observer.observe({
             type: "event",
             buffered: false,
-            durationThreshold: 16,
+            durationThreshold: threshold,
           } as PerformanceObserverInit);
           metrics.mode = "event-timing";
         } catch {
@@ -3580,7 +3721,7 @@ async function runAuthoringCorpusQa(
         },
         true,
       );
-    });
+    }, eventTimingThreshold);
     await page.evaluate(() => {
       const metrics = (window as any).__slideKeyPaintMetrics;
       metrics.sampleWindow = {
@@ -3642,17 +3783,31 @@ async function runAuthoringCorpusQa(
         );
       }
       const frameP95 = sortedFrames[Math.ceil(sortedFrames.length * 0.95) - 1];
-      const slow = metrics.eventSamples
-        .filter((sample) => sample.duration > 16)
-        .sort((a, b) => a.duration - b.duration);
-      const p95Rank = Math.ceil(metrics.keydowns * 0.95);
-      const p95IsOverThreshold = slow.length >= metrics.keydowns - p95Rank + 1;
-      const p95Event = p95IsOverThreshold
-        ? slow[slow.length - (metrics.keydowns - p95Rank + 1)]
-        : null;
-      console.log(
-        `[edit-fidelity] largest corpus slide Event Timing p95=${p95Event === null ? "<=16" : `${p95Event.duration.toFixed(2)}ms`} (input-to-paint diagnostic, input=${p95Event?.inputDelay.toFixed(2) ?? "n/a"}ms handler=${p95Event?.handlerDuration.toFixed(2) ?? "n/a"}ms presentation=${p95Event?.presentationDelay.toFixed(2) ?? "n/a"}ms, observed=${metrics.eventSamples.length}/${metrics.keydowns})`,
+      const sortedEvents = [...metrics.eventSamples].sort(
+        (a, b) => a.duration - b.duration,
       );
+      const eventP95 = p95IndexFromThresholdedSamples(
+        metrics.keydowns,
+        sortedEvents.length,
+        eventTimingThreshold,
+      );
+      if (eventP95.kind === "below-threshold") {
+        console.log(
+          `[edit-fidelity] largest corpus slide keydown-to-paint p95<=${eventP95.bound.toFixed(2)}ms (Event Timing threshold bound; observed=${sortedEvents.length}/${metrics.keydowns}, threshold=${eventTimingThreshold}ms)`,
+        );
+      } else {
+        const p95Event = sortedEvents[eventP95.index];
+        if (!p95Event)
+          throw new Error("Event Timing p95 sample was not captured");
+        console.log(
+          `[edit-fidelity] largest corpus slide keydown-to-paint p95=${p95Event.duration.toFixed(2)}ms (input=${p95Event.inputDelay.toFixed(2)}ms handler=${p95Event.handlerDuration.toFixed(2)}ms presentation=${p95Event.presentationDelay.toFixed(2)}ms, observed=${sortedEvents.length}/${metrics.keydowns}, threshold=${eventTimingThreshold}ms)`,
+        );
+        if (p95Event.duration > eventTimingThreshold) {
+          console.warn(
+            `[edit-fidelity] warning: largest corpus slide keydown-to-paint p95 ${p95Event.duration.toFixed(2)}ms exceeds ${eventTimingThreshold}ms`,
+          );
+        }
+      }
       console.log(
         `[edit-fidelity] largest corpus slide keydown-to-first-rAF-plus-layout p95=${frameP95.toFixed(2)}ms (proxy, not paint; n=${sortedFrames.length}, threshold=16ms)`,
       );
@@ -3728,8 +3883,10 @@ async function runAuthoringFuzzQa(
         html,
       ),
     );
-  const profileFor = (round: number) =>
-    round % 2 === 0 ? null : profiles[Math.floor(round / 2) % profiles.length];
+  const profileFor = (seed: number) => {
+    const index = authoringFuzzProfileIndex(seed);
+    return index === null ? null : profiles[index];
+  };
   const sourceTarget = async (
     slideId: string,
     source: CorpusAuthoringSource | null,
@@ -3832,7 +3989,7 @@ async function runAuthoringFuzzQa(
 
   for (let round = 0; round < seeds; round += 1) {
     const seed = firstSeed + round;
-    const profile = profileFor(round);
+    const profile = profileFor(seed);
     exercisedProfiles.add(profile?.kind ?? "synthetic");
     await page.setViewportSize(
       profile?.kind === "scaled"
@@ -3878,15 +4035,11 @@ async function runAuthoringFuzzQa(
       if (!target) throw new Error("no target matched the authoring profile");
       const editorSelector = selectorFor(slideId);
       const rootSelector = `${canvasSelector(slideId)} .slide-content`;
-      const originalHtml = await page.evaluate(
-        ({ selector, index }: { selector: string; index: number }) =>
-          window.__editFidelity.targetSourceHtml(selector, index),
-        { selector: canvasSelector(slideId), index: target.index },
-      );
       const originalSlideHtml = await page.locator(rootSelector).innerHTML();
       if (!(await enterEdit(page, slideId, target.point, []))) {
         throw new Error("could not enter in-place text editing");
       }
+      const originalHtml = await page.locator(editorSelector).innerHTML();
       const slideHtml = () => page.locator(rootSelector).innerHTML();
       const result = await runAuthoringFuzz(page, {
         seed,
@@ -3899,6 +4052,7 @@ async function runAuthoringFuzzQa(
         modifier,
         historyLimit: IN_PLACE_TEXT_UNDO_LIMIT,
         expectScaledSlide: profile?.kind === "scaled",
+        browser: browserName as "chromium" | "webkit" | "firefox",
         finishAndReload: async (): Promise<AuthoringFuzzPersistence> => {
           if (!(await exitEdit(page, slideId, "escape"))) {
             throw new Error("Escape did not leave in-place text editing");
@@ -5293,6 +5447,20 @@ async function main() {
       }
       console.log(
         "[edit-fidelity] selection direction and chat typing regressions passed",
+      );
+      return 0;
+    }
+
+    if (caretQaOnly) {
+      const page = await context.newPage();
+      const problems = await runTextSurfaceQa(page, base, browserName, true);
+      await page.close();
+      if (problems.length) {
+        console.error(`[edit-fidelity] text caret QA: ${problems.join("; ")}`);
+        return 1;
+      }
+      console.log(
+        `[edit-fidelity] slide text caret stayed at line edges and in the editor in ${browserName}`,
       );
       return 0;
     }

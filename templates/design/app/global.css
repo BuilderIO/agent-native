@@ -68,37 +68,8 @@
   line-height: 1.25rem;
 }
 
-.design-home-mobile-header-actions > div:first-child {
-  grid-column: 2;
-  width: 100%;
-  min-width: 0;
-  max-width: 30rem;
-  justify-self: center;
-}
-
-.design-home-mobile-header-actions {
-  display: grid;
-  grid-template-columns: minmax(4rem, 1fr) minmax(0, min(30rem, 60vw)) minmax(
-      4rem,
-      1fr
-    );
-  height: auto;
-  min-height: 3rem;
-  border-bottom: 0;
-  overflow: visible;
-}
-
-.design-home-mobile-header-actions > div:last-child {
-  grid-column: 3;
-  justify-self: end;
-  min-width: 0;
-  max-width: 100%;
-  flex-shrink: 0;
-  margin-inline-start: 0;
-}
-
 @media (max-width: 40rem) {
-  .design-home-mobile-header-actions .design-home-import-label {
+  .design-home-header .design-home-import-label {
     display: none;
   }
 }

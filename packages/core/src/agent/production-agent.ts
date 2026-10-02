@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
 import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
+import Ajv2020 from "ajv/dist/2020.js";
 import {
   defineEventHandler,
   getHeader,
@@ -14,7 +15,10 @@ import type { EventHandler as H3EventHandler } from "h3";
 import "../authorization/check-action.js";
 import { parseA2AAgentActivityPart } from "../a2a/activity.js";
 import type { A2AConnectionRequestMetadata, Task } from "../a2a/types.js";
-import { actionCallIsReadOnly } from "../action-call-classification.js";
+import {
+  actionCallEmitsChange,
+  actionCallIsReadOnly,
+} from "../action-call-classification.js";
 import {
   ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
   normalizeActionChangeResult,
@@ -114,6 +118,10 @@ import {
 } from "../server/request-context.js";
 import { secretKeyNames } from "../server/secret-key-aliases.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
+import {
+  retryContextFromRequest,
+  type RefusedTurnRetryContext,
+} from "../shared/agent-chat-run-not-started.js";
 import { ANALYTICS_CLIENT_PLATFORM_BODY_FIELD } from "../shared/analytics-platform.js";
 import { stripDiagnosticSnippets } from "../shared/diagnostic-snippet.js";
 import {
@@ -256,6 +264,7 @@ import {
   abortRunDurably,
   abortTurnByRefDurably,
   abortTurnDurably,
+  getSlotHoldingRunId,
   tryClaimRunSlot,
   isHostedRuntime,
   resolveRunSoftTimeoutMs,
@@ -288,6 +297,10 @@ import {
   turnRunLedgerExhausted,
 } from "./run-store.js";
 import { buildCurrentTimeUserContext } from "./runtime-context.js";
+import {
+  claimSetupResume,
+  setupResumeRefusedRunId,
+} from "./setup-resume-claim.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
@@ -495,7 +508,7 @@ function normalizeUsageLabel(value: unknown): string | undefined {
   return trimmed ? trimmed.slice(0, 120) : undefined;
 }
 
-function normalizeChatScope(
+export function normalizeChatScope(
   value: unknown,
 ): { type: string; id: string; label?: string } | null | undefined {
   if (value == null) return null;
@@ -906,6 +919,54 @@ export async function resolveOwnerEngineApiKey(input: {
 }
 
 /**
+ * The engine a chat request runs on. Anything that tells the user what their
+ * chat will run on (the sidebar credit notice) asks this too, so it cannot
+ * disagree with the chat.
+ */
+export async function resolveChatEngine(input: {
+  engineOption?: ResolveEngineConfig["engineOption"];
+  ownerKey: ResolvedOwnerApiKey;
+  model?: string;
+  appId?: string;
+  credentialIdentity: ResolveEngineConfig["credentialIdentity"];
+}): Promise<AgentEngine> {
+  const key = {
+    apiKey: input.ownerKey.apiKey,
+    apiKeyEnvVar: input.ownerKey.apiKeyEnvVar,
+    apiKeyProvenance: input.ownerKey.credentialProvenance,
+    appId: input.appId,
+    credentialIdentity: input.credentialIdentity,
+  };
+  try {
+    return await resolveEngine({
+      ...key,
+      engineOption: input.engineOption,
+      model: input.model,
+    });
+  } catch (error) {
+    if (error instanceof CredentialEndpointMismatchError) throw error;
+    return resolveEngine(key);
+  }
+}
+
+/**
+ * A message sent while another run holds the thread. It is not saved yet; the
+ * client delivers it once that run ends instead of showing the user an error.
+ */
+function runSlotBusy(
+  event: Parameters<typeof setResponseStatus>[0],
+  activeRunId: string | null,
+) {
+  setResponseStatus(event, 409);
+  return {
+    error: "Run already in progress for this thread",
+    code: "run_slot_busy",
+    retryable: true,
+    activeRunId,
+  };
+}
+
+/**
  * The error a chat turn answers with when no model credential is usable. A
  * member whose org restricts personal API keys can't fix that by adding a key,
  * so they get the restriction instead of the connect-a-provider prompt.
@@ -964,6 +1025,15 @@ export interface ActionEntry {
   uiOnly?: boolean;
   agentTool?: boolean;
   mcpTool?: boolean;
+  /** True when this entry's raw tool schema was authored by an external MCP
+   *  server (imported via the MCP client), not a local action. Distinct
+   *  from `mcpTool`, which controls whether a *local* action is exposed to
+   *  external agents — reusing that flag here would both misclassify local
+   *  actions that opt into external exposure and (via `declaredMcpToolNames`)
+   *  auto-add imported server tools to this app's own outbound MCP/A2A
+   *  catalog. Only used to pick the MCP protocol's default 2020-12 JSON
+   *  Schema dialect when the schema omits `$schema`. */
+  fromMcpServer?: boolean;
   mcpAnnotations?: import("../action.js").ActionMcpToolAnnotations;
   deferLoading?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
@@ -971,6 +1041,7 @@ export interface ActionEntry {
   grounding?: boolean;
   allowInPlanMode?: boolean;
   planMode?: import("../action.js").ActionPlanModeConfig<any>;
+  changeEvents?: boolean;
   parallelSafe?: boolean;
   dedupe?: boolean;
   toolCallable?: boolean;
@@ -1549,9 +1620,26 @@ export interface ProductionAgentOptions {
     turnId: string;
     threadId: string | undefined;
     message: string;
+    agentKitMessageId?: string;
     attachments?: AgentChatAttachment[];
     queuedMessageId?: string;
+    queuedMessageClaimId?: string;
   }) => void | Promise<void>;
+  /**
+   * The turn was refused before a run started (no usable model credential).
+   * `runId` is the turn id the client already uses as its run id.
+   */
+  onRunNotStarted?: (details: {
+    runId: string;
+    turnId: string;
+    threadId: string;
+    message: string;
+    attachments?: AgentChatAttachment[];
+    queuedMessageId?: string;
+    agentKitMessageId?: string;
+    retryContext: RefusedTurnRetryContext;
+    failure: { code: string; message: string };
+  }) => Promise<void>;
   prepareRequest?: (details: {
     event: any;
     ownerEmail: string | null;
@@ -3840,6 +3928,10 @@ export function normalizeToolErrorForBreaker(error: string): string {
       )
       // Bare JSON payloads some providers inline instead of a Received: span.
       .replace(/\{[\s\S]{0,2000}?\}/g, "{}")
+      .replace(
+        /\bready again in about \d+s\b/g,
+        "ready again after the cooldown",
+      )
       .replace(/\s+/g, " ")
       .trim()
   );
@@ -4251,7 +4343,19 @@ const rawToolInputAjv = new Ajv({
   verbose: true,
 });
 
-const rawToolInputValidatorCache = new WeakMap<object, ValidateFunction>();
+const rawToolInputAjv2020 = new Ajv2020({
+  strict: false,
+  allErrors: true,
+  coerceTypes: true,
+  useDefaults: false,
+  removeAdditional: false,
+  verbose: true,
+});
+
+const rawToolInputValidatorCache = new WeakMap<
+  object,
+  Map<boolean, ValidateFunction>
+>();
 
 const optionalPlaceholderAjv = new Ajv({
   strict: false,
@@ -4466,11 +4570,28 @@ function coerceStringifiedJsonToolValues(
     : { input, changed: false };
 }
 
-function getRawToolInputValidator(schema: RawJsonSchema): ValidateFunction {
-  const cached = rawToolInputValidatorCache.get(schema);
+function getRawToolInputValidator(
+  schema: RawJsonSchema,
+  useMcpDefaultDialect = false,
+): ValidateFunction {
+  const cached = rawToolInputValidatorCache
+    .get(schema)
+    ?.get(useMcpDefaultDialect);
   if (cached) return cached;
-  const validator = rawToolInputAjv.compile(schema);
-  rawToolInputValidatorCache.set(schema, validator);
+  const declaredDialect = (schema as { $schema?: unknown }).$schema;
+  const normalizedDialect =
+    typeof declaredDialect === "string"
+      ? declaredDialect.replace(/#$/, "")
+      : undefined;
+  const ajv =
+    normalizedDialect === "https://json-schema.org/draft/2020-12/schema" ||
+    (declaredDialect === undefined && useMcpDefaultDialect)
+      ? rawToolInputAjv2020
+      : rawToolInputAjv;
+  const validator = ajv.compile(schema);
+  const validators = rawToolInputValidatorCache.get(schema) ?? new Map();
+  validators.set(useMcpDefaultDialect, validator);
+  rawToolInputValidatorCache.set(schema, validators);
   return validator;
 }
 
@@ -4522,7 +4643,10 @@ function validateRawToolInput(
   if (!parameters) return null;
   let validator: ValidateFunction;
   try {
-    validator = getRawToolInputValidator(parameters);
+    validator = getRawToolInputValidator(
+      parameters,
+      entry.fromMcpServer === true,
+    );
   } catch (err) {
     return `tool schema is invalid: ${sanitizeToolErrorValue(err)}`;
   }
@@ -6857,7 +6981,7 @@ export async function runAgentLoop(opts: {
           try {
             const { notifyActionChangeInBackground } =
               await import("../server/action-change.js");
-            if (!actionIsReadOnly) {
+            if (actionCallEmitsChange(actionEntry, toolCall.input, false)) {
               const owner =
                 opts.ownerEmail ?? getRequestUserEmail() ?? undefined;
               const orgId = opts.orgId ?? getRequestOrgId() ?? undefined;
@@ -7525,7 +7649,8 @@ export async function runAgentLoopWithMainChatInternalContinuations(
   return usage;
 }
 
-function endsAtContinuationBoundary(run: ActiveRun): boolean {
+/** True when the run stopped where its turn carries on in a continuation run. */
+export function endsAtContinuationBoundary(run: ActiveRun): boolean {
   return (
     endsAtInternalContinuationBoundary(run) ||
     endsAfterToolResultWithoutAssistantFinal(run) ||
@@ -8339,8 +8464,11 @@ export async function chainServerDrivenContinuation(opts: {
             ? lastDispatchErr.message
             : lastDispatchErr,
         );
+        // The turn continues in the pre-inserted successor, so this chunk is
+        // truncated, never completed, and its stream ends with the same
+        // continuation signal a dispatched handoff sends.
         const statusUpdated = await d
-          .updateRunStatusIfRunning(runId, "completed")
+          .updateRunStatusIfRunning(runId, "truncated")
           .catch(() => false);
         if (statusUpdated) {
           await d
@@ -8350,6 +8478,10 @@ export async function chainServerDrivenContinuation(opts: {
             )
             .catch(() => {});
         }
+        run.continuationTerminalEvent = {
+          type: "auto_continue",
+          reason: continuationReason,
+        };
         return;
       }
       throw lastDispatchErr instanceof Error
@@ -8548,6 +8680,8 @@ export function createProductionAgentHandler(
       displayMessage,
       parentId,
       queuedMessageId,
+      queuedMessageClaimId,
+      agentKitMessageId: requestedAgentKitMessageId,
       internalContinuation,
       turnId: requestTurnId,
       model: requestModel,
@@ -8570,6 +8704,12 @@ export function createProductionAgentHandler(
           ? parentId.trim()
           : undefined;
     setupMark("bodyParsed");
+
+    const agentKitMessageId =
+      typeof requestedAgentKitMessageId === "string" &&
+      requestedAgentKitMessageId.trim().length <= 200
+        ? requestedAgentKitMessageId.trim() || undefined
+        : undefined;
 
     const backgroundRunMarker =
       preInjectedBody &&
@@ -8904,6 +9044,13 @@ export function createProductionAgentHandler(
           (a.type === "image" || a.type === "file" || a.type === "document"),
       )
     ) {
+      // A busy thread refuses this message (409) and the client sends it again
+      // once the thread frees up; uploading first would store every
+      // attachment again on each refusal.
+      if (threadId && !isBackgroundWorker) {
+        const activeRunId = await getSlotHoldingRunId(threadId);
+        if (activeRunId) return runSlotBusy(event, activeRunId);
+      }
       try {
         const preUpload = await preUploadAttachments({
           attachments: requestAttachments,
@@ -8950,16 +9097,13 @@ export function createProductionAgentHandler(
 
     workerStep("apikey_start");
     const engineOption = requestEngine ?? options.engine;
-    const {
-      apiKey: effectiveApiKey,
-      apiKeyEnvVar: effectiveApiKeyEnvVar,
-      credentialProvenance: apiKeyProvenance,
-    } = await resolveOwnerEngineApiKey({
+    const ownerKey = await resolveOwnerEngineApiKey({
       engineOption,
       ownerEmail,
       anthropicFallback:
         options.apiKey ?? readDeployCredentialEnv("ANTHROPIC_API_KEY"),
     });
+    const effectiveApiKey = ownerKey.apiKey;
     workerStep("apikey_done");
 
     workerStep("engine_start");
@@ -8967,27 +9111,13 @@ export function createProductionAgentHandler(
       userEmail: ownerEmail,
       orgId: getRequestOrgId(),
     };
-    let engine: AgentEngine;
-    try {
-      engine = await resolveEngine({
-        engineOption,
-        apiKey: effectiveApiKey,
-        apiKeyEnvVar: effectiveApiKeyEnvVar,
-        apiKeyProvenance,
-        model: configuredModel,
-        appId: options.appId,
-        credentialIdentity,
-      });
-    } catch (error) {
-      if (error instanceof CredentialEndpointMismatchError) throw error;
-      engine = await resolveEngine({
-        apiKey: effectiveApiKey,
-        apiKeyEnvVar: effectiveApiKeyEnvVar,
-        apiKeyProvenance,
-        appId: options.appId,
-        credentialIdentity,
-      });
-    }
+    const engine = await resolveChatEngine({
+      engineOption,
+      ownerKey,
+      model: configuredModel,
+      appId: options.appId,
+      credentialIdentity,
+    });
     workerStep("engine_done");
 
     workerStep("model_start");
@@ -9069,6 +9199,42 @@ export function createProductionAgentHandler(
         ownerEmail,
         visitorFacing: isBuilderGatewayDeployConfigured(),
       });
+      const unstartedTurnId =
+        typeof requestTurnId === "string" && requestTurnId.trim()
+          ? requestTurnId.trim()
+          : undefined;
+      if (
+        options.onRunNotStarted &&
+        threadId &&
+        unstartedTurnId &&
+        !internalContinuation &&
+        !isBackgroundWorker
+      ) {
+        await options.onRunNotStarted({
+          runId: unstartedTurnId,
+          turnId: unstartedTurnId,
+          threadId,
+          message:
+            typeof requestDisplayMessage === "string" &&
+            requestDisplayMessage.trim()
+              ? requestDisplayMessage
+              : requestMessage,
+          attachments: requestAttachments,
+          ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
+            ? { queuedMessageId: queuedMessageId.trim() }
+            : {}),
+          ...(agentKitMessageId ? { agentKitMessageId } : {}),
+          retryContext: retryContextFromRequest(body, (dropped) =>
+            console.warn(
+              `[agent-chat] dropped ${dropped} invalid reference(s) from a refused turn's retry context`,
+            ),
+          ),
+          failure: {
+            code: missingCredentialsEvent.errorCode,
+            message: missingCredentialsEvent.error,
+          },
+        });
+      }
       return new ReadableStream({
         start(controller) {
           controller.enqueue(
@@ -9637,6 +9803,20 @@ export function createProductionAgentHandler(
       ) {
         return { ok: true, stopped: true };
       }
+      const setupResumeOfRunId = setupResumeRefusedRunId(body);
+      const setupResumeClaim =
+        setupResumeOfRunId && ownerEmail
+          ? await claimSetupResume({
+              ownerEmail,
+              threadId,
+              refusedRunId: setupResumeOfRunId,
+              turnId: effectiveTurnId,
+            })
+          : undefined;
+      if (setupResumeOfRunId && ownerEmail && !setupResumeClaim) {
+        // Another tab already sent this refused prompt again.
+        return { ok: true, stopped: true, resumeAlreadySent: true };
+      }
       let slot;
       try {
         slot = await tryClaimRunSlot(threadId, runId, undefined, {
@@ -9656,6 +9836,7 @@ export function createProductionAgentHandler(
             : {}),
         });
       } catch (error) {
+        await setupResumeClaim?.release();
         if (
           error instanceof AgentTurnInitiatorMismatchError ||
           error instanceof AgentTurnInitiatorUnavailableError
@@ -9666,6 +9847,7 @@ export function createProductionAgentHandler(
         throw error;
       }
       if (slot.turnAborted) {
+        await setupResumeClaim?.release();
         return { ok: true, stopped: true };
       }
       if (slot.completedRunId) {
@@ -9682,11 +9864,8 @@ export function createProductionAgentHandler(
         return stream;
       }
       if (!slot.claimed) {
-        setResponseStatus(event, 409);
-        return {
-          error: "Run already in progress for this thread",
-          activeRunId: slot.activeRunId,
-        };
+        await setupResumeClaim?.release();
+        return runSlotBusy(event, slot.activeRunId);
       }
       foregroundRunRowInserted = true;
     }
@@ -9810,9 +9989,14 @@ export function createProductionAgentHandler(
           turnId: effectiveTurnId,
           threadId,
           message: messageToPersist,
+          ...(agentKitMessageId ? { agentKitMessageId } : {}),
           attachments: requestAttachments,
           ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
             ? { queuedMessageId: queuedMessageId.trim() }
+            : {}),
+          ...(typeof queuedMessageClaimId === "string" &&
+          queuedMessageClaimId.trim()
+            ? { queuedMessageClaimId: queuedMessageClaimId.trim() }
             : {}),
         });
       } catch (error) {
@@ -10241,7 +10425,11 @@ export function createProductionAgentHandler(
           return;
         }
 
-        send({ type: "activity", label: "Starting agent" });
+        send({
+          type: "activity",
+          id: `agentkit:internal:${runId}:starting-agent`,
+          label: "Starting agent",
+        });
 
         if (isBackgroundWorker) {
           await recordRunDiagnostic(
@@ -10524,7 +10712,11 @@ export function createProductionAgentHandler(
             : {}),
         };
 
-        send({ type: "activity", label: "Contacting model" });
+        send({
+          type: "activity",
+          id: `agentkit:internal:${runId}:contacting-model`,
+          label: "Contacting model",
+        });
 
         let instrumented = false;
         try {

@@ -114,6 +114,7 @@ vi.mock("./inbox-store.js", () => ({
   readSyncAccounts: mocks.readSyncAccounts,
   readInboxThreads: mocks.readInboxThreads,
   readCachedLabels: mocks.readCachedLabels,
+  readGmailQuotaCooldowns: async () => new Map<string, number>(),
   inboxRowToItem: (row: any, labelMap?: Map<string, string>) => ({
     id: row.latestMessageId ?? row.threadId,
     threadId: row.threadId,
@@ -326,6 +327,106 @@ describe("syncInboxAccount — full sync", () => {
       expect.objectContaining({ status: "error" }),
       expect.anything(),
     );
+  });
+
+  const unauthorized = () =>
+    Object.assign(
+      new Error(
+        "Google API error (401): Request had invalid authentication credentials.",
+      ),
+      { status: 401 },
+    );
+
+  it("refreshes the token on a Gmail 401 and keeps syncing when the fresh token works", async () => {
+    currentRow = baseRow({ historyId: "1000", lastError: null });
+    mocks.gmailListHistory.mockRejectedValueOnce(unauthorized());
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(mocks.getClientForConnectedAccount).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      { forceRefresh: true },
+    );
+    expect(mocks.gmailListHistory).toHaveBeenCalledTimes(2);
+    expect(result.state).not.toBe("needs_reauth");
+    expect(result.state).not.toBe("error");
+    expect(currentRow.status).not.toBe("needs_reauth");
+  });
+
+  it("never marks needs_reauth after 401s across syncs while the refresh itself keeps failing transiently", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    mocks.gmailListHistory.mockRejectedValue(unauthorized());
+    mocks.getClientForConnectedAccount.mockImplementation(
+      async (_owner: string, _account: string, options?: unknown) => {
+        if ((options as { forceRefresh?: boolean } | undefined)?.forceRefresh) {
+          throw Object.assign(new Error("oauth2.googleapis.com timed out"), {
+            retryable: true,
+          });
+        }
+        return { accessToken: "tok", email: ACCOUNT };
+      },
+    );
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const result = await syncInboxAccount(OWNER, ACCOUNT, {
+        budgetMs: 5_000,
+      });
+      expect(result.state).toBe("error");
+      expect(currentRow.status).toBe("error");
+    }
+  });
+
+  it("marks needs_reauth when Google refuses the refresh for good", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    mocks.gmailListHistory.mockRejectedValue(unauthorized());
+    mocks.getClientForConnectedAccount.mockImplementation(
+      async (_owner: string, _account: string, options?: unknown) => {
+        if ((options as { forceRefresh?: boolean } | undefined)?.forceRefresh) {
+          throw new Error("invalid_grant: Token has been expired or revoked.");
+        }
+        return { accessToken: "tok", email: ACCOUNT };
+      },
+    );
+
+    const result = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+
+    expect(result.state).toBe("needs_reauth");
+    expect(currentRow.status).toBe("needs_reauth");
+  });
+
+  it("marks needs_reauth when the freshly refreshed token is rejected too, then stops syncing it", async () => {
+    currentRow = baseRow({ historyId: "1000" });
+    mocks.gmailListHistory.mockRejectedValue(unauthorized());
+
+    const second = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+    expect(second.state).toBe("needs_reauth");
+    expect(currentRow.status).toBe("needs_reauth");
+    expect(mocks.getClientForConnectedAccount).toHaveBeenCalledWith(
+      OWNER,
+      ACCOUNT,
+      { forceRefresh: true },
+    );
+    expect(mocks.gmailListHistory).toHaveBeenCalledTimes(2);
+
+    // Polling again does not claim the account or reach Gmail.
+    mocks.claimSyncAccount.mockClear();
+    mocks.getClientForConnectedAccount.mockClear();
+    const third = await syncInboxAccount(OWNER, ACCOUNT, { budgetMs: 5_000 });
+    expect(third).toMatchObject({
+      accountEmail: ACCOUNT,
+      state: "needs_reauth",
+      error: expect.stringContaining("401"),
+    });
+    expect(mocks.claimSyncAccount).not.toHaveBeenCalled();
+    expect(mocks.getClientForConnectedAccount).not.toHaveBeenCalled();
+    expect(mocks.gmailListHistory).toHaveBeenCalledTimes(2);
+
+    const viaSync = await syncInbox(OWNER);
+    expect(viaSync.accounts).toEqual([
+      expect.objectContaining({ accountEmail: ACCOUNT, state: "needs_reauth" }),
+    ]);
+    expect(mocks.gmailListHistory).toHaveBeenCalledTimes(2);
   });
 
   it("walks 2 pages, exhausting the budget after page 1, then resumes on the next call", async () => {

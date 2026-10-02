@@ -12,7 +12,10 @@ import { z } from "zod";
 
 import "../db/index.js";
 import * as schema from "../db/schema.js";
-import { uploadLeaseExpiry } from "../lib/upload-lease.js";
+import {
+  uploadLeaseExpiry,
+  waitingStorageLeaseExpiry,
+} from "../lib/upload-lease.js";
 
 function isDrizzleTable(value: unknown): value is object {
   return (
@@ -1166,6 +1169,14 @@ export const migrations = runMigrations(
       version: 79,
       name: "screenshot-base-image",
       sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS base_image_url TEXT`,
+    },
+    {
+      version: 80,
+      name: "recording-waiting-storage-lease",
+      // Rows parked for storage were saved with no lease, which the reaper
+      // never selects, so they waited forever. Idempotent: NULL leases only.
+      // guard:allow-unscoped — startup migration backfills every owner's rows.
+      sql: `UPDATE recordings SET upload_lease_expires_at = '${waitingStorageLeaseExpiry()}' WHERE upload_lease_expires_at IS NULL AND status = 'uploading' AND failure_reason IS NOT NULL`,
     },
   ],
   { table: "clips_migrations" },

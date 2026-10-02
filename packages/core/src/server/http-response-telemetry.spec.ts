@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { withDbTimeout } from "../db/client.js";
 import { createDatabaseRequestTelemetry } from "../db/request-telemetry.js";
+import { registerObservabilityProvider } from "../observability/otel-provider.js";
 import {
   type AgentSpan,
   __resetAgentTracerCache,
@@ -496,6 +497,94 @@ describe("http response telemetry", () => {
     }
 
     expect(tracked).toHaveLength(0);
+  });
+
+  it("records the HTTP duration metric for requests tracking does not sample, then flushes", async () => {
+    vi.stubEnv("AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE", "0");
+    processState.requestSequence = 5;
+    const recorded: Array<Record<string, string | number> | undefined> = [];
+    const forceFlush = vi.fn(async () => {});
+    const unregister = registerObservabilityProvider({
+      meterProvider: {
+        getMeter: () => ({
+          createHistogram: () => ({
+            record: (
+              _value: number,
+              attributes?: Record<string, string | number>,
+            ) => recorded.push(attributes),
+          }),
+          createCounter: () => ({ add() {} }),
+        }),
+        forceFlush,
+      },
+    });
+    try {
+      const { requestHooks, responseHooks } = createHooks();
+      const tracked: TrackingEvent[] = [];
+      registerTrackingProvider({
+        name: "http-response-telemetry-test",
+        track(event) {
+          tracked.push(event);
+        },
+      });
+
+      const event = eventFor("/some/page");
+      await requestHooks[0](event);
+      await responseHooks[0](new Response("ok"), event);
+
+      expect(tracked).toHaveLength(0);
+      expect(recorded).toEqual([
+        {
+          "http.request.method": "GET",
+          "http.response.status_code": 200,
+        },
+      ]);
+      expect(forceFlush).toHaveBeenCalledOnce();
+    } finally {
+      unregister();
+    }
+  });
+
+  it("ends the HTTP duration metric at the response boundary, not after the tracking flush", async () => {
+    processState.requestSequence = 5;
+    const recorded: number[] = [];
+    const unregister = registerObservabilityProvider({
+      meterProvider: {
+        getMeter: () => ({
+          createHistogram: () => ({
+            record: (value: number) => recorded.push(value),
+          }),
+          createCounter: () => ({ add() {} }),
+        }),
+      },
+    });
+    const startedAt = Date.now();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(startedAt);
+    __setAgentTracerForTests({
+      startSpan(): AgentSpan {
+        // The tracking flush outlives the response by several seconds.
+        nowSpy.mockReturnValue(startedAt + 9_000);
+        return {
+          setAttribute() {},
+          setAttributes() {},
+          setStatus() {},
+          recordException() {},
+          end() {},
+        };
+      },
+    });
+    try {
+      const { requestHooks, responseHooks } = createHooks();
+      const event = eventFor("/some/page");
+      await requestHooks[0](event);
+      nowSpy.mockReturnValue(startedAt + 1_200);
+      await responseHooks[0](new Response("ok"), event);
+
+      expect(recorded).toEqual([1.2]);
+    } finally {
+      nowSpy.mockRestore();
+      unregister();
+    }
   });
 
   it("reports the pre-handler boot phases on a cold start", async () => {

@@ -751,6 +751,12 @@ export async function finishAutomationRun(
   status: Exclude<AutomationRunStatus, "running">,
   error?: string,
   errorCode?: string,
+  /**
+   * `notify: false` records the run without queueing the owner email. Used for
+   * the early failures of a streak that will pause: the owner is told once,
+   * by the run that pauses it.
+   */
+  options: { notify?: boolean } = {},
 ): Promise<void> {
   await ensureTable();
   const existing = await getDbExec().execute({
@@ -760,7 +766,9 @@ export async function finishAutomationRun(
   const row = existing.rows?.[0] as Record<string, unknown> | undefined;
   const finishedAt = Date.now();
   const shouldQueueFailureAlert =
-    status !== "success" && Boolean(row?.notification_email);
+    status !== "success" &&
+    options.notify !== false &&
+    Boolean(row?.notification_email);
   const update = await getDbExec().execute({
     sql: `UPDATE ${TABLE}
           SET status = ?, finished_at = ?, error = ?, error_code = ?,

@@ -917,7 +917,7 @@ describe("SettingsTabsPage", () => {
             extraTabs={[
               {
                 id: "observability",
-                label: "Agent Observability",
+                label: "Observability",
                 href: "/settings/observability/overview",
                 content: <div>Observability content</div>,
               },
@@ -931,6 +931,7 @@ describe("SettingsTabsPage", () => {
       'a[href="/settings/observability/overview"]',
     );
     expect(observabilityLink).not.toBeNull();
+    expect(observabilityLink?.textContent?.trim()).toBe("Observability");
     expect(observabilityLink?.querySelector("svg")).toBeNull();
   });
 

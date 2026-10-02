@@ -119,6 +119,18 @@ const HOSTED_TEMPLATE_ENV_ALLOWLIST_EXACT = new Set([
   "NETLIFY_DATABASE_URL",
   "NETLIFY_DATABASE_URL_UNPOOLED",
   "NITRO_PRESET",
+  "OTEL_EXPORTER_OTLP_ENDPOINT",
+  "OTEL_EXPORTER_OTLP_HEADERS",
+  "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+  "OTEL_EXPORTER_OTLP_METRICS_HEADERS",
+  "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+  "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+  "OTEL_METRICS_EXPORTER",
+  "OTEL_RESOURCE_ATTRIBUTES",
+  "OTEL_SERVICE_NAME",
+  "OTEL_TRACES_EXPORTER",
+  "OTEL_TRACES_SAMPLER",
+  "OTEL_TRACES_SAMPLER_ARG",
   "SENDGRID_API_KEY",
   "SENTRY_AUTH_TOKEN",
   "SENTRY_DSN",
@@ -186,6 +198,17 @@ const PUBLIC_KEY_EXACT = new Set([
   "GOOGLE_PICKER_APP_ID",
   "NEON_AUTH_BASE_URL",
   "NITRO_PRESET",
+  // The OTEL_EXPORTER_OTLP_*HEADERS keys carry the site's relay token, so they
+  // stay Netlify secrets.
+  "OTEL_EXPORTER_OTLP_ENDPOINT",
+  "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+  "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+  "OTEL_METRICS_EXPORTER",
+  "OTEL_RESOURCE_ATTRIBUTES",
+  "OTEL_SERVICE_NAME",
+  "OTEL_TRACES_EXPORTER",
+  "OTEL_TRACES_SAMPLER",
+  "OTEL_TRACES_SAMPLER_ARG",
   "SENTRY_ORG",
   "SENTRY_PROJECT",
   "SUPABASE_URL",
@@ -194,6 +217,7 @@ const PUBLIC_KEY_EXACT = new Set([
 ]);
 const PUBLIC_KEY_PREFIXES = HOSTED_TEMPLATE_ENV_ALLOWLIST_PREFIXES;
 const PRODUCTION_URL_KEYS = new Set(["APP_URL", "BETTER_AUTH_URL"]);
+const TELEMETRY_SERVICE_NAMESPACE = "agent-native";
 const TEMPLATE_PROD_URL_BY_NAME = new Map([
   ...TEMPLATES.map((template) => [template.name, template.prodUrl]).filter(
     (entry): entry is [string, string] => Boolean(entry[1]),
@@ -494,6 +518,24 @@ function buildTemplateEnvPlan(
     entries.push([key, normalized.value] as const);
   }
 
+  if (
+    values.get("OTEL_EXPORTER_OTLP_ENDPOINT") ||
+    values.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT") ||
+    values.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+  ) {
+    const identity = hostedTelemetryIdentityEnv(
+      site.sourceTemplate,
+      context,
+      values.get("OTEL_RESOURCE_ATTRIBUTES"),
+    );
+    for (const [key, value] of identity) {
+      const index = entries.findIndex(([entryKey]) => entryKey === key);
+      if (index >= 0) entries.splice(index, 1);
+      entries.push([key, value] as const);
+      normalizedKeys.push(key);
+    }
+  }
+
   return {
     entries,
     forbiddenKeys,
@@ -527,6 +569,65 @@ export function normalizeProductionUrlEntry(
   }
 
   return { value: targetUrl, normalized: true };
+}
+
+/**
+ * OTel identity for a first-party site: one `service.name` per app across
+ * environments, so production versus beta is a label filter, and a shared
+ * `service.namespace` the collector routes Agent-Native metrics on. Netlify
+ * sets nothing like Cloud Run's K_SERVICE, so the sync derives it. Configured
+ * resource attributes are kept, with the managed keys winning. Other deploy
+ * contexts get no identity rather than a guessed environment.
+ */
+export function hostedTelemetryIdentityEnv(
+  template: string,
+  context: string,
+  configuredResourceAttributes?: string,
+): Array<readonly [string, string]> {
+  const environment =
+    context === "production"
+      ? "production"
+      : isBetaContext(context)
+        ? "beta"
+        : undefined;
+  if (!environment) return [];
+  const managed = new Map([
+    ["deployment.environment.name", environment],
+    ["service.namespace", TELEMETRY_SERVICE_NAMESPACE],
+  ]);
+  const attributes = [
+    ...parseResourceAttributes(configuredResourceAttributes).filter(
+      ([key]) => !managed.has(key),
+    ),
+    ...managed,
+  ];
+  return [
+    ["OTEL_SERVICE_NAME", template],
+    [
+      "OTEL_RESOURCE_ATTRIBUTES",
+      attributes.map(([key, value]) => `${key}=${value}`).join(","),
+    ],
+  ];
+}
+
+// Values stay percent-encoded as configured; only keys are compared.
+function parseResourceAttributes(
+  raw: string | undefined,
+): Array<[string, string]> {
+  if (!raw?.trim()) return [];
+  return raw
+    .split(",")
+    .filter((entry) => entry.trim())
+    .map((entry) => {
+      const separator = entry.indexOf("=");
+      const key = separator > 0 ? entry.slice(0, separator).trim() : "";
+      if (!key) {
+        throw new Error(
+          `OTEL_RESOURCE_ATTRIBUTES entry "${entry.trim()}" is not key=value.`,
+        );
+      }
+      return [key, entry.slice(separator + 1).trim()];
+    });
 }
 
 function isBetaContext(context: string): boolean {
@@ -762,7 +863,7 @@ async function main() {
     }
     if (plan.normalizedKeys.length > 0) {
       console.log(
-        `  normalized production URL key(s): ${plan.normalizedKeys
+        `  normalized per-site key(s): ${plan.normalizedKeys
           .sort()
           .join(", ")}`,
       );

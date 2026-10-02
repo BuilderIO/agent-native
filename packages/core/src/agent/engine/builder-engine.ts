@@ -1,3 +1,4 @@
+import { isTransientDatabaseError } from "../../db/client.js";
 import {
   BUILDER_OAUTH_SCOPE,
   hasBuilderOAuthSession,
@@ -7,6 +8,7 @@ import {
 import { captureError } from "../../server/capture-error.js";
 import {
   clearBuilderGatewayAuthFailure,
+  CredentialStoreUnavailableError,
   isBuilderGatewayDeployConfigured,
   resolveBuilderGatewayCredentialsDetailed,
   getBuilderGatewayBaseUrl,
@@ -87,6 +89,8 @@ export const BUILDER_CAPABILITIES: EngineCapabilities = {
 
 export const BUILDER_SUPPORTED_MODELS = BUILDER_MODEL_CONFIG.supportedModels;
 
+const BUILDER_RECONNECT_MESSAGE =
+  "Builder authentication failed. Reconnect Builder (free tier available) via Settings.";
 const DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
 const MAX_HOSTED_FOREGROUND_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
 const MAX_BACKGROUND_BUILDER_GATEWAY_TIMEOUT_MS = 14 * 60_000;
@@ -208,9 +212,30 @@ class BuilderEngine implements AgentEngine {
             requiredScope: BUILDER_OAUTH_SCOPE,
             orgId,
           });
-        } catch {
-          // coercion-ok: unusable OAuth custody must not fall back to legacy keys.
+        } catch (error) {
+          if (isTransientDatabaseError(error)) {
+            const unavailable = new CredentialStoreUnavailableError(error);
+            yield gatewayErrorStop(
+              { error: unavailable.message, errorCode: unavailable.errorCode },
+              false,
+            );
+            return;
+          }
+          // coercion-ok: an unusable grant falls through to the reconnect stop below, never to legacy keys.
           oauthAccess = null;
+        }
+        // Custody exists but cannot run (expired, revoked, or short of the AI
+        // scope). Reporting it as "no provider connected" sends the reader to
+        // a Connect button that changes nothing.
+        if (!oauthAccess) {
+          yield gatewayErrorStop(
+            {
+              error: BUILDER_RECONNECT_MESSAGE,
+              errorCode: "builder_auth_error",
+            },
+            false,
+          );
+          return;
         }
       }
     }
@@ -623,8 +648,7 @@ async function* emitHttpError(
       message,
     });
     yield stop({
-      error:
-        "Builder authentication failed. Reconnect Builder (free tier available) via Settings.",
+      error: BUILDER_RECONNECT_MESSAGE,
       errorCode: "builder_auth_error",
     });
     return;
@@ -644,8 +668,7 @@ async function* emitHttpError(
       message,
     });
     yield stop({
-      error:
-        "Builder authentication failed. Reconnect Builder (free tier available) via Settings.",
+      error: BUILDER_RECONNECT_MESSAGE,
       errorCode: "builder_auth_error",
     });
     return;

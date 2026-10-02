@@ -46,7 +46,7 @@ const messages = {
     designSystems: "设计系统",
   },
   settings: {
-    agentObservability: "代理可观测性",
+    agentObservability: "可观测性",
     title: "设置",
     labs: "实验室",
     labsIntro: "在正式发布前预览实验性功能。",
@@ -56,6 +56,7 @@ const messages = {
     commentsAndReplies: "评论和回复",
     commentsAndRepliesDescription: "有人在你的演示文稿中发表评论或回复时。",
     retry: "重试",
+    reload: "重新加载",
     mcpAbout:
       "将 Slides 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 Slides 中工作：创建演示文稿、添加幻灯片并导出为 PowerPoint。它只能看到你有权看到的内容。",
     workspaceTitle: "工作区",
@@ -739,6 +740,8 @@ const messages = {
     imageAdded: "图片已添加",
     imageUploadError: "上传此图片时出了点问题。",
     exportFailed: "导出失败",
+    agentRunFailed:
+      "代理在创建任何幻灯片之前运行失败。请查看聊天中的详情，然后重试。",
     deckHasNoSlides: "幻灯片没有页面。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",

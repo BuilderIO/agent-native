@@ -1,6 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useBlocker } from "react-router";
 
+/**
+ * Ask the browser to confirm closing or reloading the tab while a recording
+ * is live or its upload is not yet confirmed by the server.
+ */
+export function useUnsavedRecordingUnloadWarning(isUnsaved: () => boolean) {
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (!isUnsaved()) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [isUnsaved]);
+}
+
 export function useRecordingLeaveGuard(hasRecordingAtRisk: () => boolean) {
   const blocker = useBlocker(
     useCallback(

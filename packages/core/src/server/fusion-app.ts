@@ -26,6 +26,7 @@
 
 import { z } from "zod";
 
+import { fail } from "../action.js";
 import { withBuilderUtmTrackingParams } from "../shared/builder-link-tracking.js";
 import {
   builderReferralInfoSchema,
@@ -92,18 +93,48 @@ function fusionUrl(
   return url;
 }
 
-const builderCreditUsageSchema = z.object({
-  plan: z.enum(["free", "paid"]),
-  balance: z.number().finite().nonnegative(),
-  quota: z.object({
-    period: z.enum(["daily", "monthly"]),
-    limit: z.number().finite().positive(),
-    used: z.number().finite().nonnegative(),
-    remaining: z.number().finite().nonnegative(),
-  }),
-});
+const builderCreditUsageSchema = z
+  .object({
+    plan: z.enum(["free", "paid"]),
+    balance: z.number().finite().nonnegative(),
+    quota: z.object({
+      period: z.enum(["daily", "monthly"]),
+      limit: z.number().finite().positive(),
+      used: z.number().finite().nonnegative(),
+      remaining: z.number().finite().nonnegative(),
+    }),
+  })
+  .superRefine(({ quota }, ctx) => {
+    const total = quota.used + quota.remaining;
+    const tolerance = Math.max(quota.limit, total) * Number.EPSILON * 4;
+    if (!Number.isFinite(total) || Math.abs(total - quota.limit) > tolerance) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["quota"],
+        message: "Builder credit usage and remaining must match its limit.",
+      });
+    }
+  });
 
 export type BuilderCreditUsage = z.infer<typeof builderCreditUsageSchema>;
+
+/**
+ * Builder's credit service failing is an upstream outage, not a bug in the
+ * caller: it is typed so the action route answers 502/503 without filing an
+ * error issue per sidebar poll, and still counts it in `action_error_counts`.
+ */
+function builderCreditUsageUnavailable(upstreamStatus?: number): never {
+  return fail("Builder credit usage is unavailable right now.", {
+    errorCode: "builder_credit_usage_unavailable",
+    statusCode:
+      upstreamStatus === undefined ||
+      upstreamStatus === 429 ||
+      upstreamStatus >= 500
+        ? 503
+        : 502,
+    ...(upstreamStatus === undefined ? {} : { details: { upstreamStatus } }),
+  });
+}
 
 export async function getBuilderCreditUsage(): Promise<BuilderCreditUsage | null> {
   const authorization = await resolveBuilderRequestAuthorization({
@@ -111,16 +142,19 @@ export async function getBuilderCreditUsage(): Promise<BuilderCreditUsage | null
   });
   if (!authorization) return null;
 
-  const response = await fetch(
-    fusionUrl("/agent-native/credits/v1/usage", authorization),
-    {
+  // Built outside the try: a bad Builder URL is a configuration bug, not an
+  // outage of the credit service, and must not be typed as one.
+  const usageUrl = fusionUrl("/agent-native/credits/v1/usage", authorization);
+  let response: Response;
+  try {
+    response = await fetch(usageUrl, {
       headers: { Authorization: authorization.authorization },
       signal: AbortSignal.timeout(5000),
-    },
-  );
-  if (!response.ok) {
-    throw new Error(`Builder credit usage failed (${response.status}).`);
+    });
+  } catch {
+    return builderCreditUsageUnavailable();
   }
+  if (!response.ok) return builderCreditUsageUnavailable(response.status);
   return builderCreditUsageSchema.parse(await response.json());
 }
 
