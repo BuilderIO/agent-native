@@ -380,6 +380,12 @@ describe("server/sentry", () => {
 
     it.each([
       ["EXECUTE", "EXECUTE prepared_statement($1)"],
+      ["UPDATE with an alias", "UPDATE users AS u SET email = $1"],
+      ["UPDATE ONLY", "UPDATE ONLY users SET email = $1"],
+      [
+        "EXPLAIN EXECUTE",
+        "EXPLAIN (ANALYZE, FORMAT JSON) EXECUTE prepared_lookup($1)",
+      ],
       ["COPY", "COPY (SELECT email FROM users WHERE email = $1) TO STDOUT"],
       [
         "DECLARE CURSOR",

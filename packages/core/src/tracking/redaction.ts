@@ -13,6 +13,10 @@ const SQL_CTE_QUERY_RE =
   /^(?:select|insert|update|delete|merge|values|with|table)\b/i;
 const SQL_CTE_IDENTIFIER = String.raw`(?:[uU]&"(?:[^"]|"")*"|"(?:[^"]|"")+"|[_\p{ID_Start}][$\p{ID_Continue}]*)`;
 const SQL_CTE_IDENTIFIER_RE = new RegExp(`^${SQL_CTE_IDENTIFIER}`, "iu");
+const SQL_UPDATE_STATEMENT_RE = new RegExp(
+  `^(?:only\\s+)?${SQL_CTE_IDENTIFIER}(?:\\s*\\.\\s*${SQL_CTE_IDENTIFIER})*\\s*\\*?(?:\\s+(?:as\\s+)?${SQL_CTE_IDENTIFIER})?\\s+set\\b`,
+  "iu",
+);
 const SQL_DOLLAR_QUOTE_RE =
   /^\$(?:[_\p{ID_Start}](?:(?!\$)\p{ID_Continue})*)?\$/u;
 
@@ -468,7 +472,7 @@ function hasSqlStatementStructure(statement: string): boolean {
         /\b(?:values|select|default\s+values)\b/i.test(body)
       );
     case "update":
-      return /^[^\s]+\s+set\b/i.test(body);
+      return SQL_UPDATE_STATEMENT_RE.test(body);
     case "delete":
       return /^from\b/i.test(body);
     case "merge":
@@ -483,10 +487,30 @@ function hasSqlStatementStructure(statement: string): boolean {
       return /\b(?:from|to)\b/i.test(body);
     case "declare":
       return /^[^\s]+\s+cursor\b/i.test(body) && /\bfor\b/i.test(body);
-    case "explain":
-      return /\b(?:select|insert|update|delete|merge|values|with|table)\b/i.test(
-        body,
+    case "explain": {
+      let statement = afterLeadingSqlComments(body);
+      if (statement.startsWith("(")) {
+        const afterOptions = afterSqlParenthesizedBody(statement);
+        if (afterOptions === undefined) return false;
+        statement = afterLeadingSqlComments(afterOptions);
+      } else {
+        while (true) {
+          const option = /^(?:analyze|verbose)\b/i.exec(statement);
+          if (!option) break;
+          statement = afterLeadingSqlComments(
+            statement.slice(option[0].length),
+          );
+        }
+      }
+
+      if (/^with\b/i.test(statement)) return isSqlCteStatement(statement);
+      const nestedStatement = SQL_STATEMENT_RE.exec(statement);
+      return (
+        nestedStatement !== null &&
+        nestedStatement[0].toLowerCase() !== "explain" &&
+        hasSqlStatementStructure(statement)
       );
+    }
     default:
       return false;
   }
