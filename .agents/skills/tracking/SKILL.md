@@ -197,8 +197,13 @@ providers build it.
 - **Browser outcomes are bounded, too.** `agent_run_outcome` is one event per
   run (`outcome`, legacy `code`, `terminal_source`,
   `verified_after_pipe_closed`, `resume_attempts`, `run_id`, `thread_id`):
-  every `interrupted` / `failed` / `unverified` run up to 30 per page, and
-  `succeeded` / `stopped` sampled at 10% with `sample_weight`.
+  every `interrupted` / `failed` / `unverified` / `stopped` run up to 30 per
+  page, and `succeeded` sampled at 10% with `sample_weight`. A failed or
+  interrupted run adds its `cause` from `AGENT_TROUBLE_CAUSES`, or else an
+  `error_message` reduced by `normalizeAgentTroubleMessage` (never the raw
+  text). `agent_feedback_submitted` (`sentiment`, `run_id`, `thread_id`) is
+  the browser's copy of a thumbs rating, because `$ai_feedback` has no
+  browser session.
   `session_navigation` is one event per document that left because of the
   session (`reason`, and for `signed_out` the `evidence`: `signed_out_body` or
   `http_401`), never the destination. Both are emitted from the single place

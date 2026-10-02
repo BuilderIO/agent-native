@@ -176,6 +176,8 @@ export interface RunOutcomeReport {
   readonly outcome: RunOutcome;
   /** The legacy code that named this outcome one incident at a time. */
   readonly code?: string;
+  /** The server's message for a failed run. Never sent as it is. */
+  readonly message?: string;
   readonly retryable?: boolean;
   readonly terminalSource: RunTerminalSource;
   /**

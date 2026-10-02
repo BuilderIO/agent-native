@@ -38,7 +38,7 @@ import {
   type AgentKitProtocolAdapter,
   type CreateAgentKitProtocolAdapterOptions,
 } from "./agentkit-protocol.js";
-import { trackRunOutcome } from "./run-outcome-telemetry.js";
+import { trackRunFeedback, trackRunOutcome } from "./run-outcome-telemetry.js";
 import {
   createAgentNativeChatRuntime,
   isAgentNativeChatRuntime,
@@ -2527,6 +2527,7 @@ export function createAgentNativeAgentKitTransport(
           }),
         });
         if (!response.ok) throw await responseError(response);
+        trackRunFeedback({ runId, threadId, positive: value === "positive" });
       },
       ...options.operations,
     },
