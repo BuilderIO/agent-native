@@ -740,7 +740,10 @@ function reconcileDurableMessages(
           }
         : message;
     const lastPart = reconciled.parts.at(-1);
-    if (lastPart && lastPart.type !== "text") return reconciled;
+    const completesFoldedRun = stored !== matched;
+    if (lastPart && lastPart.type !== "text" && !completesFoldedRun) {
+      return reconciled;
+    }
     const currentText = reconciled.parts
       .filter((part) => part.type === "text")
       .map((part) => part.text)
@@ -757,10 +760,10 @@ function reconcileDurableMessages(
     }
     const suffix = storedText.slice(currentText.length);
     const parts = [...reconciled.parts];
-    if (!lastPart) {
-      parts.push({ type: "text", text: suffix });
-    } else {
+    if (lastPart?.type === "text") {
       parts[parts.length - 1] = { ...lastPart, text: lastPart.text + suffix };
+    } else {
+      parts.push({ type: "text", text: suffix });
     }
     return { ...reconciled, parts };
   });

@@ -1301,6 +1301,7 @@ describe("createAgentNativeAgentKitTransport", () => {
   // the first run, then reloaded before the continuation finished.
   function foldedContinuationThread(options: {
     snapshotSawContinuation: boolean;
+    endsWithToolPart?: boolean;
   }) {
     const assistantEvent = (runId: string, id: string) => ({
       id: `event-${runId}`,
@@ -1345,7 +1346,12 @@ describe("createAgentNativeAgentKitTransport", () => {
               id: "message-1",
               role: "assistant",
               status: "complete",
-              parts: [{ type: "text", text: "First half." }],
+              parts: [
+                { type: "text", text: "First half." },
+                ...(options.endsWithToolPart
+                  ? [{ type: "data", data: { toolCallId: "tool-1" } }]
+                  : []),
+              ],
             },
             ...(options.snapshotSawContinuation
               ? [
@@ -1396,6 +1402,32 @@ describe("createAgentNativeAgentKitTransport", () => {
         id: "message-1",
         parts: [{ type: "text", text: "First half. Second half." }],
       },
+    ]);
+    await transport.dispose();
+  });
+
+  it("appends the continuation after a tool part the reloaded page already saved", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "complete" })
+          : json(
+              foldedContinuationThread({
+                snapshotSawContinuation: false,
+                endsWithToolPart: true,
+              }),
+            ),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-folded",
+    });
+
+    expect(snapshot?.messages[1]?.parts).toMatchObject([
+      { type: "text", text: "First half." },
+      { type: "data" },
+      { type: "text", text: " Second half." },
     ]);
     await transport.dispose();
   });
