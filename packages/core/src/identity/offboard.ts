@@ -124,6 +124,16 @@ export async function offboardMember(
       tableColumns.set(table, columns);
     }
 
+    if (tableColumns.has("org_members")) {
+      // Credential issuance holds these rows until its writes commit. Lock
+      // before every sweep so any earlier issuance is included in cleanup.
+      await tx.execute({
+        sql: `SELECT id FROM org_members WHERE LOWER(email) = ?${orgId ? " AND org_id = ?" : ""}
+              ORDER BY org_id, id FOR UPDATE`,
+        args: orgId ? [oldEmail, orgId] : [oldEmail],
+      });
+    }
+
     // A member removal scoped to one organization must not touch
     // account-owned rows from another organization (or personal mode).
     // Tables with no way to find the organization's rows are skipped (null).
@@ -395,5 +405,7 @@ export async function offboardMember(
     });
     return counts;
   };
-  return db.transaction ? db.transaction(run) : run(db);
+  if (!db.transaction)
+    throw new Error("Interactive transactions are unavailable");
+  return db.transaction(run);
 }

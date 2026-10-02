@@ -49,6 +49,72 @@ describe("offboardMember", () => {
     __resetAppIdentityColumnsForTests();
   });
 
+  it("locks the removed member on the transaction before sweeping any credentials", async () => {
+    const queries: string[] = [];
+    const tx = {
+      execute: vi.fn(
+        async ({ sql, args }: { sql: string; args?: unknown[] }) => {
+          queries.push(sql);
+          if (sql.includes("information_schema.columns")) {
+            return {
+              rows: [
+                ...[
+                  "id",
+                  "org_id",
+                  "email",
+                  "federation_removal_pending_at",
+                ].map((column_name) => ({
+                  table_name: "org_members",
+                  column_name,
+                })),
+                ...[
+                  "id",
+                  "owner_email",
+                  "issued_for_email",
+                  "org_id",
+                  "revoked_at",
+                ].map((column_name) => ({
+                  table_name: "mcp_oauth_refresh_tokens",
+                  column_name,
+                })),
+              ],
+              rowsAffected: 0,
+            };
+          }
+          if (sql.includes("FOR UPDATE")) {
+            expect(args).toEqual(["old@example.test", "org-1"]);
+            return { rows: [{ id: "old-member" }], rowsAffected: 0 };
+          }
+          if (sql.startsWith("SELECT"))
+            return { rows: [{ id: "successor" }], rowsAffected: 0 };
+          return { rows: [], rowsAffected: 1 };
+        },
+      ),
+    };
+    const db = {
+      execute: vi.fn(async () => {
+        throw new Error("offboarding escaped its transaction");
+      }),
+      transaction: async <T>(run: (executor: typeof tx) => Promise<T>) =>
+        run(tx),
+    };
+    await offboardMember(db, "old@example.test", {
+      transferTo: "new@example.test",
+      orgId: "org-1",
+    });
+    const lock = queries.findIndex((sql) => sql.includes("FOR UPDATE"));
+    const mutations = queries.flatMap((sql, index) =>
+      /^(UPDATE|DELETE|INSERT)/.test(sql) ? [index] : [],
+    );
+    expect(lock).toBeGreaterThanOrEqual(0);
+    expect(mutations.length).toBeGreaterThan(0);
+    expect(mutations.every((index) => index > lock)).toBe(true);
+    expect(
+      queries.some((sql) => sql.includes('UPDATE "mcp_oauth_refresh_tokens"')),
+    ).toBe(true);
+    expect(db.execute).not.toHaveBeenCalled();
+  });
+
   it("transfers owned rows, removes access, revokes sessions, and audits", async () => {
     pglite = await createTestPglite();
     await pglite.exec(`

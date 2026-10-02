@@ -8,7 +8,7 @@
 
 import { randomBytes, randomUUID, createHash } from "node:crypto";
 
-import { getDbExec, isConnectionError } from "../db/client.js";
+import { getDbExec, isConnectionError, type DbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { applicationTypeForRedirectUris } from "./oauth-client-metadata.js";
 
@@ -145,6 +145,8 @@ export async function ensureTable(): Promise<void> {
   }
   return _initPromise;
 }
+
+export const ensureOAuthTables = ensureTable;
 
 export interface OAuthClientRow {
   clientId: string;
@@ -372,23 +374,26 @@ export async function getOAuthClient(
   }
 }
 
-export async function createOAuthCode(params: {
-  clientId: string;
-  redirectUri: string;
-  codeChallenge: string;
-  codeChallengeMethod: string;
-  ownerEmail: string;
-  orgId?: string | null;
-  orgDomain?: string | null;
-  scope: string;
-  resource: string;
-}): Promise<OAuthCodeRow> {
-  await ensureTable();
-  const client = getDbExec();
+export async function createOAuthCode(
+  params: {
+    clientId: string;
+    redirectUri: string;
+    codeChallenge: string;
+    codeChallengeMethod: string;
+    ownerEmail: string;
+    orgId?: string | null;
+    orgDomain?: string | null;
+    scope: string;
+    resource: string;
+  },
+  db?: DbExec,
+): Promise<OAuthCodeRow> {
+  if (!db) await ensureTable();
+  const client = db ?? getDbExec();
   const code = generateOpaqueToken();
   const now = Date.now();
   const expiresAt = now + MCP_OAUTH_CODE_TTL_MS;
-  await client.execute({
+  const result = await client.execute({
     sql: `INSERT INTO mcp_oauth_codes (code, client_id, redirect_uri, code_challenge, code_challenge_method, owner_email, issued_for_email, org_id, org_domain, scope, resource, created_at, expires_at, consumed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       code,
@@ -407,6 +412,11 @@ export async function createOAuthCode(params: {
       null,
     ],
   });
+  if (result.rowsAffected !== 1) {
+    throw new Error(
+      "Authorization-code creation returned an invalid row count",
+    );
+  }
   return {
     code,
     clientId: params.clientId,
@@ -447,9 +457,10 @@ export async function getOAuthCode(code: string): Promise<OAuthCodeRow | null> {
 export async function consumeOAuthCode(
   code: string,
   expectedOwnerEmail?: string,
+  db?: DbExec,
 ): Promise<OAuthCodeRow | null> {
-  await ensureTable();
-  const client = getDbExec();
+  if (!db) await ensureTable();
+  const client = db ?? getDbExec();
   const { rows } = await client.execute({
     sql: `SELECT * FROM mcp_oauth_codes WHERE code = ?`,
     args: [code],
@@ -477,17 +488,20 @@ export async function consumeOAuthCode(
   );
 }
 
-export async function createOAuthRefreshToken(params: {
-  refreshToken: string;
-  clientId: string;
-  ownerEmail: string;
-  orgId?: string | null;
-  orgDomain?: string | null;
-  scope: string;
-  resource: string;
-}): Promise<OAuthRefreshTokenRow> {
-  await ensureTable();
-  const client = getDbExec();
+export async function createOAuthRefreshToken(
+  params: {
+    refreshToken: string;
+    clientId: string;
+    ownerEmail: string;
+    orgId?: string | null;
+    orgDomain?: string | null;
+    scope: string;
+    resource: string;
+  },
+  db?: DbExec,
+): Promise<OAuthRefreshTokenRow> {
+  if (!db) await ensureTable();
+  const client = db ?? getDbExec();
   const now = Date.now();
   const row: OAuthRefreshTokenRow = {
     id: randomUUID(),
@@ -505,7 +519,7 @@ export async function createOAuthRefreshToken(params: {
     revokedAt: null,
     replacedByHash: null,
   };
-  await client.execute({
+  const result = await client.execute({
     sql: `INSERT INTO mcp_oauth_refresh_tokens (id, token_hash, client_id, owner_email, issued_for_email, org_id, org_domain, scope, resource, created_at, expires_at, last_used_at, revoked_at, replaced_by_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       row.id,
@@ -524,15 +538,21 @@ export async function createOAuthRefreshToken(params: {
       row.replacedByHash,
     ],
   });
+  if (result.rowsAffected !== 1) {
+    throw new Error("Refresh-token creation returned an invalid row count");
+  }
   return row;
 }
 
-export async function rotateOAuthRefreshToken(params: {
-  oldRefreshToken: string;
-  newRefreshToken: string;
-}): Promise<OAuthRefreshTokenRow | null> {
-  await ensureTable();
-  const client = getDbExec();
+export async function rotateOAuthRefreshToken(
+  params: {
+    oldRefreshToken: string;
+    newRefreshToken: string;
+  },
+  db?: DbExec,
+): Promise<OAuthRefreshTokenRow | null> {
+  if (!db) await ensureTable();
+  const client = db ?? getDbExec();
   const oldHash = hashOAuthToken(params.oldRefreshToken);
   const newHash = hashOAuthToken(params.newRefreshToken);
   const { rows } = await client.execute({
@@ -568,7 +588,7 @@ export async function rotateOAuthRefreshToken(params: {
     revokedAt: null,
     replacedByHash: null,
   };
-  await client.execute({
+  const insert = await client.execute({
     sql: `INSERT INTO mcp_oauth_refresh_tokens (id, token_hash, client_id, owner_email, issued_for_email, org_id, org_domain, scope, resource, created_at, expires_at, last_used_at, revoked_at, replaced_by_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       next.id,
@@ -587,6 +607,9 @@ export async function rotateOAuthRefreshToken(params: {
       next.replacedByHash,
     ],
   });
+  if (insert.rowsAffected !== 1) {
+    throw new Error("Refresh-token rotation returned an invalid row count");
+  }
   return next;
 }
 

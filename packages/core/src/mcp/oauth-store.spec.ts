@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import type { DbExec } from "../db/client.js";
 
 let pglite: Awaited<ReturnType<typeof createTestPglite>>;
 let connectionErrorNext = false;
@@ -130,6 +131,163 @@ describe("OAuth issuance-owner schema migration", () => {
     }
     expect(await s.getOAuthCode("synthetic-legacy-code")).toBeNull();
     expect(await s.getOAuthRefreshToken("synthetic-legacy-refresh")).toBeNull();
+  });
+});
+
+describe("OAuth issuance executor", () => {
+  const issuanceParams = {
+    clientId: "synthetic-client",
+    redirectUri: "https://app.example.test/callback",
+    codeChallenge: "synthetic-challenge",
+    codeChallengeMethod: "S256",
+    ownerEmail: "owner@example.test",
+    orgId: "synthetic-org",
+    scope: "mcp:read",
+    resource: "https://app.example.test/mcp",
+  };
+
+  it.each([0, undefined])(
+    "rejects issuance when insertion reports %j affected rows",
+    async (rowsAffected) => {
+      const store = await freshStore();
+      const tx = {
+        execute: vi.fn().mockResolvedValue({ rows: [], rowsAffected }),
+      };
+      await expect(store.createOAuthCode(issuanceParams, tx)).rejects.toThrow(
+        "Authorization-code creation returned an invalid row count",
+      );
+      await expect(
+        store.createOAuthRefreshToken(
+          { ...issuanceParams, refreshToken: "synthetic-refresh" },
+          tx,
+        ),
+      ).rejects.toThrow("Refresh-token creation returned an invalid row count");
+      expect(tx.execute).toHaveBeenCalledTimes(2);
+      expect(
+        tx.execute.mock.calls.every(([input]) =>
+          input.sql.startsWith("INSERT INTO "),
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it.each([0, undefined])(
+    "rolls rotation back when successor insertion reports %j affected rows",
+    async (rowsAffected) => {
+      const store = await freshStore();
+      const original = await store.createOAuthRefreshToken({
+        ...issuanceParams,
+        refreshToken: "synthetic-refresh",
+      });
+      await expect(
+        pglite.db.transaction(async (transaction) => {
+          const tx: DbExec = {
+            async execute(input) {
+              const sql = typeof input === "string" ? input : input.sql;
+              if (sql.startsWith("INSERT INTO "))
+                return { rows: [], rowsAffected: rowsAffected as number };
+              const args = typeof input === "string" ? [] : (input.args ?? []);
+              let index = 0;
+              const result = await transaction.query(
+                sql.replace(/\?/g, () => `$${++index}`),
+                args,
+              );
+              return {
+                rows: result.rows as Record<string, unknown>[],
+                rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+              };
+            },
+          };
+          return store.rotateOAuthRefreshToken(
+            {
+              oldRefreshToken: "synthetic-refresh",
+              newRefreshToken: "synthetic-next-refresh",
+            },
+            tx,
+          );
+        }),
+      ).rejects.toThrow("Refresh-token rotation returned an invalid row count");
+      expect(await store.getOAuthRefreshToken("synthetic-refresh")).toEqual(
+        original,
+      );
+      expect(
+        await store.getOAuthRefreshToken("synthetic-next-refresh"),
+      ).toBeNull();
+    },
+  );
+
+  it("keeps every issuance and rotation statement on the supplied transaction without lazy DDL", async () => {
+    const initialized = await freshStore();
+    await initialized.ensureOAuthTables();
+    const store = await freshStore();
+    const globalExecute = vi.fn(async () => {
+      throw new Error("Global database access during issuance");
+    });
+    exec = { execute: globalExecute };
+    const params = {
+      clientId: "synthetic-client",
+      redirectUri: "https://app.example.test/callback",
+      codeChallenge: "synthetic-challenge",
+      codeChallengeMethod: "S256",
+      ownerEmail: "owner@example.test",
+      orgId: "synthetic-org",
+      scope: "mcp:read",
+      resource: "https://app.example.test/mcp",
+    };
+    const statements: string[] = [];
+    await pglite.db.transaction(async (transaction) => {
+      const tx: DbExec = {
+        async execute(input) {
+          const sql = typeof input === "string" ? input : input.sql;
+          const args = typeof input === "string" ? [] : (input.args ?? []);
+          statements.push(sql);
+          let index = 0;
+          const result = await transaction.query(
+            sql.replace(/\?/g, () => `$${++index}`),
+            args,
+          );
+          return {
+            rows: result.rows as Record<string, unknown>[],
+            rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+          };
+        },
+      };
+      const code = await store.createOAuthCode(params, tx);
+      expect(
+        await store.consumeOAuthCode(code.code, params.ownerEmail, tx),
+      ).toMatchObject({
+        ownerEmail: params.ownerEmail,
+        issuedForEmail: params.ownerEmail,
+      });
+      await store.createOAuthRefreshToken(
+        { ...params, refreshToken: "synthetic-refresh" },
+        tx,
+      );
+      expect(
+        await store.rotateOAuthRefreshToken(
+          {
+            oldRefreshToken: "synthetic-refresh",
+            newRefreshToken: "synthetic-next-refresh",
+          },
+          tx,
+        ),
+      ).toMatchObject({ issuedForEmail: params.ownerEmail });
+    });
+    expect(globalExecute).not.toHaveBeenCalled();
+    expect(statements).toHaveLength(7);
+    expect(
+      statements.every((sql) => /^(SELECT|INSERT|UPDATE) /.test(sql)),
+    ).toBe(true);
+    expect(
+      (
+        await pglite.query(
+          "SELECT issued_for_email, revoked_at FROM mcp_oauth_refresh_tokens ORDER BY revoked_at NULLS FIRST",
+        )
+      ).rows,
+    ).toEqual([
+      { issued_for_email: params.ownerEmail, revoked_at: null },
+      { issued_for_email: params.ownerEmail, revoked_at: expect.any(Number) },
+    ]);
   });
 });
 

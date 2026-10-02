@@ -67,9 +67,50 @@ vi.mock("./credential-membership.js", () => ({
 const clients = new Map<string, any>();
 const codes = new Map<string, any>();
 const refreshRows = new Map<string, any>();
+const issuanceTx = { execute: vi.fn() };
 let counter = 0;
 
+vi.mock("./credential-issuance.js", () => {
+  class McpCredentialIssuanceError extends Error {
+    constructor(readonly reason: "not-member" | "unavailable") {
+      super(reason);
+    }
+  }
+  return {
+    McpCredentialIssuanceError,
+    withMcpCredentialIssuance: vi.fn(async (input, run) => {
+      if (input.orgId) {
+        const membership = await checkCredentialOrgMembershipMock({
+          orgId: input.orgId,
+          email: input.email,
+          requestOrigin: input.requestOrigin,
+        });
+        if (membership !== "member")
+          throw new McpCredentialIssuanceError(
+            membership as "not-member" | "unavailable",
+          );
+      }
+      const codeSnapshot = new Map(
+        [...codes].map(([key, row]) => [key, { ...row }]),
+      );
+      const refreshSnapshot = new Map(
+        [...refreshRows].map(([key, row]) => [key, { ...row }]),
+      );
+      try {
+        return await run(issuanceTx);
+      } catch (error) {
+        codes.clear();
+        refreshRows.clear();
+        for (const [key, row] of codeSnapshot) codes.set(key, row);
+        for (const [key, row] of refreshSnapshot) refreshRows.set(key, row);
+        throw error;
+      }
+    }),
+  };
+});
+
 vi.mock("./oauth-store.js", () => ({
+  ensureOAuthTables: vi.fn(async () => {}),
   MCP_OAUTH_ACCESS_TOKEN_TTL: "30d",
   MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS: 30 * 86400,
   MCP_OAUTH_CODE_TTL_MS: 600_000,
@@ -2050,7 +2091,7 @@ describe("MCP OAuth route", () => {
 describe("MCP OAuth grant validation", () => {
   const verifier = "m".repeat(50);
 
-  async function authorizedCode(): Promise<{ clientId: string; code: string }> {
+  async function authorize(beforeApproval?: () => void) {
     const client = await (
       await handleMcpOAuth(
         event({
@@ -2076,6 +2117,7 @@ describe("MCP OAuth grant validation", () => {
       (await consent.text()).match(
         /name="consent_token" value="([^"]+)"/,
       )?.[1] ?? "";
+    beforeApproval?.();
     const authorize = await handleMcpOAuth(
       event({
         method: "POST",
@@ -2087,10 +2129,15 @@ describe("MCP OAuth grant validation", () => {
       }),
       "/authorize",
     );
-    const code = new URL(authorize.headers.get("location")!).searchParams.get(
+    return { clientId: client.client_id as string, response: authorize };
+  }
+
+  async function authorizedCode(): Promise<{ clientId: string; code: string }> {
+    const { clientId, response } = await authorize();
+    const code = new URL(response.headers.get("location")!).searchParams.get(
       "code",
     )!;
-    return { clientId: client.client_id, code };
+    return { clientId, code };
   }
 
   function exchange(clientId: string, code: string) {
@@ -2153,7 +2200,7 @@ describe("MCP OAuth grant validation", () => {
     const { clientId, code } = await authorizedCode();
     const issued = await (await exchange(clientId, code)).json();
     expect((await refresh(clientId, issued.refresh_token)).status).toBe(200);
-    expect(checkCredentialOrgMembershipMock).toHaveBeenCalledTimes(2);
+    expect(checkCredentialOrgMembershipMock).toHaveBeenCalledTimes(3);
     for (const [call] of checkCredentialOrgMembershipMock.mock.calls as any[])
       expect(call).toEqual({
         orgId: "org_123",
@@ -2161,6 +2208,110 @@ describe("MCP OAuth grant validation", () => {
         requestOrigin: "https://mail.agent-native.com",
       });
   });
+
+  it("uses the issuance executor for consent, consumption, and refresh insertion", async () => {
+    const { clientId, code } = await authorizedCode();
+    expect((await exchange(clientId, code)).status).toBe(200);
+    const store = await import("./oauth-store.js");
+    const issuance = await import("./credential-issuance.js");
+
+    expect(store.createOAuthCode).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: "steve@example.com",
+        orgId: "org_123",
+      }),
+      issuanceTx,
+    );
+    expect(store.consumeOAuthCode).toHaveBeenCalledWith(
+      code,
+      "steve@example.com",
+      issuanceTx,
+    );
+    expect(store.createOAuthRefreshToken).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: "steve@example.com",
+        orgId: "org_123",
+      }),
+      issuanceTx,
+    );
+    expect(store.ensureOAuthTables).toHaveBeenCalledTimes(2);
+    expect(
+      vi.mocked(store.ensureOAuthTables).mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      vi.mocked(issuance.withMcpCredentialIssuance).mock.invocationCallOrder[0],
+    );
+  });
+
+  it("denies consent when membership is lost after the organization choices were read", async () => {
+    const { response } = await authorize(() => {
+      checkCredentialOrgMembershipMock.mockResolvedValueOnce("not-member");
+    });
+    expect(response.status).toBe(302);
+    expect(
+      new URL(response.headers.get("location")!).searchParams.get("error"),
+    ).toBe("access_denied");
+    expect(codes.size).toBe(0);
+    expect(refreshRows.size).toBe(0);
+  });
+
+  it("answers a retryable 503 without a consent code when issuance is unavailable", async () => {
+    const { response } = await authorize(() => {
+      checkCredentialOrgMembershipMock.mockResolvedValueOnce("unavailable");
+    });
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("5");
+    expect((await response.json()).error).toBe("temporarily_unavailable");
+    expect(codes.size).toBe(0);
+  });
+
+  it.each(["insertion", "signing"])(
+    "keeps the code redeemable and answers 503 when token %s fails",
+    async (failure) => {
+      const { clientId, code } = await authorizedCode();
+      const store = await import("./oauth-store.js");
+      const token = await import("./oauth-token.js");
+      const sign = vi.spyOn(token, "signMcpOAuthAccessToken");
+      if (failure === "insertion")
+        vi.mocked(store.createOAuthRefreshToken).mockRejectedValueOnce(
+          new Error("Synthetic insertion failure"),
+        );
+      else sign.mockRejectedValueOnce(new Error("Synthetic signing failure"));
+
+      const failed = await exchange(clientId, code);
+      const body = await failed.json();
+      expect(failed.status).toBe(503);
+      expect(failed.headers.get("retry-after")).toBe("5");
+      expect(body.error).toBe("temporarily_unavailable");
+      expect(body.access_token).toBeUndefined();
+      expect(body.refresh_token).toBeUndefined();
+      expect(codes.get(code).consumedAt).toBeNull();
+      expect(refreshRows.size).toBe(0);
+      if (failure === "insertion") expect(sign).not.toHaveBeenCalled();
+
+      const retried = await exchange(clientId, code);
+      expect(retried.status).toBe(200);
+      expect((await retried.json()).access_token).toBeTruthy();
+      expect(refreshRows.size).toBe(1);
+    },
+  );
+
+  it.each(["ensureOAuthTables", "getOAuthCode"] as const)(
+    "answers a retryable 503 and leaves the code untouched when %s fails",
+    async (operation) => {
+      const { clientId, code } = await authorizedCode();
+      const store = await import("./oauth-store.js");
+      vi.mocked(store[operation]).mockRejectedValueOnce(
+        new Error("Synthetic lookup failure"),
+      );
+      const response = await exchange(clientId, code);
+      expect(response.status).toBe(503);
+      expect(response.headers.get("retry-after")).toBe("5");
+      expect((await response.json()).error).toBe("temporarily_unavailable");
+      expect(codes.get(code).consumedAt).toBeNull();
+      expect(refreshRows.size).toBe(0);
+      expect((await exchange(clientId, code)).status).toBe(200);
+    },
+  );
 
   it("refuses a refresh with invalid_grant and revokes the token once the user has left", async () => {
     const { clientId, code } = await authorizedCode();
@@ -2284,6 +2435,35 @@ describe("MCP OAuth grant validation", () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe("invalid_grant");
     expect(codes.get(code)?.consumedAt).toBeTruthy();
+    expect(refreshRows.size).toBe(0);
+  });
+
+  it("answers a retryable 503 without minting when refusal cannot consume the code", async () => {
+    const { clientId, code } = await authorizedCode();
+    checkCredentialOrgMembershipMock.mockResolvedValue("not-member");
+    const store = await import("./oauth-store.js");
+    vi.mocked(store.consumeOAuthCode).mockRejectedValueOnce(
+      new Error("Synthetic refusal consumption failure"),
+    );
+    const token = await import("./oauth-token.js");
+    const sign = vi.spyOn(token, "signMcpOAuthAccessToken");
+
+    const failed = await exchange(clientId, code);
+    const body = await failed.json();
+    expect(failed.status).toBe(503);
+    expect(failed.headers.get("retry-after")).toBe("5");
+    expect(body.error).toBe("temporarily_unavailable");
+    expect(body.access_token).toBeUndefined();
+    expect(body.refresh_token).toBeUndefined();
+    expect(sign).not.toHaveBeenCalled();
+    expect(codes.get(code).consumedAt).toBeNull();
+    expect(refreshRows.size).toBe(0);
+
+    const retried = await exchange(clientId, code);
+    expect(retried.status).toBe(400);
+    expect((await retried.json()).error).toBe("invalid_grant");
+    expect(codes.get(code).consumedAt).toBeTruthy();
+    expect(sign).not.toHaveBeenCalled();
     expect(refreshRows.size).toBe(0);
   });
 

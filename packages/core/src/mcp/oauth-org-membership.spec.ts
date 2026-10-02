@@ -29,7 +29,10 @@ vi.mock("../tracking/registry.js", async (importOriginal) => ({
 }));
 // The real membership lookup, with a switch to make it fail like a dropped
 // database connection.
-const membershipLookup = vi.hoisted(() => ({ fail: false }));
+const membershipLookup = vi.hoisted(() => ({
+  fail: false,
+  afterCheck: undefined as (() => Promise<void>) | undefined,
+}));
 vi.mock("../org/membership.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../org/membership.js")>();
   return {
@@ -38,7 +41,13 @@ vi.mock("../org/membership.js", async (importOriginal) => {
       if (membershipLookup.fail) {
         throw new Error("synthetic: the database connection was lost");
       }
-      return actual.isOrgMember(...args);
+      const member = await actual.isOrgMember(...args);
+      if (member && membershipLookup.afterCheck) {
+        const afterCheck = membershipLookup.afterCheck;
+        membershipLookup.afterCheck = undefined;
+        await afterCheck();
+      }
+      return member;
     },
   };
 });
@@ -58,7 +67,7 @@ import { runWithRequestContext } from "../server/request-context.js";
 import { accessFilter } from "../sharing/access.js";
 import { createSharesTable } from "../sharing/schema.js";
 import { resolveMcpIdentityOrgId, verifyAuth } from "./build-server.js";
-import { mintOrgServiceToken } from "./connect-route.js";
+import { handleMcpConnect, mintOrgServiceToken } from "./connect-route.js";
 import {
   approveDeviceCode,
   createDeviceCode,
@@ -186,7 +195,7 @@ async function registerMcpClient(): Promise<McpClient> {
 }
 
 /** Consent as `email` for `ORG` through the real authorize endpoint. */
-async function authorizationCode(email: string, client: McpClient) {
+async function authorizationResponse(email: string, client: McpClient) {
   const authorizeQuery = new URLSearchParams({
     response_type: "code",
     client_id: client.clientId,
@@ -225,6 +234,11 @@ async function authorizationCode(email: string, client: McpClient) {
       "authorize",
     ),
   );
+  return approved;
+}
+
+async function authorizationCode(email: string, client: McpClient) {
+  const approved = await authorizationResponse(email, client);
   const code = new URL(approved.headers.get("location") ?? "").searchParams.get(
     "code",
   );
@@ -294,6 +308,17 @@ async function invite(email: string) {
         `/_agent-native/org/invitations/${encodeURIComponent(invitationId)}/accept`,
         { method: "POST" },
       ),
+    ),
+  );
+}
+
+async function removeBob() {
+  await as(ALICE, () =>
+    removeMemberHandler(
+      appEvent(`/_agent-native/org/members/${encodeURIComponent(BOB)}`, {
+        method: "DELETE",
+        body: { transferTo: ALICE },
+      }),
     ),
   );
 }
@@ -768,6 +793,237 @@ describe("MCP access when the membership lookup fails", () => {
 });
 
 describe("MCP OAuth issuance-owner cutover", () => {
+  it("refuses exchange when offboarding commits after validation but before the issuance transaction", async () => {
+    await invite(BOB);
+    const client = await registerMcpClient();
+    const code = await authorizationCode(BOB, client);
+    let removed = false;
+    membershipLookup.afterCheck = async () => {
+      await removeBob();
+      removed = true;
+    };
+    const exchanged = await exchangeCode(client, code);
+    expect(removed).toBe(true);
+    expect(exchanged.status).toBe(400);
+    expect(exchanged.body.error).toBe("invalid_grant");
+    expect(exchanged.body.access_token).toBeUndefined();
+    expect(exchanged.body.refresh_token).toBeUndefined();
+    expect(await refreshRowsFor(client)).toEqual([]);
+    await invite(BOB);
+    expect((await exchangeCode(client, code)).body.error).toBe("invalid_grant");
+  });
+
+  it("includes a completed issuance in the subsequent offboarding sweep even before the response returns", async () => {
+    const client = await registerMcpClient();
+    const code = await authorizationCode(BOB, client);
+    const exec = getDbExec();
+    const transaction = exec.transaction!.bind(exec);
+    let removed = false;
+    const spy = vi
+      .spyOn(exec, "transaction")
+      .mockImplementation(async (run) => {
+        const result = await transaction(run);
+        if (!removed) {
+          removed = true;
+          await removeBob();
+        }
+        return result;
+      });
+    let exchanged: TokenResponse;
+    try {
+      exchanged = await exchangeCode(client, code);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(removed).toBe(true);
+    expect(exchanged!.status).toBe(200);
+    expect(await refreshRowsFor(client)).toEqual([
+      expect.objectContaining({
+        owner_email: BOB,
+        revoked_at: expect.anything(),
+      }),
+    ]);
+    await invite(BOB);
+    const reused = await tokenRequest({
+      grant_type: "refresh_token",
+      client_id: client.clientId,
+      refresh_token: exchanged!.body.refresh_token,
+    });
+    expect(reused.status).toBe(400);
+    expect(reused.body.error).toBe("invalid_grant");
+    expect(reused.body.access_token).toBeUndefined();
+  });
+
+  it("rolls back code consumption on refresh insertion failure so the client can retry", async () => {
+    const client = await registerMcpClient();
+    const code = await authorizationCode(BOB, client);
+    const exec = getDbExec();
+    const transaction = exec.transaction!.bind(exec);
+    const spy = vi.spyOn(exec, "transaction").mockImplementation((run) =>
+      transaction(async (tx) => {
+        const execute = tx.execute.bind(tx);
+        const write = vi
+          .spyOn(tx, "execute")
+          .mockImplementation(async (query) => {
+            const sql = typeof query === "string" ? query : query.sql;
+            if (sql.startsWith("INSERT INTO mcp_oauth_refresh_tokens")) {
+              throw new Error("synthetic refresh insertion failure");
+            }
+            return execute(query);
+          });
+        try {
+          return await run(tx);
+        } finally {
+          write.mockRestore();
+        }
+      }),
+    );
+    let failed: TokenResponse;
+    try {
+      failed = await exchangeCode(client, code);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(failed!.status).toBe(503);
+    expect(failed!.body.error).toBe("temporarily_unavailable");
+    expect(failed!.body.access_token).toBeUndefined();
+    expect(failed!.body.refresh_token).toBeUndefined();
+    expect(await refreshRowsFor(client)).toEqual([]);
+    const { rows } = await exec.execute({
+      sql: "SELECT consumed_at FROM mcp_oauth_codes WHERE code = ?",
+      args: [code],
+    });
+    expect(rows[0]?.consumed_at).toBeNull();
+    const retried = await exchangeCode(client, code);
+    expect(retried.status).toBe(200);
+    expect(retried.body.refresh_token).toEqual(expect.any(String));
+  });
+
+  it("refuses a consent code if offboarding commits after the live membership check", async () => {
+    const client = await registerMcpClient();
+    let removed = false;
+    membershipLookup.afterCheck = async () => {
+      await removeBob();
+      removed = true;
+    };
+    const denied = await authorizationResponse(BOB, client);
+    expect(removed).toBe(true);
+    const redirect = new URL(denied.headers.get("location")!);
+    expect(redirect.searchParams.get("error")).toBe("access_denied");
+    expect(redirect.searchParams.has("code")).toBe(false);
+    const { rows } = await getDbExec().execute({
+      sql: "SELECT code FROM mcp_oauth_codes WHERE client_id = ?",
+      args: [client.clientId],
+    });
+    expect(rows).toEqual([]);
+    await invite(BOB);
+    expect(await authorizationCode(BOB, client)).toEqual(expect.any(String));
+  });
+
+  it("refuses an approved Connect device when offboarding commits before minting", async () => {
+    const device = await createDeviceCode();
+    await approveDeviceCode(device.userCode, BOB, ORG);
+    let removed = false;
+    membershipLookup.afterCheck = async () => {
+      await removeBob();
+      removed = true;
+    };
+    const denied = await handleMcpConnect(
+      appEvent("/mcp/connect/device/poll", {
+        method: "POST",
+        body: { device_code: device.deviceCode },
+      }),
+      "/device/poll",
+    );
+    expect(removed).toBe(true);
+    expect(denied.status).toBe(403);
+    expect((await denied.json()).token).toBeUndefined();
+    expect(await getDeviceCode(device.deviceCode)).toBeNull();
+    await invite(BOB);
+    const retried = await handleMcpConnect(
+      appEvent("/mcp/connect/device/poll", {
+        method: "POST",
+        body: { device_code: device.deviceCode },
+      }),
+      "/device/poll",
+    );
+    expect(retried.status).toBe(404);
+  });
+
+  it("deletes a consent code committed before offboarding, including after re-add", async () => {
+    const client = await registerMcpClient();
+    const exec = getDbExec();
+    const transaction = exec.transaction!.bind(exec);
+    let removed = false;
+    const spy = vi
+      .spyOn(exec, "transaction")
+      .mockImplementation(async (run) => {
+        const result = await transaction(run);
+        if (!removed) {
+          removed = true;
+          await removeBob();
+        }
+        return result;
+      });
+    let code: string;
+    try {
+      code = await authorizationCode(BOB, client);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(removed).toBe(true);
+    await invite(BOB);
+    const denied = await exchangeCode(client, code!);
+    expect(denied.status).toBe(400);
+    expect(denied.body.error).toBe("invalid_grant");
+    expect(denied.body.refresh_token).toBeUndefined();
+  });
+
+  it("revokes a Connect token committed before offboarding even when its response returns afterward", async () => {
+    const exec = getDbExec();
+    const transaction = exec.transaction!.bind(exec);
+    let removed = false;
+    const spy = vi
+      .spyOn(exec, "transaction")
+      .mockImplementation(async (run) => {
+        const result = await transaction(run);
+        if (!removed) {
+          removed = true;
+          await removeBob();
+        }
+        return result;
+      });
+    let issued: Response;
+    try {
+      issued = await as(BOB, () =>
+        handleMcpConnect(
+          appEvent("/mcp/connect/token", {
+            method: "POST",
+            body: { label: "Synthetic issuance ordering" },
+          }),
+          "/token",
+        ),
+      );
+    } finally {
+      spy.mockRestore();
+    }
+    expect(removed).toBe(true);
+    expect(issued!.status).toBe(200);
+    const body = await issued!.json();
+    expect(body.token).toEqual(expect.any(String));
+    const { rows } = await exec.execute({
+      sql: "SELECT revoked_at FROM mcp_connect_tokens WHERE owner_email = ? AND label = ?",
+      args: [BOB, "Synthetic issuance ordering"],
+    });
+    expect(rows).toEqual([
+      expect.objectContaining({ revoked_at: expect.anything() }),
+    ]);
+    await invite(BOB);
+    expect((await authenticateMcpRequest(body.token)).auth).toEqual({
+      authed: false,
+    });
+  });
+
   it("refuses a legacy successor access token through the full MCP authentication chain", async () => {
     const resource = getMcpOAuthResource(appEvent("/mcp"))!;
     const legacyAccessToken = await signA2AToken(ALICE, undefined, undefined, {
