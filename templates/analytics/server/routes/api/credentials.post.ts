@@ -6,11 +6,9 @@ import {
   optionalCredentialKeys,
   partitionCredentialUpdate,
 } from "../../lib/credential-keys";
+import { resolveCredentialSaveScope } from "../../lib/credential-save-scope";
 import {
   deleteResolvedCredential,
-  resolveCredentialSaveScope,
-} from "../../lib/credential-save-scope";
-import {
   saveCredential,
   getCredentialContextFromEvent,
 } from "../../lib/credentials";

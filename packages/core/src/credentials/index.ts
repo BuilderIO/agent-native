@@ -1,15 +1,24 @@
 import { getDbExec } from "../db/client.js";
+import { canManageOrg } from "../org/permissions.js";
 import {
   encryptSecretValue,
   decryptSecretValue,
   isEncryptedSecretValue,
 } from "../secrets/crypto.js";
-import { readAppSecret, type SecretRef } from "../secrets/storage.js";
+import {
+  deleteAppSecret,
+  readAppSecret,
+  type SecretRef,
+} from "../secrets/storage.js";
 import { assertCredentialStoreReadable } from "../server/credential-provider.js";
-import { readsOrgCredentialFirst } from "../server/credential-read-order.js";
+import {
+  isPersonalCredentialScope,
+  readsOrgCredentialFirst,
+} from "../server/credential-read-order.js";
 import {
   isPersonalProviderKeyUseRestricted,
   isPersonalProviderPolicyKey,
+  readOrgMemberRole,
 } from "../server/personal-provider-key-policy.js";
 import { getSetting, putSetting, deleteSetting } from "../settings/store.js";
 
@@ -462,4 +471,46 @@ export async function deleteCredential(
     return;
   }
   await deleteSetting(userCredentialSettingKey(ctx.userEmail, key));
+}
+
+export class CredentialDeleteForbiddenError extends Error {
+  statusCode = 403;
+  constructor() {
+    super(
+      "Only organization owners and admins can remove the organization's credentials",
+    );
+    this.name = "CredentialDeleteForbiddenError";
+  }
+}
+
+/**
+ * Remove the credential `resolveCredentialDetailed` answers with, so a
+ * disconnect takes effect. Every row of that owner goes: the caller's own
+ * (user secret, legacy user setting, `solo:` workspace secret), or the
+ * organization's (org secret, legacy workspace secret, legacy org setting),
+ * which only an owner or admin may remove. Deleting just the answering row
+ * would let the next row of the same owner answer instead.
+ */
+export async function deleteResolvedCredential(
+  key: string,
+  ctx: CredentialContext,
+): Promise<void> {
+  const held = await resolveCredentialDetailed(key, ctx);
+  if (!held) return;
+  if (isPersonalCredentialScope(held)) {
+    await deleteAppSecret({ key, scope: "user", scopeId: ctx.userEmail });
+    await deleteSetting(userCredentialSettingKey(ctx.userEmail, key));
+    await deleteAppSecret({
+      key,
+      scope: "workspace",
+      scopeId: `solo:${ctx.userEmail}`,
+    });
+    return;
+  }
+  if (!canManageOrg(await readOrgMemberRole(held.scopeId, ctx.userEmail))) {
+    throw new CredentialDeleteForbiddenError();
+  }
+  await deleteAppSecret({ key, scope: "org", scopeId: held.scopeId });
+  await deleteAppSecret({ key, scope: "workspace", scopeId: held.scopeId });
+  await deleteSetting(orgCredentialSettingKey(held.scopeId, key));
 }

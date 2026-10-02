@@ -9,11 +9,9 @@ import {
   optionalCredentialKeys,
   partitionCredentialUpdate,
 } from "../server/lib/credential-keys";
+import { resolveCredentialSaveScope } from "../server/lib/credential-save-scope";
 import {
   deleteResolvedCredential,
-  resolveCredentialSaveScope,
-} from "../server/lib/credential-save-scope";
-import {
   hasCredential,
   saveCredential,
   type CredentialContext,

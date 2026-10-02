@@ -33,7 +33,7 @@ function scopeOf(ctx: {
 const resolveCredentialMock = vi.hoisted(() => vi.fn());
 const resolveCredentialDetailedMock = vi.hoisted(() => vi.fn());
 const saveCredentialMock = vi.hoisted(() => vi.fn());
-const deleteCredentialMock = vi.hoisted(() => vi.fn());
+const deleteResolvedCredentialMock = vi.hoisted(() => vi.fn());
 const getSessionMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() => vi.fn());
 const readBodyMock = vi.hoisted(() => vi.fn());
@@ -42,7 +42,7 @@ vi.mock("@agent-native/core/credentials", () => ({
   resolveCredential: resolveCredentialMock,
   resolveCredentialDetailed: resolveCredentialDetailedMock,
   saveCredential: saveCredentialMock,
-  deleteCredential: deleteCredentialMock,
+  deleteResolvedCredential: deleteResolvedCredentialMock,
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -101,7 +101,7 @@ beforeEach(() => {
     async (key: string, ctx: { userEmail: string }) =>
       (await resolveCredentialDetailedMock(key, ctx))?.value,
   );
-  deleteCredentialMock.mockImplementation(
+  deleteResolvedCredentialMock.mockImplementation(
     async (key: string, ctx: { userEmail: string }) => {
       store.delete(`${scopeOf(ctx)}::${key}`);
     },
@@ -180,31 +180,25 @@ describe("where a saved key lands", () => {
 });
 
 describe("disconnect removes the key the reader uses", () => {
-  it("removes the organization's key for an admin", async () => {
-    signInAs("admin");
-    await saveIntegrationKey(fakeEvent, "apollo", APOLLO_KEY);
+  it("removes the key through the resolver's own delete", async () => {
+    signInAs("member");
 
     expect(await deleteIntegrationKey(fakeEvent, "apollo")).toBe(true);
-    expect(store.size).toBe(0);
+    expect(deleteResolvedCredentialMock).toHaveBeenCalledWith(
+      "APOLLO_API_KEY",
+      { userEmail: USER_EMAIL, orgId: "org-1" },
+    );
   });
 
   it("refuses a member's disconnect of the organization's key", async () => {
-    signInAs("admin");
-    await saveIntegrationKey(fakeEvent, "apollo", APOLLO_KEY);
     signInAs("member");
+    deleteResolvedCredentialMock.mockRejectedValue(
+      Object.assign(new Error("owners and admins only"), { statusCode: 403 }),
+    );
 
     await expect(
       deleteIntegrationKey(fakeEvent, "apollo"),
     ).rejects.toMatchObject({ statusCode: 403 });
-    expect(store.has("o:org-1::APOLLO_API_KEY")).toBe(true);
-  });
-
-  it("removes a member's own key", async () => {
-    signInAs("member");
-    await saveIntegrationKey(fakeEvent, "apollo", APOLLO_KEY);
-
-    expect(await deleteIntegrationKey(fakeEvent, "apollo")).toBe(true);
-    expect(store.size).toBe(0);
   });
 });
 

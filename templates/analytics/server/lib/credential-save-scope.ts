@@ -2,11 +2,7 @@ import type { OrgRole } from "@agent-native/core/org";
 import { canManageOrg } from "@agent-native/core/org/permissions";
 import { createError } from "h3";
 
-import {
-  deleteCredential,
-  resolveCredentialDetailed,
-  type CredentialContext,
-} from "./credentials";
+import type { CredentialContext } from "./credentials";
 import { resolveOrgRole } from "./db-admin-connections";
 
 export type CredentialSaveScope = "user" | "org";
@@ -41,20 +37,4 @@ export async function resolveCredentialSaveScope(
   const manager = await managesOrg(ctx.userEmail, ctx.orgId);
   if (requested === "org" && !manager) throw orgCredentialForbidden();
   return requested ?? (manager ? "org" : "user");
-}
-
-/** Removes the row the reader answers with, so a disconnect takes effect. */
-export async function deleteResolvedCredential(
-  key: string,
-  ctx: CredentialContext,
-): Promise<void> {
-  const held = await resolveCredentialDetailed(key, ctx);
-  if (held?.scope !== "org") {
-    await deleteCredential(key, ctx);
-    return;
-  }
-  if (!(await managesOrg(ctx.userEmail, held.scopeId))) {
-    throw orgCredentialForbidden();
-  }
-  await deleteCredential(key, { ...ctx, orgId: held.scopeId, scope: "org" });
 }

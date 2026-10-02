@@ -1,12 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  deleteCredential: vi.fn(),
+  deleteResolvedCredential: vi.fn(),
   getScopedSettingRecord: vi.fn(),
   hasCredential: vi.fn(),
   loadDashboardSeed: vi.fn(),
   putScopedSettingRecord: vi.fn(),
-  resolveCredentialDetailed: vi.fn(),
   resolveOrgRole: vi.fn(),
   resolveRequestScope: vi.fn(),
   saveCredential: vi.fn(),
@@ -27,9 +26,8 @@ vi.mock("@agent-native/core/tracking", () => ({
 }));
 
 vi.mock("../server/lib/credentials", () => ({
-  deleteCredential: mocks.deleteCredential,
+  deleteResolvedCredential: mocks.deleteResolvedCredential,
   hasCredential: mocks.hasCredential,
-  resolveCredentialDetailed: mocks.resolveCredentialDetailed,
   saveCredential: mocks.saveCredential,
 }));
 
@@ -54,12 +52,11 @@ const { default: updateDataSourceCredentials } =
 
 describe("data source credential actions", () => {
   beforeEach(() => {
-    mocks.deleteCredential.mockReset();
+    mocks.deleteResolvedCredential.mockReset();
     mocks.getScopedSettingRecord.mockReset();
     mocks.hasCredential.mockReset();
     mocks.loadDashboardSeed.mockReset();
     mocks.putScopedSettingRecord.mockReset();
-    mocks.resolveCredentialDetailed.mockReset();
     mocks.resolveOrgRole.mockReset();
     mocks.resolveRequestScope.mockReset();
     mocks.saveCredential.mockReset();
@@ -78,7 +75,6 @@ describe("data source credential actions", () => {
     mocks.hasCredential.mockResolvedValue(false);
     mocks.loadDashboardSeed.mockReturnValue({ panels: [] });
     mocks.resolveOrgRole.mockResolvedValue("member");
-    mocks.resolveCredentialDetailed.mockResolvedValue(undefined);
   });
 
   it("saves recognized credentials and seeds the GA dashboard through action scope", async () => {
@@ -188,11 +184,14 @@ describe("data source credential actions", () => {
     })) as Record<string, unknown>;
 
     expect(result).toEqual({ deleted: ["GA4_PROPERTY_ID"] });
-    expect(mocks.deleteCredential).toHaveBeenCalledTimes(1);
-    expect(mocks.deleteCredential).toHaveBeenCalledWith("GA4_PROPERTY_ID", {
-      userEmail: "ada@example.com",
-      orgId: "org-1",
-    });
+    expect(mocks.deleteResolvedCredential).toHaveBeenCalledTimes(1);
+    expect(mocks.deleteResolvedCredential).toHaveBeenCalledWith(
+      "GA4_PROPERTY_ID",
+      {
+        userEmail: "ada@example.com",
+        orgId: "org-1",
+      },
+    );
   });
   describe("where a saved credential lands", () => {
     const vars = [{ key: "GA4_PROPERTY_ID", value: "1234" }];
@@ -250,29 +249,23 @@ describe("data source credential actions", () => {
   });
 
   describe("disconnect removes the credential the reader uses", () => {
-    beforeEach(() => {
-      mocks.resolveCredentialDetailed.mockResolvedValue({
-        value: "1234",
-        scope: "org",
-        scopeId: "org-1",
-      });
-    });
-
-    it("removes the organization's credential for an admin", async () => {
-      mocks.resolveOrgRole.mockResolvedValue("admin");
+    it("removes each key through the resolver's own delete", async () => {
       await deleteDataSourceCredentials.run({ keys: ["GA4_PROPERTY_ID"] });
-      expect(mocks.deleteCredential).toHaveBeenCalledWith("GA4_PROPERTY_ID", {
-        userEmail: "ada@example.com",
-        orgId: "org-1",
-        scope: "org",
-      });
+      expect(mocks.deleteResolvedCredential).toHaveBeenCalledWith(
+        "GA4_PROPERTY_ID",
+        { userEmail: "ada@example.com", orgId: "org-1" },
+      );
     });
 
     it("refuses a member's removal of the organization's credential", async () => {
+      mocks.deleteResolvedCredential.mockRejectedValue(
+        Object.assign(new Error("owners and admins only"), {
+          statusCode: 403,
+        }),
+      );
       await expect(
         deleteDataSourceCredentials.run({ keys: ["GA4_PROPERTY_ID"] }),
       ).rejects.toMatchObject({ statusCode: 403 });
-      expect(mocks.deleteCredential).not.toHaveBeenCalled();
     });
   });
 });

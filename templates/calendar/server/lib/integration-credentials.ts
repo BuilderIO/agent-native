@@ -16,9 +16,8 @@
  */
 import {
   resolveCredential,
-  resolveCredentialDetailed,
   saveCredential,
-  deleteCredential,
+  deleteResolvedCredential,
   type CredentialContext,
 } from "@agent-native/core/credentials";
 import { getOrgContext } from "@agent-native/core/org";
@@ -141,13 +140,6 @@ export async function deleteIntegrationKey(
 ): Promise<boolean> {
   const ctx = await getIntegrationContext(event);
   if (!ctx) return false;
-  const key = credentialKey(provider);
-  const held = await resolveCredentialDetailed(key, ctx);
-  if (held?.scope !== "org") {
-    await deleteCredential(key, ctx);
-    return true;
-  }
-  if ((await managedOrgId(event)) !== held.scopeId) throw orgKeyForbidden();
-  await deleteCredential(key, { ...ctx, orgId: held.scopeId, scope: "org" });
+  await deleteResolvedCredential(credentialKey(provider), ctx);
   return true;
 }

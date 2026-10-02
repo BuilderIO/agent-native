@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { credentialKeys } from "../server/lib/credential-keys";
-import { deleteResolvedCredential } from "../server/lib/credential-save-scope";
+import { deleteResolvedCredential } from "../server/lib/credentials";
 import { tryRequestCredentialContext } from "../server/lib/credentials-context";
 
 const ALLOWED_KEYS = new Set(credentialKeys.map((k) => k.key));

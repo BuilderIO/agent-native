@@ -287,6 +287,12 @@ it: on any form that saves a credential, pair `useCredentialSaveScope()` with
 `<WhoField>` from `@agent-native/toolkit/app/settings`. Members save
 personally and see no picker. A registered key keeps its registered scope.
 
+Disconnect with `deleteResolvedCredential(key, ctx)` from
+`@agent-native/core/credentials`. It removes every row of whichever owner
+answers (the caller's own, or the organization's, including a legacy
+`workspace` row) and refuses a member's removal of the organization's with a
+403. Deleting only the caller's `user` row leaves a shared one answering.
+
 ## Reading a secret from an action
 
 ```ts
