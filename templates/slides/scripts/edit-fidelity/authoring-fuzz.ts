@@ -1055,22 +1055,31 @@ export async function runAuthoringFuzz(
             record.node instanceof Element
               ? `${record.node.getAttribute("class") ?? ""}:${record.node.getAttribute("style") ?? ""}`
               : "";
-          const styleProperties = (value: string) =>
-            new Map(
-              value.split(";").map((entry) => {
-                const separator = entry.indexOf(":");
-                return [entry.slice(0, separator), entry.slice(separator + 1)];
-              }),
+          const styleChanged = record.style !== style;
+          const changedStyle: string[] = [];
+          if (styleChanged) {
+            const styleProperties = (value: string) =>
+              new Map(
+                value.split(";").map((entry) => {
+                  const separator = entry.indexOf(":");
+                  return [
+                    entry.slice(0, separator),
+                    entry.slice(separator + 1),
+                  ];
+                }),
+              );
+            const beforeStyle = styleProperties(record.style);
+            const afterStyle = styleProperties(style);
+            changedStyle.push(
+              ...[
+                ...new Set([...beforeStyle.keys(), ...afterStyle.keys()]),
+              ].filter(
+                (property) =>
+                  beforeStyle.get(property) !== afterStyle.get(property),
+              ),
             );
-          const beforeStyle = styleProperties(record.style);
-          const afterStyle = styleProperties(style);
-          const changedStyle = [
-            ...new Set([...beforeStyle.keys(), ...afterStyle.keys()]),
-          ].filter(
-            (property) =>
-              beforeStyle.get(property) !== afterStyle.get(property),
-          );
-          const changes = changedStyle.length ? ["style"] : [];
+          }
+          const changes = styleChanged ? ["style"] : [];
           if (record.node instanceof Text && record.node.data !== record.text)
             changes.push("text");
           if (
