@@ -68,6 +68,14 @@ async function assertOk(res: Response, label: string): Promise<void> {
 
 type AssetAuthorization = { authorization: string; apiKey?: string };
 
+function confirmedBuilderAuthorizationFailure(error: unknown): Error {
+  const cause = error instanceof Error ? error : new Error(String(error));
+  return Object.assign(new Error(cause.message, { cause }), {
+    status: 401,
+    errorCode: "builder_credentials_rejected",
+  });
+}
+
 /**
  * Run a Builder asset API call, and on a 401 refresh the OAuth access token
  * once and retry. A token can be revoked or rotated before its stated
@@ -86,9 +94,19 @@ async function withAssetAuthorization<T>(
     const refreshed = await assetAuthorization({ forceRefresh: true });
     // The same token again (no refresh token, a key credential) would only
     // repeat the 401; report the original refusal instead.
-    if (refreshed.authorization === auth.authorization) throw error;
+    if (refreshed.authorization === auth.authorization) {
+      if (auth.apiKey) throw confirmedBuilderAuthorizationFailure(error);
+      throw error;
+    }
     held.auth = refreshed;
-    return run(refreshed);
+    try {
+      return await run(refreshed);
+    } catch (retryError) {
+      if ((retryError as { status?: unknown } | null)?.status !== 401) {
+        throw retryError;
+      }
+      throw confirmedBuilderAuthorizationFailure(retryError);
+    }
   }
 }
 

@@ -113,6 +113,8 @@ interface SessionReplayState {
   removeLifecycleListeners: (() => void) | null;
   restoreIframeBridge: (() => void) | null;
   addCustomEvent: ((tag: string, payload: unknown) => void) | null;
+  analyticsEventCount: number;
+  analyticsEventReplayId: string | null;
   takeFullSnapshot: ((isCheckout?: boolean) => void) | null;
   restoreCaptures: (() => void) | null;
   options: NormalizedSessionReplayOptions | null;
@@ -128,6 +130,7 @@ interface StoredReplaySession {
   startedAtMs?: number;
   sequence?: number;
   linkBaseUrl?: string;
+  analyticsEventCount?: number;
 }
 
 interface ReplayClaimMessage {
@@ -343,11 +346,14 @@ const SESSION_REPLAY_CLAIM_TIMEOUT_MS = 150;
 export const SESSION_REPLAY_CONSOLE_EVENT_TAG = "agent-native.console";
 export const SESSION_REPLAY_NETWORK_EVENT_TAG = "agent-native.network";
 export const SESSION_REPLAY_AGENT_CHAT_EVENT_TAG = "agent-native.chat";
+export const SESSION_REPLAY_ANALYTICS_EVENT_TAG = "agent-native.event";
 const SESSION_REPLAY_LIFECYCLE_EVENT_TAG = "agent-native.session_replay";
 
 const DEFAULT_MAX_CONSOLE_EVENTS = 1000;
 const DEFAULT_MAX_NETWORK_EVENTS = 2000;
 const MAX_CONSOLE_MESSAGE_LENGTH = 500;
+const MAX_ANALYTICS_EVENT_NAME_LENGTH = 120;
+const MAX_ANALYTICS_EVENTS_PER_REPLAY = 1000;
 const MAX_CONSOLE_ARGS = 10;
 const MAX_CONSOLE_STACK_LENGTH = 2000;
 const MAX_CONSOLE_SERIALIZE_DEPTH = 4;
@@ -427,6 +433,8 @@ function getState(): SessionReplayState {
       removeLifecycleListeners: null,
       restoreIframeBridge: null,
       addCustomEvent: null,
+      analyticsEventCount: 0,
+      analyticsEventReplayId: null,
       takeFullSnapshot: null,
       restoreCaptures: null,
       options: null,
@@ -553,16 +561,12 @@ function getOrCreateReplaySession(
   startedAtMs: number;
   sequence: number;
   linkBaseUrl?: string;
+  analyticsEventCount: number;
   resumed: boolean;
 } {
   clearLegacyLocalStorageReplaySession();
   const parsed = readStoredReplaySession();
-  const parsedSequence =
-    typeof parsed?.sequence === "number" &&
-    Number.isFinite(parsed.sequence) &&
-    parsed.sequence >= 0
-      ? Math.floor(parsed.sequence)
-      : 0;
+  const parsedSequence = storedCount(parsed?.sequence);
   if (
     parsed?.sessionId === sessionId &&
     parsed.replayId &&
@@ -584,6 +588,7 @@ function getOrCreateReplaySession(
       startedAtMs,
       sequence,
       ...(resolvedLinkBaseUrl ? { linkBaseUrl: resolvedLinkBaseUrl } : {}),
+      analyticsEventCount: storedCount(parsed.analyticsEventCount),
       resumed: true,
     };
   }
@@ -601,8 +606,15 @@ function getOrCreateReplaySession(
     startedAtMs,
     sequence: 0,
     ...(linkBaseUrl ? { linkBaseUrl } : {}),
+    analyticsEventCount: 0,
     resumed: false,
   };
+}
+
+function storedCount(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.floor(value)
+    : 0;
 }
 
 function openReplayBroadcastChannel(): BroadcastChannel | null {
@@ -716,6 +728,9 @@ function persistReplaySequence(
     sequence,
     ...(linkBaseUrl || existing?.linkBaseUrl
       ? { linkBaseUrl: linkBaseUrl ?? existing?.linkBaseUrl }
+      : {}),
+    ...(existing?.replayId === replayId && existing.analyticsEventCount
+      ? { analyticsEventCount: existing.analyticsEventCount }
       : {}),
   });
 }
@@ -3355,6 +3370,7 @@ async function startSessionReplayRecorder(
         ...(normalized.linkBaseUrl
           ? { linkBaseUrl: normalized.linkBaseUrl }
           : {}),
+        analyticsEventCount: 0,
         resumed: false,
       };
     }
@@ -3393,6 +3409,11 @@ async function startSessionReplayRecorder(
   state.lastAuthenticatedProperties = replayUserEmail(initialProperties)
     ? { ...initialProperties }
     : null;
+  // A resumed replay keeps its marker count, across page reloads too.
+  if (state.analyticsEventReplayId !== state.replayId) {
+    state.analyticsEventReplayId = state.replayId;
+    state.analyticsEventCount = replaySession.analyticsEventCount;
+  }
   state.active = true;
 
   try {
@@ -3615,6 +3636,29 @@ export function emitSessionReplayException(input: {
       ? { stack: input.stack.slice(0, MAX_CONSOLE_STACK_LENGTH) }
       : {}),
     ...(input.url ? { url: input.url } : {}),
+  });
+}
+
+/**
+ * Mark a tracked analytics event on the replay timeline. Only the event name
+ * is recorded; event properties stay out of the replay.
+ */
+export function emitSessionReplayAnalyticsEvent(name: string): void {
+  const state = getState();
+  if (!state.active || !state.addCustomEvent) return;
+  if (state.analyticsEventCount >= MAX_ANALYTICS_EVENTS_PER_REPLAY) return;
+  const bounded = name.trim().slice(0, MAX_ANALYTICS_EVENT_NAME_LENGTH);
+  if (!bounded) return;
+  state.analyticsEventCount += 1;
+  const stored = readStoredReplaySession();
+  if (stored?.replayId === state.replayId) {
+    writeStoredReplaySession({
+      ...stored,
+      analyticsEventCount: state.analyticsEventCount,
+    });
+  }
+  emitReplayCustomEvent(state, SESSION_REPLAY_ANALYTICS_EVENT_TAG, {
+    name: bounded,
   });
 }
 

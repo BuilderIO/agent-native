@@ -129,7 +129,7 @@ describe("RecorderEngine upload generation fencing", () => {
       url: "/api/uploads/rec-1/abort",
       body: JSON.stringify({
         reason: "Recording interruption has unknown cause",
-        failureCode: "unknown",
+        failureCode: "recording_interrupted",
         attemptId: "attempt-1",
         uploadGenerationId: "generation-2",
       }),

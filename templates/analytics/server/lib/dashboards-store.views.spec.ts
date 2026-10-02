@@ -11,9 +11,14 @@ type ViewRow = {
 
 const state = vi.hoisted(() => ({
   accessCalls: [] as unknown[][],
+  accessQueue: [] as unknown[],
   accessResult: null as unknown,
+  analysisRow: null as Record<string, unknown> | null,
   dashboardRow: null as Record<string, unknown> | null,
+  legacyAnalysis: null as Record<string, unknown> | null,
   legacyDashboard: null as Record<string, unknown> | null,
+  orgLegacyAnalysis: null as Record<string, unknown> | null,
+  orgLegacyDashboard: null as Record<string, unknown> | null,
   views: [] as ViewRow[],
 }));
 
@@ -129,9 +134,18 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
-  getOrgSetting: async () => null,
+  getOrgSetting: async (_orgId: string, key: string) =>
+    key === "sql-dashboard-dashboard-a"
+      ? state.orgLegacyDashboard
+      : key === "adhoc-analysis-analysis-a"
+        ? state.orgLegacyAnalysis
+        : null,
   getUserSetting: async (_email: string, key: string) =>
-    key === "sql-dashboard-dashboard-a" ? state.legacyDashboard : null,
+    key === "sql-dashboard-dashboard-a"
+      ? state.legacyDashboard
+      : key === "adhoc-analysis-analysis-a"
+        ? state.legacyAnalysis
+        : null,
   deleteOrgSetting: async () => false,
   deleteUserSetting: async () => false,
 }));
@@ -141,7 +155,9 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: async () => ({ role: "owner" }),
   resolveAccess: async (...args: unknown[]) => {
     state.accessCalls.push(args);
-    const access = state.accessResult as {
+    const access = (
+      state.accessQueue.length ? state.accessQueue.shift() : state.accessResult
+    ) as {
       resource: Record<string, unknown>;
       role: string;
     } | null;
@@ -192,6 +208,13 @@ vi.mock("../db/index.js", () => ({
                 : [],
             );
           }
+          if (table === schema.analyses) {
+            return rowsResult(
+              state.analysisRow && matches(predicate, state.analysisRow)
+                ? [state.analysisRow]
+                : [],
+            );
+          }
           return rowsResult([]);
         },
       }),
@@ -201,8 +224,11 @@ vi.mock("../db/index.js", () => ({
         if (table === dashboardViews) state.views.push({ ...row } as ViewRow);
         return Object.assign(Promise.resolve(), {
           onConflictDoNothing: async () => {
-            if (table === dashboards) {
+            if (table === dashboards && state.dashboardRow?.id !== row.id) {
               state.dashboardRow = { ...dashboard, ...row };
+            }
+            if (table === schema.analyses && state.analysisRow?.id !== row.id) {
+              state.analysisRow = { ...row };
             }
           },
         });
@@ -233,9 +259,14 @@ const { deleteDashboardView, getDashboardForReview, saveDashboardView } =
 
 beforeEach(() => {
   state.accessCalls = [];
+  state.accessQueue = [];
   state.accessResult = { resource: dashboard, role: "owner" };
+  state.analysisRow = null;
   state.dashboardRow = null;
+  state.legacyAnalysis = null;
   state.legacyDashboard = null;
+  state.orgLegacyAnalysis = null;
+  state.orgLegacyDashboard = null;
   state.views = [
     {
       id: "existing",
@@ -364,5 +395,118 @@ describe("dashboard views", () => {
     await deleteDashboardView("dashboard-a", "same-name", ctx);
 
     expect(state.views.some((view) => view.id === "same-name")).toBe(true);
+  });
+});
+
+describe("legacy migration", () => {
+  const otherOrgDashboard = {
+    ...dashboard,
+    title: "Other org dashboard",
+    ownerEmail: "bob@example.com",
+    orgId: "org-b",
+    visibility: "org",
+  };
+
+  beforeEach(() => {
+    state.accessResult = null;
+    state.legacyDashboard = { name: "Legacy dashboard", panels: [] };
+    state.legacyAnalysis = { name: "Legacy analysis" };
+  });
+
+  it("returns the caller's migrated legacy dashboard", async () => {
+    const { getDashboard } = await import("./dashboards-store.js");
+
+    const result = await getDashboard("dashboard-a", ctx);
+
+    expect(result).toMatchObject({
+      id: "dashboard-a",
+      ownerEmail: "alice@example.com",
+    });
+  });
+
+  it("does not return another owner's dashboard that shares a legacy id", async () => {
+    state.dashboardRow = otherOrgDashboard;
+    const { getDashboard, listDashboardViews } =
+      await import("./dashboards-store.js");
+
+    expect(await getDashboard("dashboard-a", ctx)).toBeNull();
+    expect(await listDashboardViews("dashboard-a", ctx)).toEqual([]);
+    expect(state.dashboardRow).toBe(otherOrgDashboard);
+  });
+
+  it("does not return another owner's analysis that shares a legacy id", async () => {
+    const otherOrgAnalysis = {
+      id: "analysis-a",
+      name: "Other org analysis",
+      ownerEmail: "bob@example.com",
+      orgId: "org-b",
+      visibility: "org",
+      createdAt: "2026-07-13T00:00:00.000Z",
+      updatedAt: "2026-07-13T00:00:00.000Z",
+    };
+    state.analysisRow = otherOrgAnalysis;
+    const { getAnalysis } = await import("./dashboards-store.js");
+
+    expect(await getAnalysis("analysis-a", ctx)).toBeNull();
+    expect(state.analysisRow).toBe(otherOrgAnalysis);
+  });
+
+  it("reads an org dashboard another member migrated first with the caller's own role", async () => {
+    const orgCtx = { email: "alice@example.com", orgId: "org-a" };
+    const migratedByCarol = {
+      ...dashboard,
+      ownerEmail: "carol@example.com",
+      orgId: "org-a",
+      visibility: "org",
+    };
+    state.orgLegacyDashboard = { name: "Legacy org dashboard", panels: [] };
+    state.dashboardRow = migratedByCarol;
+    const viewer = { resource: migratedByCarol, role: "viewer" };
+    state.accessQueue = [null, viewer, null, viewer];
+    const { getDashboard, listDashboardViews } =
+      await import("./dashboards-store.js");
+
+    expect(await getDashboard("dashboard-a", orgCtx)).toMatchObject({
+      ownerEmail: "carol@example.com",
+      role: "viewer",
+      canEdit: false,
+    });
+    expect(await listDashboardViews("dashboard-a", orgCtx)).not.toEqual([]);
+    expect(state.dashboardRow).toBe(migratedByCarol);
+  });
+
+  it("reads an org analysis another member migrated first with the caller's own role", async () => {
+    const orgCtx = { email: "alice@example.com", orgId: "org-a" };
+    const migratedByCarol = {
+      id: "analysis-a",
+      name: "Legacy org analysis",
+      ownerEmail: "carol@example.com",
+      orgId: "org-a",
+      visibility: "org",
+      createdAt: "2026-07-13T00:00:00.000Z",
+      updatedAt: "2026-07-13T00:00:00.000Z",
+    };
+    state.orgLegacyAnalysis = { name: "Legacy org analysis" };
+    state.analysisRow = migratedByCarol;
+    state.accessQueue = [null, { resource: migratedByCarol, role: "viewer" }];
+    const { getAnalysis } = await import("./dashboards-store.js");
+
+    expect(await getAnalysis("analysis-a", orgCtx)).toMatchObject({
+      ownerEmail: "carol@example.com",
+      role: "viewer",
+    });
+    expect(state.analysisRow).toBe(migratedByCarol);
+  });
+
+  it("returns the caller's migrated legacy analysis", async () => {
+    const { getAnalysis } = await import("./dashboards-store.js");
+
+    const result = await getAnalysis("analysis-a", ctx);
+
+    expect(result).toMatchObject({
+      id: "analysis-a",
+      name: "Legacy analysis",
+      ownerEmail: "alice@example.com",
+    });
   });
 });

@@ -3183,6 +3183,105 @@ describe("createProductionAgentHandler", () => {
     );
   });
 
+  it("preserves request tracking identity through delayed run completion", async () => {
+    const onRunComplete = vi.fn();
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      onRunComplete,
+    });
+
+    const startRun = async (
+      userEmail: string,
+      authUserId: string | undefined,
+      browserSessionId: string,
+      anonymous = false,
+      synthetic = false,
+    ) => {
+      const response = await runWithRequestContext(
+        {
+          userEmail,
+          ...(authUserId ? { authUserId } : {}),
+          browserSessionId,
+          ...(anonymous ? { agentRunAnonymous: true } : {}),
+          ...(synthetic ? { isSyntheticTraffic: true } : {}),
+          run: {},
+        },
+        () =>
+          handler(
+            mockEvent(
+              new Request("http://app.example.com/_agent-native/agent-chat", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  message: "Run",
+                }),
+              }),
+            ),
+          ),
+      );
+      if (response instanceof ReadableStream) {
+        await new Response(response).text();
+      }
+    };
+
+    await Promise.all([
+      startRun("alice@example.com", "auth-user-1", "session-1"),
+      startRun("bob@example.com", "auth-user-2", "session-2"),
+      startRun("visitor-1", undefined, "session-anonymous", true),
+      startRun(
+        "synthetic@example.com",
+        "auth-synthetic",
+        "session-synthetic",
+        false,
+        true,
+      ),
+    ]);
+
+    await vi.waitFor(() => expect(onRunComplete).toHaveBeenCalledTimes(4));
+    const sources = onRunComplete.mock.calls.map(([, , source]) => source);
+    expect(sources).toContainEqual({
+      userId: "alice@example.com",
+      authUserId: "auth-user-1",
+      sessionId: "session-1",
+    });
+    expect(sources).toContainEqual({
+      userId: "bob@example.com",
+      authUserId: "auth-user-2",
+      sessionId: "session-2",
+    });
+    expect(sources).toContainEqual({
+      anonymousId: "visitor-1",
+      sessionId: "session-anonymous",
+    });
+    expect(sources).toContainEqual({
+      userId: "synthetic@example.com",
+      authUserId: "auth-synthetic",
+      sessionId: "session-synthetic",
+      isSyntheticTraffic: true,
+    });
+  });
+
   it("terminalizes a preclaimed row when turn persistence fails", () => {
     const source = readFileSync(
       new URL("./production-agent.ts", import.meta.url),

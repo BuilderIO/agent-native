@@ -1,0 +1,59 @@
+{
+  "generatedAt": "2026-09-27T03:19:22.106Z",
+  "epsilon": 0.005,
+  "classes": {
+    "known-item": {
+      "count": 14,
+      "top1": 1,
+      "top1Count": 13,
+      "top3": 1,
+      "mrr": 1,
+      "zeroResults": 0,
+      "gating": true
+    },
+    "passage": {
+      "count": 9,
+      "top1": 1,
+      "top1Count": 9,
+      "top3": 1,
+      "mrr": 1,
+      "zeroResults": 0,
+      "gating": true
+    },
+    "typo": {
+      "count": 6,
+      "top1": 0,
+      "top1Count": 6,
+      "top3": 0,
+      "mrr": 0,
+      "zeroResults": 6,
+      "gating": false
+    },
+    "question": {
+      "count": 9,
+      "top1": 0,
+      "top1Count": 9,
+      "top3": 0,
+      "mrr": 0,
+      "zeroResults": 9,
+      "gating": false
+    },
+    "access": {
+      "count": 5,
+      "top1": 1,
+      "top1Count": 5,
+      "top3": 1,
+      "mrr": 1,
+      "zeroResults": 5,
+      "gating": true
+    }
+  },
+  "overall": {
+    "count": 38,
+    "top1": 0.5945945945945946,
+    "top1Count": 37,
+    "top3": 0.6052631578947368,
+    "mrr": 0.6052631578947368,
+    "zeroResults": 15
+  }
+}

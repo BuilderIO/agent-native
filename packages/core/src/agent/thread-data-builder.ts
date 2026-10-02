@@ -570,12 +570,19 @@ interface MessageIdentityKeySet {
   fingerprint: string[];
 }
 
-function messageIdentityKeySet(message: any): MessageIdentityKeySet {
+function messageIdentityKeySet(
+  message: any,
+  eventRunIds?: Map<string, string>,
+): MessageIdentityKeySet {
   const strong: string[] = [];
   if (typeof message?.id === "string" && message.id) {
     strong.push(`id:${message.id}`);
   }
-  const runId = getMessageRunId(message);
+  const runId =
+    getMessageRunId(message) ??
+    (typeof message?.id === "string"
+      ? eventRunIds?.get(message.id)
+      : undefined);
   if (runId) strong.push(`run:${runId}`);
   const turnId = turnIdOf(message);
   if (turnId) strong.push(`turn:${turnId}`);
@@ -1853,20 +1860,20 @@ export function mergeThreadDataForClientSave(
     typeof existingNormalized === "object"
   ) {
     for (const [key, value] of Object.entries(existingNormalized)) {
-      if (key === "messages" || key === "headId") continue;
-      if (key === "queuedMessages" && !preserveExistingQueuedMessages) {
+      if (key === "messages" || key === "headId" || key === "queuedMessages") {
         continue;
       }
       if (!(key in merged)) {
         merged[key] = value;
       }
     }
-  } else if (
+  }
+  // Queue mutations are the only writer of the queue and opt out here. Any
+  // other save carries a queue it read earlier, and letting that copy win drops
+  // a promotion claim or an append that landed in between.
+  if (
     preserveExistingQueuedMessages &&
-    existingNormalized &&
-    typeof existingNormalized === "object" &&
-    existingNormalized.queuedMessages !== undefined &&
-    merged.queuedMessages === undefined
+    existingNormalized?.queuedMessages !== undefined
   ) {
     merged.queuedMessages = existingNormalized.queuedMessages;
   }
@@ -1888,12 +1895,38 @@ export function mergeThreadDataForClientSave(
     return pruneClaimedQueuedMessages(merged);
   }
 
+  // The chat UI saves its replies under AgentKit ids with no runId; only the
+  // AgentKit events tie them to the run the server folded under its own id.
+  const eventRunIds = snapshotMessageRunIds(merged.agentKit);
   const incomingKeySets: MessageIdentityKeySet[] = incomingMessages.map(
-    (entry: unknown) => messageIdentityKeySet(getStoredMessage(entry)),
+    (entry: unknown) =>
+      messageIdentityKeySet(getStoredMessage(entry), eventRunIds),
   );
   const usedIncoming = new Set<number>();
   const nextMessages: any[] = [];
   const idRewrites = new Map<string, string>();
+
+  // A message that keeps its own id owns the incoming copy with that id; a
+  // run or turn match is weaker and must not take it from the message itself.
+  const incomingByOwnId = new Map<number, number>();
+  existingMessages.forEach((entry: unknown, existingIndex: number) => {
+    const existingMessage = getStoredMessage(entry);
+    const id = messageId(existingMessage);
+    if (
+      !id ||
+      (existingMessage?.role === "assistant" &&
+        messageContentIsEmpty(existingMessage.content))
+    ) {
+      return;
+    }
+    const incomingIndex = incomingKeySets.findIndex(
+      (keys, index) =>
+        !usedIncoming.has(index) && keys.strong.includes(`id:${id}`),
+    );
+    if (incomingIndex === -1) return;
+    usedIncoming.add(incomingIndex);
+    incomingByOwnId.set(existingIndex, incomingIndex);
+  });
 
   for (
     let existingIndex = 0;
@@ -1909,13 +1942,15 @@ export function mergeThreadDataForClientSave(
       continue;
     }
 
-    const existingKeys = messageIdentityKeySet(existingMessage);
-    const incomingIndex = findRankedIdentityMatch(
-      existingKeys,
-      incomingKeySets,
-      usedIncoming,
-      existingIndex,
-    );
+    const existingKeys = messageIdentityKeySet(existingMessage, eventRunIds);
+    const incomingIndex =
+      incomingByOwnId.get(existingIndex) ??
+      findRankedIdentityMatch(
+        existingKeys,
+        incomingKeySets,
+        usedIncoming,
+        existingIndex,
+      );
 
     if (incomingIndex === -1) {
       nextMessages.push(existingEntry);
@@ -1945,7 +1980,33 @@ export function mergeThreadDataForClientSave(
     nextMessages.push(incomingMessages[index]);
   }
 
-  merged.messages = nextMessages.map((entry) =>
+  // One reply per run: the server's folded reply carries the run in its
+  // metadata, and the chat UI's own copy of it (saved under an AgentKit id,
+  // tied to the run only by events) is dropped wherever both ended up stored.
+  const serverReplyRuns = new Set<string>();
+  for (const entry of nextMessages) {
+    const message = getStoredMessage(entry);
+    const runId =
+      message?.role === "assistant" ? getMessageRunId(message) : null;
+    if (runId) serverReplyRuns.add(runId);
+  }
+  const keptMessages = nextMessages.filter((entry) => {
+    const message = getStoredMessage(entry);
+    if (message?.role !== "assistant" || getMessageRunId(message)) return true;
+    const runId =
+      typeof message.id === "string" ? eventRunIds.get(message.id) : undefined;
+    if (!runId || !serverReplyRuns.has(runId)) return true;
+    const kept = nextMessages.find((candidate) => {
+      const other = getStoredMessage(candidate);
+      return other?.role === "assistant" && getMessageRunId(other) === runId;
+    });
+    const keptId = messageId(getStoredMessage(kept));
+    const droppedId = messageId(message);
+    if (keptId && droppedId) idRewrites.set(droppedId, keptId);
+    return false;
+  });
+
+  merged.messages = keptMessages.map((entry) =>
     rewriteEntryParentId(entry, idRewrites),
   );
   const normalizedMerged = normalizeThreadRepository(

@@ -9,8 +9,9 @@ import {
 
 export default defineAction({
   readOnly: true,
+  mcpTool: true,
   description:
-    "Get computed HubSpot sales metrics: win rate, ACV, pipeline value, etc.",
+    "Get computed HubSpot sales metrics such as win rate, ACV, and pipeline value, aggregated from deals in the configured metrics pipelines.",
   schema: z.object({}),
   http: { method: "GET" },
   grounding: true,

@@ -5,6 +5,10 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ## 2026-10-01
 
+### Improved
+
+- Mail keeps its inbox or app shell visible while routing and recovering
+
 ### Fixed
 
 - Mail stops repeating actions when Gmail remains in a cooldown.

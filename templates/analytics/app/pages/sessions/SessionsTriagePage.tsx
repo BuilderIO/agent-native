@@ -1,5 +1,6 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { useLabState } from "@agent-native/core/client/labs";
 import {
   IconCalendar,
   IconChevronLeft,
@@ -32,14 +33,24 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useReplayStorageStatus } from "@/hooks/use-replay-storage-status";
 import { cn } from "@/lib/utils";
 
+import { ANALYTICS_SESSIONS_TRIAGE_LAB } from "../../../shared/labs";
 import {
   sessionDateBound,
   sessionDateForDisplay,
 } from "../../../shared/session-date-bounds";
 import {
+  readSessionEventFilters,
+  SESSION_DID_EVENT_PARAM,
+  SESSION_DID_NOT_EVENT_PARAM,
+} from "../../../shared/session-events";
+import {
   readSessionPage,
   SESSION_PAGE_SIZE,
 } from "../../../shared/session-page";
+import {
+  SessionEventFilter,
+  type SessionEventConditions,
+} from "./SessionEventFilter";
 import {
   EmptySessionsState,
   formatSessionDuration,
@@ -79,6 +90,9 @@ type Page = {
 const RANGES: Range[] = ["24h", "7d", "30d", "90d", "all"];
 const SORTS: Sort[] = ["newest", "longest", "errors", "events", "rage"];
 const DURATIONS = [0, 60_000, 5 * 60_000, 15 * 60_000, 30 * 60_000];
+// Every other search param counts as a filter for Clear all, so a param that
+// is not a filter must be listed here or Clear all will show and drop it.
+const NON_FILTER_PARAMS = new Set(["sort", "page"]);
 
 function validRange(value: string | null): Range {
   return value === "custom" || RANGES.includes(value as Range)
@@ -138,9 +152,28 @@ export function withSessionFilter(
   return next;
 }
 
+export function withSessionEventConditions(
+  current: URLSearchParams,
+  conditions: SessionEventConditions,
+): URLSearchParams {
+  const next = new URLSearchParams(current);
+  next.delete(SESSION_DID_EVENT_PARAM);
+  next.delete(SESSION_DID_NOT_EVENT_PARAM);
+  for (const name of conditions.didEvents) {
+    next.append(SESSION_DID_EVENT_PARAM, name);
+  }
+  for (const name of conditions.didNotEvents) {
+    next.append(SESSION_DID_NOT_EVENT_PARAM, name);
+  }
+  next.delete("page");
+  return next;
+}
+
 export function SessionsTriagePage() {
   const t = useT();
   const [params, setParams] = useSearchParams();
+  const eventsLab = useLabState(ANALYTICS_SESSIONS_TRIAGE_LAB);
+  const eventsLabEnabled = eventsLab.enabled;
   const storageStatus = useReplayStorageStatus();
   const range = validRange(params.get("range"));
   const app = params.get("app") ?? "";
@@ -167,6 +200,18 @@ export function SessionsTriagePage() {
     params.get("from"),
   );
   const toDate = sessionDateForDisplay(params.get("toDate"), params.get("to"));
+  const urlEventConditions = readSessionEventFilters(params);
+  // Event conditions only apply while the Lab is on; otherwise the URL keeps
+  // them without hiding sessions behind a filter the user cannot see.
+  const eventConditions = eventsLabEnabled
+    ? urlEventConditions
+    : { didEvents: [], didNotEvents: [] };
+  const urlHasEventConditions =
+    urlEventConditions.didEvents.length > 0 ||
+    urlEventConditions.didNotEvents.length > 0;
+  // A shared link with event conditions waits for the Lab state instead of
+  // briefly listing unfiltered sessions.
+  const waitingForEventsLab = urlHasEventConditions && eventsLab.isLoading;
 
   useEffect(() => {
     if (requestedPage === null || requestedPage === String(page)) return;
@@ -191,6 +236,15 @@ export function SessionsTriagePage() {
     [setParams],
   );
 
+  const setEventConditions = useCallback(
+    (conditions: SessionEventConditions) => {
+      setParams((current) => withSessionEventConditions(current, conditions), {
+        replace: true,
+      });
+    },
+    [setParams],
+  );
+
   const setFilter = useCallback(
     (key: string, value: string, resetPage = true) => {
       setParams(
@@ -201,6 +255,9 @@ export function SessionsTriagePage() {
       );
     },
     [setParams],
+  );
+  const hasActiveFilters = [...params.keys()].some(
+    (key) => !NON_FILTER_PARAMS.has(key),
   );
   const commitQuery = useCallback(
     (value: string) => setFilter("q", value),
@@ -215,6 +272,21 @@ export function SessionsTriagePage() {
     domain,
     commitDomain,
   );
+  const clearFilters = useCallback(() => {
+    // A draft that never reached the URL survives the URL reset, and its
+    // pending debounce would write it back, so empty the drafts too.
+    setQueryInput("");
+    setDomainInput("");
+    setParams(
+      (current) => {
+        const next = new URLSearchParams();
+        const currentSort = current.get("sort");
+        if (currentSort) next.set("sort", currentSort);
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setParams, setQueryInput, setDomainInput]);
   const dateBounds = useMemo(
     () => ({
       from:
@@ -244,11 +316,17 @@ export function SessionsTriagePage() {
       hasErrors: hasErrors || undefined,
       hasNetworkErrors: hasNetworkErrors || undefined,
       hasRageClicks: hasRageClicks || undefined,
+      didEvents: eventConditions.didEvents.length
+        ? eventConditions.didEvents
+        : undefined,
+      didNotEvents: eventConditions.didNotEvents.length
+        ? eventConditions.didNotEvents
+        : undefined,
       sort,
       offset: (page - 1) * SESSION_PAGE_SIZE,
       limit: SESSION_PAGE_SIZE,
     },
-    { staleTime: 30_000 },
+    { staleTime: 30_000, enabled: !waitingForEventsLab },
   );
   const recordings = data?.recordings ?? [];
   const total = data?.total ?? 0;
@@ -279,6 +357,12 @@ export function SessionsTriagePage() {
       hasErrors: hasErrors || undefined,
       hasNetworkErrors: hasNetworkErrors || undefined,
       hasRageClicks: hasRageClicks || undefined,
+      didEvents: eventConditions.didEvents.length
+        ? eventConditions.didEvents
+        : undefined,
+      didNotEvents: eventConditions.didNotEvents.length
+        ? eventConditions.didNotEvents
+        : undefined,
       sort,
       limit: 1,
     },
@@ -557,7 +641,33 @@ export function SessionsTriagePage() {
             </div>
           </PopoverContent>
         </Popover>
+        {eventsLabEnabled ? (
+          <SessionEventFilter
+            conditions={eventConditions}
+            from={dateBounds.from}
+            to={dateBounds.to}
+            app={app}
+            catalogHref={eventCatalogHref(range, app)}
+            onChange={setEventConditions}
+          />
+        ) : null}
+        {hasActiveFilters ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 font-normal text-muted-foreground"
+            onClick={clearFilters}
+          >
+            <IconX />
+            {t("sessions.clearFilters")}
+          </Button>
+        ) : null}
       </div>
+      {urlHasEventConditions && !eventsLabEnabled && !eventsLab.isLoading ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          {t("sessions.eventFiltersNeedLab")}
+        </p>
+      ) : null}
       <Card>
         <div className="flex items-center justify-between gap-2 border-b px-4 py-2 text-sm">
           <div className="text-muted-foreground" aria-live="polite">
@@ -747,6 +857,14 @@ export function SessionsTriagePage() {
       </Card>
     </div>
   );
+}
+
+function eventCatalogHref(range: Range, app: string): string {
+  const next = new URLSearchParams();
+  if (range !== "custom" && range !== "30d") next.set("range", range);
+  if (app) next.set("app", app);
+  const query = next.toString();
+  return `/sessions/events${query ? `?${query}` : ""}`;
 }
 
 function CheckFilter({

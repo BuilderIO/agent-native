@@ -16,7 +16,7 @@ import {
   retrieveAnalyticsPromptReferences,
   summarizeAnalyticsRun,
 } from "../lib/analytics-agent-context";
-import { ANALYTICS_CONNECTOR_CATALOG } from "../lib/analytics-connector-catalog";
+import { ANALYTICS_MCP } from "../lib/analytics-mcp";
 import { enqueueAnalyticsMemoryCapture } from "../lib/analytics-memory-capture.js";
 import { credentialProviderConfigs } from "../lib/credential-keys";
 import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime.js";
@@ -1243,13 +1243,7 @@ export default createAgentChatPlugin({
   durableBackgroundRuns: true,
   runSoftTimeoutMs: ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
   runNoProgressTimeoutMs: ANALYTICS_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
-  mcp: {
-    connectorCatalog: [...ANALYTICS_CONNECTOR_CATALOG],
-    externalAgents: {
-      authenticatedReads: "off",
-      writes: "ask_app_only",
-    },
-  },
+  mcp: ANALYTICS_MCP,
   resolveOrgId: async (event) => {
     const ctx = await getOrgContext(event);
     return ctx.orgId;

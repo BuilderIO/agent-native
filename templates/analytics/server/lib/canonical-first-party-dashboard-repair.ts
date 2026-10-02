@@ -194,7 +194,7 @@ const BIGQUERY_RETENTION_IDENTITY_EMAILS_CTE = `identity_emails AS (
 const LEGACY_BIGQUERY_RETENTION_EMAIL_FILTER = `  AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND LOWER(COALESCE(NULLIF(user_id, ''), '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND LOWER(COALESCE(NULLIF(user_id, ''), '')) LIKE '%@builder.io'))`;
 const BIGQUERY_RETENTION_IDENTITY_EMAIL_FILTER = `  AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND COALESCE(identity_emails.email, '') NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND COALESCE(identity_emails.email, '') LIKE '%@builder.io'))`;
 
-export const FIRST_PARTY_BIGQUERY_RETENTION_SQL =
+export const PRE_ACQUISITION_SPLIT_FIRST_PARTY_BIGQUERY_RETENTION_SQL =
   LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL.replace(
     "WITH base AS (",
     `WITH ${BIGQUERY_RETENTION_IDENTITY_EMAILS_CTE},\nbase AS (`,
@@ -252,8 +252,93 @@ export const FIRST_PARTY_BIGQUERY_RETENTION_SQL =
     )
     .replace(PRE_CUSTOM_RETENTION_ANCHOR_RANGE, CUSTOM_RETENTION_ANCHOR_RANGE);
 
+const BIGQUERY_RETENTION_ACQUISITION_CTE = `acquisition AS (
+ SELECT user_key, channel
+ FROM (
+   SELECT NULLIF(JSON_VALUE(properties, '$.auth_user_id'), '') AS user_key,
+     CASE
+       WHEN NULLIF(JSON_VALUE(properties, '$.gclid'), '') IS NOT NULL
+         OR NULLIF(JSON_VALUE(properties, '$.msclkid'), '') IS NOT NULL
+         OR NULLIF(JSON_VALUE(properties, '$.vector_source'), '') IS NOT NULL
+         OR LOWER(COALESCE(JSON_VALUE(properties, '$.utm_medium'), '')) IN ('cpc', 'ppc', 'paid', 'paidsearch', 'paid_search', 'paid-search', 'paidsocial', 'paid_social', 'paid-social', 'cpm', 'display')
+         THEN 'paid'
+       WHEN NULLIF(JSON_VALUE(properties, '$.utm_source'), '') IS NULL
+         AND NULLIF(JSON_VALUE(properties, '$.utm_medium'), '') IS NULL
+         AND NULLIF(JSON_VALUE(properties, '$.utm_campaign'), '') IS NULL
+         AND NULLIF(JSON_VALUE(properties, '$.utm_term'), '') IS NULL
+         AND NULLIF(JSON_VALUE(properties, '$.referrer_user'), '') IS NULL
+         AND COALESCE(JSON_VALUE(properties, '$.referral_source'), 'direct') IN ('direct', 'external')
+         THEN 'untagged'
+       ELSE 'other'
+     END AS channel,
+     ROW_NUMBER() OVER (
+       PARTITION BY NULLIF(JSON_VALUE(properties, '$.auth_user_id'), '')
+       ORDER BY timestamp ASC
+     ) AS signup_rank
+   FROM \`builder-3b0a2.analytics.first_party_analytics_events_raw\`
+   WHERE org_id = 'PlRt3bfcpJNnOyF_Wfgsh'
+     AND event_name = 'signup'
+     AND NULLIF(JSON_VALUE(properties, '$.auth_user_id'), '') IS NOT NULL
+     AND ${BIGQUERY_RETENTION_TEMPLATE_FILTER} IN ('analytics', 'assets', 'brain', 'calendar', 'chat', 'clips', 'content', 'design', 'dispatch', 'forms', 'mail', 'plan', 'slides')
+     AND event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 3660 DAY)
+     AND event_date <= CURRENT_DATE()
+ ) signups
+ WHERE signup_rank = 1
+)`;
+
+const BIGQUERY_RETENTION_CHANNEL_CTES = `channel_cohort_sizes AS (
+ SELECT cw.date, acq.channel, COUNT(DISTINCT cw.user_key) AS users
+ FROM cohort_windows cw
+ JOIN acquisition acq ON acq.user_key = cw.user_key
+ WHERE acq.channel IN ('paid', 'untagged')
+ GROUP BY cw.date, acq.channel
+), channel_retained AS (
+ SELECT cw.date, acq.channel, COUNT(DISTINCT cw.user_key) AS retained
+ FROM cohort_windows cw
+ JOIN acquisition acq ON acq.user_key = cw.user_key
+ JOIN base b ON b.user_key = cw.user_key
+   AND b.event_date > cw.cohort_date
+   AND b.event_date <= DATE_ADD(cw.cohort_date, INTERVAL 7 DAY)
+ WHERE acq.channel IN ('paid', 'untagged')
+ GROUP BY cw.date, acq.channel
+)`;
+
+export const FIRST_PARTY_BIGQUERY_RETENTION_SQL =
+  PRE_ACQUISITION_SPLIT_FIRST_PARTY_BIGQUERY_RETENTION_SQL.replace(
+    "),\nbase AS (",
+    `),\n${BIGQUERY_RETENTION_ACQUISITION_CTE},\nbase AS (`,
+  )
+    .replace(
+      "\n)\nSELECT FORMAT_DATE('%Y-%m-%d', a.date) AS date,",
+      `\n),\n${BIGQUERY_RETENTION_CHANNEL_CTES}\nSELECT FORMAT_DATE('%Y-%m-%d', a.date) AS date,`,
+    )
+    .replace(
+      "LEFT JOIN coverage ON coverage.date = a.date AND coverage.period = p.period\nORDER BY date, p.period",
+      `LEFT JOIN coverage ON coverage.date = a.date AND coverage.period = p.period
+UNION ALL
+SELECT FORMAT_DATE('%Y-%m-%d', a.date) AS date,
+ CONCAT('1-7d return (', channels.channel, ')') AS period,
+ CASE WHEN a.date <= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+           AND COALESCE(ccs.users, 0) >= 5
+           AND coverage.observed_days = coverage.expected_days
+      THEN COALESCE(cr.retained, 0)
+      ELSE NULL END AS retained_users,
+ COALESCE(ccs.users, 0) AS cohort_users,
+ CASE WHEN a.date <= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+           AND COALESCE(ccs.users, 0) >= 5
+           AND coverage.observed_days = coverage.expected_days
+      THEN COALESCE(CAST(cr.retained AS FLOAT64) / NULLIF(ccs.users, 0), 0)
+      ELSE NULL END AS rate
+FROM anchor_dates a
+CROSS JOIN (SELECT 'paid' AS channel UNION ALL SELECT 'untagged' AS channel) channels
+LEFT JOIN channel_cohort_sizes ccs ON ccs.date = a.date AND ccs.channel = channels.channel
+LEFT JOIN channel_retained cr ON cr.date = a.date AND cr.channel = channels.channel
+LEFT JOIN coverage ON coverage.date = a.date AND coverage.period = '1-7d return'
+ORDER BY date, period`,
+    );
+
 export const PREVIOUS_CANONICAL_FIRST_PARTY_BIGQUERY_RETENTION_SQL =
-  FIRST_PARTY_BIGQUERY_RETENTION_SQL.split(
+  PRE_ACQUISITION_SPLIT_FIRST_PARTY_BIGQUERY_RETENTION_SQL.split(
     "NULLIF(JSON_VALUE(properties, '$.agent_native_template'), ''), ",
   )
     .join("")
@@ -371,6 +456,7 @@ function repairFirstPartyBigQueryDauSql(sql: string): string {
 function isLegacyFirstPartyBigQueryRetentionSql(sql: string): boolean {
   return [
     LEGACY_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
+    PRE_ACQUISITION_SPLIT_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
     PREVIOUS_CANONICAL_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
     PREVIOUS_PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_SQL,
     PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_SQL,

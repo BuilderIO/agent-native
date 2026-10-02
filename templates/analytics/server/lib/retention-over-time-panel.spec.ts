@@ -95,6 +95,23 @@ describe("retention-over-time panel SQL", () => {
     expect(FIRST_PARTY_BIGQUERY_RETENTION_SQL).toContain("ARRAY_AGG(");
   });
 
+  it("splits BigQuery retention by first-touch signup channel", () => {
+    for (const field of ["gclid", "msclkid", "vector_source"]) {
+      expect(FIRST_PARTY_BIGQUERY_RETENTION_SQL).toContain(
+        `JSON_VALUE(properties, '$.${field}')`,
+      );
+    }
+    expect(FIRST_PARTY_BIGQUERY_RETENTION_SQL).toContain(
+      "CONCAT('1-7d return (', channels.channel, ')') AS period",
+    );
+    expect(FIRST_PARTY_BIGQUERY_RETENTION_SQL).toContain(
+      "channel_cohort_sizes AS",
+    );
+    expect(FIRST_PARTY_BIGQUERY_RETENTION_SQL).toContain(
+      "coverage.observed_days = coverage.expected_days",
+    );
+  });
+
   it("uses canonical identity email filtering for all retention panels", () => {
     const postgresQueries = [
       "retention-over-time",

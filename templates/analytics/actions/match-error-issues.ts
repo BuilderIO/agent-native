@@ -51,6 +51,7 @@ export default defineAction({
   }),
   http: { method: "POST" },
   readOnly: true,
+  mcpTool: true,
   grounding: true,
   run: async (args) => {
     return matchErrorIssuesBySignatures(
