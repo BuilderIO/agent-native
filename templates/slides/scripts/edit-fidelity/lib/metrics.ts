@@ -113,6 +113,32 @@ export const resized = (a: Rect | null, b: Rect | null) =>
   (Math.abs(a.width - b.width) >= GEOMETRY_TOLERANCE ||
     Math.abs(a.height - b.height) >= GEOMETRY_TOLERANCE);
 
+/** Event Timing omits entries below its configured duration threshold. */
+export function p95IndexFromThresholdedSamples(
+  totalCount: number,
+  observedCount: number,
+  threshold: number,
+):
+  | { kind: "observed"; index: number }
+  | { kind: "below-threshold"; bound: number } {
+  if (
+    !Number.isSafeInteger(totalCount) ||
+    totalCount < 1 ||
+    !Number.isSafeInteger(observedCount) ||
+    observedCount < 0 ||
+    observedCount > totalCount ||
+    !Number.isFinite(threshold) ||
+    threshold < 0
+  ) {
+    throw new RangeError("invalid thresholded percentile sample counts");
+  }
+  const rank = Math.ceil(totalCount * 0.95) - 1;
+  const belowThresholdCount = totalCount - observedCount;
+  return rank < belowThresholdCount
+    ? { kind: "below-threshold", bound: threshold }
+    : { kind: "observed", index: rank - belowThresholdCount };
+}
+
 export interface StyleDelta {
   key: string;
   prop: string;

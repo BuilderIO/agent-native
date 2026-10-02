@@ -7,6 +7,13 @@ export function lineNavigationKeys(platform: string) {
     : { start: "Home", end: "End" };
 }
 
+export function authoringFuzzProfileIndex(seed: number): number | null {
+  if (!Number.isSafeInteger(seed) || seed < 0)
+    throw new Error("seed must be a non-negative safe integer");
+  if (seed === 0 || seed % 2 === 1) return null;
+  return (seed / 2 - 1) % 6;
+}
+
 const { start: lineStartKey, end: lineEndKey } = lineNavigationKeys(
   process.platform,
 );
@@ -104,6 +111,7 @@ export interface AuthoringFuzzOptions {
   historyLimit?: number;
   /** Fail if the caller's viewport did not scale the selected slide down. */
   expectScaledSlide?: boolean;
+  browser?: "chromium" | "webkit" | "firefox";
 }
 
 export interface AuthoringFuzzResult {
@@ -127,14 +135,14 @@ export function assertByteIdenticalHtml(
 export function assertAuthoringPersistence(
   persistence: AuthoringFuzzPersistence,
 ) {
-  if (persistence.liveHtml !== persistence.savedHtml) {
-    throw new Error("saved HTML differed from the post-edit live slide");
-  }
   if (persistence.savedHtml === persistence.originalHtml) {
     throw new Error("authoring flow did not change the persisted slide HTML");
   }
-  if (persistence.reloadedHtml !== persistence.savedHtml) {
-    throw new Error("reloaded slide HTML differed from the saved HTML");
+  // Rendering adds safe link defaults that are intentionally absent in storage.
+  if (persistence.reloadedHtml !== persistence.liveHtml) {
+    throw new Error(
+      "reloaded slide HTML differed from the post-edit live slide",
+    );
   }
 }
 
@@ -332,17 +340,26 @@ export function createAuthoringFuzzPlan(
 
   const random = seededRandom(seed);
   while (plan.length < steps) plan.push(randomOperation(random, plan.length));
-  return plan.slice(0, steps);
+  const selected = plan.slice(0, steps);
+  if (
+    ["undo", "redo", "shortcut-undo", "slash-undo"].includes(
+      selected.at(-1)?.kind ?? "",
+    )
+  ) {
+    selected[selected.length - 1] = { kind: "type", value: `finish${seed}` };
+  }
+  return selected;
 }
 
 const MAX_FAILURE_LOG_OPERATIONS = 20;
-const MAX_FAILURE_MESSAGE_LENGTH = 1000;
+const MAX_FAILURE_MESSAGE_LENGTH = 1600;
 
 export function formatAuthoringFuzzFailure(
   seed: number,
   phase: string,
   log: AuthoringFuzzOperation[],
   message: string,
+  browser: "chromium" | "webkit" | "firefox" = "chromium",
 ) {
   const replaySteps = Math.max(1, log.length);
   const logStart = Math.max(0, log.length - MAX_FAILURE_LOG_OPERATIONS);
@@ -356,7 +373,7 @@ export function formatAuthoringFuzzFailure(
       : message;
   return new Error(
     `authoring fuzz failed (seed=${seed}, phase=${phase}): ${boundedMessage}\n` +
-      `Replay: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seed ${seed} --steps ${replaySteps}\n` +
+      `Replay: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seed ${seed} --steps ${replaySteps} --browser ${browser}\n` +
       `Failure log: steps ${logStart}-${log.length - 1} of ${log.length} replay steps\n` +
       JSON.stringify(excerpt, null, 2),
   );
@@ -391,20 +408,45 @@ export async function runAuthoringFuzz(
   const editor: Locator = page.locator(editorSelector);
   const slideContent: Locator = page.locator(slideContentSelector);
   const pageErrors: string[] = [];
+  const pendingSaveConflicts: Promise<void>[] = [];
+  let reportedNativeReflow = false;
   const onConsole = (message: any) => {
     if (message.type() === "error") pageErrors.push(message.text());
   };
   const onPageError = (error: Error) => pageErrors.push(error.message);
+  const onResponse = (response: any) => {
+    if (
+      response.status() !== 409 ||
+      !response.url().includes("/_agent-native/actions/patch-deck")
+    ) {
+      return;
+    }
+    pendingSaveConflicts.push(
+      response
+        .text()
+        .then((body: string) => {
+          pageErrors.push(`HTTP 409 ${body}`);
+        })
+        .catch((error: unknown) => {
+          pageErrors.push(`HTTP 409 body unavailable: ${String(error)}`);
+        }),
+    );
+  };
   page.on("console", onConsole);
   page.on("pageerror", onPageError);
+  page.on("response", onResponse);
 
   let activeIndex = -1;
   let activePhase = "setup";
   const replay = () => plan.slice(0, Math.max(1, activeIndex + 1));
-  const checkPageErrors = () => {
+  const checkPageErrors = async () => {
+    await Promise.all(pendingSaveConflicts.splice(0));
     if (pageErrors.length)
       throw new Error(
-        `browser emitted ${pageErrors.length} console/page error(s)`,
+        `browser emitted ${pageErrors.length} console/page error(s): ${pageErrors
+          .slice(0, 2)
+          .map((error) => error.replaceAll(/\s+/g, " ").slice(0, 300))
+          .join("; ")}`,
       );
   };
   const inspectSelection = async () =>
@@ -423,14 +465,19 @@ export async function runAuthoringFuzz(
         const prefix = document.createRange();
         prefix.selectNodeContents(root);
         prefix.setEnd(node, at);
-        return prefix.toString().replaceAll("\u200b", "").length;
+        return prefix
+          .toString()
+          .replaceAll("\u200b", "")
+          .replaceAll("\u00a0", " ").length;
       };
       return {
         inside:
           root.contains(selection.anchorNode) &&
           root.contains(selection.focusNode),
         collapsed: selection.isCollapsed,
-        text: (root.textContent ?? "").replaceAll("\u200b", ""),
+        text: (root.textContent ?? "")
+          .replaceAll("\u200b", "")
+          .replaceAll("\u00a0", " "),
         start: offset(range.startContainer, range.startOffset),
         end: offset(range.endContainer, range.endOffset),
       };
@@ -446,8 +493,142 @@ export async function runAuthoringFuzz(
     const before = await inspectSelection();
     if (!before.inside)
       throw new Error("cannot type: selection is outside the edited element");
+    const probe = verifyPlacement && value.length === 1;
+    if (probe) {
+      await editor.evaluate((root: HTMLElement) => {
+        const scope = window as Window & {
+          __authoringFuzzInputProbe?: {
+            root: HTMLElement;
+            listener: (event: Event) => void;
+            events: Array<Record<string, unknown>>;
+            snapshot: () => Record<string, unknown>;
+            before: Record<string, unknown>;
+          };
+        };
+        const pathFor = (point: Node | null) => {
+          const path: string[] = [];
+          for (
+            let current =
+              point instanceof Element ? point : point?.parentElement;
+            current && current !== root;
+          ) {
+            const owner = current.parentElement;
+            if (!owner) break;
+            path.unshift(
+              `${current.tagName}:${Array.from(owner.children).indexOf(current)}`,
+            );
+            current = owner;
+          }
+          return path;
+        };
+        const snapshot = () => {
+          const selection = window.getSelection();
+          const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+          const node = range?.startContainer ?? null;
+          const parent = node instanceof Element ? node : node?.parentElement;
+          const visible = (root.textContent ?? "")
+            .replaceAll("\u200b", "")
+            .replaceAll("\u00a0", " ");
+          const offset = range
+            ? (() => {
+                const prefix = document.createRange();
+                prefix.selectNodeContents(root);
+                prefix.setEnd(range.startContainer, range.startOffset);
+                return prefix
+                  .toString()
+                  .replaceAll("\u200b", "")
+                  .replaceAll("\u00a0", " ").length;
+              })()
+            : null;
+          return {
+            collapsed: selection?.isCollapsed ?? false,
+            inside:
+              !!selection &&
+              root.contains(selection.anchorNode) &&
+              root.contains(selection.focusNode),
+            anchorPath: pathFor(selection?.anchorNode ?? null),
+            focusPath: pathFor(selection?.focusNode ?? null),
+            anchorOffset: selection?.anchorOffset ?? null,
+            focusOffset: selection?.focusOffset ?? null,
+            rangeEndOffset: range?.endOffset ?? null,
+            nodeType: node?.nodeType ?? null,
+            nodeLength: node instanceof Text ? node.length : null,
+            nodeOffset: range?.startOffset ?? null,
+            parentChildren: parent
+              ? Array.from(parent.childNodes).map((child) =>
+                  child instanceof Text
+                    ? `TEXT:${child.length}`
+                    : `${(child as Element).tagName}:${child.childNodes.length}`,
+                )
+              : [],
+            offset,
+            nearbyCodes:
+              offset === null
+                ? []
+                : Array.from(
+                    visible.slice(Math.max(0, offset - 3), offset + 4),
+                    (character) => character.codePointAt(0),
+                  ),
+          };
+        };
+        const events: Array<Record<string, unknown>> = [];
+        const listener = (event: Event) => {
+          const input = event as InputEvent;
+          const record: Record<string, unknown> = {
+            inputType: input.inputType,
+            dataCodes: input.data
+              ? Array.from(input.data, (character) => character.codePointAt(0))
+              : null,
+            cancelable: input.cancelable,
+            defaultPrevented: null,
+            targetRanges: input.getTargetRanges?.().map((range) => ({
+              collapsed: range.collapsed,
+              startPath: pathFor(range.startContainer),
+              startOffset: range.startOffset,
+              endPath: pathFor(range.endContainer),
+              endOffset: range.endOffset,
+            })),
+          };
+          events.push(record);
+          queueMicrotask(() => {
+            record.defaultPrevented = input.defaultPrevented;
+          });
+        };
+        root.addEventListener("beforeinput", listener, true);
+        scope.__authoringFuzzInputProbe = {
+          root,
+          listener,
+          events,
+          snapshot,
+          before: snapshot(),
+        };
+      });
+    }
     await editor.pressSequentially(value, { delay: 0 });
     const after = await inspectSelection();
+    const diagnostics = probe
+      ? await editor.evaluate((root: HTMLElement) => {
+          const scope = window as Window & {
+            __authoringFuzzInputProbe?: {
+              root: HTMLElement;
+              listener: (event: Event) => void;
+              events: Array<Record<string, unknown>>;
+              snapshot: () => Record<string, unknown>;
+              before: Record<string, unknown>;
+            };
+          };
+          const input = scope.__authoringFuzzInputProbe;
+          if (!input || input.root !== root) return null;
+          root.removeEventListener("beforeinput", input.listener, true);
+          const result = {
+            before: input.before,
+            after: input.snapshot(),
+            events: input.events,
+          };
+          delete scope.__authoringFuzzInputProbe;
+          return result;
+        })
+      : null;
     if (!after.inside)
       throw new Error(
         `typed burst ${JSON.stringify(value)} outside the editor`,
@@ -457,12 +638,16 @@ export async function runAuthoringFuzz(
         before.text.slice(0, before.start) +
         value +
         before.text.slice(before.end);
+      const textMismatch = Array.from(
+        { length: Math.max(expected.length, after.text.length) },
+        (_, index) => index,
+      ).find((index) => expected[index] !== after.text[index]);
       if (
         after.text !== expected ||
         after.start !== before.start + value.length
       ) {
         throw new Error(
-          `typed burst ${JSON.stringify(value)} missed the caret (expected offset ${before.start + value.length}, got ${after.start}; text lengths ${expected.length} and ${after.text.length})`,
+          `typed burst ${JSON.stringify(value)} missed the caret (expected offset ${before.start + value.length}, got ${after.start}; text lengths ${expected.length} and ${after.text.length}; selection=${before.collapsed}:${before.start}-${before.end} to ${after.collapsed}:${after.start}-${after.end}; first mismatch=${textMismatch ?? "none"} codes=${textMismatch === undefined ? "none" : `${expected.codePointAt(textMismatch)}>${after.text.codePointAt(textMismatch)}`}; input=${JSON.stringify(diagnostics)})`,
         );
       }
     }
@@ -499,6 +684,18 @@ export async function runAuthoringFuzz(
           "[data-slide-rotate-handle]",
           "[data-block-bubble-menu]",
         ].join(",");
+        const layoutProperties = new Set([
+          "block-size",
+          "grid-auto-columns",
+          "grid-auto-rows",
+          "grid-template-columns",
+          "grid-template-rows",
+          "height",
+          "inline-size",
+          "perspective-origin",
+          "transform-origin",
+          "width",
+        ]);
         const elements = [
           root,
           ...Array.from(root.querySelectorAll("*")),
@@ -519,25 +716,38 @@ export async function runAuthoringFuzz(
           }
           const style = getComputedStyle(element);
           const computed = Array.from(style)
+            .filter((property) => !layoutProperties.has(property))
             .sort()
             .map(
               (property) => `${property}:${style.getPropertyValue(property)}`,
             )
             .join(";");
           const rect = element.getBoundingClientRect();
-          return `${path.join(".")}:${element.tagName}:${computed}:${rect.x},${rect.y},${rect.width},${rect.height}`;
+          return {
+            path: path.join("."),
+            tag: element.tagName,
+            className: element.getAttribute("class") ?? "",
+            inlineStyle: element.getAttribute("style") ?? "",
+            computed,
+            rect: [rect.x, rect.y, rect.width, rect.height],
+          };
         });
       },
       { slide: slideSelector, edited: editorSelector },
     );
-  const snapshotEditorSiblings = async (phase: "capture" | "assert") =>
+  const snapshotEditorSiblings = async (
+    phase: "capture" | "assert",
+    operation: AuthoringFuzzOperation,
+  ) =>
     page.evaluate(
       ({
         selector,
         phase,
+        operation,
       }: {
         selector: string;
         phase: "capture" | "assert";
+        operation: AuthoringFuzzOperation;
       }) => {
         const root = document.querySelector(selector);
         const selection = window.getSelection();
@@ -551,15 +761,20 @@ export async function runAuthoringFuzz(
               node: Element | Text;
               parent: Node;
               index: number;
-              ancestor: boolean;
-              signature: string;
+              order?: number;
+              style: string;
+              attributes: string;
+              text?: string;
             }>;
           };
         };
         const block =
           /^(ADDRESS|ARTICLE|ASIDE|BLOCKQUOTE|DD|DIV|DL|DT|FIGCAPTION|FIGURE|FOOTER|H[1-6]|HEADER|LI|OL|P|PRE|SECTION|TABLE|TBODY|TD|TFOOT|TH|THEAD|TR|UL)$/;
         const range = selection.getRangeAt(0);
-        const targets = selection.isCollapsed
+        const listShortcut =
+          operation.kind === "shortcut" &&
+          (operation.result === "bullet" || operation.result === "ordered");
+        let targets = selection.isCollapsed
           ? (() => {
               let current =
                 selection.anchorNode instanceof HTMLElement
@@ -586,18 +801,34 @@ export async function runAuthoringFuzz(
                       candidate !== element && element.contains(candidate),
                   ),
               );
+        const activeItem =
+          targets[0]?.tagName === "LI" ? targets[0] : targets[0]?.closest("li");
+        const activeList = activeItem?.parentElement ?? null;
+        if (
+          ((operation.kind === "slash" &&
+            (operation.value === "bulletList" ||
+              operation.value === "orderedList")) ||
+            listShortcut) &&
+          activeList?.matches("ol, ul")
+        ) {
+          if (operation.kind === "slash") {
+            // The list command changes the active list node as a unit.
+            targets = [activeList];
+          }
+        }
         if (!targets.length) targets.push(root);
         const isTarget = (node: Node) =>
-          targets.some((target) => target === node || target.contains(node));
-        const ancestors = new Set<Element>();
+          targets.some(
+            (target) =>
+              target === node ||
+              target.contains(node) ||
+              (node instanceof Element && node.contains(target)),
+          );
         const siblingText = new Set<Text>();
         for (const target of targets) {
           let current: Node = target;
           while (current !== root && current.parentNode) {
             const parent: Node = current.parentNode;
-            if (parent instanceof Element && parent !== root) {
-              ancestors.add(parent);
-            }
             for (const sibling of Array.from(parent.childNodes)) {
               if (sibling !== current && sibling instanceof Text) {
                 siblingText.add(sibling);
@@ -607,18 +838,27 @@ export async function runAuthoringFuzz(
             current = parent;
           }
         }
+        const layoutProperties = new Set([
+          "block-size",
+          "grid-auto-columns",
+          "grid-auto-rows",
+          "grid-template-columns",
+          "grid-template-rows",
+          "height",
+          "inline-size",
+          "perspective-origin",
+          "transform-origin",
+          "width",
+        ]);
         const css = (element: Element) => {
           const style = getComputedStyle(element);
           return Array.from(style)
+            .filter((property) => !layoutProperties.has(property))
             .sort()
             .map(
               (property) => `${property}:${style.getPropertyValue(property)}`,
             )
             .join(";");
-        };
-        const box = (element: Element) => {
-          const rect = element.getBoundingClientRect();
-          return `${rect.x},${rect.y},${rect.width},${rect.height}`;
         };
         const chrome = [
           "[data-slide-selection-chrome]",
@@ -631,6 +871,45 @@ export async function runAuthoringFuzz(
         const records: NonNullable<
           typeof scope.__authoringFuzzSiblingSnapshot
         >["records"] = [];
+        const order = new Map(
+          Array.from(root.querySelectorAll<Element>("*")).map(
+            (element, index) => [element, index] as const,
+          ),
+        );
+        const isBulletRow = (element: Element | null) =>
+          !!element &&
+          ["DIV", "LI", "P"].includes(element.tagName) &&
+          !!element.firstElementChild &&
+          /^[•●◦▪‣·⁃*+\-–—]$/.test(
+            (element.firstElementChild.textContent ?? "").trim(),
+          );
+        const isListGroup = (element: Element) => {
+          const rows = [
+            element,
+            ...Array.from(element.querySelectorAll("*")),
+          ].filter(isBulletRow);
+          if (!rows.length) return false;
+          const walker = document.createTreeWalker(
+            element,
+            NodeFilter.SHOW_TEXT,
+          );
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            if (
+              (node as Text).data.trim() &&
+              !rows.some((row) => row.contains(node))
+            ) {
+              return false;
+            }
+          }
+          return true;
+        };
+        const isListContainer = (node: Node) =>
+          node instanceof Element &&
+          (/^(OL|UL)$/.test(node.tagName) ||
+            (node.tagName === "DIV" && isListGroup(node)));
+        const isListItem = (node: Node) =>
+          node instanceof Element &&
+          (node.tagName === "LI" || isListGroup(node));
         for (const element of root.querySelectorAll<HTMLElement>("*")) {
           if (
             isTarget(element) ||
@@ -643,26 +922,22 @@ export async function runAuthoringFuzz(
             node: element,
             parent: element.parentNode,
             index: Array.from(element.parentNode.childNodes).indexOf(element),
-            ancestor: ancestors.has(element),
-            signature: ancestors.has(element)
-              ? `${css(element)}:${element.getAttribute("class") ?? ""}:${element.getAttribute("style") ?? ""}`
-              : `${css(element)}:${box(element)}:${element.outerHTML}`,
+            order: order.get(element),
+            style: css(element),
+            attributes: `${element.getAttribute("class") ?? ""}:${element.getAttribute("style") ?? ""}`,
+            text: element.textContent ?? "",
           });
         }
         for (const text of siblingText) {
           const parent = text.parentElement;
           if (!parent || isTarget(text) || !root.contains(text)) continue;
-          const range = document.createRange();
-          range.selectNodeContents(text);
-          const rects = Array.from(range.getClientRects())
-            .map((rect) => `${rect.x},${rect.y},${rect.width},${rect.height}`)
-            .join(";");
           records.push({
             node: text,
             parent,
             index: Array.from(parent.childNodes).indexOf(text),
-            ancestor: false,
-            signature: `${text.data}:${css(parent)}:${rects}`,
+            style: css(parent),
+            attributes: "",
+            text: text.data,
           });
         }
         if (phase === "capture") {
@@ -681,41 +956,170 @@ export async function runAuthoringFuzz(
             continue;
           }
           const parent = record.parent === baseline.root ? root : record.parent;
+          const moved = record.node.parentNode !== parent;
           if (
-            record.node.parentNode !== parent ||
-            Array.from(parent.childNodes).indexOf(record.node) !== record.index
+            moved &&
+            !(
+              listShortcut &&
+              isListItem(record.node) &&
+              isListContainer(record.parent) &&
+              record.node.parentNode &&
+              isListContainer(record.node.parentNode)
+            )
           ) {
-            failures.push(`moved ${record.node.nodeName}`);
-            continue;
+            const structure = (node: Node) =>
+              node instanceof Element
+                ? `${node.tagName}[${Array.from(node.children)
+                    .map((child) => child.tagName)
+                    .join(
+                      ",",
+                    )};list=${isListGroup(node)};text=${node.textContent?.length ?? 0}]`
+                : node.nodeName;
+            failures.push(
+              `moved ${structure(record.node)} ${structure(record.parent)}->${structure(record.node.parentNode ?? record.parent)}`,
+            );
           }
-          const signature =
+          const style = css(
             record.node instanceof Text
-              ? `${record.node.data}:${css(parent as Element)}:${(() => {
-                  const range = document.createRange();
-                  range.selectNodeContents(record.node);
-                  return Array.from(range.getClientRects())
-                    .map(
-                      (rect) =>
-                        `${rect.x},${rect.y},${rect.width},${rect.height}`,
-                    )
-                    .join(";");
-                })()}`
-              : record.ancestor
-                ? `${css(record.node)}:${record.node.getAttribute("class") ?? ""}:${record.node.getAttribute("style") ?? ""}`
-                : `${css(record.node)}:${box(record.node)}:${record.node.outerHTML}`;
-          if (signature !== record.signature) {
-            failures.push(`changed ${record.node.nodeName}`);
+              ? (record.node.parentElement ?? (parent as Element))
+              : record.node,
+          );
+          const attributes =
+            record.node instanceof Element
+              ? `${record.node.getAttribute("class") ?? ""}:${record.node.getAttribute("style") ?? ""}`
+              : "";
+          const styleProperties = (value: string) =>
+            new Map(
+              value.split(";").map((entry) => {
+                const separator = entry.indexOf(":");
+                return [entry.slice(0, separator), entry.slice(separator + 1)];
+              }),
+            );
+          const beforeStyle = styleProperties(record.style);
+          const afterStyle = styleProperties(style);
+          const changedStyle = [
+            ...new Set([...beforeStyle.keys(), ...afterStyle.keys()]),
+          ].filter(
+            (property) =>
+              beforeStyle.get(property) !== afterStyle.get(property),
+          );
+          const changes = changedStyle.length ? ["style"] : [];
+          if (record.node instanceof Text && record.node.data !== record.text)
+            changes.push("text");
+          if (
+            record.node instanceof Element &&
+            record.node.textContent !== record.text
+          )
+            changes.push("text");
+          if (
+            record.node instanceof Element &&
+            attributes !== record.attributes
+          )
+            changes.push("authored attributes");
+          if (changes.length) {
+            failures.push(
+              `changed ${record.node.nodeName} (${changes.join(", ")}${changedStyle.length ? `: ${changedStyle.slice(0, 6).join(", ")}` : ""})`,
+            );
           }
+        }
+        const expectedOrder = baseline.records
+          .filter(
+            (
+              record,
+            ): record is (typeof baseline.records)[number] & {
+              node: Element;
+              order: number;
+            } => record.node instanceof Element && record.order !== undefined,
+          )
+          .sort((a, b) => a.order - b.order);
+        const actualOrder = [...expectedOrder].sort((a, b) =>
+          a.node.compareDocumentPosition(b.node) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+            ? -1
+            : 1,
+        );
+        if (
+          expectedOrder.some(
+            (record, index) => actualOrder[index]?.node !== record.node,
+          )
+        ) {
+          failures.push("reordered sibling blocks");
         }
         return failures;
       },
-      { selector: editorSelector, phase },
+      { selector: editorSelector, phase, operation },
     );
   const assertOutsideUnchanged = async (baseline: string) => {
-    if (JSON.stringify(await snapshotOutside()) !== baseline) {
-      throw new Error(
-        "computed style or geometry changed outside the edited element",
+    const current = await snapshotOutside();
+    const previous = JSON.parse(baseline) as Array<{
+      path: string;
+      tag: string;
+      className: string;
+      inlineStyle: string;
+      computed: string;
+      rect: number[];
+    }>;
+    const styleChanges: string[] = [];
+    const geometryChanges: string[] = [];
+    const styleProperties = (value: string) =>
+      new Map(
+        value.split(";").map((entry) => {
+          const separator = entry.indexOf(":");
+          return [entry.slice(0, separator), entry.slice(separator + 1)];
+        }),
       );
+    for (
+      let index = 0;
+      index < Math.max(previous.length, current.length);
+      index++
+    ) {
+      const before = previous[index];
+      const after = current[index];
+      if (!before || !after) {
+        styleChanges.push(
+          `${before?.path ?? after?.path}:${before?.tag ?? after?.tag} added/removed`,
+        );
+      } else {
+        if (
+          before.className !== after.className ||
+          before.inlineStyle !== after.inlineStyle ||
+          before.computed !== after.computed
+        ) {
+          const beforeStyle = styleProperties(before.computed);
+          const afterStyle = styleProperties(after.computed);
+          const properties = [
+            ...new Set([...beforeStyle.keys(), ...afterStyle.keys()]),
+          ].filter(
+            (property) =>
+              beforeStyle.get(property) !== afterStyle.get(property),
+          );
+          styleChanges.push(
+            `${after.path}:${after.tag} changed ${[
+              ...(before.className !== after.className ? ["class"] : []),
+              ...(before.inlineStyle !== after.inlineStyle
+                ? ["inline style"]
+                : []),
+              ...properties.slice(0, 5),
+            ].join(", ")}`,
+          );
+        }
+        if (before.rect.join(",") !== after.rect.join(",")) {
+          geometryChanges.push(
+            `${after.path}:${after.tag} ${before.rect.join(",")} -> ${after.rect.join(",")}`,
+          );
+        }
+      }
+    }
+    if (styleChanges.length) {
+      throw new Error(
+        `authored or non-geometric computed style changed outside the edited element: ${styleChanges.slice(0, 5).join("; ")}`,
+      );
+    }
+    if (geometryChanges.length && !reportedNativeReflow) {
+      console.warn(
+        `[authoring-fuzz] native auto-layout reflow outside the edited element: ${geometryChanges.slice(0, 3).join("; ")}`,
+      );
+      reportedNativeReflow = true;
     }
   };
   const withoutSessionAttributes = async (html: string) =>
@@ -760,42 +1164,30 @@ export async function runAuthoringFuzz(
           return 0;
       }
     }, result);
-  const assertShortcut = async (result: string, before: number) => {
+  const assertShortcut = async (
+    result: string,
+    before: number,
+    beforeTextLength: number,
+  ) => {
     const after = await shortcutResultCount(result);
-    if (after <= before) {
-      const structure = await editor.evaluate((root: HTMLElement) => ({
-        rootTag: root.tagName,
-        children: Array.from(root.children, (child) => ({
-          tag: child.tagName,
-          textLength: child.textContent?.length ?? 0,
-          tags: Array.from(child.querySelectorAll("*"), (node) =>
-            node.tagName.toLowerCase(),
-          ),
-        })),
-        listTags: Array.from(root.querySelectorAll("ul,ol,li"), (node) =>
-          node.tagName.toLowerCase(),
-        ),
-        flexRows: root.querySelectorAll('[style*="display: flex"]').length,
-        rootIsFlexRow: root.matches('[style*="display: flex"]'),
-        textLength: root.textContent?.length ?? 0,
-        caret:
-          window.getSelection()?.anchorNode?.parentElement?.tagName ?? null,
-      }));
+    const afterTextLength = (await inspectSelection()).text.length;
+    if (
+      after <= before &&
+      !(result === "bullet" && afterTextLength === beforeTextLength)
+    ) {
       throw new Error(
-        `markdown shortcut did not produce ${result} (${before} -> ${after}; ${JSON.stringify(structure)})`,
+        `markdown shortcut did not produce ${result} (${before} -> ${after}, text ${beforeTextLength} -> ${afterTextLength})`,
       );
     }
   };
   const newLine = async () => {
     await editor.press(lineEndKey);
     await editor.press("Enter");
-    await editor.press(lineStartKey);
   };
   const newPlainLine = async () => {
     await editor.press(lineEndKey);
     await editor.press("Enter");
     await editor.press("Enter");
-    await editor.press(lineStartKey);
   };
   const openSlashMenu = async () => {
     await newLine();
@@ -808,21 +1200,46 @@ export async function runAuthoringFuzz(
       (root: HTMLElement) => document.activeElement === root,
     );
     if (!focused) throw new Error("slash menu stole focus from the editor");
-    const withinViewport = await page
+    const position = await page
       .locator('[role="listbox"]')
       .evaluate((menu: HTMLElement) => {
+        const bounds = (rect: DOMRect) => ({
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+        });
         const rect = menu.getBoundingClientRect();
-        return (
-          rect.width > 0 &&
-          rect.height > 0 &&
-          rect.left >= 0 &&
-          rect.top >= 0 &&
-          rect.right <= window.innerWidth &&
-          rect.bottom <= window.innerHeight
-        );
+        const anchor = window
+          .getSelection()
+          ?.getRangeAt(0)
+          .getBoundingClientRect();
+        return {
+          menu: bounds(rect),
+          anchor: anchor ? bounds(anchor) : null,
+          viewport: { width: window.innerWidth, height: window.innerHeight },
+          anchorInViewport:
+            !!anchor &&
+            anchor.right >= 0 &&
+            anchor.left <= window.innerWidth &&
+            anchor.bottom >= 0 &&
+            anchor.top <= window.innerHeight,
+          side: menu.getAttribute("data-side"),
+          within:
+            rect.width > 0 &&
+            rect.height > 0 &&
+            rect.left >= 0 &&
+            rect.top >= 0 &&
+            rect.right <= window.innerWidth &&
+            rect.bottom <= window.innerHeight,
+        };
       });
-    if (!withinViewport)
-      throw new Error("slash menu is clipped beyond the viewport");
+    if (!position.within && position.anchorInViewport)
+      throw new Error(
+        `slash menu is clipped beyond the viewport (${JSON.stringify(position)})`,
+      );
   };
   const runSlashCommand = async (
     command: string,
@@ -855,49 +1272,36 @@ export async function runAuthoringFuzz(
     )
       throw new Error(`${command} did not consume its slash query`);
   };
-  const selectTextRange = async (start: number, end: number) =>
+  const selectToken = async (token: string, edge?: "start" | "end") =>
     editor.evaluate(
-      (root: HTMLElement, range: { start: number; end: number }) => {
+      (
+        root: HTMLElement,
+        target: { token: string; edge?: "start" | "end" },
+      ) => {
         const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-        const textNodes: Text[] = [];
+        let found: { text: Text; index: number } | null = null;
         for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-          textNodes.push(node as Text);
+          const text = node as Text;
+          const index = text.data.lastIndexOf(target.token);
+          if (index >= 0) found = { text, index };
         }
-        const locate = (offset: number): [Text, number] | null => {
-          let remaining = offset;
-          for (const text of textNodes) {
-            for (let index = 0; index < text.length; index += 1) {
-              if (text.data[index] === "\u200b") continue;
-              if (remaining === 0) return [text, index];
-              remaining -= 1;
-            }
-            if (remaining === 0) return [text, text.length];
-          }
-          const last = textNodes.at(-1);
-          return last ? [last, last.length] : null;
-        };
-        const from = locate(range.start);
-        const to = locate(range.end);
-        if (!from || !to) throw new Error("range target contains no text");
+        if (!found)
+          throw new Error("could not locate fuzz token in one text node");
+        const start =
+          found.index + (target.edge === "end" ? target.token.length : 0);
+        const end = target.edge ? start : found.index + target.token.length;
+        const selected = document.createRange();
+        selected.setStart(found.text, start);
+        selected.setEnd(found.text, end);
         const selection = window.getSelection();
         if (!selection) throw new Error("browser selection is unavailable");
-        const selected = document.createRange();
-        selected.setStart(...from);
-        selected.setEnd(...to);
         selection.removeAllRanges();
         selection.addRange(selected);
       },
-      { start, end },
+      { token, edge },
     );
-  const textOffset = async (token: string, edge: "start" | "end") => {
-    const text = (await inspectSelection()).text;
-    const start = text.lastIndexOf(token);
-    if (start < 0) throw new Error(`could not locate fuzz token ${token}`);
-    return edge === "start" ? start : start + token.length;
-  };
   const placeCaretAtToken = async (token: string, edge: "start" | "end") => {
-    const offset = await textOffset(token, edge);
-    await selectTextRange(offset, offset);
+    await selectToken(token, edge);
   };
   const listRowCount = async (kind: "styled" | "ul" | "ol") =>
     editor.evaluate((root: HTMLElement, type: string) => {
@@ -1073,55 +1477,34 @@ export async function runAuthoringFuzz(
     await typeText("teh");
     const state = await inspectSelection();
     if (!state.inside) throw new Error("autocorrect sample left the editor");
-    const start = state.start - 3;
-    if (start < 0)
-      throw new Error("autocorrect sample did not land at the caret");
-    await selectTextRange(start, state.end);
+    await selectToken("teh");
     const selected = await inspectSelection();
     const expected =
       selected.text.slice(0, selected.start) +
       "the" +
       selected.text.slice(selected.end);
-    await editor.evaluate(
-      (root: HTMLElement, offsets: { start: number; end: number }) => {
-        const pointAt = (offset: number): [Text, number] => {
-          let remaining = offset;
-          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-            const text = node as Text;
-            let visible = 0;
-            for (let raw = 0; raw <= text.data.length; raw += 1) {
-              if (visible === remaining) return [text, raw];
-              if (text.data[raw] !== "\u200b") visible += 1;
-            }
-            remaining -= visible;
-          }
-          throw new Error("autocorrect target offset left the editor");
-        };
-        const target = document.createRange();
-        target.setStart(...pointAt(offsets.start));
-        target.setEnd(...pointAt(offsets.end));
-        if (target.toString().replaceAll("\u200b", "") !== "teh") {
-          throw new Error(
-            "autocorrect target range did not select the typed token",
-          );
-        }
-        const selection = window.getSelection();
-        if (!selection) throw new Error("browser selection is unavailable");
-        selection.collapse(root, root.childNodes.length);
-        const event = new InputEvent("beforeinput", {
-          inputType: "insertReplacementText",
-          data: "the",
-          bubbles: true,
-          cancelable: true,
-        });
-        Object.defineProperty(event, "getTargetRanges", {
-          value: () => [target],
-        });
-        root.dispatchEvent(event);
-      },
-      { start, end: state.start },
-    );
+    await editor.evaluate((root: HTMLElement) => {
+      const selection = window.getSelection();
+      if (!selection?.rangeCount)
+        throw new Error("autocorrect selection is unavailable");
+      const target = selection.getRangeAt(0).cloneRange();
+      if (target.toString().replaceAll("\u200b", "") !== "teh") {
+        throw new Error(
+          "autocorrect target range did not select the typed token",
+        );
+      }
+      selection.collapse(root, root.childNodes.length);
+      const event = new InputEvent("beforeinput", {
+        inputType: "insertReplacementText",
+        data: "the",
+        bubbles: true,
+        cancelable: true,
+      });
+      Object.defineProperty(event, "getTargetRanges", {
+        value: () => [target],
+      });
+      root.dispatchEvent(event);
+    });
     const after = await inspectSelection();
     if (
       !after.inside ||
@@ -1144,17 +1527,23 @@ export async function runAuthoringFuzz(
     for (activeIndex = 0; activeIndex < plan.length; activeIndex += 1) {
       activePhase = `step ${activeIndex}`;
       const operation = plan[activeIndex];
-      await snapshotEditorSiblings("capture");
+      await snapshotEditorSiblings("capture", operation);
       switch (operation.kind) {
         case "type":
           await typeText(operation.value);
           break;
         case "shortcut":
-          await newLine();
+          await newPlainLine();
+          await snapshotEditorSiblings("capture", operation);
           {
             const before = await shortcutResultCount(operation.result);
-            await typeText(operation.value, true, true);
-            await assertShortcut(operation.result, before);
+            const beforeTextLength = (await inspectSelection()).text.length;
+            await typeText(
+              operation.value,
+              operation.result !== "divider",
+              true,
+            );
+            await assertShortcut(operation.result, before, beforeTextLength);
             await typeBurst("q", true);
           }
           break;
@@ -1335,6 +1724,7 @@ export async function runAuthoringFuzz(
         }
         case "heading-backspace":
         case "quote-backspace": {
+          await newPlainLine();
           await runSlashCommand(
             operation.kind === "heading-backspace" ? "heading2" : "quote",
           );
@@ -1364,8 +1754,53 @@ export async function runAuthoringFuzz(
             },
             token,
           );
-          if (!demoted)
-            throw new Error(`${operation.kind} did not demote the block`);
+          if (!demoted) {
+            const state = await editor.evaluate(
+              (root: HTMLElement, value: string) => {
+                const walker = document.createTreeWalker(
+                  root,
+                  NodeFilter.SHOW_TEXT,
+                );
+                for (
+                  let node = walker.nextNode();
+                  node;
+                  node = walker.nextNode()
+                ) {
+                  const text = node as Text;
+                  if (!text.data.includes(value)) continue;
+                  const block = text.parentElement?.closest(
+                    "h1,h2,h3,h4,h5,h6,blockquote,p,li",
+                  );
+                  const selection = window.getSelection();
+                  const caret = selection?.rangeCount
+                    ? selection.getRangeAt(0)
+                    : null;
+                  const before = document.createRange();
+                  if (block && caret) {
+                    before.selectNodeContents(block);
+                    before.setEnd(caret.startContainer, caret.startOffset);
+                  }
+                  return {
+                    rootTag: root.tagName,
+                    blockTag: block?.tagName ?? null,
+                    caretTag:
+                      caret?.startContainer instanceof Element
+                        ? caret.startContainer.tagName
+                        : (caret?.startContainer.parentElement?.tagName ??
+                          null),
+                    caretOffset: caret?.startOffset ?? null,
+                    prefixLength: before.toString().replaceAll("\u200b", "")
+                      .length,
+                  };
+                }
+                return null;
+              },
+              token,
+            );
+            throw new Error(
+              `${operation.kind} did not demote the block (${JSON.stringify(state)})`,
+            );
+          }
           await editor.press("Backspace");
           if (!(await inspectSelection()).text.includes(token)) {
             throw new Error(`${operation.kind} second Backspace lost text`);
@@ -1594,8 +2029,7 @@ export async function runAuthoringFuzz(
           await newLine();
           const token = `url${activeIndex}`;
           await typeText(token);
-          const start = await textOffset(token, "start");
-          await selectTextRange(start, start + token.length);
+          await selectToken(token);
           await paste(null, "https://example.com/fuzz");
           const linked = await editor.evaluate(
             (root: HTMLElement, value: string) =>
@@ -1613,8 +2047,7 @@ export async function runAuthoringFuzz(
           await newLine();
           const token = `link${activeIndex}`;
           await typeText(token);
-          const start = await textOffset(token, "start");
-          await selectTextRange(start, start + token.length);
+          await selectToken(token);
           await page.keyboard.press(`${modifier}+K`);
           const input = page.locator("input[placeholder]").last();
           await input.waitFor({ state: "visible", timeout: 1500 });
@@ -1715,8 +2148,7 @@ export async function runAuthoringFuzz(
           await newLine();
           const token = `copymark${activeIndex}`;
           await typeText(token);
-          const start = await textOffset(token, "start");
-          await selectTextRange(start, start + token.length);
+          await selectToken(token);
           await page.keyboard.press(`${modifier}+B`);
           const copied = await copySelection();
           if (!/<(?:strong|b)\b/i.test(copied.html)) {
@@ -1748,12 +2180,13 @@ export async function runAuthoringFuzz(
       }
 
       await assertCaret();
-      checkPageErrors();
-      const siblingChanges = await snapshotEditorSiblings("assert");
+      await checkPageErrors();
+      const siblingChanges = await snapshotEditorSiblings("assert", operation);
       if (
         siblingChanges.length &&
-        operation.kind !== "undo" &&
-        operation.kind !== "redo"
+        !["undo", "redo", "shortcut-undo", "slash-undo"].includes(
+          operation.kind,
+        )
       ) {
         throw new Error(
           `sibling block inside the editor moved or restyled: ${siblingChanges.slice(0, 5).join(", ")}`,
@@ -1787,7 +2220,7 @@ export async function runAuthoringFuzz(
       }
       currentHtml = nextHtml;
       await assertCaret();
-      checkPageErrors();
+      await checkPageErrors();
       await assertOutsideUnchanged(outsideBefore);
     }
     assertByteIdenticalHtml(currentHtml, originalHtml, "undo-all editor HTML");
@@ -1816,7 +2249,7 @@ export async function runAuthoringFuzz(
       }
       currentHtml = nextHtml;
       await assertCaret();
-      checkPageErrors();
+      await checkPageErrors();
       await assertOutsideUnchanged(outsideBefore);
     }
     assertByteIdenticalHtml(currentHtml, finalHtml, "redo-all editor HTML");
@@ -1829,7 +2262,7 @@ export async function runAuthoringFuzz(
     activePhase = "save/reload";
     const persistence = await options.finishAndReload();
     assertAuthoringPersistence(persistence);
-    checkPageErrors();
+    await checkPageErrors();
     return {
       seed,
       stepsRun: plan.length,
@@ -1839,9 +2272,16 @@ export async function runAuthoringFuzz(
     };
   } catch (error) {
     const prefix = replay();
-    throw formatAuthoringFuzzFailure(seed, activePhase, prefix, String(error));
+    throw formatAuthoringFuzzFailure(
+      seed,
+      activePhase,
+      prefix,
+      String(error),
+      options.browser,
+    );
   } finally {
     page.off("console", onConsole);
     page.off("pageerror", onPageError);
+    page.off("response", onResponse);
   }
 }

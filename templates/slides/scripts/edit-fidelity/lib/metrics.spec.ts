@@ -12,6 +12,7 @@ import {
   keepaliveMismatches,
   lineDiff,
   orphanedBaselineKeys,
+  p95IndexFromThresholdedSamples,
   ratchetBaselineEntry,
   resized,
   restyledAddedText,
@@ -66,6 +67,32 @@ describe("resized", () => {
     expect(resized(before, { ...before, height: 139.01 })).toBe(true);
     expect(resized(before, { ...before, width: 101.01 })).toBe(true);
     expect(resized(null, rect)).toBe(false);
+  });
+});
+
+describe("p95IndexFromThresholdedSamples", () => {
+  it("remaps the percentile to include unobserved sub-threshold events", () => {
+    expect(p95IndexFromThresholdedSamples(64, 20, 16)).toEqual({
+      kind: "observed",
+      index: 16,
+    });
+    expect(p95IndexFromThresholdedSamples(64, 4, 16)).toEqual({
+      kind: "observed",
+      index: 0,
+    });
+  });
+
+  it("reports a threshold bound when the p95 event was not observed", () => {
+    expect(p95IndexFromThresholdedSamples(64, 3, 16)).toEqual({
+      kind: "below-threshold",
+      bound: 16,
+    });
+  });
+
+  it("rejects counts that cannot describe a thresholded sample", () => {
+    expect(() => p95IndexFromThresholdedSamples(64, 65, 16)).toThrow(
+      RangeError,
+    );
   });
 });
 

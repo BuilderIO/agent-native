@@ -68,8 +68,10 @@ representative source slides from the selected corpus. The gate requires
 absolute positioning, flex/grid, styled list rows, and a viewport-scaled slide;
 it saves and reloads each result and compares canonical markup plus
 outside-block style/geometry. On the largest corpus slide, it reports Event
-Timing keydown-to-paint p95 and warns when it exceeds 16 ms. It gates the p95
-time from keydown through the first animation frame and forced layout at 16 ms;
+Timing keydown-to-paint p95 and warns when it exceeds 16 ms. Since Event Timing
+omits entries below 16 ms, the report uses all keydowns and shows a `<=16 ms`
+bound when the p95 is below that threshold. It gates the p95 time from keydown
+through the first animation frame and forced layout at 16 ms;
 that measurement is a proxy, not paint. Browsers without Event Timing use the
 same proxy gate. Slides with `data:` URLs are excluded from the authoring
 rounds; the largest-slide latency copy replaces those URLs with `about:blank`

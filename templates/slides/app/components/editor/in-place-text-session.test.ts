@@ -644,6 +644,24 @@ describe("in-place text session: typing", () => {
     expect(onInput).toHaveBeenCalled();
   });
 
+  it("keeps leading whitespace while typing a list shortcut on a br line", () => {
+    const el = mount('<div id="t"><p>Previous</p><p><br> text</p></div>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "text"), 0);
+
+    expect(beforeInput(el, "insertText", { data: "-" }).defaultPrevented).toBe(
+      true,
+    );
+    type(el, " ");
+
+    expect(
+      el.querySelector('div[style*="display: flex"] > span:last-child')
+        ?.textContent,
+    ).toBe(" text");
+    expect(el.textContent).toContain("Previous");
+    expect(el.textContent).toContain("text");
+  });
+
   it("replaces a range selection itself, keeping the span it starts in", () => {
     const el = mount('<p id="t">ab<span style="color: red">cd</span>ef</p>');
     session = startInPlaceTextSession(el);
@@ -2267,6 +2285,25 @@ describe("in-place text session: commands", () => {
     ).toBe(true);
     type(session.element, "Tail");
     expect(session.element.textContent).toBe("First line●Tail");
+  });
+
+  it("converts a bullet prefix typed into an inline span after Enter", () => {
+    const el = mount('<p id="t"><span style="color:red">First line</span></p>');
+    session = startInPlaceTextSession(el);
+    const firstLine = textOf(el, "First line");
+    caret(firstLine, firstLine.length);
+    beforeInput(el, "insertParagraph");
+    type(session.element, "- ");
+
+    const root = session.element;
+    expect(root.textContent).toBe("First line●");
+    expect(
+      root.querySelectorAll(':scope > div[style*="display: flex"]'),
+    ).toHaveLength(1);
+    const styledText = Array.from(
+      root.querySelectorAll<HTMLElement>("[style]"),
+    ).find((element) => element.style.color === "red");
+    expect(styledText?.textContent).toContain("First line");
   });
 
   it("turns '---' into a divider without requiring a trailing space", () => {

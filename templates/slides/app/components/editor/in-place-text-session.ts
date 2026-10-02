@@ -14,6 +14,7 @@ import {
   insertBulletAfterCaret,
   isBulletMarker,
   isBulletRow,
+  isMarkdownBulletPrefixInMarker,
   removeEmptyBulletAtCaret,
   rowTextRange,
   stripCopiedIdentity,
@@ -2124,6 +2125,21 @@ export function startInPlaceTextSession(
 
   function isNativeInsert(range: Range) {
     const text = range.startContainer;
+    if (
+      range.collapsed &&
+      text instanceof Text &&
+      /\s/.test(text.data[range.startOffset] ?? "")
+    ) {
+      const prefix = linePrefix(commandBlock(text), range)
+        .toString()
+        .replaceAll(ZERO_WIDTH_SPACE, "")
+        .replaceAll("\u00a0", " ");
+      if (
+        /^(?:[-*+]|\d+\.?|#{1,4}|>|_{1,2}|\*{1,2}|~{1,2}|`{1,3})?$/.test(prefix)
+      ) {
+        return false;
+      }
+    }
     return (
       range.collapsed &&
       text instanceof Text &&
@@ -3008,7 +3024,7 @@ export function startInPlaceTextSession(
 
   function linePrefix(block: HTMLElement, caret: Range) {
     let start: [Node, number] = [block, 0];
-    if (isBulletRow(block)) {
+    if (isBulletRow(block) && !isMarkdownBulletPrefixInMarker(block, caret)) {
       const marker =
         block.firstElementChild instanceof HTMLElement &&
         isBulletMarker(block.firstElementChild)
@@ -3781,7 +3797,10 @@ export function startInPlaceTextSession(
           current = selectionRange();
           if (!current) return false;
         }
-        if (isBulletRow(target)) {
+        if (
+          isBulletRow(target) &&
+          !isMarkdownBulletPrefixInMarker(target, current)
+        ) {
           deleteRange(linePrefix(target, current));
           return true;
         }

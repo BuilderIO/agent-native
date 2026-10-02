@@ -4,6 +4,7 @@ import {
   assertAuthoringPersistence,
   assertByteIdenticalHtml,
   assertSlideIsScaled,
+  authoringFuzzProfileIndex,
   canonicalizeAuthoringFuzzPersistence,
   createAuthoringFuzzPlan,
   formatAuthoringFuzzFailure,
@@ -41,7 +42,7 @@ it("requires corpus authoring output to be changed, saved, and reloaded", () => 
       savedHtml: "source",
       reloadedHtml: "source",
     }),
-  ).toThrow("saved HTML differed from the post-edit live slide");
+  ).toThrow("authoring flow did not change the persisted slide HTML");
   expect(() =>
     assertAuthoringPersistence({
       originalHtml: "source",
@@ -57,15 +58,17 @@ it("requires corpus authoring output to be changed, saved, and reloaded", () => 
       savedHtml: "edited",
       reloadedHtml: "source",
     }),
-  ).toThrow("reloaded slide HTML differed from the saved HTML");
+  ).toThrow("reloaded slide HTML differed from the post-edit live slide");
   expect(() =>
     assertAuthoringPersistence({
       originalHtml: "source",
-      liveHtml: '<p class="a b">edited</p>',
-      savedHtml: '<p class="b a">edited</p>',
-      reloadedHtml: '<p class="b a">edited</p>',
+      liveHtml:
+        '<a href="https://example.com" rel="noopener noreferrer" target="_blank">edited</a>',
+      savedHtml: '<a href="https://example.com">edited</a>',
+      reloadedHtml:
+        '<a href="https://example.com" rel="noopener noreferrer" target="_blank">edited</a>',
     }),
-  ).toThrow("saved HTML differed from the post-edit live slide");
+  ).not.toThrow();
 });
 
 it("canonicalizes every rendered and stored persistence snapshot", async () => {
@@ -146,12 +149,34 @@ it("creates reproducible authoring plans with full command coverage", () => {
   expect(() => createAuthoringFuzzPlan(42, 0)).toThrow("positive integer");
 });
 
+it("ends each fuzz plan with an edit after undo and redo operations", () => {
+  for (const steps of [51, 52, 61, 500]) {
+    for (const seed of [1, 42, 1337]) {
+      expect(["undo", "redo", "shortcut-undo", "slash-undo"]).not.toContain(
+        createAuthoringFuzzPlan(seed, steps).at(-1)?.kind,
+      );
+    }
+  }
+});
+
 it.each([
   ["darwin", "Meta+ArrowLeft", "Meta+ArrowRight"],
   ["linux", "Home", "End"],
   ["win32", "Home", "End"],
 ])("uses platform line navigation keys on %s", (platform, start, end) => {
   expect(lineNavigationKeys(platform)).toEqual({ start, end });
+});
+
+it("maps absolute seeds to stable synthetic and committed layout profiles", () => {
+  expect([0, 1, 3, 5, 7, 9, 11, 13].map(authoringFuzzProfileIndex)).toEqual(
+    Array(8).fill(null),
+  );
+  expect([2, 4, 6, 8, 10, 12, 14].map(authoringFuzzProfileIndex)).toEqual([
+    0, 1, 2, 3, 4, 5, 0,
+  ]);
+  expect(() => authoringFuzzProfileIndex(-1)).toThrow(
+    "non-negative safe integer",
+  );
 });
 
 it("requires the scaled profile to render below 0.99 after viewport setup", async () => {
@@ -213,6 +238,7 @@ it("prints a bounded failure excerpt with a deterministic seed and replay step c
     "step 499",
     plan,
     "caret left the editor",
+    "firefox",
   );
   const logHeader = failure.message.indexOf("Failure log:");
   const jsonStart = failure.message.indexOf("\n", logHeader) + 1;
@@ -222,6 +248,7 @@ it("prints a bounded failure excerpt with a deterministic seed and replay step c
   }>;
 
   expect(failure.message).toContain("--authoring-fuzz --seed 42 --steps 500");
+  expect(failure.message).toContain("--browser firefox");
   expect(failure.message).toContain(
     "Failure log: steps 480-499 of 500 replay steps",
   );

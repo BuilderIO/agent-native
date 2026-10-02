@@ -340,9 +340,14 @@ export function installInPageHelpers(chromeSelector: string) {
         el.hasAttribute("data-fmd-autofit-active"),
       );
     }
-    const map = el.computedStyleMap();
+    const map =
+      typeof el.computedStyleMap === "function" ? el.computedStyleMap() : null;
+    const inline = (el as HTMLElement).style;
     for (const s of SIDES) {
-      if (String(map.get(`margin-${s}`)) === "auto")
+      if (
+        String(map?.get(`margin-${s}`)) === "auto" ||
+        (!map && inline?.getPropertyValue(`margin-${s}`) === "auto")
+      )
         out[`margin-${s}`] = "auto";
     }
     return out;
