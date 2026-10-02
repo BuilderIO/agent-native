@@ -1540,6 +1540,65 @@ ALTER TABLE analysis_revisions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
     )`,
       },
     },
+    {
+      version: 154,
+      name: "analytics-performance-aggregates",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_route_performance_daily (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      event_date TEXT NOT NULL,
+      app TEXT NOT NULL DEFAULT '',
+      route TEXT NOT NULL,
+      metric TEXT NOT NULL,
+      histogram_version INTEGER NOT NULL DEFAULT 1,
+      bucket INTEGER NOT NULL,
+      weight DOUBLE PRECISION NOT NULL DEFAULT 0
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_route_performance_daily_key_idx
+      ON analytics_route_performance_daily (tenant_key, event_date, app, route, metric, histogram_version, bucket);
+    CREATE TABLE IF NOT EXISTS analytics_session_performance (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      session_id TEXT NOT NULL,
+      app TEXT NOT NULL DEFAULT '',
+      page_views INTEGER NOT NULL DEFAULT 0,
+      max_ttfb_ms DOUBLE PRECISION,
+      max_lcp_ms DOUBLE PRECISION,
+      max_inp_ms DOUBLE PRECISION,
+      max_cls DOUBLE PRECISION,
+      slow_requests INTEGER NOT NULL DEFAULT 0,
+      max_request_ms DOUBLE PRECISION,
+      first_at TEXT NOT NULL,
+      last_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_session_performance_key_idx
+      ON analytics_session_performance (tenant_key, session_id);
+    CREATE INDEX IF NOT EXISTS analytics_session_performance_tenant_last_at_idx
+      ON analytics_session_performance (tenant_key, last_at);
+    CREATE TABLE IF NOT EXISTS analytics_performance_gaps (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      event_date TEXT NOT NULL,
+      session_id TEXT NOT NULL DEFAULT '',
+      recorded_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_performance_gaps_key_idx
+      ON analytics_performance_gaps (tenant_key, event_date, session_id);
+    CREATE TABLE IF NOT EXISTS analytics_performance_coverage (
+      tenant_key TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      started_at TEXT NOT NULL
+    )`,
+      },
+    },
   ],
   { table: "analytics_migrations" },
 );

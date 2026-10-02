@@ -980,6 +980,7 @@ export default {
     dataSources: "Fontes de dados - Analytics",
     sessions: "Sessões - Analytics",
     eventCatalog: "Catálogo de eventos - Analytics",
+    routePerformance: "Desempenho por rota - Analytics",
     monitoring: "Monitoramento - Analytics",
     agents: "Agentes - Analytics",
     session: "Replay de sessão - Analytics",
@@ -1299,7 +1300,7 @@ export default {
     showingSingular: "{{count}} sessão",
     labName: "Triagem de sessões",
     labDescription:
-      "Filtre sessões por eventos rastreados, veja eventos do app na linha do tempo do replay e navegue pelo catálogo de eventos.",
+      "Filtre sessões por eventos rastreados e velocidade, veja eventos do app e métricas web da página na linha do tempo do replay e navegue pelo catálogo de eventos e pelo desempenho por rota.",
     allApps: "Todos os apps",
     customRange: "Intervalo personalizado",
     fromDate: "De",
@@ -1377,6 +1378,34 @@ export default {
     catalogMoreKeys: "+{{count}} mais",
     catalogTruncated:
       "Mostrando apenas os {{count}} eventos vistos mais recentemente.",
+    routePerformance: "Desempenho por rota",
+    speed: "Velocidade",
+    anySpeed: "Qualquer velocidade",
+    speedSlowAny: "Lentas",
+    speedPoorVitals: "Web Vitals ruins",
+    speedSlowRequests: "Requisições lentas",
+    speedCoverageSince: "Velocidade medida desde {{date}}.",
+    speedCoverageStarting:
+      "A velocidade é medida nas visualizações de página a partir de agora.",
+    speedFilterNeedsLab:
+      "Este link tem um filtro de velocidade. Ative o Lab Triagem de sessões em Configurações para aplicá-lo.",
+    slowRequestCount: "{{count}} requisições lentas",
+    slowRequestCountSingular: "{{count}} requisição lenta",
+    markerPageVitals: "Métricas da página",
+    markerSlowRequest: "Requisição lenta",
+    perfRoute: "Rota da página",
+    perfRequests: "Requisições",
+    perfNoData: "Sem dados",
+    perfAccuracy:
+      "Cada célula mostra p50 / p95, com margem de cerca de 28%. Requisições abaixo de 1 s são amostradas; as lentas são contadas com exatidão.",
+    perfEmpty: "Nenhuma visualização de página medida neste período.",
+    perfIncomplete:
+      "Alguns eventos não foram contados nestes dias, que podem estar incompletos: {{dates}}",
+    perfLoadFailed:
+      "Não foi possível carregar o desempenho por rota: {{message}}",
+    perfNeedsLab: "O desempenho por rota faz parte do Lab Triagem de sessões.",
+    perfTruncated: "Mostrando apenas as {{count}} rotas mais acessadas.",
+    perfAtLeast: "≥ {{value}}",
     anyActivity: "Qualquer atividade",
     filtersDescription:
       "Os filtros ficam salvos na URL para que o agente e links compartilhados vejam a mesma lista de sessões.",

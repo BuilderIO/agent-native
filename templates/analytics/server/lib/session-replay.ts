@@ -35,6 +35,10 @@ import {
   sql,
 } from "drizzle-orm";
 
+import type {
+  SessionPerformanceSummary,
+  SlowSessionFilter,
+} from "../../shared/session-performance.js";
 import {
   isFailedSessionReplayNetworkStatus,
   SESSION_REPLAY_CONSOLE_EVENT_TAG,
@@ -49,6 +53,12 @@ import {
   pruneSessionEventIndex,
   sessionEventFilterConditions,
 } from "./session-event-index.js";
+import {
+  getPerformanceCoverageStart,
+  getSessionPerformanceSummaries,
+  prunePerformanceAggregates,
+  slowSessionConditions,
+} from "./session-performance.js";
 
 export type ReplayRange = "24h" | "7d" | "30d" | "90d" | "all";
 
@@ -109,6 +119,10 @@ export interface SessionReplayListFilters {
   didEvents?: string[];
   /** Sessions that tracked none of these events. */
   didNotEvents?: string[];
+  /** Sessions with a poor Web Vital, a slow request, or either. */
+  slow?: SlowSessionFilter;
+  /** Attach each recording's performance summary and coverage start. */
+  includePerformance?: boolean;
 }
 
 export interface SessionReplayEventReadOptions {
@@ -191,6 +205,8 @@ export interface SessionRecordingSummary {
   role?: SessionReplayAccessRole;
   canEdit?: boolean;
   canManage?: boolean;
+  /** Present when requested; null when the session was never measured. */
+  performance?: SessionPerformanceSummary | null;
 }
 
 export interface AgentSessionRecordingSummary {
@@ -1729,7 +1745,9 @@ export async function listSessionRecordings(
     filters.sort ||
     filters.offset ||
     filters.didEvents?.length ||
-    filters.didNotEvents?.length
+    filters.didNotEvents?.length ||
+    filters.slow ||
+    filters.includePerformance
   ) {
     return (await listSessionRecordingsPage(scope, filters)).recordings;
   }
@@ -1806,6 +1824,11 @@ export interface SessionRecordingPage {
   recordings: SessionRecordingSummary[];
   total: number;
   appCounts: Array<{ app: string; count: number }>;
+  /**
+   * With a slow filter or performance summaries: when the viewer's
+   * performance aggregates began, or null when they have not.
+   */
+  performanceCoverageStartedAt?: string | null;
 }
 
 const personalEmailDomains = [...FREE_EMAIL_PROVIDER_DOMAINS];
@@ -1836,6 +1859,25 @@ function sessionVisitorDomain() {
   const userId = schema.sessionRecordings.userId;
   const userKey = schema.sessionRecordings.userKey;
   return sql<string>`lower(split_part(case when ${userId} like '%@%' then ${userId} else ${userKey} end, '@', 2))`;
+}
+
+async function sessionRecordingPerformance(
+  scope: SessionReplayScope,
+  recordings: SessionRecordingSummary[],
+  options: { summaries: boolean },
+): Promise<{ coverageStartedAt: string | null }> {
+  const [coverageStartedAt, summaries] = await Promise.all([
+    getPerformanceCoverageStart(scope),
+    options.summaries
+      ? getSessionPerformanceSummaries(recordings)
+      : Promise.resolve(null),
+  ]);
+  if (summaries) {
+    for (const recording of recordings) {
+      recording.performance = summaries.get(recording.id) ?? null;
+    }
+  }
+  return { coverageStartedAt };
 }
 
 export async function listSessionRecordingsPage(
@@ -1933,6 +1975,7 @@ export async function listSessionRecordingsPage(
       didEvents: filters.didEvents,
       didNotEvents: filters.didNotEvents,
     })),
+    ...(await slowSessionConditions(filters.slow)),
   );
   const appConditions = [...conditions];
   if (filters.app)
@@ -1994,9 +2037,21 @@ export async function listSessionRecordingsPage(
           )
           .offset(offset)
       : [];
+  const recordings: SessionRecordingSummary[] = rows.map((row: any) =>
+    rowToSessionRecordingSummary(row),
+  );
+  const performance =
+    filters.slow || filters.includePerformance
+      ? await sessionRecordingPerformance(scope, recordings, {
+          summaries: filters.includePerformance === true,
+        })
+      : null;
   return {
-    recordings: rows.map((row: any) => rowToSessionRecordingSummary(row)),
+    recordings,
     total,
+    ...(performance
+      ? { performanceCoverageStartedAt: performance.coverageStartedAt }
+      : {}),
     appCounts: appRows
       .filter((row: { app: string | null }) => row.app)
       .map((row: { app: string; count: number }) => ({
@@ -2756,6 +2811,11 @@ export async function runSessionReplayRetentionSweep(
     await pruneSessionEventIndex(replayRetentionDays(), now);
   } catch (err) {
     console.warn("[session-replay] Session event index pruning failed:", err);
+  }
+  try {
+    await prunePerformanceAggregates(replayRetentionDays(), now);
+  } catch (err) {
+    console.warn("[session-replay] Performance aggregate pruning failed:", err);
   }
   return {
     finalized: finalized.finalized,

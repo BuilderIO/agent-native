@@ -568,6 +568,94 @@ describe("session replay app event markers", () => {
     ]);
   });
 
+  describe("performance markers", () => {
+    const performanceEvents = [
+      events[0],
+      {
+        type: 5,
+        timestamp: 2_000,
+        data: {
+          tag: "agent-native.vitals",
+          payload: {
+            route: "/r/:id",
+            navigationType: "load",
+            lcpMs: 4_200,
+            cls: 0.02,
+            ttfbMs: 310,
+          },
+        },
+      },
+      {
+        type: 5,
+        timestamp: 3_000,
+        data: {
+          tag: "agent-native.network",
+          payload: {
+            api: "fetch",
+            method: "POST",
+            url: "https://clips.example.test/_agent-native/actions/list-clips",
+            status: 200,
+            ok: true,
+            durationMs: 2_400,
+          },
+        },
+      },
+      {
+        type: 5,
+        timestamp: 3_500,
+        data: {
+          tag: "agent-native.network",
+          payload: {
+            api: "fetch",
+            method: "GET",
+            url: "https://clips.example.test/assets/app.js",
+            status: 200,
+            ok: true,
+            durationMs: 999,
+          },
+        },
+      },
+    ];
+
+    it("leaves the timeline unchanged with the Lab off", () => {
+      expect(
+        buildReplayMarkers(performanceEvents).map((marker) => marker.kind),
+      ).toEqual(["navigation"]);
+    });
+
+    it("marks page vitals and slow requests with the Lab on", () => {
+      const markers = buildReplayMarkers(performanceEvents, {
+        appEvents: true,
+        performance: { pageVitals: "Page vitals", slowRequest: "Slow request" },
+      });
+      expect(
+        markers.map(({ kind, label, detail, severity, offsetMs }) => ({
+          kind,
+          label,
+          detail,
+          severity,
+          offsetMs,
+        })),
+      ).toEqual([
+        expect.objectContaining({ kind: "navigation" }),
+        {
+          kind: "event",
+          label: "Page vitals",
+          detail: "LCP 4.2 s · CLS 0.02 · TTFB 310 ms",
+          severity: "warn",
+          offsetMs: 1_000,
+        },
+        {
+          kind: "event",
+          label: "Slow request",
+          detail: "list-clips · 2.4 s",
+          severity: "warn",
+          offsetMs: 2_000,
+        },
+      ]);
+    });
+  });
+
   it("reads action names from Agent-Native action routes only", () => {
     expect(
       replayActionName("https://x.test/_agent-native/actions/list-clips?x=1"),

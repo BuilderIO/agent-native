@@ -11,6 +11,7 @@ import {
 } from "../server/lib/session-replay.js";
 import { assertSessionsTriageLabEnabled } from "../server/lib/sessions-triage-lab.js";
 import { MAX_SESSION_EVENT_CONDITIONS } from "../shared/session-events.js";
+import { SLOW_SESSION_FILTERS } from "../shared/session-performance.js";
 
 function resolveScope() {
   const userEmail = getRequestUserEmail();
@@ -98,6 +99,18 @@ export default defineAction({
       .describe(
         "Only sessions that tracked none of these event names. Requires the Sessions triage Lab; covers sessions recorded after the event index started.",
       ),
+    slow: z
+      .enum(SLOW_SESSION_FILTERS)
+      .optional()
+      .describe(
+        "Only slow sessions: vitals = a page view with a poor Core Web Vital (LCP > 4 s, INP > 500 ms, CLS > 0.25, or TTFB > 1.8 s); requests = an action request of 1 s or more; any = either. Sessions without measurements never match. Requires the Sessions triage Lab.",
+      ),
+    includePerformance: z
+      .boolean()
+      .optional()
+      .describe(
+        "Attach each recording's worst measured page-view vitals and slow-request count as performance (null when never measured), plus performanceCoverageStartedAt. Requires the Sessions triage Lab.",
+      ),
     limit: z.coerce.number().int().min(1).max(100).optional().default(50),
   }),
   http: { method: "GET" },
@@ -106,7 +119,12 @@ export default defineAction({
   grounding: true,
   run: async (args) => {
     const scope = resolveScope();
-    if (args.didEvents?.length || args.didNotEvents?.length) {
+    if (
+      args.didEvents?.length ||
+      args.didNotEvents?.length ||
+      args.slow ||
+      args.includePerformance
+    ) {
       await assertSessionsTriageLabEnabled(scope.userEmail, scope.orgId);
     }
     return args.paginated

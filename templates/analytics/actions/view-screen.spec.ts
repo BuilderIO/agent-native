@@ -486,6 +486,39 @@ describe("view-screen Sessions context", () => {
     });
   });
 
+  it("applies the slow filter from the URL only while the Lab is on", async () => {
+    listSessionRecordingsPage.mockResolvedValue({
+      recordings: [],
+      total: 0,
+      appCounts: [],
+      performanceCoverageStartedAt: "2026-09-20T00:00:00.000Z",
+    });
+    const url = { pathname: "/sessions", searchParams: { slow: "vitals" } };
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
+    setScreen({ view: "sessions" }, url);
+
+    const on = await runScreen();
+
+    expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ slow: "vitals" }),
+    );
+    expect(on.sessionReplayPage.performanceCoverageStartedAt).toBe(
+      "2026-09-20T00:00:00.000Z",
+    );
+    expect(on.sessionReplayPage.slowFilterNotApplied).toBeUndefined();
+
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(false);
+    const off = await runScreen();
+
+    expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.not.objectContaining({ slow: expect.anything() }),
+    );
+    expect(off.sessionReplayPage.slowFilterNotApplied).toBe("vitals");
+    expect(off.sessionReplayPage.performanceCoverageStartedAt).toBeUndefined();
+  });
+
   it("keeps an unsafe page out of the backend offset and context", async () => {
     setScreen(
       { view: "sessions" },
@@ -549,5 +582,55 @@ describe("view-screen event catalog", () => {
 
     expect(out.page).toBe("event-catalog");
     expect(out.eventCatalog).toEqual({ labEnabled: false });
+  });
+});
+
+describe("view-screen route performance", () => {
+  beforeEach(() => {
+    userEmail = "user@example.test";
+    selectedObjectState.current = null;
+    isSessionsTriageLabEnabled.mockReset();
+  });
+
+  it("asks for the same whole UTC days the page shows, within the 90-day cap", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-02T12:00:00.000Z"));
+    try {
+      isSessionsTriageLabEnabled.mockResolvedValue(true);
+      setScreen(
+        { view: "performance" },
+        {
+          pathname: "/sessions/performance",
+          searchParams: { range: "90d", app: "clips" },
+        },
+      );
+
+      const out = await runScreen();
+
+      expect(out.page).toBe("route-performance");
+      expect(out.routePerformance).toEqual({
+        range: "90d",
+        app: "clips",
+        fullPageAction: {
+          name: "list-route-performance",
+          args: { from: "2026-07-05", to: "2026-10-02", app: "clips" },
+        },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports the Lab as off instead of describing route performance", async () => {
+    isSessionsTriageLabEnabled.mockResolvedValue(false);
+    setScreen(
+      { view: "performance" },
+      { pathname: "/sessions/performance", searchParams: {} },
+    );
+
+    const out = await runScreen();
+
+    expect(out.page).toBe("route-performance");
+    expect(out.routePerformance).toEqual({ labEnabled: false });
   });
 });

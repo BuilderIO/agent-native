@@ -316,4 +316,28 @@ describe("Sessions empty states", () => {
       expect.anything(),
     );
   });
+
+  it("keeps a shared slow filter out of the query while the Lab is off", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions?slow=vitals"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    for (const [, args] of mocks.useActionQuery.mock.calls as unknown as [
+      string,
+      Record<string, unknown>,
+    ][]) {
+      expect(args).not.toHaveProperty("slow", expect.anything());
+      expect(args).not.toHaveProperty("includePerformance", expect.anything());
+    }
+    expect(container.textContent).toContain("sessions.speedFilterNeedsLab");
+    expect(
+      Array.from(container.querySelectorAll("button")).some(
+        (button) => button.textContent === "sessions.speed",
+      ),
+    ).toBe(false);
+  });
 });

@@ -995,6 +995,7 @@ export default {
     dataSources: "Sources de données - Analytics",
     sessions: "Liste des sessions - Analytics",
     eventCatalog: "Catalogue d'événements - Analytics",
+    routePerformance: "Performances par route - Analytics",
     monitoring: "Surveillance - Analytics",
     agents: "Agents - Analytique",
     session: "Relecture de session - Analytics",
@@ -1314,7 +1315,7 @@ export default {
     showingSingular: "{{count}} session",
     labName: "Tri des sessions",
     labDescription:
-      "Filtrez les sessions par événements suivis, voyez les événements de l'app sur la chronologie du replay et parcourez le catalogue d'événements.",
+      "Filtrez les sessions par événements suivis et par vitesse, voyez les événements de l'app et les signaux web de la page sur la chronologie du replay, et parcourez le catalogue d'événements et les performances par route.",
     allApps: "Toutes les apps",
     customRange: "Plage personnalisée",
     fromDate: "Du",
@@ -1393,6 +1394,36 @@ export default {
     catalogMoreKeys: "+{{count}} de plus",
     catalogTruncated:
       "Seuls les {{count}} événements apparus le plus récemment sont affichés.",
+    routePerformance: "Performances par route",
+    speed: "Vitesse",
+    anySpeed: "Toute vitesse",
+    speedSlowAny: "Lentes",
+    speedPoorVitals: "Web Vitals médiocres",
+    speedSlowRequests: "Requêtes lentes",
+    speedCoverageSince: "Vitesse mesurée depuis le {{date}}.",
+    speedCoverageStarting:
+      "La vitesse est mesurée sur les pages vues à partir de maintenant.",
+    speedFilterNeedsLab:
+      "Ce lien contient un filtre de vitesse. Activez le Lab Tri des sessions dans les paramètres pour l'appliquer.",
+    slowRequestCount: "{{count}} requêtes lentes",
+    slowRequestCountSingular: "{{count}} requête lente",
+    markerPageVitals: "Signaux web de la page",
+    markerSlowRequest: "Requête lente",
+    perfRoute: "Route de page",
+    perfRequests: "Requêtes",
+    perfNoData: "Aucune donnée",
+    perfAccuracy:
+      "Chaque cellule indique p50 / p95, à environ 28 % près. Les requêtes de moins de 1 s sont échantillonnées ; les requêtes lentes sont comptées exactement.",
+    perfEmpty: "Aucune page vue mesurée sur cette période.",
+    perfIncomplete:
+      "Certains événements n'ont pas été comptés ces jours-là, qui peuvent donc être incomplets : {{dates}}",
+    perfLoadFailed:
+      "Impossible de charger les performances par route : {{message}}",
+    perfNeedsLab:
+      "Les performances par route font partie du Lab Tri des sessions.",
+    perfTruncated:
+      "Seules les {{count}} routes les plus fréquentées sont affichées.",
+    perfAtLeast: "≥ {{value}}",
     anyActivity: "Toute activité",
     filtersDescription:
       "Les filtres sont stockés dans l'URL afin que l'agent et les liens partagés voient la même liste de sessions.",

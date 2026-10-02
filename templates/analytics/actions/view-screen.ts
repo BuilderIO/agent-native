@@ -26,6 +26,11 @@ import { getMonitor, listMonitors } from "../server/lib/uptime-monitors.js";
 import { sessionDateBound } from "../shared/session-date-bounds";
 import { readSessionEventFilters } from "../shared/session-events";
 import { readSessionPage, SESSION_PAGE_SIZE } from "../shared/session-page";
+import {
+  isSlowSessionFilter,
+  readRoutePerformanceRange,
+  routePerformanceRangeBounds,
+} from "../shared/session-performance";
 
 const SESSION_FILTER_KEYS = new Set([
   "range",
@@ -281,10 +286,16 @@ export default defineAction({
             const urlHasEventConditions =
               urlEventConditions.didEvents.length > 0 ||
               urlEventConditions.didNotEvents.length > 0;
-            // Match the page: event conditions apply only with the Lab on.
-            const eventsLabEnabled =
-              urlHasEventConditions &&
+            const urlSlow = isSlowSessionFilter(params.slow)
+              ? params.slow
+              : undefined;
+            // Match the page: event and slow conditions apply only with the
+            // Lab on.
+            const labEnabled =
+              (urlHasEventConditions || urlSlow !== undefined) &&
               (await isSessionsTriageLabEnabled(email, scope.orgId));
+            const eventsLabEnabled = urlHasEventConditions && labEnabled;
+            if (urlSlow && labEnabled) filters.slow = urlSlow;
             if (eventsLabEnabled) {
               if (urlEventConditions.didEvents.length) {
                 filters.didEvents = urlEventConditions.didEvents;
@@ -311,6 +322,15 @@ export default defineAction({
               excerptLimit: SESSION_EXCERPT_SIZE,
               ...(urlHasEventConditions && !eventsLabEnabled
                 ? { eventConditionsNotApplied: urlEventConditions }
+                : {}),
+              ...(urlSlow && !labEnabled
+                ? { slowFilterNotApplied: urlSlow }
+                : {}),
+              ...(filters.slow
+                ? {
+                    performanceCoverageStartedAt:
+                      result.performanceCoverageStartedAt ?? null,
+                  }
                 : {}),
               truncated:
                 result.recordings.length <
@@ -348,6 +368,28 @@ export default defineAction({
               name: "list-event-catalog",
               args: {
                 from: replayRangeToIso(readReplayRange(range)) ?? undefined,
+                ...(params.app ? { app: params.app } : {}),
+              },
+            },
+          }
+        : { labEnabled: false };
+    } else if (nav?.view === "performance") {
+      screen.page = "route-performance";
+      const email = getRequestUserEmail();
+      const orgId = getRequestOrgId() || null;
+      const labEnabled = email
+        ? await isSessionsTriageLabEnabled(email, orgId)
+        : false;
+      const params = url?.searchParams ?? {};
+      const range = readRoutePerformanceRange(params.range);
+      screen.routePerformance = labEnabled
+        ? {
+            range,
+            app: params.app || null,
+            fullPageAction: {
+              name: "list-route-performance",
+              args: {
+                ...routePerformanceRangeBounds(range),
                 ...(params.app ? { app: params.app } : {}),
               },
             },

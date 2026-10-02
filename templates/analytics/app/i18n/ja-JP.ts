@@ -974,6 +974,7 @@ export default {
     dataSources: "データソース - Analytics",
     sessions: "セッション - Analytics",
     eventCatalog: "イベントカタログ - Analytics",
+    routePerformance: "ルート別パフォーマンス - Analytics",
     monitoring: "監視 - Analytics",
     agents: "エージェント - Analytics",
     session: "セッションリプレイ - Analytics",
@@ -1288,7 +1289,7 @@ export default {
     showingSingular: "{{count}} 件のセッション",
     labName: "セッションの絞り込み",
     labDescription:
-      "トラッキングしたイベントでセッションを絞り込み、リプレイのタイムラインでアプリのイベントを確認し、イベントカタログを閲覧します。",
+      "トラッキングしたイベントや速度でセッションを絞り込み、リプレイのタイムラインでアプリのイベントとページの Web Vitals を確認し、イベントカタログとルート別パフォーマンスを閲覧できます。",
     allApps: "すべてのアプリ",
     customRange: "カスタム期間",
     fromDate: "開始",
@@ -1366,6 +1367,34 @@ export default {
     catalogMoreKeys: "他 {{count}} 件",
     catalogTruncated:
       "最近受信した {{count}} 件のイベントのみを表示しています。",
+    routePerformance: "ルート別パフォーマンス",
+    speed: "速度",
+    anySpeed: "すべての速度",
+    speedSlowAny: "遅い",
+    speedPoorVitals: "Web Vitals が不良",
+    speedSlowRequests: "遅いリクエスト",
+    speedCoverageSince: "{{date}} から速度を計測しています。",
+    speedCoverageStarting: "速度はこれからのページビューで計測されます。",
+    speedFilterNeedsLab:
+      "このリンクには速度フィルターが含まれています。適用するには、設定で「セッションの絞り込み」Lab をオンにしてください。",
+    slowRequestCount: "遅いリクエスト {{count}} 件",
+    slowRequestCountSingular: "遅いリクエスト {{count}} 件",
+    markerPageVitals: "ページの Web Vitals",
+    markerSlowRequest: "遅いリクエスト",
+    perfRoute: "ページルート",
+    perfRequests: "リクエスト",
+    perfNoData: "データなし",
+    perfAccuracy:
+      "各セルは p50 / p95 を示し、誤差は約 28% 以内です。1 秒未満のリクエストはサンプリングされ、遅いリクエストは正確にカウントされます。",
+    perfEmpty: "この期間に計測されたページビューはありません。",
+    perfIncomplete:
+      "次の日は一部のイベントが集計されておらず、不完全な可能性があります: {{dates}}",
+    perfLoadFailed: "ルート別パフォーマンスを読み込めませんでした: {{message}}",
+    perfNeedsLab:
+      "ルート別パフォーマンスは「セッションの絞り込み」Lab の機能です。",
+    perfTruncated:
+      "アクセスの多い上位 {{count}} 件のルートのみを表示しています。",
+    perfAtLeast: "≥ {{value}}",
     anyActivity: "任意のアクティビティ",
     filtersDescription:
       "フィルターは URL に保存されるため、エージェントと共有リンクで同じセッション一覧を表示できます。",

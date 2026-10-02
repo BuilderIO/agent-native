@@ -20,6 +20,7 @@ export const AUTOMATIC_ANALYTICS_EVENT_NAMES: ReadonlySet<string> = new Set([
   "action_completed",
   "action_failed",
   "action.response",
+  "web_vitals",
   "http.response",
   "$exception",
   "$ai_generation",

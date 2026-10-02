@@ -113,6 +113,36 @@ agent answers about browser recordings in the Analytics template.
   them are two days past replay retention, and its gap marker after that. The
   BigQuery-cutover purge leaves these tables alone.
 
+## Performance In Sessions
+
+- Core's tracker sends one `web_vitals` event per page view (`route`,
+  `navigation_type`, and whichever of `ttfb_ms`, `lcp_ms`, `inp_ms`, `cls` were
+  measured; an unmeasured metric is absent, never 0) and an
+  `agent-native.vitals` replay marker with the same numbers. `action.response`
+  carries the `route` its request started on. `route` is a React Router
+  template such as `/sessions/:id`, never a raw path.
+- Requests under `SLOW_REQUEST_THRESHOLD_MS` (`shared/slow-request.ts`, 1 s)
+  are sampled at 10% with `sample_weight: 10`; slow, failed, and 4xx responses
+  always send with weight 1, so slow-request counts are exact. Use that
+  constant for every "slow request" rule.
+- `recordSessionPerformance` keeps each session's worst vitals and its slow
+  requests in `analytics_session_performance`, inside the ingest transaction
+  under a savepoint, with the same gap and coverage rules as the event index.
+  `recordRoutePerformance` adds weights to fixed histogram buckets in
+  `analytics_route_performance_daily` after commit, in its own short
+  transaction; a failure records a route-day gap so the day reads as
+  incomplete. Bucket edges are positional, so changing them needs a new
+  `PERFORMANCE_HISTOGRAM_VERSION`.
+- Percentiles interpolate inside one bucket, so they are within about 28% of
+  the exact value; a value in the open top bucket is reported as `atLeast`.
+  A metric with no samples is null: no data, never fast. Before the migration
+  creates `analytics_performance_coverage`, ingest stores events without these
+  aggregates and warns, the slow filter matches nothing, and reads report no
+  coverage.
+- `slow` and `includePerformance` on `list-session-recordings`,
+  `list-route-performance`, and the replay's vitals and slow-request markers
+  exist only while the Sessions triage Lab is on.
+
 ## Agent Diagnostics Surface
 
 - `buildSessionReplayAgentContext` includes a `diagnostics` section: up to 50

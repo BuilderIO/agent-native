@@ -93,12 +93,17 @@ certified ones); label figures "Unverified" when no live query ran.
   `list-session-event-names`, and event health from `list-event-catalog`. Both
   read Analytics' own index, which covers sessions only from its coverage
   start. Never query BigQuery for these views.
+- With the Lab on, `slow` (`any`, `vitals`, `requests`) keeps sessions with a
+  poor Core Web Vital or a request of 1 s or more, and `includePerformance`
+  adds each session's worst vitals. `list-route-performance` returns p50/p95
+  per page route from daily histograms. A null metric means no data, not fast.
 
 ## Application State
 
 - `navigation` exposes the current dashboard, analysis, source, chart, and
   selection. `navigate` moves the user between supported Analytics surfaces,
-  `"sessions"`, `"event-catalog"`, `"monitoring"`, and `"agents"`. Use
+  `"sessions"`, `"event-catalog"`, `"performance"`, `"monitoring"`, and
+  `"agents"`. Use
   `view-screen` when the
   active context is unclear.
 - Clicking a panel stages it as a chat context chip and writes `selected-object`

@@ -5,6 +5,7 @@ import {
   IconCalendar,
   IconChevronLeft,
   IconChevronRight,
+  IconGauge,
   IconRefresh,
   IconX,
 } from "@tabler/icons-react";
@@ -48,6 +49,14 @@ import {
   SESSION_PAGE_SIZE,
 } from "../../../shared/session-page";
 import {
+  formatPerformanceValue,
+  isSlowSessionFilter,
+  rateWebVital,
+  type SessionPerformanceSummary,
+  SLOW_SESSION_FILTERS,
+  type SlowSessionFilter,
+} from "../../../shared/session-performance";
+import {
   SessionEventFilter,
   type SessionEventConditions,
 } from "./SessionEventFilter";
@@ -79,12 +88,14 @@ type Recording = {
   template: string | null;
   path: string | null;
   hostname: string | null;
+  performance?: SessionPerformanceSummary | null;
 };
 
 type Page = {
   recordings: Recording[];
   total: number;
   appCounts: { app: string; count: number }[];
+  performanceCoverageStartedAt?: string | null;
 };
 
 const RANGES: Range[] = ["24h", "7d", "30d", "90d", "all"];
@@ -209,9 +220,14 @@ export function SessionsTriagePage() {
   const urlHasEventConditions =
     urlEventConditions.didEvents.length > 0 ||
     urlEventConditions.didNotEvents.length > 0;
-  // A shared link with event conditions waits for the Lab state instead of
-  // briefly listing unfiltered sessions.
-  const waitingForEventsLab = urlHasEventConditions && eventsLab.isLoading;
+  const urlSlow = params.get("slow");
+  const slow: SlowSessionFilter | undefined =
+    eventsLabEnabled && isSlowSessionFilter(urlSlow) ? urlSlow : undefined;
+  const urlHasSlowFilter = isSlowSessionFilter(urlSlow);
+  // A shared link with event or slow conditions waits for the Lab state
+  // instead of briefly listing unfiltered sessions.
+  const waitingForEventsLab =
+    (urlHasEventConditions || urlHasSlowFilter) && eventsLab.isLoading;
 
   useEffect(() => {
     if (requestedPage === null || requestedPage === String(page)) return;
@@ -322,6 +338,8 @@ export function SessionsTriagePage() {
       didNotEvents: eventConditions.didNotEvents.length
         ? eventConditions.didNotEvents
         : undefined,
+      slow,
+      includePerformance: eventsLabEnabled || undefined,
       sort,
       offset: (page - 1) * SESSION_PAGE_SIZE,
       limit: SESSION_PAGE_SIZE,
@@ -363,6 +381,7 @@ export function SessionsTriagePage() {
       didNotEvents: eventConditions.didNotEvents.length
         ? eventConditions.didNotEvents
         : undefined,
+      slow,
       sort,
       limit: 1,
     },
@@ -651,6 +670,63 @@ export function SessionsTriagePage() {
             onChange={setEventConditions}
           />
         ) : null}
+        {eventsLabEnabled ? (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant={slow ? "secondary" : "outline"}
+                size="sm"
+                className={cn(
+                  "h-8 border border-input font-normal",
+                  !slow && "bg-transparent hover:bg-accent",
+                )}
+              >
+                <IconGauge />
+                {slow ? slowFilterLabel(slow, t) : t("sessions.speed")}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-72">
+              <div className="space-y-3">
+                <Select
+                  value={slow ?? "all"}
+                  onValueChange={(value) =>
+                    setFilter("slow", value === "all" ? "" : value)
+                  }
+                >
+                  <SelectTrigger aria-label={t("sessions.speed")}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">
+                      {t("sessions.anySpeed")}
+                    </SelectItem>
+                    {SLOW_SESSION_FILTERS.map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {slowFilterLabel(value, t)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {data ? (
+                  <p className="text-xs text-muted-foreground">
+                    {data.performanceCoverageStartedAt
+                      ? t("sessions.speedCoverageSince", {
+                          date: new Date(
+                            data.performanceCoverageStartedAt,
+                          ).toLocaleDateString(),
+                        })
+                      : t("sessions.speedCoverageStarting")}
+                  </p>
+                ) : null}
+                <Button asChild variant="outline" size="sm">
+                  <Link to={routePerformanceHref(range, app)}>
+                    {t("sessions.routePerformance")}
+                  </Link>
+                </Button>
+              </div>
+            </PopoverContent>
+          </Popover>
+        ) : null}
         {hasActiveFilters ? (
           <Button
             variant="ghost"
@@ -666,6 +742,11 @@ export function SessionsTriagePage() {
       {urlHasEventConditions && !eventsLabEnabled && !eventsLab.isLoading ? (
         <p className="text-xs text-muted-foreground" role="status">
           {t("sessions.eventFiltersNeedLab")}
+        </p>
+      ) : null}
+      {urlHasSlowFilter && !eventsLabEnabled && !eventsLab.isLoading ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          {t("sessions.speedFilterNeedsLab")}
         </p>
       ) : null}
       <Card>
@@ -818,6 +899,11 @@ export function SessionsTriagePage() {
                             )}
                           </span>
                         )}
+                        {recording.performance ? (
+                          <PerformanceHints
+                            performance={recording.performance}
+                          />
+                        ) : null}
                       </span>
                     </Link>
                   ))}
@@ -857,6 +943,63 @@ export function SessionsTriagePage() {
       </Card>
     </div>
   );
+}
+
+const POOR_VITAL_HINTS = [
+  ["lcp", "lcpMs", "LCP"],
+  ["inp", "inpMs", "INP"],
+  ["cls", "cls", "CLS"],
+  ["ttfb", "ttfbMs", "TTFB"],
+] as const;
+
+function PerformanceHints({
+  performance,
+}: {
+  performance: SessionPerformanceSummary;
+}) {
+  const t = useT();
+  const poor = POOR_VITAL_HINTS.flatMap(([metric, key, name]) => {
+    const value = performance[key];
+    return value !== null && rateWebVital(metric, value) === "poor"
+      ? [`${name} ${formatPerformanceValue(metric, value)}`]
+      : [];
+  });
+  return (
+    <>
+      {poor.map((hint) => (
+        <span key={hint} className="text-destructive">
+          {hint}
+        </span>
+      ))}
+      {performance.slowRequests > 0 ? (
+        <span>
+          {t(
+            performance.slowRequests === 1
+              ? "sessions.slowRequestCountSingular"
+              : "sessions.slowRequestCount",
+            { count: performance.slowRequests.toLocaleString() },
+          )}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+function routePerformanceHref(range: Range, app: string): string {
+  const next = new URLSearchParams();
+  if (range === "30d" || range === "90d") next.set("range", range);
+  if (app) next.set("app", app);
+  const query = next.toString();
+  return `/sessions/performance${query ? `?${query}` : ""}`;
+}
+
+function slowFilterLabel(
+  value: SlowSessionFilter,
+  t: ReturnType<typeof useT>,
+): string {
+  if (value === "vitals") return t("sessions.speedPoorVitals");
+  if (value === "requests") return t("sessions.speedSlowRequests");
+  return t("sessions.speedSlowAny");
 }
 
 function eventCatalogHref(range: Range, app: string): string {

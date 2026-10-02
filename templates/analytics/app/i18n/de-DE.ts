@@ -995,6 +995,7 @@ export default {
     dataSources: "Datenquellen – Analytics",
     sessions: "Sitzungen - Analytics",
     eventCatalog: "Ereigniskatalog - Analytics",
+    routePerformance: "Routen-Performance - Analytics",
     monitoring: "Überwachung – Analytics",
     agents: "Agenten – Analytics",
     session: "Sitzungswiedergabe - Analytics",
@@ -1316,7 +1317,7 @@ export default {
     showingSingular: "{{count}} Sitzung",
     labName: "Sitzungen prüfen",
     labDescription:
-      "Sitzungen nach erfassten Ereignissen filtern, App-Ereignisse in Replay-Zeitleisten sehen und den Ereigniskatalog durchsuchen.",
+      "Sitzungen nach erfassten Ereignissen und Geschwindigkeit filtern, App-Ereignisse und Seiten-Vitals in Replay-Zeitleisten sehen und den Ereigniskatalog sowie die Routen-Performance durchsuchen.",
     allApps: "Alle Apps",
     customRange: "Benutzerdefinierter Zeitraum",
     fromDate: "Von",
@@ -1393,6 +1394,34 @@ export default {
     catalogMoreKeys: "+{{count}} weitere",
     catalogTruncated:
       "Nur die {{count}} zuletzt gesehenen Ereignisse werden angezeigt.",
+    routePerformance: "Routen-Performance",
+    speed: "Geschwindigkeit",
+    anySpeed: "Jede Geschwindigkeit",
+    speedSlowAny: "Langsam",
+    speedPoorVitals: "Schlechte Web Vitals",
+    speedSlowRequests: "Langsame Anfragen",
+    speedCoverageSince: "Geschwindigkeit wird seit {{date}} gemessen.",
+    speedCoverageStarting:
+      "Geschwindigkeit wird ab jetzt für Seitenaufrufe gemessen.",
+    speedFilterNeedsLab:
+      "Dieser Link enthält einen Geschwindigkeitsfilter. Aktivieren Sie das Lab „Sitzungen prüfen“ in den Einstellungen, um ihn anzuwenden.",
+    slowRequestCount: "{{count}} langsame Anfragen",
+    slowRequestCountSingular: "{{count}} langsame Anfrage",
+    markerPageVitals: "Seiten-Vitals",
+    markerSlowRequest: "Langsame Anfrage",
+    perfRoute: "Seitenroute",
+    perfRequests: "Anfragen",
+    perfNoData: "Keine Daten",
+    perfAccuracy:
+      "Jede Zelle zeigt p50 / p95, auf etwa 28 % genau. Anfragen unter 1 s werden stichprobenartig erfasst; langsame Anfragen werden exakt gezählt.",
+    perfEmpty: "Keine gemessenen Seitenaufrufe in diesem Zeitraum.",
+    perfIncomplete:
+      "An diesen Tagen wurden einige Ereignisse nicht gezählt, daher können sie unvollständig sein: {{dates}}",
+    perfLoadFailed:
+      "Die Routen-Performance konnte nicht geladen werden: {{message}}",
+    perfNeedsLab: "Die Routen-Performance gehört zum Lab „Sitzungen prüfen“.",
+    perfTruncated: "Nur die {{count}} meistbesuchten Routen werden angezeigt.",
+    perfAtLeast: "≥ {{value}}",
     anyActivity: "Beliebige Aktivität",
     filtersDescription:
       "Filter werden in der URL gespeichert, damit Agent und geteilte Links dieselbe Sitzungsliste sehen.",

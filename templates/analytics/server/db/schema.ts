@@ -6,6 +6,7 @@ import {
   index,
   ownableColumns,
   createSharesTable,
+  real,
   uniqueIndex,
 } from "@agent-native/core/db/schema";
 import { boolean } from "drizzle-orm/pg-core";
@@ -366,6 +367,103 @@ export const analyticsSessionEventGaps = table(
 // have incomplete event coverage, so event filters exclude them.
 export const analyticsSessionEventCoverage = table(
   "analytics_session_event_coverage",
+  {
+    tenantKey: text("tenant_key").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    startedAt: text("started_at").notNull(),
+  },
+);
+
+// Weighted histogram buckets of page-view vitals and request durations, per
+// day, app, and route template. Buckets are positional within a histogram
+// version; see shared/session-performance.ts.
+export const analyticsRoutePerformanceDaily = table(
+  "analytics_route_performance_daily",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    eventDate: text("event_date").notNull(),
+    app: text("app").notNull().default(""),
+    route: text("route").notNull(),
+    metric: text("metric").notNull(),
+    histogramVersion: integer("histogram_version").notNull().default(1),
+    bucket: integer("bucket").notNull(),
+    weight: real("weight").notNull().default(0),
+  },
+  (t) => ({
+    routePerformanceUnique: uniqueIndex(
+      "analytics_route_performance_daily_key_idx",
+    ).on(
+      t.tenantKey,
+      t.eventDate,
+      t.app,
+      t.route,
+      t.metric,
+      t.histogramVersion,
+      t.bucket,
+    ),
+  }),
+);
+
+// Each session's worst measured page view and its slow requests. Null metrics
+// were never measured, which is not the same as fast.
+export const analyticsSessionPerformance = table(
+  "analytics_session_performance",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    sessionId: text("session_id").notNull(),
+    app: text("app").notNull().default(""),
+    pageViews: integer("page_views").notNull().default(0),
+    maxTtfbMs: real("max_ttfb_ms"),
+    maxLcpMs: real("max_lcp_ms"),
+    maxInpMs: real("max_inp_ms"),
+    maxCls: real("max_cls"),
+    slowRequests: integer("slow_requests").notNull().default(0),
+    maxRequestMs: real("max_request_ms"),
+    firstAt: text("first_at").notNull(),
+    lastAt: text("last_at").notNull(),
+  },
+  (t) => ({
+    sessionPerformanceUnique: uniqueIndex(
+      "analytics_session_performance_key_idx",
+    ).on(t.tenantKey, t.sessionId),
+    tenantLastAtIdx: index(
+      "analytics_session_performance_tenant_last_at_idx",
+    ).on(t.tenantKey, t.lastAt),
+  }),
+);
+
+// Days, and sessions within them, whose performance aggregates failed to
+// record some events. An empty session id marks the day's route aggregates.
+export const analyticsPerformanceGaps = table(
+  "analytics_performance_gaps",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    eventDate: text("event_date").notNull(),
+    sessionId: text("session_id").notNull().default(""),
+    recordedAt: text("recorded_at").notNull(),
+  },
+  (t) => ({
+    performanceGapUnique: uniqueIndex("analytics_performance_gaps_key_idx").on(
+      t.tenantKey,
+      t.eventDate,
+      t.sessionId,
+    ),
+  }),
+);
+
+// When each tenant's performance aggregates began.
+export const analyticsPerformanceCoverage = table(
+  "analytics_performance_coverage",
   {
     tenantKey: text("tenant_key").primaryKey(),
     ownerEmail: text("owner_email").notNull(),
