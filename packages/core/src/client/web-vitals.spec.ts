@@ -18,7 +18,7 @@ function setup(
 ) {
   const reports: PageViewVitals[] = [];
   const tracker = createWebVitalsTracker({
-    measuresLayoutShift: options.measuresLayoutShift ?? true,
+    measuresLayoutShift: () => options.measuresLayoutShift ?? true,
     interactionCount: options.interactionCount,
     report: (vitals) => reports.push(vitals),
   });
@@ -64,6 +64,38 @@ describe("createWebVitalsTracker", () => {
         url: "https://app.example.test/",
         navigationType: "resume",
         inpMs: 96,
+      },
+    ]);
+  });
+
+  it("skips a resumed page view that saw no interaction or layout shift", () => {
+    const { tracker, reports } = setup();
+    tracker.startLoad(at("/"), 50);
+    tracker.hidden();
+    // Switching away and back with nothing happening reports nothing.
+    tracker.visible(at("/"));
+    tracker.hidden();
+    expect(reports.map((report) => report.navigationType)).toEqual(["load"]);
+
+    tracker.visible(at("/"));
+    tracker.layoutShift({ startTime: 10, value: 0.05, hadRecentInput: false });
+    tracker.hidden();
+    expect(reports.at(-1)).toMatchObject({
+      navigationType: "resume",
+      cls: 0.05,
+    });
+  });
+
+  it("omits the route of a page view the manifest has no route for", () => {
+    const { tracker, reports } = setup();
+    tracker.startLoad({ ...at("/u/alice"), route: null }, 50);
+    tracker.hidden();
+    expect(reports).toEqual([
+      {
+        url: "https://app.example.test/u/alice",
+        navigationType: "load",
+        ttfbMs: 50,
+        cls: 0,
       },
     ]);
   });

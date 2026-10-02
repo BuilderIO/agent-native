@@ -2878,6 +2878,28 @@ function installNetworkCapture(
       ? (captureOptions.maxErrorBodyLength ?? DEFAULT_MAX_ERROR_BODY_LENGTH)
       : null;
 
+  const restores: Array<() => void> = [];
+
+  // A background tab throttles timers, so a request that was ever hidden did
+  // not keep anyone waiting for its duration. Checking visibility only at the
+  // end misses a tab that was hidden and came back.
+  let hiddenEpoch = 0;
+  const countHidden = () => {
+    if (document.visibilityState === "hidden") hiddenEpoch += 1;
+  };
+  document.addEventListener("visibilitychange", countHidden);
+  restores.push(() =>
+    document.removeEventListener("visibilitychange", countHidden),
+  );
+  const watchHidden = (): (() => boolean) => {
+    const hiddenAtStart = document.visibilityState !== "visible";
+    const epochAtStart = hiddenEpoch;
+    return () =>
+      hiddenAtStart ||
+      epochAtStart !== hiddenEpoch ||
+      document.visibilityState !== "visible";
+  };
+
   const recordRequest = (
     api: "fetch" | "xhr",
     method: string,
@@ -2885,6 +2907,7 @@ function installNetworkCapture(
     status: number,
     ok: boolean,
     durationMs: number,
+    pageHidden: boolean,
     error?: string,
     responseBody?: string,
   ) => {
@@ -2900,6 +2923,7 @@ function installNetworkCapture(
         status,
         ok,
         durationMs: Math.max(0, Math.round(durationMs)),
+        ...(pageHidden ? { pageHidden: true } : {}),
         ...(error
           ? {
               error: truncateCaptureText(
@@ -2950,8 +2974,6 @@ function installNetworkCapture(
     }
   };
 
-  const restores: Array<() => void> = [];
-
   if (typeof window.fetch === "function") {
     const originalFetch = window.fetch;
     const wrappedFetch = function (
@@ -2977,6 +2999,7 @@ function installNetworkCapture(
         return originalFetch.call(self, input as RequestInfo | URL, init);
       }
       const startedAt = performance.now();
+      const wasHidden = watchHidden();
       const result = originalFetch.call(self, input as RequestInfo | URL, init);
       if (!result || typeof (result as Promise<Response>).then !== "function") {
         return result;
@@ -2985,6 +3008,7 @@ function installNetworkCapture(
         (response) => {
           try {
             const durationMs = performance.now() - startedAt;
+            const pageHidden = wasHidden();
             if (errorBodyCap !== null && response.status >= 500) {
               let clone: Response | null = null;
               try {
@@ -3009,6 +3033,7 @@ function installNetworkCapture(
                       response.status,
                       response.ok,
                       durationMs,
+                      pageHidden,
                       undefined,
                       responseBody,
                     );
@@ -3024,6 +3049,7 @@ function installNetworkCapture(
                   response.status,
                   response.ok,
                   durationMs,
+                  pageHidden,
                 );
               }
             } else {
@@ -3034,6 +3060,7 @@ function installNetworkCapture(
                 response.status,
                 response.ok,
                 durationMs,
+                pageHidden,
               );
             }
           } catch {
@@ -3050,6 +3077,7 @@ function installNetworkCapture(
               0,
               false,
               performance.now() - startedAt,
+              wasHidden(),
               error instanceof Error ? error.message : String(error),
             );
           } catch {
@@ -3112,6 +3140,7 @@ function installNetworkCapture(
         const info = xhrInfo.get(this);
         if (info && !stopped && !replayCaptureInternal) {
           const startedAt = performance.now();
+          const wasHidden = watchHidden();
           let errorMessage: string | undefined;
           const markError = (message: string) => () => {
             errorMessage = message;
@@ -3143,6 +3172,7 @@ function installNetworkCapture(
                 effectiveStatus,
                 !errorMessage && status >= 200 && status < 300,
                 performance.now() - startedAt,
+                wasHidden(),
                 errorMessage,
                 responseBody,
               );
@@ -3670,7 +3700,7 @@ export function emitSessionReplayAnalyticsEvent(name: string): void {
 }
 
 export type SessionReplayWebVitals = {
-  route: string;
+  route?: string;
   navigationType: string;
   ttfbMs?: number;
   lcpMs?: number;
@@ -3691,7 +3721,7 @@ export function emitSessionReplayWebVitals(
   const metric = (value: number | undefined) =>
     typeof value === "number" && Number.isFinite(value) ? value : undefined;
   emitReplayCustomEvent(state, SESSION_REPLAY_VITALS_EVENT_TAG, {
-    route: input.route.slice(0, 200),
+    ...(input.route ? { route: input.route.slice(0, 200) } : {}),
     navigationType: input.navigationType.slice(0, 20),
     ...(metric(input.ttfbMs) !== undefined ? { ttfbMs: input.ttfbMs } : {}),
     ...(metric(input.lcpMs) !== undefined ? { lcpMs: input.lcpMs } : {}),

@@ -1,5 +1,3 @@
-import { normalizeHttpTelemetryPath } from "../shared/telemetry-path.js";
-
 type ManifestRoute = {
   id: string;
   parentId?: string;
@@ -16,6 +14,7 @@ const MAX_ROUTE_TEMPLATE_LENGTH = 200;
 const PARAM_SEGMENT = /^:[\w-]+$/;
 
 let cachedRoutes: Record<string, ManifestRoute> | undefined;
+let cachedRouteCount = 0;
 let cachedPatterns: RoutePattern[] = [];
 
 // Mirrors React Router's branch ranking so the template is the route that
@@ -58,10 +57,15 @@ function fullPathSegments(
     .filter((segment) => segment !== "");
 }
 
+// React Router lazy route discovery adds routes to the same manifest object,
+// so the same object with more routes is a new manifest.
 function routePatterns(routes: Record<string, ManifestRoute>): RoutePattern[] {
-  if (routes === cachedRoutes) return cachedPatterns;
+  const manifestRoutes = Object.values(routes);
+  if (routes === cachedRoutes && manifestRoutes.length === cachedRouteCount) {
+    return cachedPatterns;
+  }
   const patterns: RoutePattern[] = [];
-  for (const route of Object.values(routes)) {
+  for (const route of manifestRoutes) {
     if (route.path == null && !route.index) continue;
     for (const segments of explodeOptionalSegments(
       fullPathSegments(route, routes),
@@ -74,6 +78,7 @@ function routePatterns(routes: Record<string, ManifestRoute>): RoutePattern[] {
   }
   patterns.sort((a, b) => b.score - a.score);
   cachedRoutes = routes;
+  cachedRouteCount = manifestRoutes.length;
   cachedPatterns = patterns;
   return patterns;
 }
@@ -109,35 +114,31 @@ function decodeSegment(segment: string): string {
 
 /**
  * The route template a path renders, such as `/sessions/:id`, so telemetry
- * groups pages without carrying ids from the URL. Paths that no manifest
- * route matches fall back to the id-normalized path.
+ * groups pages without carrying ids from the URL. Null when no manifest route
+ * matches: a raw path keeps slugs, short ids, and emails, so telemetry omits
+ * the route instead.
  */
 export function routeTemplateForPath(
   pathname: string,
   routes: Record<string, ManifestRoute> | undefined,
   basename = "",
-): string {
+): string | null {
   const relative = stripBasename(pathname, basename);
-  if (routes && relative !== null) {
-    const pathSegments = relative
-      .split("/")
-      .filter((segment) => segment !== "")
-      .map(decodeSegment);
-    const match = routePatterns(routes).find((pattern) =>
-      matches(pattern.segments, pathSegments),
-    );
-    if (match) {
-      return `/${match.segments.join("/")}`.slice(0, MAX_ROUTE_TEMPLATE_LENGTH);
-    }
-  }
-  return normalizeHttpTelemetryPath(pathname).slice(
-    0,
-    MAX_ROUTE_TEMPLATE_LENGTH,
+  if (!routes || relative === null) return null;
+  const pathSegments = relative
+    .split("/")
+    .filter((segment) => segment !== "")
+    .map(decodeSegment);
+  const match = routePatterns(routes).find((pattern) =>
+    matches(pattern.segments, pathSegments),
   );
+  return match
+    ? `/${match.segments.join("/")}`.slice(0, MAX_ROUTE_TEMPLATE_LENGTH)
+    : null;
 }
 
-/** Browser only: the route template of the current location. */
-export function currentRouteTemplate(): string {
+/** Browser only: the route template of the current location, if any. */
+export function currentRouteTemplate(): string | null {
   const routes = (
     window as Window & {
       __reactRouterManifest?: { routes?: Record<string, ManifestRoute> };

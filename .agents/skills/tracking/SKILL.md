@@ -323,16 +323,20 @@ Other framework-level baseline events:
 
 - `session status` from `useSession()`, with `signed_in`
 - `action.response` from the browser action transport, with action name,
-  the `route` template of the page that made the request,
+  the `route` template of the page that made the request (omitted when no
+  manifest route matches),
   browser-perceived duration and TTFB, response status/outcome, response size
   when known, and parsed `Server-Timing` phases for framework readiness and
   database work. Its `request_id` joins the exact browser and server events.
   This separates server time from CDN/network/body overhead.
 - `web_vitals` once per page view, with the React Router `route` template
-  (`/sessions/:id`, never the ids), `navigation_type` (`load`, `client`,
-  or `resume` after the tab was hidden), and `ttfb_ms`, `lcp_ms`,
-  `inp_ms`, and `cls`. TTFB and LCP exist only for document loads, and a
-  metric the browser cannot measure is omitted rather than sent as 0. A page
+  (`/sessions/:id`, never the ids; omitted when no manifest route matches,
+  because a normalized raw path still carries slugs and emails),
+  `navigation_type` (`load`, `client`, or `resume` after the tab was
+  hidden, sent only when it saw an interaction or layout shift), and
+  `ttfb_ms`, `lcp_ms`, `inp_ms`, and `cls`. TTFB and LCP exist only for
+  document loads, and a metric the browser cannot measure (including CLS when
+  the layout-shift observer fails) is omitted rather than sent as 0. A page
   view ends on `pushState`/`popstate` to another path or when the tab is
   hidden; `replaceState` keeps it, so redirects land on the final route.
   Measured with native `PerformanceObserver`s; `configureTracking({

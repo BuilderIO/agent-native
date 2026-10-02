@@ -4,13 +4,14 @@
  * ends when the route changes through `pushState`/`popstate` or the page is
  * hidden, and a page that becomes visible again starts a new one. TTFB and
  * LCP belong to the document load only; INP and CLS are measured within each
- * page view. A metric the browser cannot measure is left out, never zero.
+ * page view. A metric the browser cannot measure is left out, never zero, and
+ * a page view the manifest has no route for carries no route.
  */
 
 export type WebVitalsNavigationType = "load" | "client" | "resume";
 
 export interface PageViewVitals {
-  route: string;
+  route?: string;
   url: string;
   navigationType: WebVitalsNavigationType;
   ttfbMs?: number;
@@ -20,7 +21,7 @@ export interface PageViewVitals {
 }
 
 export interface WebVitalsLocation {
-  route: string;
+  route: string | null;
   url: string;
   pathname: string;
 }
@@ -46,13 +47,15 @@ interface PageView {
   windowValue: number;
   windowStart: number;
   windowLast: number;
+  shifted: boolean;
   longestInteractions: Array<{ id: number; duration: number }>;
   interactionIds: Set<number>;
   interactionCountAtStart?: number;
 }
 
 export interface WebVitalsTrackerOptions {
-  measuresLayoutShift: boolean;
+  /** Read when a page view ends: whether layout shifts are being observed. */
+  measuresLayoutShift: () => boolean;
   report: (vitals: PageViewVitals) => void;
   interactionCount?: () => number | undefined;
 }
@@ -85,6 +88,7 @@ export function createWebVitalsTracker(options: WebVitalsTrackerOptions) {
       windowValue: 0,
       windowStart: 0,
       windowLast: 0,
+      shifted: false,
       longestInteractions: [],
       interactionIds: new Set(),
       interactionCountAtStart: options.interactionCount?.(),
@@ -111,16 +115,25 @@ export function createWebVitalsTracker(options: WebVitalsTrackerOptions) {
     const view = current;
     current = null;
     if (!view) return;
+    // Switching back to a tab and away again measured nothing a person
+    // experienced; reporting its CLS of 0 would only dilute the percentiles.
+    if (
+      view.navigationType === "resume" &&
+      !view.shifted &&
+      !view.interactionIds.size
+    ) {
+      return;
+    }
     const vitals: PageViewVitals = {
-      route: view.location.route,
       url: view.location.url,
       navigationType: view.navigationType,
     };
+    if (view.location.route) vitals.route = view.location.route;
     if (view.ttfbMs !== undefined) vitals.ttfbMs = view.ttfbMs;
     if (view.lcpMs !== undefined) vitals.lcpMs = view.lcpMs;
     const inpMs = inp(view);
     if (inpMs !== undefined) vitals.inpMs = inpMs;
-    if (options.measuresLayoutShift) {
+    if (options.measuresLayoutShift()) {
       vitals.cls = Math.round(view.cls * 10_000) / 10_000;
     }
     if (
@@ -182,6 +195,7 @@ export function createWebVitalsTracker(options: WebVitalsTrackerOptions) {
       }
       view.windowLast = entry.startTime;
       view.cls = Math.max(view.cls, view.windowValue);
+      view.shifted = true;
     },
     interaction(entry: InteractionLike): void {
       const view = current;
@@ -251,8 +265,9 @@ export function installWebVitals(
   const performanceWithCount = performance as Performance & {
     interactionCount?: number;
   };
+  let measuresLayoutShift = false;
   const tracker = createWebVitalsTracker({
-    measuresLayoutShift: types.includes("layout-shift"),
+    measuresLayoutShift: () => measuresLayoutShift,
     report,
     interactionCount: () => performanceWithCount.interactionCount,
   });
@@ -265,20 +280,24 @@ export function installWebVitals(
     (entries: PerformanceEntryList) => void
   >();
 
+  /** False when the browser cannot observe `type`, so its metric stays absent. */
   const observe = (
     type: string,
     handle: (entries: PerformanceEntryList) => void,
     init: Record<string, unknown> = {},
-  ) => {
-    if (!types.includes(type)) return;
+  ): boolean => {
+    if (!types.includes(type)) return false;
     try {
       const observer = new PerformanceObserver((list) =>
         handle(list.getEntries()),
       );
       observer.observe({ type, buffered: true, ...init });
       observers.set(observer, handle);
-      // coercion-ok: an entry type the browser lists but refuses to observe leaves its metric absent from the report, never 0.
-    } catch {}
+      return true;
+    } catch {
+      // coercion-ok: false tells the caller the type is unobserved.
+      return false;
+    }
   };
   const flush = () => {
     for (const [observer, handle] of observers) {
@@ -308,7 +327,7 @@ export function installWebVitals(
     }
   };
   observe("largest-contentful-paint", handleLcp);
-  observe("layout-shift", handleShifts);
+  measuresLayoutShift = observe("layout-shift", handleShifts);
   observe("event", handleInteractions, { durationThreshold: 16 });
   observe("first-input", handleInteractions);
 

@@ -575,7 +575,7 @@ type ActionResponseSampling = {
 function actionTelemetryRoute(): string | undefined {
   if (typeof window === "undefined") return undefined;
   try {
-    return currentRouteTemplate();
+    return currentRouteTemplate() ?? undefined;
   } catch {
     // coercion-ok: telemetry never changes the action; the event omits route.
     return undefined;

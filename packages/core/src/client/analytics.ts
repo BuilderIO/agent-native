@@ -2043,7 +2043,7 @@ function reportPageViewVitals(vitals: PageViewVitals): void {
   _sessionReplayModuleForCapture?.emitSessionReplayWebVitals?.(vitals);
   trackEvent("web_vitals", {
     url: vitals.url,
-    route: vitals.route,
+    ...(vitals.route ? { route: vitals.route } : {}),
     navigation_type: vitals.navigationType,
     ttfb_ms: vitals.ttfbMs,
     lcp_ms: vitals.lcpMs,

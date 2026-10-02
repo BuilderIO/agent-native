@@ -69,18 +69,27 @@ describe("routeTemplateForPath", () => {
     ).toBe("/sessions/:id");
   });
 
-  it("falls back to the id-normalized path when no route matches", () => {
-    expect(
-      routeTemplateForPath(
-        "/unknown/123/2f1b8c1e-6a5d-4f3e-9b2a-1c2d3e4f5a6b",
-        routes,
-      ),
-    ).toBe("/unknown/:id/:id");
-    expect(routeTemplateForPath("/sessions/123", undefined)).toBe(
-      "/sessions/:id",
-    );
+  it("omits the route when no manifest route matches", () => {
+    // A normalized raw path would still carry slugs and emails.
+    expect(routeTemplateForPath("/u/alice@example.com", routes)).toBeNull();
+    expect(routeTemplateForPath("/sessions/123", undefined)).toBeNull();
     expect(
       routeTemplateForPath("/sessions/42", routes, "/apps/analytics"),
-    ).toBe("/sessions/:id");
+    ).toBeNull();
+  });
+
+  it("sees routes that lazy discovery adds to the same manifest", () => {
+    const manifest: Parameters<typeof routeTemplateForPath>[1] = {
+      ...routes,
+    };
+    expect(routeTemplateForPath("/u/alice@example.com", manifest)).toBeNull();
+    manifest["routes/u.$handle"] = {
+      id: "routes/u.$handle",
+      parentId: "root",
+      path: "u/:handle",
+    };
+    expect(routeTemplateForPath("/u/alice@example.com", manifest)).toBe(
+      "/u/:handle",
+    );
   });
 });
