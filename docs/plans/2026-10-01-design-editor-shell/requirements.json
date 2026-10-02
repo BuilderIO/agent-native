@@ -868,14 +868,14 @@
           "id": "INSP-07",
           "status": "proposed",
           "today": "Every selected screen shows a Source segmented control, Static | URL (`update-screen-source`). URL reveals a Screen URL field with Update and, with more than one connected app, Choose local app. The Static label reuses `editPanel.positionOptions.static`, the Position option of the same name.",
-          "change": "Treat a URL screen like an instance of your app's route, and drop the Source control. Static screens show no source UI at all. Designers see the route, not the server: the selection header shows the screen name and its route (`/home`), the same as a static screen, and the Screen section is one grid field, Route (`/home ▾`, spanning the two value columns), whose menu lists the app's routes, grouped by app only when more than one is connected (replacing Choose local app), then Custom path…. The app itself sits behind one header action, a plug icon with a status dot: green when the connection answers, grey when it doesn't (the connection's `status` and the bridge health check). Its tooltip names the app and host (Agent-Native Web · localhost:5173), and its menu has Open in browser (with the host as the trailing hint), Reload screen, and Detach from app, which freezes the page as a static copy (⌘Z to undo). When the app stops answering, the dot goes grey, the menu swaps Open and Reload for Retry connection and disables Detach, and the canvas keeps the last render greyed out under one pill, Can't reach Agent-Native Web · Retry connection, in place of the bridge's error text. Interact's address bar shows the same dot and the path, with the host in its tooltip. Adding a route as a screen moves to Screens' + menu (Blank screen, From your app…), the code's “Add a screen from your app” flow. Converting a static mock to a route stays available to the agent (`update-screen-source`) but not as a toggle. “Static snapshot” no longer needs its own string.",
+          "change": "Treat a URL screen like an instance of your app's route, and drop the Source control. Static screens show no source UI at all. Designers see the route, not the server: the selection header shows the screen name and its route (`/home`), the same as a static screen, and the Screen section is one grid field, Route (`/home ▾`, spanning the two value columns), whose menu lists the app's routes, grouped by app only when more than one is connected (replacing Choose local app), then Custom path…. The app itself sits behind one header action, a server icon with a status dot: green when the connection answers, grey when it doesn't (the connection's `status` and the bridge health check). Its tooltip names the app and host (Agent-Native Web · localhost:5173), and its menu has Open in browser (with the host as the trailing hint), Reload screen, and Detach from app, which freezes the page as a static copy (⌘Z to undo). When the app stops answering, the dot goes grey, the menu swaps Open and Reload for Retry connection and disables Detach, and the canvas keeps the last render greyed out under one pill, Can't reach Agent-Native Web · Retry connection, in place of the bridge's error text. Interact's address bar shows the same dot and the path, with the host in its tooltip. Adding a route as a screen moves to Screens' + menu (Blank screen, From your app…), the code's “Add a screen from your app” flow (INSP-09). Converting a static mock to a route stays available to the agent (`update-screen-source`) but not as a toggle. “Static snapshot” no longer needs its own string.",
           "refs": [
             "templates/design/app/components/design/EditPanel.tsx#editPanel.screenSource.title",
             "templates/design/actions/update-screen-source.ts#static HTML and a live localhost URL",
             "templates/design/actions/list-localhost-connections.ts#\"connected\", \"detected\", \"manual\", \"error\"",
             "templates/design/app/i18n/en-US.ts#permissionPromptRetry: \"Retry connection\""
           ],
-          "prototype": "Scenario: Local app screen, select the screen, then open Route or the plug icon. Scenario: Local app stopped shows the grey dot and the canvas pill. Interact shows the address bar. Screens' + shows From your app…."
+          "prototype": "Scenario: Local app screen, select the screen, then open Route or the server icon. Scenario: Local app stopped shows the grey dot and the canvas pill. Interact shows the address bar. Screens' + shows From your app…."
         },
         {
           "id": "INSP-08",
@@ -886,6 +886,18 @@
             "templates/design/app/components/design/EditPanel.tsx#ScreenSizePresetPicker"
           ],
           "prototype": "Select the screen, then the device icon on Position."
+        },
+        {
+          "id": "INSP-09",
+          "status": "proposed",
+          "today": "Connecting a local app lives in the Import panel's visual-edit row: two commands to copy (install the visual-edit skill, then `design connect --url 'http://localhost:<port>' --root . --daemon`) and a note to replace `<port>`. Adding routes is a separate dialog, Add a screen from your app (search routes, Desktop | Mobile, custom path), that assumes a connection already exists.",
+          "change": "Make connecting the first step of the same dialog. Screens' + › From your app… and Import › Local app… both open Add a screen from your app. With no app connected it shows Connect your app: one line (Start its dev server, then run this in the app's folder), the command `npx @agent-native/core@latest design connect --daemon` with a copy button (no port: `design connect` finds the dev server when `--url` is left off), and Or ask your coding agent, with Claude Code and Codex (the Send to deep links) and Copy prompt. The footer shows a grey pulsing dot, Waiting for your app…, and the dialog switches to the route list as soon as the connection registers (`connect-localhost`, read back with `list-localhost-connections`), so nobody has to close and reopen it. Connected, it shows the app's name with its status dot, Search routes…, the routes with their page names (routes already on the canvas also name their screen), Add \"/path\" for a typed path, and Desktop | Mobile in the footer.",
+          "refs": [
+            "templates/design/app/lib/design-import.ts#VISUAL_EDIT_CONNECT_COMMAND",
+            "packages/core/src/cli/design-connect.ts#auto-detected if omitted",
+            "templates/design/app/i18n/en-US.ts#Add a screen from your app"
+          ],
+          "prototype": "Default scenario: Screens' + › From your app…, then copy the command or pick an agent; the app connects a moment later. Import › Local app… opens the same dialog."
         }
       ]
     },

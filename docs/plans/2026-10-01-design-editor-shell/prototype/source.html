@@ -381,7 +381,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .inp.tokfield { padding-right: 0; }
 .tok-chip { display: inline-flex; align-items: center; gap: 4px; height: 18px; margin-right: auto; padding: 0 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font: 500 11px/18px var(--font); }
 .tok-chip svg.i { width: 12px; height: 12px; }
-/* A URL screen's connection: a status dot on the plug icon, green when the app answers, grey when it doesn't. */
+/* A URL screen's connection: a status dot on the server icon, green when the app answers, grey when it doesn't. */
 .sdot { width: 6px; height: 6px; border-radius: 50%; background: var(--live); flex: none; }
 .sdot.off { background: var(--muted-fg); }
 .src-ind { position: relative; }
@@ -815,6 +815,26 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .dlg-sec { display: flex; flex-direction: column; gap: 6px; }
 .dlg-sec > b { font-size: 12px; font-weight: 600; }
 .dlg-f { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); }
+/* Add a screen from your app: connect steps until the app registers, then its routes. */
+.dlg-sec > .muted { font-size: 12px; line-height: 16px; }
+.cmd { display: flex; align-items: center; gap: 4px; height: 32px; padding: 0 4px 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--muted); }
+.cmd code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font: 12px/16px var(--mono); scrollbar-width: none; }
+.dlg-agents { display: flex; gap: 8px; }
+.dlg-agents .btn { height: 28px; border-radius: 8px; font-size: 12px; gap: 6px; }
+.dlg-agents img { width: 16px; height: 16px; border-radius: 4px; }
+.app-wait { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted-fg); }
+.app-wait .sdot { animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .3; } }
+.app-src { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 500; }
+.dlg-search { display: flex; align-items: center; gap: 6px; height: 32px; padding-inline: 10px; border: 1px solid var(--border); border-radius: 8px; color: var(--muted-fg); }
+.dlg-search:focus-within { border-color: var(--accent); }
+.dlg-search input { flex: 1; min-width: 0; border: 0; background: none; outline: none; font: inherit; color: var(--fg); }
+.route-list { display: flex; flex-direction: column; margin: -8px -8px 0; max-height: 240px; overflow: auto; }
+.route-list button { display: flex; align-items: center; gap: 8px; height: 32px; padding-inline: 8px; border-radius: 6px; text-align: left; font-size: 12px; }
+.route-list button:hover, .route-list button:focus-visible { background: var(--hover); }
+.route-list .p { flex: 1; min-width: 0; font-family: var(--mono); }
+.route-list small { color: var(--muted-fg); font-size: 12px; }
+.route-list .none { padding: 8px; color: var(--muted-fg); font-size: 12px; }
 /* Share popover (toolkit ShareButton with Content's People / Agents tabs) at the app's density: 24px controls, 32px rows, 12/16 text.
    Both panes share one grid cell, so switching tabs never changes the popover's size. */
 .share-pop { position: fixed; z-index: 48; width: 360px; background: var(--popover); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); font-size: 12px; line-height: 16px; animation: swap .12s ease-out; }
@@ -1104,10 +1124,11 @@ const frameToken = () => boundToken() || nearestToken(RESP.w);
 const widthMenu = (cur, run) => { const [name, , kind] = (cur === RESP.w ? frameToken() : nearestToken(cur)) || []; return [{ label: "Container" }, ...widthTokens("container").map(([n, px]) => ({ t: n, k: String(px), radio: true, on: kind === "container" && name === n, run: () => run(px, [n, px, "container"]) })), "-", { label: "Breakpoint" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: n, k: String(px), radio: true, on: kind === "breakpoint" && name === n, run: () => run(px, [n, px, "breakpoint"]) }))]; };
 const whenMenu = (r) => [{ label: "Container (this layer's parent)" }, ...widthTokens("container").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), radio: true, on: r.scale === "container" && r.token === n, run: () => { r.scale = "container"; r.token = n; renderPage(); renderInspector(); } })), "-", { label: "Breakpoint (the frame)" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), radio: true, on: r.scale === "breakpoint" && r.token === n, run: () => { r.scale = "breakpoint"; r.token = n; renderPage(); renderInspector(); } }))];
 // A URL screen is like an instance of your app's route. Designers see the route; the app and its host live
-// behind the plug icon's status dot and tooltip. Detach from app freezes it as a static copy. Static screens
+// behind the server icon's status dot and tooltip. Detach from app freezes it as a static copy. Static screens
 // have no source UI at all.
 const SRC = { live: true, name: "Agent-Native Web", host: "localhost:5173", apps: [["Agent-Native Web", "localhost:5173"]] };
 const localApp = () => S.scenario === "local" || S.scenario === "local-off";
+const appConnected = () => localApp() || SRC.joined;
 const urlScreen = () => localApp() && SRC.live;
 const srcUp = () => S.scenario !== "local-off";
 const srcTip = () => srcUp() ? `${SRC.name} · ${SRC.host}` : `Can't reach ${SRC.name} at ${SRC.host}. Is its dev server running?`;
@@ -1130,7 +1151,7 @@ function renderScreenInspector(el) {
     : `<label class="inp"><span class="pre">W</span><input id="screen-w" value="${RESP.w}" aria-label="Frame width" inputmode="numeric"><button class="post" data-w-menu aria-haspopup="menu" title="Width tokens">${ic("chevron-down", "s12")}</button></label>`;
   el.innerHTML = `<div class="sel-head"><div class="g"><span class="nm">${ic("frame", "s14")}<span>${screenName()}</span></span><span class="muted" style="font-size:12px">${S.route}</span></div></div>
     <div class="insp-scroll">
-    ${urlScreen() ? sec("screen", "Screen", `<button class="icon-btn xs src-ind" data-app-menu aria-haspopup="menu" title="${srcTip()}">${ic("plug-connected")}${sdot()}</button>`, `<div class="g5">${field("Route", `<button class="inp sel" data-route-menu aria-haspopup="menu"><span class="v">${S.route}</span>${ic("chevron-down", "s12")}</button>`, "c13")}</div>`) : ""}
+    ${urlScreen() ? sec("screen", "Screen", `<button class="icon-btn xs src-ind" data-app-menu aria-haspopup="menu" title="${srcTip()}">${ic("server")}${sdot()}</button>`, `<div class="g5">${field("Route", `<button class="inp sel" data-route-menu aria-haspopup="menu"><span class="v">${S.route}</span>${ic("chevron-down", "s12")}</button>`, "c13")}</div>`) : ""}
     ${sec("position", "Position", `<button class="icon-btn xs" data-device-menu aria-haspopup="menu" title="Device sizes">${ic("devices")}</button>`, `
       <div class="g5">${field("Position", inp("X", "0px"))}${field("&nbsp;", inp("Y", "0px"), "c3")}</div>
       <div class="g5">${field("Size", wField)}${field("&nbsp;", `<label class="inp"><span class="pre">H</span><input id="screen-h" value="${RESP.h ? RESP.h : "Hug"}" aria-label="Frame height"></label>`, "c3")}</div>`)}
@@ -1156,7 +1177,7 @@ document.addEventListener("click", e => {
   if (t.closest?.("[data-app-retry]")) return appMenu().find(i => i.t === "Retry connection").run();
   const am = t.closest?.("[data-app-menu]"); if (am) return openMenu(am, appMenu(), { align: "right", minWidth: 220 });
   const as = t.closest?.("[data-add-screen]");
-  if (as) return openMenu(as, [{ icon: "frame", t: "Blank screen", toast: "Adds a blank screen; press F for device sizes" }, ...(localApp() ? [{ icon: "world", t: "From your app…", toast: "Lists your app's routes to add as live screens (Add a screen from your app)" }] : [{ icon: "world", t: "From your app…", toast: "Connect your app first: run agent-native design connect in its repo" }])], { align: "right" });
+  if (as) return openMenu(as, [{ icon: "frame", t: "Blank screen", toast: "Adds a blank screen; press F for device sizes" }, { icon: "world", t: "From your app…", run: appDialog }], { align: "right" });
   const wm = t.closest?.("[data-w-menu]");
   if (wm) return openMenu(wm.closest(".inp") || wm, [...widthMenu(RESP.w, (px, tok) => setFrameWidth(px, false, tok)), ...(boundToken() ? ["-", { t: "Detach token", run: () => setFrameWidth(RESP.w) }] : [])]);
   if (t.closest?.("[data-resp-add]")) { const root = !FLAT[S.selected]?.parent; RESP.rules.push({ id: RESP.nextId++, node: S.selected, scale: root ? "breakpoint" : "container", token: root ? "md" : "md", change: respChoices(S.selected)[0] }); renderPage(); renderInspector(); return; }
@@ -2707,7 +2728,7 @@ const IMPORT_SOURCES = [
   ["world", "Local app", "Connect a running local app with /visual-edit."],
   ["box-multiple", "GitHub", "Coming soon"],
 ];
-const IMPORT_MENU = () => IMPORT_SOURCES.map(([icon, t, d]) => ({ icon, t: t + (t === "GitHub" ? "" : "…"), disabled: t === "GitHub", k: t === "GitHub" ? "Soon" : "", run: () => importDialog(t) }));
+const IMPORT_MENU = () => IMPORT_SOURCES.map(([icon, t, d]) => ({ icon, t: t + (t === "GitHub" ? "" : "…"), disabled: t === "GitHub", k: t === "GitHub" ? "Soon" : "", run: () => t === "Local app" ? appDialog() : importDialog(t) }));
 function dialog(html, onMount) {
   const sc = document.createElement("div"); sc.className = "dlg-scrim";
   sc.innerHTML = `<div class="dlg" role="dialog" aria-modal="true">${html}</div>`;
@@ -2804,7 +2825,53 @@ function importDialog(focus) {
     if (focus && focus !== "Figma frame URL") sc.querySelector(`[data-src="${focus}"]`)?.focus();
     sc.addEventListener("click", e => {
       if (e.target.closest("[data-import]")) { close(); toast("Importing frame… it lands as a new screen"); }
-      const s = e.target.closest("[data-src]"); if (s) { close(); toast(`${s.dataset.src}: opens that source's flow from today's Import panel`); }
+      const s = e.target.closest("[data-src]"); if (s) { close(); if (s.dataset.src === "Local app") return appDialog(); toast(`${s.dataset.src}: opens that source's flow from today's Import panel`); }
+    });
+  });
+}
+
+// Add a screen from your app (AddLocalhostScreenDialog), with a connect step in front of it. `design connect`
+// finds the dev server itself when --url is left off, so the command has no port to fill in.
+const CONNECT_CMD = "npx @agent-native/core@latest design connect --daemon";
+const CONNECT_PROMPT = `Connect this app to Design: start its dev server, then run \`${CONNECT_CMD}\` in the app's folder.`;
+const APP_ROUTES = [["/home", "Home"], ["/docs", "Docs"], ["/pricing", "Pricing"], ["/plans", "Plans"], ["/settings", "Settings"], ["/login", "Log in"], ["/signup", "Sign up"]];
+const APPD = { q: "", view: "desktop", timer: 0 };
+function appDialog() {
+  closeMenu?.(); APPD.q = "";
+  dialog(`<div class="dlg-h">Add a screen from your app<span class="grow"></span><button class="icon-btn xs" data-close aria-label="Close">${ic("x")}</button></div><div class="dlg-b" id="app-dlg"></div><div class="dlg-f" id="app-dlg-f"></div>`, (sc, close) => {
+    const body = sc.querySelector("#app-dlg"), foot = sc.querySelector("#app-dlg-f");
+    // Prototype only: the app "registers" a moment after you copy the command or hand it to an agent.
+    const waitThenConnect = () => { clearTimeout(APPD.timer); APPD.timer = setTimeout(() => { SRC.joined = true; if (sc.isConnected) { paint(); toast(`Connected to ${SRC.name}`); } }, 2200); };
+    const routes = () => {
+      const q = APPD.q.trim().toLowerCase();
+      const hits = APP_ROUTES.filter(([p, n]) => !q || p.includes(q) || n.toLowerCase().includes(q));
+      const onCanvas = p => ROUTES.find(r => r.path === p)?.screen;
+      const custom = q.startsWith("/") && !APP_ROUTES.some(([p]) => p === q) ? `<button data-add-route="${q}">${ic("plus", "s14")}<span class="p">Add "${q}"</span></button>` : "";
+      return hits.map(([p, n]) => `<button data-add-route="${p}">${ic("world", "s14")}<span class="p">${p}</span><small>${onCanvas(p) ? `${n} · ${onCanvas(p)}` : n}</small></button>`).join("") + custom || `<div class="none">No matching routes</div>`;
+    };
+    const paint = () => {
+      if (!appConnected()) {
+        body.innerHTML = `<div class="dlg-sec"><b>Connect your app</b><span class="muted">Start its dev server, then run this in the app's folder.</span>
+          <div class="cmd"><code>${CONNECT_CMD}</code><button class="icon-btn xs" data-copy-cmd title="Copy command">${ic("copy")}</button></div></div>
+          <div class="dlg-sec"><b>Or ask your coding agent</b><div class="dlg-agents">${SEND_AGENTS.filter(([id]) => id !== "claude").map(([id, label, who]) => `<button class="btn secondary" data-connect-agent="${label}"><img src="${PEOPLE[who].img}" alt="">${label}</button>`).join("")}<button class="btn secondary" data-copy-prompt>${ic("copy", "s14")}Copy prompt</button></div></div>`;
+        foot.innerHTML = `<span class="app-wait"><span class="sdot off"></span>Waiting for your app…</span>`;
+        return;
+      }
+      body.innerHTML = `<span class="app-src" title="${SRC.name} · ${SRC.host}">${sdot()}${SRC.name}</span>
+        <label class="dlg-search">${ic("search", "s14")}<input id="app-q" placeholder="Search routes…" aria-label="Search routes" value="${APPD.q}" autofocus></label>
+        <div class="route-list" role="list">${routes()}</div>`;
+      foot.innerHTML = `<div class="segt" role="group" aria-label="Viewport" style="width:160px">${[["desktop", "Desktop"], ["mobile", "Mobile"]].map(([v, l]) => `<button data-view="${v}" aria-pressed="${APPD.view === v}">${l}</button>`).join("")}</div>`;
+      sc.querySelector("#app-q").focus();
+    };
+    paint();
+    sc.addEventListener("input", e => { if (e.target.id === "app-q") { APPD.q = e.target.value; sc.querySelector(".route-list").innerHTML = routes(); } });
+    sc.addEventListener("click", e => {
+      const t = e.target;
+      if (t.closest("[data-copy-cmd]")) { copyText(CONNECT_CMD, "Command copied"); return waitThenConnect(); }
+      if (t.closest("[data-copy-prompt]")) { copyText(CONNECT_PROMPT, "Prompt copied"); return waitThenConnect(); }
+      const ag = t.closest("[data-connect-agent]"); if (ag) { toast(`Opening ${ag.dataset.connectAgent} with the connect prompt`); return waitThenConnect(); }
+      const v = t.closest("[data-view]"); if (v) { APPD.view = v.dataset.view; paint(); return; }
+      const r = t.closest("[data-add-route]"); if (r) { close(); toast(`Added ${r.dataset.addRoute} as a ${APPD.view} screen`); }
     });
   });
 }
