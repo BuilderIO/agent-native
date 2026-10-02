@@ -14,12 +14,13 @@ metadata:
 
 ## Why this is a cost question
 
-Every agent-native workflow draws on one org-wide pool of GitHub-hosted runners,
-about 60 concurrent jobs on the Team plan. Measured 2026-09-29: 57 running and
-126–165 queued, and the `Fast tests` gate waited a median 445 s just for a slot.
-Minutes are free for this OSS repo; slots are not. A job a change cannot affect
-does not just waste its own minutes. It delays every other open PR. Two or three
-PR pushes can fill the pool, so scope is the lever, not faster hardware.
+Every agent-native workflow draws on one org-wide pool of GitHub-hosted runners.
+On the Team plan it held 60 concurrent jobs, and on 2026-09-29 the `Fast tests`
+gate waited a median 445 s just for a slot. BuilderIO moved to Enterprise
+Cloud in October 2026, which raises the pool to 500 jobs (50 macOS). Minutes
+are free for this OSS repo; slots are shared with every private repo. Scope
+still matters, because a job a change cannot affect delays other PRs once the
+pool fills, but parallelism that cuts the critical path is now worth a slot.
 
 `scripts/ci-change-scope.ts` is the one place that decides what a change runs.
 It classifies the changed paths into a full or targeted run and emits one output
@@ -55,10 +56,16 @@ root script test forces a full run.
 Fast-test lanes run Vitest with `VITEST_CONCURRENCY=100%`, one worker per
 core. The shared config's 25% default is for laptops, and on CI's 4-vCPU
 runners it meant one worker: a core shard took 542 s at one worker and 201 s
-at four, on the same CPU time. So two lanes at full width replace five
-single-worker ones, and each lane dropped also saves its ~100 s of setup and a
-runner slot. Every core is already busy at 100%, so more workers or lanes buy
-nothing.
+at four, on the same CPU time. On the 60-slot pool that let two full-width
+lanes replace five, but each lane then ran ~18 min of packages one after
+another. With 500 slots CI plans eight lanes (`LANES` in `ci.yml`): each costs
+~100 s of setup, and the planner balances lanes by test-file count.
+
+- **Large packages are sharded too.** `splitLargePackages` in
+  `scripts/ci-test-lanes.ts` splits a package heavier than a fair lane share
+  into Vitest `--shard`s, so Design no longer sets the floor for every lane.
+  Only a bare `vitest` test script can be sharded, and no shard drops below
+  `MIN_SHARD_FILES`.
 
 - **Let CI override the worker count.** A package that pins `maxWorkers`
   goes through `resolveMaxWorkers(process.env, fallback)`; a literal

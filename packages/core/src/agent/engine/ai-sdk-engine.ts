@@ -362,9 +362,22 @@ class AISDKEngine implements AgentEngine {
 
     const toolNameMap = createProviderToolNameMap(opts.tools, opts.messages);
     const providerTools = limitProviderTools(opts.tools);
+    // The Responses API treats an omitted `strict` as strict mode and rewrites
+    // every optional parameter as required, so the model must invent a value
+    // ("" or a guessed id) for each one. Action schemas use omission to mean
+    // "not this mode", so those fillers turn a valid call into a mixed one
+    // that validation rejects on every retry.
+    const usesResponsesApi =
+      this.provider === "openai" &&
+      (this.forceResponses || !isCustomOpenAiBaseUrl(this.baseUrl));
     const aiSdkTools =
       providerTools.length > 0
-        ? engineToolsToAISDK(providerTools, jsonSchema, toolNameMap)
+        ? engineToolsToAISDK(
+            providerTools,
+            jsonSchema,
+            toolNameMap,
+            usesResponsesApi ? false : undefined,
+          )
         : undefined;
     const messages = engineMessagesToAISDK(opts.messages, {
       toolResultImages: this.capabilities.vision,

@@ -2063,29 +2063,38 @@ export async function listWorkspaceApps(
     return finalize(manifestApps, { persist: !unverified });
   }
 
-  if (gatewayDenial) throw gatewayDenial;
+  // With no local filesystem or manifest to answer, a 401 means this
+  // deployment's own credentials are wrong, which someone has to see. A 403
+  // means the registry will not show this reader its apps, so they get the
+  // deployment's own list instead, and none of it is recorded. (A manifest
+  // answers earlier for both, with the warning above.)
+  if (gatewayDenial?.statusCode === 401) throw gatewayDenial;
+  warnWorkspaceAppsGatewayDenial(gatewayDenial, "deployment's own app list");
 
   if (!workspaceRoot) {
-    return finalize([
-      {
-        id: "dispatch",
-        name: "Dispatch",
-        description: "Workspace control plane",
-        path: "/dispatch",
-        homePath: "/home",
-        url: workspaceAppUrl("/dispatch"),
-        isDispatch: true,
-        audience: DEFAULT_WORKSPACE_APP_AUDIENCE,
-        publicPaths: [],
-        protectedPaths: [],
-        status: "ready",
-      },
-    ]);
+    return finalize(
+      [
+        {
+          id: "dispatch",
+          name: "Dispatch",
+          description: "Workspace control plane",
+          path: "/dispatch",
+          homePath: "/home",
+          url: workspaceAppUrl("/dispatch"),
+          isDispatch: true,
+          audience: DEFAULT_WORKSPACE_APP_AUDIENCE,
+          publicPaths: [],
+          protectedPaths: [],
+          status: "ready",
+        },
+      ],
+      { persist: !unverified },
+    );
   }
 
   const apps = await readWorkspaceAppsFromFilesystem(workspaceRoot);
-  if (apps) return finalize(apps);
-  return finalize([]);
+  if (apps) return finalize(apps, { persist: !unverified });
+  return finalize([], { persist: !unverified });
 }
 
 const ADDABLE_TEMPLATES: AvailableWorkspaceTemplate[] = [
