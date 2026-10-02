@@ -161,4 +161,76 @@ describe("container-first click selection", () => {
       await browser.close();
     }
   });
+
+  it("keeps the host-mirrored selection when Shift-click removes one member", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(FIXTURE);
+      const selections: string[][] = [];
+      await page.exposeFunction("__pushMarqueeSelection", (ids: string[]) =>
+        selections.push(ids),
+      );
+      await page.evaluate(() => {
+        window.addEventListener("message", (event: MessageEvent) => {
+          const data = event.data as {
+            type?: string;
+            payload?: Array<{ sourceId?: string }>;
+          };
+          if (data?.type === "agent-native:layer-marquee-selection") {
+            (window as any).__pushMarqueeSelection(
+              (data.payload ?? []).map((element) => element.sourceId ?? ""),
+            );
+          }
+        });
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+
+      const mirrorHostSelection = (primary: string, selected: string[]) =>
+        page.evaluate(
+          ({ primary, selected }) => {
+            const selectorFor = (id: string) =>
+              `[data-agent-native-node-id="${id}"]`;
+            window.dispatchEvent(
+              new MessageEvent("message", {
+                data: {
+                  type: "select-element",
+                  selector: selectorFor(primary),
+                  selectorCandidates: [selectorFor(primary)],
+                },
+                source: window,
+              }),
+            );
+            window.dispatchEvent(
+              new MessageEvent("message", {
+                data: {
+                  type: "select-elements",
+                  selectorGroups: selected.map((id) => [selectorFor(id)]),
+                },
+                source: window,
+              }),
+            );
+          },
+          { primary, selected },
+        );
+
+      await page.mouse.click(100, 340);
+      await mirrorHostSelection("solo-a", ["solo-a"]);
+      await page.keyboard.down("Shift");
+      await page.mouse.click(250, 340);
+      await page.keyboard.up("Shift");
+
+      // The host mirrors its canonical A+B state back into the iframe before
+      // the user toggles B off again.
+      await mirrorHostSelection("solo-b", ["solo-a", "solo-b"]);
+      await page.keyboard.down("Shift");
+      await page.mouse.click(250, 340);
+      await page.keyboard.up("Shift");
+      await vi.waitFor(() => expect(selections.length).toBeGreaterThan(0));
+
+      expect(selections[selections.length - 1]).toEqual(["solo-a"]);
+    } finally {
+      await browser.close();
+    }
+  });
 });

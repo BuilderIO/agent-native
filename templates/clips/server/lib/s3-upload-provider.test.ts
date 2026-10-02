@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockResolveSecret = vi.fn();
+const mockPrefetchSecrets = vi.fn();
 const mockReadAppSecret = vi.fn();
 const mockGetRequestOrgId = vi.fn();
 const mockSsrfSafeFetch = vi.fn();
@@ -8,6 +9,7 @@ const mockIsBlockedExtensionUrlWithDns = vi.fn();
 
 vi.mock("@agent-native/core/server", () => ({
   getRequestOrgId: (...args: any[]) => mockGetRequestOrgId(...args),
+  prefetchSecrets: (...args: any[]) => mockPrefetchSecrets(...args),
   resolveSecret: (...args: any[]) => mockResolveSecret(...args),
 }));
 vi.mock("@agent-native/core/secrets", () => ({
@@ -33,6 +35,7 @@ describe("s3FileUploadProvider", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockPrefetchSecrets.mockReset().mockResolvedValue(undefined);
     mockReadAppSecret.mockReset().mockResolvedValue(null);
     mockIsBlockedExtensionUrlWithDns.mockReset().mockResolvedValue(false);
     mockGetRequestOrgId.mockReset().mockReturnValue("org-1");
@@ -57,6 +60,41 @@ describe("s3FileUploadProvider", () => {
     ]) {
       delete process.env[key];
     }
+  });
+
+  it("prefetches the S3 and R2 request secrets before resolving them", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://s3.example.com",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+
+    await expect(s3FileUploadProvider.isConfiguredForRequest?.()).resolves.toBe(
+      true,
+    );
+
+    expect(mockPrefetchSecrets).toHaveBeenCalledOnce();
+    expect(mockPrefetchSecrets).toHaveBeenCalledWith([
+      "S3_BUCKET",
+      "R2_BUCKET",
+      "S3_ACCESS_KEY_ID",
+      "R2_ACCESS_KEY_ID",
+      "S3_SECRET_ACCESS_KEY",
+      "R2_SECRET_ACCESS_KEY",
+      "S3_ENDPOINT",
+      "R2_ENDPOINT",
+      "S3_REGION",
+      "R2_REGION",
+      "S3_PUBLIC_BASE_URL",
+      "R2_PUBLIC_BASE_URL",
+    ]);
+    expect(mockPrefetchSecrets.mock.invocationCallOrder[0]).toBeLessThan(
+      mockResolveSecret.mock.invocationCallOrder[0]!,
+    );
   });
 
   it("reports configured from request-scoped DB secrets", async () => {

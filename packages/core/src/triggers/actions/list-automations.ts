@@ -6,6 +6,10 @@ import {
   type AutomationScope,
 } from "../../automations/service.js";
 import {
+  hasStalePause,
+  isPausedByFramework,
+} from "../../jobs/automation-outcome.js";
+import {
   describeCron,
   effectiveTimezone,
   isValidCron,
@@ -53,6 +57,10 @@ export interface AutomationActionItem {
   lastCheck: string | null;
   lastStatus: string | null;
   lastError: string | null;
+  lastErrorCode: string | null;
+  /** Set when the framework paused the automation after repeated failures. */
+  pausedReason: string | null;
+  pausedAt: string | null;
   nextRun: string | null;
   createdBy: string | null;
   model: string | null;
@@ -97,7 +105,11 @@ export default defineAction({
       ({ resource, name, meta, body, canUpdate, webhookPath }) => {
         const run = runsByResource.get(`${resource.owner}\0${resource.path}`);
         const metadataRunAt = meta.lastRun ? Date.parse(meta.lastRun) : NaN;
+        // The run history would otherwise report the last failed run and hide
+        // that the framework has since paused the automation.
+        const paused = isPausedByFramework(meta);
         const latestRun =
+          !paused &&
           run &&
           (!Number.isFinite(metadataRunAt) || run.startedAt > metadataRunAt)
             ? run
@@ -122,8 +134,19 @@ export default defineAction({
             ? new Date(latestRun.startedAt).toISOString()
             : (meta.lastRun ?? null),
           lastCheck: meta.lastCheck ?? null,
-          lastStatus: latestRun ? latestRun.status : (meta.lastStatus ?? null),
+          lastStatus: paused
+            ? "paused"
+            : latestRun
+              ? latestRun.status
+              : hasStalePause(meta) && meta.lastStatus === "paused"
+                ? null
+                : (meta.lastStatus ?? null),
           lastError: latestRun ? latestRun.error : (meta.lastError ?? null),
+          lastErrorCode: latestRun
+            ? latestRun.errorCode
+            : (meta.lastErrorCode ?? null),
+          pausedReason: paused ? (meta.pausedReason ?? null) : null,
+          pausedAt: paused ? (meta.pausedAt ?? null) : null,
           nextRun: nextRun(meta),
           createdBy: meta.createdBy ?? null,
           model: meta.model ?? null,

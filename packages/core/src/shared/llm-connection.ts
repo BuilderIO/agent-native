@@ -1,5 +1,6 @@
 export interface LlmConnectionStatus {
   configured?: boolean;
+  chatEligible?: boolean;
   engine?: string | null;
   model?: string | null;
   source?: string | null;
@@ -28,12 +29,18 @@ export function llmConnectionTrackingProperties(
     return {
       llm_connection: "none",
       llm_connection_configured: false,
+      ...(typeof status.chatEligible === "boolean"
+        ? { llm_chat_eligible: status.chatEligible }
+        : {}),
     };
   }
 
   return {
     llm_connection: normalizeLlmConnection(status.engine),
     llm_connection_configured: true,
+    ...(typeof status.chatEligible === "boolean"
+      ? { llm_chat_eligible: status.chatEligible }
+      : {}),
     llm_engine: status.engine,
     ...(status.model ? { llm_model: status.model } : {}),
     ...(status.source ? { llm_connection_source: status.source } : {}),

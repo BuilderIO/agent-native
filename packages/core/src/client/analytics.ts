@@ -15,6 +15,10 @@ import {
   type AnalyticsClientPlatform,
 } from "../shared/analytics-platform.js";
 import {
+  classifyErrorNoise,
+  type ErrorNoiseFrame,
+} from "../shared/error-noise.js";
+import {
   llmConnectionTrackingProperties,
   type LlmConnectionStatus,
 } from "../shared/llm-connection.js";
@@ -29,6 +33,7 @@ import {
 } from "./analytics-session.js";
 import { injectedAgentNativeConfig } from "./app-config.js";
 import { clientBuildId } from "./build-compatibility.js";
+import { clientFailureContext } from "./failure-report.js";
 import { scheduleAfterPaint } from "./use-after-paint.js";
 export {
   clearAnalyticsSessionId,
@@ -39,10 +44,10 @@ import {
   fetchAuthSessionStatus,
 } from "./client-status-requests.js";
 import {
+  firstPartyHosts,
   installErrorCapture,
   type CapturedExceptionEvent,
 } from "./error-capture.js";
-import { isDynamicImportFailureMessage } from "./route-chunk-recovery.js";
 import type {
   SessionReplayOptions,
   SessionReplayStartResult,
@@ -230,7 +235,25 @@ const FIRST_TOUCH_QUERY_FIELDS = [
   "utm_campaign",
   "utm_content",
   "utm_term",
+  "gclid",
+  "msclkid",
+  "vector_source",
 ] as const;
+const FIRST_TOUCH_COOKIE_FIELD_PRIORITY = [
+  "gclid",
+  "msclkid",
+  "vector_source",
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "ref",
+  "via",
+  "utm_content",
+  "utm_term",
+  "landing_path",
+  "landing_referrer",
+  "landed_at",
+] as const satisfies readonly (keyof FirstTouchAttribution)[];
 
 let _firstTouchCaptured = false;
 
@@ -242,9 +265,13 @@ export interface FirstTouchAttribution {
   utm_campaign?: string;
   utm_content?: string;
   utm_term?: string;
+  gclid?: string;
+  msclkid?: string;
+  vector_source?: string;
   landing_path?: string;
   landing_referrer?: string;
   landed_at?: string;
+  capture_truncated?: string;
 }
 
 function safeStorageGet(key: string): string | null {
@@ -279,6 +306,9 @@ function readCachedLlmConnectionStatus(): LlmConnectionStatus | null {
     }
     return {
       configured: parsed.configured,
+      ...(typeof parsed.chatEligible === "boolean"
+        ? { chatEligible: parsed.chatEligible }
+        : {}),
       engine: parsed.engine,
       model: parsed.model,
       source: parsed.source,
@@ -299,15 +329,20 @@ function cacheLlmConnectionStatus(status: LlmConnectionStatus): void {
 
 function normalizeAgentEngineStatus(data: unknown): LlmConnectionStatus {
   const value = data as Record<string, unknown> | null;
-  if (!value || value.configured !== true) {
-    return { configured: false };
-  }
+  if (!value) return { configured: false };
   return {
-    configured: true,
-    engine: typeof value.engine === "string" ? value.engine : null,
-    model: typeof value.model === "string" ? value.model : null,
-    source: typeof value.source === "string" ? value.source : null,
-    envVar: typeof value.envVar === "string" ? value.envVar : null,
+    configured: value.configured === true,
+    ...(typeof value.chatEligible === "boolean"
+      ? { chatEligible: value.chatEligible }
+      : {}),
+    ...(value.configured === true
+      ? {
+          engine: typeof value.engine === "string" ? value.engine : null,
+          model: typeof value.model === "string" ? value.model : null,
+          source: typeof value.source === "string" ? value.source : null,
+          envVar: typeof value.envVar === "string" ? value.envVar : null,
+        }
+      : {}),
   };
 }
 
@@ -559,14 +594,64 @@ function readFirstTouchCookie(): string | null {
   return null;
 }
 
-function writeFirstTouchCookie(encodedValue: string): void {
-  if (typeof document === "undefined") return;
-  const cookie =
+function firstTouchCookieAssignment(encodedValue: string): string {
+  return (
     `${FIRST_TOUCH_COOKIE_NAME}=${encodedValue}; path=/; ` +
-    `max-age=${FIRST_TOUCH_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`;
-  if (cookie.length > FIRST_TOUCH_MAX_COOKIE_BYTES) return;
+    `max-age=${FIRST_TOUCH_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`
+  );
+}
+
+function fitFirstTouchCookieValue(value: string): string {
+  const source = JSON.parse(value) as FirstTouchAttribution;
+  const compact: FirstTouchAttribution = {};
+  let truncated = false;
+
+  for (const field of FIRST_TOUCH_COOKIE_FIELD_PRIORITY) {
+    const rawValue = source[field];
+    if (typeof rawValue !== "string" || !rawValue) continue;
+    const candidate = {
+      ...compact,
+      [field]: rawValue.slice(0, FIRST_TOUCH_MAX_FIELD_LENGTH),
+    };
+    const encoded = encodeURIComponent(JSON.stringify(candidate));
+    if (
+      firstTouchCookieAssignment(encoded).length <= FIRST_TOUCH_MAX_COOKIE_BYTES
+    ) {
+      Object.assign(compact, { [field]: candidate[field] });
+    } else {
+      truncated = true;
+    }
+  }
+
+  if (truncated) {
+    compact.capture_truncated = "1";
+    // Keep the auth handoff under its 4 KB header limit after re-encoding.
+    for (const field of [...FIRST_TOUCH_COOKIE_FIELD_PRIORITY].reverse()) {
+      const encoded = encodeURIComponent(JSON.stringify(compact));
+      if (
+        firstTouchCookieAssignment(encoded).length <=
+        FIRST_TOUCH_MAX_COOKIE_BYTES
+      ) {
+        return encoded;
+      }
+      delete compact[field];
+    }
+  }
+
+  const encoded = encodeURIComponent(JSON.stringify(compact));
+  if (
+    firstTouchCookieAssignment(encoded).length > FIRST_TOUCH_MAX_COOKIE_BYTES
+  ) {
+    throw new Error("First-touch attribution exceeded the cookie budget");
+  }
+  return encoded;
+}
+
+function writeFirstTouchCookie(value: string): void {
+  if (typeof document === "undefined") return;
+  const encodedValue = fitFirstTouchCookieValue(value);
   try {
-    document.cookie = cookie;
+    document.cookie = firstTouchCookieAssignment(encodedValue);
   } catch {
     // best-effort
   }
@@ -591,7 +676,7 @@ function captureFirstTouchAttribution(): void {
       // never overwrite the stored value itself (first-write-wins).
       if (!readFirstTouchCookie()) {
         try {
-          writeFirstTouchCookie(encodeURIComponent(existing));
+          writeFirstTouchCookie(existing);
         } catch {
           // ignore
         }
@@ -601,7 +686,7 @@ function captureFirstTouchAttribution(): void {
     const attribution = buildFirstTouchAttribution();
     const json = JSON.stringify(attribution);
     safeStorageSet(FIRST_TOUCH_STORAGE_KEY, json);
-    writeFirstTouchCookie(encodeURIComponent(json));
+    writeFirstTouchCookie(json);
   } catch {
     // Attribution is best-effort telemetry; never let it break boot.
   }
@@ -685,188 +770,23 @@ function hasBrowserTrackingDestination(): boolean {
   );
 }
 
-function hasOnlySourcelessFrames(value: {
-  stacktrace?: {
-    frames?: Array<{
-      filename?: unknown;
-      abs_path?: unknown;
-      function?: unknown;
-    }>;
-  };
-}): boolean {
-  const frames = value.stacktrace?.frames ?? [];
-  return (
-    frames.length === 0 ||
-    frames.every((frame) => {
-      const filename = String(frame.filename ?? frame.abs_path ?? "")
-        .trim()
-        .toLowerCase();
-      const functionName = String(frame.function ?? "").trim();
-      return (
-        !functionName &&
-        (!filename || filename === "undefined" || filename === "<anonymous>")
-      );
-    })
-  );
+function sentryFramesInnermostFirst(
+  value: Sentry.Exception,
+): ErrorNoiseFrame[] {
+  // Sentry orders frames oldest first; the shared rules read them like V8 does.
+  return [...(value.stacktrace?.frames ?? [])].reverse().map((frame) => ({
+    function: frame.function ?? undefined,
+    filename: frame.filename ?? frame.abs_path,
+    lineno: frame.lineno,
+  }));
 }
 
-function isAgentNativeDocsUrl(url: string): boolean {
-  if (!url) return false;
-  try {
-    const parsed = new URL(url);
-    return (
-      parsed.hostname === "www.agent-native.com" ||
-      parsed.hostname === "agent-native.com"
-    );
-  } catch {
-    return false;
-  }
-}
-
-function isSessionReplayUrl(url: string): boolean {
-  if (!url) return false;
-  try {
-    const parsed = new URL(url);
-    return /^\/sessions\/[^/]+\/?$/.test(parsed.pathname);
-  } catch {
-    return false;
-  }
-}
-
+// Sentry's `beforeSend` is a second door to the same noise: it applies the one
+// shared rule set (`shared/error-noise`) rather than keeping a list of its own.
 function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
-  const exceptionValues = event.exception?.values ?? [];
   const taggedUrl =
     typeof event.tags?.url === "string" ? event.tags.url : undefined;
-  const requestUrl = (event.request?.url ?? taggedUrl ?? "").toLowerCase();
-  const isDocsPage = isAgentNativeDocsUrl(requestUrl);
-  if (
-    exceptionValues.some((value) =>
-      isDynamicImportFailureMessage(
-        `${value.type ?? ""}: ${value.value ?? ""}`,
-      ),
-    )
-  ) {
-    return true;
-  }
-
-  if (
-    event.tags?.context === "agent-native-chat" &&
-    event.tags?.errorCode === "run_timeout" &&
-    event.tags?.reconnectTimedOut === "false" &&
-    event.tags?.reconnectTerminalReason === "run_timeout"
-  ) {
-    return true;
-  }
-  if (
-    isSessionReplayUrl(requestUrl) &&
-    exceptionValues.some((value) => {
-      const exceptionValue = String(value.value ?? "")
-        .trim()
-        .toLowerCase();
-      return (
-        exceptionValue.includes("notallowederror: play() failed") &&
-        exceptionValue.includes("user didn't interact with the document first")
-      );
-    })
-  ) {
-    return true;
-  }
-  if (
-    exceptionValues.some((value) => value.type === "AgentAutoContinueSignal")
-  ) {
-    return true;
-  }
-  if (
-    exceptionValues.some((value) => {
-      const exceptionType = String(value.type ?? "")
-        .trim()
-        .toLowerCase();
-      const exceptionValue = String(value.value ?? "")
-        .trim()
-        .toLowerCase();
-      return (
-        exceptionType === "unauthorizederror" ||
-        exceptionType === "unauthenticatederror" ||
-        exceptionValue === "unauthorized" ||
-        exceptionValue === "unauthenticated"
-      );
-    })
-  ) {
-    return true;
-  }
-  if (
-    exceptionValues.some((value) => {
-      const exceptionType = String(value.type ?? "")
-        .trim()
-        .toLowerCase();
-      const exceptionValue = String(value.value ?? "")
-        .trim()
-        .toLowerCase();
-      if (
-        exceptionType !== "referenceerror" ||
-        !exceptionValue.includes("emptyranges")
-      ) {
-        return false;
-      }
-      return hasOnlySourcelessFrames(value);
-    })
-  ) {
-    return true;
-  }
-  if (
-    isDocsPage &&
-    exceptionValues.some((value) => {
-      const exceptionValue = String(value.value ?? "").toLowerCase();
-      return exceptionValue.includes(
-        "window.webkit.messagehandlers.scrolleventhandler.postmessage",
-      );
-    })
-  ) {
-    return true;
-  }
-  if (
-    isDocsPage &&
-    exceptionValues.some((value) => {
-      const exceptionType = String(value.type ?? "")
-        .trim()
-        .toLowerCase();
-      const exceptionValue = String(value.value ?? "")
-        .trim()
-        .toLowerCase();
-      return (
-        exceptionType === "rangeerror" &&
-        exceptionValue.includes("maximum call stack") &&
-        hasOnlySourcelessFrames(value)
-      );
-    })
-  ) {
-    return true;
-  }
-  if (
-    exceptionValues.some((value) => {
-      const exceptionType = String(value.type ?? "")
-        .trim()
-        .toLowerCase();
-      const exceptionValue = String(value.value ?? "")
-        .trim()
-        .toLowerCase();
-      return (
-        exceptionValue === "the user aborted a request." ||
-        exceptionValue === "signal is aborted without reason" ||
-        exceptionValue === "aborterror: the user aborted a request." ||
-        exceptionValue === "aborterror: signal is aborted without reason" ||
-        (exceptionType === "aborterror" &&
-          (exceptionValue.includes("the user aborted a request") ||
-            exceptionValue.includes("signal is aborted without reason")))
-      );
-    })
-  ) {
-    return true;
-  }
-  const exceptionText = exceptionValues
-    .map((value) => `${value.type ?? ""} ${value.value ?? ""}`)
-    .join(" ")
-    .toLowerCase();
+  const requestUrl = event.request?.url ?? taggedUrl ?? "";
   const breadcrumbText = (event.breadcrumbs ?? [])
     .map((crumb) => {
       const data = crumb.data as Record<string, unknown> | undefined;
@@ -876,15 +796,26 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
         typeof data?.url === "string" ? data.url : "",
       ].join(" ");
     })
-    .join(" ")
-    .toLowerCase();
-  const combined = `${exceptionText} ${requestUrl} ${breadcrumbText}`;
-  return (
-    combined.includes("api2.amplitude.com") &&
-    (combined.includes("failed to fetch") ||
-      combined.includes("networkerror") ||
-      combined.includes("load failed"))
-  );
+    .join(" ");
+  const tags: Record<string, string> = {};
+  for (const [key, tag] of Object.entries(event.tags ?? {})) {
+    if (typeof tag === "string") tags[key] = tag;
+  }
+  // `values` is the linked-error chain, causes first: the last entry is the
+  // exception that was thrown. A noisy cause (Safari's stackless `Load failed`)
+  // under a first-party wrapper is a first-party error, not noise.
+  const primary = event.exception?.values?.at(-1);
+  if (!primary) return false;
+  return classifyErrorNoise({
+    surface: "browser",
+    type: primary.type,
+    value: primary.value,
+    frames: sentryFramesInnermostFirst(primary),
+    pageUrl: requestUrl,
+    contextText: `${requestUrl} ${breadcrumbText}`,
+    tags,
+    firstPartyHosts: firstPartyHosts(),
+  }).drop;
 }
 
 function firstNonEmpty(...values: Array<string | undefined>): string {
@@ -1325,9 +1256,29 @@ function errorCaptureSessionContext(): {
   };
 }
 
+/**
+ * An exception that happened in a chat thread names it: the issue page links
+ * `extra.failureContext.threadUrl`. A caller's own packet wins, and an error
+ * outside any thread carries none (the page URL and release are already on
+ * the event).
+ */
+function exceptionExtra(
+  event: CapturedExceptionEvent,
+): Record<string, unknown> | undefined {
+  try {
+    const failure = clientFailureContext();
+    if (!failure.threadId) return event.extra;
+    return { failureContext: failure, ...event.extra };
+  } catch {
+    // coercion-ok: the event is reported without its thread link.
+    return event.extra;
+  }
+}
+
 function exceptionEventProperties(
   event: CapturedExceptionEvent,
 ): Record<string, unknown> {
+  const extra = exceptionExtra(event);
   return {
     exceptionType: event.type,
     exceptionMessage: event.message,
@@ -1343,7 +1294,7 @@ function exceptionEventProperties(
       : {}),
     ...(event.breadcrumbs?.length ? { breadcrumbs: event.breadcrumbs } : {}),
     ...(event.tags ? { exceptionTags: event.tags } : {}),
-    ...(event.extra ? { exceptionExtra: event.extra } : {}),
+    ...(extra ? { exceptionExtra: extra } : {}),
   };
 }
 
@@ -1475,7 +1426,9 @@ function maybeInstallErrorCapture(
     getSessionContext: errorCaptureSessionContext,
     emitReplayEvent: emitExceptionToReplay,
     environment: options.environment || resolveClientDeploymentEnvironment(),
-    ...(options.release ? { release: options.release } : {}),
+    // Without a release, a regression cannot be tied to the deploy that
+    // introduced it; the first-party event used to carry `null` here.
+    release: options.release || resolveClientRelease(),
     ...(options.captureGlobalErrors !== undefined
       ? { captureGlobalErrors: options.captureGlobalErrors }
       : {}),

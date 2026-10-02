@@ -4,7 +4,28 @@ import { AgentChatHome } from "@agent-native/toolkit/app/chat";
 import { useEffect } from "react";
 
 import { LocalCodebasePicker } from "@/components/plan/LocalCodebasePicker";
+import { Skeleton } from "@/components/ui/skeleton";
 import { schedulePlanRoutePrewarm } from "@/lib/route-prewarm";
+
+export function PlanChatSkeleton() {
+  return (
+    <div
+      className="flex h-full min-h-0 bg-background px-4 py-4"
+      aria-busy="true"
+    >
+      <div className="mx-auto flex w-full max-w-3xl flex-col items-center justify-center gap-4">
+        <div className="flex w-full flex-col items-center gap-4">
+          <Skeleton className="h-10 w-64 max-w-full" />
+          <Skeleton className="h-9 w-44 rounded-md" />
+        </div>
+        <div className="mt-auto w-full rounded-2xl border border-border bg-card p-4">
+          <Skeleton className="mb-4 h-4 w-40 max-w-full" />
+          <Skeleton className="h-10 w-full rounded-lg" />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function PlanChatPage() {
   const t = useT();

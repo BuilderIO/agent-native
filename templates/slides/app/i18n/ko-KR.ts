@@ -46,7 +46,7 @@ const messages = {
     designSystems: "디자인 시스템",
   },
   settings: {
-    agentObservability: "에이전트 관찰성",
+    agentObservability: "관찰성",
     title: "설정",
     labs: "Labs",
     labsIntro: "출시 전에 실험적인 기능을 미리 사용해 보세요.",
@@ -58,6 +58,7 @@ const messages = {
     commentsAndRepliesDescription:
       "누군가 내 덱에 댓글을 달거나 답글을 남길 때.",
     retry: "다시 시도",
+    reload: "새로고침",
     mcpAbout:
       "Slides를 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 Slides에서 덱을 만들고, 슬라이드를 추가하고, PowerPoint로 내보낼 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
     workspaceTitle: "워크스페이스",
@@ -755,6 +756,8 @@ const messages = {
     imageAdded: "图片已添加",
     imageUploadError: "上传此图片时出了点问题。",
     exportFailed: "导出失败",
+    agentRunFailed:
+      "슬라이드를 만들기 전에 에이전트 실행이 실패했습니다. 채팅에서 세부 정보를 확인한 뒤 다시 시도하세요.",
     deckHasNoSlides: "덱에 슬라이드가 없습니다.",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",

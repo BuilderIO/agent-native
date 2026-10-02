@@ -2,6 +2,10 @@ import crypto from "node:crypto";
 import nodePath from "node:path";
 
 import {
+  AgentProtocolValidationError,
+  parseAgentRunOptions,
+} from "@agent-native/agentkit/protocol";
+import {
   createError,
   defineEventHandler,
   setResponseStatus,
@@ -79,6 +83,8 @@ import type { EngineMessage } from "../agent/engine/types.js";
 import { hostedHarnessSystemPrompt } from "../agent/harness/hosted.js";
 import {
   createProductionAgentHandler,
+  endsAtContinuationBoundary,
+  normalizeChatScope,
   actionsToEngineTools,
   executeAgentToolCall,
   filterActionsByAllowedNames,
@@ -114,14 +120,13 @@ import {
 import {
   buildAssistantMessage,
   buildUserMessage,
-  claimQueuedMessage,
+  applySubmittedUserMessage,
   extractThreadMeta,
   foldAssistantTurn,
   foldThreadRunSuggestions,
-  hasClaimedQueuedMessage,
+  foldUnstartedTurnFailure,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
-  upsertUserMessage,
   type ThreadSuggestionRun,
 } from "../agent/thread-data-builder.js";
 import { appendThreadDebugHistory } from "../agent/thread-debug-history.js";
@@ -214,11 +219,21 @@ import { normalizeDatabaseToolsMode } from "../scripts/db/tool-mode.js";
 import type { ResolvedKeyReference } from "../secrets/substitution.js";
 import { getSetting, putSetting } from "../settings/store.js";
 import {
+  retryContextFromRequest,
+  type RefusedTurnRetryContext,
+} from "../shared/agent-chat-run-not-started.js";
+import {
   ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
   normalizeAnalyticsClientPlatform,
 } from "../shared/analytics-platform.js";
 import { docsUrl } from "../shared/docs-url.js";
-import { requireAgentChatAiSetup } from "./agent-chat-ai-setup.js";
+import { stripSqlParams } from "../shared/error-noise.js";
+import { track, type TrackingMeta } from "../tracking/registry.js";
+import {
+  AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
+  isAgentChatAiSetupRequiredError,
+  requireAgentChatAiSetup,
+} from "./agent-chat-ai-setup.js";
 import {
   AGENT_CHAT_STREAM_PATH,
   AGENT_CHAT_STREAM_TOKEN_SUFFIX,
@@ -278,6 +293,50 @@ import {
 export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
 
+export function trackAgentChatRunLifecycle(
+  event: "run_started" | "run_finished" | "run_no_reply",
+  threadId: string | undefined,
+  attemptId: string | undefined,
+  userId?: string,
+  properties: Record<string, unknown> = {},
+  appId?: string,
+): void {
+  if (!threadId?.trim() || !attemptId?.trim()) return;
+  track(
+    event,
+    {
+      ...properties,
+      ...(appId ? { app_name: appId, template_name: appId } : {}),
+      thread_id: threadId,
+      attempt_id: attemptId,
+    },
+    runLifecycleTrackingSource(userId),
+  );
+}
+
+/**
+ * The run's owner is set on the run context only once its system prompt is
+ * built, after `run_started`, and a durable worker has no browser session at
+ * all. The request context carries the verified initiator in both cases, so
+ * identity comes from there; dashboards key retention on `auth_user_id`.
+ */
+function runLifecycleTrackingSource(
+  owner: string | undefined,
+): TrackingMeta | undefined {
+  const requestContext = getRequestContext();
+  if (requestContext?.agentRunAnonymous) {
+    const anonymousId = owner ?? requestContext.userEmail;
+    return anonymousId ? { anonymousId } : undefined;
+  }
+  const userId = owner ?? requestContext?.userEmail;
+  if (!userId) return undefined;
+  const authUserId =
+    requestContext?.userEmail === userId
+      ? requestContext.authUserId
+      : undefined;
+  return { userId, ...(authUserId ? { authUserId } : {}) };
+}
+
 function withTransientDatabaseFallback(
   route: string,
   handler: (event: H3Event) => unknown,
@@ -295,25 +354,37 @@ function withTransientDatabaseFallback(
         code?: unknown;
         cause?: { code?: unknown };
       };
-      captureError(new Error("Transient database failure in agent chat"), {
-        route,
-        method,
-        tags: {
-          source: "agent-chat",
-          failureClass: "transient-database",
+      // `captureError()` aggregates this per (class, route): the first outage
+      // request reports, the rest of the window folds into one counted summary
+      // instead of one event per polled request. The original error rides along
+      // as `cause` so the real failure stays classifiable.
+      captureError(
+        new Error("Transient database failure in agent chat", { cause: error }),
+        {
+          route,
+          method,
+          tags: {
+            source: "agent-chat",
+            failureClass: "transient-database",
+          },
+          extra: {
+            databaseErrorName:
+              error instanceof Error ? error.name : typeof error,
+            databaseErrorMessage:
+              error instanceof Error
+                ? stripSqlParams(error.message).slice(0, 300)
+                : undefined,
+            databaseErrorCode:
+              typeof databaseError.code === "string"
+                ? databaseError.code
+                : undefined,
+            databaseCauseCode:
+              typeof databaseError.cause?.code === "string"
+                ? databaseError.cause.code
+                : undefined,
+          },
         },
-        extra: {
-          databaseErrorName: error instanceof Error ? error.name : typeof error,
-          databaseErrorCode:
-            typeof databaseError.code === "string"
-              ? databaseError.code
-              : undefined,
-          databaseCauseCode:
-            typeof databaseError.cause?.code === "string"
-              ? databaseError.cause.code
-              : undefined,
-        },
-      });
+      );
       setResponseStatus(event, 503);
       if (retrySafe) setResponseHeader(event, "Retry-After", "2");
       return {
@@ -508,10 +579,11 @@ export async function runPostAgentRunComplete(
   callback: AgentChatPluginOptions["onAgentRunComplete"] | undefined,
   scope: AgentChatScope | null | undefined,
   run: ActiveRun,
+  outcome: { turnContinues: boolean } = { turnContinues: false },
 ): Promise<void> {
   if (!callback) return;
   try {
-    await callback(scope, run);
+    await callback(scope, run, outcome);
   } catch (error) {
     captureError(error, {
       route: "agent-chat",
@@ -603,6 +675,40 @@ export function resolveInteractiveAgentRunOptions(
     runNoProgressTimeoutMs: options?.runNoProgressTimeoutMs,
     durableBackgroundRuns: options?.durableBackgroundRuns,
   };
+}
+
+export function parseQueuedMessageForThread(
+  value: unknown,
+  threadId: string,
+): QueuedMessage | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const queued = value as Record<string, unknown>;
+  if (
+    typeof queued.id !== "string" ||
+    !queued.id ||
+    typeof queued.text !== "string" ||
+    (queued.threadId !== undefined && queued.threadId !== threadId) ||
+    (queued.createdAt !== undefined && typeof queued.createdAt !== "string") ||
+    (queued.attachments !== undefined && !Array.isArray(queued.attachments)) ||
+    (queued.metadata !== undefined &&
+      (!queued.metadata ||
+        typeof queued.metadata !== "object" ||
+        Array.isArray(queued.metadata)))
+  ) {
+    return null;
+  }
+  if (queued.options !== undefined) {
+    try {
+      parseAgentRunOptions(queued.options, "queuedMessage.options");
+    } catch (error) {
+      if (error instanceof AgentProtocolValidationError) return null;
+      throw error;
+    }
+  }
+  const { promotionClaim: _claim, ...message } = queued;
+  return { ...message, threadId } as QueuedMessage;
 }
 
 export function createSerializedA2ATaskStatusWriter(
@@ -3329,6 +3435,7 @@ export function createAgentChatPlugin(
             (await resolveOwnerContext(event)).authUserId,
           getUserNameFromEvent,
           appId: options?.appId,
+          clientCompatibilityVersion: options?.clientCompatibilityVersion,
           resolveOrgId: options?.resolveOrgId,
           actionRouteAuth: options?.actionRouteAuth,
         });
@@ -3392,11 +3499,59 @@ export function createAgentChatPlugin(
         threadId: string | undefined,
       ) => {
         const runThreadId = String(run?.threadId ?? threadId ?? "");
+        const chatScope = getRequestRunContext()?.chatScope;
+        const assistantMsg = buildAssistantMessage(
+          run.events ?? [],
+          run.runId,
+          {
+            scope: chatScope,
+            suppressInternalContinuation: true,
+            turnId:
+              typeof run.turnId === "string" && run.turnId
+                ? run.turnId
+                : undefined,
+            runDurationMs:
+              typeof run.startedAt === "number" &&
+              Number.isFinite(run.startedAt)
+                ? Math.max(0, Date.now() - run.startedAt)
+                : undefined,
+          },
+        );
+        const runContext = getRequestRunContext();
+        const failureCode =
+          run.status === "errored"
+            ? [...(run.events ?? [])]
+                .reverse()
+                .find(({ event }) => event.type === "error")?.event
+            : undefined;
+        trackAgentChatRunLifecycle(
+          "run_finished",
+          runThreadId || undefined,
+          run.runId,
+          runContext?.owner,
+          {
+            status: run.status,
+            engine: runContext?.engine?.name ?? "unknown",
+            ...(failureCode?.type === "error"
+              ? { failure_code: failureCode.errorCode ?? "unknown" }
+              : {}),
+          },
+          options?.appId,
+        );
+        if (!assistantMsg) {
+          trackAgentChatRunLifecycle(
+            "run_no_reply",
+            runThreadId || undefined,
+            run.runId,
+            getRequestRunContext()?.owner,
+            {},
+            options?.appId,
+          );
+        }
         if (!threadId) {
           if (runThreadId) preRunGitStatusByThread.delete(runThreadId);
           return;
         }
-        const chatScope = getRequestRunContext()?.chatScope;
         // Serialize the read-modify-write against the same thread's other
         // `thread_data` writers (mutateThreadQueuedMessages, setThreadEngineMeta,
         // the frontend-triggered saves below). Without the lock, a concurrent
@@ -3409,23 +3564,6 @@ export function createAgentChatPlugin(
               `Agent chat thread ${threadId} was not found while saving run ${run.runId}.`,
             );
           }
-          const assistantMsg = buildAssistantMessage(
-            run.events ?? [],
-            run.runId,
-            {
-              scope: chatScope,
-              suppressInternalContinuation: true,
-              turnId:
-                typeof run.turnId === "string" && run.turnId
-                  ? run.turnId
-                  : undefined,
-              runDurationMs:
-                typeof run.startedAt === "number" &&
-                Number.isFinite(run.startedAt)
-                  ? Math.max(0, Date.now() - run.startedAt)
-                  : undefined,
-            },
-          );
           // Parse existing thread_data, append assistant message only if
           // the frontend hasn't already saved it (avoids duplicates when
           // the client is still connected during a normal flow).
@@ -3469,6 +3607,7 @@ export function createAgentChatPlugin(
           options?.onAgentRunComplete,
           chatScope,
           run,
+          { turnContinues: endsAtContinuationBoundary(run) },
         );
 
         // Event triggers and local git checkpoints remain best effort and do
@@ -3609,8 +3748,14 @@ export function createAgentChatPlugin(
         turnId: string;
         threadId: string | undefined;
         message: string;
+        agentKitMessageId?: string;
         attachments?: AgentChatAttachment[];
         queuedMessageId?: string;
+        queuedMessageClaimId?: string;
+        /** The turn was refused before a run started; record why in the thread. */
+        failure?: { code: string; message: string };
+        /** What a retry of the refused turn sends besides text and attachments. */
+        retryContext?: RefusedTurnRetryContext;
       }) => {
         const threadId = details.threadId;
         if (!threadId) return;
@@ -3675,40 +3820,129 @@ export function createAgentChatPlugin(
             };
           }
 
-          let repo = JSON.parse(thread.threadData || "{}");
-
-          if (details.queuedMessageId) {
-            if (hasClaimedQueuedMessage(repo, details.queuedMessageId)) {
-              throw createError({
-                statusCode: 409,
-                statusMessage: "Queued message was already submitted",
-              });
-            }
-            repo = claimQueuedMessage(repo, details.queuedMessageId);
-          }
-
-          repo = upsertUserMessage(
-            repo,
-            buildUserMessage({
-              text: details.message,
-              attachments: details.attachments,
-              runId: details.runId,
-              turnId: details.turnId,
-              queuedMessageId: details.queuedMessageId,
-            }),
-          );
-
-          const meta = extractThreadMeta(repo);
+          const userMessage = buildUserMessage({
+            text: details.message,
+            attachments: details.attachments,
+            runId: details.runId,
+            turnId: details.turnId,
+            agentKitMessageId: details.agentKitMessageId,
+            queuedMessageId: details.queuedMessageId,
+            ...(details.failure
+              ? { refusedRetry: details.retryContext ?? {} }
+              : {}),
+          });
+          let submissionFailure:
+            | "already_claimed"
+            | "claim_expired"
+            | "invalid_thread_data"
+            | undefined;
           await updateThreadData(
             threadId,
-            JSON.stringify(repo),
-            thread.title,
-            meta.preview || thread.preview,
-            Array.isArray(repo.messages)
-              ? repo.messages.length
-              : thread.messageCount,
+            "{}",
+            "",
+            thread.preview,
+            thread.messageCount,
+            {
+              transformThreadData: (threadData) => {
+                submissionFailure = undefined;
+                let repo: unknown;
+                try {
+                  repo = JSON.parse(threadData || "{}");
+                } catch {
+                  submissionFailure = "invalid_thread_data";
+                  return threadData;
+                }
+                if (!repo || typeof repo !== "object" || Array.isArray(repo)) {
+                  submissionFailure = "invalid_thread_data";
+                  return threadData;
+                }
+                const result = applySubmittedUserMessage(
+                  repo,
+                  userMessage,
+                  details.queuedMessageId
+                    ? {
+                        id: details.queuedMessageId,
+                        claimId: details.queuedMessageClaimId,
+                      }
+                    : undefined,
+                );
+                if (!("repo" in result)) {
+                  submissionFailure = result.status;
+                  return threadData;
+                }
+                const submitted = details.failure
+                  ? foldUnstartedTurnFailure(result.repo, {
+                      runId: details.runId,
+                      threadId,
+                      turnId: details.turnId,
+                      ...details.failure,
+                    })
+                  : result.repo;
+                const meta = extractThreadMeta(submitted);
+                return {
+                  threadData: JSON.stringify(submitted),
+                  preview: meta.preview || thread.preview,
+                };
+              },
+            },
           );
+          if (submissionFailure === "already_claimed") {
+            throw createError({
+              statusCode: 409,
+              statusMessage: "Queued message was already submitted",
+              data: { code: "queued_message_already_submitted" },
+            });
+          }
+          if (submissionFailure === "claim_expired") {
+            throw createError({
+              statusCode: 409,
+              statusMessage: "Queued message promotion claim expired",
+              data: { code: "run_slot_busy", retryable: true },
+            });
+          }
+          if (submissionFailure === "invalid_thread_data") {
+            throw new TypeError("Agent chat thread data is not valid JSON.");
+          }
         });
+      };
+
+      const recordUnstartedTurn = async (details: {
+        runId: string;
+        turnId: string;
+        threadId: string;
+        message: string;
+        attachments?: AgentChatAttachment[];
+        queuedMessageId?: string;
+        agentKitMessageId?: string;
+        retryContext: RefusedTurnRetryContext;
+        failure: { code: string; message: string };
+      }) => {
+        trackAgentChatRunLifecycle(
+          "run_no_reply",
+          details.threadId,
+          details.runId,
+          undefined,
+          { failure_code: details.failure.code, stage: "not_started" },
+          options?.appId,
+        );
+        try {
+          await persistSubmittedUserMessage(details);
+        } catch (error) {
+          // The refusal itself still reaches the client; only its durable
+          // copy in the thread is missing, and that is reported.
+          console.error(
+            "[agent-chat] could not record a refused turn in its thread:",
+            error,
+          );
+          captureError(error, {
+            route: "agent-chat",
+            tags: {
+              source: "agent-chat",
+              failureClass: "unstarted-turn-persist",
+            },
+            extra: { threadId: details.threadId, runId: details.runId },
+          });
+        }
       };
 
       // ─── Agent Teams: per-run send reference ─────────────────────────
@@ -4385,6 +4619,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
         },
         onRunPrepared: persistSubmittedUserMessage,
+        onRunNotStarted: recordUnstartedTurn,
         onRunStart: async (
           send: (event: import("../agent/types.js").AgentChatEvent) => void,
           threadId: string,
@@ -4397,6 +4632,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             runCtx.threadId = threadId;
             runCtx.runId = runId;
           }
+          trackAgentChatRunLifecycle(
+            "run_started",
+            threadId,
+            runId,
+            runCtx?.owner,
+            {},
+            options?.appId,
+          );
           await runPreAgentTurnAutosave(
             options?.onAgentTurnStart,
             runCtx?.chatScope,
@@ -4453,6 +4696,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 }
               },
               onRunPrepared: persistSubmittedUserMessage,
+              onRunNotStarted: recordUnstartedTurn,
               onRunStart: async (
                 send: (
                   event: import("../agent/types.js").AgentChatEvent,
@@ -4467,6 +4711,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   runCtx.threadId = threadId;
                   runCtx.runId = runId;
                 }
+                trackAgentChatRunLifecycle(
+                  "run_started",
+                  threadId,
+                  runId,
+                  runCtx?.owner,
+                  {},
+                  options?.appId,
+                );
               },
               onRunComplete: async (
                 run: ActiveRun,
@@ -4720,6 +4972,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
           },
           onRunPrepared: persistSubmittedUserMessage,
+          onRunNotStarted: recordUnstartedTurn,
           onRunStart: async (
             send: (event: import("../agent/types.js").AgentChatEvent) => void,
             threadId: string,
@@ -4732,6 +4985,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               runCtx.threadId = threadId;
               runCtx.runId = runId;
             }
+            trackAgentChatRunLifecycle(
+              "run_started",
+              threadId,
+              runId,
+              runCtx?.owner,
+              {},
+              options?.appId,
+            );
             await runPreAgentTurnAutosave(
               options?.onAgentTurnStart,
               runCtx?.chatScope,
@@ -6253,11 +6514,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return stream;
           }
 
-          // Route: GET /runs/latest?threadId=X
+          // Route: GET /runs/latest?threadId=X[&runId=R | &turnId=T]
+          // The newest run carrying a turn — the browser's only source for
+          // whether a run whose stream closed is still going. `runId` names
+          // the turn by one of its runs (a reloaded page knows the run, not
+          // its turn) and wins over `turnId`.
           if (method === "GET" && url.includes("/runs/latest")) {
             const query = getQuery(event);
             const threadId = query.threadId ? String(query.threadId) : null;
-            const turnId = query.turnId ? String(query.turnId) : undefined;
+            const runIdQuery = query.runId ? String(query.runId) : undefined;
+            let turnId = query.turnId ? String(query.turnId) : undefined;
             if (!threadId) {
               setResponseStatus(event, 400);
               return { error: "threadId query parameter is required" };
@@ -6266,7 +6532,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               setResponseStatus(event, 404);
               return { error: "Run not found" };
             }
-            const { getRunByThread } = await import("../agent/run-store.js");
+            const { getRunByThread, getRunTurnRef } =
+              await import("../agent/run-store.js");
+            if (runIdQuery) {
+              const ref = await getRunTurnRef(runIdQuery);
+              if (!ref || ref.threadId !== threadId) {
+                setResponseStatus(event, 404);
+                return { error: "Run not found" };
+              }
+              turnId = ref.turnId;
+            }
             const run = await getRunByThread(threadId, {
               includeTerminal: true,
               ...(turnId ? { turnId } : {}),
@@ -6282,6 +6557,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               runId: run.id,
               threadId: run.threadId,
               turnId: run.turnId ?? null,
+              startedAt: run.startedAt,
               status: run.status,
               heartbeatAt: run.heartbeatAt,
               completedAt: run.completedAt,
@@ -6771,61 +7047,35 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 !Array.isArray(rawMutation)
                   ? (rawMutation as Record<string, unknown>)
                   : null;
-              const message = (value: unknown): QueuedMessage | null => {
-                if (
-                  !value ||
-                  typeof value !== "object" ||
-                  Array.isArray(value)
-                ) {
-                  return null;
-                }
-                const queued = value as Record<string, unknown>;
-                if (
-                  typeof queued.id !== "string" ||
-                  !queued.id ||
-                  typeof queued.text !== "string" ||
-                  (queued.threadId !== undefined &&
-                    queued.threadId !== threadId) ||
-                  (queued.createdAt !== undefined &&
-                    typeof queued.createdAt !== "string") ||
-                  (queued.attachments !== undefined &&
-                    !Array.isArray(queued.attachments)) ||
-                  (queued.metadata !== undefined &&
-                    (!queued.metadata ||
-                      typeof queued.metadata !== "object" ||
-                      Array.isArray(queued.metadata)))
-                ) {
-                  return null;
-                }
-                return { ...queued, threadId } as QueuedMessage;
-              };
               let mutation: ThreadQueuedMessageMutation | null = null;
-              if (record?.type === "append" || record?.type === "restore") {
-                const queued = message(record.message);
+              if (record?.type === "append") {
+                const queued = parseQueuedMessageForThread(
+                  record.message,
+                  threadId,
+                );
                 if (queued) {
-                  mutation =
-                    record.type === "append"
-                      ? { type: "append", message: queued }
-                      : typeof record.index === "number" &&
-                          Number.isInteger(record.index) &&
-                          (record.index as number) >= 0
-                        ? {
-                            type: "restore",
-                            message: queued,
-                            index: record.index as number,
-                          }
-                        : null;
+                  mutation = { type: "append", message: queued };
                 }
               } else if (
-                (record?.type === "remove" ||
-                  record?.type === "moveToTop" ||
-                  record?.type === "claim") &&
+                (record?.type === "remove" || record?.type === "moveToTop") &&
                 typeof record.messageId === "string" &&
                 record.messageId
               ) {
                 mutation = {
                   type: record.type,
                   messageId: record.messageId,
+                };
+              } else if (
+                (record?.type === "claim" || record?.type === "release") &&
+                typeof record.messageId === "string" &&
+                record.messageId &&
+                typeof record.claimId === "string" &&
+                record.claimId
+              ) {
+                mutation = {
+                  type: record.type,
+                  messageId: record.messageId,
+                  claimId: record.claimId,
                 };
               }
               if (!mutation) {
@@ -6845,7 +7095,36 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
               }
-              return result;
+              if (result.claimBusy) {
+                setResponseStatus(event, 409);
+                return {
+                  error: "Run already in progress for this thread",
+                  code: "run_slot_busy",
+                  retryable: true,
+                };
+              }
+              if (result.promotionBusy) {
+                setResponseStatus(event, 409);
+                return {
+                  error: "Queue item is being promoted",
+                  code: "queue_item_busy",
+                  retryable: true,
+                };
+              }
+              const withoutClaim = (message: QueuedMessage) => {
+                const { promotionClaim: _claim, ...safeMessage } = message;
+                return safeMessage;
+              };
+              return {
+                ...result,
+                queuedMessages: result.queuedMessages.map(withoutClaim),
+                ...(result.message
+                  ? { message: withoutClaim(result.message) }
+                  : {}),
+                ...(result.claimedMessage
+                  ? { claimedMessage: withoutClaim(result.claimedMessage) }
+                  : {}),
+              };
             }
 
             if (method === "POST" && isThreadSubroute("rename")) {
@@ -7147,6 +7426,75 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // `_process-run` processor route (which re-enters the same handler set as
       // the background worker), so both go through identical context + handler
       // selection.
+      // The setup gate refuses before any handler reads the body, so the
+      // refused prompt is read here to answer it in the thread.
+      const recordSetupRequiredTurn = async (
+        event: any,
+        error: { statusMessage?: string; message?: string },
+      ) => {
+        let body: Record<string, unknown>;
+        try {
+          // coercion-ok: an empty body has no thread or turn, so nothing is recorded
+          body = (await readBody(event)) ?? {};
+        } catch (readError) {
+          console.error(
+            "[agent-chat] could not read a turn refused by the AI setup gate:",
+            readError,
+          );
+          return;
+        }
+        const threadId =
+          typeof body.threadId === "string" ? body.threadId.trim() : "";
+        const turnId =
+          typeof body.turnId === "string" ? body.turnId.trim() : "";
+        const message =
+          typeof body.displayMessage === "string" && body.displayMessage.trim()
+            ? body.displayMessage
+            : typeof body.message === "string"
+              ? body.message
+              : "";
+        if (
+          !threadId ||
+          !turnId ||
+          !message.trim() ||
+          body.internalContinuation === true
+        ) {
+          return;
+        }
+        const runCtx = ensureRequestRunContext();
+        if (runCtx) runCtx.chatScope = normalizeChatScope(body.scope) ?? null;
+        await recordUnstartedTurn({
+          runId: turnId,
+          turnId,
+          threadId,
+          message,
+          ...(Array.isArray(body.attachments)
+            ? { attachments: body.attachments as AgentChatAttachment[] }
+            : {}),
+          ...(typeof body.queuedMessageId === "string" &&
+          body.queuedMessageId.trim()
+            ? { queuedMessageId: body.queuedMessageId.trim() }
+            : {}),
+          ...(typeof body.agentKitMessageId === "string" &&
+          body.agentKitMessageId.trim() &&
+          body.agentKitMessageId.trim().length <= 200
+            ? { agentKitMessageId: body.agentKitMessageId.trim() }
+            : {}),
+          retryContext: retryContextFromRequest(body, (dropped) =>
+            console.warn(
+              `[agent-chat] dropped ${dropped} invalid reference(s) from a refused turn's retry context`,
+            ),
+          ),
+          failure: {
+            code: AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
+            message:
+              error.statusMessage ??
+              error.message ??
+              "Connect Builder AI or a provider API key before chatting.",
+          },
+        });
+      };
+
       const invokeAgentChatHandler = async (event: any) => {
         // Resolve per-request auth context.
         const ownerContext = await resolveOwnerContext(event);
@@ -7165,7 +7513,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // Public anonymous readers use the host-owned read-only lane, and
             // durable workers resume a request that already passed this gate.
             if (!ownerContext.anonymous && !isBackgroundWorker) {
-              await requireAgentChatAiSetup();
+              try {
+                await requireAgentChatAiSetup();
+              } catch (error) {
+                if (isAgentChatAiSetupRequiredError(error)) {
+                  await recordSetupRequiredTurn(event, error);
+                }
+                throw error;
+              }
             }
             // App-rendered chat can't host direct code edits — HMR/full
             // reloads would kill the same chat surface mid-run. Force the

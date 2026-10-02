@@ -121,7 +121,10 @@ import {
 } from "./google-oauth-credentials.js";
 import { isBuilderPreviewHttpsEnvironment } from "./https-request.js";
 import { IDENTITY_SSO_PROVIDER_ID } from "./identity-sso-provider.js";
-import { withJwksRotationRecovery } from "./jwks-secret-rotation.js";
+import {
+  readNewestJwks,
+  withJwksRotationRecovery,
+} from "./jwks-secret-rotation.js";
 import { readMagicLinkSignupAttribution } from "./magic-link-attribution.js";
 import {
   getConfiguredOriginAllowlist,
@@ -132,6 +135,7 @@ import {
   hasContinuationLocalRequestContext,
 } from "./request-context.js";
 import { recordActiveSocialSignInProviders } from "./social-sign-in-providers.js";
+import { persistUserFirstTouchAttribution } from "./user-first-touch-attribution.js";
 
 function identityRekeyDbFromExec(
   exec: Awaited<ReturnType<typeof getDbExec>>,
@@ -231,6 +235,8 @@ export async function getBetterAuthUserIdForEmail(
 export interface BetterAuthUserCreateContext {
   headers?: Headers | null;
   request?: { headers?: Headers | null; url?: string } | null;
+  /** Better Auth's endpoint context; `session` is the acting user, if any. */
+  context?: { session?: { user?: { id?: string } | null } | null } | null;
 }
 
 function signupMethodFromRequestUrl(
@@ -270,6 +276,25 @@ export async function emitSignupEventForCreatedUser(
     anonymousId = browser?.anonymousId;
   } catch (err) {
     console.error("[auth] failed to derive signup attribution", err);
+  }
+
+  // The browser's first touch belongs to whoever is signed in on this request,
+  // so an account created by another signed-in user (admin or API creation)
+  // must not inherit it.
+  const actingUserId = context?.context?.session?.user?.id;
+  if (user.id && attribution && (!actingUserId || actingUserId === user.id)) {
+    try {
+      await persistUserFirstTouchAttribution(user.id, attribution);
+    } catch (err) {
+      // The signup itself already succeeded; the event below still carries
+      // the attribution, so only the row copy is missing, and loudly so.
+      console.error("[auth] failed to persist signup attribution", err);
+      const { captureError } = await import("./capture-error.js");
+      captureError(err, {
+        route: "auth.signup",
+        tags: { failureClass: "signup-attribution-persist" },
+      });
+    }
   }
 
   await trackSignupEvent({
@@ -538,6 +563,13 @@ export function resolvePersistedDevAuthSecret(
  * to sign in again. We still read explicit env configuration, but never
  * auto-write a generated secret into env files.
  */
+// One refusal per process and missing key: every caller rethrows the same
+// error instead of rebuilding the report, so error capture sees one failure,
+// not one new error per request.
+let missingAuthSecretRefusal:
+  | { key: string; error: MissingAuthSecretError }
+  | undefined;
+
 function resolveAuthSecret(appRoot = process.cwd()): string {
   if (process.env.BETTER_AUTH_SECRET) return process.env.BETTER_AUTH_SECRET;
   const workspaceDerivedSecret = getWorkspaceA2ADerivedSecret("better-auth");
@@ -550,7 +582,11 @@ function resolveAuthSecret(appRoot = process.cwd()): string {
   // every deploy that hits it — both are serious enough to fail the boot loudly
   // so the deployer notices. The setup page that replaces sign-in reports the
   // same decision through getMissingDeploySettings(), so keep it the only one.
-  if (getMissingAuthSecretKey() !== null) {
+  const missingKey = getMissingAuthSecretKey();
+  if (missingKey !== null) {
+    if (missingAuthSecretRefusal?.key === missingKey) {
+      throw missingAuthSecretRefusal.error;
+    }
     const report = getRuntimeConfigReport(
       process.env,
       { authEnabled: true, databaseRequired: false },
@@ -560,7 +596,11 @@ function resolveAuthSecret(appRoot = process.cwd()): string {
         appName: process.env.APP_NAME,
       },
     );
-    throw new MissingAuthSecretError(formatRuntimeConfigReport(report));
+    const refusal = new MissingAuthSecretError(
+      formatRuntimeConfigReport(report),
+    );
+    missingAuthSecretRefusal = { key: missingKey, error: refusal };
+    throw refusal;
   }
 
   const existing = readEnvLocalSecret(path.resolve(appRoot, ".env.local"));
@@ -2410,10 +2450,7 @@ async function createBetterAuthInstance(
               name?: string | null;
               emailVerified?: boolean;
             },
-            context?: {
-              headers?: Headers | null;
-              request?: { headers?: Headers | null; url?: string } | null;
-            } | null,
+            context?: BetterAuthUserCreateContext | null,
           ) => {
             const email = user?.email;
             if (!email) return;
@@ -2522,6 +2559,7 @@ async function createBetterAuthInstance(
             expirationTime: "15m",
           },
           disableSettingJwtHeader: true,
+          adapter: { getJwks: (ctx) => readNewestJwks(ctx.context.adapter) },
         }),
       ),
       bearer(),

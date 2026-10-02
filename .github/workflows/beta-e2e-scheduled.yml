@@ -27,9 +27,14 @@ jobs:
     permissions:
       contents: read
 
+  # Reports in one place, once per run: the single open issue is rewritten in
+  # place with the current state (comments only when the set of failures
+  # changes), Slack hears about transitions and a daily reminder rather than every
+  # identical red run, and a missing results file is stated as a fact. The logic
+  # lives in scripts/beta-e2e-digest.ts, which has its own tests.
   report:
     name: Report beta E2E status
-    if: ${{ always() }}
+    if: ${{ always() && needs.beta-e2e.result != 'skipped' }}
     needs: beta-e2e
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -39,41 +44,231 @@ jobs:
       issues: write
     env:
       GH_TOKEN: ${{ github.token }}
-      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      REPO: ${{ github.repository }}
+      RUN_ID: ${{ github.run_id }}
+      RUN_RESULT: ${{ needs.beta-e2e.result }}
+      REPORT_DIR: .tmp/beta-e2e
+      ISSUE_TITLE: "[beta-e2e] Scheduled beta health check failing"
+      SLACK_CHANNEL: C0C4U4XRT6X
     steps:
-      - name: Update one open issue for a failed run
-        if: ${{ needs.beta-e2e.result == 'failure' || needs.beta-e2e.result == 'cancelled' }}
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 1
+          sparse-checkout: scripts/beta-e2e-digest.ts
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
+      - name: Collect the run's jobs, artifacts, logs, and the previous state
         run: |
           set -euo pipefail
+          mkdir -p "$REPORT_DIR/results" "$REPORT_DIR/logs" "$REPORT_DIR/out"
+          : > "$REPORT_DIR/notes.txt"
+          note() {
+            echo "$1" >> "$REPORT_DIR/notes.txt"
+            echo "::warning::$1"
+          }
 
-          issue_title="[beta-e2e] Scheduled beta health check failing"
-          issue_number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 100 --json number,title | jq -r --arg title "$issue_title" '[.[] | select(.title == $title) | .number] | first // empty')"
-          failed_jobs="$(gh run view "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --json jobs --jq '[.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled") | .name] | join(", ")')"
-          body="$(cat <<EOF
-          The scheduled beta E2E check failed.
+          # These two are the report's raw material: if either call fails the
+          # step fails loudly rather than reporting from a partial list.
+          gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/jobs?per_page=100" --jq '.jobs[]' | jq -s '{jobs: .}' > "$REPORT_DIR/jobs.json"
+          gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/artifacts?per_page=100" --jq '.artifacts[]' | jq -s '{artifacts: .}' > "$REPORT_DIR/artifacts.json"
 
-          Run: $RUN_URL
-          Failed jobs: $failed_jobs
-          Schedule: every 6 hours (0 */6 * * *)
-
-          This issue is intentionally reused while it remains open. A successful run will comment with the recovery run and close it.
-          EOF
-          )"
-
-          if [ -n "$issue_number" ]; then
-            gh issue comment "$issue_number" --repo "$GITHUB_REPOSITORY" --body "$body"
-          else
-            gh issue create --repo "$GITHUB_REPOSITORY" --title "$issue_title" --body "$body"
+          have_artifacts="$(jq '[.artifacts[] | select((.name | startswith("beta-e2e-")) and (.expired | not))] | length' "$REPORT_DIR/artifacts.json")"
+          if [ "$have_artifacts" -gt 0 ]; then
+            if ! gh run download "$RUN_ID" --repo "$REPO" --pattern 'beta-e2e-*' --dir "$REPORT_DIR/results"; then
+              note "Downloading the beta-e2e artifacts failed, so test results are missing from this report."
+            fi
           fi
 
-      - name: Close the open issue after recovery
-        if: ${{ needs.beta-e2e.result == 'success' }}
+          # The last lines of each failed job's log name the host and step a
+          # killed job was in. Keep every [beta-e2e] line plus the log's tail.
+          jobs_to_read="$(jq -r '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out") | .id' "$REPORT_DIR/jobs.json" | head -n 30)"
+          for job_id in $jobs_to_read; do
+            raw="$(mktemp)"
+            if gh api "repos/$REPO/actions/jobs/$job_id/logs" > "$raw" 2> "$raw.err"; then
+              { grep -F '[beta-e2e]' "$raw" | tail -n 60 || true; tail -n 300 "$raw"; } > "$REPORT_DIR/logs/$job_id.log"
+            else
+              note "Could not read the log of job $job_id: $(head -c 200 "$raw.err")"
+            fi
+          done
+
+          # The previous state lives in the open issue's body; when there is no
+          # open issue, in the most recently created closed one, which is how a
+          # recovery is remembered across a close.
+          issue_number="$(gh issue list --repo "$REPO" --state open --limit 100 --json number,title | jq -r --arg title "$ISSUE_TITLE" '[.[] | select(.title == $title) | .number] | first // empty')"
+          previous_number="$issue_number"
+          if [ -z "$previous_number" ]; then
+            previous_number="$(gh issue list --repo "$REPO" --state closed --limit 30 --json number,title | jq -r --arg title "$ISSUE_TITLE" '[.[] | select(.title == $title) | .number] | first // empty')"
+          fi
+          if [ -n "$previous_number" ]; then
+            gh issue view "$previous_number" --repo "$REPO" --json body --jq .body > "$REPORT_DIR/previous.md"
+          fi
+          {
+            echo "issue_number=$issue_number"
+            if [ -n "$issue_number" ]; then
+              echo "issue_url=$GITHUB_SERVER_URL/$REPO/issues/$issue_number"
+            fi
+          } >> "$GITHUB_OUTPUT"
+        id: collect
+
+      - name: Check Slack configuration
+        id: slack_config
+        env:
+          QA_SLACK_BOT_TOKEN: ${{ secrets.QA_SLACK_BOT_TOKEN }}
         run: |
           set -euo pipefail
+          if [ -n "$QA_SLACK_BOT_TOKEN" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            message="Slack notification not configured: the QA_SLACK_BOT_TOKEN repository secret is empty, so nothing is posted to #qa-agent-native."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "slack_note=$message" >> "$GITHUB_OUTPUT"
+            echo "::warning::$message"
+            echo "$message" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
-          issue_title="[beta-e2e] Scheduled beta health check failing"
-          issue_number="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 100 --json number,title | jq -r --arg title "$issue_title" '[.[] | select(.title == $title) | .number] | first // empty')"
-          if [ -n "$issue_number" ]; then
-            gh issue comment "$issue_number" --repo "$GITHUB_REPOSITORY" --body "The scheduled beta E2E check recovered: $RUN_URL"
-            gh issue close "$issue_number" --repo "$GITHUB_REPOSITORY"
+      - name: Build the digest
+        id: digest
+        env:
+          ISSUE_NUMBER: ${{ steps.collect.outputs.issue_number }}
+          ISSUE_URL: ${{ steps.collect.outputs.issue_url }}
+          SLACK_NOTE: ${{ steps.slack_config.outputs.slack_note }}
+        run: |
+          set -euo pipefail
+          args=(
+            --run-id "$RUN_ID" --run-number "$GITHUB_RUN_NUMBER" --run-attempt "$GITHUB_RUN_ATTEMPT"
+            --repo "$REPO" --server-url "$GITHUB_SERVER_URL" --sha "$GITHUB_SHA" --event "$GITHUB_EVENT_NAME"
+            --run-result "$RUN_RESULT"
+            --results-dir "$REPORT_DIR/results" --jobs "$REPORT_DIR/jobs.json"
+            --artifacts "$REPORT_DIR/artifacts.json" --logs-dir "$REPORT_DIR/logs"
+            --out-dir "$REPORT_DIR/out"
+          )
+          if [ -f "$REPORT_DIR/previous.md" ]; then args+=(--previous-state "$REPORT_DIR/previous.md"); fi
+          if [ -n "$ISSUE_NUMBER" ]; then args+=(--issue-number "$ISSUE_NUMBER" --issue-url "$ISSUE_URL"); fi
+          if [ -n "$SLACK_NOTE" ]; then args+=(--slack-note "$SLACK_NOTE"); fi
+          while IFS= read -r line; do
+            if [ -n "$line" ]; then args+=(--note "$line"); fi
+          done < "$REPORT_DIR/notes.txt"
+          node --experimental-strip-types scripts/beta-e2e-digest.ts "${args[@]}"
+          {
+            echo "issue_action=$(jq -r .issueAction "$REPORT_DIR/out/decision.json")"
+            echo "should_notify=$(jq -r .shouldNotify "$REPORT_DIR/out/decision.json")"
+            echo "has_comment=$(jq -r .hasComment "$REPORT_DIR/out/decision.json")"
+          } >> "$GITHUB_OUTPUT"
+          cat "$REPORT_DIR/out/issue.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Update the open issue
+        id: issue
+        if: ${{ steps.digest.outputs.issue_action != 'none' }}
+        env:
+          ISSUE_NUMBER: ${{ steps.collect.outputs.issue_number }}
+          ISSUE_ACTION: ${{ steps.digest.outputs.issue_action }}
+          HAS_COMMENT: ${{ steps.digest.outputs.has_comment }}
+        run: |
+          set -euo pipefail
+          out="$REPORT_DIR/out"
+
+          # Labels are best effort and said so: they need a label to exist, and
+          # a failure to create one must not stop the issue being updated.
+          label_args=()
+          if existing="$(gh label list --repo "$REPO" --limit 200 --json name --jq '.[].name')"; then
+            for label in beta-e2e qa; do
+              if ! grep -Fxq "$label" <<< "$existing"; then
+                if ! gh label create "$label" --repo "$REPO" --color 5319e7 --description "Beta E2E health check" > /dev/null; then
+                  echo "::warning::Could not create the \"$label\" label; the issue is not labelled with it."
+                  continue
+                fi
+              fi
+              label_args+=("$label")
+            done
+          else
+            echo "::warning::Could not list labels; the issue is not labelled."
+          fi
+
+          if [ "$ISSUE_ACTION" = "upsert" ]; then
+            if [ -n "$ISSUE_NUMBER" ]; then
+              edit_args=(--body-file "$out/issue.md")
+              for label in "${label_args[@]}"; do edit_args+=(--add-label "$label"); done
+              gh issue edit "$ISSUE_NUMBER" --repo "$REPO" "${edit_args[@]}"
+              if [ "$HAS_COMMENT" = "true" ]; then
+                gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file "$out/comment.md"
+              fi
+              issue_url="$GITHUB_SERVER_URL/$REPO/issues/$ISSUE_NUMBER"
+            else
+              create_args=(--title "$ISSUE_TITLE" --body-file "$out/issue.md")
+              for label in "${label_args[@]}"; do create_args+=(--label "$label"); done
+              issue_url="$(gh issue create --repo "$REPO" "${create_args[@]}")"
+              ISSUE_NUMBER="${issue_url##*/}"
+            fi
+          elif [ -n "$ISSUE_NUMBER" ]; then
+            # Recovery: record the final state, say so, and close.
+            gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --body-file "$out/issue.md"
+            if [ "$HAS_COMMENT" = "true" ]; then
+              gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file "$out/comment.md"
+            fi
+            gh issue close "$ISSUE_NUMBER" --repo "$REPO"
+            issue_url="$GITHUB_SERVER_URL/$REPO/issues/$ISSUE_NUMBER"
+          else
+            echo "No open issue to close."
+            exit 0
+          fi
+          {
+            echo "issue_number=$ISSUE_NUMBER"
+            echo "issue_url=$issue_url"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Render the Slack message
+        id: slack_message
+        if: ${{ steps.digest.outputs.should_notify == 'true' && steps.slack_config.outputs.configured == 'true' }}
+        env:
+          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number || steps.collect.outputs.issue_number }}
+          ISSUE_URL: ${{ steps.issue.outputs.issue_url || steps.collect.outputs.issue_url }}
+        run: |
+          set -euo pipefail
+          args=(
+            --run-id "$RUN_ID" --run-number "$GITHUB_RUN_NUMBER" --repo "$REPO" --server-url "$GITHUB_SERVER_URL"
+            --run-result "$RUN_RESULT"
+            --results-dir "$REPORT_DIR/results" --jobs "$REPORT_DIR/jobs.json"
+            --artifacts "$REPORT_DIR/artifacts.json" --logs-dir "$REPORT_DIR/logs"
+            --out-dir "$REPORT_DIR/out-slack"
+          )
+          if [ -f "$REPORT_DIR/previous.md" ]; then args+=(--previous-state "$REPORT_DIR/previous.md"); fi
+          if [ -n "$ISSUE_NUMBER" ]; then args+=(--issue-number "$ISSUE_NUMBER" --issue-url "$ISSUE_URL"); fi
+          node --experimental-strip-types scripts/beta-e2e-digest.ts "${args[@]}"
+          jq -n --arg channel "$SLACK_CHANNEL" --rawfile text "$REPORT_DIR/out-slack/slack.txt" \
+            '{channel: $channel, text: $text, unfurl_links: false, unfurl_media: false}' > "$REPORT_DIR/slack-payload.json"
+
+      - name: Post to Slack
+        id: slack
+        if: ${{ steps.slack_message.outcome == 'success' }}
+        continue-on-error: true
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.QA_SLACK_BOT_TOKEN }}
+          # Do not fail the step on a Slack API error such as not_in_channel:
+          # the next step reads `ok` and the error code and reports them.
+          errors: false
+          payload-file-path: .tmp/beta-e2e/slack-payload.json
+
+      - name: Say so when the Slack post failed
+        if: ${{ always() && steps.slack_message.outcome == 'success' && (steps.slack.outcome != 'success' || steps.slack.outputs.ok != 'true') }}
+        env:
+          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number || steps.collect.outputs.issue_number }}
+          SLACK_OUTCOME: ${{ steps.slack.outcome }}
+          SLACK_RESPONSE: ${{ steps.slack.outputs.response }}
+        run: |
+          set -euo pipefail
+          reason="$(jq -r '.error // empty' <<< "${SLACK_RESPONSE:-null}" 2> /dev/null || true)"
+          reason="${reason:-no Slack API error code returned; step outcome $SLACK_OUTCOME}"
+          message="Slack notification failed: chat.postMessage to #qa-agent-native returned \"$reason\". The QA_SLACK_BOT_TOKEN bot must be invited to the channel (/invite) and the token must be valid."
+          echo "::warning::$message"
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$ISSUE_NUMBER" ]; then
+            body="$REPORT_DIR/out/issue-with-slack-note.md"
+            printf '%s\n\n> %s\n' "$(cat "$REPORT_DIR/out/issue.md")" "$message" > "$body"
+            gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --body-file "$body"
           fi

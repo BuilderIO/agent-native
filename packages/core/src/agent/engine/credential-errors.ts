@@ -30,7 +30,7 @@ export function gatewayVisitorFacingError(errorCode?: string): {
   };
 }
 
-const LLM_CREDENTIAL_KEYS = new Set([
+export const LLM_CREDENTIAL_KEYS: ReadonlySet<string> = new Set([
   ...PROVIDER_ENV_VARS,
   "BUILDER_PRIVATE_KEY",
   "BUILDER_PUBLIC_KEY",

@@ -350,14 +350,16 @@ function backtrack(
   return coalesce(reverseParts.reverse());
 }
 
+type MarkedSourceRanges = Array<{ from: number; to: number }>;
+
 function markedDiffOperations(
   before: string,
   after: string,
   parts: DiffPart[],
+  previous: MarkedSourceRanges,
+  next: MarkedSourceRanges,
 ): MarkdownSuggestionOperation[] | null {
-  const previous = suggestionMarkedSourceRanges(before);
-  const next = suggestionMarkedSourceRanges(after);
-  if (!previous || !next || (!previous.length && !next.length)) return null;
+  if (!previous.length && !next.length) return null;
   const steps: Array<{
     before: number;
     after: number;
@@ -465,8 +467,9 @@ export function markdownSuggestionOperations(
   if (before === after) return [];
   const clearedTextBlocks = lineScopedOperationsForClearedBlocks(before, after);
   if (clearedTextBlocks) return isolateSiblingAnchorContexts(clearedTextBlocks);
-  const beforeMarked = suggestionMarkedSourceRanges(before);
-  const afterMarked = suggestionMarkedSourceRanges(after);
+  // Null means the source has no marks; it throws when marks cannot be mapped.
+  const beforeMarked = suggestionMarkedSourceRanges(before) ?? [];
+  const afterMarked = suggestionMarkedSourceRanges(after) ?? [];
   const formatting = suggestionFormattingChanges(before, after);
   if (formatting) {
     return isolateSiblingAnchorContexts(
@@ -483,29 +486,38 @@ export function markdownSuggestionOperations(
     );
   }
   const markedParts = diffParts(before, after);
-  if (!markedParts && (beforeMarked?.length || afterMarked?.length))
+  if (!markedParts && (beforeMarked.length || afterMarked.length))
     throw new SuggestionFormattingMappingError();
-  if (markedParts) {
-    const marked = markedDiffOperations(before, after, markedParts);
-    if (marked) return isolateSiblingAnchorContexts(marked);
-  }
-  if (before.length + after.length <= MAX_DOCUMENT_LENGTH) {
-    const contiguous = contiguousChange(before, after);
-    if (contiguous) {
-      return [
-        operationForChange(
-          before,
-          contiguous.from,
-          contiguous.to,
-          contiguous.inserted,
-          0,
-        ),
-      ];
+  const marked =
+    markedParts &&
+    markedDiffOperations(before, after, markedParts, beforeMarked, afterMarked);
+  if (!marked) {
+    if (before.length + after.length <= MAX_DOCUMENT_LENGTH) {
+      const contiguous = contiguousChange(before, after);
+      if (contiguous) {
+        return [
+          operationForChange(
+            before,
+            contiguous.from,
+            contiguous.to,
+            contiguous.inserted,
+            0,
+          ),
+        ];
+      }
     }
+    if (!markedParts) return [markdownSuggestionOperation(before, after)!];
   }
-  const parts = markedParts;
-  if (!parts) return [markdownSuggestionOperation(before, after)!];
+  const operations = marked ?? plainDiffOperations(before, markedParts!);
+  return isolateSiblingAnchorContexts(
+    wholeWordReplacements(before, operations, beforeMarked, afterMarked),
+  );
+}
 
+function plainDiffOperations(
+  before: string,
+  parts: DiffPart[],
+): MarkdownSuggestionOperation[] {
   const operations: MarkdownSuggestionOperation[] = [];
   let beforeOffset = 0;
   for (let index = 0; index < parts.length; ) {
@@ -531,7 +543,7 @@ export function markdownSuggestionOperations(
     );
     beforeOffset = to;
   }
-  const normalized = operations.map((operation, index) => {
+  return operations.map((operation, index) => {
     if (operation.before.changedText && operation.after.changedText)
       return operation;
     const normalized = contiguousChange(before, operation.after.markdown, {
@@ -548,9 +560,6 @@ export function markdownSuggestionOperations(
         )
       : operation;
   });
-  return isolateSiblingAnchorContexts(
-    wholeWordReplacements(before, normalized),
-  );
 }
 
 export function suggestionDiffParts(
@@ -563,6 +572,8 @@ export function suggestionDiffParts(
 function wholeWordReplacements(
   before: string,
   operations: MarkdownSuggestionOperation[],
+  beforeMarked: MarkedSourceRanges,
+  afterMarked: MarkedSourceRanges,
 ): MarkdownSuggestionOperation[] {
   const isWord = (character: string | undefined) =>
     Boolean(character && /[\p{L}\p{M}\p{N}]/u.test(character));
@@ -620,6 +631,28 @@ function wholeWordReplacements(
       ordinal,
     ),
   );
+  let delta = 0;
+  for (const operation of result) {
+    const { from, to } = operation.anchor;
+    const afterFrom = from + delta;
+    const afterTo = afterFrom + operation.after.changedText.length;
+    // Mark delimiters are not word characters today, so this catches only a
+    // future mark syntax whose source starts or ends with one.
+    for (const [ranges, boundaries] of [
+      [beforeMarked, [from, to]],
+      [afterMarked, [afterFrom, afterTo]],
+    ] as const) {
+      if (
+        ranges.some((range) =>
+          boundaries.some(
+            (boundary) => boundary > range.from && boundary < range.to,
+          ),
+        )
+      )
+        return operations;
+    }
+    delta += operation.after.changedText.length - (to - from);
+  }
   const reconstruct = (changes: MarkdownSuggestionOperation[]) =>
     [...changes]
       .reverse()

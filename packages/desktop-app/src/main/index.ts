@@ -492,7 +492,7 @@ const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
   "BUILDER_PUBLIC_KEY",
 ];
 const CODEX_CLI_ENGINE_NAME = "codex-cli";
-const CODEX_CLI_DEFAULT_MODEL = "gpt-5.6-luna";
+const CODEX_CLI_DEFAULT_MODEL = "gpt-6-luna";
 const CLAUDE_CLI_ENGINE_NAME = "claude-cli";
 const PI_CLI_ENGINE_NAME = "pi-cli";
 const OPENCODE_CLI_ENGINE_NAME = "opencode-cli";

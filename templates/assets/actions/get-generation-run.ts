@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -27,11 +27,19 @@ export default defineAction({
       .from(schema.assetGenerationRuns)
       .where(eq(schema.assetGenerationRuns.id, runId))
       .limit(1);
-    if (!run) throw new Error("Generation run not found.");
+    if (!run) {
+      fail("Generation run not found.", {
+        errorCode: "not_found",
+        statusCode: 404,
+      });
+    }
     await requireLibrary(run.libraryId);
     const scope = await resolveDraftReadScope([run.libraryId]);
     if (!canReadRun(scope, run)) {
-      throw new Error("Generation run not found.");
+      fail("Generation run not found.", {
+        errorCode: "not_found",
+        statusCode: 404,
+      });
     }
     const assets = await db
       .select()

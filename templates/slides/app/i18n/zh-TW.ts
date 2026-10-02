@@ -46,7 +46,7 @@ const messages = {
     designSystems: "設計系統",
   },
   settings: {
-    agentObservability: "代理可觀測性",
+    agentObservability: "可觀測性",
     title: "設定",
     labs: "實驗室",
     labsIntro: "在正式發布前預覽實驗性功能。",
@@ -56,6 +56,7 @@ const messages = {
     commentsAndReplies: "留言和回覆",
     commentsAndRepliesDescription: "有人在你的簡報中留言或回覆時。",
     retry: "重試",
+    reload: "重新載入",
     mcpAbout:
       "將 Slides 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 Slides 中工作：建立簡報、新增投影片並匯出為 PowerPoint。它只能看到你有權看到的內容。",
     workspaceTitle: "工作區",
@@ -735,6 +736,8 @@ const messages = {
     imageAdded: "圖片已新增",
     imageUploadError: "上傳此圖片時出了點問題。",
     exportFailed: "匯出失敗",
+    agentRunFailed:
+      "代理程式在建立任何投影片前執行失敗。請查看聊天中的詳細資訊，然後再試一次。",
     deckHasNoSlides: "幻燈片沒有頁面。",
     pdfRenderFailed: "無法渲染 PDF。",
     buildingDeck: "正在建置幻燈片",

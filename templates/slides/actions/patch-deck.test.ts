@@ -188,6 +188,30 @@ describe("applyOperation — patch-slide", () => {
     expect(deck.slides[1].content).toBe("<p>Two</p>");
   });
 
+  it("applies an explicit null deletion when the stored field is null", () => {
+    const deck = {
+      slides: [{ id: "s1", content: "Before", background: null }],
+    };
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { background: null },
+      baseFields: { background: { present: true, value: null } },
+    });
+    expect(deck.slides[0].background).toBeUndefined();
+  });
+
+  it("treats omitted speaker notes as the blank UI baseline", () => {
+    const deck = { slides: [{ id: "s1", content: "Before" }] };
+    applyOperation(deck, {
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { notes: "Speaker notes" },
+      baseFields: { notes: { present: true, value: "" } },
+    });
+    expect(deck.slides[0].notes).toBe("Speaker notes");
+  });
+
   it("refuses content that adds editor-rendered markup", () => {
     const deck = {
       slides: [
@@ -3516,6 +3540,198 @@ describe("run() — client write ordering", () => {
     ]);
   });
 
+  it("rebases a metadata field after a peer changes a different field", async () => {
+    const revision = "2026-01-01T00:00:00.001Z";
+    const deck = JSON.parse(mockDeckRow!.data as string);
+    deck.slides[0].notes = "Base notes";
+    deck.slides[0].background = "Base background";
+    deck.updatedAt = revision;
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify(deck),
+      updatedAt: revision,
+    };
+    deck.slides[0].notes = "Peer notes";
+    const peerRevision = "2026-01-01T00:00:00.002Z";
+    deck.updatedAt = peerRevision;
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify(deck),
+      updatedAt: peerRevision,
+    };
+
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "local-editor",
+          sequence: 1,
+          expectedUpdatedAt: revision,
+        },
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { background: "Local background" },
+            baseFields: {
+              background: { present: true, value: "Base background" },
+            },
+          },
+        ],
+      },
+      {},
+    );
+
+    expect(JSON.parse(mockDeckRow!.data as string).slides[0]).toMatchObject({
+      notes: "Peer notes",
+      background: "Local background",
+    });
+  });
+
+  it("treats null notes as absent when rebasing a notes edit", async () => {
+    const revision = baseRevision;
+    const deck = JSON.parse(mockDeckRow!.data as string);
+    deck.slides[0].notes = null;
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify(deck),
+      updatedAt: revision,
+    };
+    deck.slides[0].content = "Peer content";
+    const peerRevision = "2026-01-01T00:00:00.002Z";
+    deck.updatedAt = peerRevision;
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify(deck),
+      updatedAt: peerRevision,
+    };
+
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "local-editor",
+          sequence: 1,
+          expectedUpdatedAt: revision,
+        },
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { notes: "Local notes" },
+            baseFields: { notes: { present: false } },
+          },
+        ],
+      },
+      {},
+    );
+
+    expect(JSON.parse(mockDeckRow!.data as string).slides[0]).toMatchObject({
+      content: "Peer content",
+      notes: "Local notes",
+    });
+  });
+
+  it("rebases a combined content and metadata patch after an unrelated peer write", async () => {
+    const revision = "2026-01-01T00:00:00.001Z";
+    const deck = JSON.parse(mockDeckRow!.data as string);
+    const baseContent = deck.slides[0].content;
+    deck.slides[0].notes = "Base notes";
+    deck.slides[0].background = "Base background";
+    deck.updatedAt = revision;
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify(deck),
+      updatedAt: revision,
+    };
+    deck.slides[0].notes = "Peer notes";
+    const peerRevision = "2026-01-01T00:00:00.002Z";
+    deck.updatedAt = peerRevision;
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify(deck),
+      updatedAt: peerRevision,
+    };
+
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "local-editor",
+          sequence: 1,
+          expectedUpdatedAt: revision,
+        },
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: {
+              content: "Local content",
+              background: "Local background",
+            },
+            baseContentHash: hashSlideContent(baseContent),
+            baseFields: {
+              background: { present: true, value: "Base background" },
+            },
+          },
+        ],
+      },
+      {},
+    );
+
+    expect(JSON.parse(mockDeckRow!.data as string).slides[0]).toMatchObject({
+      content: "Local content",
+      notes: "Peer notes",
+      background: "Local background",
+    });
+  });
+
+  it("rejects a metadata field when a peer changed that same field", async () => {
+    const revision = "2026-01-01T00:00:00.001Z";
+    const deck = JSON.parse(mockDeckRow!.data as string);
+    deck.slides[0].background = "Base background";
+    deck.updatedAt = revision;
+    const peerRevision = "2026-01-01T00:00:00.002Z";
+    deck.slides[0].background = "Peer background";
+    deck.updatedAt = peerRevision;
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify(deck),
+      updatedAt: peerRevision,
+    };
+
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          clientWrite: {
+            clientId: "local-editor",
+            sequence: 1,
+            expectedUpdatedAt: revision,
+          },
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: { background: "Local background" },
+              baseFields: {
+                background: { present: true, value: "Base background" },
+              },
+            },
+          ],
+        },
+        {},
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "slide_field_stale",
+      details: { slideId: "slide-1", field: "background" },
+    });
+    expect(JSON.parse(mockDeckRow!.data as string).slides[0].background).toBe(
+      "Peer background",
+    );
+  });
+
   it("rejects stale unguarded slide, delete, reorder, and deck-field operations", async () => {
     await runPatchDeckAction(
       {
@@ -3687,7 +3903,7 @@ describe("run() — client write ordering", () => {
   });
 });
 
-describe("run() — human deck history", () => {
+describe("run() — deck history", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockDeckRow = {
@@ -3729,5 +3945,40 @@ describe("run() — human deck history", () => {
       }),
       expect.objectContaining({ force: false, label: "Before deck patch" }),
     );
+  });
+
+  it("force-snapshots the original deck before an agent removes slides", async () => {
+    const originalSlides = Array.from({ length: 14 }, (_, index) => ({
+      id: `slide-${index + 1}`,
+      content: `<section>${index + 1}</section>`,
+    }));
+    mockDeckRow!.data = JSON.stringify({
+      title: "Deck",
+      slides: originalSlides,
+    });
+
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: originalSlides.slice(0, 8).map((slide) => ({
+          op: "delete-slide",
+          slideId: slide.id,
+        })),
+      },
+      { caller: "tool", runId: "run-1", turnId: "turn-1" },
+    );
+
+    expect(mockCreateDeckVersionSnapshot).toHaveBeenCalledOnce();
+    expect(mockCreateDeckVersionSnapshot.mock.calls[0][0]).toMatchObject({
+      id: "deck-1",
+      ownerEmail: "owner@example.com",
+      data: JSON.stringify({ title: "Deck", slides: originalSlides }),
+    });
+    expect(mockCreateDeckVersionSnapshot.mock.calls[0][1]).toMatchObject({
+      force: true,
+      label: "Before deck patch",
+      chatContext: { runId: "run-1", turnId: "turn-1" },
+    });
+    expect(JSON.parse(mockDeckRow!.data as string).slides).toHaveLength(6);
   });
 });

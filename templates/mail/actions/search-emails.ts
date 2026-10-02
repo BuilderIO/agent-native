@@ -6,6 +6,7 @@ import { emailMessageMatchesSearch } from "@shared/search.js";
 import { z } from "zod";
 
 import { buildGmailEmailSearchQuery } from "../server/lib/gmail-query.js";
+import { assertGmailNotCoolingDown } from "../server/lib/gmail-quota.js";
 import { GmailQuotaCooldownError } from "../server/lib/google-api.js";
 import {
   listGmailMessages,
@@ -214,6 +215,7 @@ export default defineAction({
 
     const clients = await getClients(ownerEmail);
     if (clients.length === 0) throw new Error("No Google account connected.");
+    await assertGmailNotCoolingDown(clients.map((client) => client.email));
 
     const gmailQuery = buildGmailEmailSearchQuery({ view, q: args.q });
 
@@ -235,9 +237,6 @@ export default defineAction({
       { mode: "threads", threadCandidateLimit: 500 },
     );
     if (errors.length > 0 && messages.length === 0) {
-      const errorMessage = errors
-        .map((error) => `${error.email}: ${error.error}`)
-        .join("; ");
       const failedAccounts = new Set(
         errors.map((error) => error.email.toLowerCase()),
       );
@@ -248,11 +247,12 @@ export default defineAction({
         )
       ) {
         throw new GmailQuotaCooldownError(
-          errorMessage,
           retryAfterSecondsFromErrors(errors) * 1000,
         );
       }
-      throw new Error(errorMessage);
+      throw new Error(
+        errors.map((error) => `${error.email}: ${error.error}`).join("; "),
+      );
     }
 
     let emails = messages

@@ -73,6 +73,15 @@ export default defineEventHandler(async (event: H3Event) => {
       (uploadState as Record<string, unknown>).pendingMediaVerification ===
         true,
     );
+    // The bytes finalize received, so a client can prove the server copy is
+    // whole before it deletes its own local copy.
+    const sourceSizeBytes =
+      uploadState &&
+      typeof uploadState === "object" &&
+      typeof (uploadState as Record<string, unknown>).sourceSizeBytes ===
+        "number"
+        ? ((uploadState as Record<string, unknown>).sourceSizeBytes as number)
+        : null;
 
     return {
       recording: {
@@ -85,6 +94,7 @@ export default defineEventHandler(async (event: H3Event) => {
           proxyRemoteMedia: true,
         }),
         durationMs: recording.durationMs,
+        sourceSizeBytes,
         width: recording.width,
         height: recording.height,
         hasAudio: Boolean(recording.hasAudio),

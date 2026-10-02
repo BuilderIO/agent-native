@@ -18,6 +18,7 @@ import {
 import {
   AgentKitCapabilityError,
   AgentKitClient,
+  AgentRunHandle,
   AgentKitRunSlotBusyError,
 } from "./client.js";
 
@@ -256,7 +257,7 @@ describe("AgentKitClient", () => {
   });
 
   it.each(["accepted", "rejected"])(
-    "acknowledges a %s queue write only after the queued message is inserted",
+    "parks the queue item before its %s durable append settles",
     async (outcome) => {
       const queued = Promise.withResolvers<{ message: AgentQueuedMessage }>();
       const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
@@ -272,7 +273,9 @@ describe("AgentKitClient", () => {
         createdAt: "2026-09-29T00:00:00.000Z",
       };
       const onLocalSubmit = vi.fn(() => {
-        expect(client.getThread("thread-1").queuedMessages).toEqual([message]);
+        expect(client.getThread("thread-1").queuedMessages).toEqual([
+          expect.objectContaining({ text: message.text }),
+        ]);
       });
       const submission = client
         .queueMessage({
@@ -285,9 +288,11 @@ describe("AgentKitClient", () => {
           (error: unknown) => ({ error }),
         );
       await vi.waitFor(() => expect(queueMessage).toHaveBeenCalledOnce());
-      expect(onLocalSubmit).not.toHaveBeenCalled();
-      expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+      expect(onLocalSubmit).toHaveBeenCalledOnce();
+      const parked = client.getThread("thread-1").queuedMessages[0]!;
+      expect(parked.text).toBe(message.text);
       const request = queueMessage.mock.calls[0]![0];
+      expect(request.id).toBe(parked.id);
       expect(request).not.toHaveProperty("onLocalSubmit");
       expect(structuredClone(request)).toEqual(request);
 
@@ -298,9 +303,10 @@ describe("AgentKitClient", () => {
       if (outcome === "accepted") {
         expect(result).toEqual({ value: message });
         expect(onLocalSubmit).toHaveBeenCalledOnce();
+        expect(client.getThread("thread-1").queuedMessages).toEqual([message]);
       } else {
         expect(result).toEqual({ error: failure });
-        expect(onLocalSubmit).not.toHaveBeenCalled();
+        expect(onLocalSubmit).toHaveBeenCalledOnce();
         expect(client.getThread("thread-1").queuedMessages).toEqual([]);
       }
       await client.shutdown();
@@ -2534,6 +2540,432 @@ describe("AgentKitClient", () => {
     );
   });
 
+  it("treats steering a queue item already promoted into history as success", async () => {
+    const queued: AgentQueuedMessage = {
+      id: "queued-1",
+      threadId: "thread-1",
+      text: "Steer now",
+      createdAt: "2026-08-29T00:00:00.000Z",
+    };
+    const steeringResult = Promise.withResolvers<void>();
+    const steerQueuedMessage = vi.fn(() => steeringResult.promise);
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        async queueMessage() {
+          return { message: queued };
+        },
+        steerQueuedMessage,
+      },
+    });
+
+    await client.queueMessage({ threadId: "thread-1", text: queued.text });
+    const firstSteer = client.steerQueuedMessage("thread-1", queued.id);
+    await vi.waitFor(() => expect(steerQueuedMessage).toHaveBeenCalledOnce());
+    const duplicateSteer = client.steerQueuedMessage("thread-1", queued.id);
+    expect(duplicateSteer).toBe(firstSteer);
+    steeringResult.resolve();
+    await Promise.all([firstSteer, duplicateSteer]);
+    await client.steerQueuedMessage("thread-1", queued.id);
+
+    expect(steerQueuedMessage).toHaveBeenCalledOnce();
+    expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+    expect(client.getThread("thread-1").messages).toContainEqual(
+      expect.objectContaining({ id: queued.id, role: "user" }),
+    );
+    await client.shutdown();
+  });
+
+  it("queues server-rejected sends without marking their optimistic message failed", async () => {
+    const options = {
+      model: "queued-model",
+      reasoningEffort: "high" as const,
+    };
+    const queued: AgentQueuedMessage = {
+      id: "queued-after-conflict",
+      threadId: "thread-1",
+      text: "Do this after the current run",
+      createdAt: "2026-10-01T00:00:00.000Z",
+      metadata: { contextItems: [{ key: "selection", text: "full context" }] },
+      options,
+    };
+    const startRun = vi.fn(async () => {
+      throw Object.assign(new Error("Run already in progress"), {
+        code: "run_slot_busy",
+        retryable: true,
+        activeRunId: "run-active",
+      });
+    });
+    const queueMessage = vi.fn(async () => ({ message: queued }));
+    const removeQueuedMessage = vi.fn(async () => undefined);
+    const cancelRun = vi.fn(async () => undefined);
+    const onLocalSubmit = vi.fn();
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        startRun,
+        queueMessage,
+        removeQueuedMessage,
+        cancelRun,
+        async *subscribeToRun({ signal }) {
+          yield protocolEvent(1, { type: "run.started" });
+          await new Promise<void>((resolve) =>
+            signal?.addEventListener("abort", () => resolve(), { once: true }),
+          );
+        },
+      },
+    });
+
+    const handle = await client.sendMessage({
+      threadId: "thread-1",
+      text: queued.text,
+      metadata: queued.metadata,
+      options,
+      onLocalSubmit,
+    });
+
+    expect(handle.runId).toBe("run-active");
+    expect(startRun).toHaveBeenCalledOnce();
+    expect(queueMessage).toHaveBeenCalledOnce();
+    expect(queueMessage.mock.calls[0]?.[0]).toMatchObject({
+      threadId: "thread-1",
+      text: queued.text,
+      metadata: queued.metadata,
+      options,
+    });
+    expect(onLocalSubmit).toHaveBeenCalledOnce();
+    expect(client.getThread("thread-1")).toMatchObject({
+      activeRunIds: ["run-active"],
+      queuedMessages: [queued],
+      messages: [],
+    });
+
+    await handle.cancel();
+    expect(removeQueuedMessage).toHaveBeenCalledWith(
+      { threadId: "thread-1", messageId: queued.id },
+      expect.anything(),
+    );
+    expect(cancelRun).not.toHaveBeenCalled();
+
+    await client.shutdown();
+  });
+
+  it("keeps a queued send parked through a stale snapshot while append is pending", async () => {
+    const append = Promise.withResolvers<{ message: AgentQueuedMessage }>();
+    const queuedAt = "2026-10-01T00:00:00.000Z";
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      () => append.promise,
+    );
+    const transport: AgentTransport = {
+      ...createTransport([]),
+      capabilities: { messageQueue: true },
+      async getThreadSnapshot({ threadId }) {
+        return {
+          id: threadId,
+          createdAt: queuedAt,
+          updatedAt: queuedAt,
+          messages: [],
+          activeRunIds: ["run-active"],
+          runs: [
+            {
+              id: "run-active",
+              threadId,
+              status: "running",
+              lastSequence: 0,
+            },
+          ],
+          queuedMessages: [],
+        };
+      },
+      queueMessage,
+    };
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-1");
+
+    const onLocalSubmit = vi.fn();
+    const submission = client.queueMessage({
+      threadId: "thread-1",
+      text: "Keep this as the queued prompt",
+      onLocalSubmit,
+    });
+    await vi.waitFor(() => expect(queueMessage).toHaveBeenCalledOnce());
+
+    const parked = client.getThread("thread-1").queuedMessages[0];
+    expect(parked).toMatchObject({
+      id: queueMessage.mock.calls[0]?.[0].id,
+      text: "Keep this as the queued prompt",
+    });
+    expect(onLocalSubmit).toHaveBeenCalledOnce();
+
+    await client.loadThread("thread-1");
+    expect(client.getThread("thread-1").queuedMessages).toEqual([parked]);
+
+    append.resolve({ message: parked! });
+    await expect(submission).resolves.toEqual(parked);
+    expect(client.getThread("thread-1").queuedMessages).toEqual([parked]);
+    await client.shutdown();
+  });
+
+  it("cancels a queued send without cancelling the active run", async () => {
+    const queued: AgentQueuedMessage = {
+      id: "queued-cancel-send",
+      threadId: "thread-1",
+      text: "Keep this out of the queue",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    const cancelRun = vi.fn(async () => undefined);
+    const removeQueuedMessage = vi.fn(async () => undefined);
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        async startRun() {
+          return { runId: "run-active" };
+        },
+        async queueMessage() {
+          return { message: queued };
+        },
+        removeQueuedMessage,
+        async *subscribeToRun({ runId, signal }) {
+          yield { ...protocolEvent(1, { type: "run.started" }), runId };
+          await new Promise<void>((resolve) =>
+            signal?.addEventListener("abort", () => resolve(), { once: true }),
+          );
+        },
+        cancelRun,
+      },
+    });
+    await client.sendMessage({ threadId: "thread-1", text: "Keep running" });
+
+    const queuedHandle = await client.sendMessage({
+      threadId: "thread-1",
+      text: queued.text,
+    });
+    await queuedHandle.cancel();
+
+    expect(removeQueuedMessage).toHaveBeenCalledWith(
+      { threadId: "thread-1", messageId: queued.id },
+      expect.anything(),
+    );
+    expect(cancelRun).not.toHaveBeenCalled();
+    expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+    await client.shutdown();
+  });
+
+  it("queues an idless server conflict without leaving a failed optimistic message", async () => {
+    const queued: AgentQueuedMessage = {
+      id: "queued-idless-conflict",
+      threadId: "thread-1",
+      text: "Keep this queued",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    const queueMessage = vi.fn(async () => ({ message: queued }));
+    const onError = vi.fn();
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        async startRun() {
+          throw new AgentKitRunSlotBusyError();
+        },
+        queueMessage,
+        async steerQueuedMessage() {
+          throw new AgentKitRunSlotBusyError();
+        },
+      },
+      onError,
+    });
+
+    const handle = await client.sendMessage({
+      threadId: "thread-1",
+      text: queued.text,
+    });
+
+    expect(handle.runId).toBe(queued.id);
+    expect(queueMessage).toHaveBeenCalledOnce();
+    expect(client.getThread("thread-1")).toMatchObject({
+      messages: [],
+      queuedMessages: [queued],
+      activeRunIds: [],
+    });
+    expect(client.getSnapshot()).toMatchObject({
+      connection: "connected",
+      error: undefined,
+    });
+    expect(onError).not.toHaveBeenCalled();
+
+    await client.shutdown();
+  });
+
+  it("does not synthesize active-run state when persisting a conflicted send fails", async () => {
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        async startRun() {
+          throw new AgentKitRunSlotBusyError("run-active");
+        },
+        async queueMessage() {
+          throw new Error("Queue persistence failed");
+        },
+      },
+    });
+
+    await expect(
+      client.sendMessage({ threadId: "thread-1", text: "Do not lose me" }),
+    ).rejects.toThrow("Queue persistence failed");
+    expect(client.getThread("thread-1")).toMatchObject({
+      activeRunIds: [],
+      queuedMessages: [],
+      messages: [expect.objectContaining({ status: "error" })],
+    });
+
+    await client.shutdown();
+  });
+
+  it("preserves interrupt intent when a server-rejected send is steered", async () => {
+    const queued: AgentQueuedMessage = {
+      id: "queued-steered-conflict",
+      threadId: "thread-1",
+      text: "Interrupt with this",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    const cancelRun = vi.fn(async () => undefined);
+    const steerQueuedMessage = vi.fn(async () => ({ runId: "run-steered" }));
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        async startRun() {
+          throw Object.assign(new Error("Run already in progress"), {
+            code: "run_slot_busy",
+            retryable: true,
+            activeRunId: "run-active",
+          });
+        },
+        async queueMessage() {
+          return { message: queued };
+        },
+        async *subscribeToRun({ signal }) {
+          yield protocolEvent(1, { type: "run.started" });
+          await new Promise<void>((resolve) =>
+            signal?.addEventListener("abort", () => resolve(), { once: true }),
+          );
+        },
+        cancelRun,
+        steerQueuedMessage,
+      },
+    });
+
+    const handle = await client.sendMessage({
+      threadId: "thread-1",
+      text: queued.text,
+      interruptActiveRun: true,
+    });
+
+    expect(handle.runId).toBe("run-steered");
+    expect(cancelRun).not.toHaveBeenCalled();
+    expect(steerQueuedMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: "thread-1",
+        messageId: queued.id,
+        interruptActiveRun: true,
+      }),
+      expect.anything(),
+    );
+    expect(client.getThread("thread-1")).toMatchObject({
+      messages: [expect.objectContaining({ id: queued.id })],
+      queuedMessages: [],
+    });
+
+    await client.shutdown();
+  });
+
+  it("allows explicit steer to escalate an automatic promotion", async () => {
+    const finishAutomaticSteer = Promise.withResolvers<void>();
+    const queued: AgentQueuedMessage = {
+      id: "queued-steer-escalation",
+      threadId: "thread-1",
+      text: "Interrupt with this",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    let steerCalls = 0;
+    const steerQueuedMessage = vi.fn(async (input) => {
+      steerCalls += 1;
+      if (steerCalls === 1) {
+        await finishAutomaticSteer.promise;
+        throw new AgentKitRunSlotBusyError("run-active");
+      }
+      expect(input.interruptActiveRun).toBe(true);
+      return { runId: "run-steered" };
+    });
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        async queueMessage() {
+          return { message: queued };
+        },
+        steerQueuedMessage,
+      },
+      onError: vi.fn(),
+    });
+
+    await client.queueMessage({
+      threadId: "thread-1",
+      text: queued.text,
+      queuedWhileRunActive: true,
+    });
+    await vi.waitFor(() => expect(steerQueuedMessage).toHaveBeenCalledOnce());
+    const explicit = client.steerQueuedMessage(
+      "thread-1",
+      queued.id,
+      undefined,
+      { interruptActiveRun: true },
+    );
+
+    finishAutomaticSteer.resolve();
+    await expect(explicit).resolves.toMatchObject({ runId: "run-steered" });
+    expect(steerQueuedMessage).toHaveBeenCalledTimes(2);
+
+    await client.shutdown();
+  });
+
+  it("keeps an unproven queue claim visible without adding it to history", async () => {
+    const queued: AgentQueuedMessage = {
+      id: "queued-claimed-elsewhere",
+      threadId: "thread-1",
+      text: "Run once",
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    const onError = vi.fn();
+    const client = new AgentKitClient({
+      transport: {
+        ...createTransport([]),
+        capabilities: { messageQueue: true },
+        async queueMessage() {
+          return { message: queued };
+        },
+        async steerQueuedMessage() {
+          throw new Error(`Unknown queued message: ${queued.id}`);
+        },
+      },
+      onError,
+    });
+
+    await client.queueMessage({ threadId: "thread-1", text: queued.text });
+    await expect(
+      client.steerQueuedMessage("thread-1", queued.id),
+    ).rejects.toThrow(`Unknown queued message: ${queued.id}`);
+
+    expect(client.getThread("thread-1").queuedMessages).toEqual([queued]);
+    expect(client.getThread("thread-1").messages).toEqual([]);
+    expect(onError).toHaveBeenCalledOnce();
+    await client.shutdown();
+  });
+
   it("rolls rejected steering back without reporting a connection outage", async () => {
     const queued: AgentQueuedMessage = {
       id: "queued-1",
@@ -2909,10 +3341,21 @@ describe("AgentKitClient", () => {
     const queued = {
       id: "queued-1",
       threadId: "thread-1",
-      text: "Run after the reload",
+      text: "Already promoted in another tab",
       createdAt: "2026-08-29T00:00:00.000Z",
     };
-    const promoted = vi.fn(async () => undefined);
+    const laterQueued = {
+      ...queued,
+      id: "queued-2",
+      text: "Run after reconciling the first item",
+    };
+    const promoted = vi.fn(
+      async (
+        _input: Parameters<
+          NonNullable<AgentTransport["steerQueuedMessage"]>
+        >[0],
+      ) => undefined,
+    );
     const transport = createTransport([]);
     transport.capabilities = { messageQueue: true };
     transport.getThreadSnapshot = async () => ({
@@ -2920,7 +3363,7 @@ describe("AgentKitClient", () => {
       createdAt: "2026-08-29T00:00:00.000Z",
       updatedAt: "2026-08-29T00:00:01.000Z",
       messages: [],
-      queuedMessages: [queued],
+      queuedMessages: [queued, laterQueued],
       runs: [],
       activeRunIds: [],
     });
@@ -2928,16 +3371,14 @@ describe("AgentKitClient", () => {
     const client = new AgentKitClient({ transport });
 
     await client.loadThread("thread-1");
-    await vi.waitFor(() => expect(promoted).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(promoted).toHaveBeenCalledTimes(2));
 
-    expect(promoted).toHaveBeenCalledWith(
-      { threadId: "thread-1", messageId: queued.id },
-      expect.objectContaining({
-        correlationId: expect.any(String),
-        signal: expect.any(AbortSignal),
-      }),
-    );
+    expect(promoted.mock.calls.map(([input]) => input.messageId)).toEqual([
+      queued.id,
+      laterQueued.id,
+    ]);
     expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+    await client.shutdown();
   });
 
   it("discovers capabilities before the first run starts", async () => {
@@ -4010,13 +4451,16 @@ describe("AgentKitClient", () => {
     expect(client.getThread("thread-1").activeRunIds).toEqual([]);
   });
 
-  it("does not promote queued work while a parallel run is still active", async () => {
+  it("queues follow-up messages by default while a run is active", async () => {
     let runCount = 0;
     const terminals = new Map<
       string,
       ReturnType<typeof Promise.withResolvers<void>>
     >();
-    const steerQueuedMessage = vi.fn(async () => undefined);
+    const steerQueuedMessage = vi.fn(async () => {
+      runCount += 1;
+      return { runId: `run-${runCount}` };
+    });
     const transport: AgentTransport = {
       capabilities: { messageQueue: true },
       async startRun() {
@@ -4044,23 +4488,29 @@ describe("AgentKitClient", () => {
       steerQueuedMessage,
     };
     const client = new AgentKitClient({ transport });
-    await client.queueMessage({ threadId: "thread-1", text: "Run later" });
     const first = await client.sendMessage({ threadId: "thread-1", text: "A" });
     const second = await client.sendMessage({
       threadId: "thread-1",
       text: "B",
     });
-    await vi.waitFor(() =>
-      expect(client.getThread("thread-1").activeRunIds).toHaveLength(2),
-    );
+    expect(second.runId).toBe("run-1");
+    expect(runCount).toBe(1);
+    expect(client.getThread("thread-1").activeRunIds).toEqual(["run-1"]);
+    expect(client.getThread("thread-1").queuedMessages).toMatchObject([
+      { text: "B" },
+    ]);
 
     terminals.get("run-1")?.resolve();
     await first.completed;
-    expect(steerQueuedMessage).not.toHaveBeenCalled();
-
+    await vi.waitFor(() =>
+      expect(client.getThread("thread-1").activeRunIds).toEqual(["run-2"]),
+    );
+    expect(steerQueuedMessage).toHaveBeenCalledOnce();
+    expect(client.getThread("thread-1").queuedMessages).toEqual([]);
     terminals.get("run-2")?.resolve();
-    await second.completed;
-    await vi.waitFor(() => expect(steerQueuedMessage).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(client.getThread("thread-1").activeRunIds).toEqual([]),
+    );
   });
 
   it("promotes queued work after the run it followed finishes during preparation", async () => {
@@ -4136,7 +4586,190 @@ describe("AgentKitClient", () => {
     await vi.waitFor(() => expect(steerQueuedMessage).toHaveBeenCalledOnce());
   });
 
-  it("retries automatic queue promotion after the run slot becomes free", async () => {
+  it("uses durable history when another tab already promoted a queue item", async () => {
+    const client = new AgentKitClient({
+      transport: {
+        capabilities: { messageQueue: true },
+        async queueMessage({ threadId, text }) {
+          return {
+            message: {
+              id: "queued-1",
+              threadId,
+              text,
+              createdAt: "2026-09-30T00:00:00.000Z",
+            },
+          };
+        },
+        async steerQueuedMessage() {
+          return { runId: "run-1", alreadySubmitted: true };
+        },
+        async *subscribeToRun({ threadId, runId }) {
+          yield {
+            ...protocolEvent(1, { type: "run.started" }),
+            threadId,
+            runId,
+          };
+          yield {
+            ...protocolEvent(2, { type: "run.completed" }),
+            threadId,
+            runId,
+          };
+        },
+        async getThreadSnapshot({ threadId }) {
+          return {
+            id: threadId,
+            createdAt: "2026-09-30T00:00:00.000Z",
+            updatedAt: "2026-09-30T00:00:01.000Z",
+            activeRunIds: ["run-1"],
+            messages: [
+              {
+                id: "server-user-run-1",
+                threadId,
+                role: "user",
+                createdAt: "2026-09-30T00:00:00.000Z",
+                status: "complete",
+                parts: [{ type: "text", text: "Run once" }],
+                metadata: {
+                  custom: {
+                    agentNativeQueuedMessageId: "queued-1",
+                    submittedRunId: "run-1",
+                  },
+                },
+              },
+            ],
+            queuedMessages: [],
+          };
+        },
+      },
+    });
+
+    try {
+      await client.queueMessage({ threadId: "thread-1", text: "Run once" });
+      const run = await client.steerQueuedMessage("thread-1", "queued-1");
+      await run?.completed;
+
+      expect(client.getThread("thread-1").messages.map(({ id }) => id)).toEqual(
+        ["server-user-run-1"],
+      );
+      expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+    } finally {
+      await client.dispose();
+    }
+  });
+
+  it("reconciles a queue item removed in another tab without adding history", async () => {
+    const client = new AgentKitClient({
+      transport: {
+        capabilities: { messageQueue: true },
+        async queueMessage({ threadId, text }) {
+          return {
+            message: {
+              id: "queued-removed",
+              threadId,
+              text,
+              createdAt: "2026-10-01T00:00:00.000Z",
+            },
+          };
+        },
+        async steerQueuedMessage() {
+          return { alreadyRemoved: true };
+        },
+        async getThreadSnapshot({ threadId }) {
+          return {
+            id: threadId,
+            createdAt: "2026-10-01T00:00:00.000Z",
+            updatedAt: "2026-10-01T00:00:01.000Z",
+            messages: [],
+            queuedMessages: [],
+          };
+        },
+      },
+    });
+
+    try {
+      await client.queueMessage({
+        threadId: "thread-1",
+        text: "Removed elsewhere",
+      });
+      await expect(
+        client.steerQueuedMessage("thread-1", "queued-removed"),
+      ).resolves.toBeUndefined();
+      expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+      expect(client.getThread("thread-1").messages).toEqual([]);
+    } finally {
+      await client.dispose();
+    }
+  });
+
+  it("honors queueWhileRunning=false when the server reports a busy slot", async () => {
+    const finishRun = Promise.withResolvers<void>();
+    const runStarted = Promise.withResolvers<void>();
+    const queueMessage = vi.fn(async () => ({
+      message: {
+        id: "queued-1",
+        threadId: "thread-1",
+        text: "Direct send",
+        createdAt: "2026-08-29T00:00:00.000Z",
+      },
+    }));
+    let startCount = 0;
+    const client = new AgentKitClient({
+      transport: {
+        capabilities: { messageQueue: true },
+        async startRun() {
+          startCount += 1;
+          if (startCount > 1) throw new AgentKitRunSlotBusyError("run-1");
+          return { runId: "run-1" };
+        },
+        async *subscribeToRun({ threadId, runId }) {
+          yield {
+            ...protocolEvent(1, { type: "run.started" }),
+            threadId,
+            runId,
+          };
+          runStarted.resolve();
+          await finishRun.promise;
+          yield {
+            ...protocolEvent(2, { type: "run.completed" }),
+            threadId,
+            runId,
+          };
+        },
+        async cancelRun() {},
+        queueMessage,
+      },
+    });
+    let activeRun: AgentRunHandle | undefined;
+
+    try {
+      activeRun = await client.sendMessage({
+        threadId: "thread-1",
+        text: "Go",
+      });
+      await runStarted.promise;
+      await expect(
+        client.sendMessage({
+          threadId: "thread-1",
+          text: "Direct send",
+          queueWhileRunning: false,
+        }),
+      ).rejects.toBeInstanceOf(AgentKitRunSlotBusyError);
+
+      expect(startCount).toBe(2);
+      expect(queueMessage).not.toHaveBeenCalled();
+      expect(client.getThread("thread-1").messages.at(-1)).toMatchObject({
+        role: "user",
+        status: "error",
+        parts: [{ type: "text", text: "Direct send" }],
+      });
+    } finally {
+      finishRun.resolve();
+      await activeRun?.completed.catch(() => undefined);
+      await client.dispose();
+    }
+  });
+
+  it("retries automatic queue promotion after run or claim contention clears", async () => {
     vi.useFakeTimers();
     let attempts = 0;
     const client = new AgentKitClient({
@@ -4170,7 +4803,14 @@ describe("AgentKitClient", () => {
         },
         async steerQueuedMessage() {
           attempts += 1;
-          if (attempts < 8) throw new AgentKitRunSlotBusyError();
+          if (attempts < 8) {
+            throw attempts % 2 === 0
+              ? new AgentKitRunSlotBusyError()
+              : Object.assign(new Error("Queue item is being promoted"), {
+                  code: "queue_item_busy",
+                  retryable: true,
+                });
+          }
         },
       },
     });
@@ -4182,12 +4822,85 @@ describe("AgentKitClient", () => {
       });
       await run.completed;
 
-      const retryDelays = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000];
+      const retryDelays = [500, 1_000, 2_000, 2_000, 2_000, 2_000, 2_000];
       for (const [index, delay] of retryDelays.entries()) {
-        await vi.advanceTimersByTimeAsync(delay);
+        await vi.advanceTimersByTimeAsync(delay - 1);
+        expect(attempts).toBe(index + 1);
+        await vi.advanceTimersByTimeAsync(1);
         expect(attempts).toBe(index + 2);
       }
       expect(client.getThread("thread-1").queuedMessages).toEqual([]);
+    } finally {
+      await client.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("expedites a busy queued promotion when run completion arrives in flight", async () => {
+    vi.useFakeTimers();
+    const runCompletion = Promise.withResolvers<void>();
+    const runStarted = Promise.withResolvers<void>();
+    const firstPromotionStarted = Promise.withResolvers<void>();
+    const finishFirstPromotion = Promise.withResolvers<void>();
+    const secondPromotionStarted = Promise.withResolvers<void>();
+    let attempts = 0;
+    const transport: AgentTransport = {
+      capabilities: { approvals: true, messageQueue: true },
+      async startRun() {
+        return { runId: "run-1" };
+      },
+      async queueMessage(input) {
+        return {
+          message: {
+            id: "queued-1",
+            threadId: input.threadId,
+            text: input.text,
+            createdAt: "2026-08-29T00:00:00.000Z",
+          },
+        };
+      },
+      async resolveApproval() {},
+      async steerQueuedMessage() {
+        attempts += 1;
+        if (attempts === 1) {
+          firstPromotionStarted.resolve();
+          await finishFirstPromotion.promise;
+          throw new AgentKitRunSlotBusyError();
+        }
+        secondPromotionStarted.resolve();
+      },
+      async *subscribeToRun({ runId }) {
+        yield { ...protocolEvent(1, { type: "run.started" }), runId };
+        if (runId === "run-1") {
+          runStarted.resolve();
+          await runCompletion.promise;
+        }
+        yield { ...protocolEvent(2, { type: "run.completed" }), runId };
+      },
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({ transport });
+    try {
+      const run = await client.sendMessage({
+        threadId: "thread-1",
+        text: "Finish this response first",
+      });
+      await runStarted.promise;
+      await client.queueMessage({ threadId: "thread-1", text: "Run next" });
+      await client.resolveApproval({
+        threadId: "thread-1",
+        runId: "run-1",
+        approvalId: "approval-1",
+        response: { decision: "approve" },
+      });
+      await firstPromotionStarted.promise;
+
+      runCompletion.resolve();
+      await run.completed;
+      finishFirstPromotion.resolve();
+      await secondPromotionStarted.promise;
+
+      expect(attempts).toBe(2);
     } finally {
       await client.dispose();
       vi.useRealTimers();

@@ -35,6 +35,11 @@ const routeState = vi.hoisted(() => ({
   }>,
   rootProps: null as Record<string, unknown> | null,
   chatProps: null as Record<string, unknown> | null,
+  stopButton: "stop-button-element" as unknown,
+  stopButtonOptions: null as {
+    label: string;
+    onError: (error: Error) => void;
+  } | null,
   connectionRequestProps: null as Record<string, unknown> | null,
   resumeProps: null as Record<string, unknown> | null,
   resolveConnectionRequest: vi.fn(),
@@ -53,6 +58,7 @@ const createTransport = vi.hoisted(() =>
   }),
 );
 const markHandoff = vi.hoisted(() => vi.fn());
+const captureException = vi.hoisted(() => vi.fn());
 const trackEvent = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/rail", () => ({
@@ -62,7 +68,10 @@ vi.mock("@agent-native/core/client/api-path", () => ({
   appPath: (path: string) => `${routeState.basePath}${path}`,
   agentNativePath: (path: string) => `${routeState.basePath}${path}`,
 }));
-vi.mock("@agent-native/core/client/analytics", () => ({ trackEvent }));
+vi.mock("@agent-native/core/client/analytics", () => ({
+  captureException,
+  trackEvent,
+}));
 
 vi.mock("@agent-native/toolkit/app/chat/agentkit-chat/composer", () => ({
   CoreComposerRuntimeProvider: ({
@@ -111,6 +120,13 @@ vi.mock("@agent-native/toolkit/app/agentkit/react/components", () => ({
     <div data-testid="generic-run-failure">{error.message}</div>
   ),
   AgentConnectionRequestCard: () => null,
+  useAgentKitStopButton: (options: {
+    label: string;
+    onError: (error: Error) => void;
+  }) => {
+    routeState.stopButtonOptions = options;
+    return routeState.stopButton;
+  },
   AgentKitChat: (props: Record<string, unknown>) => {
     routeState.chatProps = props;
     return (
@@ -124,7 +140,11 @@ vi.mock("@agent-native/toolkit/app/agentkit/react/components", () => ({
 }));
 vi.mock("@agent-native/toolkit/app/chat/chat/run-recovery", () => ({
   BuilderSetupCard: ({ onRetry }: { onRetry?: () => void }) => (
-    <button data-testid="chat-builder-setup" onClick={onRetry} />
+    <div data-testid="chat-builder-setup">
+      {onRetry ? (
+        <button data-testid="chat-builder-setup-retry" onClick={onRetry} />
+      ) : null}
+    </div>
   ),
   isMissingLlmProviderRunError: ({
     errorCode,
@@ -199,6 +219,7 @@ describe("ChatRoute AgentKit surface", () => {
     routeState.sendMessage.mockReset();
     createTransport.mockClear();
     markHandoff.mockClear();
+    captureException.mockReset();
     trackEvent.mockClear();
     window.sessionStorage.clear();
     locationReplace = vi
@@ -254,7 +275,12 @@ describe("ChatRoute AgentKit surface", () => {
         voiceEnabled: true,
         includeDefaultSlashCommands: false,
         includeDefaultSlashSkills: false,
+        stopButton: routeState.stopButton,
       },
+    });
+    expect(routeState.stopButtonOptions).toMatchObject({
+      label: expect.any(String),
+      onError: expect.any(Function),
     });
     expect(
       container.querySelector("[data-core-composer-runtime]"),
@@ -426,7 +452,9 @@ describe("ChatRoute AgentKit surface", () => {
 
     act(() =>
       container
-        .querySelector<HTMLButtonElement>("[data-testid='chat-builder-setup']")
+        .querySelector<HTMLButtonElement>(
+          "[data-testid='chat-builder-setup-retry']",
+        )
         ?.click(),
     );
 
@@ -578,7 +606,9 @@ describe("ChatRoute AgentKit surface", () => {
 
     act(() =>
       container
-        .querySelector<HTMLButtonElement>("[data-testid='chat-builder-setup']")
+        .querySelector<HTMLButtonElement>(
+          "[data-testid='chat-builder-setup-retry']",
+        )
         ?.click(),
     );
 
@@ -586,6 +616,52 @@ describe("ChatRoute AgentKit surface", () => {
     expect(container.querySelector("[role='alert']")?.textContent).toBe(
       "chat.retryAttachmentUnavailable",
     );
+  });
+
+  it("captures rejected retry sends", async () => {
+    routeState.threadId = "thread-one";
+    routeState.messages = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "text", text: "Draft a launch plan" }],
+      },
+    ];
+    routeState.sendMessage.mockRejectedValueOnce(new Error("send failed"));
+    act(() => root.render(<ChatRoute />));
+
+    const slots = routeState.rootProps?.slots as {
+      runFailure: React.ComponentType<{
+        error: { code: string; message: string; details?: unknown };
+        runId: string;
+        threadId: string;
+      }>;
+    };
+    act(() =>
+      root.render(
+        React.createElement(slots.runFailure, {
+          error: {
+            code: "missing_credentials",
+            message: "Missing credentials",
+          },
+          runId: "run-one",
+          threadId: "thread-one",
+        }),
+      ),
+    );
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          "[data-testid='chat-builder-setup-retry']",
+        )
+        ?.click();
+      await Promise.resolve();
+    });
+
+    expect(captureException).toHaveBeenCalledWith(expect.any(Error), {
+      tags: { area: "chat_retry" },
+    });
   });
 
   it("keeps one owned transport across routed threads", () => {

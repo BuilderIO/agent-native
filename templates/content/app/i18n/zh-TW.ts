@@ -202,6 +202,7 @@ const overrides = {
   creativeContext: creativeContextMessagesByLocale["zh-TW"],
   root: {
     commandContent: "內容",
+    loadingContent: "正在載入內容",
     commandSearchDocuments: "搜尋檔案",
     searchSince: "自 {{date}} 起",
     searchModifiedSince: "修改時間自 {{date}} 起",

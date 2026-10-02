@@ -601,7 +601,7 @@ const messages: ToolkitAgentChatTranslation = {
   "error.chatgptPlanUsageLimit": "ChatGPTプランの使用上限に達しました。",
   "error.chatgptPlanUsageUnavailable":
     "OpenAIはこのChatGPTプランの使用上限を確認できませんでした。ChatGPTの使用状況を確認するか、別のモデルをお試しください。",
-  "error.failed": "エージェントでエラーが発生しました",
+  "error.failed": "エージェントの実行は完了前に失敗しました。",
   "error.render": "このコンテンツを表示できませんでした。",
   "error.stopped": "エージェントは完了前に停止しました",
   "errorMessages.agentConnection":
@@ -624,6 +624,14 @@ const messages: ToolkitAgentChatTranslation = {
     "ツールのスキーマが無効だったため、モデルは開始前にリクエストを拒否しました。無効なツールをスキップして再試行できます。",
   "errorMessages.malformedRequest":
     "モデルプロバイダーがこのリクエストを不正な形式として拒否したため、再試行されませんでした。再試行するか、繰り返し発生する場合は新しいチャットを開始してください。",
+  "errorMessages.requestTooLarge":
+    "このリクエストはサーバーのサイズ上限を超えました（HTTP 413）。新しいチャットを開始するか、大きな添付ファイルや参照を削除して再試行してください。",
+  "errorMessages.runInterrupted": "エージェントは完了前に停止しました。",
+  "errorMessages.runFailed": "エージェントの実行に失敗しました。",
+  "errorMessages.runUnverified":
+    "このチャットはエージェントを追跡できなくなりました。エージェントはまだ実行中の可能性があります。再読み込みして進捗を確認してください。",
+  "errorMessages.runSignedOut":
+    "サインアウトしているため、このチャットはエージェントを追跡できません。もう一度サインインしてから再読み込みしてください。",
   "errorMessages.malformedRequestAttachment":
     "モデルが添付ファイルを拒否したため、このメッセージは送信されませんでした。添付を削除して再試行してください。PDF、プレーンテキスト、JPEG・PNG・GIF・WebP の画像は直接読み取れますが、その他の形式はアップロードしてリンクする必要があります。",
   "errorMessages.noProviderConnected":

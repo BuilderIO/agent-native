@@ -10,6 +10,9 @@ export const scr = (cx, cy) => [
 ];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** Figma's login cookie: when it expires, an exported session stops working. */
+export const FIGMA_LOGIN_COOKIE = "__Host-figma.authn";
+
 export async function open() {
   // Figma is a machine-wide singleton: one logged-in session, one canvas, and
   // osmouse drives the one physical cursor. Always wrap calls to open() in

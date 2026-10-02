@@ -1,5 +1,3 @@
-import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
-
 import { APP_TITLE } from "@/lib/app-config";
 import { PlansPage } from "@/pages/PlansPage";
 
@@ -15,7 +13,7 @@ export function meta() {
 }
 
 export function HydrateFallback() {
-  return <DefaultSpinner />;
+  return <PlansPage />;
 }
 
 export default function PlansRoute() {

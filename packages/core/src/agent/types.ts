@@ -280,8 +280,11 @@ export interface AgentChatHarnessRequest {
 
 export interface AgentChatRequest {
   message: string;
+  /** AgentKit's submitted user message ID, used only to reconcile projections. */
+  agentKitMessageId?: string;
   actionScope?: AgentActionScope;
   queuedMessageId?: string;
+  queuedMessageClaimId?: string;
   displayMessage?: string;
   history?: AgentMessage[];
   structuredHistory?: AgentChatStructuredMessage[];
@@ -325,6 +328,8 @@ export interface AgentChatRequest {
         mode: "default";
       };
   turnId?: string;
+  /** Turn metadata the client forwards; read only for the keys it names. */
+  metadata?: Record<string, unknown>;
   mode?: "act" | "plan";
   model?: string;
   engine?: string;

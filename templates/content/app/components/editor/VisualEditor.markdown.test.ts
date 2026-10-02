@@ -107,6 +107,12 @@ type TooltipProviderProps = Omit<
 const TooltipProviderWithoutChildren =
   TooltipProvider as ComponentType<TooltipProviderProps>;
 
+import {
+  preciseDraftSuggestionPresentations,
+  replaceAcceptedProposalPresentations,
+  replaceAcceptedSuggestionPresentations,
+  suggestionPresentations,
+} from "./DocumentEditor";
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import { NotionToggle } from "./extensions/NotionExtensions";
 import { setSuggestionHighlights } from "./extensions/SuggestionHighlight";
@@ -114,9 +120,20 @@ import { createPreviewDocumentSaveController } from "./previewDocumentSaveContro
 import { insertMediaPlaceholder } from "./SlashCommandMenu";
 import {
   draftSuggestionAnchors,
+  markdownSuggestionOperation,
   markdownSuggestionOperations,
 } from "./suggestions/markdown-operation";
 import {
+  createObservedSuggestionPresentationTransition,
+  hydrateSuggestionPresentationTransitions,
+  retainCommittedSuggestionPresentationTransitions,
+  suggestionPresentationTransitionKey,
+  type SuggestionPresentationTransitions,
+} from "./suggestions/presentation-rebase";
+import {
+  acceptedSuggestionRendered,
+  acceptedSuggestionReadbackOutdated,
+  canProjectAcceptedSuggestion,
   createVisualEditorExtensions,
   commitPendingImageUpload,
   didCommitMediaSource,
@@ -1028,6 +1045,863 @@ describe("live suggestion presentation", () => {
       content: nfmToDoc(content),
     });
   }
+  it.each([true, false])(
+    "acknowledges a grouped readback only after the mounted editor renders it (suggesting=%s)",
+    async (suggesting) => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      const queryClient = new QueryClient();
+      const onRendered = vi.fn();
+      const before = "Before";
+      const accepted = " AddedBefore";
+      const renderEditor = (content: string, resetKey: string | null) =>
+        createElement(
+          MemoryRouter,
+          null,
+          createElement(
+            TooltipProviderWithoutChildren,
+            { delayDuration: 0 },
+            createElement(
+              QueryClientProvider,
+              { client: queryClient },
+              createElement(VisualEditor, {
+                content,
+                contentResetKey: resetKey,
+                contentUpdatedAt: "2026-09-28T12:00:00.000Z",
+                onChange: () => {},
+                suggesting,
+                proposalDecisionReadback:
+                  resetKey === null
+                    ? null
+                    : {
+                        generation: 7,
+                        content: accepted,
+                        beforeContent: before,
+                      },
+                onProposalDecisionRendered: onRendered,
+              }),
+            ),
+          ),
+        );
+
+      try {
+        await act(async () => root.render(renderEditor(before, null)));
+        expect(container.querySelector(".ProseMirror")?.textContent).toBe(
+          before,
+        );
+
+        await act(async () =>
+          root.render(renderEditor(before, "proposal:7:pending")),
+        );
+        expect(onRendered).not.toHaveBeenCalled();
+
+        await act(async () =>
+          root.render(
+            renderEditor(`${accepted} peer`, "proposal:7:readback-peer"),
+          ),
+        );
+        expect(container.querySelector(".ProseMirror")?.textContent).toBe(
+          `${accepted} peer`,
+        );
+        expect(onRendered).not.toHaveBeenCalled();
+
+        await act(async () =>
+          root.render(renderEditor(accepted, "proposal:7:readback")),
+        );
+        expect(container.querySelector(".ProseMirror")?.textContent).toBe(
+          accepted,
+        );
+        expect(onRendered).toHaveBeenCalledWith(7);
+      } finally {
+        await act(async () => root.unmount());
+        queryClient.clear();
+        container.remove();
+      }
+    },
+  );
+  it("acknowledges grouped rejection from the mounted in-mode editor", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient();
+    const onRendered = vi.fn();
+    const before = "Before";
+    const renderEditor = (readback: boolean) =>
+      createElement(
+        MemoryRouter,
+        null,
+        createElement(
+          TooltipProviderWithoutChildren,
+          { delayDuration: 0 },
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(VisualEditor, {
+              content: before,
+              contentResetKey: readback ? "proposal:8:readback" : null,
+              onChange: () => {},
+              suggesting: true,
+              proposalDecisionReadback: readback
+                ? { generation: 8, content: before, beforeContent: before }
+                : null,
+              onProposalDecisionRendered: onRendered,
+            }),
+          ),
+        ),
+      );
+
+    try {
+      await act(async () => root.render(renderEditor(false)));
+      expect(onRendered).not.toHaveBeenCalled();
+      await act(async () => root.render(renderEditor(true)));
+      expect(onRendered).toHaveBeenCalledWith(8);
+      expect(container.querySelector(".ProseMirror")?.textContent).toBe(before);
+    } finally {
+      await act(async () => root.unmount());
+      queryClient.clear();
+      container.remove();
+    }
+  });
+  it("keeps a gap suggestion visible while a multi-span replacement settles", () => {
+    const before = "We shipped quickly, and the results were good.";
+    const after = "We shipped quickly and the results were excellent.";
+    const accepted = {
+      id: "accepted",
+      status: "pending" as const,
+      operations: [markdownSuggestionOperation(before, after)!],
+    };
+    const unrelated = {
+      id: "unrelated",
+      status: "pending" as const,
+      operations: [
+        markdownSuggestionOperation(
+          before,
+          before.replace("results", "findings"),
+        )!,
+      ],
+    };
+    const acceptedSpans = suggestionPresentations(accepted, before);
+    const unrelatedSpans = suggestionPresentations(unrelated, before);
+    const overlays = acceptedSpans.map((span) => ({
+      ...span,
+      presentation: "settling" as const,
+    }));
+    const editor = createSuggestionEditor(before);
+    try {
+      expect(acceptedSpans).toHaveLength(2);
+      expect(acceptedSpans.map((span) => span.kind)).toEqual([
+        "delete_text",
+        "replace_text",
+      ]);
+      const presentations = replaceAcceptedSuggestionPresentations(
+        [...acceptedSpans, ...unrelatedSpans],
+        overlays,
+      );
+      const specs = presentations.map((presentation) =>
+        suggestionHighlightSpec(editor.state.doc, presentation),
+      );
+      expect(specs.every((spec) => spec !== null)).toBe(true);
+      setSuggestionHighlights(editor.view, {
+        specs: specs.filter((spec) => spec !== null),
+      });
+
+      expect(
+        editor.view.dom.querySelectorAll('[data-suggestion-id="accepted"]'),
+      ).toHaveLength(0);
+      expect(
+        editor.view.dom.querySelectorAll(".suggestion-settling-text"),
+      ).toHaveLength(1);
+      expect(
+        editor.view.dom.querySelectorAll(".suggestion-settling-original"),
+      ).toHaveLength(2);
+      expect(
+        editor.view.dom.querySelectorAll('[data-suggestion-id="unrelated"]')
+          .length,
+      ).toBeGreaterThanOrEqual(unrelatedSpans.length);
+      expect(
+        editor.view.dom.querySelector(
+          '[data-suggestion-id="unrelated"][data-suggestion-widget="true"]',
+        )?.textContent,
+      ).toBe("finding");
+      expect(
+        Array.from(
+          editor.view.dom.querySelectorAll(".suggestion-settling-original"),
+        ).every((node) => !node.textContent?.includes("results")),
+      ).toBe(true);
+      expect(docToNfm(editor.getJSON() as any)).toBe(before);
+    } finally {
+      editor.destroy();
+    }
+  });
+  it.each(
+    [
+      {
+        fixture: "following pending span",
+        before:
+          "Old red lanterns shine through the western pines. Nearby insects glow softly.",
+        after:
+          "Bright red lanterns shine through the eastern pines. Nearby insects glow softly.",
+        pendingText: "insects",
+        proposedText: "crickets",
+        overlappingText: "wasps",
+        proposedMarkdown: undefined,
+        acceptedSpanCount: 2,
+      },
+      {
+        fixture: "interleaved pending span",
+        before: "We shipped quickly, and the results were good.",
+        after: "We shipped quickly and the results were excellent.",
+        pendingText: "results",
+        proposedText: "findings",
+        overlappingText: "outcomes",
+        proposedMarkdown: undefined,
+        acceptedSpanCount: 2,
+      },
+      {
+        fixture: "wide pending envelope",
+        before: "We shipped quickly, and the results were good.",
+        after: "We shipped quickly, and the findings were good.",
+        pendingText: "good",
+        proposedText: "great",
+        proposedMarkdown: "They shipped quickly, and the results were great.",
+        overlappingText: "excellent",
+        acceptedSpanCount: 1,
+      },
+    ].flatMap((fixture) =>
+      (
+        [
+          "readback-first",
+          "collaboration-first",
+          "single-before-response",
+          "group-before-response",
+          "single-before-response-failure",
+          "group-before-response-failure",
+          "append-first",
+          "cold-parent-before",
+        ] as const
+      ).map((deliveryOrder) => ({
+        ...fixture,
+        deliveryOrder,
+      })),
+    ),
+  )(
+    "keeps $fixture mounted through $deliveryOrder acceptance",
+    async ({
+      before,
+      after,
+      pendingText,
+      proposedText,
+      overlappingText,
+      deliveryOrder,
+      proposedMarkdown,
+      acceptedSpanCount,
+    }) => {
+      const accepted = {
+        id: "accepted-lanterns",
+        status: "pending" as const,
+        operations: [
+          {
+            ...markdownSuggestionOperation(before, after)!,
+            before: {
+              markdown: before,
+              changedText: before.slice(0, before.indexOf(".") + 1),
+            },
+            after: {
+              markdown: after,
+              changedText: after.slice(0, after.indexOf(".") + 1),
+            },
+            anchor: {
+              from: 0,
+              to: before.indexOf(".") + 1,
+              prefix: "",
+              suffix: before.slice(before.indexOf(".") + 1),
+            },
+          },
+        ],
+      };
+      const unrelated = {
+        id: "pending-insects",
+        status: "pending" as const,
+        operations: [
+          markdownSuggestionOperation(
+            before,
+            proposedMarkdown ?? before.replace(pendingText, proposedText),
+          )!,
+        ],
+      };
+      const acceptedSpans = suggestionPresentations(accepted, before);
+      expect(acceptedSpans).toHaveLength(acceptedSpanCount);
+      const pendingWidgets = suggestionPresentations(unrelated, before).map(
+        (span) => span.afterText,
+      );
+      const groupRequest = deliveryOrder.startsWith("group");
+      const requested = groupRequest
+        ? markdownSuggestionOperations(before, after).map(
+            (operation, index) => ({
+              ...accepted,
+              id: `${accepted.id}:${index}`,
+              operations: [operation],
+            }),
+          )
+        : [accepted];
+      const requestedSpans = requested.flatMap((member) =>
+        suggestionPresentations(member, before),
+      );
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container);
+      const queryClient = new QueryClient();
+      const coldReload = deliveryOrder === "cold-parent-before";
+      const priorSuffix = deliveryOrder === "append-first" ? " Previous." : "";
+      const canonicalAfter = `${after}${priorSuffix}`;
+      const seed = createMarkdownEditor(coldReload ? after : before);
+      const ydoc = prosemirrorToYDoc(seed.state.doc, "default");
+      seed.destroy();
+      const peerDoc = new Y.Doc();
+      Y.applyUpdate(peerDoc, Y.encodeStateAsUpdate(ydoc));
+      const peer = new Editor({
+        extensions: createVisualEditorExtensions({ ydoc: peerDoc }),
+        content: { type: "doc", content: [{ type: "paragraph" }] },
+      });
+      const onRendered = vi.fn();
+      let mounted: Editor | undefined;
+      let transitions: SuggestionPresentationTransitions = new Map();
+      if (coldReload)
+        transitions = hydrateSuggestionPresentationTransitions(
+          transitions,
+          [unrelated],
+          [{ ...accepted, status: "accepted" }],
+          before,
+        );
+      let observedTransition = deliveryOrder.includes("before-response")
+        ? (createObservedSuggestionPresentationTransition(requested) ??
+          undefined)
+        : undefined;
+      let expectedVisible = after;
+      const renderEditor = (
+        readback: boolean,
+        settled = coldReload,
+        current = readback ? canonicalAfter : before,
+      ) =>
+        createElement(
+          MemoryRouter,
+          null,
+          createElement(
+            TooltipProviderWithoutChildren,
+            { delayDuration: 0 },
+            createElement(
+              QueryClientProvider,
+              { client: queryClient },
+              createElement(VisualEditor, {
+                content: current,
+                contentRevision:
+                  current === before
+                    ? "body:1:before"
+                    : current === after
+                      ? "body:2:accepted"
+                      : "body:3:peer",
+                collabContentRevision:
+                  current === before
+                    ? "body:1:before"
+                    : current === after
+                      ? "body:2:accepted"
+                      : "body:3:peer",
+                onChange: () => {},
+                ydoc,
+                collabSynced: true,
+                editable: false,
+                suggestions: replaceAcceptedSuggestionPresentations(
+                  suggestionPresentations(
+                    unrelated,
+                    current,
+                    transitions.get(
+                      suggestionPresentationTransitionKey(unrelated),
+                    ),
+                    observedTransition,
+                  ),
+                  settled
+                    ? null
+                    : requestedSpans.map((span) => ({
+                        ...span,
+                        presentation: "settling" as const,
+                        settlementReadbackContent: readback
+                          ? canonicalAfter
+                          : null,
+                      })),
+                ),
+                acceptedDecisionReadback:
+                  readback && !settled && !groupRequest
+                    ? { id: accepted.id, content: canonicalAfter }
+                    : null,
+                onAcceptedDecisionRendered: onRendered,
+                proposalDecisionReadback:
+                  readback && !settled && groupRequest
+                    ? {
+                        generation: 1,
+                        content: canonicalAfter,
+                        beforeContent: before,
+                      }
+                    : null,
+                onProposalDecisionRendered: onRendered,
+              }),
+            ),
+          ),
+        );
+      const assertPresentation = () => {
+        const body = container.querySelector<HTMLElement>(".ProseMirror")!;
+        expect(
+          [
+            ...body.querySelectorAll(
+              '[data-suggestion-id="pending-insects"][data-suggestion-widget="true"]',
+            ),
+          ].map((node) => node.textContent),
+        ).toEqual(pendingWidgets);
+        expect(
+          body.querySelectorAll('[data-suggestion-id^="accepted-lanterns"]'),
+        ).toHaveLength(0);
+        const rendered = body.cloneNode(true) as HTMLElement;
+        rendered
+          .querySelectorAll(
+            '.suggestion-settling-original, [data-suggestion-id="pending-insects"][data-suggestion-widget="true"]',
+          )
+          .forEach((node) => node.remove());
+        expect(rendered.textContent).toBe(expectedVisible);
+      };
+      try {
+        await act(async () => root.render(renderEditor(false)));
+        assertPresentation();
+        mounted = (
+          container.querySelector(".ProseMirror") as HTMLElement & {
+            editor: Editor;
+          }
+        ).editor;
+        mounted.on("transaction", assertPresentation);
+        if (coldReload) {
+          expect(transitions.size).toBe(1);
+          expect(docToNfm(mounted.getJSON() as any)).toBe(after);
+          await act(async () => root.render(renderEditor(true)));
+          assertPresentation();
+          expect(onRendered).not.toHaveBeenCalled();
+          return;
+        }
+        if (priorSuffix) {
+          transitions = retainCommittedSuggestionPresentationTransitions(
+            transitions,
+            [unrelated],
+            [
+              {
+                ...accepted,
+                id: "accepted-tail",
+                status: "accepted",
+                operations: [
+                  markdownSuggestionOperation(
+                    before,
+                    `${before}${priorSuffix}`,
+                  )!,
+                ],
+              },
+            ],
+          );
+          await act(async () => root.render(renderEditor(false)));
+          peer.view.dispatch(
+            peer.state.tr.insertText(
+              priorSuffix,
+              peer.state.doc.content.size - 1,
+            ),
+          );
+          expectedVisible = canonicalAfter;
+          await act(async () =>
+            Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(peerDoc)),
+          );
+          assertPresentation();
+        }
+        if (!deliveryOrder.includes("before-response"))
+          transitions = retainCommittedSuggestionPresentationTransitions(
+            transitions,
+            [unrelated],
+            [{ ...accepted, status: "accepted" }],
+          );
+        expect(transitions.size).toBe(
+          deliveryOrder.includes("before-response") ? 0 : 1,
+        );
+        await act(async () => root.render(renderEditor(false)));
+        assertPresentation();
+        // Deliver both accepted spans in one peer transaction, preserving Yjs identity.
+        let transaction = peer.state.tr;
+        for (const operation of markdownSuggestionOperations(
+          before,
+          after,
+        ).reverse()) {
+          transaction = transaction.insertText(
+            operation.after.changedText,
+            operation.anchor.from + 1,
+            operation.anchor.to + 1,
+          );
+        }
+        peer.view.dispatch(transaction);
+        const deliverCollaboration = () =>
+          Y.applyUpdate(ydoc, Y.encodeStateAsUpdate(peerDoc));
+        if (deliveryOrder === "readback-first") {
+          await act(async () => root.render(renderEditor(true)));
+          assertPresentation();
+          expect(docToNfm(mounted.getJSON() as any)).toBe(before);
+          expect(onRendered).not.toHaveBeenCalled();
+          await act(async () => deliverCollaboration());
+        } else {
+          await act(async () => deliverCollaboration());
+          assertPresentation();
+          expect(onRendered).not.toHaveBeenCalled();
+          if (deliveryOrder.endsWith("failure")) {
+            mounted.off("transaction", assertPresentation);
+            observedTransition = undefined;
+            await act(async () => root.render(renderEditor(false, true)));
+            expect(transitions.size).toBe(0);
+            expect(
+              [
+                ...container.querySelectorAll(
+                  '[data-suggestion-id="pending-insects"][data-suggestion-widget="true"]',
+                ),
+              ].map((node) => node.textContent),
+            ).toEqual(
+              suggestionPresentations(unrelated, after).map(
+                (span) => span.afterText,
+              ),
+            );
+            expect(docToNfm(mounted.getJSON() as any)).toBe(after);
+            return;
+          }
+          if (deliveryOrder.includes("before-response")) {
+            transitions = retainCommittedSuggestionPresentationTransitions(
+              transitions,
+              [unrelated],
+              requested.map((member) => ({ ...member, status: "accepted" })),
+            );
+            observedTransition = undefined;
+          }
+          await act(async () => root.render(renderEditor(true)));
+        }
+        assertPresentation();
+        expect(docToNfm(mounted.getJSON() as any)).toBe(canonicalAfter);
+        expect(docToNfm(peer.getJSON() as any)).toBe(canonicalAfter);
+        expect(onRendered).toHaveBeenCalledWith(groupRequest ? 1 : accepted.id);
+        await act(async () => root.render(renderEditor(true, true)));
+        assertPresentation();
+        expect(
+          container.querySelectorAll(".suggestion-settling-text"),
+        ).toHaveLength(0);
+        expectedVisible = `${canonicalAfter} Peer.`;
+        peer.view.dispatch(
+          peer.state.tr.insertText(" Peer.", peer.state.doc.content.size - 1),
+        );
+        await act(async () => deliverCollaboration());
+        assertPresentation();
+        await act(async () =>
+          root.render(renderEditor(true, true, expectedVisible)),
+        );
+        assertPresentation();
+        mounted.off("transaction", assertPresentation);
+        peer.view.dispatch(
+          peer.state.tr.insertText(
+            overlappingText,
+            after.indexOf(pendingText) + 1,
+            after.indexOf(pendingText) + pendingText.length + 1,
+          ),
+        );
+        await act(async () => deliverCollaboration());
+        expect(docToNfm(mounted.getJSON() as any)).toBe(
+          `${after.replace(pendingText, overlappingText)}${priorSuffix} Peer.`,
+        );
+        expect(
+          [
+            ...container.querySelectorAll(
+              '[data-suggestion-id="pending-insects"][data-suggestion-widget="true"]',
+            ),
+          ].map((node) => node.textContent),
+        ).toEqual(
+          proposedMarkdown
+            ? suggestionPresentations(unrelated, before)
+                .filter(
+                  (span) =>
+                    span.beforePresentation!.to <= before.indexOf(pendingText),
+                )
+                .map((span) => span.afterText)
+            : [],
+        );
+      } finally {
+        mounted?.off("transaction", assertPresentation);
+        await act(async () => root.unmount());
+        peer.destroy();
+        peerDoc.destroy();
+        ydoc.destroy();
+        queryClient.clear();
+        container.remove();
+      }
+    },
+  );
+  it.each([
+    { name: "overlapping edit", mounted: "Old wasps soft." },
+    {
+      name: "ambiguous moved target",
+      mounted: "New insects bold. New insects bold.",
+    },
+  ])("drops a pending canonical span after an unsafe $name", ({ mounted }) => {
+    const before = "Old insects soft.";
+    const [presentation] = suggestionPresentations(
+      {
+        id: "unsafe-pending",
+        status: "pending",
+        operations: [
+          markdownSuggestionOperation(before, "Old crickets soft.")!,
+        ],
+      },
+      before,
+    );
+    expect(presentation).toBeDefined();
+    const editor = createSuggestionEditor(before);
+    try {
+      setSuggestionHighlights(editor.view, {
+        specs: [suggestionHighlightSpec(editor.state.doc, presentation!)!],
+      });
+      expect(
+        editor.view.dom.querySelector('[data-suggestion-id="unsafe-pending"]'),
+      ).not.toBeNull();
+      editor.commands.setContent(nfmToDoc(mounted));
+      expect(
+        suggestionHighlightSpec(editor.state.doc, presentation!),
+      ).toBeNull();
+      setSuggestionHighlights(editor.view, { specs: [] });
+      expect(
+        editor.view.dom.querySelector('[data-suggestion-id="unsafe-pending"]'),
+      ).toBeNull();
+    } finally {
+      editor.destroy();
+    }
+  });
+  it("preserves pending formatting and draft isolation across canonical revision skew", () => {
+    const before = "Old lanterns. Nearby **insects** glow.";
+    const after = before.replace("insects", "crickets");
+    const [presentation] = suggestionPresentations(
+      {
+        id: "marked-pending",
+        status: "pending",
+        operations: [markdownSuggestionOperation(before, after)!],
+      },
+      before,
+    );
+    const editor = createSuggestionEditor(before.replace("Old", "Bright"));
+    const draftEditor = createSuggestionEditor(after);
+    try {
+      const spec = suggestionHighlightSpec(editor.state.doc, presentation!);
+      expect(spec).not.toBeNull();
+      setSuggestionHighlights(editor.view, { specs: [spec!] });
+      expect(
+        editor.view.dom.querySelector(".suggestion-insert strong")?.textContent,
+      ).toBe(presentation!.afterText);
+      const [draftAnchor] = draftSuggestionAnchors(
+        [markdownSuggestionOperation(before, after)!],
+        after,
+      );
+      const draftSpec = suggestionHighlightSpec(draftEditor.state.doc, {
+        ...presentation!,
+        anchor: draftAnchor!,
+        presentation: "draft",
+      });
+      expect(draftSpec).toMatchObject({ kind: "mark", editableText: true });
+      expect(docToNfm(editor.getJSON() as any)).toBe(
+        before.replace("Old", "Bright"),
+      );
+      expect(docToNfm(draftEditor.getJSON() as any)).toBe(after);
+    } finally {
+      editor.destroy();
+      draftEditor.destroy();
+    }
+  });
+  it("keeps a committed group's combined text visible until canonical readback", () => {
+    const before = "Before and After";
+    const readback = " AddedBefore and Extra After";
+    const members = [
+      {
+        id: "first",
+        status: "accepted" as const,
+        operations: [
+          markdownSuggestionOperation(before, " AddedBefore and After")!,
+        ],
+      },
+      {
+        id: "second",
+        status: "accepted" as const,
+        operations: [
+          markdownSuggestionOperation(before, "Before and Extra After")!,
+        ],
+      },
+    ];
+    const unrelated = {
+      id: "unrelated",
+      status: "pending" as const,
+      operations: [markdownSuggestionOperation(before, `${before}!`)!],
+    };
+    const ordinary = [...members, unrelated].flatMap((member) =>
+      suggestionPresentations({ ...member, status: "pending" }, before),
+    );
+    const presentations = replaceAcceptedProposalPresentations(
+      ordinary,
+      members as never,
+      before,
+      readback,
+    );
+    const editor = createSuggestionEditor(before);
+    try {
+      const apply = (visible = presentations) => {
+        const specs = visible.map((presentation) =>
+          suggestionHighlightSpec(editor.state.doc, presentation),
+        );
+        setSuggestionHighlights(editor.view, {
+          specs: specs.filter((spec) => spec !== null),
+        });
+        return specs;
+      };
+      expect(apply().every((spec) => spec !== null)).toBe(true);
+
+      expect(editor.view.dom.textContent).toBe(`${readback}!`);
+      expect(
+        editor.view.dom.querySelectorAll(".suggestion-settling-text"),
+      ).toHaveLength(2);
+      expect(
+        editor.view.dom.querySelectorAll(
+          '[data-suggestion-id="first"], [data-suggestion-id="second"]',
+        ),
+      ).toHaveLength(0);
+      expect(
+        editor.view.dom.querySelectorAll('[data-suggestion-id="unrelated"]'),
+      ).toHaveLength(1);
+      expect(docToNfm(editor.getJSON() as any)).toBe(before);
+
+      editor.commands.setContent(nfmToDoc(readback));
+      apply(
+        presentations.filter((presentation) => presentation.id !== "unrelated"),
+      );
+      expect(
+        editor.view.dom.querySelectorAll(".suggestion-settling-text"),
+      ).toHaveLength(0);
+      expect(editor.view.dom.textContent).toBe(readback);
+      expect(docToNfm(editor.getJSON() as any)).toBe(readback);
+    } finally {
+      editor.destroy();
+    }
+  });
+  it("keeps an accepted insertion visible while the mounted editor is still behind", () => {
+    const before = "Before";
+    const after = " AddedBefore";
+    const suggestion: VisualEditorSuggestion = {
+      id: "accept-settlement",
+      kind: "insert_text",
+      beforeText: "",
+      afterText: " Added",
+      beforePresentation: { source: before, from: 0, to: 0 },
+      afterPresentation: { source: after, from: 0, to: 6 },
+      anchor: { from: 0, prefix: "", suffix: before },
+      presentation: "settling",
+    };
+    const editor = createSuggestionEditor(before);
+    try {
+      const spec = suggestionHighlightSpec(editor.state.doc, suggestion);
+      expect(spec).toMatchObject({ kind: "insert", settling: true });
+      setSuggestionHighlights(editor.view, { specs: [spec!] });
+      expect(editor.view.dom.textContent).toBe(after);
+      expect(
+        editor.view.dom
+          .querySelector(".suggestion-settling-text")
+          ?.getAttribute("role"),
+      ).toBeNull();
+      expect(docToNfm(editor.getJSON() as any)).toBe(before);
+      expect(acceptedSuggestionRendered(before, after, suggestion)).toBe(false);
+      expect(acceptedSuggestionRendered(after, before, suggestion)).toBe(false);
+      expect(acceptedSuggestionRendered(after, after, suggestion)).toBe(true);
+      expect(
+        acceptedSuggestionRendered(
+          `Intro ${after}`,
+          `Intro ${after}`,
+          suggestion,
+        ),
+      ).toBe(true);
+      expect(
+        acceptedSuggestionRendered(before, `Other ${after}`, suggestion),
+      ).toBe(false);
+      expect(
+        acceptedSuggestionRendered(`${after} peer`, after, suggestion),
+      ).toBe(false);
+      expect(
+        acceptedSuggestionReadbackOutdated(`${after} peer`, after, suggestion),
+      ).toBe(true);
+      expect(
+        acceptedSuggestionReadbackOutdated(before, after, suggestion),
+      ).toBe(false);
+      expect(canProjectAcceptedSuggestion(suggestion)).toBe(true);
+      expect(
+        canProjectAcceptedSuggestion({
+          ...suggestion,
+          kind: "add_text_block",
+          afterText: "\nAdded block",
+        }),
+      ).toBe(false);
+      expect(
+        canProjectAcceptedSuggestion({
+          ...suggestion,
+          kind: "delete_text",
+          beforeText: "Before\n",
+        }),
+      ).toBe(false);
+      editor.commands.setContent(nfmToDoc(after));
+      expect(
+        editor.view.dom.querySelector(".suggestion-settling-text"),
+      ).toBeNull();
+      expect(editor.view.dom.textContent).toBe(after);
+    } finally {
+      editor.destroy();
+    }
+  });
+  it.each([
+    { kind: "delete_text" as const, beforeText: "Old", afterText: "" },
+    { kind: "replace_text" as const, beforeText: "Old", afterText: "New" },
+  ])(
+    "projects an inline $kind without changing the Yjs document",
+    ({ kind, beforeText, afterText }) => {
+      const before = "Old tail";
+      const after = `${afterText} tail`;
+      const suggestion: VisualEditorSuggestion = {
+        id: kind,
+        kind,
+        beforeText,
+        afterText,
+        beforePresentation: { source: before, from: 0, to: 3 },
+        afterPresentation: { source: after, from: 0, to: afterText.length },
+        anchor: { from: 0, prefix: "", suffix: " tail" },
+        presentation: "settling",
+      };
+      const editor = createSuggestionEditor(before);
+      try {
+        const spec = suggestionHighlightSpec(editor.state.doc, suggestion);
+        expect(spec).toMatchObject({ settling: true });
+        setSuggestionHighlights(editor.view, { specs: [spec!] });
+        expect(
+          editor.view.dom.querySelector(".suggestion-settling-original")
+            ?.textContent,
+        ).toBe("Old");
+        expect(
+          editor.view.dom.querySelector(".suggestion-settling-text")
+            ?.textContent ?? "",
+        ).toBe(afterText);
+        expect(docToNfm(editor.getJSON() as any)).toBe(before);
+        expect(acceptedSuggestionRendered(before, after, suggestion)).toBe(
+          false,
+        );
+        expect(acceptedSuggestionRendered(after, after, suggestion)).toBe(true);
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
   it.each([
     "**Echo**",
     "*Echo*",
@@ -1068,6 +1942,30 @@ describe("live suggestion presentation", () => {
       }
     },
   );
+  it("keeps an accepted link's settled label free of the review URL suffix", () => {
+    const before = "Echo sample.";
+    const after = "[Echo](https://example.test) sample.";
+    const editor = createSuggestionEditor(before);
+    try {
+      const spec = suggestionHighlightSpec(editor.state.doc, {
+        id: "settling-link",
+        kind: "set_inline_mark",
+        beforeText: "Echo",
+        afterText: "[Echo](https://example.test)",
+        beforePresentation: { source: before, from: 0, to: 4 },
+        afterPresentation: { source: after, from: 0, to: 28 },
+        anchor: { from: 0, prefix: "", suffix: " sample." },
+        presentation: "settling",
+      });
+      expect(spec).toMatchObject({ settling: true });
+      setSuggestionHighlights(editor.view, { specs: [spec!] });
+      expect(
+        editor.view.dom.querySelector(".suggestion-settling-text")?.textContent,
+      ).toBe("Echo");
+    } finally {
+      editor.destroy();
+    }
+  });
   it("leaves stale split context unavailable rather than preferring a partially matching target", () => {
     const editor = createSuggestionEditor("BBBB target x\nC target y");
     try {
@@ -1353,6 +2251,164 @@ describe("live suggestion presentation", () => {
       editor.destroy();
     }
   });
+
+  it("keeps an existing multi-hunk draft precise after an earlier draft insertion", () => {
+    const before =
+      "Old red lanterns shine through the western pines. Nearby insects glow softly.";
+    const after =
+      "Bright red lanterns shine through the eastern pines. Nearby insects glow softly.";
+    const prefix = "Earlier draft. ";
+    const currentMarkdown = `${prefix}${after}`;
+    const operation = markdownSuggestionOperation(before, after)!;
+    const mappedFrom = currentMarkdown.indexOf(operation.after.changedText);
+    const visualSuggestions = preciseDraftSuggestionPresentations(
+      {
+        id: "editing",
+        operations: [operation],
+        anchor: {
+          from: mappedFrom,
+          to: mappedFrom + operation.after.changedText.length,
+          prefix: currentMarkdown.slice(
+            Math.max(0, mappedFrom - 32),
+            mappedFrom,
+          ),
+          suffix: currentMarkdown.slice(
+            mappedFrom + operation.after.changedText.length,
+            mappedFrom + operation.after.changedText.length + 32,
+          ),
+        },
+      } as never,
+      currentMarkdown,
+    );
+    const unrelated = suggestionPresentations(
+      {
+        id: "unrelated",
+        status: "pending",
+        operations: [
+          markdownSuggestionOperation(
+            currentMarkdown,
+            currentMarkdown.replace("lanterns", "beacon"),
+          )!,
+        ],
+      },
+      currentMarkdown,
+    );
+    const editor = createSuggestionEditor(currentMarkdown);
+
+    try {
+      expect(
+        visualSuggestions?.map((suggestion) => suggestion.afterText),
+      ).toEqual(["Bright", "eastern"]);
+      const specs = [...visualSuggestions!, ...unrelated].map((suggestion) =>
+        suggestionHighlightSpec(editor.state.doc, suggestion),
+      );
+      expect(specs.every((spec) => spec !== null)).toBe(true);
+      setSuggestionHighlights(editor.view, {
+        specs: specs.filter((spec) => spec !== null),
+      });
+
+      expect(
+        Array.from(
+          editor.view.dom.querySelectorAll(
+            '[data-suggestion-id="editing"].suggestion-change',
+          ),
+        ).map((node) => node.textContent),
+      ).toEqual(["Bright", "eastern"]);
+      expect(
+        editor.view.dom.querySelector(
+          '[data-suggestion-id="unrelated"][data-suggestion-widget="true"]',
+        )?.textContent,
+      ).toBe("beacon");
+      expect(
+        Array.from(
+          editor.view.dom.querySelectorAll(
+            '[data-suggestion-id="editing"].suggestion-delete-widget',
+          ),
+        ).map((node) => node.textContent),
+      ).toEqual(["Old", "western"]);
+      expect(docToNfm(editor.getJSON() as any)).toBe(currentMarkdown);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it.each([
+    {
+      before: "The old word and old ending.",
+      after: "The new word and new ending.",
+      changed: ["new", "new"],
+      rendered: ["new", "new"],
+    },
+    {
+      before: "The Echo word and Old ending.",
+      after: "The **Echo** word and Bright ending.",
+      changed: ["**Echo**", "Bright"],
+      rendered: ["Echo", "Bright"],
+    },
+  ])(
+    "renders precise draft spans in the full session draft: $after",
+    ({ before, after, changed, rendered }) => {
+      const earlier = markdownSuggestionOperation(
+        before,
+        before.replace("The ", "TheX "),
+      )!;
+      const operation = markdownSuggestionOperation(before, after)!;
+      const currentMarkdown = after.replace("The ", "TheX ");
+      const anchors = draftSuggestionAnchors(
+        [earlier, operation],
+        currentMarkdown,
+      );
+      const presentations = preciseDraftSuggestionPresentations(
+        {
+          id: "editing",
+          operations: [operation],
+          anchor: anchors[1]!,
+        },
+        currentMarkdown,
+      );
+      const earlierPresentation = {
+        id: "earlier",
+        kind: earlier.kind,
+        beforeText: earlier.before.changedText,
+        afterText: earlier.after.changedText,
+        anchor: anchors[0]!,
+        presentation: "draft" as const,
+      };
+      const editor = createSuggestionEditor(currentMarkdown);
+      try {
+        expect(
+          presentations?.map((presentation) => presentation.afterText),
+        ).toEqual(changed);
+        const specs = [...presentations!, earlierPresentation].map(
+          (presentation) =>
+            suggestionHighlightSpec(editor.state.doc, presentation),
+        );
+        expect(specs.every((spec) => spec !== null)).toBe(true);
+        setSuggestionHighlights(editor.view, {
+          specs: specs.filter((spec) => spec !== null),
+        });
+        expect(
+          Array.from(
+            editor.view.dom.querySelectorAll(
+              '[data-suggestion-id="editing"].suggestion-change',
+            ),
+          ).map((node) => node.textContent),
+        ).toEqual(rendered);
+        expect(
+          editor.view.dom.querySelector(
+            '[data-suggestion-id="earlier"].suggestion-change',
+          )?.textContent,
+        ).toBe("X");
+        expect(docToNfm(editor.getJSON() as any)).toBe(currentMarkdown);
+        if (after.includes("**Echo**"))
+          expect(editor.view.dom.querySelector("strong")?.textContent).toBe(
+            "Echo",
+          );
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
 
   it.each(["draft", "canonical"] as const)(
     "anchors mixed replacement and insertion operations beside existing marks in %s presentation",
