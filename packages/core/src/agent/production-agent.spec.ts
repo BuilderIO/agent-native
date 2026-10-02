@@ -3216,6 +3216,7 @@ describe("createProductionAgentHandler", () => {
       authUserId: string | undefined,
       browserSessionId: string,
       anonymous = false,
+      synthetic = false,
     ) => {
       const response = await runWithRequestContext(
         {
@@ -3223,6 +3224,7 @@ describe("createProductionAgentHandler", () => {
           ...(authUserId ? { authUserId } : {}),
           browserSessionId,
           ...(anonymous ? { agentRunAnonymous: true } : {}),
+          ...(synthetic ? { isSyntheticTraffic: true } : {}),
           run: {},
         },
         () =>
@@ -3247,9 +3249,16 @@ describe("createProductionAgentHandler", () => {
       startRun("alice@example.com", "auth-user-1", "session-1"),
       startRun("bob@example.com", "auth-user-2", "session-2"),
       startRun("visitor-1", undefined, "session-anonymous", true),
+      startRun(
+        "synthetic@example.com",
+        "auth-synthetic",
+        "session-synthetic",
+        false,
+        true,
+      ),
     ]);
 
-    await vi.waitFor(() => expect(onRunComplete).toHaveBeenCalledTimes(3));
+    await vi.waitFor(() => expect(onRunComplete).toHaveBeenCalledTimes(4));
     const sources = onRunComplete.mock.calls.map(([, , source]) => source);
     expect(sources).toContainEqual({
       userId: "alice@example.com",
@@ -3264,6 +3273,12 @@ describe("createProductionAgentHandler", () => {
     expect(sources).toContainEqual({
       anonymousId: "visitor-1",
       sessionId: "session-anonymous",
+    });
+    expect(sources).toContainEqual({
+      userId: "synthetic@example.com",
+      authUserId: "auth-synthetic",
+      sessionId: "session-synthetic",
+      isSyntheticTraffic: true,
     });
   });
 

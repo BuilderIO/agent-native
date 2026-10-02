@@ -131,6 +131,12 @@ describe("classifyLocalUploadFailure", () => {
         errorCode: "builder_oauth_reauthorization_required",
       }),
     ).toBe("storage_setup_required");
+    expect(
+      classifyLocalUploadFailure({
+        status: 503,
+        errorCode: "builder_credentials_rejected",
+      }),
+    ).toBe("storage_setup_required");
     expect(classifyLocalUploadFailure({ status: 401 })).toBe("session_expired");
     expect(
       classifyLocalUploadFailure({

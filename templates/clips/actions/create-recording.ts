@@ -67,6 +67,7 @@ export function classifyInitialUploadFailure(error: unknown): {
   const storageSetupRequired =
     failureCode === "storage_setup_required" ||
     details.errorCode === "builder_oauth_reauthorization_required" ||
+    details.errorCode === "builder_credentials_rejected" ||
     /credentials?[^.\n]*(?:not configured|missing)|not connected|reconnect builder(?:\.io)?|scope mismatch|missing its space id/i.test(
       message,
     );

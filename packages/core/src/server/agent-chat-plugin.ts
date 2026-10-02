@@ -296,7 +296,7 @@ export type { SharedThreadRouteDependencies };
 type AgentChatRunTrackingSource = Pick<
   TrackingMeta,
   "userId" | "authUserId" | "anonymousId" | "sessionId"
->;
+> & { isSyntheticTraffic?: boolean };
 
 export function trackAgentChatRunLifecycle(
   event: "run_started" | "run_finished" | "run_no_reply",
@@ -307,7 +307,13 @@ export function trackAgentChatRunLifecycle(
   appId?: string,
   trackingSource?: AgentChatRunTrackingSource,
 ): void {
-  if (!threadId?.trim() || !attemptId?.trim()) return;
+  if (
+    !threadId?.trim() ||
+    !attemptId?.trim() ||
+    trackingSource?.isSyntheticTraffic === true
+  ) {
+    return;
+  }
   track(
     event,
     {

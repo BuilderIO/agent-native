@@ -996,6 +996,16 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
         )
         .digest("hex"),
     ).toBe("842d4904b31b1763da551aae2b24bba8508137ca35198ab6ac0df3c83810144e");
+    expect(
+      createHash("sha256")
+        .update(
+          PREVIOUS_PRE_CUSTOM_FIRST_PARTY_BIGQUERY_RETENTION_SQL.replace(
+            /\s+/g,
+            " ",
+          ).trim(),
+        )
+        .digest("hex"),
+    ).toBe("9fd0ccf9207e0557909d80eba96330aa75821da10c09e315186699ee45b8b187");
 
     for (const sql of [
       PREVIOUS_CANONICAL_FIRST_PARTY_BIGQUERY_RETENTION_SQL,

@@ -1598,7 +1598,7 @@ export function createPlanModeActionRegistry(
 type AgentRunTrackingSource = Pick<
   TrackingMeta,
   "userId" | "authUserId" | "anonymousId" | "sessionId"
->;
+> & { isSyntheticTraffic?: boolean };
 
 export interface ProductionAgentOptions {
   actions?: Record<string, ActionEntry>;
@@ -1752,7 +1752,10 @@ function snapshotAgentRunTrackingSource(): AgentRunTrackingSource | undefined {
           ? { sessionId: requestContext.browserSessionId }
           : {}),
       };
-  return Object.keys(source).length > 0 ? source : undefined;
+  const isSyntheticTraffic = requestContext.isSyntheticTraffic === true;
+  return Object.keys(source).length > 0 || isSyntheticTraffic
+    ? { ...source, ...(isSyntheticTraffic ? { isSyntheticTraffic: true } : {}) }
+    : undefined;
 }
 
 const MAX_RETRIES = 3;

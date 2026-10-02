@@ -207,6 +207,32 @@ describe("agent chat run lifecycle tracking", () => {
       },
     ]);
   });
+
+  it("suppresses delayed lifecycle events for synthetic traffic snapshots", () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "agent-chat-run-lifecycle-synthetic-test",
+      track(event) {
+        events.push(event);
+      },
+    });
+
+    try {
+      trackAgentChatRunLifecycle(
+        "run_finished",
+        "thread-synthetic",
+        "run-synthetic",
+        undefined,
+        { status: "completed" },
+        "slides",
+        { userId: "test@example.com", isSyntheticTraffic: true },
+      );
+    } finally {
+      unregisterTrackingProvider("agent-chat-run-lifecycle-synthetic-test");
+    }
+
+    expect(events).toEqual([]);
+  });
 });
 
 describe("agent checkpoint path provenance", () => {

@@ -94,6 +94,7 @@ export function classifyLocalUploadFailure(input: {
   if (input.errorCode === RECORDING_OWNER_MISMATCH) return "owner_mismatch";
   if (
     input.errorCode === "builder_oauth_reauthorization_required" ||
+    input.errorCode === "builder_credentials_rejected" ||
     isStorageSetupFailureReason(message) ||
     /reconnect builder|builder\.io access/i.test(message)
   ) {

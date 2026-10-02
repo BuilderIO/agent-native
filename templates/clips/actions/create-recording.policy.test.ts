@@ -242,4 +242,18 @@ describe("create-recording policy", () => {
       httpStatus: 401,
     });
   });
+
+  it("classifies confirmed rejected Builder credentials as setup-required", () => {
+    expect(
+      classifyInitialUploadFailure(
+        Object.assign(new Error("Builder.io signed-URL request failed (401)"), {
+          status: 401,
+          errorCode: "builder_credentials_rejected",
+        }),
+      ),
+    ).toMatchObject({
+      failureCode: "storage_setup_required",
+      httpStatus: 401,
+    });
+  });
 });

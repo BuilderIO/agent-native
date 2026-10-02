@@ -3,4 +3,4 @@ type: fixed
 date: 2026-10-02
 ---
 
-Temporary upload authorization failures no longer trigger unnecessary storage setup errors.
+Temporary upload authorization failures remain retryable, while permanently rejected Builder credentials trigger storage setup errors.
