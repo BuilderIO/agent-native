@@ -4,6 +4,7 @@ import {
   AGENT_MODEL_CONFIG,
   AI_SDK_MODEL_CONFIG,
   ANTHROPIC_MODEL_CONFIG,
+  BUILDER_CLAUDE_SONNET_MODEL_ID,
   BUILDER_MODEL_CONFIG,
   CLAUDE_SONNET_MODEL_ID,
   DEFAULT_ANTHROPIC_MODEL,
@@ -129,7 +130,9 @@ describe("agent model config catalog", () => {
     expect(AI_SDK_MODEL_CONFIG.openrouter.supportedModels).toContain(
       "anthropic/claude-sonnet-5.5",
     );
-    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain("claude-sonnet-5");
+    expect(BUILDER_MODEL_CONFIG.supportedModels).toContain(
+      BUILDER_CLAUDE_SONNET_MODEL_ID,
+    );
     expect(BUILDER_MODEL_CONFIG.supportedModels).not.toContain(
       "claude-sonnet-5-5",
     );

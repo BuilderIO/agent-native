@@ -598,6 +598,9 @@ describe("AgentEngine registry", () => {
       expect(normalizeModelForEngine(engine, "claude-opus-4-7")).toBe(
         "claude-opus-4-8",
       );
+      expect(normalizeModelForEngine(engine, "claude-sonnet-5-5")).toBe(
+        "claude-sonnet-5",
+      );
       expect(normalizeModelForEngine(engine, "gpt-5-4")).toBe("gpt-5-5");
     });
 

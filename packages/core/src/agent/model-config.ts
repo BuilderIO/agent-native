@@ -170,7 +170,7 @@ export const CLAUDE_SONNET_MODEL_ID = "claude-sonnet-5-5";
 export const CLAUDE_SONNET_MODEL_LABEL = "Claude Sonnet 5.5";
 
 // The Builder gateway still accepts Sonnet 5 while direct Anthropic serves 5.5.
-const BUILDER_CLAUDE_SONNET_MODEL_ID = "claude-sonnet-5";
+export const BUILDER_CLAUDE_SONNET_MODEL_ID = "claude-sonnet-5";
 const OPENROUTER_CLAUDE_SONNET_MODEL_ID = "anthropic/claude-sonnet-5.5";
 
 const ANTHROPIC_DEFAULT_MODEL_ID = CLAUDE_SONNET_MODEL_ID;

@@ -6,7 +6,7 @@ import { createBuilderEngine } from "./engine/builder-engine.js";
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "./engine/credential-errors.js";
 import { classifyTerminalErrorCode } from "./engine/error-detail.js";
 import { EngineError, type EngineStreamOptions } from "./engine/types.js";
-import { CLAUDE_SONNET_MODEL_ID } from "./model-config.js";
+import { BUILDER_CLAUDE_SONNET_MODEL_ID } from "./model-config.js";
 import {
   continuationReasonForResumableError,
   isContextTooLongError,
@@ -46,7 +46,7 @@ vi.mock("../server/credential-provider.js", async (importOriginal) => {
 });
 
 const BASE_OPTS: EngineStreamOptions = {
-  model: CLAUDE_SONNET_MODEL_ID,
+  model: BUILDER_CLAUDE_SONNET_MODEL_ID,
   systemPrompt: "You are helpful.",
   messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
   tools: [],

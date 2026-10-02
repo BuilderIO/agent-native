@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import * as captureErrorModule from "../../server/capture-error.js";
-import { CLAUDE_SONNET_MODEL_ID } from "../model-config.js";
+import { BUILDER_CLAUDE_SONNET_MODEL_ID } from "../model-config.js";
 import {
   BUILDER_CAPABILITIES,
   BUILDER_DEFAULT_MODEL,
@@ -137,7 +137,7 @@ function makeTool(name: string) {
 }
 
 const BASE_OPTS: EngineStreamOptions = {
-  model: CLAUDE_SONNET_MODEL_ID,
+  model: BUILDER_CLAUDE_SONNET_MODEL_ID,
   systemPrompt: "You are helpful.",
   messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
   tools: [],
@@ -192,18 +192,21 @@ describe("createBuilderEngine", () => {
     expect(engine.name).toBe("builder");
     expect(engine.defaultModel).toBe(BUILDER_DEFAULT_MODEL);
     expect(engine.capabilities).toMatchObject(BUILDER_CAPABILITIES);
-    expect(engine.supportedModels).toContain(CLAUDE_SONNET_MODEL_ID);
+    expect(engine.supportedModels).toContain(BUILDER_CLAUDE_SONNET_MODEL_ID);
     expect(engine.supportedModels).toContain("auto");
     expect(engine.supportedModels).toContain("claude-opus-5-5");
     expect(engine.supportedModels).toContain("gpt-6-sol");
+    expect(engine.supportedModels).toContain("gpt-5-4");
+    expect(engine.supportedModels).toContain("gpt-5-5");
+    expect(engine.supportedModels).toContain("gpt-5-4-mini");
+    expect(engine.supportedModels).toContain("gpt-5-1-codex-mini");
     expect(engine.supportedModels).toContain("gpt-5-6-terra");
     expect(engine.supportedModels).toContain("gpt-6-luna");
     expect(engine.supportedModels).toContain("gemini-3-8-flash");
-    expect(engine.supportedModels).not.toContain("gpt-5-5");
     expect(engine.supportedModels).not.toContain("claude-opus-4-7");
     expect(engine.supportedModels).not.toContain("gpt-5-6-luna");
     expect(engine.supportedModels).not.toContain("claude-opus-4-8");
-    expect(engine.supportedModels).not.toContain("gemini-3-1-flash-lite");
+    expect(engine.supportedModels).toContain("gemini-3-1-flash-lite");
     expect(engine.supportedModels).toContain("z-ai-glm-4-5");
   });
 
@@ -420,7 +423,7 @@ describe("createBuilderEngine", () => {
     expect(String(init.headers["x-client-version"])).toMatch(/\d+\.\d+\.\d+/);
 
     const body = JSON.parse(init.body);
-    expect(body.model).toBe(CLAUDE_SONNET_MODEL_ID);
+    expect(body.model).toBe(BUILDER_CLAUDE_SONNET_MODEL_ID);
     expect(body.max_tokens).toBe(DEFAULT_BUILDER_MAX_OUTPUT_TOKENS);
     expect(body.system).toEqual([
       {
