@@ -37,6 +37,10 @@ video sharing app. The agent and the UI share the same SQL data and actions.
   line breaks; headings and other block structures stay flattened in comments.
 - Recording start/stop/pause are UI gestures — browser capture needs user
   activation; navigate to the recording view instead of a server action.
+- Recording never waits on storage. A clip recorded before storage is
+  connected, or whose upload was interrupted, lives only in that browser's
+  local copy (no row yet) until it uploads; the agent cannot read it. Point
+  the user to **Finish upload** in Clips, never to re-record.
 - Native transcript first; cloud transcription is fallback-only. Never hide a
   usable native transcript behind failed metadata work.
 - Use `import-loom-recording` for Loom or direct MP4/WebM URLs. Loom media and
