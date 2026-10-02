@@ -2631,7 +2631,7 @@ describe("Builder gateway credential lane", () => {
   });
 
   it("rewrites a gateway-lane rejection for a visitor and leaves an owner's alone", () => {
-    const ownerFacing = "Connect Builder.io in Settings to enable this.";
+    const ownerFacing = "Use Builder.io in Settings to enable this.";
     expect(gatewayLaneUnavailableMessage(ownerFacing)).toBe(ownerFacing);
 
     process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";

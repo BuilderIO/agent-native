@@ -185,9 +185,9 @@ export default {
     notificationsSoundGroup: "Ton",
     replayStorage: "Speicher für Sitzungswiedergabe",
     replayStorageDescription:
-      "Aufzeichnungen der Sitzungswiedergabe benötigen einen konfigurierten Datei-Upload-Anbieter. Verbinden Sie Builder.io für Objektspeicher im kostenlosen Kontingent oder verwenden Sie Ihren eigenen S3-kompatiblen Bucket.",
+      "Aufzeichnungen der Sitzungswiedergabe benötigen einen konfigurierten Datei-Upload-Anbieter. Nutzen Sie Builder.io für Objektspeicher im kostenlosen Kontingent oder verwenden Sie Ihren eigenen S3-kompatiblen Bucket.",
     connected: "Verbunden",
-    connectBuilder: "Builder.io verbinden",
+    connectBuilder: "Builder.io verwenden",
     checkingBuilder: "Builder.io wird geprüft …",
     builderConnected: "Builder.io verbunden",
     builderConnectedToast: "Builder.io verbunden",
@@ -1494,7 +1494,7 @@ export default {
     time: "Zeit",
     storageSetupTitle: "Wiedergabe-Speicher verbinden",
     storageSetupDescription:
-      "Aufzeichnungen der Sitzungswiedergabe benötigen einen Speicher, bevor Chunks gesichert werden können. Verbinden Sie Builder.io für Speicher im kostenlosen Kontingent oder konfigurieren Sie Ihren eigenen S3-kompatiblen Bucket.",
+      "Aufzeichnungen der Sitzungswiedergabe benötigen einen Speicher, bevor Chunks gesichert werden können. Nutzen Sie Builder.io für Speicher im kostenlosen Kontingent oder konfigurieren Sie Ihren eigenen S3-kompatiblen Bucket.",
     storageConnected: "Speicher verbunden",
     connectBuilder: "Builder.io verwenden",
     configureS3: "S3-Speicher konfigurieren",

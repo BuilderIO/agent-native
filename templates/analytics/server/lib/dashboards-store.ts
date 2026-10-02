@@ -595,6 +595,19 @@ function accessFields(role?: AccessRole): {
   };
 }
 
+// A legacy migration insert is a no-op when the id already exists. Only a row
+// with the migrating owner and org belongs to the caller; any other row with
+// that id is someone else's resource.
+function isMigratedLegacyRow(
+  row: any,
+  ownerEmail: string,
+  orgId: string | null,
+): boolean {
+  return (
+    !!row && row.ownerEmail === ownerEmail && (row.orgId ?? null) === orgId
+  );
+}
+
 function rowToDashboard(row: any, role?: AccessRole): DashboardRecord {
   const certification = parseDashboardCertification(row.certification);
   const rawConfig =
@@ -702,7 +715,7 @@ async function migrateDashboardFromSettings(
   orgId: string | null,
   visibility: DashboardRecord["visibility"],
   role?: AccessRole,
-): Promise<DashboardRecord> {
+): Promise<DashboardRecord | null> {
   const { title, config } = configFromSettings(settingsValue, kind);
   const db = getDb() as any;
   const createdAt =
@@ -730,13 +743,14 @@ async function migrateDashboardFromSettings(
       updatedBy: ownerEmail,
     })
     .onConflictDoNothing();
-  // guard:allow-unscoped — read-after-write of the row just inserted above
-  // with ownerEmail from ctx; eq(id) is sufficient because we know the id we
-  // just wrote and onConflictDoNothing leaves any pre-existing row untouched.
+  // guard:allow-unscoped — read-after-write of the row just inserted above;
+  // isMigratedLegacyRow rejects a pre-existing row that onConflictDoNothing
+  // left untouched.
   const [row] = await db
     .select()
     .from(schema.dashboards)
     .where(eq(schema.dashboards.id, id));
+  if (!isMigratedLegacyRow(row, ownerEmail, orgId)) return null;
   recordScopedChange("dashboards", "change", id, ownerEmail, orgId, visibility);
   return rowToDashboard(row, role);
 }
@@ -798,7 +812,7 @@ export async function getDashboard(
   if (access) return rowToDashboard(access.resource, access.role);
   const legacy = await findLegacyDashboard(id, ctx);
   if (!legacy) return null;
-  return migrateDashboardFromSettings(
+  const migrated = await migrateDashboardFromSettings(
     id,
     legacy.kind,
     legacy.data,
@@ -807,6 +821,16 @@ export async function getDashboard(
     legacy.visibility,
     "owner",
   );
+  if (migrated) return migrated;
+  // Another org member may have migrated the same legacy dashboard first. Read
+  // their row through the normal access check so the caller gets their own role.
+  const migratedByOther = await resolveAccess("dashboard", id, {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  return migratedByOther
+    ? rowToDashboard(migratedByOther.resource, migratedByOther.role)
+    : null;
 }
 
 export type DashboardReviewScope =
@@ -939,7 +963,7 @@ export async function listDashboards(
         orgId,
         visibility,
       );
-      out.push(rec);
+      if (rec) out.push(rec);
     }
   } catch {
     // Legacy scan is best-effort.
@@ -2385,7 +2409,7 @@ async function migrateAnalysisFromSettings(
   orgId: string | null,
   visibility: AnalysisRecord["visibility"],
   role?: AccessRole,
-): Promise<AnalysisRecord> {
+): Promise<AnalysisRecord | null> {
   const db = getDb() as any;
   const createdAt =
     (typeof data.createdAt === "string" && data.createdAt) || nowIso();
@@ -2410,10 +2434,12 @@ async function migrateAnalysisFromSettings(
       updatedAt,
     })
     .onConflictDoNothing();
+  // guard:allow-unscoped — read-after-write; see isMigratedLegacyRow.
   const [row] = await db
     .select()
     .from(schema.analyses)
     .where(eq(schema.analyses.id, id));
+  if (!isMigratedLegacyRow(row, ownerEmail, orgId)) return null;
   const analysis = rowToAnalysis(row, role);
   recordScopedChange(
     "analyses",
@@ -2437,7 +2463,7 @@ export async function getAnalysis(
   if (access) return rowToAnalysis(access.resource, access.role);
   const legacy = await findLegacyAnalysis(id, ctx);
   if (!legacy) return null;
-  return migrateAnalysisFromSettings(
+  const migrated = await migrateAnalysisFromSettings(
     id,
     legacy.data,
     legacy.ownerEmail,
@@ -2445,6 +2471,15 @@ export async function getAnalysis(
     legacy.visibility,
     "owner",
   );
+  if (migrated) return migrated;
+  // Another org member may have migrated the same legacy analysis first.
+  const migratedByOther = await resolveAccess("analysis", id, {
+    userEmail: ctx.email,
+    orgId: ctx.orgId ?? undefined,
+  });
+  return migratedByOther
+    ? rowToAnalysis(migratedByOther.resource, migratedByOther.role)
+    : null;
 }
 
 export type AnalysisReviewScope = DashboardReviewScope;
@@ -2537,7 +2572,7 @@ export async function listAnalyses(
       orgId,
       visibility,
     );
-    out.push(rec);
+    if (rec) out.push(rec);
   }
   return out;
 }
@@ -3146,7 +3181,7 @@ export async function listDashboardViews(
   if (!access) {
     const legacy = await findLegacyDashboard(dashboardId, ctx);
     if (!legacy) return [];
-    await migrateDashboardFromSettings(
+    const migrated = await migrateDashboardFromSettings(
       dashboardId,
       legacy.kind,
       legacy.data,
@@ -3155,6 +3190,18 @@ export async function listDashboardViews(
       legacy.visibility,
       "owner",
     );
+    // Another org member may have migrated the same legacy dashboard first.
+    if (
+      !migrated &&
+      !(await resolveAccess(
+        "dashboard",
+        dashboardId,
+        { userEmail: ctx.email, orgId: ctx.orgId ?? undefined },
+        { skipResourceBody: true },
+      ))
+    ) {
+      return [];
+    }
   }
   const db = getDb() as any;
   const rows = await db

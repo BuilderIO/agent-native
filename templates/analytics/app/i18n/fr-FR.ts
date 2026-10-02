@@ -181,9 +181,9 @@ export default {
     notificationsSoundGroup: "Son",
     replayStorage: "Stockage des relectures de session",
     replayStorageDescription:
-      "Les enregistrements de relecture de session nécessitent un fournisseur d'envoi de fichiers configuré. Connectez Builder.io pour un stockage d'objets en formule gratuite, ou utilisez votre propre bucket compatible S3.",
+      "Les enregistrements de relecture de session nécessitent un fournisseur d'envoi de fichiers configuré. Utilisez Builder.io pour un stockage d'objets en formule gratuite, ou utilisez votre propre bucket compatible S3.",
     connected: "Connecté",
-    connectBuilder: "Connecter Builder.io",
+    connectBuilder: "Utiliser Builder.io",
     checkingBuilder: "Vérification de Builder.io...",
     builderConnected: "Builder.io connecté",
     builderConnectedToast: "Builder.io connecté",
@@ -1497,7 +1497,7 @@ export default {
     time: "Heure",
     storageSetupTitle: "Connecter le stockage des relectures",
     storageSetupDescription:
-      "Les enregistrements de relecture de session nécessitent un espace de stockage avant de pouvoir sauvegarder les fragments. Connectez Builder.io pour un stockage en formule gratuite, ou configurez votre propre bucket compatible S3.",
+      "Les enregistrements de relecture de session nécessitent un espace de stockage avant de pouvoir sauvegarder les fragments. Utilisez Builder.io pour un stockage en formule gratuite, ou configurez votre propre bucket compatible S3.",
     storageConnected: "Stockage connecté",
     connectBuilder: "Utiliser Builder.io",
     configureS3: "Configurer le stockage S3",

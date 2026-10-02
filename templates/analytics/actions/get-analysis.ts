@@ -14,7 +14,8 @@ import {
 } from "../server/lib/dashboards-store";
 
 export default defineAction({
-  description: "Get a saved ad-hoc analysis by ID, including its full results.",
+  description:
+    "Get a saved ad-hoc analysis by ID, including its question, data sources, and full results. Use list-analyses to find IDs.",
   schema: z.object({
     id: z.string().describe("The analysis ID"),
     reviewPreview: z
@@ -31,6 +32,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   mcpApp: {
     compactCatalog: true,

@@ -1,4 +1,5 @@
 import type { DocumentEditorIconRow } from "@/components/editor/document-editor-layout";
+import { LAST_LOCATION_HINT_STORAGE_KEY } from "@/lib/last-location-hint";
 
 // Before a page loads, nothing says whether it has an icon or whether this
 // person can edit it, and each draws a different row above the title. The row
@@ -47,9 +48,13 @@ export function rememberPageIconRow(
 
 // Runs in <head> before the first paint, so the server-rendered placeholder
 // for a page holds the row that page last drew. The app may sit under a base
-// path, so the id is the segment after `page` wherever it appears.
-export const CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT = `(function(){try{var p=location.pathname.split("/"),i=p.indexOf("page");if(i<0||!p[i+1])return;var r=JSON.parse(localStorage.getItem(${JSON.stringify(
+// path, so the id is the segment after `page` wherever it appears. On /home it
+// is the page this browser last opened. Who is signed in is unknown this
+// early, so another account in the same browser may see that row move once.
+export const CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT = `(function(){try{var p=location.pathname.split("/").filter(Boolean),i=p.indexOf("page"),id=i>=0&&p[i+1]?decodeURIComponent(p[i+1]):null;if(!id&&p[p.length-1]==="home"&&!/[?&]spaceId=/.test(location.search))id=(JSON.parse(localStorage.getItem(${JSON.stringify(
+  LAST_LOCATION_HINT_STORAGE_KEY,
+)})||"null")||{}).documentId;if(typeof id!=="string"||!id)return;var r=JSON.parse(localStorage.getItem(${JSON.stringify(
   PAGE_ICON_ROWS_STORAGE_KEY,
-)})||"{}")[decodeURIComponent(p[i+1])];if(r==="icon"||r==="none")document.documentElement.setAttribute(${JSON.stringify(
+)})||"{}")[id];if(r==="icon"||r==="none")document.documentElement.setAttribute(${JSON.stringify(
   STARTUP_PAGE_ICON_ROW_ATTRIBUTE,
 )},r)}catch(e){}})();`; // coercion-ok: without storage the shell holds the "Add icon" row.
