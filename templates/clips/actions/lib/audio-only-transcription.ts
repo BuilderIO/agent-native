@@ -1,15 +1,21 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import {
+  parseAudioChunkList,
+  type AudioChunkListEntry,
+} from "./audio-chunk-list.js";
 
 const AUDIO_EXTRACTION_MIN_TIMEOUT_MS = 30_000;
 const AUDIO_EXTRACTION_MAX_TIMEOUT_MS = 90_000;
 const AUDIO_EXTRACTION_BASE_TIMEOUT_MS = 25_000;
 const AUDIO_EXTRACTION_PER_50MB_MS = 10_000;
 const SILENCE_MAX_VOLUME_DB = -60;
+export const TRANSCRIPTION_CHUNK_SECONDS = 15 * 60;
 const STDERR_LIMIT = 16 * 1024;
 const requireFromThisFile = createRequire(import.meta.url);
 let cachedFfmpegStaticPath: string | null | undefined;
@@ -32,28 +38,32 @@ export class AudioOnlyExtractionError extends Error {
   }
 }
 
-export interface AudioOnlyTranscriptionMedia {
+export interface AudioChunk {
   audioBytes: Uint8Array;
-  mimeType: string;
-  filename: string;
-  source: "audio-input" | "extracted-audio" | "raw-media-fallback";
+  startMs: number;
+  durationMs: number;
 }
+
+export interface AudioOnlyTranscriptionMedia {
+  mimeType: string;
+  maxVolumeDb: number | null;
+  chunks: AudioChunk[];
+}
+
+// A `url` source is handed to ffmpeg as-is, so only pass URLs the server
+// already trusts; untrusted URLs must be downloaded via ssrfSafeFetch first.
+export type AudioExtractionSource =
+  | { kind: "url"; url: string }
+  | { kind: "file"; path: string };
 
 export interface AudioExtractionInput {
-  mediaBytes: Uint8Array;
-  mimeType: string;
-  recordingId: string;
-}
-
-export interface AudioExtractionOutput {
-  audioBytes: Uint8Array;
-  mimeType: string;
-  extension: string;
+  source: AudioExtractionSource;
+  timeoutMs: number;
 }
 
 export type AudioExtractor = (
   input: AudioExtractionInput,
-) => Promise<AudioExtractionOutput>;
+) => Promise<AudioOnlyTranscriptionMedia>;
 
 class FfmpegRunError extends Error {
   stderr: string;
@@ -65,14 +75,6 @@ class FfmpegRunError extends Error {
   }
 }
 
-function baseMimeType(mimeType: string | null | undefined): string {
-  return (mimeType ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
-}
-
-export function isAudioMimeType(mimeType: string | null | undefined): boolean {
-  return baseMimeType(mimeType).startsWith("audio/");
-}
-
 export function isNoExtractableAudioError(err: unknown): boolean {
   return (
     err instanceof AudioOnlyExtractionError &&
@@ -82,37 +84,8 @@ export function isNoExtractableAudioError(err: unknown): boolean {
   );
 }
 
-export function isFfmpegUnavailableError(err: unknown): boolean {
-  return (
-    err instanceof AudioOnlyExtractionError && err.code === "FFMPEG_UNAVAILABLE"
-  );
-}
-
 export function isTransientExtractionError(err: unknown): boolean {
   return err instanceof AudioOnlyExtractionError && err.code === "TIMEOUT";
-}
-
-export function audioExtensionForMimeType(
-  mimeType: string | null | undefined,
-): string {
-  switch (baseMimeType(mimeType)) {
-    case "audio/mp4":
-    case "audio/m4a":
-    case "audio/x-m4a":
-      return "m4a";
-    case "audio/mpeg":
-    case "audio/mp3":
-      return "mp3";
-    case "audio/ogg":
-      return "ogg";
-    case "audio/wav":
-    case "audio/wave":
-    case "audio/x-wav":
-      return "wav";
-    case "audio/webm":
-    default:
-      return "webm";
-  }
 }
 
 function clampAudioExtractionTimeoutMs(value: number): number {
@@ -145,82 +118,47 @@ export function audioExtractionTimeoutMs(
   );
 }
 
-function mediaExtensionForMimeType(mimeType: string): string {
-  switch (baseMimeType(mimeType)) {
-    case "video/mp4":
-    case "video/quicktime":
-    case "audio/mp4":
-      return "mp4";
-    case "audio/m4a":
-    case "audio/x-m4a":
-      return "m4a";
-    case "audio/mpeg":
-    case "audio/mp3":
-      return "mp3";
-    case "audio/ogg":
-      return "ogg";
-    case "audio/wav":
-    case "audio/wave":
-    case "audio/x-wav":
-      return "wav";
-    case "video/webm":
-    case "audio/webm":
-      return "webm";
-    default:
-      return "bin";
-  }
-}
+// Always re-encode. Copying the source track keeps its bitrate, and an hour of
+// copied audio (~60-140 MB) exceeds the transcription gateway's request size
+// limit; mono 16 kHz 48 kbps is ~22 MB per hour.
+const TRANSCRIPTION_AUDIO = {
+  mimeType: "audio/mp4",
+  extension: "m4a",
+  args: [
+    "-map",
+    "0:a:0",
+    "-vn",
+    "-ac",
+    "1",
+    "-ar",
+    "16000",
+    "-b:a",
+    "48k",
+    "-c:a",
+    "aac",
+    "-f",
+    "mp4",
+  ],
+};
 
-function outputForSourceMimeType(mimeType: string): {
-  mimeType: string;
-  extension: string;
-  copyArgs: string[];
-  transcodeArgs: string[];
-} {
-  const base = baseMimeType(mimeType);
-  if (base.includes("mp4") || base === "video/quicktime") {
-    return {
-      mimeType: "audio/mp4",
-      extension: "m4a",
-      copyArgs: ["-map", "0:a:0", "-vn", "-c:a", "copy", "-f", "mp4"],
-      transcodeArgs: [
-        "-map",
-        "0:a:0",
-        "-vn",
-        "-ac",
-        "1",
-        "-ar",
-        "16000",
-        "-b:a",
-        "48k",
-        "-c:a",
-        "aac",
-        "-f",
-        "mp4",
-      ],
-    };
-  }
-
-  return {
-    mimeType: "audio/webm",
-    extension: "webm",
-    copyArgs: ["-map", "0:a:0", "-vn", "-c:a", "copy", "-f", "webm"],
-    transcodeArgs: [
-      "-map",
-      "0:a:0",
-      "-vn",
-      "-ac",
-      "1",
-      "-ar",
-      "16000",
-      "-b:a",
-      "48k",
-      "-c:a",
-      "libopus",
-      "-f",
-      "webm",
-    ],
-  };
+function ffmpegInputArgs(source: AudioExtractionSource): string[] {
+  if (source.kind === "file") return ["-i", source.path];
+  const protocols =
+    new URL(source.url).protocol === "https:" ? "https,tls,tcp" : "http,tcp";
+  return [
+    "-protocol_whitelist",
+    protocols,
+    "-reconnect",
+    "1",
+    "-reconnect_on_network_error",
+    "1",
+    "-reconnect_delay_max",
+    "5",
+    "-rw_timeout",
+    "30000000",
+    "-i",
+    source.url,
+  ];
 }
 
 function ffmpegCommand(): string {
@@ -340,81 +278,37 @@ async function runFfmpegForStderr(
   });
 }
 
-function parseVolumeDb(stderr: string, field: "mean" | "max"): number | null {
-  const match = stderr.match(
-    new RegExp(`${field}_volume:\\s*(-?inf|-?\\d+(?:\\.\\d+)?) dB`, "i"),
-  );
+function parseMaxVolumeDb(stderr: string): number | null {
+  const match = stderr.match(/max_volume:\s*(-?inf|-?\d+(?:\.\d+)?) dB/i);
   if (!match) return null;
   return match[1] === "-inf" ? Number.NEGATIVE_INFINITY : Number(match[1]);
 }
 
-export async function analyzeAudioSignal({
-  audioBytes,
-  mimeType,
-}: AudioOnlyTranscriptionMedia): Promise<{
-  meanVolumeDb: number | null;
-  maxVolumeDb: number | null;
-}> {
-  if (audioBytes.byteLength === 0) {
-    throw new AudioOnlyExtractionError(
-      "NO_AUDIO_TRACK",
-      "No speech was detected because the recording media is empty.",
-    );
-  }
-
-  const dir = await mkdtemp(join(tmpdir(), "clips-transcription-"));
-  const inputPath = join(dir, `input.${audioExtensionForMimeType(mimeType)}`);
-  const timeoutMs = audioExtractionTimeoutMs(audioBytes.byteLength);
-
-  try {
-    await writeFile(inputPath, audioBytes);
-    const stderr = await runFfmpegForStderr(
-      [
-        "-hide_banner",
-        "-nostdin",
-        "-i",
-        inputPath,
-        "-vn",
-        "-af",
-        "volumedetect",
-        "-f",
-        "null",
-        "-",
-      ],
-      timeoutMs,
-    ).catch((err) => {
-      throw mapFfmpegError(err);
-    });
-
-    return {
-      meanVolumeDb: parseVolumeDb(stderr, "mean"),
-      maxVolumeDb: parseVolumeDb(stderr, "max"),
-    };
-  } finally {
-    await rm(dir, { recursive: true, force: true }).catch(() => {});
-  }
+async function detectMaxVolumeDb(
+  audioPath: string,
+  timeoutMs: number,
+): Promise<number | null> {
+  const stderr = await runFfmpegForStderr(
+    [
+      "-hide_banner",
+      "-nostdin",
+      "-i",
+      audioPath,
+      "-vn",
+      "-af",
+      "volumedetect",
+      "-f",
+      "null",
+      "-",
+    ],
+    timeoutMs,
+  );
+  return parseMaxVolumeDb(stderr);
 }
 
-export async function assertAudioHasAudibleSignal(
-  media: AudioOnlyTranscriptionMedia,
-): Promise<void> {
-  if (media.source === "raw-media-fallback") {
-    return;
-  }
-
-  let signal: { meanVolumeDb: number | null; maxVolumeDb: number | null };
-  try {
-    signal = await analyzeAudioSignal(media);
-  } catch (err) {
-    if (isFfmpegUnavailableError(err)) {
-      console.warn(
-        "[clips] ffmpeg unavailable; skipping silence detection and proceeding to transcription.",
-      );
-      return;
-    }
-    throw err;
-  }
-  const maxVolumeDb = signal.maxVolumeDb;
+export function assertAudioHasAudibleSignal({
+  maxVolumeDb,
+}: AudioOnlyTranscriptionMedia): void {
   if (maxVolumeDb === null || maxVolumeDb <= SILENCE_MAX_VOLUME_DB) {
     throw new AudioOnlyExtractionError(
       "NO_SPEECH_DETECTED",
@@ -423,45 +317,93 @@ export async function assertAudioHasAudibleSignal(
   }
 }
 
-export async function extractAudioOnlyWithFfmpeg({
-  mediaBytes,
-  mimeType,
-}: AudioExtractionInput): Promise<AudioExtractionOutput> {
-  if (mediaBytes.byteLength === 0) {
+function readChunkList(csv: string): AudioChunkListEntry[] {
+  let entries: AudioChunkListEntry[];
+  try {
+    entries = parseAudioChunkList(csv);
+  } catch (err) {
     throw new AudioOnlyExtractionError(
-      "NO_AUDIO_TRACK",
-      "No speech was detected because the recording media is empty.",
+      "EXTRACTION_FAILED",
+      `Splitting the audio for transcription failed: ${(err as Error)?.message ?? String(err)}`,
     );
   }
+  if (entries.length === 0) {
+    throw new AudioOnlyExtractionError(
+      "EXTRACTION_FAILED",
+      "Splitting the audio for transcription produced no chunks.",
+    );
+  }
+  return entries;
+}
 
+// Copy-only split of the already re-encoded audio. ffmpeg cuts on packet
+// boundaries, so chunk lengths come from the segment list, not the target.
+async function splitAudioIntoChunks(
+  audioPath: string,
+  dir: string,
+): Promise<AudioChunk[]> {
+  const listPath = join(dir, "chunks.csv");
+  await runFfmpeg(
+    [
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-nostdin",
+      "-y",
+      "-i",
+      audioPath,
+      "-map",
+      "0:a:0",
+      "-c",
+      "copy",
+      "-f",
+      "segment",
+      "-segment_time",
+      String(TRANSCRIPTION_CHUNK_SECONDS),
+      "-segment_format",
+      "mp4",
+      "-reset_timestamps",
+      "1",
+      "-segment_list",
+      listPath,
+      "-segment_list_type",
+      "csv",
+      join(dir, `chunk-%04d.${TRANSCRIPTION_AUDIO.extension}`),
+    ],
+    AUDIO_EXTRACTION_MIN_TIMEOUT_MS,
+  );
+
+  const entries = readChunkList(await readFile(listPath, "utf8"));
+  return Promise.all(
+    entries.map(async (entry) => ({
+      audioBytes: new Uint8Array(await readFile(join(dir, entry.file))),
+      startMs: entry.startMs,
+      durationMs: entry.durationMs,
+    })),
+  );
+}
+
+export async function extractAudioOnlyWithFfmpeg({
+  source,
+  timeoutMs,
+}: AudioExtractionInput): Promise<AudioOnlyTranscriptionMedia> {
   const dir = await mkdtemp(join(tmpdir(), "clips-transcription-"));
-  const inputPath = join(dir, `input.${mediaExtensionForMimeType(mimeType)}`);
-  const output = outputForSourceMimeType(mimeType);
-  const outputPath = join(dir, `audio.${output.extension}`);
-  const baseArgs = ["-hide_banner", "-loglevel", "error", "-nostdin", "-y"];
-  const timeoutMs = audioExtractionTimeoutMs(mediaBytes.byteLength);
+  const outputPath = join(dir, `audio.${TRANSCRIPTION_AUDIO.extension}`);
 
   try {
-    await writeFile(inputPath, mediaBytes);
-    try {
-      await runFfmpeg(
-        [...baseArgs, "-i", inputPath, ...output.copyArgs, outputPath],
-        timeoutMs,
-      );
-    } catch (copyErr) {
-      if (
-        copyErr instanceof FfmpegRunError &&
-        isMissingAudioTrack(copyErr.stderr)
-      ) {
-        throw copyErr;
-      }
-      await runFfmpeg(
-        [...baseArgs, "-i", inputPath, ...output.transcodeArgs, outputPath],
-        timeoutMs,
-      ).catch((transcodeErr) => {
-        throw mapFfmpegError(transcodeErr);
-      });
-    }
+    await runFfmpeg(
+      [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        "-y",
+        ...ffmpegInputArgs(source),
+        ...TRANSCRIPTION_AUDIO.args,
+        outputPath,
+      ],
+      timeoutMs,
+    );
 
     const info = await stat(outputPath).catch(() => null);
     if (!info || info.size === 0) {
@@ -472,9 +414,12 @@ export async function extractAudioOnlyWithFfmpeg({
     }
 
     return {
-      audioBytes: new Uint8Array(await readFile(outputPath)),
-      mimeType: output.mimeType,
-      extension: output.extension,
+      mimeType: TRANSCRIPTION_AUDIO.mimeType,
+      maxVolumeDb: await detectMaxVolumeDb(
+        outputPath,
+        audioExtractionTimeoutMs(info.size),
+      ),
+      chunks: await splitAudioIntoChunks(outputPath, dir),
     };
   } catch (err) {
     if (err instanceof AudioOnlyExtractionError) throw err;
@@ -482,67 +427,4 @@ export async function extractAudioOnlyWithFfmpeg({
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
   }
-}
-
-export async function prepareAudioOnlyTranscriptionMedia({
-  blob,
-  recordingId,
-  sourceMimeType,
-  extractor = extractAudioOnlyWithFfmpeg,
-}: {
-  blob: Blob;
-  recordingId: string;
-  sourceMimeType?: string | null;
-  extractor?: AudioExtractor;
-}): Promise<AudioOnlyTranscriptionMedia> {
-  const mimeType =
-    baseMimeType(sourceMimeType) || baseMimeType(blob.type) || "audio/webm";
-  const mediaBytes = new Uint8Array(await blob.arrayBuffer());
-
-  if (mediaBytes.byteLength === 0) {
-    throw new AudioOnlyExtractionError(
-      "NO_AUDIO_TRACK",
-      "No speech was detected because the recording media is empty.",
-    );
-  }
-
-  if (isAudioMimeType(mimeType)) {
-    return {
-      audioBytes: mediaBytes,
-      mimeType,
-      filename: `${recordingId}.${audioExtensionForMimeType(mimeType)}`,
-      source: "audio-input",
-    };
-  }
-
-  let extracted: AudioExtractionOutput;
-  try {
-    extracted = await extractor({
-      mediaBytes,
-      mimeType,
-      recordingId,
-    });
-  } catch (err) {
-    if (
-      isFfmpegUnavailableError(err) ||
-      (err instanceof AudioOnlyExtractionError && err.code === "TIMEOUT")
-    ) {
-      console.warn(
-        "[clips] ffmpeg could not prepare audio-only media; sending original media to the transcription provider.",
-      );
-      return {
-        audioBytes: mediaBytes,
-        mimeType,
-        filename: `${recordingId}.${mediaExtensionForMimeType(mimeType)}`,
-        source: "raw-media-fallback",
-      };
-    }
-    throw err;
-  }
-  return {
-    audioBytes: extracted.audioBytes,
-    mimeType: extracted.mimeType,
-    filename: `${recordingId}.${extracted.extension}`,
-    source: "extracted-audio",
-  };
 }
