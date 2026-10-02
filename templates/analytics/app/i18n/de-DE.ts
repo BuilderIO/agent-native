@@ -1321,6 +1321,10 @@ export default {
     frictionFiltersActive: "Reibung ({{count}})",
     sortFriction: "Meiste Reibung",
     frictionNotMeasured: "Reibung nicht gemessen",
+    signalNotMeasured: "{{label}} nicht gemessen",
+    issueLinksUnavailable: "Problem-Links nicht verfügbar",
+    frictionCoverageSince: "Reibung wird für Sitzungen seit {{date}} gemessen.",
+    frictionCoverageNone: "Für noch keine Sitzung wurde Reibung gemessen.",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:
       "Dieser Link filtert oder sortiert nach Reibung. Aktivieren Sie das Lab „Sitzungen prüfen“ in den Einstellungen, um ihn anzuwenden.",

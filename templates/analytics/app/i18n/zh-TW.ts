@@ -1311,6 +1311,10 @@ export default {
     frictionFiltersActive: "摩擦（{{count}}）",
     sortFriction: "摩擦最多",
     frictionNotMeasured: "未測量摩擦",
+    signalNotMeasured: "未測量{{label}}",
+    issueLinksUnavailable: "問題連結無法使用",
+    frictionCoverageSince: "摩擦涵蓋 {{date}} 以來的工作階段。",
+    frictionCoverageNone: "尚無測量摩擦的工作階段。",
     frictionSignalCount: "{{label}}：{{count}}",
     frictionFiltersNeedLab:
       "此連結依摩擦篩選或排序。請在設定中開啟「工作階段篩選」Lab 以套用。",

@@ -104,14 +104,14 @@ export default defineAction({
       ])
       .optional()
       .describe(
-        "Sort order. `friction` (score) and the friction signal names sort measured sessions first and require the Sessions triage Lab.",
+        "Sort order. `friction` (score) and the friction signal names sort measured sessions first, unmeasured last, and require the Sessions triage Lab.",
       ),
     offset: z.coerce.number().int().min(0).optional(),
     paginated: z
       .boolean()
       .optional()
       .describe(
-        "Return recordings, total count, and app counts rather than the legacy recordings array",
+        "Return recordings, total count, and app counts rather than the legacy recordings array. Friction filters and sorts always return this shape.",
       ),
     status: z.enum(["active", "completed"]).optional(),
     didEvents: z
@@ -133,13 +133,13 @@ export default defineAction({
       .max(SESSION_FRICTION_SIGNALS.length)
       .optional()
       .describe(
-        "Only sessions that showed every one of these friction signals. Requires the Sessions triage Lab; covers sessions measured since friction tracking began, and never matches an unmeasured session.",
+        "Only sessions that showed every one of these friction signals. Requires the Sessions triage Lab and never matches an unmeasured session. With a friction filter or sort the response has `frictionCoverageStartedAt`: sessions before it were not measured, and null means nothing is measured yet, so read an empty result against it before calling it zero.",
       ),
     includeFriction: z
       .boolean()
       .optional()
       .describe(
-        "Add each recording's friction: score, signal counts, top signals, failed actions and agent failures grouped by cause, and linked Monitoring error issues. A null part means it was not measured, not zero. Requires the Sessions triage Lab.",
+        "Add each recording's friction: score, signal counts, top signals, failed actions and agent failures grouped by cause, and linked Monitoring error issues. A null part means it was not measured, not zero: `thumbs_down` and `cancelled_runs` can be null alone, and `errorIssues` null means the links are unknown while [] means no issues. Requires the Sessions triage Lab.",
       ),
     limit: z.coerce.number().int().min(1).max(100).optional().default(50),
   }),
@@ -149,17 +149,28 @@ export default defineAction({
   grounding: true,
   run: async (args) => {
     const scope = resolveScope();
-    if (
-      args.didEvents?.length ||
-      args.didNotEvents?.length ||
-      args.frictionSignals?.length ||
-      isSessionFrictionSort(args.sort) ||
-      args.includeFriction
-    ) {
-      await assertSessionsTriageLabEnabled(scope.userEmail, scope.orgId);
+    const usesEvents = Boolean(
+      args.didEvents?.length || args.didNotEvents?.length,
+    );
+    const frictionApplied = Boolean(
+      args.frictionSignals?.length || isSessionFrictionSort(args.sort),
+    );
+    const usesFriction = frictionApplied || Boolean(args.includeFriction);
+    if (usesEvents || usesFriction) {
+      await assertSessionsTriageLabEnabled(
+        scope.userEmail,
+        scope.orgId,
+        usesEvents && usesFriction
+          ? "events and friction"
+          : usesEvents
+            ? "events"
+            : "friction",
+      );
     }
     const { includeFriction, ...filters } = args;
-    if (!args.paginated) {
+    // The legacy array has no room for frictionCoverageStartedAt, and without
+    // it an empty friction match cannot be told apart from "not measured".
+    if (!args.paginated && !frictionApplied) {
       const recordings = await listSessionRecordings(scope, filters);
       return includeFriction ? withFriction(scope, recordings) : recordings;
     }

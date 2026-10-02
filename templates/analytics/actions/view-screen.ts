@@ -334,6 +334,11 @@ export default defineAction({
               total: result.total,
               returnedCount: result.recordings.length,
               excerptLimit: SESSION_EXCERPT_SIZE,
+              ...(result.frictionCoverageStartedAt !== undefined
+                ? {
+                    frictionCoverageStartedAt: result.frictionCoverageStartedAt,
+                  }
+                : {}),
               ...(urlHasEventConditions && !triageLabEnabled
                 ? { eventConditionsNotApplied: urlEventConditions }
                 : {}),

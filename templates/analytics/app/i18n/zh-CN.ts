@@ -1228,6 +1228,10 @@ export default {
     frictionFiltersActive: "摩擦（{{count}}）",
     sortFriction: "摩擦最多",
     frictionNotMeasured: "未测量摩擦",
+    signalNotMeasured: "未测量{{label}}",
+    issueLinksUnavailable: "问题链接不可用",
+    frictionCoverageSince: "摩擦涵盖 {{date}} 以来的会话。",
+    frictionCoverageNone: "尚无测量了摩擦的会话。",
     frictionSignalCount: "{{label}}：{{count}}",
     frictionFiltersNeedLab:
       "此链接按摩擦筛选或排序。请在设置中开启“会话筛选”Lab 以应用。",

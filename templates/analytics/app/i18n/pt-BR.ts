@@ -1304,6 +1304,10 @@ export default {
     frictionFiltersActive: "Atrito ({{count}})",
     sortFriction: "Mais atrito",
     frictionNotMeasured: "Atrito não medido",
+    signalNotMeasured: "{{label}}: não medido",
+    issueLinksUnavailable: "Links de problemas indisponíveis",
+    frictionCoverageSince: "O atrito cobre sessões desde {{date}}.",
+    frictionCoverageNone: "Nenhuma sessão tem atrito medido ainda.",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:
       "Este link filtra ou ordena por atrito. Ative o Lab Triagem de sessões em Configurações para aplicá-lo.",

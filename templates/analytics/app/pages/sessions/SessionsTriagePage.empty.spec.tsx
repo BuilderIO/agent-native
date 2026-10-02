@@ -10,16 +10,26 @@ const mocks = vi.hoisted(() => ({
   configured: true,
   total: 0,
   pending: false,
+  placeholder: false,
+  coverage: undefined as string | null | undefined,
   error: null as Error | null,
   refetch: vi.fn(),
   useActionQuery: vi.fn(() => ({
     data: mocks.pending
       ? undefined
-      : { recordings: [], total: mocks.total, appCounts: [] },
+      : {
+          recordings: [],
+          total: mocks.total,
+          appCounts: [],
+          ...(mocks.coverage !== undefined
+            ? { frictionCoverageStartedAt: mocks.coverage }
+            : {}),
+        },
     error: mocks.error,
     isPending: mocks.pending,
     isLoading: false,
     isFetching: false,
+    isPlaceholderData: mocks.placeholder,
     refetch: mocks.refetch,
   })),
 }));
@@ -59,7 +69,10 @@ vi.mock("@/hooks/use-replay-storage-status", () => ({
   }),
 }));
 
-import { SessionsTriagePage } from "./SessionsTriagePage";
+import {
+  rangePredatesFrictionCoverage,
+  SessionsTriagePage,
+} from "./SessionsTriagePage";
 
 function clearAllButton(container: HTMLElement) {
   return Array.from(container.querySelectorAll("button")).find(
@@ -77,6 +90,8 @@ describe("Sessions empty states", () => {
     mocks.error = null;
     mocks.total = 0;
     mocks.pending = false;
+    mocks.placeholder = false;
+    mocks.coverage = undefined;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -353,6 +368,59 @@ describe("Sessions empty states", () => {
       Array.from(container.querySelectorAll("button")).some(
         (button) => button.textContent === "sessions.frictionFiltersActive",
       ),
+    ).toBe(true);
+  });
+
+  it("says when friction coverage began in an empty friction match", async () => {
+    mocks.labEnabled = true;
+    mocks.coverage = null;
+    const view = () => (
+      <MemoryRouter initialEntries={["/sessions?signal=dead_clicks"]}>
+        <SessionsTriagePage />
+      </MemoryRouter>
+    );
+    await act(async () => {
+      root.render(view());
+    });
+    expect(container.textContent).toContain("sessions.noSessions");
+    expect(container.textContent).toContain("sessions.frictionCoverageNone");
+
+    mocks.coverage = "2026-09-20T00:00:00.000Z";
+    await act(async () => {
+      root.render(view());
+    });
+    expect(container.textContent).toContain("sessions.frictionCoverageSince");
+    expect(container.textContent).not.toContain(
+      "sessions.frictionCoverageNone",
+    );
+  });
+
+  it("dims rows kept from the previous filters until the new ones load", async () => {
+    mocks.labEnabled = true;
+    mocks.placeholder = true;
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions?signal=dead_clicks"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+    const busy = container.querySelector('[aria-busy="true"]');
+    expect(busy?.className).toContain("opacity-60");
+    expect(busy?.textContent).toContain("sessions.noSessions");
+  });
+
+  it("flags a range that starts before friction coverage", () => {
+    const coverage = "2026-09-20T00:00:00.000Z";
+    expect(rangePredatesFrictionCoverage(undefined, coverage)).toBe(true);
+    expect(
+      rangePredatesFrictionCoverage("2026-09-01T00:00:00.000Z", coverage),
+    ).toBe(true);
+    expect(
+      rangePredatesFrictionCoverage("2026-09-21T00:00:00.000Z", coverage),
+    ).toBe(false);
+    expect(
+      rangePredatesFrictionCoverage("2026-09-21T00:00:00.000Z", null),
     ).toBe(true);
   });
 

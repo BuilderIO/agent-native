@@ -1274,6 +1274,10 @@ export default {
     frictionFiltersActive: "الاحتكاك ({{count}})",
     sortFriction: "الأكثر احتكاكًا",
     frictionNotMeasured: "لم يُقَس الاحتكاك",
+    signalNotMeasured: "{{label}}: لم يُقَس",
+    issueLinksUnavailable: "روابط المشكلات غير متاحة",
+    frictionCoverageSince: "يشمل قياس الاحتكاك الجلسات منذ {{date}}.",
+    frictionCoverageNone: "لا توجد جلسات بها احتكاك مُقاس بعد.",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:
       "يصفّي هذا الرابط أو يرتّب حسب الاحتكاك. فعّل Lab فرز الجلسات من الإعدادات لتطبيقه.",

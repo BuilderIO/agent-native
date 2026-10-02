@@ -74,7 +74,7 @@ export function sessionEventTenantKey(
   return orgId ? `org:${orgId}` : `user:${ownerEmail}`;
 }
 
-function viewerTenantKeys(scope: SessionEventScope): string[] {
+export function viewerTenantKeys(scope: SessionEventScope): string[] {
   return scope.orgId
     ? [
         sessionEventTenantKey(scope.userEmail, scope.orgId),
@@ -247,7 +247,9 @@ export function aggregateSessionEventIndexRows(
   };
 }
 
-function sessionEventGapRows(
+/** One gap marker per session in the batch; friction gaps share the shape. */
+export function sessionGapRows(
+  idPrefix: "aseg" | "asfg",
   rows: readonly SessionEventIndexInputRow[],
   receivedAt: string,
 ): SessionGapRow[] {
@@ -257,7 +259,7 @@ function sessionEventGapRows(
     if (!sessionId || !row.ownerEmail) continue;
     const orgId = row.orgId || null;
     const tenantKey = sessionEventTenantKey(row.ownerEmail, orgId);
-    const id = stableId("aseg", [tenantKey, sessionId]);
+    const id = stableId(idPrefix, [tenantKey, sessionId]);
     if (gaps.has(id)) continue;
     gaps.set(id, {
       id,
@@ -369,7 +371,7 @@ export async function recordSessionEventIndex(
     // recorded or "didn't" would read their missing events as absence.
     await tx
       .insert(schema.analyticsSessionEventGaps)
-      .values(sessionEventGapRows(rows, receivedAt))
+      .values(sessionGapRows("aseg", rows, receivedAt))
       .onConflictDoNothing();
     warnIndexFailure(
       "Session event index write failed; its sessions are marked incomplete:",

@@ -1578,6 +1578,7 @@ ALTER TABLE analysis_revisions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
       cancelled_runs INTEGER NOT NULL DEFAULT 0,
       agent_failures INTEGER NOT NULL DEFAULT 0,
       quick_backs INTEGER NOT NULL DEFAULT 0,
+      agent_signals_measured BOOLEAN NOT NULL DEFAULT false,
       score INTEGER NOT NULL DEFAULT 0,
       nav_state TEXT,
       first_at TEXT NOT NULL,
@@ -1605,10 +1606,20 @@ ALTER TABLE analysis_revisions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
       ON analytics_session_trouble (tenant_key, session_id);
     CREATE INDEX IF NOT EXISTS analytics_session_trouble_last_at_idx
       ON analytics_session_trouble (last_at);
-    CREATE INDEX IF NOT EXISTS error_events_session_recording_idx
-      ON error_events (session_recording_id);
+    CREATE TABLE IF NOT EXISTS analytics_session_friction_gaps (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      session_id TEXT NOT NULL,
+      recorded_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_session_friction_gaps_key_idx
+      ON analytics_session_friction_gaps (tenant_key, session_id);
     CREATE INDEX IF NOT EXISTS error_events_client_recording_idx
       ON error_events (client_recording_id);
+    CREATE INDEX IF NOT EXISTS error_issues_last_session_recording_idx
+      ON error_issues (last_session_recording_id);
     CREATE TABLE IF NOT EXISTS analytics_session_friction_coverage (
       tenant_key TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL,

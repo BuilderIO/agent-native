@@ -1319,6 +1319,11 @@ export default {
     frictionFiltersActive: "Friction ({{count}})",
     sortFriction: "Plus de friction",
     frictionNotMeasured: "Friction non mesurée",
+    signalNotMeasured: "{{label}} : non mesuré",
+    issueLinksUnavailable: "Liens vers les problèmes indisponibles",
+    frictionCoverageSince:
+      "La friction couvre les sessions depuis le {{date}}.",
+    frictionCoverageNone: "Aucune session n'a encore de friction mesurée.",
     frictionSignalCount: "{{label}} : {{count}}",
     frictionFiltersNeedLab:
       "Ce lien filtre ou trie par friction. Activez le Lab Tri des sessions dans les paramètres pour l'appliquer.",

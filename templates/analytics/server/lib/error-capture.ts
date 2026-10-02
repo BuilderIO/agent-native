@@ -1459,12 +1459,14 @@ export interface RecordingErrorIssueInput {
   clientRecordingId: string;
   ownerEmail: string;
   orgId: string | null;
+  errorCount: number;
 }
 
 export interface RecordingErrorIssue {
   id: string;
   title: string;
-  count: number;
+  /** Null when the recording's occurrences of the issue are no longer kept. */
+  count: number | null;
 }
 
 const MAX_RECORDING_ISSUE_ROWS = 500;
@@ -1472,8 +1474,11 @@ const MAX_RECORDING_ISSUE_ROWS = 500;
 /**
  * The Monitoring issues each recording's captured errors belong to, most
  * frequent first. An occurrence matches by recording id or client recording
- * id, within the recording's own owner scope. A recording missing from a
- * truncated read maps to null, never to "no issues".
+ * id, within the recording's own owner scope. `error_events` keeps only each
+ * issue's newest occurrences, so a recording with none left falls back to the
+ * issues whose last recording it is, with no count. A recording still without
+ * an issue maps to null when it has errors or the read was truncated, never
+ * to "no issues".
  */
 export async function listRecordingErrorIssues(
   scope: ErrorReadScope,
@@ -1538,12 +1543,58 @@ export async function listRecordingErrorIssues(
     .orderBy(desc(sql`count(*)`), i.id)
     .limit(MAX_RECORDING_ISSUE_ROWS);
   const truncated = rows.length >= MAX_RECORDING_ISSUE_ROWS;
+  const sameScope = (
+    row: { ownerEmail: string; orgId: string | null },
+    recording: RecordingErrorIssueInput,
+  ) =>
+    row.ownerEmail === recording.ownerEmail &&
+    (row.orgId ?? null) === (recording.orgId ?? null);
+  const unlinked = truncated
+    ? []
+    : recordings.filter(
+        (recording) =>
+          !rows.some(
+            (row) =>
+              sameScope(row, recording) &&
+              (row.sessionRecordingId === recording.id ||
+                row.clientRecordingId === recording.clientRecordingId),
+          ),
+      );
+  const lastRecordingRows: Array<{
+    id: string;
+    title: string;
+    lastSessionRecordingId: string;
+    ownerEmail: string;
+    orgId: string | null;
+  }> = unlinked.length
+    ? await db
+        .select({
+          id: i.id,
+          title: i.title,
+          lastSessionRecordingId: i.lastSessionRecordingId,
+          ownerEmail: i.ownerEmail,
+          orgId: i.orgId,
+        })
+        .from(i)
+        .where(
+          and(
+            issuesAccessFilter(scope),
+            inArray(
+              i.lastSessionRecordingId,
+              unlinked.map((recording) => recording.id),
+            ),
+          ),
+        )
+        .orderBy(desc(i.lastSeenAt), i.id)
+        .limit(MAX_RECORDING_ISSUE_ROWS)
+    : [];
+  const lastRecordingTruncated =
+    lastRecordingRows.length >= MAX_RECORDING_ISSUE_ROWS;
   for (const recording of recordings) {
-    const issues = new Map<string, RecordingErrorIssue>();
+    const issues = new Map<string, RecordingErrorIssue & { count: number }>();
     for (const row of rows) {
       if (
-        row.ownerEmail !== recording.ownerEmail ||
-        (row.orgId ?? null) !== (recording.orgId ?? null) ||
+        !sameScope(row, recording) ||
         (row.sessionRecordingId !== recording.id &&
           row.clientRecordingId !== recording.clientRecordingId)
       ) {
@@ -1558,13 +1609,32 @@ export async function listRecordingErrorIssues(
           count: Number(row.count),
         });
     }
+    if (issues.size) {
+      result.set(
+        recording.id,
+        [...issues.values()]
+          .sort((a, b) => b.count - a.count || a.id.localeCompare(b.id))
+          .slice(0, perRecording),
+      );
+      continue;
+    }
+    const lastRecordingIssues = lastRecordingRows
+      .filter(
+        (row) =>
+          row.lastSessionRecordingId === recording.id &&
+          sameScope(row, recording),
+      )
+      .slice(0, perRecording)
+      .map((row) => ({ id: row.id, title: row.title, count: null }));
+    if (lastRecordingIssues.length) {
+      result.set(recording.id, lastRecordingIssues);
+      continue;
+    }
     result.set(
       recording.id,
-      issues.size === 0 && truncated
+      truncated || lastRecordingTruncated || recording.errorCount > 0
         ? null
-        : [...issues.values()]
-            .sort((a, b) => b.count - a.count || a.id.localeCompare(b.id))
-            .slice(0, perRecording),
+        : [],
     );
   }
   return result;

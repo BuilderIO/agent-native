@@ -73,6 +73,9 @@ export const errorIssues = table(
       issue.status,
       issue.lastSeenAt,
     ),
+    lastSessionRecordingIdx: index(
+      "error_issues_last_session_recording_idx",
+    ).on(issue.lastSessionRecordingId),
   }),
 );
 
@@ -121,9 +124,6 @@ export const errorEvents = table(
       event.ownerEmail,
       event.orgId,
       event.occurredAt,
-    ),
-    sessionRecordingIdx: index("error_events_session_recording_idx").on(
-      event.sessionRecordingId,
     ),
     clientRecordingIdx: index("error_events_client_recording_idx").on(
       event.clientRecordingId,

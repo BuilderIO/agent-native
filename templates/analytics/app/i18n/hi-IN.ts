@@ -1263,6 +1263,10 @@ export default {
     frictionFiltersActive: "रुकावट ({{count}})",
     sortFriction: "सर्वाधिक रुकावट",
     frictionNotMeasured: "रुकावट मापी नहीं गई",
+    signalNotMeasured: "{{label}} मापा नहीं गया",
+    issueLinksUnavailable: "समस्या लिंक उपलब्ध नहीं हैं",
+    frictionCoverageSince: "रुकावट {{date}} से रिकॉर्ड हुए सत्रों के लिए मापी जाती है।",
+    frictionCoverageNone: "अभी तक किसी सत्र में रुकावट मापी नहीं गई है।",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:
       "यह लिंक रुकावट के आधार पर फ़िल्टर या क्रमबद्ध करता है। इसे लागू करने के लिए सेटिंग्स में सत्र जाँच Lab चालू करें।",

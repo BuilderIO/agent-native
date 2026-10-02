@@ -419,6 +419,11 @@ export const analyticsSessionFriction = table(
     cancelledRuns: integer("cancelled_runs").notNull().default(0),
     agentFailures: integer("agent_failures").notNull().default(0),
     quickBacks: integer("quick_backs").notNull().default(0),
+    // Set once a pageview from a client that reports every stop and rating
+    // arrives; until then cancelled runs and thumbs-down read as unmeasured.
+    agentSignalsMeasured: boolean("agent_signals_measured")
+      .notNull()
+      .default(false),
     score: integer("score").notNull().default(0),
     navState: text("nav_state"),
     firstAt: text("first_at").notNull(),
@@ -430,6 +435,26 @@ export const analyticsSessionFriction = table(
       t.sessionId,
     ),
     lastAtIdx: index("analytics_session_friction_last_at_idx").on(t.lastAt),
+  }),
+);
+
+// Sessions whose event friction write failed while the session event index
+// write committed. Their event friction reads as unmeasured, never as zero.
+export const analyticsSessionFrictionGaps = table(
+  "analytics_session_friction_gaps",
+  {
+    id: text("id").primaryKey(),
+    tenantKey: text("tenant_key").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    sessionId: text("session_id").notNull(),
+    recordedAt: text("recorded_at").notNull(),
+  },
+  (t) => ({
+    sessionGapUnique: uniqueIndex("analytics_session_friction_gaps_key_idx").on(
+      t.tenantKey,
+      t.sessionId,
+    ),
   }),
 );
 

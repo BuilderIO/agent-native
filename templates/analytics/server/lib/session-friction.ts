@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 
 import {
+  AGENT_SIGNALS_PAGEVIEW_PROPERTY,
+  AGENT_SIGNALS_VERSION,
   agentTroubleCauseForCode,
   isAgentTroubleCause,
   normalizeAgentTroubleMessage,
@@ -22,6 +24,7 @@ import {
   EVENT_FRICTION_SIGNALS,
   type EventFrictionSignal,
   type FrictionCounts,
+  isAgentReportedFrictionSignal,
   REPLAY_FRICTION_SCORE_INPUTS,
   REPLAY_FRICTION_SIGNALS,
   type ReplayFrictionSignal,
@@ -42,8 +45,11 @@ import {
 import {
   boundedText,
   type SessionEventIndexInputRow,
+  type SessionEventScope,
   sessionEventTenantKey,
+  sessionGapRows,
   sessionIdOf,
+  viewerTenantKeys,
 } from "./session-event-index.js";
 import {
   detectReplayFriction,
@@ -59,10 +65,14 @@ import {
  * row has processed every chunk the recording stores; any batch it misses
  * leaves the counts short of the recording, so reads report it unmeasured.
  *
- * Event friction is per analytics session and is written inside the session
- * event index savepoint, so the index's gap marker covers a failed write too.
- * A session is measured only if it began after its tenant's friction coverage
- * began, has no earlier sibling recording, and has no gap marker.
+ * Event friction is per analytics session and is written in a savepoint of
+ * its own inside the session event index savepoint. A failed friction write
+ * rolls back only friction and leaves a friction gap marker; a failed index
+ * write leaves the index's gap marker, which covers friction too. A session is
+ * measured only if it began after its tenant's friction coverage began, has
+ * no earlier sibling recording, and has neither gap marker. Its thumbs-down
+ * and cancelled runs are measured only once a pageview carried the
+ * `agent_signals` marker: older clients sampled stops and sent no ratings.
  */
 
 const PAGEVIEW_EVENT = "pageview";
@@ -82,6 +92,8 @@ const WARN_INTERVAL_MS = 60_000;
 
 const lastWarnAt = new Map<string, number>();
 let frictionTablesReady = false;
+/** Tenants whose coverage row is known committed, so ingest skips the insert. */
+const coveredTenants = new Set<string>();
 
 function warnFrictionFailure(message: string, error: unknown): void {
   const now = Date.now();
@@ -185,6 +197,11 @@ export async function recordReplayFriction(
   input: ReplayFrictionInput,
 ): Promise<void> {
   if (!input.newChunks.length) return;
+  // Chunks can arrive out of order. A batch that does not continue exactly at
+  // the processed count would be measured out of order, so it is left out and
+  // the row falls behind the recording.
+  const seqs = input.newChunks.map((chunk) => chunk.seq).sort((a, b) => a - b);
+  if (seqs.some((seq, index) => seq !== input.priorChunkCount + index)) return;
   try {
     const db = getDb() as any;
     if (!(await sessionFrictionReady(db))) return;
@@ -285,15 +302,28 @@ function replayCountsBySignal(
   ) as Record<ReplayFrictionSignal, number>;
 }
 
+/** Counts by signal; agent-reported signals are null until measured. */
 function eventCountsBySignal(
-  row: Record<(typeof EVENT_COLUMNS)[EventFrictionSignal], number | null>,
-): Record<EventFrictionSignal, number> {
+  row: Record<(typeof EVENT_COLUMNS)[EventFrictionSignal], number | null> & {
+    agentSignalsMeasured?: boolean | null;
+  },
+): Record<EventFrictionSignal, number | null> {
   return Object.fromEntries(
     EVENT_FRICTION_SIGNALS.map((signal) => [
       signal,
-      Number(row[EVENT_COLUMNS[signal]] ?? 0),
+      isAgentReportedFrictionSignal(signal) && row.agentSignalsMeasured !== true
+        ? null
+        : Number(row[EVENT_COLUMNS[signal]] ?? 0),
     ]),
-  ) as Record<EventFrictionSignal, number>;
+  ) as Record<EventFrictionSignal, number | null>;
+}
+
+function measuredCounts(
+  counts: Partial<Record<string, number | null>>,
+): FrictionCounts {
+  return Object.fromEntries(
+    Object.entries(counts).filter(([, count]) => typeof count === "number"),
+  ) as FrictionCounts;
 }
 
 interface NavState {
@@ -363,6 +393,7 @@ export function aggregateSessionFrictionEvents(
         cancelledRuns: 0,
         agentFailures: 0,
         quickBacks: 0,
+        agentSignalsMeasured: false,
         navState: null,
         firstAt: row.timestamp,
         lastAt: row.timestamp,
@@ -452,7 +483,13 @@ export function aggregateSessionFrictionEvents(
 
     if (row.eventName === RUN_OUTCOME_EVENT) {
       if (properties.outcome === "stopped") {
-        session.cancelledRuns = (session.cancelledRuns ?? 0) + 1;
+        // Older clients sampled stops; a sampled one is not a count.
+        if (
+          properties.sample_rate === undefined ||
+          properties.sample_rate === 1
+        ) {
+          session.cancelledRuns = (session.cancelledRuns ?? 0) + 1;
+        }
         continue;
       }
       if (
@@ -485,6 +522,13 @@ export function aggregateSessionFrictionEvents(
       continue;
     }
 
+    const agentSignals = properties[AGENT_SIGNALS_PAGEVIEW_PROPERTY];
+    if (
+      typeof agentSignals === "number" &&
+      agentSignals >= AGENT_SIGNALS_VERSION
+    ) {
+      session.agentSignalsMeasured = true;
+    }
     const path = boundedText(stringProperty(properties.path), MAX_PATH_LENGTH);
     const at = Date.parse(row.timestamp);
     if (!path || !Number.isFinite(at)) continue;
@@ -507,7 +551,7 @@ export function aggregateSessionFrictionEvents(
       .map(({ nav: _nav, ...session }) => ({
         ...session,
         score: sessionFrictionScore(
-          eventCountsBySignal(session as any),
+          measuredCounts(eventCountsBySignal(session as any)),
           EVENT_FRICTION_SCORE_INPUTS,
         ),
       }))
@@ -516,28 +560,62 @@ export function aggregateSessionFrictionEvents(
   };
 }
 
-/** The event score of a row after the upsert adds this batch's counts. */
+/**
+ * The event score of a row after the upsert adds this batch's counts. An
+ * agent-reported signal scores only once the session is measured for it.
+ */
 function mergedEventScoreSql(): SQL {
   const f = schema.analyticsSessionFriction;
   return sql.join(
     EVENT_FRICTION_SIGNALS.map((signal) => {
       const column = f[EVENT_COLUMNS[signal]];
-      return sql`${sql.raw(String(SESSION_FRICTION_WEIGHTS[signal]))} * least(${column} + ${sql.raw(`excluded.${column.name}`)}, ${sql.raw(String(SESSION_FRICTION_SIGNAL_CAP))})`;
+      const part = sql`${sql.raw(String(SESSION_FRICTION_WEIGHTS[signal]))} * least(${column} + ${sql.raw(`excluded.${column.name}`)}, ${sql.raw(String(SESSION_FRICTION_SIGNAL_CAP))})`;
+      return isAgentReportedFrictionSignal(signal)
+        ? sql`(case when ${f.agentSignalsMeasured} or excluded.agent_signals_measured then ${part} else 0 end)`
+        : part;
     }),
     sql` + `,
   );
 }
 
 /**
- * Runs inside the session event index savepoint. Throwing rolls back the
- * index write too, and the index then marks the batch's sessions incomplete.
+ * Runs inside the session event index savepoint, in a savepoint of its own,
+ * so a friction failure never costs the index its write. A failed friction
+ * write leaves a friction gap marker for the batch's sessions instead; only a
+ * failed marker throws, and the index then rolls back and marks its own gap.
  */
 export async function recordSessionEventFriction(
+  tx: any,
+  rows: readonly SessionEventIndexInputRow[],
+  receivedAt: string,
+): Promise<void> {
+  if (!(await sessionFrictionReady(tx))) return;
+  try {
+    await tx.transaction((savepoint: any) =>
+      writeSessionEventFriction(savepoint, rows, receivedAt),
+    );
+  } catch (error) {
+    // A later batch can still write these sessions' friction, so without the
+    // marker their counts would read as complete.
+    const gaps = sessionGapRows("asfg", rows, receivedAt);
+    if (gaps.length) {
+      await tx
+        .insert(schema.analyticsSessionFrictionGaps)
+        .values(gaps)
+        .onConflictDoNothing();
+    }
+    warnFrictionFailure(
+      "Session friction write failed; its sessions read as unmeasured:",
+      error,
+    );
+  }
+}
+
+async function writeSessionEventFriction(
   savepoint: any,
   rows: readonly SessionEventIndexInputRow[],
   receivedAt: string,
 ): Promise<void> {
-  if (!(await sessionFrictionReady(savepoint))) return;
   const f = schema.analyticsSessionFriction;
   const navIds = new Set<string>();
   for (const row of rows) {
@@ -581,6 +659,7 @@ export async function recordSessionEventFriction(
         cancelledRuns: merged(f.cancelledRuns),
         agentFailures: merged(f.agentFailures),
         quickBacks: merged(f.quickBacks),
+        agentSignalsMeasured: sql`${f.agentSignalsMeasured} or excluded.agent_signals_measured`,
         score: mergedEventScoreSql(),
         navState: sql`coalesce(excluded.nav_state, ${f.navState})`,
         firstAt: sql`least(${f.firstAt}, excluded.first_at)`,
@@ -609,12 +688,14 @@ export async function recordSessionEventFriction(
     { ownerEmail: string; orgId: string | null }
   >();
   for (const session of sessions) {
+    if (coveredTenants.has(session.tenantKey)) continue;
     tenants.set(session.tenantKey, {
       ownerEmail: session.ownerEmail,
       orgId: session.orgId ?? null,
     });
   }
-  await savepoint
+  if (!tenants.size) return;
+  const inserted: Array<{ tenantKey: string }> = await savepoint
     .insert(schema.analyticsSessionFrictionCoverage)
     .values(
       [...tenants.entries()].map(([tenantKey, tenant]) => ({
@@ -624,7 +705,16 @@ export async function recordSessionEventFriction(
         startedAt: receivedAt,
       })),
     )
-    .onConflictDoNothing();
+    .onConflictDoNothing()
+    .returning({
+      tenantKey: schema.analyticsSessionFrictionCoverage.tenantKey,
+    });
+  // A conflict means another transaction committed the row. A row inserted
+  // here can still roll back with the ingest, so only the next batch caches it.
+  const insertedNow = new Set(inserted.map((row) => row.tenantKey));
+  for (const tenantKey of tenants.keys()) {
+    if (!insertedNow.has(tenantKey)) coveredTenants.add(tenantKey);
+  }
 }
 
 const recordingTenantSql = (recording: {
@@ -639,9 +729,10 @@ function eventFrictionCoveredSql(): SQL {
   const sibling = alias(schema.sessionRecordings, "session_friction_sibling");
   const coverage = schema.analyticsSessionFrictionCoverage;
   const gaps = schema.analyticsSessionEventGaps;
+  const frictionGaps = schema.analyticsSessionFrictionGaps;
   const tenant = recordingTenantSql(r);
   const coverageStart = sql`(select ${coverage.startedAt} from ${coverage} where ${coverage.tenantKey} = ${tenant})`;
-  return sql`(${r.startedAt} >= ${coverageStart} and not exists (select 1 from ${r} as ${sibling} where ${sibling.sessionId} = ${r.sessionId} and ${recordingTenantSql(sibling)} = ${tenant} and ${sibling.startedAt} < ${coverageStart}) and not exists (select 1 from ${gaps} where ${gaps.tenantKey} = ${tenant} and ${gaps.sessionId} = ${r.sessionId}))`;
+  return sql`(${r.startedAt} >= ${coverageStart} and not exists (select 1 from ${r} as ${sibling} where ${sibling.sessionId} = ${r.sessionId} and ${recordingTenantSql(sibling)} = ${tenant} and ${sibling.startedAt} < ${coverageStart}) and not exists (select 1 from ${gaps} where ${gaps.tenantKey} = ${tenant} and ${gaps.sessionId} = ${r.sessionId}) and not exists (select 1 from ${frictionGaps} where ${frictionGaps.tenantKey} = ${tenant} and ${frictionGaps.sessionId} = ${r.sessionId}))`;
 }
 
 function replayValueSql(column: AnyColumn): SQL {
@@ -650,10 +741,10 @@ function replayValueSql(column: AnyColumn): SQL {
   return sql`(select ${column} from ${rf} where ${rf.recordingId} = ${r.id} and ${rf.processedChunks} = ${r.chunkCount})`;
 }
 
-function eventValueSql(column: AnyColumn): SQL {
+function eventValueSql(column: AnyColumn, agentReported = false): SQL {
   const r = schema.sessionRecordings;
   const f = schema.analyticsSessionFriction;
-  return sql`(case when ${eventFrictionCoveredSql()} then (select ${column} from ${f} where ${f.tenantKey} = ${recordingTenantSql(r)} and ${f.sessionId} = ${r.sessionId}) end)`;
+  return sql`(case when ${eventFrictionCoveredSql()} then (select ${column} from ${f} where ${f.tenantKey} = ${recordingTenantSql(r)} and ${f.sessionId} = ${r.sessionId}${agentReported ? sql` and ${f.agentSignalsMeasured}` : sql``}) end)`;
 }
 
 /** A signal's count for the outer recording, or null when unmeasured. */
@@ -663,7 +754,10 @@ function signalValueSql(signal: SessionFrictionSignal): SQL {
     return replayValueSql(schema.sessionRecordingFriction[key]);
   }
   const key = EVENT_COLUMNS[signal as EventFrictionSignal];
-  return eventValueSql(schema.analyticsSessionFriction[key]);
+  return eventValueSql(
+    schema.analyticsSessionFriction[key],
+    isAgentReportedFrictionSignal(signal),
+  );
 }
 
 /** Replay plus event score; null only when neither part was measured. */
@@ -684,6 +778,30 @@ export async function sessionFrictionFilterConditions(
   return [...new Set(signals)].map(
     (signal) => sql`${signalValueSql(signal)} > 0`,
   );
+}
+
+/**
+ * The latest friction coverage start among the viewer's tenants, or null when
+ * nothing is measured yet (before the migration, or before any ingest after
+ * it). Sessions that started earlier never match a friction filter.
+ */
+export async function getSessionFrictionCoverageStart(
+  scope: SessionEventScope,
+): Promise<string | null> {
+  const db = getDb() as any;
+  if (!(await sessionFrictionReady(db))) return null;
+  const coverage = schema.analyticsSessionFrictionCoverage;
+  const tenantKeys = viewerTenantKeys(scope);
+  const rows: Array<{ startedAt: string }> = await db
+    .select({ startedAt: coverage.startedAt })
+    .from(coverage)
+    .where(inArray(coverage.tenantKey, tenantKeys))
+    .limit(tenantKeys.length);
+  let latest: string | null = null;
+  for (const row of rows) {
+    if (latest === null || row.startedAt > latest) latest = row.startedAt;
+  }
+  return latest;
 }
 
 /** Most friction first; unmeasured sessions last. Null before migration. */
@@ -759,6 +877,7 @@ export async function getSessionFrictionDetails(
         cancelledRuns: f.cancelledRuns,
         agentFailures: f.agentFailures,
         quickBacks: f.quickBacks,
+        agentSignalsMeasured: f.agentSignalsMeasured,
         score: f.score,
       })
       .from(r)
@@ -851,7 +970,7 @@ export async function getSessionFrictionDetails(
             rage_clicks: recording.rageClickCount,
           }
         : {}),
-      ...(events ?? {}),
+      ...measuredCounts(events ?? {}),
     };
     // The stored scores, computed at ingest, are what the friction sort used.
     const score =
@@ -888,6 +1007,7 @@ export async function pruneSessionFriction(
   const rf = schema.sessionRecordingFriction;
   const f = schema.analyticsSessionFriction;
   const t = schema.analyticsSessionTrouble;
+  const gaps = schema.analyticsSessionFrictionGaps;
   // guard:allow-unscoped -- retention intentionally sweeps expired friction rows across tenants.
   await db.delete(rf).where(lt(rf.updatedAt, cutoff));
   // guard:allow-unscoped -- retention intentionally sweeps expired friction rows across tenants.
@@ -903,9 +1023,21 @@ export async function pruneSessionFriction(
         sql`not exists (select 1 from ${f} where ${f.tenantKey} = ${t.tenantKey} and ${f.sessionId} = ${t.sessionId})`,
       ),
     );
+  // A gap outlives its session's counts, so a later batch can never make the
+  // session read as complete.
+  // guard:allow-unscoped -- retention intentionally sweeps expired friction gap markers across tenants.
+  await db
+    .delete(gaps)
+    .where(
+      and(
+        lt(gaps.recordedAt, cutoff),
+        sql`not exists (select 1 from ${f} where ${f.tenantKey} = ${gaps.tenantKey} and ${f.sessionId} = ${gaps.sessionId})`,
+      ),
+    );
 }
 
 export function __resetSessionFrictionForTests(): void {
   lastWarnAt.clear();
+  coveredTenants.clear();
   frictionTablesReady = false;
 }

@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 
+import {
+  AGENT_SIGNALS_PAGEVIEW_PROPERTY,
+  AGENT_SIGNALS_VERSION,
+} from "@agent-native/core/shared/analytics-events";
 import { and, asc, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -37,7 +41,9 @@ import {
 import {
   __resetSessionFrictionForTests,
   aggregateSessionFrictionEvents,
+  getSessionFrictionCoverageStart,
   getSessionFrictionDetails,
+  pruneSessionFriction,
   QUICK_BACK_WINDOW_MS,
   recordReplayFriction,
   sessionFrictionFilterConditions,
@@ -87,7 +93,9 @@ async function createBaseTables(client: PGliteClient) {
       title text NOT NULL,
       owner_email text NOT NULL,
       org_id text,
-      visibility text NOT NULL DEFAULT 'private'
+      visibility text NOT NULL DEFAULT 'private',
+      last_seen_at text NOT NULL DEFAULT '',
+      last_session_recording_id text
     )
   `);
   await client.query(`
@@ -137,12 +145,33 @@ function event(
 const at = (seconds: number) =>
   new Date(Date.UTC(2026, 8, 20, 10, 0, seconds)).toISOString();
 
-function pageview(sessionId: string, seconds: number, path: string) {
+function pageview(
+  sessionId: string,
+  seconds: number,
+  path: string,
+  properties: Record<string, unknown> = {},
+) {
   return event({
     eventName: "pageview",
     sessionId,
     timestamp: at(seconds),
-    properties: JSON.stringify({ path }),
+    properties: JSON.stringify({ path, ...properties }),
+  });
+}
+
+/** A pageview from a client that reports every stop and rating. */
+function markedPageview(sessionId: string, seconds: number, path: string) {
+  return pageview(sessionId, seconds, path, {
+    [AGENT_SIGNALS_PAGEVIEW_PROPERTY]: AGENT_SIGNALS_VERSION,
+  });
+}
+
+function feedback(sessionId: string, seconds: number, sentiment: string) {
+  return event({
+    eventName: "agent_feedback_submitted",
+    sessionId,
+    timestamp: at(seconds),
+    properties: JSON.stringify({ sentiment }),
   });
 }
 
@@ -350,6 +379,52 @@ describe("aggregateSessionFrictionEvents", () => {
     expect(troubles).toEqual([]);
   });
 
+  it("counts only stops reported unsampled", () => {
+    const { sessions } = aggregateSessionFrictionEvents(
+      [
+        runOutcome("s1", 1, { outcome: "stopped", sample_rate: 1 }),
+        runOutcome("s1", 2, { outcome: "stopped" }),
+        // An older client sampled stops, so one event is not one stop.
+        runOutcome("s1", 3, { outcome: "stopped", sample_rate: 0.1 }),
+      ],
+      new Map(),
+    );
+    expect(sessions[0]).toMatchObject({ cancelledRuns: 2 });
+  });
+
+  it("measures agent-reported signals only after a marked pageview", () => {
+    const { sessions } = aggregateSessionFrictionEvents(
+      [
+        pageview("s-old", 1, "/a"),
+        pageview("s-bad", 1, "/a", { [AGENT_SIGNALS_PAGEVIEW_PROPERTY]: "1" }),
+        markedPageview("s-new", 1, "/a"),
+        ...["s-old", "s-bad", "s-new"].flatMap((sessionId) => [
+          runOutcome(sessionId, 2, { outcome: "stopped", sample_rate: 1 }),
+          feedback(sessionId, 3, "negative"),
+        ]),
+      ],
+      new Map(),
+    );
+    const bySession = new Map(sessions.map((row) => [row.sessionId, row]));
+    expect(bySession.get("s-old")).toMatchObject({
+      agentSignalsMeasured: false,
+      cancelledRuns: 1,
+      thumbsDown: 1,
+      score: 0,
+    });
+    expect(bySession.get("s-bad")).toMatchObject({
+      agentSignalsMeasured: false,
+      score: 0,
+    });
+    expect(bySession.get("s-new")).toMatchObject({
+      agentSignalsMeasured: true,
+      score: sessionFrictionScore(
+        { cancelled_runs: 1, thumbs_down: 1 },
+        EVENT_FRICTION_SCORE_INPUTS,
+      ),
+    });
+  });
+
   it("gives every session in the batch a row, even with nothing to count", () => {
     const { sessions } = aggregateSessionFrictionEvents(
       [event({ eventName: "clip_viewed", sessionId: "s1", timestamp: at(1) })],
@@ -525,7 +600,7 @@ describe("session friction on Postgres", () => {
     await addRecording("r-before", "s-before", at(0));
     await index(
       [
-        pageview("s-calm", 11, "/a"),
+        markedPageview("s-calm", 11, "/a"),
         event({
           eventName: "clip_viewed",
           sessionId: "s-before",
@@ -565,7 +640,14 @@ describe("session friction on Postgres", () => {
     }
   });
 
-  it("leaves a session unmeasured once a friction write for it failed", async () => {
+  async function sessionIds(table: string) {
+    const result = await client.query(
+      `SELECT DISTINCT session_id FROM ${table} ORDER BY session_id`,
+    );
+    return result.rows.map((row: any) => row.session_id);
+  }
+
+  it("leaves a session unmeasured once a friction write for it failed, and keeps its events indexed", async () => {
     await migrateFriction(client);
     await index([pageview("s-ok", 1, "/a")], at(0));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -577,17 +659,159 @@ describe("session friction on Postgres", () => {
     await client.query(
       "DROP TRIGGER fail_insert ON analytics_session_friction",
     );
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("Session friction write failed"),
+      expect.anything(),
+    );
     warn.mockRestore();
     await index([pageview("s-gap", 8, "/a")], at(7));
     await addRecording("r-ok", "s-ok", at(0));
     await addRecording("r-gap", "s-gap", at(4));
 
+    // Only friction rolled back: the batch's events stay indexed, and the
+    // index itself has no gap, so its own filters still see the session.
+    expect(await sessionIds("analytics_session_events")).toEqual([
+      "s-gap",
+      "s-ok",
+    ]);
+    expect(await sessionIds("analytics_session_event_gaps")).toEqual([]);
+    expect(await sessionIds("analytics_session_friction_gaps")).toEqual([
+      "s-gap",
+    ]);
     const details = await getSessionFrictionDetails(SCOPE, [
       recordingInput("r-ok", "s-ok"),
       recordingInput("r-gap", "s-gap"),
     ]);
     expect(details.get("r-ok")?.events).not.toBeNull();
     expect(details.get("r-gap")?.events).toBeNull();
+    expect(await sorted("failed_actions")).toEqual(["r-ok", "r-gap"]);
+  });
+
+  it("marks the index gap when even the friction gap marker cannot be written", async () => {
+    await migrateFriction(client);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await failInsertsInto("analytics_session_friction");
+    await client.query(
+      "CREATE TRIGGER fail_insert BEFORE INSERT ON analytics_session_friction_gaps FOR EACH ROW EXECUTE FUNCTION fail_insert()",
+    );
+    await index(
+      [actionResponse("s-gap", 6, { action: "save", success: false })],
+      at(5),
+    );
+    warn.mockRestore();
+    expect(await sessionIds("analytics_session_events")).toEqual([]);
+    expect(await sessionIds("analytics_session_event_gaps")).toEqual(["s-gap"]);
+    await addRecording("r-gap", "s-gap", at(4));
+    const details = await getSessionFrictionDetails(SCOPE, [
+      recordingInput("r-gap", "s-gap"),
+    ]);
+    expect(details.get("r-gap")?.events).toBeNull();
+  });
+
+  it("measures thumbs-down and cancelled runs only for sessions that carried the marker", async () => {
+    await migrateFriction(client);
+    await index(
+      [
+        pageview("s-old", 1, "/a"),
+        markedPageview("s-new", 1, "/a"),
+        ...["s-old", "s-new"].flatMap((sessionId) => [
+          runOutcome(sessionId, 2, { outcome: "stopped", sample_rate: 1 }),
+          feedback(sessionId, 3, "negative"),
+          actionResponse(sessionId, 4, { action: "save", success: false }),
+        ]),
+      ],
+      at(0),
+    );
+    await addRecording("r-old", "s-old", at(0));
+    await addRecording("r-new", "s-new", at(0));
+
+    const details = await getSessionFrictionDetails(SCOPE, [
+      recordingInput("r-old", "s-old"),
+      recordingInput("r-new", "s-new"),
+    ]);
+    expect(details.get("r-old")).toMatchObject({
+      score: sessionFrictionScore(
+        { failed_actions: 1 },
+        EVENT_FRICTION_SCORE_INPUTS,
+      ),
+      events: { failed_actions: 1, thumbs_down: null, cancelled_runs: null },
+      topSignals: [{ signal: "failed_actions", count: 1 }],
+    });
+    expect(details.get("r-new")).toMatchObject({
+      score: sessionFrictionScore(
+        { failed_actions: 1, thumbs_down: 1, cancelled_runs: 1 },
+        EVENT_FRICTION_SCORE_INPUTS,
+      ),
+      events: { failed_actions: 1, thumbs_down: 1, cancelled_runs: 1 },
+    });
+    expect(await matching(["thumbs_down"])).toEqual(["r-new"]);
+    expect(await matching(["cancelled_runs"])).toEqual(["r-new"]);
+    expect(await matching(["failed_actions"])).toEqual(["r-new", "r-old"]);
+    expect(await sorted("thumbs_down")).toEqual(["r-new", "r-old"]);
+    expect(await sorted("friction")).toEqual(["r-new", "r-old"]);
+
+    // A later marked pageview measures the session from then on.
+    await index([markedPageview("s-old", 9, "/b")], at(8));
+    const later = await getSessionFrictionDetails(SCOPE, [
+      recordingInput("r-old", "s-old"),
+    ]);
+    expect(later.get("r-old")).toMatchObject({
+      score: sessionFrictionScore(
+        { failed_actions: 1, thumbs_down: 1, cancelled_runs: 1 },
+        EVENT_FRICTION_SCORE_INPUTS,
+      ),
+      events: { thumbs_down: 1, cancelled_runs: 1 },
+    });
+  });
+
+  it("leaves a recording unmeasured when a batch skips or reorders its chunks", async () => {
+    await migrateFriction(client);
+    await addRecording("r-gap", "s1", at(0), 1);
+    await addRecording("r-late", "s2", at(0), 2);
+    const write = (
+      recordingId: string,
+      sessionId: string,
+      priorChunkCount: number,
+      seqs: number[],
+    ) =>
+      recordReplayFriction({
+        recordingId,
+        sessionId,
+        ownerEmail: OWNER,
+        orgId: ORG,
+        priorChunkCount,
+        newChunks: seqs.map((seq) => ({
+          seq,
+          inlineData: JSON.stringify({
+            events: deadClick(1_000 + seq * 60_000),
+          }),
+        })),
+        errorCount: 0,
+        rageClickCount: 0,
+        ingestedAt: at(0),
+      });
+    // Chunk 0 arrives after chunk 1, so this batch does not start the recording.
+    await write("r-gap", "s1", 0, [1]);
+    // Two chunks, but one of them is not the next one.
+    await write("r-late", "s2", 0, [0, 2]);
+    const rows = await client.query(
+      "SELECT recording_id FROM session_recording_friction",
+    );
+    expect(rows.rows).toEqual([]);
+    const details = await getSessionFrictionDetails(SCOPE, [
+      recordingInput("r-gap", "s1", 1),
+      recordingInput("r-late", "s2", 2),
+    ]);
+    expect(details.get("r-gap")?.replay).toBeNull();
+    expect(details.get("r-late")?.replay).toBeNull();
+
+    // In-order batches, even listed out of order, are measured.
+    await addRecording("r-ok", "s3", at(0), 2);
+    await write("r-ok", "s3", 0, [1, 0]);
+    const measured = await getSessionFrictionDetails(SCOPE, [
+      recordingInput("r-ok", "s3", 2),
+    ]);
+    expect(measured.get("r-ok")?.replay).toMatchObject({ dead_clicks: 2 });
   });
 
   it("measures replay batches in order and stops at a batch it missed", async () => {
@@ -665,16 +889,28 @@ describe("session friction on Postgres", () => {
           success: false,
         }),
       );
-    await index(failures(1), at(0));
     await index(
-      [...failures(10), runOutcome("s1", 20, { outcome: "stopped" })],
-      at(9),
+      [...failures(1), runOutcome("s1", 5, { outcome: "stopped" })],
+      at(0),
     );
+    const unmarked = await client.query(
+      "SELECT score FROM analytics_session_friction",
+    );
+    expect(unmarked.rows[0].score).toBe(
+      sessionFrictionScore({ failed_actions: 3 }, EVENT_FRICTION_SCORE_INPUTS),
+    );
+    // The marker in a later batch brings the earlier stop into the score.
+    await index([...failures(10), markedPageview("s1", 20, "/a")], at(9));
     const stored = await client.query(
-      "SELECT failed_actions, cancelled_runs, score FROM analytics_session_friction",
+      "SELECT failed_actions, cancelled_runs, agent_signals_measured, score FROM analytics_session_friction",
     );
     expect(stored.rows).toEqual([
-      { failed_actions: 6, cancelled_runs: 1, score: expect.any(Number) },
+      {
+        failed_actions: 6,
+        cancelled_runs: 1,
+        agent_signals_measured: true,
+        score: expect.any(Number),
+      },
     ]);
     expect(stored.rows[0].score).toBe(
       sessionFrictionScore(
@@ -741,6 +977,116 @@ describe("session friction on Postgres", () => {
       { id: "issue-a", title: "TypeError: x is undefined", count: 2 },
       { id: "issue-b", title: "Save failed", count: 1 },
     ]);
+  });
+
+  it("falls back to an issue's last recording, and never calls an erroring recording issue-free", async () => {
+    await migrateFriction(client);
+    for (const id of ["r-last", "r-errors", "r-clean"]) {
+      await addRecording(id, `s-${id}`, at(0));
+    }
+    // Occurrences were trimmed, so only the issue still names its recording.
+    await client.query(`
+      INSERT INTO error_issues (id, title, owner_email, org_id, last_seen_at, last_session_recording_id) VALUES
+        ('issue-c', 'Upload failed', '${OWNER}', '${ORG}', '${at(5)}', 'r-last'),
+        ('issue-other', 'Someone else''s issue', 'other@example.com', 'org_2', '${at(6)}', 'r-errors')
+    `);
+    const details = await getSessionFrictionDetails(SCOPE, [
+      { ...recordingInput("r-last", "s-r-last"), errorCount: 1 },
+      { ...recordingInput("r-errors", "s-r-errors"), errorCount: 2 },
+      recordingInput("r-clean", "s-r-clean"),
+    ]);
+    expect(details.get("r-last")?.errorIssues).toEqual([
+      { id: "issue-c", title: "Upload failed", count: null },
+    ]);
+    expect(details.get("r-errors")?.errorIssues).toBeNull();
+    expect(details.get("r-clean")?.errorIssues).toEqual([]);
+  });
+
+  it("reports when friction coverage began for the viewer, or null before any", async () => {
+    expect(await getSessionFrictionCoverageStart(SCOPE)).toBeNull();
+    await migrateFriction(client);
+    expect(await getSessionFrictionCoverageStart(SCOPE)).toBeNull();
+    await index([pageview("s1", 11, "/a")], at(10));
+    expect(await getSessionFrictionCoverageStart(SCOPE)).toBe(at(10));
+    // The viewer's personal tenant started later; only sessions after both
+    // starts are covered everywhere the viewer looks.
+    await index([{ ...pageview("s2", 31, "/a"), orgId: null }], at(30));
+    expect(await getSessionFrictionCoverageStart(SCOPE)).toBe(at(30));
+    expect(
+      await getSessionFrictionCoverageStart({
+        userEmail: "other@example.com",
+        orgId: "org_2",
+      }),
+    ).toBeNull();
+  });
+
+  it("skips the coverage insert only once the tenant's row is known committed", async () => {
+    await migrateFriction(client);
+    const coverageRows = async () =>
+      (
+        await client.query(
+          "SELECT tenant_key FROM analytics_session_friction_coverage",
+        )
+      ).rows;
+    await expect(
+      db.transaction(async (tx: any) => {
+        await recordSessionEventIndex(tx, [pageview("s1", 1, "/a")], at(0));
+        throw new Error("ingest rolled back");
+      }),
+    ).rejects.toThrow("ingest rolled back");
+    expect(await coverageRows()).toEqual([]);
+
+    await index([pageview("s1", 2, "/b")], at(1));
+    expect(await coverageRows()).toEqual([{ tenant_key: TENANT }]);
+    await index([pageview("s1", 3, "/c")], at(2));
+    // That batch saw the committed row, so later batches stop inserting it.
+    await client.query("DELETE FROM analytics_session_friction_coverage");
+    await index([pageview("s1", 4, "/d")], at(3));
+    expect(await coverageRows()).toEqual([]);
+  });
+
+  it("prunes expired friction but keeps a gap while its session has counts", async () => {
+    await migrateFriction(client);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await failInsertsInto("analytics_session_friction");
+    await index(
+      [actionResponse("s-gap", 1, { action: "save", success: false })],
+      at(0),
+    );
+    await client.query(
+      "DROP TRIGGER fail_insert ON analytics_session_friction",
+    );
+    warn.mockRestore();
+    await index(
+      [actionResponse("s-old", 1, { action: "save", success: false })],
+      at(0),
+    );
+    const recent = "2026-10-19T00:00:01.000Z";
+    await index(
+      [
+        event({
+          eventName: "action.response",
+          sessionId: "s-new",
+          timestamp: recent,
+          properties: JSON.stringify({ action: "save", success: false }),
+        }),
+      ],
+      recent,
+    );
+    await client.query(
+      `INSERT INTO analytics_session_friction_gaps (id, tenant_key, owner_email, org_id, session_id, recorded_at)
+       VALUES ('asfg_new', $1, $2, $3, 's-new', $4)`,
+      [TENANT, OWNER, ORG, at(0)],
+    );
+    await replayBatch("r1", "s1", 0, deadClick(1_000));
+
+    await pruneSessionFriction(7, new Date("2026-10-20T00:00:00.000Z"));
+    expect(await sessionIds("analytics_session_friction")).toEqual(["s-new"]);
+    expect(await sessionIds("analytics_session_trouble")).toEqual(["s-new"]);
+    expect(await sessionIds("analytics_session_friction_gaps")).toEqual([
+      "s-new",
+    ]);
+    expect(await sessionIds("session_recording_friction")).toEqual([]);
   });
 
   it("keys friction rows by tenant, never another tenant's session", async () => {

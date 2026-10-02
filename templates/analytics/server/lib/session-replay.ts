@@ -56,6 +56,7 @@ import {
   sessionEventFilterConditions,
 } from "./session-event-index.js";
 import {
+  getSessionFrictionCoverageStart,
   pruneSessionFriction,
   recordReplayFriction,
   sessionFrictionFilterConditions,
@@ -1846,6 +1847,12 @@ export interface SessionRecordingPage {
   recordings: SessionRecordingSummary[];
   total: number;
   appCounts: Array<{ app: string; count: number }>;
+  /**
+   * Present when a friction filter or sort applied: when friction coverage
+   * began for the viewer, or null when nothing is measured yet. Sessions
+   * that started earlier never match a friction filter.
+   */
+  frictionCoverageStartedAt?: string | null;
 }
 
 const personalEmailDomains = [...FREE_EMAIL_PROVIDER_DOMAINS];
@@ -1979,6 +1986,8 @@ export async function listSessionRecordingsPage(
   if (filters.app)
     conditions.push(eq(schema.sessionRecordings.app, filters.app));
   const sort = filters.sort ?? "newest";
+  const frictionApplied =
+    Boolean(filters.frictionSignals?.length) || isSessionFrictionSort(sort);
   // Before the friction migration nothing is measured, so friction sorts
   // fall back to newest rather than fail.
   const sortOrder = isSessionFrictionSort(sort)
@@ -1994,7 +2003,7 @@ export async function listSessionRecordingsPage(
             rage: schema.sessionRecordings.rageClickCount,
           }[sort],
         );
-  const [totalRows, appRows] = await Promise.all([
+  const [totalRows, appRows, frictionCoverageStartedAt] = await Promise.all([
     db
       .select({ count: sql<number>`count(*)` })
       .from(schema.sessionRecordings)
@@ -2008,6 +2017,7 @@ export async function listSessionRecordingsPage(
       .where(and(...appConditions))
       .groupBy(schema.sessionRecordings.app)
       .orderBy(desc(sql`count(*)`)),
+    frictionApplied ? getSessionFrictionCoverageStart(scope) : undefined,
   ]);
   if (totalRows.length !== 1) {
     throw new Error("Session recording total query returned no count");
@@ -2049,6 +2059,7 @@ export async function listSessionRecordingsPage(
         app: row.app,
         count: Number(row.count),
       })),
+    ...(frictionApplied ? { frictionCoverageStartedAt } : {}),
   };
 }
 
