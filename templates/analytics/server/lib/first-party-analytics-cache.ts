@@ -2,7 +2,10 @@ import { createHash } from "crypto";
 
 import { getDbExec } from "@agent-native/core/db";
 
-import type { AnalyticsQueryResult } from "./first-party-analytics.js";
+import type {
+  AnalyticsQueryResult,
+  AnalyticsScope,
+} from "./first-party-analytics.js";
 
 interface L1Entry {
   result: AnalyticsQueryResult;
@@ -22,14 +25,27 @@ function inFlightKey(key: string, timeoutMs?: number): string {
 
 export interface FirstPartyCacheOptions {
   timeoutMs?: number;
+  deadlineAt?: number;
 }
 
+/**
+ * The key names the actor and tenant explicitly, so a cached result is never
+ * served to another caller even when two scopes compile to the same SQL.
+ */
 export function firstPartyCacheKey(
   scopedSql: string,
   args: Array<string | null>,
+  scope: AnalyticsScope,
 ): string {
+  const caller = {
+    actor: scope.userEmail.trim().toLowerCase(),
+    orgId: scope.orgId ?? null,
+    credentialScope: scope.credentialScope ?? null,
+  };
   return createHash("sha256")
-    .update(`${scopedSql}\n${JSON.stringify(args)}`)
+    .update(
+      `sql-policy-v2\n${JSON.stringify(caller)}\n${scopedSql}\n${JSON.stringify(args)}`,
+    )
     .digest("hex");
 }
 
@@ -130,7 +146,7 @@ export async function withFirstPartyCache(
   if (l1Hit) return l1Hit;
 
   const timeoutMs = Math.max(1, options.timeoutMs ?? CACHE_IO_TIMEOUT_MS);
-  const deadlineAt = Date.now() + timeoutMs;
+  const deadlineAt = options.deadlineAt ?? Date.now() + timeoutMs;
 
   const requestKey = inFlightKey(key, options.timeoutMs);
   const existing = inFlight.get(requestKey);

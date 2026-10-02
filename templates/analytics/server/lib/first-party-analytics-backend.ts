@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
 
+import {
+  lexAgentSql,
+  readAgentSqlQuery,
+  rewriteAgentSqlQuerySources,
+  type AgentSqlDialect,
+} from "@agent-native/core/agent-sql";
 import { getDbExec } from "@agent-native/core/db";
 import { getOrgSetting } from "@agent-native/core/settings";
 
@@ -9,6 +15,7 @@ import {
   type BigQueryTableRef,
 } from "./bigquery.js";
 import { requireRequestCredentialContext } from "./credentials-context.js";
+import { validateAnalyticsSqlFunctions } from "./first-party-analytics-sql-policy.js";
 import { fetchGoogleWithRetry, getAccessToken } from "./gcloud.js";
 import {
   getScopedSettingRecord,
@@ -680,102 +687,76 @@ export async function insertFirstPartyAnalyticsRows(
 
 function sqlLiteral(value: string | null): string {
   if (value === null) return "NULL";
-  return `'${value.replace(/'/g, "''")}'`;
+  const escapes: Record<string, string> = {
+    "\\": "\\\\",
+    "'": "\\'",
+    "\n": "\\n",
+    "\r": "\\r",
+    "\t": "\\t",
+    "\b": "\\b",
+    "\f": "\\f",
+  };
+  return `'${value.replace(
+    /[\\'\x00-\x1f\x7f]/g,
+    (character) =>
+      escapes[character] ??
+      `\\x${character.charCodeAt(0).toString(16).padStart(2, "0")}`,
+  )}'`;
 }
 
-function readSqlDollarQuoteDelimiter(
-  sql: string,
-  start: number,
-): string | null {
-  if (sql[start] !== "$") return null;
-  const firstTagCharacter = sql[start + 1];
-  if (firstTagCharacter === "$") return "$$";
-  if (!firstTagCharacter || !/[A-Za-z_]/.test(firstTagCharacter)) return null;
-
-  let end = start + 2;
-  while (end < sql.length && /[A-Za-z0-9_]/.test(sql[end] ?? "")) end++;
-  return sql[end] === "$" ? sql.slice(start, end + 1) : null;
-}
-
-function readSqlQuotedEnd(
-  sql: string,
-  start: number,
-  quote: "'" | '"' | "`",
-  allowBackslashEscapes = false,
-): number {
-  let index = start + 1;
-  while (index < sql.length) {
-    const character = sql[index];
-    if (allowBackslashEscapes && character === "\\") {
-      index += 2;
-      continue;
+function normalizePostgresSql(sql: string): string {
+  let cursor = 0;
+  let result = "";
+  const tokens = lexAgentSql(sql, { dialect: "postgres" });
+  for (const [index, token] of tokens.entries()) {
+    if (token.kind === "string" && !token.text.startsWith("'")) {
+      const prefix = token.text.startsWith("$")
+        ? "dollar-quoted"
+        : token.text[0];
+      throw new FirstPartyAnalyticsUnsupportedSqlError(
+        `a PostgreSQL ${prefix} string literal`,
+        `First-party BigQuery query does not support PostgreSQL ${prefix} string literals`,
+      );
     }
-    if (character === quote) {
-      if (sql[index + 1] === quote) {
-        index += 2;
-        continue;
-      }
-      return index + 1;
+    const previous = tokens[index - 1];
+    if (
+      token.kind === "string" &&
+      previous?.kind === "word" &&
+      previous.end === token.start
+    ) {
+      throw new FirstPartyAnalyticsUnsupportedSqlError(
+        "a string literal without a preceding separator",
+        "First-party BigQuery query requires a separator before string literals",
+      );
     }
-    index++;
+    // PostgreSQL nests block comments; GoogleSQL does not. Remove the skipped
+    // spans before translating so inner comment terminators cannot expose SQL.
+    result +=
+      sql.slice(cursor, token.start).replace(/[^\t\n\r\f ]/g, " ") + token.text;
+    cursor = token.end;
   }
-  return sql.length;
+  return result + sql.slice(cursor).replace(/[^\t\n\r\f ]/g, " ");
 }
 
 function bindSqlArguments(sql: string, args: Array<string | null>): string {
   let nextPositionalIndex = 0;
-  let index = 0;
+  let cursor = 0;
   let result = "";
-
-  while (index < sql.length) {
-    const character = sql[index];
-    const nextCharacter = sql[index + 1];
-
-    if (character === "'" || character === '"' || character === "`") {
-      const isEscapeString =
-        character === "'" &&
-        /[eE]/.test(sql[index - 1] ?? "") &&
-        !/[A-Za-z0-9_]/.test(sql[index - 2] ?? "");
-      const end = readSqlQuotedEnd(sql, index, character, isEscapeString);
-      result += sql.slice(index, end);
-      index = end;
-      continue;
-    }
-
-    if (character === "-" && nextCharacter === "-") {
-      const lineEnd = sql.indexOf("\n", index + 2);
-      const end = lineEnd === -1 ? sql.length : lineEnd;
-      result += sql.slice(index, end);
-      index = end;
-      continue;
-    }
-
-    if (character === "/" && nextCharacter === "*") {
-      const commentEnd = sql.indexOf("*/", index + 2);
-      const end = commentEnd === -1 ? sql.length : commentEnd + 2;
-      result += sql.slice(index, end);
-      index = end;
-      continue;
-    }
-
-    const dollarQuoteDelimiter = readSqlDollarQuoteDelimiter(sql, index);
-    if (dollarQuoteDelimiter) {
-      const bodyEnd = sql.indexOf(
-        dollarQuoteDelimiter,
-        index + dollarQuoteDelimiter.length,
-      );
-      const end =
-        bodyEnd === -1 ? sql.length : bodyEnd + dollarQuoteDelimiter.length;
-      result += sql.slice(index, end);
-      index = end;
-      continue;
-    }
-
-    const explicitBind =
-      character === "$" ? /^\$(\d+)/.exec(sql.slice(index)) : null;
-    if (explicitBind || character === "?") {
-      const placeholder = explicitBind?.[0] ?? "?";
-      const explicitIndex = explicitBind?.[1];
+  for (const token of lexAgentSql(sql, { dialect: "postgres" })) {
+    result += sql.slice(cursor, token.start);
+    if (token.kind === "string") {
+      result += sqlLiteral(token.text.slice(1, -1).replace(/''/g, "'"));
+    } else if (token.kind === "quoted-identifier") {
+      if (/[`\\]/.test(token.value)) {
+        throw new FirstPartyAnalyticsUnsupportedSqlError(
+          "a PostgreSQL identifier containing a backtick or backslash",
+          "First-party BigQuery query cannot translate identifiers containing backticks or backslashes",
+        );
+      }
+      result += `\`${token.value}\``;
+    } else if (token.kind === "parameter") {
+      const placeholder = token.text;
+      const explicitIndex = /^\$(\d+)$/.exec(placeholder)?.[1];
       const bindIndex = explicitIndex
         ? Number(explicitIndex) - 1
         : nextPositionalIndex++;
@@ -791,38 +772,65 @@ function bindSqlArguments(sql: string, args: Array<string | null>): string {
         );
       }
       result += sqlLiteral(value);
-      index += placeholder.length;
-      continue;
+    } else {
+      result += token.text;
     }
-
-    result += character;
-    index++;
+    cursor = token.end;
   }
-
-  return result;
+  return result + sql.slice(cursor);
 }
 
-function maskSqlLiterals(sql: string): string {
-  const chars = Array.from(sql);
-  let inLiteral = false;
-  for (let index = 0; index < chars.length; index++) {
-    if (chars[index] !== "'") continue;
-    if (!inLiteral) {
-      inLiteral = true;
-      chars[index] = " ";
-      continue;
-    }
-    if (chars[index + 1] === "'") {
-      chars[index] = " ";
-      chars[index + 1] = " ";
-      index++;
-      continue;
-    }
-    chars[index] = " ";
-    inLiteral = false;
+function assertBigQuerySourceProvenance(
+  postgresSql: string,
+  bigQuerySql: string,
+): void {
+  const postgresQuery = readAgentSqlQuery(postgresSql, { dialect: "postgres" });
+  const bigQuery = readAgentSqlQuery(bigQuerySql, { dialect: "bigquery" });
+  const fold = (name: string) =>
+    name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+  const cteNames = new Map<string, string>();
+  let cteCollision = false;
+  for (const cte of postgresQuery.ctes) {
+    const key = fold(cte.name);
+    const previous = cteNames.get(key);
+    if (previous !== undefined && previous !== cte.name) cteCollision = true;
+    cteNames.set(key, cte.name);
   }
-  for (let index = 0; index < chars.length; index++) {
-    if (inLiteral) chars[index] = " ";
+  const changedSource = postgresQuery.sources.some((source, index) => {
+    const converted = bigQuery.sources[index];
+    return (
+      !converted ||
+      source.cte !== converted.cte ||
+      source.quoted !== converted.quoted ||
+      source.name !== (source.quoted ? converted.name : fold(converted.name)) ||
+      source.qualifiers.length !== converted.qualifiers.length ||
+      source.qualifiers.some(
+        (qualifier, part) => qualifier !== converted.qualifiers[part],
+      )
+    );
+  });
+  // BigQuery splits dotted quoted names and folds CTE bindings. Refuse any
+  // conversion that could resolve a different relation before physical mapping.
+  if (
+    cteCollision ||
+    changedSource ||
+    postgresQuery.sources.length !== bigQuery.sources.length
+  ) {
+    throw new FirstPartyAnalyticsUnsupportedSqlError(
+      "PostgreSQL source bindings that change in BigQuery",
+      "First-party BigQuery query cannot preserve the PostgreSQL source bindings",
+    );
+  }
+}
+
+function maskSqlLiterals(
+  sql: string,
+  dialect: AgentSqlDialect = "postgres",
+): string {
+  const chars = sql.split("");
+  for (const token of lexAgentSql(sql, { dialect })) {
+    if (token.kind !== "string" && token.kind !== "quoted-identifier") continue;
+    chars.fill(" ", token.start, token.end);
   }
   return chars.join("");
 }
@@ -842,80 +850,50 @@ function rewriteWithMaskedSqlLiterals(
   const literals: string[] = [];
   let masked = "";
   let cursor = 0;
-  while (cursor < sql.length) {
-    const literalStart = sql.indexOf("'", cursor);
-    if (literalStart === -1) {
-      masked += sql.slice(cursor);
-      break;
-    }
-    masked += sql.slice(cursor, literalStart);
-    let literalEnd = literalStart + 1;
-    while (literalEnd < sql.length) {
-      if (sql[literalEnd] !== "'") {
-        literalEnd++;
-        continue;
-      }
-      if (sql[literalEnd + 1] === "'") {
-        literalEnd += 2;
-        continue;
-      }
-      literalEnd++;
-      break;
-    }
+  for (const token of lexAgentSql(sql, { dialect: "postgres" })) {
+    if (token.kind !== "string" && token.kind !== "quoted-identifier") continue;
+    masked += sql.slice(cursor, token.start);
     masked += `${SQL_LITERAL_PLACEHOLDER_PREFIX}${literals.length}_`;
-    literals.push(sql.slice(literalStart, literalEnd));
-    cursor = literalEnd;
+    literals.push(token.text);
+    cursor = token.end;
   }
-  return rewrite(masked).replace(
+  return rewrite(masked + sql.slice(cursor)).replace(
     new RegExp(`${SQL_LITERAL_PLACEHOLDER_PREFIX}(\\d+)_`, "g"),
     (whole, index: string) => literals[Number(index)] ?? whole,
   );
 }
 
-function findMatchingSqlParen(sql: string, openIndex: number): number {
+function findMatchingSqlParen(
+  sql: string,
+  openIndex: number,
+  dialect: AgentSqlDialect = "postgres",
+): number {
   let depth = 0;
-  let inLiteral = false;
-  for (let index = openIndex; index < sql.length; index++) {
-    const char = sql[index];
-    if (char === "'") {
-      if (inLiteral && sql[index + 1] === "'") {
-        index++;
-        continue;
-      }
-      inLiteral = !inLiteral;
-      continue;
-    }
-    if (inLiteral) continue;
-    if (char === "(") depth++;
-    if (char === ")") {
+  for (const token of lexAgentSql(sql, { dialect })) {
+    if (token.start < openIndex || token.kind !== "punctuation") continue;
+    if (token.text === "(") depth++;
+    if (token.text === ")") {
       depth--;
-      if (depth === 0) return index;
+      if (depth === 0) return token.start;
     }
   }
   return -1;
 }
 
-function splitTopLevelSqlArgs(value: string): string[] {
+function splitTopLevelSqlArgs(
+  value: string,
+  dialect: AgentSqlDialect = "postgres",
+): string[] {
   const args: string[] = [];
   let start = 0;
   let depth = 0;
-  let inLiteral = false;
-  for (let index = 0; index < value.length; index++) {
-    const char = value[index];
-    if (char === "'") {
-      if (inLiteral && value[index + 1] === "'") {
-        index++;
-        continue;
-      }
-      inLiteral = !inLiteral;
-      continue;
-    }
-    if (inLiteral) continue;
-    if (char === "(") depth++;
-    if (char === ")") depth--;
-    if (char === "," && depth === 0) {
-      args.push(value.slice(start, index).trim());
-      start = index + 1;
+  for (const token of lexAgentSql(value, { dialect })) {
+    if (token.kind !== "punctuation") continue;
+    if (token.text === "(") depth++;
+    if (token.text === ")") depth--;
+    if (token.text === "," && depth === 0) {
+      args.push(value.slice(start, token.start).trim());
+      start = token.end;
     }
   }
   args.push(value.slice(start).trim());
@@ -960,19 +938,27 @@ function coerceDateComparisonOperands(sql: string): string {
   );
   let cursor = 0;
   let result = "";
+  const code = maskSqlLiterals(sql, "bigquery");
   let match = comparisonRe.exec(sql);
   while (match) {
+    if (code[match.index] === " ") {
+      match = comparisonRe.exec(sql);
+      continue;
+    }
     const operandStart = match.index + match[0].length;
     const formatMatch = /^FORMAT_DATE\s*\(/i.exec(sql.slice(operandStart));
     if (formatMatch) {
       const openIndex = operandStart + formatMatch[0].lastIndexOf("(");
-      const closeIndex = findMatchingSqlParen(sql, openIndex);
+      const closeIndex = findMatchingSqlParen(sql, openIndex, "bigquery");
       if (closeIndex === -1) {
         throw new Error(
           "First-party BigQuery query has an unterminated FORMAT_DATE call",
         );
       }
-      const args = splitTopLevelSqlArgs(sql.slice(openIndex + 1, closeIndex));
+      const args = splitTopLevelSqlArgs(
+        sql.slice(openIndex + 1, closeIndex),
+        "bigquery",
+      );
       if (args.length === 2 && /^'%Y-%m-%d'$/i.test(args[0] ?? "")) {
         result += sql.slice(cursor, operandStart) + (args[1] ?? "");
         cursor = closeIndex + 1;
@@ -988,12 +974,14 @@ function coerceDateComparisonOperands(sql: string): string {
     match = comparisonRe.exec(sql);
   }
   result += sql.slice(cursor);
+  const resultCode = maskSqlLiterals(result, "bigquery");
   return result.replace(
     new RegExp(
       `(\\b${qualifiedDateField}\\s*(?:<=|>=|<>|=|<|>)\\s*)'(\\d{4}-\\d{2}-\\d{2})'`,
       "gi",
     ),
-    "$1DATE '$2'",
+    (whole, comparison: string, date: string, offset: number) =>
+      resultCode[offset] === " " ? whole : `${comparison}DATE '${date}'`,
   );
 }
 
@@ -1128,17 +1116,27 @@ const BIGQUERY_DATE_TRUNC_PARTS: Record<string, string> = {
 };
 
 function bigQueryJsonPath(key: string): string {
-  return `'$."${key.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"'`;
+  const path = `$."${key.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  // Translation still carries PostgreSQL literals; the binder converts them
+  // together after functions and casts have been rewritten.
+  return `'${path.replace(/'/g, "''")}'`;
 }
 
 function translatePostgresJsonOperators(sql: string): string {
-  const jsonExtract = /\s*::\s*jsonb?\s*->>\s*'([^']*)'/gi;
+  const jsonExtract = /\s*::\s*jsonb?\s*->>\s*('(?:[^']|'')*')/gi;
   let result = sql;
   let match = jsonExtract.exec(result);
   while (match) {
+    const code = maskSqlLiterals(result);
+    const castIndex = match.index + match[0].indexOf("::");
+    if (code[castIndex] !== ":") {
+      match = jsonExtract.exec(result);
+      continue;
+    }
     const { start, end } = postgresCastOperandBounds(result, match.index);
     const operand = result.slice(start, end).trim();
-    const replacement = `JSON_VALUE(${operand}, ${bigQueryJsonPath(match[1] ?? "")})`;
+    const key = (match[1] ?? "").slice(1, -1).replace(/''/g, "'");
+    const replacement = `JSON_VALUE(${operand}, ${bigQueryJsonPath(key)})`;
     result =
       result.slice(0, start) +
       replacement +
@@ -1150,7 +1148,7 @@ function translatePostgresJsonOperators(sql: string): string {
 }
 
 function translateFirstPartyAnalyticsBigQuerySql(sql: string): string {
-  let translated = translatePostgresJsonOperators(sql);
+  let translated = translatePostgresJsonOperators(normalizePostgresSql(sql));
   translated = rewriteSqlFunctionCalls(translated, "coalesce", (args) => {
     const uniqueArgs: string[] = [];
     const seen = new Set<string>();
@@ -1162,10 +1160,13 @@ function translateFirstPartyAnalyticsBigQuerySql(sql: string): string {
     }
     return `COALESCE(${uniqueArgs.join(", ")})`;
   });
+  const intervalCode = maskSqlLiterals(translated);
   translated = translated.replace(
     /\bINTERVAL\s*'(\d+)\s+(day|days|week|weeks|month|months)'/gi,
-    (_match, amount: string, unit: string) =>
-      `INTERVAL ${amount} ${unit.replace(/s$/i, "").toUpperCase()}`,
+    (whole, amount: string, unit: string, offset: number) =>
+      intervalCode[offset] === " "
+        ? whole
+        : `INTERVAL ${amount} ${unit.replace(/s$/i, "").toUpperCase()}`,
   );
   translated = rewriteSqlFunctionCalls(translated, "date_trunc", (args) => {
     const unit = /^'([a-z]+)'$/i.exec(args[0] ?? "")?.[1]?.toLowerCase();
@@ -1252,12 +1253,14 @@ function qualifyQuerySources(sql: string, table: BigQueryTableRef): string {
     analytics_event_daily_rollups: physical.dailyRollups,
     analytics_user_days: physical.userDays,
   };
-  const sourcePattern = FIRST_PARTY_QUERY_TABLES.join("|");
-  return sql.replace(
-    new RegExp(`\\b(from|join)\\s+(${sourcePattern})\\b`, "gi"),
-    (_match, keyword: string, logicalName: string) =>
-      `${keyword} \`${sourceMap[logicalName.toLowerCase()] ?? logicalName}\``,
-  );
+  const query = readAgentSqlQuery(sql, { dialect: "bigquery" });
+  return rewriteAgentSqlQuerySources(query, (source) => {
+    const physicalName = sourceMap[source.name.toLowerCase()];
+    if (source.cte || source.qualifiers.length > 0 || !physicalName) {
+      return sql.slice(source.start, source.end);
+    }
+    return `\`${physicalName}\``;
+  });
 }
 
 function addPartitionPrunedEventDeduplication(
@@ -1273,24 +1276,18 @@ function addPartitionPrunedEventDeduplication(
     " WHERE";
   let result = "";
   let cursor = 0;
+  let searchStart = 0;
+  const code = maskSqlLiterals(sql, "bigquery");
   while (cursor < sql.length) {
-    const sourceIndex = sql.indexOf(source, cursor);
+    const sourceIndex = sql.indexOf(source, searchStart);
     if (sourceIndex === -1) return result + sql.slice(cursor);
+    searchStart = sourceIndex + source.length;
+    if (!code.startsWith("SELECT * FROM ", sourceIndex)) continue;
     const predicateStart = sourceIndex + source.length;
     let depth = 0;
-    let inLiteral = false;
     let predicateEnd = sql.length;
     for (let index = predicateStart; index < sql.length; index++) {
-      const char = sql[index];
-      if (char === "'") {
-        if (inLiteral && sql[index + 1] === "'") {
-          index++;
-          continue;
-        }
-        inLiteral = !inLiteral;
-        continue;
-      }
-      if (inLiteral) continue;
+      const char = code[index];
       if (char === "(") {
         depth++;
         continue;
@@ -1303,7 +1300,7 @@ function addPartitionPrunedEventDeduplication(
         depth--;
         continue;
       }
-      if (depth === 0 && /^UNION\s+ALL\b/i.test(sql.slice(index))) {
+      if (depth === 0 && /^UNION\s+ALL\b/i.test(code.slice(index))) {
         predicateEnd = index;
         break;
       }
@@ -1315,6 +1312,7 @@ function addPartitionPrunedEventDeduplication(
       " QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1" +
       (predicateEnd < sql.length ? " " : "");
     cursor = predicateEnd;
+    searchStart = cursor;
   }
   return result;
 }
@@ -1331,13 +1329,21 @@ export function renderFirstPartyAnalyticsBigQuerySql(
   // The Postgres scope builder uses a text fallback for nullable event
   // dates. BigQuery's event_date is a DATE, and the fallback is unnecessary
   // because the sink normalizes it before insert.
-  const normalizedScopeSql = scopedSql.replace(
+  const postgresSql = normalizePostgresSql(scopedSql);
+  const scopeCode = maskSqlLiterals(postgresSql);
+  const normalizedScopeSql = postgresSql.replace(
     /\(COALESCE\(NULLIF\(event_date, ''\), substr\(timestamp, 1, 10\)\) <= (\$\d+|\?)\)/g,
-    (_match, placeholder: string) => `(event_date <= ${placeholder})`,
+    (whole, placeholder: string, offset: number) =>
+      scopeCode[offset] === " " ? whole : `(event_date <= ${placeholder})`,
   );
   const translated =
     translateFirstPartyAnalyticsBigQuerySql(normalizedScopeSql);
   const bound = bindSqlArguments(translated, args);
+  assertBigQuerySourceProvenance(translated, bound);
+  validateAnalyticsSqlFunctions(
+    readAgentSqlQuery(bound, { dialect: "bigquery" }),
+    "bigquery",
+  );
   return addPartitionPrunedEventDeduplication(
     coerceDateComparisonOperands(qualifyQuerySources(bound, table)),
     table,
