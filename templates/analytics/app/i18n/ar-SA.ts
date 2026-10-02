@@ -1357,6 +1357,7 @@ export default {
       "يحتوي هذا الرابط على عامل تصفية للسرعة. فعّل Lab فرز الجلسات من الإعدادات لتطبيقه.",
     slowRequestCount: "{{count}} طلبات بطيئة",
     slowRequestCountSingular: "{{count}} طلب بطيء",
+    speedIncomplete: "بيانات السرعة غير مكتملة",
     markerPageVitals: "مؤشرات الصفحة",
     markerSlowRequest: "طلب بطيء",
     perfRoute: "مسار الصفحة",

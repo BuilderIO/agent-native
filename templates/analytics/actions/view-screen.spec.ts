@@ -519,6 +519,35 @@ describe("view-screen Sessions context", () => {
     expect(off.sessionReplayPage.performanceCoverageStartedAt).toBeUndefined();
   });
 
+  it("reads each row's speed hints the way the page shows them while the Lab is on", async () => {
+    setScreen(
+      { view: "sessions" },
+      { pathname: "/sessions", searchParams: {} },
+    );
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
+
+    const on = await runScreen();
+
+    expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ includePerformance: true }),
+    );
+    expect(on.sessionReplayPage.fullPageAction.args).toMatchObject({
+      includePerformance: true,
+    });
+
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(false);
+    const off = await runScreen();
+
+    expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.not.objectContaining({ includePerformance: expect.anything() }),
+    );
+    expect(
+      off.sessionReplayPage.fullPageAction.args.includePerformance,
+    ).toBeUndefined();
+  });
+
   it("keeps an unsafe page out of the backend offset and context", async () => {
     setScreen(
       { view: "sessions" },

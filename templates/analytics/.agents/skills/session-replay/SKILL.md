@@ -120,28 +120,42 @@ agent answers about browser recordings in the Analytics template.
   measured; an unmeasured metric is absent, never 0) and an
   `agent-native.vitals` replay marker with the same numbers. `action.response`
   carries the `route` its request started on. `route` is a React Router
-  template such as `/sessions/:id`, never a raw path.
+  template such as `/sessions/:id`; when no manifest route matches it is
+  omitted, never a raw path, which can hold slugs and emails.
 - Requests under `SLOW_REQUEST_THRESHOLD_MS` (`shared/slow-request.ts`, 1 s)
   are sampled at 10% with `sample_weight: 10`; slow, failed, and 4xx responses
   always send with weight 1, so slow-request counts are exact. Use that
-  constant for every "slow request" rule.
+  constant for every "slow request" rule. Requests made while the page was
+  hidden or cancelled are not counted.
+- Ingest strips NUL and replaces lone surrogates in `route`, `app`, and the
+  session id before hashing, as Postgres would store them; otherwise two
+  values that store alike collide in one upsert and fail the batch. Durations
+  and `sample_weight` beyond their bounds are capped into the open top
+  bucket, not dropped.
 - `recordSessionPerformance` keeps each session's worst vitals and its slow
   requests in `analytics_session_performance`, inside the ingest transaction
   under a savepoint, with the same gap and coverage rules as the event index.
   `recordRoutePerformance` adds weights to fixed histogram buckets in
   `analytics_route_performance_daily` after commit, in its own short
-  transaction; a failure records a route-day gap so the day reads as
-  incomplete. Bucket edges are positional, so changing them needs a new
-  `PERFORMANCE_HISTOGRAM_VERSION`.
+  transaction. A failed write records a gap: `session_id = ''` marks a
+  route day, read as `incompleteDates`; a session id marks that session,
+  read as `performance.incomplete` and kept by the slow filter, since missing
+  data cannot rule it out. Bucket edges are positional, so changing them needs
+  a new `PERFORMANCE_HISTOGRAM_VERSION`.
 - Percentiles interpolate inside one bucket, so they are within about 28% of
   the exact value; a value in the open top bucket is reported as `atLeast`.
   A metric with no samples is null: no data, never fast. Before the migration
   creates `analytics_performance_coverage`, ingest stores events without these
   aggregates and warns, the slow filter matches nothing, and reads report no
   coverage.
+- The replay's slow-request markers show only what the row count counts:
+  action requests made while the page was visible (replay network events
+  carry `pageHidden`). Replay times a request to its response headers, so
+  one just over 1 s may be counted without a marker.
 - `slow` and `includePerformance` on `list-session-recordings`,
   `list-route-performance`, and the replay's vitals and slow-request markers
-  exist only while the Sessions triage Lab is on.
+  exist only while the Sessions triage Lab is on; `view-screen` then passes
+  `includePerformance` so the agent reads the same rows as the page.
 
 ## Agent Diagnostics Surface
 

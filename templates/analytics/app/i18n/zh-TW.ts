@@ -1393,6 +1393,7 @@ export default {
       "此連結包含速度篩選。請在設定中開啟「工作階段篩選」Lab 以套用此篩選。",
     slowRequestCount: "{{count}} 個緩慢請求",
     slowRequestCountSingular: "{{count}} 個緩慢請求",
+    speedIncomplete: "速度資料不完整",
     markerPageVitals: "頁面 Web Vitals",
     markerSlowRequest: "緩慢請求",
     perfRoute: "頁面路由",

@@ -1357,6 +1357,7 @@ export default {
       "이 링크에는 속도 필터가 있습니다. 적용하려면 설정에서 세션 분류 Lab을 켜세요.",
     slowRequestCount: "느린 요청 {{count}}개",
     slowRequestCountSingular: "느린 요청 {{count}}개",
+    speedIncomplete: "속도 데이터가 불완전함",
     markerPageVitals: "페이지 Web Vitals",
     markerSlowRequest: "느린 요청",
     perfRoute: "페이지 경로",

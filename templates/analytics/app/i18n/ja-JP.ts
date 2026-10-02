@@ -1379,6 +1379,7 @@ export default {
       "このリンクには速度フィルターが含まれています。適用するには、設定で「セッションの絞り込み」Lab をオンにしてください。",
     slowRequestCount: "遅いリクエスト {{count}} 件",
     slowRequestCountSingular: "遅いリクエスト {{count}} 件",
+    speedIncomplete: "速度データが不完全です",
     markerPageVitals: "ページの Web Vitals",
     markerSlowRequest: "遅いリクエスト",
     perfRoute: "ページルート",

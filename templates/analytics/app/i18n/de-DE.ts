@@ -1407,6 +1407,7 @@ export default {
       "Dieser Link enthält einen Geschwindigkeitsfilter. Aktivieren Sie das Lab „Sitzungen prüfen“ in den Einstellungen, um ihn anzuwenden.",
     slowRequestCount: "{{count}} langsame Anfragen",
     slowRequestCountSingular: "{{count}} langsame Anfrage",
+    speedIncomplete: "Geschwindigkeitsdaten unvollständig",
     markerPageVitals: "Seiten-Vitals",
     markerSlowRequest: "Langsame Anfrage",
     perfRoute: "Seitenroute",

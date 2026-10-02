@@ -1407,6 +1407,7 @@ export default {
       "Ce lien contient un filtre de vitesse. Activez le Lab Tri des sessions dans les paramètres pour l'appliquer.",
     slowRequestCount: "{{count}} requêtes lentes",
     slowRequestCountSingular: "{{count}} requête lente",
+    speedIncomplete: "Données de vitesse incomplètes",
     markerPageVitals: "Signaux web de la page",
     markerSlowRequest: "Requête lente",
     perfRoute: "Route de page",

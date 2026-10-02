@@ -224,10 +224,9 @@ export function SessionsTriagePage() {
   const slow: SlowSessionFilter | undefined =
     eventsLabEnabled && isSlowSessionFilter(urlSlow) ? urlSlow : undefined;
   const urlHasSlowFilter = isSlowSessionFilter(urlSlow);
-  // A shared link with event or slow conditions waits for the Lab state
-  // instead of briefly listing unfiltered sessions.
-  const waitingForEventsLab =
-    (urlHasEventConditions || urlHasSlowFilter) && eventsLab.isLoading;
+  // The list waits for the Lab state: the Lab changes the query, so fetching
+  // first would load the page twice and briefly list a shared link unfiltered.
+  const waitingForEventsLab = eventsLab.isLoading;
 
   useEffect(() => {
     if (requestedPage === null || requestedPage === String(page)) return;
@@ -980,6 +979,9 @@ function PerformanceHints({
             { count: performance.slowRequests.toLocaleString() },
           )}
         </span>
+      ) : null}
+      {performance.incomplete ? (
+        <span>{t("sessions.speedIncomplete")}</span>
       ) : null}
     </>
   );

@@ -6,6 +6,9 @@ const listSessionRecordings = vi.hoisted(() => vi.fn(async () => []));
 const listSessionRecordingsPage = vi.hoisted(() =>
   vi.fn(async () => ({ recordings: [], total: 0, appCounts: [] })),
 );
+const listRoutePerformance = vi.hoisted(() =>
+  vi.fn(async () => ({ routes: [], coverageStartedAt: null })),
+);
 const listSessionEventNames = vi.hoisted(() =>
   vi.fn(async () => ({ events: [], coverageStartedAt: null })),
 );
@@ -49,6 +52,10 @@ vi.mock("../server/lib/session-replay.js", () => ({
   listSessionRecordings,
   listSessionRecordingsPage,
 }));
+vi.mock("../server/lib/session-performance.js", () => ({
+  listRoutePerformance,
+  ROUTE_PERFORMANCE_MAX_LIMIT: 200,
+}));
 vi.mock("../server/lib/session-event-index.js", () => ({
   listSessionEventNames,
   listEventCatalog,
@@ -57,12 +64,15 @@ vi.mock("../server/lib/session-event-index.js", () => ({
 const { default: listRecordings } = await import("./list-session-recordings");
 const { default: listEventNames } = await import("./list-session-event-names");
 const { default: listCatalog } = await import("./list-event-catalog");
+const { default: listRoutes } = await import("./list-route-performance");
 
 describe("Sessions triage Lab guard on event actions", () => {
   beforeEach(() => {
     labEnabled.value = false;
     getUserLabEnabled.mockClear();
     listSessionRecordingsPage.mockClear();
+    listRoutePerformance.mockClear();
+    listSessionRecordings.mockClear();
   });
 
   it("keeps plain session lists working with the Lab off", async () => {
@@ -89,6 +99,31 @@ describe("Sessions triage Lab guard on event actions", () => {
       "user@example.test",
       expect.objectContaining({ key: "analytics.sessions-triage" }),
       { orgId: "org-1" },
+    );
+  });
+
+  it("rejects the slow filter, speed hints, and route speed with the Lab off", async () => {
+    for (const args of [
+      { paginated: true, slow: "vitals" },
+      { paginated: true, includePerformance: true },
+      { slow: "requests" },
+    ]) {
+      await expect(listRecordings.run(args as never)).rejects.toMatchObject({
+        statusCode: 403,
+      });
+    }
+    await expect(listRoutes.run({} as never)).rejects.toMatchObject({
+      statusCode: 403,
+    });
+    expect(listSessionRecordingsPage).not.toHaveBeenCalled();
+    expect(listSessionRecordings).not.toHaveBeenCalled();
+    expect(listRoutePerformance).not.toHaveBeenCalled();
+
+    labEnabled.value = true;
+    await listRoutes.run({} as never);
+    expect(listRoutePerformance).toHaveBeenCalledWith(
+      { userEmail: "user@example.test", orgId: "org-1" },
+      {},
     );
   });
 

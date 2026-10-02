@@ -2275,8 +2275,17 @@ function customReplayMarker(
       (!Number.isFinite(status) || !isFailedSessionReplayNetworkStatus(status))
     ) {
       const durationMs = Number(payload.durationMs);
-      if (!options.performance || !isSlowRequest(durationMs)) return null;
       const slowAction = replayActionName(url);
+      // Mark only what the row's slow-request count counts: action requests
+      // made while the page was visible.
+      if (
+        !options.performance ||
+        !slowAction ||
+        payload.pageHidden === true ||
+        !isSlowRequest(durationMs)
+      ) {
+        return null;
+      }
       return {
         id: `slow-${timestamp}-${index}`,
         timestamp,
@@ -2284,14 +2293,12 @@ function customReplayMarker(
         kind: "event",
         label: options.performance.slowRequest,
         detail: [
-          slowAction ?? [method, url].filter(Boolean).join(" "),
+          slowAction,
           formatPerformanceValue("request", durationMs),
-        ]
-          .filter(Boolean)
-          .join(" · "),
+        ].join(" · "),
         severity: "warn",
         fields: markerFields([
-          ["Action", slowAction ?? undefined],
+          ["Action", slowAction],
           ["Method", method],
           ["URL", url],
           ["Status", Number.isFinite(status) && status ? status : undefined],

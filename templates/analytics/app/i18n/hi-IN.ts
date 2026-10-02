@@ -1345,6 +1345,7 @@ export default {
       "इस लिंक में गति फ़िल्टर है। उसे लागू करने के लिए सेटिंग्स में सत्र जाँच Lab चालू करें।",
     slowRequestCount: "{{count}} धीमे अनुरोध",
     slowRequestCountSingular: "{{count}} धीमा अनुरोध",
+    speedIncomplete: "गति डेटा अधूरा है",
     markerPageVitals: "पेज वाइटल्स",
     markerSlowRequest: "धीमा अनुरोध",
     perfRoute: "पेज रूट",

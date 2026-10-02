@@ -1391,6 +1391,7 @@ export default {
       "Este link tem um filtro de velocidade. Ative o Lab Triagem de sessões em Configurações para aplicá-lo.",
     slowRequestCount: "{{count}} requisições lentas",
     slowRequestCountSingular: "{{count}} requisição lenta",
+    speedIncomplete: "Dados de velocidade incompletos",
     markerPageVitals: "Métricas da página",
     markerSlowRequest: "Requisição lenta",
     perfRoute: "Rota da página",

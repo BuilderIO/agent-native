@@ -1452,6 +1452,7 @@ export default {
       "This link has a speed filter. Turn on the Sessions triage Lab in Settings to apply it.",
     slowRequestCount: "{{count}} slow requests",
     slowRequestCountSingular: "{{count}} slow request",
+    speedIncomplete: "Speed data incomplete",
     markerPageVitals: "Page vitals",
     markerSlowRequest: "Slow request",
     perfRoute: "Page route",

@@ -9,12 +9,14 @@ const mocks = vi.hoisted(() => ({
   configured: true,
   total: 0,
   pending: false,
+  recordings: [] as Record<string, unknown>[],
+  lab: { enabled: false, isLoading: false },
   error: null as Error | null,
   refetch: vi.fn(),
   useActionQuery: vi.fn(() => ({
     data: mocks.pending
       ? undefined
-      : { recordings: [], total: mocks.total, appCounts: [] },
+      : { recordings: mocks.recordings, total: mocks.total, appCounts: [] },
     error: mocks.error,
     isPending: mocks.pending,
     isLoading: false,
@@ -30,7 +32,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 vi.mock("@agent-native/core/client/labs", () => ({
-  useLabState: () => ({ enabled: false, isLoading: false }),
+  useLabState: () => mocks.lab,
 }));
 vi.mock("@agent-native/toolkit/app/blocks", () => ({
   CodeSurface: () => <div data-testid="installation-snippet" />,
@@ -75,6 +77,8 @@ describe("Sessions empty states", () => {
     mocks.error = null;
     mocks.total = 0;
     mocks.pending = false;
+    mocks.recordings = [];
+    mocks.lab = { enabled: false, isLoading: false };
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -339,5 +343,77 @@ describe("Sessions empty states", () => {
         (button) => button.textContent === "sessions.speed",
       ),
     ).toBe(false);
+  });
+
+  it("fetches the list once, with speed hints, after the Lab state loads", async () => {
+    mocks.lab = { enabled: false, isLoading: true };
+    const page = () => (
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <SessionsTriagePage />
+      </MemoryRouter>
+    );
+    await act(async () => root.render(page()));
+    mocks.lab = { enabled: true, isLoading: false };
+    await act(async () => root.render(page()));
+
+    const listFetches = (
+      mocks.useActionQuery.mock.calls as unknown as [
+        string,
+        Record<string, unknown>,
+        { enabled?: boolean },
+      ][]
+    ).filter(
+      ([name, args, options]) =>
+        name === "list-session-recordings" &&
+        args.limit === 100 &&
+        options.enabled !== false,
+    );
+    expect(listFetches.length).toBeGreaterThan(0);
+    for (const [, args] of listFetches) {
+      expect(args).toHaveProperty("includePerformance", true);
+    }
+  });
+
+  it("says when a session's speed data is incomplete", async () => {
+    mocks.lab = { enabled: true, isLoading: false };
+    mocks.total = 1;
+    mocks.recordings = [
+      {
+        id: "r1",
+        sessionId: "s1",
+        userId: "user@example.test",
+        userKey: null,
+        anonymousId: null,
+        startedAt: "2026-09-20T00:00:00.000Z",
+        durationMs: 60_000,
+        eventCount: 10,
+        pageCount: 1,
+        errorCount: 0,
+        networkErrorCount: 0,
+        rageClickCount: 0,
+        app: "clips",
+        template: null,
+        path: "/r/1",
+        hostname: null,
+        performance: {
+          ttfbMs: null,
+          lcpMs: null,
+          inpMs: null,
+          cls: null,
+          slowRequests: 0,
+          maxRequestMs: null,
+          incomplete: true,
+        },
+      },
+    ];
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("sessions.speedIncomplete");
   });
 });

@@ -615,6 +615,37 @@ describe("session replay app event markers", () => {
           },
         },
       },
+      {
+        type: 5,
+        timestamp: 3_600,
+        data: {
+          tag: "agent-native.network",
+          payload: {
+            api: "fetch",
+            method: "GET",
+            url: "https://clips.example.test/assets/video.mp4",
+            status: 200,
+            ok: true,
+            durationMs: 8_000,
+          },
+        },
+      },
+      {
+        type: 5,
+        timestamp: 3_700,
+        data: {
+          tag: "agent-native.network",
+          payload: {
+            api: "fetch",
+            method: "POST",
+            url: "https://clips.example.test/_agent-native/actions/list-clips",
+            status: 200,
+            ok: true,
+            durationMs: 9_000,
+            pageHidden: true,
+          },
+        },
+      },
     ];
 
     it("leaves the timeline unchanged with the Lab off", () => {
@@ -623,7 +654,7 @@ describe("session replay app event markers", () => {
       ).toEqual(["navigation"]);
     });
 
-    it("marks page vitals and slow requests with the Lab on", () => {
+    it("marks page vitals and the slow requests the row hint counts", () => {
       const markers = buildReplayMarkers(performanceEvents, {
         appEvents: true,
         performance: { pageVitals: "Page vitals", slowRequest: "Slow request" },

@@ -1310,6 +1310,7 @@ export default {
       "此链接包含速度筛选。请在设置中开启“会话筛选”Lab 以应用该筛选。",
     slowRequestCount: "{{count}} 个慢请求",
     slowRequestCountSingular: "{{count}} 个慢请求",
+    speedIncomplete: "速度数据不完整",
     markerPageVitals: "页面 Web Vitals",
     markerSlowRequest: "慢请求",
     perfRoute: "页面路由",

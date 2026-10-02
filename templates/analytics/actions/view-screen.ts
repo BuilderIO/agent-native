@@ -289,12 +289,14 @@ export default defineAction({
             const urlSlow = isSlowSessionFilter(params.slow)
               ? params.slow
               : undefined;
-            // Match the page: event and slow conditions apply only with the
-            // Lab on.
-            const labEnabled =
-              (urlHasEventConditions || urlSlow !== undefined) &&
-              (await isSessionsTriageLabEnabled(email, scope.orgId));
+            // Match the page: event and slow conditions, and the speed hints
+            // on each row, apply only with the Lab on.
+            const labEnabled = await isSessionsTriageLabEnabled(
+              email,
+              scope.orgId,
+            );
             const eventsLabEnabled = urlHasEventConditions && labEnabled;
+            if (labEnabled) filters.includePerformance = true;
             if (urlSlow && labEnabled) filters.slow = urlSlow;
             if (eventsLabEnabled) {
               if (urlEventConditions.didEvents.length) {
@@ -326,7 +328,7 @@ export default defineAction({
               ...(urlSlow && !labEnabled
                 ? { slowFilterNotApplied: urlSlow }
                 : {}),
-              ...(filters.slow
+              ...(labEnabled
                 ? {
                     performanceCoverageStartedAt:
                       result.performanceCoverageStartedAt ?? null,
