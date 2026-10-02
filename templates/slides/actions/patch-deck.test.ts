@@ -3588,6 +3588,50 @@ describe("run() — client write ordering", () => {
     });
   });
 
+  it("treats null notes as absent when rebasing a notes edit", async () => {
+    const revision = baseRevision;
+    const deck = JSON.parse(mockDeckRow!.data as string);
+    deck.slides[0].notes = null;
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify(deck),
+      updatedAt: revision,
+    };
+    deck.slides[0].content = "Peer content";
+    const peerRevision = "2026-01-01T00:00:00.002Z";
+    deck.updatedAt = peerRevision;
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify(deck),
+      updatedAt: peerRevision,
+    };
+
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        clientWrite: {
+          clientId: "local-editor",
+          sequence: 1,
+          expectedUpdatedAt: revision,
+        },
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: { notes: "Local notes" },
+            baseFields: { notes: { present: false } },
+          },
+        ],
+      },
+      {},
+    );
+
+    expect(JSON.parse(mockDeckRow!.data as string).slides[0]).toMatchObject({
+      content: "Peer content",
+      notes: "Local notes",
+    });
+  });
+
   it("rebases a combined content and metadata patch after an unrelated peer write", async () => {
     const revision = "2026-01-01T00:00:00.001Z";
     const deck = JSON.parse(mockDeckRow!.data as string);

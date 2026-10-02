@@ -934,6 +934,60 @@ describe("DeckContext deck creation persistence", () => {
     expect(getAccessibleDeck()?.slides[0]?.content).toBe("Latest");
   });
 
+  it("treats absent speaker notes as absent in a field baseline", async () => {
+    const deckId = "absent-speaker-notes-baseline";
+    const { fetchMock, setAccessibleDeck, getAccessibleDeck } = setupFetch({
+      serverFaithfulClientWrites: true,
+    });
+    const initial = {
+      id: deckId,
+      title: "Absent speaker notes baseline",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: "Before",
+          notes: null,
+          layout: "title",
+        },
+      ],
+    } as unknown as Deck;
+    setAccessibleDeck(initial);
+
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        deckId,
+        "slide-1",
+        { notes: "First note" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await result.current.flushDeckSave(deckId);
+    });
+
+    const patchCall = fetchMock.mock.calls.find(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    expect(actionCallBody(patchCall?.[1]).operations).toMatchObject([
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { notes: "First note" },
+        baseFields: { notes: { present: false } },
+      },
+    ]);
+    expect(getAccessibleDeck()?.slides[0]?.notes).toBe("First note");
+    expect(hasFailedDeckSave(deckId)).toBe(false);
+  });
+
   it("exposes an initial deck-list failure instead of an authoritative empty list", async () => {
     setupFetch({ failDeckList: true });
     const { result } = renderHook(() => useDecks(), { wrapper });

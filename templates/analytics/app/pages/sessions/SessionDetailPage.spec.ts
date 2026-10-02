@@ -6,12 +6,14 @@ import {
   buildIdleSkipRanges,
   buildReplayMarkers,
   buildReplayViewportTimeline,
+  collapsePageChangeMarkers,
   fetchSessionReplayPlayback,
   filterReplayMarkers,
   normalizeReplayEvents,
   partitionReplayChunkBatches,
   REPLAY_OVERLAY_STYLE_RULES,
   replayDevToolsIssueCount,
+  replayActionName,
   replayAvailabilityErrorKey,
   replayInitialViewportDimensions,
   replayPayloadEvents,
@@ -495,6 +497,139 @@ describe("session replay timeline markers", () => {
       "click",
     ]);
     expect(filterReplayMarkers(markers, "missing")).toEqual([]);
+  });
+});
+
+describe("session replay app event markers", () => {
+  const events = [
+    {
+      type: 4,
+      timestamp: 1_000,
+      data: { width: 1280, height: 720, href: "https://clips.example.test/" },
+    },
+    {
+      type: 5,
+      timestamp: 2_000,
+      data: {
+        tag: "agent-native.event",
+        payload: { name: "recording_started" },
+      },
+    },
+    {
+      type: 5,
+      timestamp: 3_000,
+      data: {
+        tag: "agent-native.network",
+        payload: {
+          api: "fetch",
+          method: "POST",
+          url: "https://clips.example.test/_agent-native/actions/create-clip",
+          status: 500,
+          ok: false,
+        },
+      },
+    },
+  ];
+
+  it("hides app events and keeps failed actions as network errors with the Lab off", () => {
+    const markers = buildReplayMarkers(events);
+    expect(markers.map((marker) => [marker.kind, marker.label])).toEqual([
+      ["navigation", "Navigate"],
+      ["custom", "Network error"],
+    ]);
+  });
+
+  it("shows named app events and failed actions with the Lab on", () => {
+    const markers = buildReplayMarkers(events, { appEvents: true });
+    expect(
+      markers.map((marker) => ({
+        kind: marker.kind,
+        label: marker.label,
+        detail: marker.detail,
+        severity: marker.severity,
+        offsetMs: marker.offsetMs,
+      })),
+    ).toEqual([
+      expect.objectContaining({ kind: "navigation", offsetMs: 0 }),
+      {
+        kind: "event",
+        label: "recording_started",
+        detail: undefined,
+        severity: "info",
+        offsetMs: 1_000,
+      },
+      {
+        kind: "event",
+        label: "Action failed",
+        detail: "create-clip · 500",
+        severity: "error",
+        offsetMs: 2_000,
+      },
+    ]);
+  });
+
+  it("reads action names from Agent-Native action routes only", () => {
+    expect(
+      replayActionName("https://x.test/_agent-native/actions/list-clips?x=1"),
+    ).toBe("list-clips");
+    expect(replayActionName("/_agent-native/actions/clips%3Async")).toBe(
+      "clips:sync",
+    );
+    expect(replayActionName("https://x.test/api/clips")).toBeNull();
+    expect(replayActionName(undefined)).toBeNull();
+  });
+
+  it("collapses runs of page changes until an app event or input", () => {
+    const markers = buildReplayMarkers(
+      [
+        {
+          type: 4,
+          timestamp: 1_000,
+          data: { width: 1, height: 1, href: "https://clips.example.test/a" },
+        },
+        {
+          type: 3,
+          timestamp: 1_500,
+          data: { source: 2, type: 2, id: 7, x: 1, y: 1 },
+        },
+        {
+          type: 4,
+          timestamp: 2_000,
+          data: { width: 1, height: 1, href: "https://clips.example.test/b" },
+        },
+        {
+          type: 4,
+          timestamp: 3_000,
+          data: { width: 1, height: 1, href: "https://clips.example.test/c" },
+        },
+        {
+          type: 5,
+          timestamp: 4_000,
+          data: { tag: "agent-native.event", payload: { name: "clip_viewed" } },
+        },
+        {
+          type: 4,
+          timestamp: 5_000,
+          data: { width: 1, height: 1, href: "https://clips.example.test/d" },
+        },
+      ],
+      { appEvents: true },
+    );
+
+    const collapsed = collapsePageChangeMarkers(markers);
+    expect(
+      collapsed.map((marker) => [
+        marker.kind,
+        marker.offsetMs,
+        marker.collapsedCount ?? 1,
+      ]),
+    ).toEqual([
+      ["navigation", 0, 3],
+      ["click", 500, 1],
+      ["event", 3_000, 1],
+      ["navigation", 4_000, 1],
+    ]);
+    expect(collapsed[0].detail).toBe(markers[3].detail);
   });
 });
 
