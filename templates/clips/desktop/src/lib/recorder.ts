@@ -31,6 +31,7 @@ import {
   type PauseTransitionQueue,
 } from "./pause-transition";
 import { reconcileProcessingBackup } from "./processing-backup-recovery";
+import { recordFirstBackup, type RecordFirstFile } from "./record-first";
 import {
   buildCreateRecordingRequestHeaders,
   buildCreateRecordingRequestBody,
@@ -710,7 +711,7 @@ async function getBrowserRecordingBackupChunks(
   }
 }
 
-function validateBrowserRecordingBackupChunks(
+export function validateBrowserRecordingBackupChunks(
   meta: BrowserRecordingBackupMeta,
   chunks: BrowserRecordingBackupChunk[],
 ): BrowserRecordingBackupChunk[] {
@@ -1294,6 +1295,48 @@ async function replayBrowserBackupToResumableSession(
     authToken,
     signal,
   );
+}
+
+/**
+ * Hand a recording saved to Movies/Clips before storage existed to the
+ * pending-upload path: create its server row and copy the file into the
+ * backup store, so `retryBrowserRecordingBackup` and the recovery list upload
+ * it. The file on disk is never modified or removed.
+ *
+ * ponytail: reads the whole file into memory once; stream it in slices if
+ * record-first files grow past a few hundred MB.
+ */
+export async function queueRecordFirstUpload(input: {
+  serverUrl: string;
+  authToken?: string;
+  file: RecordFirstFile;
+}): Promise<PendingBrowserRecordingUpload> {
+  const { readFile } = await import("@tauri-apps/plugin-fs");
+  const bytes = await readFile(input.file.path);
+  if (bytes.byteLength === 0) {
+    throw new Error(`${input.file.fileName} is empty`);
+  }
+  const created = await createServerRecording(
+    input.serverUrl,
+    input.file.hasCamera,
+    input.file.hasAudio,
+    undefined,
+    {
+      authToken: input.authToken,
+      mimeType: input.file.mimeType,
+      requestStreaming: true,
+    },
+  );
+  const { meta, chunks } = recordFirstBackup({
+    recordingId: created.id,
+    serverUrl: input.serverUrl,
+    file: input.file,
+    bytes,
+    chunkBytes: STREAM_CHUNK_BYTES,
+  });
+  for (const chunk of chunks) await putBrowserRecordingBackupChunk(chunk);
+  await putBrowserRecordingBackupMeta(meta);
+  return { ...meta, kind: "browser" };
 }
 
 export async function retryBrowserRecordingBackup(input: {

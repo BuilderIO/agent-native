@@ -133,10 +133,19 @@ import {
 } from "./lib/permissions";
 import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
 import {
+  effectiveLocalRecordingMode,
+  loadRecordFirstFiles,
+  recordFirstFilesKey,
+  saveRecordFirstFiles,
+  type RecordFirstFile,
+  type VideoStorageStatus,
+} from "./lib/record-first";
+import {
   createPrivateAgentRewindRecording,
   exportBrowserRecordingBackup,
   getRewindClipOrigin,
   listBrowserRecordingBackups,
+  queueRecordFirstUpload,
   retryBrowserRecordingBackup,
   scheduleNativeBackupCleanupAfterProcessing,
   shouldUseNativeFullscreenRecording,
@@ -394,8 +403,6 @@ interface RewindAgentConnectionStatus {
 }
 
 type MeetingTranscriptionMode = "manual" | "ask" | "auto";
-
-type VideoStorageStatus = "checking" | "configured" | "missing";
 
 const STORAGE_SETUP_HELP_TEXT =
   "Clips is 100% free and open source, so you need to hook up a way to store your clips. Connect storage with Builder.io for free-tier storage and AI, or use S3-compatible object storage and your own LLM keys.";
@@ -2992,6 +2999,42 @@ export function App({
     [],
   );
 
+  // Recordings saved to Movies/Clips because storage was not connected. They
+  // are kept per server and account, so a file only uploads to the account
+  // that recorded it, and leave this list only once queued for upload.
+  const recordFirstKey = signedInAs
+    ? recordFirstFilesKey(originForServer(serverUrl), signedInAs)
+    : null;
+  const [recordFirstFiles, setRecordFirstFiles] = useState<RecordFirstFile[]>(
+    [],
+  );
+  const [recordFirstError, setRecordFirstError] = useState<string | null>(null);
+  const [recordFirstUploading, setRecordFirstUploading] = useState(false);
+  useEffect(() => {
+    if (!recordFirstKey) {
+      setRecordFirstFiles([]);
+      return;
+    }
+    try {
+      setRecordFirstFiles(loadRecordFirstFiles(localStorage, recordFirstKey));
+      setRecordFirstError(null);
+    } catch (err) {
+      setRecordFirstError(err instanceof Error ? err.message : String(err));
+    }
+  }, [recordFirstKey]);
+  const rememberRecordFirstFile = useCallback(
+    (file: RecordFirstFile) => {
+      if (!recordFirstKey) return;
+      setRecordFirstFiles((files) => {
+        const next = [...files.filter((f) => f.path !== file.path), file];
+        saveRecordFirstFiles(localStorage, recordFirstKey, next);
+        return next;
+      });
+    },
+    [recordFirstKey],
+  );
+  const uploadRecordFirstFilesRef = useRef<() => Promise<void>>(async () => {});
+
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
@@ -3155,9 +3198,16 @@ export function App({
           folderPath: stopResult.localFolder,
           files: stopResult.localFiles ?? [],
         });
-        if (recordedWithoutStorageRef.current) {
-          // Saved on disk; ask for storage now so the next clip uploads.
-          setRecError(STORAGE_SETUP_HELP_TEXT);
+        const composed =
+          stopResult.localFiles?.find((file) => file.role === "composed") ??
+          stopResult.localFiles?.[0];
+        if (recordedWithoutStorageRef.current && composed) {
+          rememberRecordFirstFile({
+            ...composed,
+            hasAudio: micOn || systemAudioOn,
+            hasCamera: mode !== "screen",
+            savedAt: new Date().toISOString(),
+          });
         }
         emit("clips:native-upload-finished", {
           recordingId: stopResult.recordingId,
@@ -3180,7 +3230,7 @@ export function App({
             ok: false,
             error: err instanceof Error ? err.message : String(err),
           },
-          localRecordingMode !== "off",
+          localRecordingMode !== "off" || recordedWithoutStorageRef.current,
         );
         emit("clips:native-upload-finished", {
           recordingId: stoppingRecordingId ?? undefined,
@@ -3202,6 +3252,41 @@ export function App({
           .catch(() => {});
         emit("clips:popover-visible", false).catch(() => {});
       }
+    }
+  };
+
+  uploadRecordFirstFilesRef.current = async () => {
+    if (recordFirstUploading || !recordFirstKey) return;
+    if (videoStorageStatus !== "configured") {
+      openVideoStorageSetup();
+      return;
+    }
+    setRecordFirstUploading(true);
+    setRecordFirstError(null);
+    try {
+      for (const file of recordFirstFiles) {
+        const authToken = loadDesktopAuthToken(serverUrl);
+        let upload: PendingDesktopUpload;
+        try {
+          upload = await queueRecordFirstUpload({ serverUrl, authToken, file });
+        } catch (err) {
+          setRecordFirstError(
+            `${file.fileName}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          break;
+        }
+        setRecordFirstFiles((files) => {
+          const next = files.filter((f) => f.path !== file.path);
+          saveRecordFirstFiles(localStorage, recordFirstKey, next);
+          return next;
+        });
+        await loadPendingUploads();
+        // The queued copy now lives in the recovery list: a failed upload
+        // stays there with Retry, and the file on disk is untouched.
+        await retryPendingUpload(upload);
+      }
+    } finally {
+      setRecordFirstUploading(false);
     }
   };
 
@@ -3457,15 +3542,14 @@ export function App({
       bubbleStreamRef.current = null;
       setBubbleSessionEpoch((epoch) => epoch + 1);
     }
-    if (localRecordingMode === "off" && videoStorageStatus === "checking") {
-      setRecError("Checking video storage. Try again in a moment.");
-      return null;
-    }
-    // Recording never waits on storage: with none connected, the clip is
-    // written to a local file first (Movies/Clips, on disk as it records) and
-    // storage is asked for after Stop.
-    const recordLocallyUntilStorage =
-      localRecordingMode === "off" && videoStorageStatus === "missing";
+    // Recording never waits on storage: until storage reads as connected the
+    // clip is written to Movies/Clips as it records, then uploads once
+    // storage connects.
+    const recordingLocalMode = effectiveLocalRecordingMode(
+      localRecordingMode,
+      videoStorageStatus,
+    );
+    const recordLocallyUntilStorage = recordingLocalMode !== localRecordingMode;
     recordedWithoutStorageRef.current = recordLocallyUntilStorage;
     setRecError(null);
     setLocalRecordingNotice(null);
@@ -3544,9 +3628,7 @@ export function App({
           micOn,
           systemAudioOn,
           voiceCleanupEnabled,
-          localRecordingMode: recordLocallyUntilStorage
-            ? "composed"
-            : localRecordingMode,
+          localRecordingMode: recordingLocalMode,
           preAcquiredCameraStream,
           preAcquiredDisplayStream:
             options?.resumeCapture?.displayStream ?? null,
@@ -3971,11 +4053,22 @@ export function App({
     serverUrl,
   ]);
 
+  const recordFirstPending = recordFirstFiles.length;
+  useEffect(() => {
+    if (
+      recordFirstPending > 0 &&
+      authStatus === "authed" &&
+      videoStorageStatus === "configured" &&
+      !recorder
+    ) {
+      void uploadRecordFirstFilesRef.current();
+    }
+  }, [authStatus, recorder, recordFirstPending, videoStorageStatus]);
+
   const showSourceRow = mode !== "camera";
   const imminentMeeting = meetings.find(meetingCanStartNotes) ?? null;
   const recordingReadinessPending =
-    localRecordingMode === "off" &&
-    (authStatus !== "authed" || videoStorageStatus === "checking");
+    localRecordingMode === "off" && authStatus !== "authed";
   const startButtonLoading =
     (recordingReadinessPending || recordingStartPending) &&
     !recordingStopFinalizing;
@@ -4554,6 +4647,15 @@ export function App({
           </button>
         ) : null}
 
+        {recordFirstFiles.length > 0 ? (
+          <RecordFirstUploadsBanner
+            count={recordFirstFiles.length}
+            storageConnected={videoStorageStatus === "configured"}
+            uploading={recordFirstUploading}
+            error={recordFirstError}
+            onUpload={() => void uploadRecordFirstFilesRef.current()}
+          />
+        ) : null}
         {recError ? (
           recError === MACOS_UPDATE_RESTART_MESSAGE ? (
             <UpdateRestartBanner message={recError} />
@@ -4750,6 +4852,51 @@ function UpdateRestartBanner({ message }: { message: string }) {
         </div>
       </div>
     </Alert>
+  );
+}
+
+function RecordFirstUploadsBanner({
+  count,
+  storageConnected,
+  uploading,
+  error,
+  onUpload,
+}: {
+  count: number;
+  storageConnected: boolean;
+  uploading: boolean;
+  error: string | null;
+  onUpload: () => void;
+}) {
+  const recordings = count === 1 ? "1 recording" : `${count} recordings`;
+  return (
+    <div className="storage-flow-banner" role="status">
+      <div className="storage-flow-icon" aria-hidden>
+        <IconUpload size={17} stroke={1.8} />
+      </div>
+      <div className="storage-flow-copy">
+        <div className="storage-flow-title">
+          {uploading
+            ? `Uploading ${recordings}…`
+            : `${recordings} saved on this Mac, not uploaded`}
+        </div>
+        <div className="storage-flow-sub">
+          {error ??
+            (storageConnected
+              ? "Saved in Movies/Clips. Upload them to get share links."
+              : "Saved in Movies/Clips. Connect storage and they upload.")}
+        </div>
+      </div>
+      <button
+        type="button"
+        className="storage-flow-connect"
+        disabled={uploading}
+        onClick={onUpload}
+      >
+        <IconUpload size={14} stroke={2} />
+        {storageConnected ? "Upload now" : "Connect"}
+      </button>
+    </div>
   );
 }
 
