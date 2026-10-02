@@ -136,6 +136,28 @@ describe("run outcome telemetry", () => {
     expect(send).toHaveBeenCalledTimes(31);
   });
 
+  it("caps stopped runs on their own, so stops never crowd out a failure", () => {
+    for (let i = 0; i < 45; i += 1) {
+      trackRunOutcome(
+        report({ outcome: "stopped", code: undefined, runId: `stop-${i}` }),
+        send,
+      );
+    }
+    expect(send).toHaveBeenCalledTimes(30);
+    expect(getRunOutcomeTelemetryStats()).toMatchObject({
+      stoppedSent: 30,
+      stoppedDropped: 15,
+      unexpectedSent: 0,
+    });
+
+    trackRunOutcome(report({ runId: "failed-after-stops" }), send);
+    expect(send).toHaveBeenCalledTimes(31);
+    expect(send.mock.calls[30]![1]).toMatchObject({
+      outcome: "interrupted",
+      run_id: "failed-after-stops",
+    });
+  });
+
   it("never lets a failing sender throw into the run", () => {
     send.mockImplementation(() => {
       throw new Error("tracker down");

@@ -374,12 +374,24 @@ export function agentTroubleCauseForCode(
   return null;
 }
 
+/**
+ * Every pageview carries `agent_signals: AGENT_SIGNALS_VERSION` from a client
+ * that reports each stopped run unsampled and each thumbs rating as
+ * `agent_feedback_submitted`. Older clients sampled stops and sent no
+ * ratings, so Analytics counts a session's cancelled runs and thumbs-down as
+ * measured only once it has seen the marker.
+ */
+export const AGENT_SIGNALS_PAGEVIEW_PROPERTY = "agent_signals";
+export const AGENT_SIGNALS_VERSION = 1;
+
 const MAX_AGENT_TROUBLE_MESSAGE_INPUT = 1_000;
 export const MAX_AGENT_TROUBLE_MESSAGE_LENGTH = 120;
 
 /**
- * An error message reduced to its shape, so the same failure groups together
- * and no user text, address, link, or id leaves the page with it.
+ * An error message reduced to its shape, so the same failure groups together:
+ * quoted text, emails, URLs, file paths, hostnames (any dotted name), and
+ * numbers or ids become placeholders. Every other word stays, so a message
+ * that names something without quoting it still carries that name.
  */
 export function normalizeAgentTroubleMessage(
   message: string | null | undefined,
@@ -392,6 +404,13 @@ export function normalizeAgentTroubleMessage(
     .replace(
       /"[^"\n]{0,300}"|`[^`\n]{0,300}`|(?<!\w)'[^'\n]{0,300}'(?!\w)/g,
       "<text>",
+    )
+    .replace(/(?<!\w)[a-z]:[\\/][^\s"'`<>|,;()]*/gi, "<path>")
+    .replace(/\\\\[^\s"'`<>|,;()]+/g, "<path>")
+    .replace(/(?<![\w<>.~/-])(?:~|\.{1,2})?\/[^\s"'`<>|,;()]+/g, "<path>")
+    .replace(
+      /(?<![\w.@<-])(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}(?![\w-]|\.\w)/gi,
+      "<host>",
     )
     .replace(/[\w-]*\d[\w-]*/g, "<n>")
     .replace(/\s+/g, " ")
