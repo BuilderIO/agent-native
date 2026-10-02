@@ -262,3 +262,4 @@ where it names Annotate or the old toolbar.
 - **RESP-13** Desktop-first `max-*` output, or flip the base so it's mobile-first?
 - **RESP-14** Keep side-by-side frames at other widths, or rely on drag plus Interact viewports?
 - **RESP-15** Responsive rules on any layer, or only on components?
+- **INSP-06** Refresh the frame preset list to current devices, and paper in points or pixels?

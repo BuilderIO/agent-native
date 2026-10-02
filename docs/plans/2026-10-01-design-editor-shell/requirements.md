@@ -324,6 +324,12 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
   - Change: Empty sections (Stroke, Effects) drop the chevron and keep its space, so titles line up.
 - **INSP-04** · decided
   - Change: Interact and Annotate hide the inspector; the canvas takes the width.
+- **INSP-05** · proposed
+  - Today: With the Frame tool armed (F), `FramePresetsPanel` replaces the inspector: a “Frame” title, then the code's categories in data order with Desktop first and only it open, no icons. Picking a preset creates a screen (`onCreateScreenFromPreset`).
+  - Change: Same behavior, organized: groups in the order Phone, Tablet, Desktop, Presentation, Watch, Paper, Social media, Ad unit, each with its icon and collapsible (Phone and Tablet open). A row is the preset name on the left, aligned with the group icon, and W × H on the right in tabular figures; long names truncate with the full name on hover. Picking one creates the screen and returns to Move.
+  - Prototype: Press F, or pick Frame from the toolbar's Frame menu.
+- **INSP-06** · question
+  - Change: Refresh the preset list? The reference shows newer devices (iPhone 18 Pro and Pro Max, iPhone Duo, Pixel 11 line, iPad Air 11″ and 13″, the Apple Watch range) and paper in points (A4 595 × 842), where `FRAME_SIZE_PRESET_CATEGORIES` has the iPhone 16 and 17 era and paper in CSS pixels (A4 794 × 1123).
 
 ## Outside agents (AGT, step 17)
 

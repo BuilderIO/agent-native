@@ -311,6 +311,16 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .st-av { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 600; flex: none; }
 .st-new { font-size: 10px; line-height: 14px; font-weight: 600; padding: 0 5px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); }
 
+/* frame tool presets: icon groups; preset names line up with the group icon, sizes right in tabular figures */
+.fp-head { height: 40px; display: flex; align-items: center; padding: 0 16px; font-weight: 600; font-size: 12px; border-bottom: 1px solid var(--border); flex: none; }
+.insp-scroll.fp { padding: 4px 0 16px; }
+.fp-cat { width: 100%; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 16px 0 8px; font-size: 12px; font-weight: 500; text-align: left; }
+.fp-cat .chev { width: 16px; display: grid; place-items: center; color: var(--muted-fg); }
+.fp-cat svg.i.s16 { color: var(--muted-fg); }
+.fp-row { width: 100%; height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 16px 0 32px; font-size: 12px; text-align: left; }
+.fp-row:hover, .fp-cat:hover { background: var(--hover); }
+.fp-row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-row .wh { color: var(--muted-fg); font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* canvas */
 /* The dock is positioned against the canvas viewport, never the scrolling content, so short pages don't pull it up. */
 .canvas { grid-row: 2; grid-column: 3; background: var(--canvas); position: relative; overflow: hidden; min-width: 0; }
@@ -1109,6 +1119,32 @@ document.addEventListener("click", e => {
   const del = t.closest?.("[data-resp-del]"); if (del) { RESP.rules = RESP.rules.filter(r => r.id !== +del.dataset.respDel); renderPage(); renderInspector(); return; }
 });
 
+
+/* ───────── frame tool: size presets replace the inspector (FramePresetsPanel, inspector/frame-size-presets.ts) ───────── */
+// The code's FRAME_SIZE_PRESET_CATEGORIES, reordered phone-first with an icon per group. Picking one creates a screen.
+const FRAME_PRESETS = [
+  ["phone", "Phone", "device-mobile", [["iPhone 17", 402, 874], ["iPhone 16 & 17 Pro", 402, 874], ["iPhone 16", 393, 852], ["iPhone 16 & 17 Pro Max", 440, 956], ["iPhone 16 Plus", 430, 932], ["iPhone Air", 420, 912], ["iPhone 14 & 15 Pro Max", 430, 932], ["iPhone 14 & 15 Pro", 393, 852], ["iPhone 13 & 14", 390, 844], ["iPhone 14 Plus", 428, 926], ["Android Compact", 412, 917], ["Android Medium", 700, 840]]],
+  ["tablet", "Tablet", "device-tablet", [["iPad mini 8.3", 744, 1133], ["Surface Pro 8", 1440, 960], ['iPad Pro 11″', 834, 1194], ['iPad Pro 12.9″', 1024, 1366], ["Android Expanded", 1280, 800]]],
+  ["desktop", "Desktop", "device-desktop", [["Desktop", 1440, 1024], ["Wireframe", 1440, 1024], ["MacBook Air", 1280, 832], ['MacBook Pro 14″', 1512, 982], ['MacBook Pro 16″', 1728, 1117], ["TV", 1280, 720]]],
+  ["presentation", "Presentation", "presentation", [["Slide 16:9", 1920, 1080], ["Slide 4:3", 1024, 768]]],
+  ["watch", "Watch", "device-watch", [["Apple Watch 45mm", 198, 242]]],
+  ["paper", "Paper", "file", [["Letter", 816, 1056], ["A4", 794, 1123], ["A5", 559, 794], ["Tabloid", 1056, 1632]]],
+  ["socialMedia", "Social media", "messages", [["Instagram Post", 1080, 1080], ["Instagram Story", 1080, 1920], ["X Post", 1200, 675], ["Facebook Cover", 820, 312], ["LinkedIn Cover", 1584, 396]]],
+  ["adUnit", "Ad unit", "ad", [["Medium Rectangle", 300, 250], ["Leaderboard", 728, 90], ["Wide Skyscraper", 160, 600], ["Mobile Leaderboard", 320, 50], ["Billboard", 970, 250]]],
+];
+const PRESETS_OPEN = new Set(["phone", "tablet"]);
+const frameToolArmed = () => S.mode === "design" && !H.active && S.tool === "frame" && (PICK.frame ?? 0) === 0;
+function renderFramePresets(el) {
+  el.innerHTML = `<div class="fp-head">Frame</div><div class="insp-scroll fp">${FRAME_PRESETS.map(([key, label, icon, presets]) => {
+    const open = PRESETS_OPEN.has(key);
+    return `<button class="fp-cat" data-fp-cat="${key}" aria-expanded="${open}"><span class="chev">${ic(open ? "chevron-down" : "chevron-right", "s12")}</span>${ic(icon, "s16")}<span>${label}</span></button>${open ? presets.map(([n, w, h]) => `<button class="fp-row" data-fp="${key}|${n}" title="${n} · ${w} × ${h}"><span class="nm">${n}</span><span class="wh">${w} × ${h}</span></button>`).join("") : ""}`;
+  }).join("")}</div>`;
+}
+document.addEventListener("click", e => {
+  const c = e.target.closest?.("[data-fp-cat]"); if (c) { const k = c.dataset.fpCat; PRESETS_OPEN.has(k) ? PRESETS_OPEN.delete(k) : PRESETS_OPEN.add(k); renderInspector(); return; }
+  const r = e.target.closest?.("[data-fp]"); if (r) { const [key, name] = r.dataset.fp.split("|"); const [, , , list] = FRAME_PRESETS.find(x => x[0] === key); const [, w, h] = list.find(x => x[0] === name); S.tool = "select"; renderDock(); renderInspector(); toast(`Added ${name} · ${w} × ${h}`); }
+});
+
 /* ───────── tree (Screens + Layers) ───────── */
 const screenName = () => S.route === "/docs" ? "Screen 2" : "Screen 1";
 function rowHTML({ depth = 0, disc = null, icon, label, id, selected, cls = "", trail = true }) {
@@ -1221,6 +1257,7 @@ const variants = t => t.solo ? [t.solo] : t.more.filter(v => v !== "-" && (v[3] 
 const PICK = {};
 const variantOf = t => variants(t)[Math.min(PICK[t.id] || 0, variants(t).length - 1)];
 function renderDock() {
+  queueMicrotask(() => renderInspector());
   const tools = TOOLS[S.mode];
   if (!tools.some(t => t.id === S.tool && !t.agent)) S.tool = tools[0].id;
   $("#dock").innerHTML = tools.map(t => {
@@ -1317,6 +1354,7 @@ function renderInspector() {
   if (H.active) { app.classList.remove("no-inspector"); return renderTimeline(); }
   app.classList.toggle("no-inspector", S.mode !== "design");
   if (S.mode !== "design") { el.innerHTML = ""; return; }
+  if (frameToolArmed()) return renderFramePresets(el);
   if (S.screenSel) return renderScreenInspector(el);
   const id = S.selected, f = FLAT[id], p = propsFor(id);
   const body = `

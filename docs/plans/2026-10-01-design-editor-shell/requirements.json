@@ -843,6 +843,22 @@
           "id": "INSP-04",
           "status": "decided",
           "change": "Interact and Annotate hide the inspector; the canvas takes the width."
+        },
+        {
+          "id": "INSP-05",
+          "status": "proposed",
+          "today": "With the Frame tool armed (F), `FramePresetsPanel` replaces the inspector: a “Frame” title, then the code's categories in data order with Desktop first and only it open, no icons. Picking a preset creates a screen (`onCreateScreenFromPreset`).",
+          "change": "Same behavior, organized: groups in the order Phone, Tablet, Desktop, Presentation, Watch, Paper, Social media, Ad unit, each with its icon and collapsible (Phone and Tablet open). A row is the preset name on the left, aligned with the group icon, and W × H on the right in tabular figures; long names truncate with the full name on hover. Picking one creates the screen and returns to Move.",
+          "refs": [
+            "templates/design/app/components/design/edit-panel/frame-presets-panel.tsx#FramePresetsPanel",
+            "templates/design/app/components/design/EditPanel.tsx#onCreateScreenFromPreset"
+          ],
+          "prototype": "Press F, or pick Frame from the toolbar's Frame menu."
+        },
+        {
+          "id": "INSP-06",
+          "status": "question",
+          "change": "Refresh the preset list? The reference shows newer devices (iPhone 18 Pro and Pro Max, iPhone Duo, Pixel 11 line, iPad Air 11″ and 13″, the Apple Watch range) and paper in points (A4 595 × 842), where `FRAME_SIZE_PRESET_CATEGORIES` has the iPhone 16 and 17 era and paper in CSS pixels (A4 794 × 1123)."
         }
       ]
     },
