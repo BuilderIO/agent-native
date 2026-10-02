@@ -118,6 +118,7 @@ import {
   useDeckAccessStatus,
   useRequestDeckAccess,
 } from "@/hooks/use-deck-access";
+import { useDeckAccessReload } from "@/hooks/use-deck-access-reload";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
 import { useDeckRole } from "@/hooks/use-deck-role";
@@ -682,9 +683,6 @@ export default function DeckEditor() {
   >(null);
   const [accessRequestRefreshPending, setAccessRequestRefreshPending] =
     useState(false);
-  const [checkedDeckAccessKey, setCheckedDeckAccessKey] = useState<
-    string | null
-  >(null);
   const {
     data: org,
     isLoading: orgLoading,
@@ -1921,45 +1919,14 @@ export default function DeckEditor() {
     setGeneratingSlideSelected(false);
   }, [deck, generatingSlideSelected]);
 
-  useEffect(() => {
-    if (
-      loading ||
-      deck ||
-      !id ||
-      !currentDeckAccessKey ||
-      orgLoading ||
-      checkedDeckAccessKey === currentDeckAccessKey
-    ) {
-      return;
-    }
-
-    if (!org?.orgId) {
-      setCheckedDeckAccessKey(currentDeckAccessKey);
-      return;
-    }
-
-    let cancelled = false;
-    void (async () => {
-      let status = await reloadDecksWithStatus();
-      while (!cancelled && status === "stale") {
-        status = await reloadDecksWithStatus();
-      }
-      if (!cancelled) setCheckedDeckAccessKey(currentDeckAccessKey);
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    checkedDeckAccessKey,
-    currentDeckAccessKey,
-    deck,
-    id,
+  const checkedDeckAccessKey = useDeckAccessReload({
+    accessKey: currentDeckAccessKey,
+    deckFound: Boolean(deck),
     loading,
-    org?.orgId,
+    orgId: org?.orgId,
     orgLoading,
-    reloadDecksWithStatus,
-  ]);
+    reload: reloadDecksWithStatus,
+  });
 
   const retryOpenDeck = useCallback(async () => {
     setRetryingMissingDeck(true);
