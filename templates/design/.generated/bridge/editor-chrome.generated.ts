@@ -21236,6 +21236,23 @@ export const editorChromeBridgeScript: string = `"use strict";
           rejectInsert("html");
           return;
         }
+        var rawInsertGridPlacement = e.data.gridPlacement;
+        var insertGridPlacement = rawInsertGridPlacement && Number.isInteger(rawInsertGridPlacement.column) && Number.isInteger(rawInsertGridPlacement.columnEnd) && Number.isInteger(rawInsertGridPlacement.row) && Number.isInteger(rawInsertGridPlacement.rowEnd) && rawInsertGridPlacement.column > 0 && rawInsertGridPlacement.row > 0 && rawInsertGridPlacement.columnEnd > rawInsertGridPlacement.column && rawInsertGridPlacement.rowEnd > rawInsertGridPlacement.row ? {
+          column: rawInsertGridPlacement.column,
+          columnEnd: rawInsertGridPlacement.columnEnd,
+          row: rawInsertGridPlacement.row,
+          rowEnd: rawInsertGridPlacement.rowEnd
+        } : null;
+        if (rawInsertGridPlacement && (!insertGridPlacement || insertPlacement !== "inside" || !["grid", "inline-grid"].includes(
+          window.getComputedStyle(insertAnchor).display
+        ))) {
+          rejectInsert("grid-placement");
+          return;
+        }
+        if (insertGridPlacement) {
+          parsedInsertEl.style.gridColumn = insertGridPlacement.column + " / " + insertGridPlacement.columnEnd;
+          parsedInsertEl.style.gridRow = insertGridPlacement.row + " / " + insertGridPlacement.rowEnd;
+        }
         var insertNodeId = parsedInsertEl.getAttribute(
           "data-agent-native-node-id"
         );
@@ -21269,7 +21286,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           axis: parentFlowAxis(
             insertPlacement === "inside" ? insertAnchor : insertAnchor.parentElement
           ),
-          dropMode: insertPlacement === "inside" && isAbsolutePrimitiveContainer(insertAnchor) ? "absolute-container" : "flow-insert"
+          dropMode: insertPlacement === "inside" && isAbsolutePrimitiveContainer(insertAnchor) ? "absolute-container" : "flow-insert",
+          gridPlacement: insertGridPlacement || void 0
         };
         if (existingInsertEl) {
           if (existingInsertEl.contains(insertAnchor)) {

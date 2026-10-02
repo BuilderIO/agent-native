@@ -150,6 +150,144 @@ export const hitTestBridgeScript: string = `"use strict";
       }
       return cs.flexDirection && cs.flexDirection.indexOf("row") === 0 ? "x" : "y";
     }
+    function hitTestGridTracks(template) {
+      if (!template || template === "none") return [];
+      var tracks = [];
+      var tokens = template.trim().split(/\\s+/);
+      for (var index = 0; index < tokens.length; index += 1) {
+        var token = tokens[index];
+        if (!/^-?(?:\\d+\\.?\\d*|\\.\\d+)px$/.test(token)) return [];
+        var size = parseFloat(token);
+        if (!Number.isFinite(size) || size < 0) return [];
+        tracks.push(size);
+      }
+      return tracks;
+    }
+    function hitTestGridDistribution(tracks, contentSize, gap, distribution, reverse) {
+      var used = gap * Math.max(0, tracks.length - 1);
+      for (var index = 0; index < tracks.length; index += 1) {
+        used += tracks[index];
+      }
+      var leftover = contentSize - used;
+      if (!(leftover > 0.01)) return { offset: 0, gap };
+      var mode = (distribution || "normal").split(" ").pop() || "normal";
+      if (mode === "center") return { offset: leftover / 2, gap };
+      if (mode === "end" || mode === "flex-end" || mode === "right") {
+        return {
+          offset: mode === "right" || !reverse ? leftover : 0,
+          gap
+        };
+      }
+      if (mode === "left") return { offset: 0, gap };
+      if (mode === "space-between" && tracks.length > 1) {
+        return { offset: 0, gap: gap + leftover / (tracks.length - 1) };
+      }
+      if (mode === "space-around" && tracks.length > 0) {
+        var around = leftover / tracks.length;
+        return { offset: around / 2, gap: gap + around };
+      }
+      if (mode === "space-evenly" && tracks.length > 0) {
+        var evenly = leftover / (tracks.length + 1);
+        return { offset: evenly, gap: gap + evenly };
+      }
+      return { offset: reverse ? leftover : 0, gap };
+    }
+    function gridEmptyCellInsertionTarget(container, clientX, clientY) {
+      var styles = window.getComputedStyle(container);
+      if (styles.display !== "grid" && styles.display !== "inline-grid" || styles.writingMode !== "horizontal-tb") {
+        return null;
+      }
+      var columns = hitTestGridTracks(styles.gridTemplateColumns);
+      var rows = hitTestGridTracks(styles.gridTemplateRows);
+      if (!columns.length || !rows.length) return null;
+      var rect = container.getBoundingClientRect();
+      var px = function(value) {
+        var parsed = parseFloat(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+      };
+      var contentLeft = rect.left + px(styles.borderLeftWidth) + px(styles.paddingLeft);
+      var contentTop = rect.top + px(styles.borderTopWidth) + px(styles.paddingTop);
+      var contentWidth = rect.width - px(styles.borderLeftWidth) - px(styles.borderRightWidth) - px(styles.paddingLeft) - px(styles.paddingRight);
+      var contentHeight = rect.height - px(styles.borderTopWidth) - px(styles.borderBottomWidth) - px(styles.paddingTop) - px(styles.paddingBottom);
+      var direction = styles.direction === "rtl";
+      var columnFlow = hitTestGridDistribution(
+        columns,
+        contentWidth,
+        px(styles.columnGap),
+        styles.justifyContent,
+        direction
+      );
+      var rowFlow = hitTestGridDistribution(
+        rows,
+        contentHeight,
+        px(styles.rowGap),
+        styles.alignContent,
+        false
+      );
+      var columnBounds = [];
+      var columnStart = direction ? contentLeft + contentWidth - columnFlow.offset : contentLeft + columnFlow.offset;
+      for (var columnIndex = 0; columnIndex < columns.length; columnIndex += 1) {
+        if (direction) {
+          columnBounds.push({
+            start: columnStart - columns[columnIndex],
+            end: columnStart
+          });
+          columnStart -= columns[columnIndex] + columnFlow.gap;
+        } else {
+          columnBounds.push({
+            start: columnStart,
+            end: columnStart + columns[columnIndex]
+          });
+          columnStart += columns[columnIndex] + columnFlow.gap;
+        }
+      }
+      var rowBounds = [];
+      var rowStart = contentTop + rowFlow.offset;
+      for (var rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+        rowBounds.push({ start: rowStart, end: rowStart + rows[rowIndex] });
+        rowStart += rows[rowIndex] + rowFlow.gap;
+      }
+      var column = columnBounds.findIndex(
+        (bound) => clientX >= bound.start && clientX <= bound.end
+      );
+      var row = rowBounds.findIndex(
+        (bound) => clientY >= bound.start && clientY <= bound.end
+      );
+      if (column < 0 || row < 0) return null;
+      var cell = {
+        left: columnBounds[column].start,
+        top: rowBounds[row].start,
+        width: columnBounds[column].end - columnBounds[column].start,
+        height: rowBounds[row].end - rowBounds[row].start
+      };
+      var children = draggableElementChildren(container);
+      for (var childIndex = 0; childIndex < children.length; childIndex += 1) {
+        var child = children[childIndex];
+        var childStyles = window.getComputedStyle(child);
+        if (childStyles.position === "absolute" || childStyles.position === "fixed") {
+          continue;
+        }
+        var childRect = child.getBoundingClientRect();
+        if (childRect.left < cell.left + cell.width && childRect.right > cell.left && // i18n-ignore non-user-facing pointer geometry condition
+        childRect.top < cell.top + cell.height && childRect.bottom > cell.top) {
+          return null;
+        }
+      }
+      var autoFlow = (styles.gridAutoFlow || "row").split(/\\s+/);
+      return {
+        anchor: container,
+        placement: "inside",
+        axis: autoFlow[0] === "column" ? "y" : "x",
+        dropMode: "flow-insert",
+        gridPlacement: {
+          column: column + 1,
+          columnEnd: column + 2,
+          row: row + 1,
+          rowEnd: row + 2
+        },
+        guideRect: cell
+      };
+    }
     function isAutoLayoutElement(el) {
       if (!el) return false;
       var cs = window.getComputedStyle(el);
@@ -419,6 +557,8 @@ export const hitTestBridgeScript: string = `"use strict";
       return parts.join(" > ");
     }
     function nearestChildInsertionTarget(container, clientX, clientY) {
+      var gridTarget = gridEmptyCellInsertionTarget(container, clientX, clientY);
+      if (gridTarget) return gridTarget;
       var children = draggableElementChildren(container);
       if (!children.length) return null;
       var wrappedFlexAxis = wrappedFlexMainAxis(container);
@@ -486,6 +626,12 @@ export const hitTestBridgeScript: string = `"use strict";
         if (isLayerInteractionBlocked(cursor)) return null;
         var parent = cursor.parentElement;
         if (parent && isAutoLayoutElement(parent)) {
+          var emptyGridCell = gridEmptyCellInsertionTarget(
+            parent,
+            clientX,
+            clientY
+          );
+          if (emptyGridCell) return emptyGridCell;
           if (isTransientCloneElement(cursor)) {
             var cloneFallback = nearestChildInsertionTarget(
               parent,
@@ -573,6 +719,12 @@ export const hitTestBridgeScript: string = `"use strict";
       var blockCursor = hit;
       while (blockCursor) {
         if (isContainerDropTarget(blockCursor)) {
+          var emptyContainerGridCell = gridEmptyCellInsertionTarget(
+            blockCursor,
+            clientX,
+            clientY
+          );
+          if (emptyContainerGridCell) return emptyContainerGridCell;
           return {
             anchor: blockCursor,
             placement: "inside",
@@ -627,13 +779,14 @@ export const hitTestBridgeScript: string = `"use strict";
         return;
       }
       var guide = ensureInsertionGuide();
-      var rect = target.anchor.getBoundingClientRect();
+      var anchorRect = target.anchor.getBoundingClientRect();
       guide.style.display = "block";
       guide.style.background = "var(--design-editor-accent-color)";
       guide.style.border = "0";
       guide.style.borderRadius = "999px";
       guide.style.boxShadow = "0 0 0 1px var(--design-editor-accent-color)";
       if (target.placement === "inside") {
+        var rect = target.guideRect || anchorRect;
         guide.style.left = rect.left + "px";
         guide.style.top = rect.top + "px";
         guide.style.width = rect.width + "px";
@@ -645,16 +798,16 @@ export const hitTestBridgeScript: string = `"use strict";
         return;
       }
       if (target.axis === "x") {
-        var x = target.placement === "before" ? rect.left : rect.right;
+        var x = target.placement === "before" ? anchorRect.left : anchorRect.right;
         guide.style.left = x + "px";
-        guide.style.top = rect.top + "px";
+        guide.style.top = anchorRect.top + "px";
         guide.style.width = "2px";
-        guide.style.height = rect.height + "px";
+        guide.style.height = anchorRect.height + "px";
       } else {
-        var y = target.placement === "before" ? rect.top : rect.bottom;
-        guide.style.left = rect.left + "px";
+        var y = target.placement === "before" ? anchorRect.top : anchorRect.bottom;
+        guide.style.left = anchorRect.left + "px";
         guide.style.top = y + "px";
-        guide.style.width = rect.width + "px";
+        guide.style.width = anchorRect.width + "px";
         guide.style.height = "2px";
       }
     }
@@ -932,13 +1085,15 @@ export const hitTestBridgeScript: string = `"use strict";
             placement,
             axis,
             dropMode,
+            gridPlacement: result ? result.gridPlacement : void 0,
             layerName: result ? layerNameForElement(result.anchor) || void 0 : void 0,
             anchorRect: anchorRect ? {
               left: anchorRect.left,
               top: anchorRect.top,
               width: anchorRect.width,
               height: anchorRect.height
-            } : void 0
+            } : void 0,
+            guideRect: result ? result.guideRect : void 0
           },
           "*"
         );

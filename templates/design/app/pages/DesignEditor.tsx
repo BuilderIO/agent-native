@@ -1122,6 +1122,7 @@ import {
   type PngCaptureScope,
 } from "./design-editor/png-export-render";
 import { openPreviewUrl } from "./design-editor/preview-navigation";
+import type { ReactGridPlacement } from "./design-editor/react-semantic-handoff";
 import {
   computeInteractZoomToFit,
   DEFAULT_INTERACT_DEVICE_PRESET,
@@ -15012,6 +15013,7 @@ function DesignEditor() {
       subjectLayerId: string,
       targetLayerId: string,
       placement: "before" | "after" | "inside",
+      gridPlacement?: ReactGridPlacement,
     ): boolean =>
       runSendRuntimeLayerMoveSemanticHandoff(
         {
@@ -15025,6 +15027,7 @@ function DesignEditor() {
         subjectLayerId,
         targetLayerId,
         placement,
+        gridPlacement,
       ),
     [overviewScreens, runtimeLayerSnapshotsById, t],
   );
@@ -15949,6 +15952,12 @@ function DesignEditor() {
       targetAnchorSelector?: string;
       targetAnchorPlacement?: "before" | "after" | "inside";
       targetDropMode?: "flow-insert" | "absolute-container";
+      targetGridPlacement?: {
+        column: number;
+        columnEnd: number;
+        row: number;
+        rowEnd: number;
+      };
       targetAnchorRect?: {
         left: number;
         top: number;
@@ -16268,6 +16277,7 @@ function DesignEditor() {
           remintCollidingNodeIds: request.remintCollidingNodeIds,
           requestId: details.requestId,
           transactionId: request.transactionId,
+          gridPlacement: request.gridPlacement,
         },
       );
       if (request.transactionId) {

@@ -27059,6 +27059,41 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         rejectInsert("html");
         return;
       }
+      var rawInsertGridPlacement = e.data.gridPlacement;
+      var insertGridPlacement =
+        rawInsertGridPlacement &&
+        Number.isInteger(rawInsertGridPlacement.column) &&
+        Number.isInteger(rawInsertGridPlacement.columnEnd) &&
+        Number.isInteger(rawInsertGridPlacement.row) &&
+        Number.isInteger(rawInsertGridPlacement.rowEnd) &&
+        rawInsertGridPlacement.column > 0 &&
+        rawInsertGridPlacement.row > 0 &&
+        rawInsertGridPlacement.columnEnd > rawInsertGridPlacement.column &&
+        rawInsertGridPlacement.rowEnd > rawInsertGridPlacement.row
+          ? {
+              column: rawInsertGridPlacement.column,
+              columnEnd: rawInsertGridPlacement.columnEnd,
+              row: rawInsertGridPlacement.row,
+              rowEnd: rawInsertGridPlacement.rowEnd,
+            }
+          : null;
+      if (
+        rawInsertGridPlacement &&
+        (!insertGridPlacement ||
+          insertPlacement !== "inside" ||
+          !["grid", "inline-grid"].includes(
+            window.getComputedStyle(insertAnchor).display,
+          ))
+      ) {
+        rejectInsert("grid-placement");
+        return;
+      }
+      if (insertGridPlacement) {
+        (parsedInsertEl as HTMLElement).style.gridColumn =
+          insertGridPlacement.column + " / " + insertGridPlacement.columnEnd;
+        (parsedInsertEl as HTMLElement).style.gridRow =
+          insertGridPlacement.row + " / " + insertGridPlacement.rowEnd;
+      }
       var insertNodeId = parsedInsertEl.getAttribute(
         "data-agent-native-node-id",
       );
@@ -27105,6 +27140,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           isAbsolutePrimitiveContainer(insertAnchor)
             ? "absolute-container"
             : "flow-insert",
+        gridPlacement: insertGridPlacement || undefined,
       };
       if (existingInsertEl) {
         if (existingInsertEl.contains(insertAnchor)) {

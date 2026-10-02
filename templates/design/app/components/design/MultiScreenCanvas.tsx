@@ -385,6 +385,7 @@ import {
   isCrossScreenDropAxis,
   isCrossScreenDropMode,
   isCrossScreenDropPlacement,
+  isCrossScreenGridPlacement,
   isCrossScreenHitTestAnchorRect,
   isFinitePoint,
   isPointerInsideSourceIframe,
@@ -2880,8 +2881,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             dropMode: isCrossScreenDropMode(ev.data.dropMode)
               ? ev.data.dropMode
               : undefined,
+            gridPlacement: isCrossScreenGridPlacement(ev.data.gridPlacement)
+              ? ev.data.gridPlacement
+              : undefined,
             anchorRect: isCrossScreenHitTestAnchorRect(ev.data.anchorRect)
               ? ev.data.anchorRect
+              : undefined,
+            guideRect: isCrossScreenHitTestAnchorRect(ev.data.guideRect)
+              ? ev.data.guideRect
               : undefined,
           };
           if (
@@ -3372,6 +3379,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             anchorSelector,
             placement,
             dropMode,
+            gridPlacement,
             anchorRect,
           }) => {
             if (!isCurrentDrop()) {
@@ -3401,6 +3409,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               targetAnchorSelector: anchorSelector,
               targetAnchorPlacement: placement,
               targetDropMode: dropMode,
+              targetGridPlacement: gridPlacement,
               targetAnchorRect: anchorRect,
               targetCanvasPoint: lastBoardPoint,
               targetLocalPoint:
@@ -3494,6 +3503,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           anchorSelector,
           placement,
           dropMode,
+          gridPlacement,
           anchorRect,
         }) => {
           if (!isCurrentDrop()) {
@@ -3524,6 +3534,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             targetAnchorSelector: anchorSelector,
             targetAnchorPlacement,
             targetDropMode: dropMode,
+            targetGridPlacement: gridPlacement,
             targetAnchorRect: anchorRect,
             targetCanvasPoint: lastBoardPoint,
             targetLocalPoint: targetLocalPoint ?? undefined,

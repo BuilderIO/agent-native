@@ -190,3 +190,72 @@ describe("Screen-root auto-layout hit testing", () => {
     }
   });
 });
+
+describe("grid hit-test placement", () => {
+  it("returns the empty grid cell separately from the parent anchor rect", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 640, height: 480 },
+      });
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="grid" data-agent-native-node-id="grid" style="position:absolute;left:20px;top:10px;box-sizing:border-box;border:4px solid;padding:20px 30px;display:grid;width:420px;height:300px;grid-template-columns:80px 80px 80px;grid-template-rows:60px 60px;column-gap:20px;row-gap:12px;justify-content:space-between;align-content:center">
+          <div data-agent-native-node-id="first" style="grid-column:1;grid-row:1"></div>
+          <div data-agent-native-node-id="second" style="grid-column:2;grid-row:1"></div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "grid-empty-cell",
+            x: 366,
+            y: 196,
+            preview: true,
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+
+      const packet = await page.evaluate(
+        () => (window as any).__hitTestResults[0],
+      );
+      expect(packet).toMatchObject({
+        anchorNodeId: "grid",
+        placement: "inside",
+        dropMode: "flow-insert",
+        gridPlacement: { column: 3, columnEnd: 4, row: 2, rowEnd: 3 },
+        anchorRect: { left: 20, top: 10, width: 420, height: 300 },
+        guideRect: { left: 326, top: 166, width: 80, height: 60 },
+      });
+      expect(
+        await page
+          .locator("[data-agent-native-hit-test-preview]")
+          .evaluate((element) => {
+            const rect = element.getBoundingClientRect();
+            return {
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              height: rect.height,
+            };
+          }),
+      ).toEqual({ left: 326, top: 166, width: 80, height: 60 });
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  });
+});

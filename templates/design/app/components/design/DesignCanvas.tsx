@@ -6160,6 +6160,7 @@ export function DesignCanvas({
         anchorSourceId,
         anchorPendingNodeId: runtimeStructureInsertRequest.anchor.pendingNodeId,
         placement: runtimeStructureInsertRequest.placement,
+        gridPlacement: runtimeStructureInsertRequest.gridPlacement,
         ...(runtimeStructureInsertRequest.replaceAnchor === true && index === 0
           ? { replaceAnchor: true }
           : {}),

@@ -28,6 +28,7 @@ import {
 import {
   getCrossScreenDropGuideForHitTest,
   getCrossScreenDropGuideStyle,
+  isCrossScreenGridPlacement,
 } from "./multi-screen/cross-screen-drop";
 import {
   draftPrimitiveToInsert,
@@ -760,6 +761,43 @@ describe("getCrossScreenDropGuideForHitTest", () => {
         targetMetadata: { width: 320, height: 640 },
       }),
     ).toBeNull();
+  });
+
+  it("uses the grid-cell rect for feedback while preserving a separate parent rect", () => {
+    const guide = getCrossScreenDropGuideForHitTest({
+      hit: {
+        placement: "inside",
+        axis: "x",
+        anchorRect: { left: 0, top: 0, width: 300, height: 200 },
+        guideRect: { left: 200, top: 100, width: 100, height: 100 },
+        gridPlacement: { column: 3, columnEnd: 4, row: 2, rowEnd: 3 },
+      },
+      targetGeometry: makeGeom(0, 0, 300, 200),
+      targetMetadata: { width: 300, height: 200 },
+    });
+
+    expect(guide?.boardRect).toEqual({
+      x: 200,
+      y: 100,
+      width: 100,
+      height: 100,
+    });
+    expect(
+      isCrossScreenGridPlacement({
+        column: 3,
+        columnEnd: 4,
+        row: 2,
+        rowEnd: 3,
+      }),
+    ).toBe(true);
+    expect(
+      isCrossScreenGridPlacement({
+        column: 0,
+        columnEnd: 4,
+        row: 2,
+        rowEnd: 3,
+      }),
+    ).toBe(false);
   });
 
   it("maps and rotates guides with their target screen", () => {
