@@ -386,10 +386,24 @@ describe("server/sentry", () => {
         "EXPLAIN EXECUTE",
         "EXPLAIN (ANALYZE, FORMAT JSON) EXECUTE prepared_lookup($1)",
       ],
+      [
+        "EXPLAIN ANALYZE FALSE",
+        "EXPLAIN ANALYZE FALSE SELECT email FROM users WHERE email = $1",
+      ],
+      [
+        "EXPLAIN COSTS OFF",
+        "EXPLAIN COSTS OFF SELECT email FROM users WHERE email = $1",
+      ],
+      ["CALL with a Unicode name", "CALL procéss_user($1)"],
+      ["CALL with a quoted name", 'CALL "process user"($1)'],
       ["COPY", "COPY (SELECT email FROM users WHERE email = $1) TO STDOUT"],
       [
         "DECLARE CURSOR",
         "DECLARE customer_cursor CURSOR FOR SELECT email FROM users WHERE email = $1",
+      ],
+      [
+        "DECLARE NO SCROLL CURSOR",
+        "DECLARE customer_cursor NO SCROLL CURSOR FOR SELECT email FROM users WHERE email = $1",
       ],
     ])(
       "redacts parameterized PostgreSQL %s statements",

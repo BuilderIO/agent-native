@@ -152,18 +152,22 @@ describe("tracking captureException", () => {
     expect(event.properties.exceptionStack).not.toContain(privateValue);
   });
 
-  it("redacts PostgreSQL CALL bind parameters", () => {
+  it.each([
+    ["ASCII procedure", "CALL process_user($1)"],
+    ["Unicode procedure", "CALL procéss_user($1)"],
+    ["quoted procedure", 'CALL "process user"($1)'],
+  ])("redacts PostgreSQL CALL bind parameters for a %s", (_label, query) => {
     const track = vi.fn();
     registerTrackingProvider({ name: "qa-exception", track });
 
     const privateValue = "private customer value";
     captureException(
-      new Error(`Failed query: CALL process_user($1)\nparams: ${privateValue}`),
+      new Error(`Failed query: ${query}\nparams: ${privateValue}`),
     );
 
     const [event] = track.mock.calls[0];
     expect(event.properties.exceptionMessage).toContain(
-      "Failed query: CALL process_user($1)",
+      `Failed query: ${query}`,
     );
     expect(event.properties.exceptionMessage).not.toContain(privateValue);
     expect(event.properties.exceptionStack).not.toContain(privateValue);
@@ -250,8 +254,20 @@ describe("tracking captureException", () => {
     ["EXECUTE", "EXECUTE prepared_statement($1)"],
     ["COPY", "COPY (SELECT email FROM users WHERE email = $1) TO STDOUT"],
     [
+      "EXPLAIN ANALYZE FALSE",
+      "EXPLAIN ANALYZE FALSE SELECT email FROM users WHERE email = $1",
+    ],
+    [
+      "EXPLAIN COSTS OFF",
+      "EXPLAIN COSTS OFF SELECT email FROM users WHERE email = $1",
+    ],
+    [
       "DECLARE CURSOR",
       "DECLARE customer_cursor CURSOR FOR SELECT email FROM users WHERE email = $1",
+    ],
+    [
+      "DECLARE NO SCROLL CURSOR",
+      "DECLARE customer_cursor NO SCROLL CURSOR FOR SELECT email FROM users WHERE email = $1",
     ],
   ])("redacts PostgreSQL %s bind parameters", (_statement, query) => {
     const track = vi.fn();

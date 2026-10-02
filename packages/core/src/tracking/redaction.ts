@@ -13,8 +13,16 @@ const SQL_CTE_QUERY_RE =
   /^(?:select|insert|update|delete|merge|values|with|table)\b/i;
 const SQL_CTE_IDENTIFIER = String.raw`(?:[uU]&"(?:[^"]|"")*"|"(?:[^"]|"")+"|[_\p{ID_Start}][$\p{ID_Continue}]*)`;
 const SQL_CTE_IDENTIFIER_RE = new RegExp(`^${SQL_CTE_IDENTIFIER}`, "iu");
+const SQL_CALL_TARGET_RE = new RegExp(
+  `^${SQL_CTE_IDENTIFIER}(?:\\s*\\.\\s*${SQL_CTE_IDENTIFIER})*\\s*\\(`,
+  "iu",
+);
 const SQL_UPDATE_STATEMENT_RE = new RegExp(
   `^(?:only\\s+)?${SQL_CTE_IDENTIFIER}(?:\\s*\\.\\s*${SQL_CTE_IDENTIFIER})*\\s*\\*?(?:\\s+(?:as\\s+)?${SQL_CTE_IDENTIFIER})?\\s+set\\b`,
+  "iu",
+);
+const SQL_DECLARE_CURSOR_RE = new RegExp(
+  `^${SQL_CTE_IDENTIFIER}(?:\\s+binary)?(?:\\s+insensitive)?(?:\\s+(?:no\\s+)?scroll)?\\s+cursor\\b`,
   "iu",
 );
 const SQL_DOLLAR_QUOTE_RE =
@@ -480,13 +488,13 @@ function hasSqlStatementStructure(statement: string): boolean {
     case "values":
       return /^\s*\(/u.test(body);
     case "call":
-      return /^[\w.$"]+\s*\(/u.test(body);
+      return SQL_CALL_TARGET_RE.test(body);
     case "execute":
       return /^[\w.$"]+(?:\s*\(|\s+using\b)/iu.test(body);
     case "copy":
       return /\b(?:from|to)\b/i.test(body);
     case "declare":
-      return /^[^\s]+\s+cursor\b/i.test(body) && /\bfor\b/i.test(body);
+      return SQL_DECLARE_CURSOR_RE.test(body) && /\bfor\b/i.test(body);
     case "explain": {
       let statement = afterLeadingSqlComments(body);
       if (statement.startsWith("(")) {
@@ -495,11 +503,30 @@ function hasSqlStatementStructure(statement: string): boolean {
         statement = afterLeadingSqlComments(afterOptions);
       } else {
         while (true) {
-          const option = /^(?:analyze|verbose)\b/i.exec(statement);
+          const option =
+            /^(?:analyze|verbose|costs|settings|buffers|wal|timing|summary|format)\b/i.exec(
+              statement,
+            );
           if (!option) break;
           statement = afterLeadingSqlComments(
             statement.slice(option[0].length),
           );
+          if (option[0].toLowerCase() === "format") {
+            const format = /^(?:text|xml|json|yaml)\b/i.exec(statement);
+            if (!format) return false;
+            statement = afterLeadingSqlComments(
+              statement.slice(format[0].length),
+            );
+          } else {
+            const boolean = /^(?:true|false|yes|no|on|off|1|0)\b/i.exec(
+              statement,
+            );
+            if (boolean) {
+              statement = afterLeadingSqlComments(
+                statement.slice(boolean[0].length),
+              );
+            }
+          }
         }
       }
 
