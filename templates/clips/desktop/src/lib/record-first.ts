@@ -36,9 +36,16 @@ export function recordFirstFilesKey(
   return `clips-record-first-files:${serverOrigin}|${account ? account.toLowerCase() : "unclaimed"}`;
 }
 
-/** A failure that means the file itself is gone, so retrying cannot help. */
-export function isMissingRecordFirstFile(message: string): boolean {
-  return /not found|no such file|os error 2|does not exist/i.test(message);
+/**
+ * The saved file itself is gone, so retrying cannot help. Thrown only after
+ * the file system confirms the path no longer exists, never inferred from an
+ * error message (a server's "Not Found" is not a missing file).
+ */
+export class RecordFirstFileMissingError extends Error {
+  constructor(fileName: string) {
+    super(`${fileName} is no longer in Movies/Clips.`);
+    this.name = "RecordFirstFileMissingError";
+  }
 }
 
 /** Absent is an empty list; an unreadable list throws instead of hiding files. */
@@ -55,68 +62,93 @@ export function loadRecordFirstFiles(
   return parsed as RecordFirstFile[];
 }
 
+/**
+ * A stored list that cannot be read is never overwritten: its raw value is
+ * set aside under its own key first, so the files it names stay findable.
+ */
 export function saveRecordFirstFiles(
-  storage: Pick<Storage, "setItem" | "removeItem">,
+  storage: Pick<Storage, "getItem" | "setItem" | "removeItem">,
   key: string,
   files: RecordFirstFile[],
+  nowMs = Date.now(),
 ): void {
+  try {
+    loadRecordFirstFiles(storage, key);
+  } catch {
+    const raw = storage.getItem(key);
+    if (raw !== null) storage.setItem(`${key}:unreadable:${nowMs}`, raw);
+  }
   if (files.length === 0) storage.removeItem(key);
   else storage.setItem(key, JSON.stringify(files));
 }
 
+export interface RecordFirstChunk {
+  recordingId: string;
+  index: number;
+  blob: Blob;
+  bytes: number;
+  mimeType: string;
+  createdAt: string;
+}
+
 /**
- * A record-first file in the desktop backup store's shape, so the existing
- * pending-upload retry path uploads it into its new server row.
+ * Copy a record-first file into the desktop backup store's shape, so the
+ * existing pending-upload retry path uploads it into its new server row. The
+ * file is read one slice at a time, so memory holds a single slice however
+ * long the recording is.
  */
-export function recordFirstBackup(input: {
+export async function stageRecordFirstFile(input: {
   recordingId: string;
   serverUrl: string;
   file: RecordFirstFile;
-  bytes: Uint8Array;
+  /** Reads into `buffer`; resolves to the bytes read, or null at the end. */
+  read: (buffer: Uint8Array) => Promise<number | null>;
+  putChunk: (chunk: RecordFirstChunk) => Promise<void>;
   chunkBytes: number;
   now?: Date;
-}): {
-  meta: Omit<PendingBrowserRecordingUpload, "kind">;
-  chunks: Array<{
-    recordingId: string;
-    index: number;
-    blob: Blob;
-    bytes: number;
-    mimeType: string;
-    createdAt: string;
-  }>;
-} {
-  const { recordingId, file, bytes, chunkBytes } = input;
+}): Promise<Omit<PendingBrowserRecordingUpload, "kind">> {
+  const { recordingId, file, chunkBytes } = input;
   const createdAt = (input.now ?? new Date()).toISOString();
-  const chunks = [];
-  for (let start = 0; start < bytes.byteLength; start += chunkBytes) {
-    const slice = bytes.slice(start, start + chunkBytes);
-    chunks.push({
-      recordingId,
-      index: chunks.length,
-      blob: new Blob([slice], { type: file.mimeType }),
-      bytes: slice.byteLength,
-      mimeType: file.mimeType,
-      createdAt,
-    });
+  let bytes = 0;
+  let chunkCount = 0;
+  for (;;) {
+    const buffer = new Uint8Array(chunkBytes);
+    let filled = 0;
+    // A read may return fewer bytes than asked for before the end.
+    while (filled < chunkBytes) {
+      const read = await input.read(buffer.subarray(filled));
+      if (!read) break;
+      filled += read;
+    }
+    if (filled > 0) {
+      await input.putChunk({
+        recordingId,
+        index: chunkCount,
+        blob: new Blob([buffer.subarray(0, filled)], { type: file.mimeType }),
+        bytes: filled,
+        mimeType: file.mimeType,
+        createdAt,
+      });
+      bytes += filled;
+      chunkCount += 1;
+    }
+    if (filled < chunkBytes) break;
   }
+  if (bytes === 0) throw new Error(`${file.fileName} is empty`);
   return {
-    meta: {
-      recordingId,
-      serverUrl: input.serverUrl.replace(/\/+$/, ""),
-      durationMs: file.durationMs,
-      width: file.width ?? null,
-      height: file.height ?? null,
-      bytes: bytes.byteLength,
-      hasAudio: file.hasAudio,
-      hasCamera: file.hasCamera,
-      savedAt: file.savedAt,
-      lastAttemptAt: null,
-      lastError: null,
-      retryCount: 0,
-      chunkCount: chunks.length,
-      mimeType: file.mimeType,
-    },
-    chunks,
+    recordingId,
+    serverUrl: input.serverUrl.replace(/\/+$/, ""),
+    durationMs: file.durationMs,
+    width: file.width ?? null,
+    height: file.height ?? null,
+    bytes,
+    hasAudio: file.hasAudio,
+    hasCamera: file.hasCamera,
+    savedAt: file.savedAt,
+    lastAttemptAt: null,
+    lastError: null,
+    retryCount: 0,
+    chunkCount,
+    mimeType: file.mimeType,
   };
 }

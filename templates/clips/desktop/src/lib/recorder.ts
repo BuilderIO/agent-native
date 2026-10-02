@@ -31,7 +31,11 @@ import {
   type PauseTransitionQueue,
 } from "./pause-transition";
 import { reconcileProcessingBackup } from "./processing-backup-recovery";
-import { recordFirstBackup, type RecordFirstFile } from "./record-first";
+import {
+  RecordFirstFileMissingError,
+  stageRecordFirstFile,
+  type RecordFirstFile,
+} from "./record-first";
 import { RECORDER_DISCARD_EVENT } from "./recorder-events";
 import {
   buildCreateRecordingRequestHeaders,
@@ -92,7 +96,7 @@ const NATIVE_FULLSCREEN_SEGMENT_MS = 5 * 60_000;
 const NATIVE_FULLSCREEN_MIME_TYPE = "video/mp4";
 const MEDIA_RECORDER_STOP_TIMEOUT_MS = 15_000;
 const GCS_CHUNK_ALIGN_BYTES = 256 * 1024;
-const STREAM_CHUNK_BYTES = 15 * GCS_CHUNK_ALIGN_BYTES;
+export const STREAM_CHUNK_BYTES = 15 * GCS_CHUNK_ALIGN_BYTES;
 
 type UploadMode = "streaming" | "buffered";
 const CLOUD_CAPTURE_FRAME_RATE = 24;
@@ -1300,12 +1304,11 @@ async function replayBrowserBackupToResumableSession(
 
 /**
  * Hand a recording saved to Movies/Clips before storage existed to the
- * pending-upload path: create its server row and copy the file into the
- * backup store, so `retryBrowserRecordingBackup` and the recovery list upload
- * it. The file on disk is never modified or removed.
- *
- * ponytail: reads the whole file into memory once; stream it in slices if
- * record-first files grow past a few hundred MB.
+ * pending-upload path: create its server row and copy the file, one slice at
+ * a time, into the backup store, so `retryBrowserRecordingBackup` and the
+ * recovery list upload it. The file on disk is never modified or removed. If
+ * the copy cannot be staged, the partial copy and the new row are cleaned up
+ * so a retry starts fresh instead of leaving a row stuck uploading.
  */
 export async function queueRecordFirstUpload(input: {
   serverUrl: string;
@@ -1314,33 +1317,68 @@ export async function queueRecordFirstUpload(input: {
   ownerEmail: string;
   file: RecordFirstFile;
 }): Promise<PendingBrowserRecordingUpload> {
-  const { readFile } = await import("@tauri-apps/plugin-fs");
-  const bytes = await readFile(input.file.path);
-  if (bytes.byteLength === 0) {
-    throw new Error(`${input.file.fileName} is empty`);
+  const { exists, open } = await import("@tauri-apps/plugin-fs");
+  let handle: Awaited<ReturnType<typeof open>>;
+  try {
+    handle = await open(input.file.path, { read: true });
+  } catch (err) {
+    // coercion-ok: if the check itself fails the file is treated as present, so it is never dropped from the list.
+    const present = await exists(input.file.path).catch(() => true);
+    if (!present) throw new RecordFirstFileMissingError(input.file.fileName);
+    throw err;
   }
-  const created = await createServerRecording(
-    input.serverUrl,
-    input.file.hasCamera,
-    input.file.hasAudio,
-    undefined,
-    {
-      authToken: input.authToken,
-      mimeType: input.file.mimeType,
-      requestStreaming: true,
-      expectedOwnerEmail: input.ownerEmail,
-    },
-  );
-  const { meta, chunks } = recordFirstBackup({
-    recordingId: created.id,
-    serverUrl: input.serverUrl,
-    file: input.file,
-    bytes,
-    chunkBytes: STREAM_CHUNK_BYTES,
-  });
-  for (const chunk of chunks) await putBrowserRecordingBackupChunk(chunk);
-  await putBrowserRecordingBackupMeta(meta);
-  return { ...meta, kind: "browser" };
+  try {
+    if ((await handle.stat()).size === 0) {
+      throw new Error(`${input.file.fileName} is empty`);
+    }
+    const created = await createServerRecording(
+      input.serverUrl,
+      input.file.hasCamera,
+      input.file.hasAudio,
+      undefined,
+      {
+        authToken: input.authToken,
+        mimeType: input.file.mimeType,
+        requestStreaming: true,
+        expectedOwnerEmail: input.ownerEmail,
+      },
+    );
+    try {
+      const meta = await stageRecordFirstFile({
+        recordingId: created.id,
+        serverUrl: input.serverUrl,
+        file: input.file,
+        read: (buffer) => handle.read(buffer),
+        putChunk: putBrowserRecordingBackupChunk,
+        chunkBytes: STREAM_CHUNK_BYTES,
+      });
+      await putBrowserRecordingBackupMeta(meta);
+      return { ...meta, kind: "browser" };
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      await deleteBrowserRecordingBackup(created.id).catch((cleanupErr) => {
+        console.warn(
+          "[clips-recorder] removing a partly staged copy failed:",
+          cleanupErr,
+        );
+      });
+      await abortRecordingUpload(
+        input.serverUrl,
+        created.id,
+        `Could not queue the saved recording: ${reason}`,
+        "upload_aborted",
+        undefined,
+        undefined,
+        input.authToken,
+      );
+      await trashRecording(input.serverUrl, created.id, input.authToken);
+      throw err;
+    }
+  } finally {
+    await handle.close().catch((err) => {
+      console.warn("[clips-recorder] closing the saved recording failed:", err);
+    });
+  }
 }
 
 export async function retryBrowserRecordingBackup(input: {
@@ -4128,8 +4166,10 @@ export async function startRecording(
       signal: params.signal,
       timeoutMs: RECORDING_START_TIMEOUT_MS,
       onCancel: cancelStartup,
+      // Capture has already begun when a start resolves this late: keep what
+      // it recorded. Only a confirmed discard deletes a recording.
       onLateResolve: (handle) => {
-        void handle.cancel().catch((err) => {
+        void handle.stop().catch((err) => {
           console.warn("[clips-recorder] late start cleanup failed:", err);
         });
       },
@@ -5569,8 +5609,10 @@ async function startRecordingInner(
       },
     };
 
+    // Capture has begun by now, so an aborted startup (a timeout, a closed
+    // window) stops and keeps the take. Only a confirmed discard deletes it.
     const cancelOnStartupAbort = () => {
-      void handle?.cancel().catch((err) => {
+      void handle?.stop().catch((err) => {
         console.error("[clips-recorder] startup cancellation failed:", err);
       });
     };

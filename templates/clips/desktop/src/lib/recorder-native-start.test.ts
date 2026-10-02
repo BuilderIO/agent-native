@@ -1174,4 +1174,65 @@ describe("browser recording startup cancellation", () => {
       ),
     ).toBe(false);
   });
+
+  it("keeps the take when startup is abandoned after capture began", async () => {
+    useBrowserCameraCapture();
+    installRecordingBackupStore();
+    emitStopChunk = true;
+    const cue = deferred<void>();
+    const transcription = deferred<TranscriptionCapture>();
+    const audioCue = {
+      playBeforeCapture: vi.fn(async () => cue.promise),
+      cleanup: vi.fn(),
+    };
+    mocks.transcribe.mockReturnValueOnce(transcription.promise);
+    const controller = new AbortController();
+    const pending = startRecording(
+      {
+        ...params,
+        mode: "camera",
+        cameraOn: true,
+        systemAudioOn: false,
+        signal: controller.signal,
+      },
+      audioCue,
+    );
+    const failed = expect(pending).rejects.toMatchObject({
+      name: "AbortError",
+    });
+
+    await reachCue(audioCue.playBeforeCapture);
+    cue.resolve();
+    await flush();
+    expect(mediaRecorderStart).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(100);
+    const id = createdRecordingId();
+
+    // A start abandoned this late (a timeout, a closed window) must not
+    // discard what was already recorded.
+    controller.abort();
+    await failed;
+    transcription.resolve(capture());
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flush();
+
+    const uploads = fetchMock.mock.calls.map(([url, init]) => ({
+      url: String(url),
+      body: String(init?.body ?? ""),
+    }));
+    expect(
+      uploads.some(
+        ({ url }) =>
+          url.includes(`/api/uploads/${id}/chunk?`) &&
+          new URL(url).searchParams.get("isFinal") === "1",
+      ),
+    ).toBe(true);
+    expect(
+      uploads.some(
+        ({ url, body }) =>
+          url.includes(`/api/uploads/${id}/abort`) &&
+          body.includes("user_cancelled"),
+      ),
+    ).toBe(false);
+  });
 });

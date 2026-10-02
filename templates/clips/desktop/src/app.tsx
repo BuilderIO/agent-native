@@ -134,8 +134,8 @@ import {
 import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
 import {
   effectiveLocalRecordingMode,
-  isMissingRecordFirstFile,
   loadRecordFirstFiles,
+  RecordFirstFileMissingError,
   recordFirstFilesKey,
   saveRecordFirstFiles,
   type RecordFirstFile,
@@ -1189,6 +1189,7 @@ export function App({
   const [activeMeetingId, setActiveMeetingId] = useState<string | null>(null);
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
   const recordingStartAttemptRef = useRef<RecordingStartAttempt | null>(null);
+  const captureStartedDuringStartRef = useRef(false);
   const [recordingStartPending, setRecordingStartPending] = useState(false);
   const [recError, setRecError] = useState<string | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -3019,7 +3020,7 @@ export function App({
   >([]);
   const [recordFirstError, setRecordFirstError] = useState<string | null>(null);
   const [recordFirstFileErrors, setRecordFirstFileErrors] = useState<
-    Record<string, string>
+    Record<string, { message: string; missing: boolean }>
   >({});
   const [recordFirstUploading, setRecordFirstUploading] = useState(false);
   useEffect(() => {
@@ -3343,7 +3344,10 @@ export function App({
           const message = err instanceof Error ? err.message : String(err);
           setRecordFirstFileErrors((errors) => ({
             ...errors,
-            [file.path]: message,
+            [file.path]: {
+              message,
+              missing: err instanceof RecordFirstFileMissingError,
+            },
           }));
           continue;
         }
@@ -3642,6 +3646,7 @@ export function App({
     const startAttemptId = crypto.randomUUID();
     recoverySessionId.current = startAttemptId;
     recordingStartAttemptRef.current = attempt;
+    captureStartedDuringStartRef.current = false;
     recordingFlowGateRef.current = true;
     setRecordingStartPending(true);
     let handle: RecorderHandle | null = null;
@@ -3712,6 +3717,9 @@ export function App({
           signal: attempt.signal,
           onCaptureStartRequested: (recordingId) => {
             captureStartRequestedDuringStart = true;
+            if (recordingStartAttemptRef.current === attempt) {
+              captureStartedDuringStartRef.current = true;
+            }
             sessionRecordingIdRef.current = recordingId;
           },
         },
@@ -3730,12 +3738,16 @@ export function App({
         }, 250);
       }
       const started = await recordingPromise;
-      if (attempt.signal.aborted) {
+      if (attempt.signal.aborted && !captureStartRequestedDuringStart) {
         await boundedCleanup(started.cancel());
         attempt.ensureActive();
       }
       attempt.captureSuspension = null;
-      if (stopRequestedDuringStart && captureStartRequestedDuringStart) {
+      // Capture already began: an abandoned start stops and keeps the take.
+      if (
+        (stopRequestedDuringStart || attempt.signal.aborted) &&
+        captureStartRequestedDuringStart
+      ) {
         stoppedDuringStart = true;
         await finishRecordingStopRef.current(
           started,
@@ -3784,6 +3796,7 @@ export function App({
       }
       if (recordingStartAttemptRef.current === attempt) {
         recordingStartAttemptRef.current = null;
+        captureStartedDuringStartRef.current = false;
         setRecordingStartPending(false);
       }
     }
@@ -3853,6 +3866,8 @@ export function App({
     let cancelled = false;
     const unlisteners: Array<() => void> = [];
     const cancelStart = () => {
+      // Once capture has begun only the pill's confirmed discard deletes it.
+      if (captureStartedDuringStartRef.current) return;
       if (restartInFlightRef.current) restartCancelledRef.current = true;
       recordingStartAttemptRef.current?.cancel();
     };
@@ -4737,7 +4752,7 @@ export function App({
               ...unclaimedRecordFirstFiles,
             ].flatMap((file) =>
               recordFirstFileErrors[file.path]
-                ? [{ file, message: recordFirstFileErrors[file.path]! }]
+                ? [{ file, ...recordFirstFileErrors[file.path]! }]
                 : [],
             )}
             onUpload={() =>
@@ -4965,7 +4980,11 @@ function RecordFirstUploadsBanner({
   signedIn: boolean;
   uploading: boolean;
   error: string | null;
-  failedFiles: Array<{ file: RecordFirstFile; message: string }>;
+  failedFiles: Array<{
+    file: RecordFirstFile;
+    message: string;
+    missing: boolean;
+  }>;
   onUpload: () => void;
   onForget: (path: string) => void;
 }) {
@@ -5002,10 +5021,10 @@ function RecordFirstUploadsBanner({
           </button>
         ) : null}
       </div>
-      {failedFiles.map(({ file, message }) => (
+      {failedFiles.map(({ file, message, missing }) => (
         <div key={file.path} className="error-banner" role="alert">
           {file.fileName}: {message}
-          {isMissingRecordFirstFile(message) ? (
+          {missing ? (
             <button
               type="button"
               className="storage-flow-connect"
