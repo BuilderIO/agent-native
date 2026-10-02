@@ -25,6 +25,9 @@ import {
   type ValidatorResult,
 } from "./register.js";
 
+// Timeout, too-early and rate-limit answers say nothing about the key.
+const TRANSIENT_STATUSES = new Set([408, 425, 429]);
+
 /**
  * Reads a provider's answer to a key check. Only an authentication refusal
  * means the key is wrong; a rate limit or provider outage says nothing about
@@ -36,7 +39,7 @@ export async function providerKeyCheckResult(
   options: { acceptForbidden?: (body: string) => boolean } = {},
 ): Promise<ValidatorResult> {
   if (response.ok) return { ok: true };
-  if (response.status === 429 || response.status >= 500) {
+  if (TRANSIENT_STATUSES.has(response.status) || response.status >= 500) {
     return {
       ok: false,
       retryable: true,

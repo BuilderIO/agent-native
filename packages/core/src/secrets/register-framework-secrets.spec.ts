@@ -127,6 +127,24 @@ describe("framework secret registrations", () => {
     });
   });
 
+  it.each([408, 425, 429])(
+    "reports a transient %i during the key check as retryable instead of a rejected key",
+    async (status) => {
+      registerFrameworkSecrets();
+      const openai = getRequiredSecret("OPENAI_API_KEY");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(new Response(null, { status })),
+      );
+
+      await expect(openai?.validator?.("<OPENAI_API_KEY>")).resolves.toEqual({
+        ok: false,
+        retryable: true,
+        error: `OpenAI could not verify the key right now (HTTP ${status}). Try again in a moment.`,
+      });
+    },
+  );
+
   it("reports a provider outage during the key check as retryable", async () => {
     registerFrameworkSecrets();
     const openai = getRequiredSecret("OPENAI_API_KEY");
