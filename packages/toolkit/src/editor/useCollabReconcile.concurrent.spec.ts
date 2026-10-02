@@ -858,6 +858,43 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     }
   });
 
+  it("does not adopt a lagging snapshot over a live doc that holds text the snapshot lacks", async () => {
+    const harness = makePeerReconcileHarness();
+    vi.useFakeTimers();
+    try {
+      act(() => root.render(React.createElement(harness.Harness)));
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      act(() => {
+        harness.awareness
+          .getStates()
+          .set(1, { user: { name: "Lead peer" }, visible: true });
+        harness.awareness.emit("change", [
+          { added: [1], updated: [], removed: [] },
+          "remote",
+        ]);
+      });
+      // This client's typing (and a peer's, merged through Yjs) is already in
+      // the live doc; the snapshot is a peer's save that predates it.
+      act(() => {
+        harness.editor().commands.setContent("original body typed here", {
+          emitUpdate: false,
+        });
+      });
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            value: "peer save",
+            revision: "revision-2",
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(10_000));
+      expect(harness.markdown()).toBe("original body typed here");
+    } finally {
+      harness.dispose();
+    }
+  });
+
   it.each([false, true])(
     "adopts an accepted canonical revision during repeated renders (fresh callbacks: %s)",
     async (freshCallbacks) => {

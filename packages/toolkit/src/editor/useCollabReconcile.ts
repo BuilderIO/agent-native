@@ -788,6 +788,13 @@ export function useCollabReconcile({
           retry = setTimeout(() => apply(deferred), leadRemaining);
           return;
         }
+        // A live doc that moved on since the last snapshot holds typing the
+        // snapshot predates (a peer's save lags the Yjs state); adopting it
+        // would delete that text for every peer. SQL catches up on the next save.
+        if (!editorUnchangedSinceApply) {
+          peerWait.leadDeadline = null;
+          return;
+        }
       }
 
       if (typingRecently) {
