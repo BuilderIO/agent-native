@@ -59,14 +59,35 @@ function setRecordAssetQueryParam(
 async function assertOk(res: Response, label: string): Promise<void> {
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`${label} (${res.status}): ${body || res.statusText}`);
+    throw Object.assign(
+      new Error(`${label} (${res.status}): ${body || res.statusText}`),
+      { status: res.status },
+    );
+  }
+}
+
+type AssetAuthorization = { authorization: string; apiKey?: string };
+
+/**
+ * Run a Builder asset API call, and on a 401 refresh the OAuth access token
+ * once and retry. A token can be revoked or rotated before its stated
+ * expiry; only a second 401 means the connection itself needs reconnecting.
+ */
+async function withAssetAuthorization<T>(
+  run: (auth: AssetAuthorization) => Promise<T>,
+  auth?: AssetAuthorization,
+): Promise<T> {
+  try {
+    return await run(auth ?? (await assetAuthorization()));
+  } catch (error) {
+    if ((error as { status?: unknown } | null)?.status !== 401) throw error;
+    return run(await assetAuthorization({ forceRefresh: true }));
   }
 }
 
 async function uploadLargeFileViaSignedUrl(
   input: FileUploadInput,
-  authorization: string,
-  apiKey: string | undefined,
+  auth: AssetAuthorization,
   bareMimeType: string,
   bytes: Uint8Array,
 ): Promise<FileUploadResult> {
@@ -78,12 +99,16 @@ async function uploadLargeFileViaSignedUrl(
   );
 
   console.log(`[builder-upload] step 1: requesting signed URL`);
-  const { uploadUrl, assetId, requiredHeaders } = await requestBuilderSignedUrl(
-    authorization,
-    apiKey,
-    name,
-    bareMimeType,
-    bytes.byteLength,
+  const { uploadUrl, assetId, requiredHeaders } = await withAssetAuthorization(
+    ({ authorization, apiKey }) =>
+      requestBuilderSignedUrl(
+        authorization,
+        apiKey,
+        name,
+        bareMimeType,
+        bytes.byteLength,
+      ),
+    auth,
   );
   console.log(`[builder-upload] step 1 ok: assetId=${assetId}`);
 
@@ -101,15 +126,13 @@ async function uploadLargeFileViaSignedUrl(
   console.log(
     `[builder-upload] step 3: registering asset - ${assetId}, ${input.filename}`,
   );
-  const { url, id } = await completeBuilderUpload(
-    authorization,
-    apiKey,
-    assetId,
-    input.filename,
-    {
-      stableUrl: input.stableUrl,
-      recordAsset: input.recordAsset,
-    },
+  const { url, id } = await withAssetAuthorization(
+    ({ authorization, apiKey }) =>
+      completeBuilderUpload(authorization, apiKey, assetId, input.filename, {
+        stableUrl: input.stableUrl,
+        recordAsset: input.recordAsset,
+      }),
+    auth,
   );
   console.log(`[builder-upload] done [${assetId}]: ${url}`);
   return { url, id, provider: "builder" };
@@ -224,16 +247,16 @@ async function uploadSmallFile(url: URL, init: RequestInit): Promise<Response> {
   );
 }
 
-async function assetAuthorization(): Promise<{
-  authorization: string;
-  apiKey?: string;
-}> {
+async function assetAuthorization(
+  options: { forceRefresh?: boolean } = {},
+): Promise<AssetAuthorization> {
   const [auth, { BUILDER_ASSETS_WRITE_SCOPE }] = await Promise.all([
     import("../server/builder-api-auth.js"),
     import("../server/builder-oauth.js"),
   ]);
   const authorization = await auth.resolveBuilderApiAuthorization(
     BUILDER_ASSETS_WRITE_SCOPE,
+    options,
   );
   if (!/^Bearer\s+btk-/i.test(authorization)) return { authorization };
 
@@ -279,7 +302,8 @@ export const builderFileUploadProvider: FileUploadProvider = {
   },
   upload: async (input: FileUploadInput) => {
     const { data, filename, mimeType } = input;
-    const { authorization, apiKey } = await assetAuthorization();
+    const auth = await assetAuthorization();
+    const { authorization, apiKey } = auth;
 
     const bareMimeType = (mimeType || "application/octet-stream")
       .split(";")[0]
@@ -290,13 +314,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
     const mb = (bytes.byteLength / (1024 * 1024)).toFixed(1);
 
     if (shouldUseSignedUrlUpload(bytes, bareMimeType)) {
-      return uploadLargeFileViaSignedUrl(
-        input,
-        authorization,
-        apiKey,
-        bareMimeType,
-        bytes,
-      );
+      return uploadLargeFileViaSignedUrl(input, auth, bareMimeType, bytes);
     }
 
     console.log(
@@ -370,19 +388,19 @@ export const builderFileUploadProvider: FileUploadProvider = {
 
   resumable: {
     async startSession(filename, mimeType, maxBytes) {
-      const { authorization, apiKey } = await assetAuthorization();
-
       console.log(
         `[builder-resumable] starting session: ${filename} ${mimeType} ${maxBytes} bytes`,
       );
       const { uploadUrl, assetId, requiredHeaders } =
-        await requestBuilderSignedUrl(
-          authorization,
-          apiKey,
-          filename,
-          mimeType,
-          maxBytes,
-          true,
+        await withAssetAuthorization(({ authorization, apiKey }) =>
+          requestBuilderSignedUrl(
+            authorization,
+            apiKey,
+            filename,
+            mimeType,
+            maxBytes,
+            true,
+          ),
         );
       console.log(`[builder-resumable] session step 1 ok: assetId=${assetId}`);
 
@@ -472,21 +490,16 @@ export const builderFileUploadProvider: FileUploadProvider = {
     },
 
     async completeSession(session, filename, options) {
-      const { authorization, apiKey } = await assetAuthorization();
-
       const assetId = session.meta.assetId as string;
       console.log(`[builder-resumable] completing upload: assetId=${assetId}`);
-      const { url } = await completeBuilderUpload(
-        authorization,
-        apiKey,
-        assetId,
-        filename,
-        {
-          stableUrl: options?.stableUrl || session.meta.stableUrl === true,
-          recordAsset:
-            options?.recordAsset ??
-            (session.meta.recordAsset === false ? false : undefined),
-        },
+      const { url } = await withAssetAuthorization(
+        ({ authorization, apiKey }) =>
+          completeBuilderUpload(authorization, apiKey, assetId, filename, {
+            stableUrl: options?.stableUrl || session.meta.stableUrl === true,
+            recordAsset:
+              options?.recordAsset ??
+              (session.meta.recordAsset === false ? false : undefined),
+          }),
       );
       console.log(`[builder-resumable] upload complete: ${url}`);
       return url;

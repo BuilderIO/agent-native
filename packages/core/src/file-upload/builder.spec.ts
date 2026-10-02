@@ -258,6 +258,59 @@ describe("builderFileUploadProvider", () => {
     ).toBe(false);
   });
 
+  it("refreshes the access token and retries once when the signed-URL request gets 401", async () => {
+    resolveBuilderApiAuthorizationMock
+      .mockResolvedValueOnce("Bearer revoked-token")
+      .mockResolvedValueOnce("Bearer fresh-token");
+    fetchMock
+      .mockResolvedValueOnce(errorResponse(401, "Unauthorized"))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          uploadUrl: "https://storage.example.com/session",
+          assetId: "asset-2",
+          requiredHeaders: {},
+        }),
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 201,
+        headers: new Headers({ location: "https://storage.example.com/s/1" }),
+        text: async () => "",
+      } as unknown as Response);
+
+    const session = await builderFileUploadProvider.resumable!.startSession(
+      "rec.webm",
+      "video/webm",
+      1024,
+    );
+
+    expect(session.sessionId).toBe("https://storage.example.com/s/1");
+    expect(resolveBuilderApiAuthorizationMock).toHaveBeenNthCalledWith(
+      2,
+      expect.any(String),
+      { forceRefresh: true },
+    );
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(
+      "Bearer revoked-token",
+    );
+    expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe(
+      "Bearer fresh-token",
+    );
+  });
+
+  it("reports a second 401 instead of retrying forever", async () => {
+    fetchMock.mockResolvedValue(errorResponse(401, "Unauthorized"));
+
+    await expect(
+      builderFileUploadProvider.resumable!.startSession(
+        "rec.webm",
+        "video/webm",
+        1024,
+      ),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("includes the target space when uploading with a personal access token", async () => {
     resolveBuilderApiAuthorizationMock.mockResolvedValue(
       "Bearer btk-agent-native",

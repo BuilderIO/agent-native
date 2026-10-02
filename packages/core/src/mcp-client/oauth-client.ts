@@ -1139,13 +1139,15 @@ export async function revokeMcpOAuthCredentials(options: {
 /**
  * Resolve an access token for the MCP manager. Refreshing happens only when a
  * token is near expiry, so ordinary manager reconfiguration does not perform
- * a network request for every connector.
+ * a network request for every connector. `forceRefresh` is for a caller whose
+ * request was just refused with 401 by a token that had not expired yet.
  */
 export async function getMcpOAuthAccessToken(options: {
   key: string;
   scope: "user" | "org";
   scopeId: string;
   serverUrl: string;
+  forceRefresh?: boolean;
 }): Promise<string | null> {
   const validation = validateRemoteUrl(options.serverUrl);
   if (!validation.ok || !validation.url) return null;
@@ -1157,7 +1159,11 @@ export async function getMcpOAuthAccessToken(options: {
       legacyAccountKey: true,
       validateCredential: (credential) =>
         serverUrlsMatch(credential.serverUrl, serverUrl),
-      expirySkewMs: TOKEN_EXPIRY_SKEW_MS,
+      // An infinite skew treats any stored token as due, so it refreshes
+      // under the same lease as an expiry refresh (one refresher at a time).
+      expirySkewMs: options.forceRefresh
+        ? Number.POSITIVE_INFINITY
+        : TOKEN_EXPIRY_SKEW_MS,
       refresh: async ({ credential: credentials }) => {
         const refreshToken = credentials.tokens.refresh_token;
         const discovery = credentials.discoveryState;
