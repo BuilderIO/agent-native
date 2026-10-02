@@ -999,6 +999,26 @@
         ) {
           if (parentIsFlow) {
             if (isMultiTrackGrid(parent)) {
+              var gridAwareInsertionTarget = (
+                window as Window & {
+                  __agentNativeDesignNearestChildInsertionTarget?: (
+                    container: Element,
+                    clientX: number,
+                    clientY: number,
+                  ) => {
+                    anchor: Element;
+                    placement: string;
+                    axis: string;
+                    dropMode: string;
+                  } | null;
+                }
+              ).__agentNativeDesignNearestChildInsertionTarget;
+              var gridTarget = gridAwareInsertionTarget?.(
+                parent,
+                clientX,
+                clientY,
+              );
+              if (gridTarget) return gridTarget;
               parent = parent.parentElement;
               continue;
             }

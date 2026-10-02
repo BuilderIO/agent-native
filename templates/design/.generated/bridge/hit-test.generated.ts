@@ -669,6 +669,13 @@ export const hitTestBridgeScript: string = `"use strict";
           )) {
             if (parentIsFlow) {
               if (isMultiTrackGrid(parent)) {
+                var gridAwareInsertionTarget = window.__agentNativeDesignNearestChildInsertionTarget;
+                var gridTarget = gridAwareInsertionTarget?.(
+                  parent,
+                  clientX,
+                  clientY
+                );
+                if (gridTarget) return gridTarget;
                 parent = parent.parentElement;
                 continue;
               }

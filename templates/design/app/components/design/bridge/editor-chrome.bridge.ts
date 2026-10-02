@@ -17495,14 +17495,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         containerStyles.display === "inline-grid") &&
       (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean)
         .length > 1;
-    var reverseFlow =
-      !multiTrackGrid &&
-      ((axis === "x" &&
-        (containerStyles.flexDirection === "row" ||
-          containerStyles.flexDirection === "row-reverse") &&
-        (containerStyles.flexDirection === "row-reverse") !==
-          (containerStyles.direction === "rtl")) ||
-        (axis === "y" && containerStyles.flexDirection === "column-reverse"));
+    var reverseFlow = isReverseFlexFlow(containerStyles, axis);
     var best: Element | null = null;
     var bestDistance = Infinity;
     var placement = "after";
@@ -17537,6 +17530,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
+  (
+    window as Window & {
+      __agentNativeDesignNearestChildInsertionTarget?: (
+        container: Element,
+        clientX: number,
+        clientY: number,
+      ) => {
+        anchor: Element;
+        placement: string;
+        axis: string;
+        dropMode: string;
+      } | null;
+    }
+  ).__agentNativeDesignNearestChildInsertionTarget =
+    nearestChildInsertionTarget;
+
   function screenRootFlowInsertionTargetForPoint(
     clientX: number,
     clientY: number,
@@ -17559,6 +17568,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       clientX,
       clientY,
       excludeEls,
+    );
+  }
+
+  function isReverseFlexFlow(styles: CSSStyleDeclaration, axis: string) {
+    var multiTrackGrid =
+      (styles.display === "grid" || styles.display === "inline-grid") &&
+      (styles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
+    return (
+      !multiTrackGrid &&
+      ((axis === "x" &&
+        (styles.flexDirection === "row" ||
+          styles.flexDirection === "row-reverse") &&
+        (styles.flexDirection === "row-reverse") !==
+          (styles.direction === "rtl")) ||
+        (axis === "y" && styles.flexDirection === "column-reverse"))
     );
   }
 
@@ -18264,9 +18288,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             ? childRect.left + childRect.width / 2
             : childRect.top + childRect.height / 2;
         var childPointer = parentAxis === "x" ? clientX : clientY;
+        var before = childPointer < childCenter;
+        if (isReverseFlexFlow(window.getComputedStyle(parent), parentAxis)) {
+          before = !before;
+        }
         return {
           anchor: cursor,
-          placement: childPointer < childCenter ? "before" : "after",
+          placement: before ? "before" : "after",
           axis: parentAxis,
           dropMode: "flow-insert",
         };

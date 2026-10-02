@@ -13778,7 +13778,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var wrappedFlexAxis = wrappedFlexMainAxis(container);
       var axis = wrappedFlexAxis || parentFlowAxis(container);
       var multiTrackGrid = (containerStyles.display === "grid" || containerStyles.display === "inline-grid") && (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
-      var reverseFlow = !multiTrackGrid && (axis === "x" && (containerStyles.flexDirection === "row" || containerStyles.flexDirection === "row-reverse") && containerStyles.flexDirection === "row-reverse" !== (containerStyles.direction === "rtl") || axis === "y" && containerStyles.flexDirection === "column-reverse");
+      var reverseFlow = isReverseFlexFlow(containerStyles, axis);
       var best = null;
       var bestDistance = Infinity;
       var placement = "after";
@@ -13808,6 +13808,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         dropMode: "flow-insert"
       };
     }
+    window.__agentNativeDesignNearestChildInsertionTarget = nearestChildInsertionTarget;
     function screenRootFlowInsertionTargetForPoint(clientX, clientY, excludeEls) {
       if (!isAutoLayoutElement(document.body)) return null;
       var bodyRect = document.body.getBoundingClientRect();
@@ -13821,6 +13822,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         clientY,
         excludeEls
       );
+    }
+    function isReverseFlexFlow(styles, axis) {
+      var multiTrackGrid = (styles.display === "grid" || styles.display === "inline-grid") && (styles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
+      return !multiTrackGrid && (axis === "x" && (styles.flexDirection === "row" || styles.flexDirection === "row-reverse") && styles.flexDirection === "row-reverse" !== (styles.direction === "rtl") || axis === "y" && styles.flexDirection === "column-reverse");
     }
     function reorderTargetForPoint(el, clientX, clientY, excludeEls) {
       if (!el || !el.parentElement) return null;
@@ -14279,9 +14284,13 @@ export const editorChromeBridgeScript: string = `"use strict";
           var childRect = cursor.getBoundingClientRect();
           var childCenter = parentAxis === "x" ? childRect.left + childRect.width / 2 : childRect.top + childRect.height / 2;
           var childPointer = parentAxis === "x" ? clientX : clientY;
+          var before = childPointer < childCenter;
+          if (isReverseFlexFlow(window.getComputedStyle(parent), parentAxis)) {
+            before = !before;
+          }
           return {
             anchor: cursor,
-            placement: childPointer < childCenter ? "before" : "after",
+            placement: before ? "before" : "after",
             axis: parentAxis,
             dropMode: "flow-insert"
           };

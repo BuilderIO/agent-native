@@ -11833,6 +11833,11 @@ it.each([
     >("nearestChildInsertionTarget", "screenRootFlowInsertionTargetForPoint", {
       draggableElementChildren: () => [first, second],
       gridCellInsertionTarget: () => null,
+      isReverseFlexFlow: compileBridgeFunction(
+        "isReverseFlexFlow",
+        "reorderTargetForPoint",
+        {},
+      ),
       parentFlowAxis: () => axis,
       window: {
         getComputedStyle: () => ({
@@ -11851,6 +11856,116 @@ it.each([
       anchor: first,
       placement: "after",
       axis,
+    });
+  },
+);
+
+it.each([
+  {
+    axis: "x",
+    flexDirection: "row-reverse",
+    direction: "ltr",
+    x: 120,
+    y: 140,
+    placement: "after",
+  },
+  {
+    axis: "y",
+    flexDirection: "column-reverse",
+    direction: "ltr",
+    x: 140,
+    y: 120,
+    placement: "after",
+  },
+  {
+    axis: "x",
+    flexDirection: "row",
+    direction: "rtl",
+    x: 120,
+    y: 140,
+    placement: "after",
+  },
+  {
+    axis: "x",
+    flexDirection: "row",
+    direction: "ltr",
+    x: 120,
+    y: 140,
+    placement: "before",
+  },
+])(
+  "editor chrome bridge applies reverse-flow order to a direct-child fallback",
+  ({ axis, flexDirection, direction, x, y, placement }) => {
+    const body = { parentElement: null } as unknown as Element;
+    const container = {
+      parentElement: body,
+    } as unknown as Element;
+    const child = {
+      parentElement: container,
+      closest: () => null,
+      getAttribute: () => null,
+      getBoundingClientRect: () => ({
+        left: 100,
+        top: 100,
+        right: 200,
+        bottom: 180,
+        width: 100,
+        height: 80,
+      }),
+    } as unknown as Element;
+    const dragged = { parentElement: body } as unknown as Element;
+    const document = {
+      body,
+      documentElement: { parentElement: null },
+    } as unknown as Document;
+    const isReverseFlexFlow = compileBridgeFunction(
+      "isReverseFlexFlow",
+      "reorderTargetForPoint",
+      {},
+    );
+    const autoLayoutInsertionTargetForPoint = compileBridgeFunction<
+      (
+        el: Element,
+        clientX: number,
+        clientY: number,
+      ) => {
+        anchor: Element;
+        placement: string;
+        axis: string;
+        dropMode: string;
+      } | null
+    >("autoLayoutInsertionTargetForPoint", "unnestAbsoluteToScreenRoot", {
+      document,
+      window: {
+        getComputedStyle: () => ({
+          display: "flex",
+          flexDirection,
+          direction,
+          gridTemplateColumns: "",
+        }),
+      },
+      elementFromEditorPointIgnoring: () => child,
+      isOverlayElement: () => false,
+      isLayerInteractionBlocked: () => false,
+      isAutoLayoutElement: (element: Element) => element === container,
+      isContainerDropTarget: (element: Element) => element === container,
+      isTextBearingLeaf: (element: Element) => element === container,
+      isTemplateCloneElement: () => false,
+      isAbsolutePrimitiveContainer: () => false,
+      isFreeformRelativeContainer: () => false,
+      wrappedFlexMainAxis: () => null,
+      parentFlowAxis: () => axis,
+      nearestChildInsertionTarget: () => null,
+      screenRootFlowInsertionTargetForPoint: () => null,
+      unnestAbsoluteToScreenRoot: () => null,
+      isReverseFlexFlow,
+    });
+
+    expect(autoLayoutInsertionTargetForPoint(dragged, x, y)).toMatchObject({
+      anchor: child,
+      placement,
+      axis,
+      dropMode: "flow-insert",
     });
   },
 );

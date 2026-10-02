@@ -1,6 +1,7 @@
 import { chromium } from "@playwright/test";
 import { describe, expect, it } from "vitest";
 
+import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
 import { hitTestBridgeScript } from "../../../../.generated/bridge/hit-test.generated";
 
 const SCREEN_ROOT = `<!doctype html><html><body style="margin:0;display:flex;flex-direction:column;gap:20px;width:320px;height:260px">
@@ -545,22 +546,41 @@ describe("Screen-root auto-layout hit testing", () => {
     }
   });
 
-  it("does not invent a linear slot for an oversized drop in a multi-track grid", async () => {
+  it("uses grid cell targeting for an oversized drop at an empty trailing cell", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
       const page = await browser.newPage({
         viewport: { width: 640, height: 480 },
       });
       await page.setContent(`<!doctype html><html><body style="margin:0;width:640px;height:480px;position:relative">
-        <section data-agent-native-node-id="grid-root" style="position:absolute;left:40px;top:40px;width:320px;height:180px;display:grid;grid-template-columns:repeat(2,140px);grid-template-rows:180px;gap:20px">
-          <section data-agent-native-node-id="nested-flow" style="display:flex;flex-direction:column;width:100px;height:72px">
+        <section data-agent-native-node-id="grid-root" style="position:absolute;left:40px;top:40px;width:320px;height:180px;display:grid;grid-template-columns:repeat(2,140px);grid-template-rows:repeat(2,70px);gap:20px">
+          <section data-agent-native-node-id="nested-flow" style="position:absolute;left:10px;top:10px;display:flex;flex-direction:column;width:100px;height:72px">
             <div data-agent-native-node-id="nested-child" style="flex:none;width:80px;height:32px"></div>
           </section>
-          <div data-agent-native-node-id="grid-sibling" style="width:120px;height:80px"></div>
+          <div data-agent-native-node-id="grid-sibling" style="width:80px;height:40px"></div>
         </section>
       </body></html>`);
+      const editorBridge = editorChromeBridgeScript
+        .replace("__READ_ONLY__", "false")
+        .replace("__TEXT_EDITING_ENABLED__", "true")
+        .replace("__EDITOR_CHROME_SCALE_X__", "1")
+        .replace("__EDITOR_CHROME_SCALE_Y__", "1")
+        .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify("grid-screen"))
+        .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
+        .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
+        .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
+        .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
+        .replace("__LIVE_REFLOW_ENABLED__", "false")
+        .replace("__SELECTED_LAYER_DRAG_PRIORITY__", "false")
+        .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
+      await page.addScriptTag({ content: editorBridge });
       await page.addScriptTag({ content: hitTestBridgeScript });
       await page.evaluate(() => {
+        const nestedChild = document.querySelector(
+          '[data-agent-native-node-id="nested-child"]',
+        )!;
+        document.elementsFromPoint = () => [nestedChild];
+        document.elementFromPoint = () => nestedChild;
         (window as any).__hitTestResults = [];
         window.addEventListener("message", (event) => {
           if (event.data?.type === "agent-native:hit-test-result") {
@@ -570,9 +590,9 @@ describe("Screen-root auto-layout hit testing", () => {
         window.postMessage(
           {
             type: "agent-native:hit-test",
-            correlationId: "multi-track-grid-fallback",
-            x: 60,
-            y: 60,
+            correlationId: "empty-trailing-grid-cell-fallback",
+            x: 240,
+            y: 165,
             sourceElementSize: { width: 180, height: 80 },
           },
           "*",
@@ -586,8 +606,10 @@ describe("Screen-root auto-layout hit testing", () => {
         () => (window as any).__hitTestResults[0],
       );
       expect(packet).toMatchObject({
-        correlationId: "multi-track-grid-fallback",
-        anchorNodeId: "",
+        correlationId: "empty-trailing-grid-cell-fallback",
+        anchorNodeId: "grid-root",
+        placement: "inside",
+        dropMode: "flow-insert",
       });
     } finally {
       await browser.close();
