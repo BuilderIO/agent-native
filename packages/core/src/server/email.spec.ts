@@ -730,6 +730,63 @@ describe("sendEmail to test identities", () => {
     expect(body.cc).toBeUndefined();
   });
 
+  it("never promotes a bcc recipient into the visible lines", async () => {
+    const fetchMock = stubProvider();
+    vi.spyOn(console, "info").mockImplementation(() => {});
+
+    const result = await sendEmail({
+      to: "qa-owner@example.test",
+      cc: "teammate@example.com",
+      bcc: ["auditor@example.com", "counsel@example.com"],
+      subject: "Weekly digest",
+      html: "<p>Digest</p>",
+    });
+
+    expect(result.status).toBe("sent");
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body).toMatchObject({
+      to: "teammate@example.com",
+      bcc: ["auditor@example.com", "counsel@example.com"],
+    });
+    expect(body.cc).toBeUndefined();
+  });
+
+  it("suppresses the whole send when only bcc recipients are left", async () => {
+    const fetchMock = stubProvider();
+    vi.spyOn(console, "info").mockImplementation(() => {});
+
+    const result = await sendEmail({
+      to: "qa-owner@example.test",
+      cc: "qa-admin@example.test",
+      bcc: ["auditor@example.com", "counsel@example.com"],
+      subject: "Weekly digest",
+      html: "<p>Digest</p>",
+    });
+
+    expect(result).toEqual({ status: "suppressed", reason: "test-identity" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(
+      recordEmailSend.mock.calls.map(([row]: any) => [
+        row.status,
+        row.recipient,
+        row.error,
+      ]),
+    ).toEqual([
+      ["suppressed", "qa-owner@example.test", "suppressed: test identity"],
+      ["suppressed", "qa-admin@example.test", "suppressed: test identity"],
+      [
+        "suppressed",
+        "auditor@example.com",
+        "suppressed: no recipient left outside bcc",
+      ],
+      [
+        "suppressed",
+        "counsel@example.com",
+        "suppressed: no recipient left outside bcc",
+      ],
+    ]);
+  });
+
   it("suppresses the whole send when every recipient is a test identity", async () => {
     const fetchMock = stubProvider();
     vi.spyOn(console, "info").mockImplementation(() => {});

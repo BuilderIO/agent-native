@@ -260,7 +260,7 @@ diagnostics shaping, and access policy inside the Analytics template.
 
 ## 测试身份 {#test-identities}
 
-QA 和 E2E 账号在各处照常运行，但永远不计入统计。`track()`、`identify()`、浏览器跟踪和会话回放会在任何提供程序看到之前丢弃测试身份的事件。测试身份的服务器异常会被保留，标记为 `test_identity: true`，并且只发送给设置了 `acceptsTestIdentityExceptions` 的提供程序（Agent-Native Analytics），因此仍可查询，但不会惊动任何人。发给测试身份的非认证类邮件同样会被抑制：`sendEmail()` 返回 `{ status: "suppressed", reason: "test-identity" }` 并记录这次尝试，而登录、验证、重置密码和邀请邮件仍会照常发送。这适用于所有收件人栏：`cc` 和 `bcc` 中的测试身份同样会被移除并记录，只有在没有其他收件人时才会抑制整封邮件。
+QA 和 E2E 账号在各处照常运行，但永远不计入统计。`track()`、`identify()`、浏览器跟踪和会话回放会在任何提供程序看到之前丢弃测试身份的事件。测试身份的服务器异常会被保留，标记为 `test_identity: true`，并且只发送给设置了 `acceptsTestIdentityExceptions` 的提供程序（Agent-Native Analytics），因此仍可查询，但不会惊动任何人。发给测试身份的非认证类邮件同样会被抑制：`sendEmail()` 返回 `{ status: "suppressed", reason: "test-identity" }` 并记录这次尝试，而登录、验证、重置密码和邀请邮件仍会照常发送。这适用于所有收件人栏：`cc` 和 `bcc` 中的测试身份同样会被移除并记录。当 `to` 是测试身份时，会由 `cc` 中的真实收件人顶替；`bcc` 中的收件人绝不会顶替，否则其余 `bcc` 收件人会看到该地址。如果 `to` 和 `cc` 中都没有剩余收件人，则会抑制整封邮件，并记录每个被移除的地址。
 
 `@agent-native/core/server` 中的 `isTestIdentity(email)` 是唯一的规则。它匹配保留域名 `.test`、`.invalid`、`.localhost` 和 `.example`，以及 QA 标记 `+autoz`。可通过 `AGENT_NATIVE_TEST_IDENTITY_EMAILS` 按部署添加更多身份，值为逗号分隔的精确地址（`qa@corp.com`）或 `@domain` 条目（`@example.com`）。`testIdentitySql(column)` 是同一规则的 PostgreSQL/BigQuery 表达式，用于指标查询。浏览器只应用内置规则；Agent-Native Analytics 的接收端还会应用部署列表。
 

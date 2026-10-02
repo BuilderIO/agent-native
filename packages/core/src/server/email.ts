@@ -58,7 +58,7 @@ export interface SendEmailArgs {
    * Account-access mail: sign-in links, verification, password reset, org
    * invitations. Delivered to test identities too, since they must still be
    * able to sign in. Otherwise every recipient line drops its test
-   * identities, and a send left with nobody is suppressed.
+   * identities, and a send left with no `to` or `cc` recipient is suppressed.
    */
   authCritical?: boolean;
 }
@@ -576,8 +576,9 @@ async function sendEmailWithSignal(
     recipientList(value).filter((address) => !suppressed.includes(address));
   const cc = deliverable(requested.cc);
   const bcc = deliverable(requested.bcc);
-  // A send addressed to a test identity still reaches its real cc/bcc.
-  const to = deliverable(requested.to)[0] ?? cc.shift() ?? bcc.shift();
+  // A send addressed to a test identity still reaches its real cc, promoted
+  // to `to`. Never a bcc: the rest of the bcc line would see that address.
+  const to = deliverable(requested.to)[0] ?? cc.shift();
   const args: SendEmailArgs = {
     ...requested,
     to: to ?? requested.to,
@@ -595,18 +596,30 @@ async function sendEmailWithSignal(
       ? truncateForLog(redactSensitiveEmailBodyContent(args.text))
       : undefined,
   };
-  if (suppressed.length) {
+  const dropped = [
+    ...suppressed.map((recipient) => ({
+      recipient,
+      error: "suppressed: test identity",
+    })),
+    ...(to
+      ? []
+      : bcc.map((recipient) => ({
+          recipient,
+          error: "suppressed: no recipient left outside bcc",
+        }))),
+  ];
+  if (dropped.length) {
     console.info(
-      `[agent-native:email] suppressed: test identity, ${suppressed.length} recipient(s)${to ? "" : ", whole send"} (${args.templateId ?? "untemplated"})`,
+      `[agent-native:email] suppressed: test identity, ${dropped.length} recipient(s)${to ? "" : ", whole send"} (${args.templateId ?? "untemplated"})`,
     );
   }
-  for (const recipient of suppressed) {
+  for (const { recipient, error } of dropped) {
     await recordEmailSend({
       ...baseRecord,
       recipient,
       sender: args.from ?? "unknown",
       status: "suppressed",
-      error: "suppressed: test identity",
+      error,
       provider: "none",
     });
   }

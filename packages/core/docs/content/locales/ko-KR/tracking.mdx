@@ -260,7 +260,7 @@ diagnostics shaping, and access policy inside the Analytics template.
 
 ## 테스트 ID {#test-identities}
 
-QA 및 E2E 계정은 어디서나 계속 동작하지만 집계에는 포함되지 않습니다. `track()`, `identify()`, 브라우저 추적, 세션 리플레이는 테스트 ID의 이벤트를 어떤 공급자에게도 전달하기 전에 버립니다. 테스트 ID의 서버 예외는 유지되며 `test_identity: true` 표시와 함께 `acceptsTestIdentityExceptions`를 설정한 공급자(Agent-Native Analytics)에게만 전달되므로, 누구에게도 알림을 보내지 않고 조회할 수 있습니다. 테스트 ID에게 가는 인증 외 이메일도 차단됩니다. `sendEmail()`은 `{ status: "suppressed", reason: "test-identity" }`를 반환하고 시도를 기록하며, 로그인, 인증, 비밀번호 재설정, 초대 메일은 계속 발송됩니다. 이는 모든 수신자 필드에 적용됩니다. `cc`와 `bcc`의 테스트 ID도 제외되고 기록되며, 다른 수신자가 남지 않을 때만 전체 발송이 차단됩니다.
+QA 및 E2E 계정은 어디서나 계속 동작하지만 집계에는 포함되지 않습니다. `track()`, `identify()`, 브라우저 추적, 세션 리플레이는 테스트 ID의 이벤트를 어떤 공급자에게도 전달하기 전에 버립니다. 테스트 ID의 서버 예외는 유지되며 `test_identity: true` 표시와 함께 `acceptsTestIdentityExceptions`를 설정한 공급자(Agent-Native Analytics)에게만 전달되므로, 누구에게도 알림을 보내지 않고 조회할 수 있습니다. 테스트 ID에게 가는 인증 외 이메일도 차단됩니다. `sendEmail()`은 `{ status: "suppressed", reason: "test-identity" }`를 반환하고 시도를 기록하며, 로그인, 인증, 비밀번호 재설정, 초대 메일은 계속 발송됩니다. 이는 모든 수신자 필드에 적용됩니다. `cc`와 `bcc`의 테스트 ID도 제외되고 기록됩니다. `to`가 테스트 ID이면 실제 `cc` 수신자가 그 자리를 대신하며, `bcc` 수신자는 나머지 `bcc` 수신자에게 노출되므로 절대 대신하지 않습니다. `to`나 `cc`에 수신자가 남지 않으면 전체 발송이 차단되고 제외된 모든 주소가 기록됩니다.
 
 `@agent-native/core/server`의 `isTestIdentity(email)`가 유일한 규칙입니다. 예약된 도메인 `.test`, `.invalid`, `.localhost`, `.example`와 QA 표시 `+autoz`를 인식합니다. 배포별로 추가하려면 `AGENT_NATIVE_TEST_IDENTITY_EMAILS`에 정확한 주소(`qa@corp.com`)나 `@domain` 항목(`@example.com`)을 쉼표로 구분해 지정하세요. `testIdentitySql(column)`은 같은 규칙을 지표 쿼리용 PostgreSQL/BigQuery 표현식으로 제공합니다. 브라우저는 기본 규칙만 적용하며, Agent-Native Analytics 수집 단계에서는 배포 목록도 함께 적용합니다.
 
