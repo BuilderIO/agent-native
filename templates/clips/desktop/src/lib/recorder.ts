@@ -2774,22 +2774,29 @@ async function publishFinalizingResult(params: {
   });
 }
 
-function abortCreatedRecordingOnCountdownCancel(
+function abortCreatedRecordingOnStartFailure(
   err: unknown,
   recordingPromise: Promise<{ id: string }>,
   serverUrl: string,
   authToken?: string,
 ) {
-  if (!isCountdownCancelledError(err)) return;
+  const wasCancelled = isCountdownCancelledError(err);
+  const diagnostics = wasCancelled
+    ? { failureCode: "user_cancelled" }
+    : uploadFailureDiagnostics(err);
   void recordingPromise
     .then((recording) =>
       abortRecordingUpload(
         serverUrl,
         recording.id,
-        "Recording cancelled during countdown",
-        "user_cancelled",
-        undefined,
-        undefined,
+        wasCancelled
+          ? "Recording cancelled during countdown"
+          : err instanceof Error
+            ? err.message
+            : String(err),
+        diagnostics.failureCode,
+        diagnostics.failureStage,
+        diagnostics.httpStatus,
         authToken,
       ),
     )
@@ -2936,6 +2943,12 @@ async function tryStartRewindFullscreenRecording(
   let transcriptionCapture: TranscriptionCapture | null = null;
   let transcriptionAborted = false;
   let transcriptFailureSaved = false;
+  let countdownFailed = false;
+  let countdownFailure: unknown;
+  const assertStartupActive = () => {
+    throwIfRecordingStartAborted(params.signal);
+    if (countdownFailed) throw countdownFailure;
+  };
   const saveTranscriptFailure = async (
     failureReason: string,
   ): Promise<boolean> => {
@@ -2999,7 +3012,7 @@ async function tryStartRewindFullscreenRecording(
     const recording = await prepareRewindRecordingStart({
       async prepare() {
         const preparedRecording = await recordingPromise;
-        throwIfRecordingStartAborted(params.signal);
+        assertStartupActive();
         id = preparedRecording.id;
         uploadMode = preparedRecording.uploadMode ?? "buffered";
         await guardRecordingStart(
@@ -3015,12 +3028,25 @@ async function tryStartRewindFullscreenRecording(
           }),
           { signal: params.signal },
         );
+        assertStartupActive();
         await startRewindTranscription();
+        assertStartupActive();
         return preparedRecording;
       },
       async countdown() {
-        await runRecordingCountdown(true, params.signal);
-        console.log("[rewind-latency] countdown completed");
+        try {
+          await runRecordingCountdown(true, params.signal);
+          console.log("[rewind-latency] countdown completed");
+        } catch (err) {
+          countdownFailed = true;
+          countdownFailure = err;
+          throw err;
+        }
+      },
+      cancelCountdown() {
+        void emit("clips:countdown-cancel", {
+          cause: "prepare-failed",
+        }).catch(() => {});
       },
       async beforeActivate() {
         await audioCue.playBeforeCapture();
@@ -3063,8 +3089,8 @@ async function tryStartRewindFullscreenRecording(
     if (id) forgetRewindClipOrigin(id);
     await invoke("rewind_clip_cancel").catch(() => {});
     audioCue.cleanup();
-    if (!localOnly) {
-      abortCreatedRecordingOnCountdownCancel(
+    if (!localOnly && (!id || isCountdownCancelledError(err))) {
+      abortCreatedRecordingOnStartFailure(
         err,
         recordingPromise,
         params.serverUrl,
@@ -3404,8 +3430,10 @@ async function startNativeFullscreenRecording(
   let captureRegion: RegionCaptureRect | null = null;
   let transcriptionCapture: TranscriptionCapture | null = null;
   let countdownPromise: Promise<void> | null = null;
+  let startupFailed = false;
   const assertStartupActive = () => {
     throwIfRecordingStartAborted(params.signal);
+    if (startupFailed) throw new RecordingStartCancelledError();
   };
   let startedAt = 0;
   let nativeTranscriptFailureSaved = false;
@@ -3496,6 +3524,10 @@ async function startNativeFullscreenRecording(
       bubbleCaptureExcluded = true;
     }
 
+    countdownPromise = runRecordingCountdown(true, params.signal);
+    void countdownPromise.catch(() => {
+      startupFailed = true;
+    });
     console.log(
       localOnly
         ? "[clips-recorder] preparing native local recording"
@@ -3524,11 +3556,14 @@ async function startNativeFullscreenRecording(
     const clickStartedAt = Date.now();
     if (localOnly) {
       id = localFolderName;
-      const warmStartedAt = Date.now();
-      await warmMic(id);
-      console.log(
-        `[clips-recorder] native warm durations: warmMs=${Date.now() - warmStartedAt}`,
-      );
+      const warmPromise = (async () => {
+        const warmStartedAt = Date.now();
+        await warmMic(id);
+        console.log(
+          `[clips-recorder] native warm durations: warmMs=${Date.now() - warmStartedAt}`,
+        );
+      })();
+      await Promise.all([countdownPromise, warmPromise]);
     } else {
       const captureTitlePromise = captureTitleForRecording({
         mode: params.mode,
@@ -3561,8 +3596,7 @@ async function startNativeFullscreenRecording(
       const warmAndId = planNativeFullscreenWarmOverlap({
         createRecording: async () => {
           const createRes = await recordingPromise;
-          uploadMode = createRes.uploadMode;
-          id = createRes.id;
+          assertStartupActive();
           return createRes;
         },
         startTranscription: async () => {
@@ -3586,12 +3620,22 @@ async function startNativeFullscreenRecording(
           }
         },
       });
-      const createRes = await warmAndId;
+      let createRes: Awaited<typeof warmAndId>;
+      try {
+        [, createRes] = await Promise.all([countdownPromise, warmAndId]);
+      } catch (err) {
+        abortCreatedRecordingOnStartFailure(
+          err,
+          recordingPromise,
+          params.serverUrl,
+          params.authToken,
+        );
+        throw err;
+      }
       id = createRes.id;
       uploadMode = createRes.uploadMode ?? uploadMode;
     }
 
-    countdownPromise = runRecordingCountdown(true, params.signal);
     await countdownPromise;
     await audioCue.playBeforeCapture();
     assertStartupActive();
@@ -3631,6 +3675,7 @@ async function startNativeFullscreenRecording(
     }).catch(() => {});
     localCameraExport?.start(2_000);
   } catch (err) {
+    startupFailed = true;
     if (countdownPromise) {
       await emit("clips:countdown-cancel").catch(() => {});
       await countdownPromise.catch(() => {});
