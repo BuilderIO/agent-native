@@ -385,7 +385,9 @@ vi.mock("@/components/editor/NewDeckReferenceStep", () => ({
   },
 }));
 vi.mock("@/components/editor/PromptDialog", () => ({
-  default: (props: ComponentProps<typeof PromptPopover>) => {
+  default: function PromptDialogMock(
+    props: ComponentProps<typeof PromptPopover>,
+  ) {
     promptProps(props);
     useImperativeHandle(props.controllerRef, () => ({
       submitSource: vi.fn(async () => true),
