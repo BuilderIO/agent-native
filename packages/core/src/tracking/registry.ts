@@ -21,17 +21,18 @@ interface GlobalWithRegistry {
   [REGISTRY_KEY]?: Map<string, TrackingProvider>;
 }
 
-function isTestIdentityTracking(
+/** The test identity an event belongs to, if any. */
+function testIdentityOf(
   userId: string | undefined,
   properties?: Record<string, unknown>,
-): boolean {
+): string | undefined {
   return [
     getRequestContext()?.userEmail,
     userId,
     properties?.email,
     properties?.userEmail,
     properties?.user_email,
-  ].some(isTestIdentity);
+  ].find((value): value is string => isTestIdentity(value));
 }
 
 function isTrackingSuppressed(
@@ -40,7 +41,7 @@ function isTrackingSuppressed(
 ): boolean {
   return (
     getRequestContext()?.isSyntheticTraffic === true ||
-    isTestIdentityTracking(userId, properties)
+    testIdentityOf(userId, properties) !== undefined
   );
 }
 
@@ -148,7 +149,7 @@ export function track(
     telemetryOrigin,
   } = resolveTrackingSource(source);
   if (getRequestContext()?.isSyntheticTraffic === true) return;
-  const testIdentity = isTestIdentityTracking(userId, properties);
+  const testIdentity = testIdentityOf(userId, properties);
   if (testIdentity && name !== "$exception") return;
   const clientPlatform = getRequestContext()?.clientPlatform;
   const actionContext =
@@ -169,7 +170,10 @@ export function track(
     ...(clientPlatform
       ? { [ANALYTICS_CLIENT_PLATFORM_PROPERTY]: clientPlatform }
       : {}),
-    ...(testIdentity ? { test_identity: true } : {}),
+    // Ingest trusts an identity, never the flag, so the matched one rides along.
+    ...(testIdentity
+      ? { test_identity: true, test_identity_email: testIdentity }
+      : {}),
   });
 
   emitTrackingEvent(name, trackedProperties, {

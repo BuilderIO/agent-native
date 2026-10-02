@@ -362,7 +362,10 @@ describe("tracking registry", () => {
 
     expect(plain).toEqual([]);
     expect(firstParty.map((event) => event.name)).toEqual(["$exception"]);
-    expect(firstParty[0]?.properties?.test_identity).toBe(true);
+    expect(firstParty[0]?.properties).toMatchObject({
+      test_identity: true,
+      test_identity_email: "qa-owner@example.test",
+    });
     expect(mockQueueTrackingEvent).not.toHaveBeenCalled();
   });
 

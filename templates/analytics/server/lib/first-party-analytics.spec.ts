@@ -629,7 +629,12 @@ describe("recordAnalyticsEvents", () => {
       { event: "$exception", properties: { error: "real", app: "analytics" } },
       {
         event: "$exception",
-        properties: { error: "qa", app: "analytics", test_identity: true },
+        properties: {
+          error: "qa",
+          app: "analytics",
+          test_identity: true,
+          test_identity_email: "qa+autoz@builder.io",
+        },
       },
     ]);
 
@@ -648,6 +653,25 @@ describe("recordAnalyticsEvents", () => {
         source.derived.testIdentity,
       ]),
     ).toEqual([[false], [true]]);
+  });
+
+  it("does not take a sender's test_identity flag as proof of a test identity", async () => {
+    const result = await recordAnalyticsEvents("anpk_test", [
+      {
+        event: "pageview",
+        userId: "real@example.com",
+        properties: { test_identity: true },
+      },
+      {
+        event: "$exception",
+        userId: "real@example.com",
+        properties: { error: "real", app: "analytics", test_identity: true },
+      },
+    ]);
+
+    expect(result).toMatchObject({ accepted: 2, suppressedTestIdentity: 0 });
+    const [, sources] = exceptionMocks.ingest.mock.calls[0]!;
+    expect(sources[0].derived.testIdentity).toBe(false);
   });
 
   it("checks deployment-configured test identities a browser cannot know", async () => {

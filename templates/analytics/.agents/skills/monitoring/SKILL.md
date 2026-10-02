@@ -68,7 +68,9 @@ selection to the `monitoring` application-state key.
   occurrences are flagged `testIdentity`, never count toward users affected,
   and never alert. An issue only they have hit is `testIdentityOnly` and hidden
   from `list-error-issues` unless `includeTestIdentities: true`; the new-issue
-  alert fires on its first real-user occurrence instead.
+  alert fires on its first real-user occurrence instead. Ingest decides from
+  the identities an event carries (`userId`, email fields, its context), never
+  from a sender's `test_identity` flag, which any write-key holder could set.
 - Deep link: `?view=errors&issue=<id>`. Issue detail includes recent
   frequency, parsed/raw stack traces, source code snippets when available,
   breadcrumbs, tags, occurrence history, and session replay links.

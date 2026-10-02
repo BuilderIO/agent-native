@@ -669,28 +669,31 @@ export interface RecordAnalyticsEventsResult {
   keyId: string;
 }
 
-const IDENTITY_EMAIL_FIELDS = ["user_email", "userEmail", "email"] as const;
+const IDENTITY_EMAIL_FIELDS = [
+  "user_email",
+  "userEmail",
+  "email",
+  "test_identity_email",
+] as const;
 
 // Senders drop most test-identity events, but a browser only knows the
-// built-in rule and server `$exception`s arrive flagged, so ingest re-checks
-// with the deployment's configured identities. The context carries identity
-// too, so it is checked the same way.
+// built-in rule, so ingest re-checks every identity an event carries, its
+// context included, with the deployment's configured identities. Only an
+// identity counts: anyone holding the public write key can set a
+// `test_identity` flag on a real user's event to hide it and its alerts.
 function isTestIdentityEvent(
   userId: string | null,
   properties: Record<string, unknown>,
   context: Record<string, unknown>,
 ): boolean {
-  return (
-    properties.test_identity === true ||
-    [
-      userId,
-      ...IDENTITY_EMAIL_FIELDS.flatMap((field) => [
-        properties[field],
-        context[field],
-      ]),
-      asRecord(context.traits).email,
-    ].some(isTestIdentity)
-  );
+  return [
+    userId,
+    ...IDENTITY_EMAIL_FIELDS.flatMap((field) => [
+      properties[field],
+      context[field],
+    ]),
+    asRecord(context.traits).email,
+  ].some(isTestIdentity);
 }
 
 export async function recordAnalyticsEvents(
