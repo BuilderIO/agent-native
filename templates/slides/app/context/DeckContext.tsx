@@ -5937,6 +5937,8 @@ export function DeckProvider({
 
   const setDeckSlides = useCallback(
     (deckId: string, slides: Slide[], options?: SetDeckSlidesOptions) => {
+      // A full snapshot would overwrite the peer value behind an overlaid draft.
+      if (staleSlideFieldDrafts.has(deckId)) return;
       const before = decksRef.current.find((deck) => deck.id === deckId);
       if (!before) return;
       const after: Deck = {

@@ -1894,6 +1894,23 @@ describe("DeckContext deck creation persistence", () => {
     expect(hasFailedDeckSave(deckId)).toBe(true);
     expect(hasUnsavedDeckChanges(deckId)).toBe(true);
 
+    const requestsBeforeReplacement = fetchMock.mock.calls.length;
+    act(() => {
+      result.current.setDeckSlides(deckId, [
+        { id: "slide-1", content: "Replacement", notes: "Local notes" },
+      ]);
+    });
+    expect(fetchMock.mock.calls).toHaveLength(requestsBeforeReplacement);
+    expect(getAccessibleDeck()?.slides).toMatchObject([
+      { id: "slide-1", content: "Local content", notes: "Peer notes" },
+      { id: "slide-2", notes: "Other notes" },
+    ]);
+    expect(
+      result.current.decks
+        .find((deck) => deck.id === deckId)
+        ?.slides.find((slide) => slide.id === "slide-1")?.notes,
+    ).toBe("Local notes");
+
     act(() => {
       result.current.updateSlide(
         deckId,
