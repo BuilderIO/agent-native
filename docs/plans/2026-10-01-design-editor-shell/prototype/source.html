@@ -1,3 +1,19 @@
+<!--
+  Design editor shell prototype. Source for prototype/dist/index.html; build with build.ts,
+  which fills four placeholders (the logo, icons.json, ../requirements.json, settings.json).
+  Layout of this file:
+    <style>   review strip, app shell, then one commented block per surface
+              (top bar, rail, panels, canvas, comments, inspector, menus, dialogs,
+              Settings, tokens, share popover)
+    markup    review strip, Settings shell, rail, file panel, canvas, inspector
+    <script>  banners "/* ───────── name ───────── */": data, tree (Screens + Layers),
+              top bar, floating dock, canvas, inspector, comments, menus (context
+              menus, Send to), behavior (click and key handlers), keyboard shortcuts
+              window, Settings, version history, history mode, then tokens, which
+              runs to the end: tokens, App menu, Nudge amount, share popover, Import.
+  Search for a banner name to jump to a surface. The review strip's switches (Labs,
+  History, Scenario, Spacing, Theme, Spec) exist only in the prototype.
+-->
 <title>Design Editor Shell</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;550;600;700&display=swap">
@@ -802,8 +818,12 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .spec-b ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
 .spec-b .rid { display: inline-block; margin-right: 6px; font: 10px/16px var(--mono); color: var(--muted-fg); }
 .spec-b .tag { display: inline-block; font-size: 10px; font-weight: 600; padding: 0 6px; border-radius: 9px; border: 1px solid var(--border); margin-right: 6px; vertical-align: 1px; text-transform: uppercase; letter-spacing: .04em; }
-.spec-b .tag.new { color: var(--accent); border-color: var(--accent); }
-.spec-b .tag.q { color: hsl(30 90% 45%); border-color: hsl(30 90% 45%); }
+.spec-b .tag.proposed { color: var(--accent); border-color: var(--accent); }
+.spec-b .tag.question { color: hsl(30 90% 45%); border-color: hsl(30 90% 45%); }
+.spec-b .tag.decided, .spec-b .tag.in-pr, .spec-b .tag.shipped { color: var(--fg); }
+.spec-b li .today, .spec-b li .change, .spec-b li .proto { display: block; }
+.spec-b li .today, .spec-b li .proto { color: var(--muted-fg); }
+.spec-b li .today + .change { margin-top: 2px; }
 .spec-b code { font-family: var(--mono); font-size: 12px; background: var(--muted); padding: 0 4px; border-radius: 4px; }
 
 /* Below 1200px the three groups no longer fit around a centred route: the route takes the leftover middle instead. */
@@ -2531,7 +2551,7 @@ function toggleSpec() {
   $("#spec-btn").setAttribute("aria-pressed", !ex);
   if (ex) { ex.remove(); return; }
   const d = document.createElement("aside"); d.className = "spec"; d.setAttribute("aria-label", "Spec");
-  d.innerHTML = `<div class="spec-h">Changes to build<span class="grow"></span><button class="icon-btn xs" aria-label="Close spec" onclick="toggleSpec()">${ic("x")}</button></div><div class="spec-b">${SPEC.map(g => `<div><h4>${g.h}</h4><ul>${g.items.map(i => `<li><span class="rid">${i.id}</span>${i.tag ? `<span class="tag ${i.tag}">${i.tag === "q" ? "Question" : i.tag === "new" ? "New" : i.tag}</span>` : ""}${i.t}</li>`).join("")}</ul></div>`).join("")}</div>`;
+  d.innerHTML = `<div class="spec-h">Requirements<span class="grow"></span><button class="icon-btn xs" aria-label="Close spec" onclick="toggleSpec()">${ic("x")}</button></div><div class="spec-b">${SPEC.map(g => `<div><h4>${g.h}</h4><ul>${g.items.map(i => `<li><span class="rid">${i.id}</span>${i.label ? `<span class="tag ${i.status}">${i.label}</span>` : ""}${i.t}</li>`).join("")}</ul></div>`).join("")}</div>`;
   document.body.append(d);
 }
 const LOGO_SMALL = `<svg width="20" height="12" viewBox="0 0 24 14" aria-hidden="true"><path d="M0 14 L7 0 H11 L4 14Z M8 14 L15 0 H19 L12 14Z M16 14 L20 6 L24 14Z" fill="currentColor"/></svg>`;

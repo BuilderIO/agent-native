@@ -1,8 +1,8 @@
 {
-  "$comment": "Source of truth for this plan's requirements. status: exists (what the code does today, with file:line refs) | new (net-new work) | question (needs a decision) | decided | in-pr | shipped. steps are PR steps in README.md. The prototype's Spec drawer renders this file.",
+  "$schema_note": "Each requirement: id (stable), status, today (what the code does now, if relevant), change (what to build, if any), refs (checked anchors: path[:line][#symbol]), prototype (how to see it in the prototype). status: context (describes the code; nothing to build) | proposed | question | decided | in-pr | shipped. Decisions in README.md name the IDs they settle.",
   "areas": [
     {
-      "area": "Top bar (new)",
+      "area": "Top bar",
       "prefix": "TOP",
       "steps": [
         1,
@@ -12,58 +12,74 @@
       "items": [
         {
           "id": "TOP-01",
-          "status": "new",
-          "text": "One 48px bar across the canvas and inspector. Today there is none: everything sits in <code>rightSidebarActions</code> at the top of the inspector rail."
+          "status": "decided",
+          "today": "There is no top bar. Presence, Review changes, Apply feedback, the Play popover, and Share sit in `rightSidebarActions` at the top of the inspector rail.",
+          "change": "One 48px bar across the canvas and inspector.",
+          "refs": [
+            "templates/design/app/pages/DesignEditor.tsx#rightSidebarActions"
+          ]
         },
         {
           "id": "TOP-02",
-          "status": "new",
-          "text": "Test: every top-bar control is 24px (design-system default) with 12/16 text, 6px radius, and edge padding sized to the content: 8px beside text, 4px beside a 16px glyph. The mode switch is a 24px segmented control (20px segments). Import and Share are 24px split buttons with a 20px chevron half. The bar stays 48px. Code today mixes 28px Figma selects with 32px toolkit sm buttons; 28 isn't on the 16/20/24/32 ramp."
+          "status": "decided",
+          "today": "Top-right controls mix 28px Figma selects with 32px toolkit `sm` buttons; 28 isn't on the 16/20/24/32 ramp.",
+          "change": "Every top-bar control is 24px with 12/16 text and a 6px radius; edge padding is 8px beside text and 4px beside a 16px glyph. The mode switch is a 24px segmented control (20px segments); Import and Share are 24px split buttons with a 20px chevron half. The bar stays 48px."
         },
         {
           "id": "TOP-03",
-          "status": "exists",
-          "text": "Three columns with the route centred on the bar: left holds the mode switch, then device in Interact; centre holds back, forward, the route picker, and reload; right holds zoom, presence, Import, and Share."
+          "status": "decided",
+          "change": "Three columns with the route centred: left holds the mode switch (then device and Appearance in Interact); centre holds back, forward, the route picker, and reload in Interact; right holds zoom, presence, Import, and Share."
         },
         {
           "id": "TOP-04",
-          "status": "new",
-          "text": "Interact › Appearance: Light / Dark / System, next to the device picker. Today every inline screen iframe is pinned to colorScheme: \"light\" (<code>DesignCanvas.tsx:7323</code>, <code>MultiScreenCanvas.tsx:12205</code>), so no design previews dark. The picker sets that value instead; in Chromium an iframe's color-scheme drives prefers-color-scheme inside it, so designs with dark CSS follow with no changes. Design mode keeps today's light pin."
+          "status": "proposed",
+          "today": "Inline screen iframes are pinned to `colorScheme: \"light\"` in the editor (`DesignCanvas.tsx:7323`, `MultiScreenCanvas.tsx:12205`, `:12564`, `:13254`), so no design previews dark.",
+          "change": "Interact › Appearance (Light / Dark / System) beside the device picker sets that value instead. In Chromium an iframe's `color-scheme` drives `prefers-color-scheme` inside it, so designs with dark CSS follow with no changes. Design mode keeps the light pin.",
+          "refs": [
+            "templates/design/app/components/design/DesignCanvas.tsx:7323#colorScheme",
+            "templates/design/app/components/design/MultiScreenCanvas.tsx:12205#colorScheme"
+          ]
         },
         {
           "id": "TOP-05",
-          "status": "exists",
-          "text": "Zoom stays in the same spot in both modes and keeps its value. With 24px controls the route stays exactly centred from 1200px; below that the route takes the leftover middle (120–264px) and presence avatars hide."
+          "status": "decided",
+          "change": "Zoom stays in the same spot in both modes and keeps its value. The route stays exactly centred from 1200px wide; below that it takes the leftover middle (120–264px) and presence avatars hide."
         },
         {
           "id": "TOP-06",
-          "status": "exists",
-          "text": "In Design, the Screens panel picks the screen; routes and device sizes are Interact concepts."
+          "status": "decided",
+          "change": "In Design, the Screens panel picks the screen; routes and device sizes are Interact concepts."
         },
         {
           "id": "TOP-07",
-          "status": "exists",
-          "text": "Local app screens: Interact's route picker shows the localhost URL. Design shows Apply to source beside zoom (Scenario: Local app screen)."
+          "status": "proposed",
+          "change": "Local app screens: Interact's route picker shows the localhost URL; Design shows Apply to source beside zoom.",
+          "prototype": "Scenario: Local app screen."
         },
         {
           "id": "TOP-08",
-          "status": "exists",
-          "text": "Right zone in both modes: Review changes when pending, presence, then Import and Share as split buttons."
+          "status": "decided",
+          "change": "Right zone in both modes: Review changes when pending, presence, then Import and Share as split buttons."
         },
         {
           "id": "TOP-09",
-          "status": "exists",
-          "text": "Import: the button opens the Import dialog (today's <code>DesignImportPanel</code> sources); the chevron jumps straight to one source."
+          "status": "decided",
+          "today": "Import is a rail panel (`DesignImportPanel`).",
+          "change": "Import is a split button: the button opens the Import dialog with the same sources; the chevron jumps straight to one source.",
+          "refs": [
+            "templates/design/app/components/design/DesignImportPanel.tsx#DesignImportPanel"
+          ]
         },
         {
           "id": "TOP-10",
-          "status": "exists",
-          "text": "Share: the button opens the toolkit <code>ShareDialog</code>. The chevron holds Export: Download HTML, PNG, SVG, Figma SVG, ZIP, PDF, Copy agent prompt, and Publish app."
+          "status": "decided",
+          "today": "Share is the toolkit `ShareButton` with tabs Share link, Export, Send to agent, and Live collaboration.",
+          "change": "Share is a split button: the button opens the share popover (AGT-03); the chevron holds Export: Download HTML, PNG, SVG, Figma SVG, ZIP, PDF, Copy agent prompt, Publish app, and Download tokens (DTCG) while the Tokens lab is on."
         },
         {
           "id": "TOP-11",
-          "status": "new",
-          "text": "With the inspector showing, the bar's last column starts at the inspector's left edge: zoom ends 8px before it, and the avatars, Import, and Share sit over the inspector, leaving room for more people and agents. Without the inspector (Interact, narrow windows) the cluster sits together at the right."
+          "status": "decided",
+          "change": "With the inspector showing, the bar's last column starts at the inspector's left edge: zoom ends 8px before it, and presence, Import, and Share sit over the inspector, leaving room for more people and agents. Without the inspector (Interact, narrow windows) the cluster sits together at the right."
         }
       ]
     },
@@ -76,23 +92,27 @@
       "items": [
         {
           "id": "MOVE-01",
-          "status": "exists",
-          "text": "Apply feedback (outline button, shown when the review queue has items) moves to the top of the Comments panel."
+          "status": "proposed",
+          "today": "Apply feedback sits in `rightSidebarActions` when the review queue has items.",
+          "change": "Apply feedback moves to the top of the Threads panel, same condition."
         },
         {
           "id": "MOVE-02",
-          "status": "exists",
-          "text": "Review changes (pending node rewrites) moves to the top bar's right zone, same condition and menu."
+          "status": "proposed",
+          "today": "Review changes (pending node rewrites) sits in `rightSidebarActions`.",
+          "change": "Review changes moves to the top bar's right zone, same condition and menu."
         },
         {
           "id": "MOVE-03",
-          "status": "exists",
-          "text": "Localhost link moves into Interact's route picker; Apply to source sits beside zoom in Design."
+          "status": "proposed",
+          "today": "The localhost link and Apply to source sit in `rightSidebarActions`.",
+          "change": "The localhost link moves into Interact's route picker; Apply to source sits beside zoom in Design."
         },
         {
           "id": "MOVE-04",
-          "status": "exists",
-          "text": "Play popover: Design Preview is what Interact does now, so it goes. Publish app (waitlist) moves to Share's dropdown."
+          "status": "decided",
+          "today": "A Play popover holds Design Preview and Publish app (waitlist).",
+          "change": "The Play popover goes: Interact is the preview, and Publish app moves to Share's chevron."
         }
       ]
     },
@@ -105,43 +125,44 @@
       "items": [
         {
           "id": "CMT-01",
-          "status": "new",
-          "text": "Threads open on the canvas, attached to their element (Figma 1205:2267). Clicking a pill opens a 360px card beside it with the title bar (⋯, Resolve, Close), the messages, and a reply box. The Comments panel isn't needed for this."
+          "status": "decided",
+          "today": "Comments live in the inspector's Comments tab (`ReviewPanel` / `ReviewCommentsPanel`).",
+          "change": "Threads open on the canvas, attached to their element (Figma 1205:2267). Clicking a pill opens a 360px card beside it with the title bar (⋯, Resolve, Close), the messages, and a reply box."
         },
         {
           "id": "CMT-02",
-          "status": "exists",
-          "text": "Collapsed, a thread is an avatar pill at the element's top-right corner: up to three participants, plus the message count when there are replies (Figma annotation: “They collapse down to a small avatar pill”)."
+          "status": "decided",
+          "change": "Collapsed, a thread is an avatar pill at the element's top-right corner: up to three participants, plus the message count when there are replies."
         },
         {
           "id": "CMT-03",
-          "status": "exists",
-          "text": "The card opens to the right of the pill and flips to its left when it would leave the canvas. Esc, ×, or clicking the canvas closes it; clicking the pill again toggles it."
+          "status": "proposed",
+          "change": "The card opens to the right of the pill and flips to its left when it would leave the canvas. Esc, ×, or clicking the canvas closes it; clicking the pill again toggles it."
         },
         {
           "id": "CMT-04",
-          "status": "new",
-          "text": "The reply box expands on focus (accent border, emoji, @, image, send). Typing @ opens the mention picker of people and agents (Figma 1259:23236). A mention becomes a chip."
+          "status": "proposed",
+          "change": "The reply box expands on focus (accent border, emoji, @, image, send). Typing @ opens the mention picker of people and agents (Figma 1259:23236); a mention becomes a chip."
         },
         {
           "id": "CMT-05",
-          "status": "new",
-          "text": "Agents reply in the thread with their brand mark and an Agent badge (Figma 1205:2713). Mentioning an agent starts a run; its answer lands in the same thread."
+          "status": "proposed",
+          "change": "Agents reply in the thread with their brand mark and an Agent badge (Figma 1205:2713). Mentioning an agent starts a run; its answer lands in the same thread."
         },
         {
           "id": "CMT-06",
-          "status": "exists",
-          "text": "⋯ holds the Agent menu from Figma (Suggest changes, Reply in thread, Apply changes and resolve), then Copy link and Delete thread."
+          "status": "proposed",
+          "change": "⋯ holds the Agent menu from Figma (Suggest changes, Reply in thread, Apply changes and resolve), then Copy link and Delete thread."
         },
         {
           "id": "CMT-07",
-          "status": "exists",
-          "text": "The Comment tool (C) or + in the Comments header: click an element and an empty card opens there with the box focused (Figma 1224:21402). Sending makes the thread and returns to Move."
+          "status": "proposed",
+          "change": "The Comment tool (C) or + in the Threads header: click an element and an empty card opens there with the box focused (Figma 1224:21402). Sending makes the thread and returns to Move."
         },
         {
           "id": "CMT-08",
-          "status": "exists",
-          "text": "The Comments panel is the finder: Open / Resolved / All, grouped by screen. A row opens its thread on the canvas, scrolling to the element and switching screens if needed."
+          "status": "decided",
+          "change": "The Threads panel is the finder, grouped by screen (search and filters in RAIL-12). A row opens its thread on the canvas, scrolling to the element and switching screens if needed."
         }
       ]
     },
@@ -154,48 +175,67 @@
       "items": [
         {
           "id": "VIEW-01",
-          "status": "exists",
-          "text": "Pixel grid: exists, but only on the overview canvas and automatically at 800% and up (<code>shouldShowPixelGrid</code>, <code>canvas-math.ts:525</code>; <code>MultiScreenCanvas.tsx:10262</code>)."
+          "status": "context",
+          "today": "The pixel grid draws only on the overview canvas, automatically at 800% and up (`showPixelGrid = canvasZoom >= PIXEL_GRID_ZOOM` in `MultiScreenCanvas.tsx`). `canvas-math.ts` has a `shouldShowPixelGrid` helper that nothing in the app calls.",
+          "refs": [
+            "templates/design/app/components/design/MultiScreenCanvas.tsx:9412#PIXEL_GRID_ZOOM",
+            "templates/design/shared/canvas-math.ts:525#shouldShowPixelGrid"
+          ]
         },
         {
           "id": "VIEW-02",
-          "status": "new",
-          "text": "Pixel grid becomes a toggle (on by default, still drawn from 800%), and the single-screen canvas (<code>DesignCanvas.tsx</code>) draws it too."
+          "status": "proposed",
+          "change": "Pixel grid becomes a toggle (on by default, still drawn from 800%), and the single-screen canvas (`DesignCanvas.tsx`) draws it too."
         },
         {
           "id": "VIEW-03",
-          "status": "exists",
-          "text": "Snap to pixel grid: smart snapping exists for move, resize, and spacing (edges, centers, gaps within 6px; whole-pixel results via <code>WHOLE_PIXEL_SNAP_STEP</code>). Holding ⌘/Ctrl bypasses it while dragging."
+          "status": "context",
+          "today": "Smart snapping covers move, resize, and spacing (edges, centers, gaps within 6px; whole-pixel results via `WHOLE_PIXEL_SNAP_STEP`). Holding ⌘/Ctrl bypasses it while dragging.",
+          "refs": [
+            "templates/design/shared/canvas-math.ts#WHOLE_PIXEL_SNAP_STEP"
+          ]
         },
         {
           "id": "VIEW-04",
-          "status": "new",
-          "text": "Snapping gets an on/off toggle; ⌘/Ctrl still bypasses it per drag."
+          "status": "proposed",
+          "change": "Snapping gets an on/off toggle; ⌘/Ctrl still bypasses it per drag."
         },
         {
           "id": "VIEW-05",
-          "status": "exists",
-          "text": "Layout grids ⌃G: the code's per-frame column/row grids (<code>LayoutGridProperties</code>) and their show/hide-all toggle (<code>handleToggleLayoutGrids</code>, <code>DesignEditor.tsx:5279</code>). Renamed from Figma's “Layout guidelines” to match the code. Press ⌃G in the prototype to see a 12-column grid."
+          "status": "proposed",
+          "today": "Per-frame column and row grids (`LayoutGridProperties`) have a show/hide-all toggle, ⌃G (`handleToggleLayoutGrids`).",
+          "change": "The zoom menu lists it as Layout grids ⌃G, renamed from Figma's “Layout guidelines” to match the code.",
+          "refs": [
+            "templates/design/app/pages/DesignEditor.tsx#handleToggleLayoutGrids"
+          ],
+          "prototype": "Press ⌃G to see a 12-column grid."
         },
         {
           "id": "VIEW-06",
-          "status": "new",
-          "text": "Rulers: only the tick math exists (<code>getRulerTicks</code>, <code>canvas-math.ts:514</code>). The ruler UI is new work; off by default until it ships."
+          "status": "proposed",
+          "today": "Only the ruler tick math exists (`getRulerTicks`).",
+          "change": "The ruler UI is new work; the toggle is off by default until it ships.",
+          "refs": [
+            "templates/design/shared/canvas-math.ts#getRulerTicks"
+          ]
         },
         {
           "id": "VIEW-07",
-          "status": "exists",
-          "text": "Multiplayer cursors: <code>LiveCursorOverlay</code> shows remote people and the agent's synthesized cursor, always on today."
+          "status": "context",
+          "today": "`LiveCursorOverlay` shows remote people and the agent's synthesized cursor, always on.",
+          "refs": [
+            "packages/toolkit/src/collab-ui/LiveCursorOverlay.tsx#LiveCursorOverlay"
+          ]
         },
         {
           "id": "VIEW-08",
-          "status": "new",
-          "text": "Multiplayer cursors gets a toggle (on by default)."
+          "status": "proposed",
+          "change": "Multiplayer cursors gets a toggle (on by default)."
         },
         {
           "id": "VIEW-09",
-          "status": "exists",
-          "text": "Comments ⇧C: exists."
+          "status": "context",
+          "today": "Show or hide comments is ⇧C."
         }
       ]
     },
@@ -208,53 +248,67 @@
       "items": [
         {
           "id": "KEYS-01",
-          "status": "new",
-          "text": "A centred modal (760×640, shadcn Dialog) replaces today's 241px drawer pinned to the bottom of the editor (<code>KeyboardShortcutsPanel.tsx:263</code>), which also pushes the floating toolbar up (<code>DesignBottomToolbar.tsx:406</code>)."
+          "status": "decided",
+          "today": "Shortcuts are a 241px drawer pinned to the bottom of the editor, which also pushes the floating toolbar up 257px.",
+          "change": "A centred 760×640 modal (shadcn Dialog) replaces the drawer.",
+          "refs": [
+            "templates/design/app/components/design/KeyboardShortcutsPanel.tsx:263#h-[241px]",
+            "templates/design/app/components/design/editor/DesignBottomToolbar.tsx:406#shortcutsPanelOpen"
+          ]
         },
         {
           "id": "KEYS-02",
-          "status": "exists",
-          "text": "Title row is the shadcn Dialog header: title on the left, close on the right."
+          "status": "proposed",
+          "change": "Title row is the shadcn Dialog header: title on the left, close on the right."
         },
         {
           "id": "KEYS-03",
-          "status": "exists",
-          "text": "Left column (200px): search at the top, then the 13 categories from <code>DESIGN_SHORTCUT_CATEGORIES</code>. Clicking a category scrolls to it, and the current one follows the scroll. Right: one list with sticky category headings, name on the left, keycaps on the right, “or” between alternate bindings."
+          "status": "decided",
+          "change": "Left column (200px): search at the top, then the 13 categories from `DESIGN_SHORTCUT_CATEGORIES`; clicking a category scrolls to it and the current one follows the scroll. Right: one list with sticky category headings, name on the left, keycaps on the right, “or” between alternate bindings."
         },
         {
           "id": "KEYS-04",
-          "status": "exists",
-          "text": "Search matches names, highlights the match, and narrows the categories to the ones with results; it has focus on open. The × clears it. Esc clears the search, then closes."
+          "status": "proposed",
+          "change": "Search matches names, highlights the match, and narrows the categories to the ones with results; it has focus on open. × clears it; Esc clears the search, then closes."
         },
         {
           "id": "KEYS-05",
-          "status": "exists",
-          "text": "Rows come straight from <code>DESIGN_SHORTCUTS</code> and its <code>designEditor.keyboardShortcuts</code> labels, keycaps from <code>formatShortcutKeycaps</code>. Show assets stays out while its panel is behind <code>SHOW_DESIGN_SECONDARY_LEFT_PANELS</code>. Screen-only shortcuts carry a “Screen” tag."
+          "status": "context",
+          "today": "Rows come from `DESIGN_SHORTCUTS` with `designEditor.keyboardShortcuts` labels and keycaps from `formatShortcutKeycaps`. Show assets stays out while its panel is behind `SHOW_DESIGN_SECONDARY_LEFT_PANELS`; screen-only shortcuts carry a “Screen” tag.",
+          "refs": [
+            "templates/design/app/components/design/keyboard-shortcuts.ts#DESIGN_SHORTCUTS"
+          ]
         },
         {
           "id": "KEYS-06",
-          "status": "exists",
-          "text": "Nudge amount (Small / Big px) moves from the drawer into the Cursor section, under Nudge and Big nudge."
+          "status": "proposed",
+          "today": "Nudge amount (Small / Big px) is a row in the drawer.",
+          "change": "Nudge amount sits in the Cursor section under Nudge and Big nudge, and in App menu › Preferences › Nudge amount… (SET-05)."
         },
         {
           "id": "KEYS-07",
-          "status": "exists",
-          "text": "Opens with ⌃⇧? (the registry's binding) and from the App menu: Help › Keyboard shortcuts and Preferences › Keyboard shortcuts."
+          "status": "proposed",
+          "today": "The window opens with ⌃⇧? (the registry's binding).",
+          "change": "It also opens from App menu › Help › Keyboard shortcuts and Preferences › Keyboard shortcuts."
         },
         {
           "id": "KEYS-08",
-          "status": "exists",
-          "text": "Minimal UI (⇧⌘\\) gets its own label, “Minimal UI”, instead of reusing “Show/Hide UI” (<code>keyboard-shortcuts.ts:153</code>)."
+          "status": "proposed",
+          "today": "Minimal UI (⇧⌘\\) reuses the “Show/Hide UI” label (`designEditor.keyboardShortcuts.commands.toggleUi`).",
+          "change": "Minimal UI gets its own label, “Minimal UI”.",
+          "refs": [
+            "templates/design/app/components/design/keyboard-shortcuts.ts:153#toggleUi"
+          ]
         },
         {
           "id": "KEYS-09",
           "status": "question",
-          "text": "Label for <code>toggle-minimal-ui</code> in the shortcuts window: keep “Minimal UI”?"
+          "change": "Label for `toggle-minimal-ui` in the shortcuts window: keep “Minimal UI”?"
         }
       ]
     },
     {
-      "area": "Menus and context menus (Figma Menus section 1432:3475)",
+      "area": "Menus and context menus",
       "prefix": "MENU",
       "steps": [
         13
@@ -262,43 +316,44 @@
       "items": [
         {
           "id": "MENU-01",
-          "status": "exists",
-          "text": "App menu on the logo (1309:32918): Actions… ⌘K, then File (1693:1062), Edit (1693:1196), View (1693:1275), Preferences (1693:1330: Appearance…, Keyboard shortcuts), Help (1693:1371)."
+          "status": "decided",
+          "change": "App menu on the logo (Figma 1309:32918): Actions… ⌘K, then File (1693:1062), Edit (1693:1196), View (1693:1275), Preferences (Theme ›, Keyboard shortcuts, Nudge amount…; SET-05), Help (1693:1371)."
         },
         {
           "id": "MENU-02",
-          "status": "exists",
-          "text": "Design file menu on the file name (1309:32834), minus Move to folder… until folders exist. Zoom menu (1693:1945) with the view toggles."
+          "status": "decided",
+          "change": "Design file menu on the file name (Figma 1309:32834), minus Move to folder… until folders exist. Zoom menu (1693:1945) holds the view toggles."
         },
         {
           "id": "MENU-03",
-          "status": "new",
-          "text": "Canvas context menus follow “Contextual action coverage” (1834:719), with each row's shortcut from <code>CanvasContextMenu.tsx</code>. Single layer: Edit with Agent…, Copy, Paste to replace, Copy/Paste as ›, Rename, Frame selection, Add auto layout, Create component, Hide, Lock, Arrange ›, Transform ›. Component instance: swaps the creation actions for Go to main component, Swap instance ›, Detach instance."
+          "status": "decided",
+          "change": "Single layer (Figma 1834:719, shortcuts from `CanvasContextMenu.tsx`): Edit with Agent…, Send to ›, Copy, Paste to replace, Copy/Paste as › (Copy link to selection first), Rename, Frame selection, Add auto layout, Create component, Hide, Lock, Arrange ›, Transform ›. A component instance swaps the creation actions for Go to main component, Swap instance ›, Detach instance."
         },
         {
           "id": "MENU-04",
-          "status": "exists",
-          "text": "Multiple layers (1834:719; Shift-click to multi-select): Edit with Agent…, Copy, Paste to replace, Copy/Paste as ›, Group selection, Frame selection, Add auto layout, Boolean operations ›, Hide, Lock, Arrange ›, Transform ›. Boolean operations offers only Subtract (⌥⇧S), the one the code implements."
+          "status": "decided",
+          "today": "Boolean operations: only Subtract (⌥⇧S) is implemented.",
+          "change": "Multiple layers (Shift-click): Edit with Agent…, Send to ›, Copy, Paste to replace, Copy/Paste as ›, Group selection, Frame selection, Add auto layout, Boolean operations › (Subtract only), Hide, Lock, Arrange ›, Transform ›."
         },
         {
           "id": "MENU-05",
-          "status": "exists",
-          "text": "Empty canvas (1826:562 “No selection”): Paste here, Explore with Agent…, Show UI, Show comments. Layer row (1826:562): Copy, Rename (renames in place), Hide, Lock, Arrange ›, Transform ›, with LayersPanel's shortcuts."
+          "status": "decided",
+          "change": "Empty canvas (Figma 1826:562): Paste here, Explore with Agent…, Send to › (the screen), Copy link to screen, Show UI, Show comments. Layer row: Copy, Copy link to selection, Rename (in place), Hide, Lock, Arrange ›, Transform ›, with LayersPanel's shortcuts."
         },
         {
           "id": "MENU-06",
-          "status": "new",
-          "text": "Edit with Agent… is the highlighted first row. Clicking it opens the agent composer; its submenu is the Agent actions card (1826:562): Inspiration, Polish, Debug, Generate states, Make responsive, each with a one-line outcome."
+          "status": "decided",
+          "change": "Edit with Agent… is the first row, styled like every other row (no tinted agent row). Clicking it opens the agent composer; its submenu is the Agent actions card (Figma 1826:562): Inspiration, Polish, Debug, Generate states, Make responsive, each with a one-line outcome."
         },
         {
           "id": "MENU-07",
-          "status": "exists",
-          "text": "Arrange › and Transform › use the code's commands: Bring to front ], Bring forward ⌘], Send backward ⌘[, Send to back [, Align left/right/top/bottom ⌥A/⌥D/⌥W/⌥S, Tidy up ⌃⌥T; Flip horizontal ⇧H, Flip vertical ⇧V, Swap fill and stroke ⇧X. (The Figma submenu card repeats instance rows as placeholders.)"
+          "status": "context",
+          "today": "Arrange and Transform commands: Bring to front ], Bring forward ⌘], Send backward ⌘[, Send to back [, Align left/right/top/bottom ⌥A/⌥D/⌥W/⌥S, Tidy up ⌃⌥T; Flip horizontal ⇧H, Flip vertical ⇧V, Swap fill and stroke ⇧X. (Figma's submenu card repeats instance rows as placeholders.)"
         },
         {
           "id": "MENU-08",
-          "status": "exists",
-          "text": "Agents composer + is the “MVP Add context menu (prompt bar)” (2261:2104): Search…, Upload file, Attach Figma…, Reference a design…"
+          "status": "proposed",
+          "change": "The Agents composer + is Figma's “MVP Add context menu (prompt bar)” (2261:2104): Search…, Upload file, Attach Figma…, Reference a design…."
         }
       ]
     },
@@ -311,48 +366,61 @@
       "items": [
         {
           "id": "HIST-01",
-          "status": "exists",
-          "text": "Opens from the file menu and App menu › File › Version history. Today only the project menu opens it (<code>DesignEditor.tsx:25688</code>)."
+          "status": "proposed",
+          "today": "Only the project menu opens Version history.",
+          "change": "It also opens from the file menu and App menu › File › Version history.",
+          "refs": [
+            "templates/design/app/pages/DesignEditor.tsx#setHistoryOpen(true)"
+          ]
         },
         {
           "id": "HIST-02",
-          "status": "exists",
-          "text": "Today: a modal shadcn Sheet from the right, 92vw up to 640px (<code>HistoryPanel.tsx:131</code>), over a dimmed editor. List: accent dot, title, screen count, relative time. Titles are the stored labels (“Chat autosave”, “Before component delete”, “Before editor screen delete”, “Before restore”) or “After chat edit” for unlabeled chat versions. Pick “History: Sheet (today)” in the review strip to see it."
+          "status": "context",
+          "today": "A modal shadcn Sheet from the right, 92vw up to 640px, over a dimmed editor. The list shows an accent dot, title, screen count, and relative time; titles are the stored labels (“Chat autosave”, “Before component delete”, “Before editor screen delete”, “Before restore”) or “After chat edit” for unlabeled chat versions.",
+          "refs": [
+            "templates/design/app/components/design/editor/HistoryPanel.tsx:131#max-w-[640px]"
+          ],
+          "prototype": "Pick “History: Sheet (today)” in the review strip."
         },
         {
           "id": "HIST-03",
-          "status": "exists",
-          "text": "Today, a version opens a detail view in the same sheet: title, date · screen count, a two-column grid of screen thumbnails with file names, and a full-width “Restore this version”."
+          "status": "context",
+          "today": "A version opens a detail view in the same sheet: title, date · screen count, a two-column grid of screen thumbnails with file names, and a full-width “Restore this version”."
         },
         {
           "id": "HIST-04",
-          "status": "exists",
-          "text": "Versions are only created automatically: after an agent turn that edited the design (“Chat autosave”, <code>server/plugins/agent-chat.ts:266</code>), before screen and component deletes, and “Before restore” when restoring. In the prototype, Polish and agent mentions in comments autosave like the code does. Manual edits never create a version."
+          "status": "context",
+          "today": "Versions are only created automatically: after an agent turn that edited the design (“Chat autosave”), before screen and component deletes, and “Before restore”. Manual edits never create a version.",
+          "refs": [
+            "templates/design/server/plugins/agent-chat.ts:266#Chat autosave"
+          ],
+          "prototype": "Polish and agent mentions in comments autosave like the code does."
         },
         {
           "id": "HIST-05",
-          "status": "new",
-          "text": "History mode (default in the prototype): Version history turns the inspector into a timeline and the canvas into the preview. The floating toolbar hides; canvas and layers are read-only; comment pins hide. The top bar shows “Version history”, “Viewing {version} · {time}”, zoom, Restore this version, and Done. Esc or Done exits back to the mode you came from."
+          "status": "proposed",
+          "change": "History mode: Version history turns the inspector into a timeline and the canvas into the preview. The floating toolbar hides; canvas and layers are read-only; comment pins hide. The top bar shows “Version history”, “Viewing {version} · {time}”, zoom, Restore this version, and Done; Esc or Done returns to the previous mode."
         },
         {
           "id": "HIST-06",
-          "status": "exists",
-          "text": "Timeline: Current version on top (accent node), runs of autosaves (“Chat autosave”, “After chat edit”, “Before … delete”) collapse into “N autosave versions”, and named versions and restores stay their own nodes, joined by a vertical line. “Before restore” shows as “Restored version · saved before restoring”. Picking a version switches the canvas to it, and to its first screen if the current one isn't in that version."
+          "status": "proposed",
+          "change": "Timeline: Current version on top (accent node); runs of autosaves collapse into “N autosave versions”; named versions and restores stay their own nodes on a vertical line. “Before restore” shows as “Restored version · saved before restoring”. Picking a version switches the canvas to it, and to its first screen if the current one isn't in that version."
         },
         {
           "id": "HIST-07",
-          "status": "exists",
-          "text": "Restore saves “Before restore”, replaces the design, and returns the timeline to Current version without leaving the mode."
+          "status": "proposed",
+          "change": "Restore saves “Before restore”, replaces the design, and returns the timeline to Current version without leaving the mode."
         },
         {
           "id": "HIST-08",
-          "status": "new",
-          "text": "Named versions: + opens a title and description form; the version saves with its author. The filter switches between All versions and Named versions only. Needs an additive created-by column on <code>design_versions</code> and a label/description save (today <code>create-design-version</code> only writes the pre-delete checkpoint)."
+          "status": "proposed",
+          "today": "`create-design-version` only writes the pre-delete checkpoint, and versions have no author.",
+          "change": "Named versions: + opens a title and description form, and the version saves with its author. The filter switches between All versions and Named versions only. Needs an additive created-by column on `design_versions` and a label/description save."
         },
         {
           "id": "HIST-09",
           "status": "question",
-          "text": "Version history as a mode (the proposal) or today's <code>HistoryPanel</code> sheet? The prototype has both (review strip › History)."
+          "change": "Version history as a mode (HIST-05) or today's `HistoryPanel` sheet? The prototype has both (review strip › History)."
         }
       ]
     },
@@ -366,93 +434,123 @@
       "items": [
         {
           "id": "TOK-01",
-          "status": "exists",
-          "text": "In code: <code>TokensPanel.tsx</code> with <code>index-design-tokens</code>, <code>apply-design-token-edit</code>, <code>preview-design-token-edit</code>, and <code>import-design-tokens</code>. It's hidden by a build-time env switch, <code>VITE_SHOW_DESIGN_SECONDARY_LEFT_PANELS</code> (<code>pages/design-editor/types.ts:36</code>), not a runtime feature flag; the same switch hides Assets, Tools, and Code. Its strings are raw literals (“localized when this feature is finalized”)."
+          "status": "context",
+          "today": "`TokensPanel.tsx` uses `index-design-tokens`, `apply-design-token-edit`, `preview-design-token-edit`, and `import-design-tokens`. It's hidden by the build-time switch `VITE_SHOW_DESIGN_SECONDARY_LEFT_PANELS`, which also hides Assets, Tools, and Code. Its strings are raw literals.",
+          "refs": [
+            "templates/design/app/pages/design-editor/types.ts:36#SHOW_DESIGN_SECONDARY_LEFT_PANELS"
+          ]
         },
         {
           "id": "TOK-02",
-          "status": "new",
-          "text": "Ships behind a Labs flag: add a <code>design.tokens</code> lab in <code>shared/labs.ts</code> (like <code>DESIGN_TWEAKS</code>), read it with <code>useLab</code> for the rail item, and list it in Settings › Labs. Tokens leaves the <code>VITE_SHOW_DESIGN_SECONDARY_LEFT_PANELS</code> build switch; Assets, Tools, and Code keep it. Toggle “Labs: Tokens” in the review strip."
+          "status": "decided",
+          "change": "Tokens ships behind a `design.tokens` lab in `shared/labs.ts` (like `DESIGN_TWEAKS`), read with `useLab` for the rail item and listed in Settings › Labs. It leaves the build switch; Assets, Tools, and Code keep it.",
+          "prototype": "Toggle “Labs: Tokens” in the review strip or Settings › Labs."
         },
         {
           "id": "TOK-03",
-          "status": "new",
-          "text": "Tokens becomes a rail item (after Agents) and a left panel on the shared 16px row strip: groups Colors, Typography, Spacing, Radius, Shadows & Effects, Other, each collapsible. A row is swatch or type glyph, name, and value; hovering shows the source (file or design system)."
+          "status": "proposed",
+          "change": "Tokens is a rail item (after Agents) and a left panel on the shared 16px row strip: groups Colors, Typography, Spacing & Layout, Radius, Shadows & Effects, Other, each collapsible. A row is swatch or type glyph, name, and value; hovering shows the source."
         },
         {
           "id": "TOK-04",
-          "status": "exists",
-          "text": "Click a row to edit its value in place (Enter saves, Esc cancels). The color swatch opens the system color picker. Edits restyle the canvas live, like <code>apply-design-token-edit</code>."
+          "status": "proposed",
+          "change": "Click a row to edit its value in place (Enter saves, Esc cancels). The color swatch opens the system color picker. Edits restyle the canvas live, like `apply-design-token-edit`."
         },
         {
           "id": "TOK-05",
-          "status": "new",
-          "text": "Two header actions replace today's one create popover. <b>+ Add token</b> is a Nova menu of token kinds in the panel's group order: Color · Font family, Font weight, Font size, Line height, Letter spacing · Spacing, Container, Breakpoint, Radius · Shadow, Opacity. A kind adds a draft row at the end of its group with the kind's prefix and a starting value (Font size → <code>--font-size-</code>, <code>16px</code>); type the name, Enter moves to the value, Enter or clicking away saves, Esc cancels."
+          "status": "decided",
+          "today": "One create popover: Add one token is a CSS-variable field and a value field that defaults to `#000000`, and `classifyVar` guesses the group from the name and value.",
+          "change": "+ Add token is a Nova menu of token kinds in the panel's group order: Color · Font family, Font weight, Font size, Line height, Letter spacing · Spacing, Container, Breakpoint, Radius · Shadow, Opacity. A kind adds a draft row at the end of its group with the kind's prefix and a starting value (Font size → `--font-size-`, 16px), stored with that type; Enter moves to the value, Enter or clicking away saves, Esc cancels.",
+          "refs": [
+            "templates/design/actions/import-design-tokens.ts:130#classifyVar"
+          ]
         },
         {
           "id": "TOK-06",
-          "status": "exists",
-          "text": "Why: today's Add one token is a CSS-variable field and a value field that defaults to <code>#000000</code>, and <code>classifyVar</code> (<code>actions/import-design-tokens.ts:130</code>) guesses the group from the name and value. Picking the kind first stores the type explicitly, so the token lands in the right group without reordering."
+          "status": "proposed",
+          "today": "The code's token types are color, typography, spacing, radius, shadow, motion, other.",
+          "change": "Container, Breakpoint, and Opacity are new kinds. Spacing becomes “Spacing & Layout” to hold Container and Breakpoint; Opacity lands in Shadows & Effects."
         },
         {
           "id": "TOK-07",
-          "status": "new",
-          "text": "Container, Breakpoint, and Opacity are new kinds (the code's types are color, typography, spacing, radius, shadow, motion, other). Spacing becomes “Spacing & Layout” to hold Container and Breakpoint; Opacity lands in Shadows &amp; Effects."
+          "status": "decided",
+          "today": "The same popover offers Import a set from text, Import from a file, Import from a folder, and Import from current design.",
+          "change": "Import (Tabler `download`) is a Nova menu like +, each item importing straight away with a toast of what changed: Paste Figma link, DTCG file…, CSS or Tailwind file…, Code folder…, Paste from clipboard, then Generate from design. The same parser runs underneath, and DTCG is detected by content."
         },
         {
           "id": "TOK-08",
-          "status": "new",
-          "text": "<b>Import</b> (Tabler <code>download</code> icon, the arrow into a tray) is a Nova menu like +, and each item imports straight away with a toast of what changed: Paste Figma link, DTCG file…, CSS or Tailwind file…, Code folder…, Paste from clipboard, then Generate from design. Each source names what it reads. It replaces Import a set from text, from a file, and from a folder; the same parser runs underneath, and DTCG is detected by content."
+          "status": "proposed",
+          "today": "Frame import already uses the workspace's Figma connection (`FIGMA_ACCESS_TOKEN`). Figma's Variables API needs an Enterprise plan.",
+          "change": "Paste Figma link reads the file link copied in Figma from the clipboard (no field) and imports color, text, and effect styles on every plan, plus variables on Enterprise; otherwise the toast says variables need Enterprise. Paste from clipboard routes a Figma link here too. In code: a `figma` source on `import-design-tokens`.",
+          "refs": [
+            "templates/design/FIGMA_INTEROPERABILITY.md:53#Enterprise"
+          ]
         },
         {
           "id": "TOK-09",
-          "status": "new",
-          "text": "<b>Paste Figma link</b> reads the file link you copied in Figma from the clipboard, so there's no field to fill in; without one, the toast says to copy it first. It reads the file over Figma's REST API with the workspace's Figma connection (<code>FIGMA_ACCESS_TOKEN</code>, the same one frame import uses): color, text, and effect styles on every plan, and variables when the account has Enterprise (<code>FIGMA_INTEROPERABILITY.md:53</code>); otherwise the toast says variables need Enterprise. Paste from clipboard routes a Figma link here too. In code this is a <code>figma</code> source on <code>import-design-tokens</code>."
+          "status": "context",
+          "today": "Figma's MCP (`mcp.figma.com`) is in core's MCP catalog but only accepts approved clients, so Design can't connect to it. An outside agent (Claude Code, Codex) can connect to Figma's MCP and to Design's own MCP server, read `get_variable_defs`, and call `import-design-tokens` (Paper's model). The `design-systems` skill already tells the agent to use Figma MCP tools when connected.",
+          "refs": [
+            "packages/core/src/client/resources/mcp-integration-catalog.ts#mcp.figma.com"
+          ]
         },
         {
           "id": "TOK-10",
-          "status": "exists",
-          "text": "Figma's MCP (<code>mcp.figma.com</code>) is in core's MCP catalog but only accepts approved clients, so Design can't connect to it yet. Paper's route works today: an external agent (Claude Code, Codex) connects to both Figma's MCP and Design's own MCP server (every Agent-Native app mounts one, see <code>mcp-protocol</code> docs), reads <code>get_variable_defs</code>, and calls <code>import-design-tokens</code>. The <code>design-systems</code> skill already tells the agent to use Figma MCP tools when they're connected."
+          "status": "decided",
+          "today": "Import from current design runs a regex extraction over the design files.",
+          "change": "Generate from design (Import menu and the empty state) starts a `generate-tokens` agent skill: it reads the screens, names tokens by role, merges near-duplicates, and proposes the set for Apply. The regex extraction becomes its first step."
         },
         {
           "id": "TOK-11",
-          "status": "new",
-          "text": "<b>Generate from design</b> (the Import menu and the empty state) starts a <code>generate-tokens</code> agent skill in the Agents panel: it reads the screens, names tokens by role, merges near-duplicates, and proposes the set for Apply. It replaces Import from current design, whose regex extraction becomes the skill's first step."
+          "status": "question",
+          "change": "Export: Download tokens (DTCG) sits in Share › Export with the other downloads while the Tokens lab is on. Keep it there, or give the panel its own export?"
         },
         {
           "id": "TOK-12",
-          "status": "question",
-          "text": "Export: the prototype puts Download tokens (DTCG) in Share › Export with the other downloads, shown while the Tokens lab is on. Keep it there, or give the panel its own export?"
+          "status": "decided",
+          "today": "The panel header has a title, a token count, Refresh, and the create popover; rows are 28px.",
+          "change": "The header is the token count, then Search, Import, and +. Search swaps in for the line as a focused 32px field with a ⌘F hint (RAIL-11). Group headers drop their counts and uppercase labels; rows are 32px.",
+          "refs": [
+            "templates/design/app/components/design/LayersPanel.tsx:886#searchOpen"
+          ]
         },
         {
           "id": "TOK-13",
-          "status": "new",
-          "text": "Changed from the code panel to match the shell: the header is the token count, then Search, Import, and + (Refresh goes away). Search swaps in for the whole header line as a focused 32px field with a ⌘F hint; Clicking away, ×, or Esc dismisses it and clears the query; clicking a result row keeps it. The code's Layers search already works this way (<code>searchOpen</code> in <code>LayersPanel.tsx:886</code>). Group headers drop their counts and uppercase labels; rows are 32px (code: 28px)."
+          "status": "decided",
+          "today": "⌘F (`find`) always opens Layers search (`handleFindLayers`), and stays native inside text fields (`useDesignHotkeys`).",
+          "change": "⌘F searches the region you last clicked or focused: Tokens, Threads, and Agents open their own search; the File panel, the canvas, and the inspector open Layers search. In code, `onFind` asks the focused panel for a `focusSearch` handle before falling back to `layersPanelRef`.",
+          "refs": [
+            "templates/design/app/pages/DesignEditor.tsx#handleFindLayers",
+            "templates/design/app/hooks/useDesignHotkeys.ts#onFind"
+          ]
         },
         {
           "id": "TOK-14",
-          "status": "new",
-          "text": "⌘F searches the region you last clicked or focused: Tokens, Comments, and Agents open their own search; the File panel, the canvas, and the inspector open Layers search, which is what ⌘F (<code>find</code>, <code>handleFindLayers</code>) does everywhere today. As in <code>useDesignHotkeys</code>, ⌘F stays native inside text fields. In code, <code>onFind</code> asks the focused panel for a <code>focusSearch</code> handle before falling back to <code>layersPanelRef</code>."
+          "status": "context",
+          "today": "A design's tokens are CSS custom properties in each screen's `:root`; edits and imports land in `designs.data.tweakSelections`, a flat `{ \"--var\": value }` map shared with Tweaks. Brand kits and design systems keep a custom `BrandKitToken[]` plus fixed fields in `design_systems.data`. Nothing reads or writes DTCG.",
+          "refs": [
+            "packages/core/src/brand-kit/types.ts#BrandKitToken"
+          ]
         },
         {
           "id": "TOK-15",
-          "status": "exists",
-          "text": "Storage today: a design's own tokens are CSS custom properties in each screen's <code>:root</code>; edits and imports land in <code>designs.data.tweakSelections</code>, a flat <code>{ \"--var\": value }</code> map shared with Tweaks; brand kits and design systems keep a custom <code>BrandKitToken[]</code> (name, cssVar, value, type, group, source) plus fixed fields in <code>design_systems.data</code>. Localhost and Fusion source write-back is “planned”; no file is written. Nothing reads or writes DTCG."
+          "status": "decided",
+          "change": "Store tokens as DTCG (Design Tokens Format Module 2025.10): nested groups, `$value`, `$type`, `$description`, aliases like `{color.primary}`, colors as `{ colorSpace, components, alpha, hex }`, dimensions as `{ value, unit }` in px or rem, and Agent-Native data under `$extensions`. CSS variables become derived output (`color.primary` → `--color-primary`)."
         },
         {
           "id": "TOK-16",
-          "status": "new",
-          "text": "Store tokens as DTCG (Design Tokens Format Module 2025.10): nested groups, <code>$value</code>, <code>$type</code>, <code>$description</code>, aliases like <code>{color.primary}</code>, colors as <code>{ colorSpace, components, alpha, hex }</code> and dimensions as <code>{ value, unit }</code> in px or rem, and Agent-Native data (source, cssVar override) under <code>$extensions</code>. CSS variables become derived output (<code>color.primary</code> → <code>--color-primary</code>), not the source of truth."
+          "status": "proposed",
+          "change": "DTCG import and export: groups inherit `$type`; `{alias}` and `$ref` resolve; colors, dimensions, durations, font families and weights, cubic-béziers, and shadows convert to CSS. A `com.agent-native.cssVar` extension keeps the variable name, otherwise the path becomes it. Share › Export › Download tokens (DTCG) writes the same shape back, and a round trip changes nothing."
         },
         {
           "id": "TOK-17",
-          "status": "new",
-          "text": "DTCG in the panel: Import › DTCG file… reads .tokens and .tokens.json files; the other imports detect DTCG JSON too. Groups inherit <code>$type</code>; <code>{alias}</code> and <code>$ref</code> references resolve; colors, dimensions, durations, font families and weights, cubic-béziers, and shadows convert to CSS. A <code>com.agent-native.cssVar</code> extension keeps the variable name, otherwise the path becomes it (<code>color.primary</code> → <code>--color-primary</code>). Share › Export › Download tokens (DTCG) writes the same shape back."
+          "status": "question",
+          "change": "Keep the Container, Breakpoint, and Opacity token kinds (TOK-06), or trim the + menu to the types the code has?"
         },
         {
           "id": "TOK-18",
-          "status": "question",
-          "text": "Keep the Container, Breakpoint, and Opacity token kinds in the + menu, or trim it to the types the code has (color, typography, spacing, radius, shadow, motion, other)?"
+          "status": "proposed",
+          "change": "The token panel's strings get localized (en-US plus the 11 locale files) when it leaves the build switch."
         }
       ]
     },
@@ -465,38 +563,48 @@
       "items": [
         {
           "id": "TOOL-01",
-          "status": "exists",
-          "text": "Figma 1057:1991 (Toolbar section 1098:17334), 252×48: Move▾, Frame▾, Pen▾, Comment, Agent▾. Text and the Shape tool fold into Frame's Insert menu. Interact: Interact, Comment, Agent▾. Annotate (Labs): Draw▾, Comment, Agent▾."
+          "status": "decided",
+          "today": "The toolbar holds Move, Frame, Shape, Pen, Text, Comment pin, and the mode tabs; it hides in Interact.",
+          "change": "Figma 1057:1991 (Toolbar section 1098:17334), 252×48: Move▾, Frame▾, Pen▾, Comment, Agent▾. Text and the Shape tool fold into Frame's Insert menu. Interact: Interact, Comment, Agent▾. Annotate (Labs): Draw▾, Comment, Agent▾."
         },
         {
           "id": "TOOL-02",
-          "status": "exists",
-          "text": "Split buttons: 32×32 tool, 1px gap, 16×32 chevron, separate hover per half, chevron filled while its menu is open. Comment has no chevron."
+          "status": "proposed",
+          "today": "`DesignToolbarTool` gives the tool and its chevron one shared hover.",
+          "change": "Split buttons: 32×32 tool, 1px gap, 16×32 chevron, separate hover per half, chevron filled while its menu is open. Comment has no chevron."
         },
         {
           "id": "TOOL-03",
-          "status": "exists",
-          "text": "The toolbar is pinned 8px above the canvas viewport's bottom edge (today 16px), whatever the page height. The canvas keeps 64px of bottom scroll room so the last content can clear it."
+          "status": "proposed",
+          "today": "The toolbar sits 16px above the bottom (257px while the shortcuts drawer is open).",
+          "change": "It's pinned 8px above the canvas viewport's bottom edge, whatever the page height; the canvas keeps 64px of bottom scroll room so content can clear it.",
+          "refs": [
+            "templates/design/app/components/design/editor/DesignBottomToolbar.tsx:406#shortcutsPanelOpen"
+          ]
         },
         {
           "id": "TOOL-04",
-          "status": "exists",
-          "text": "Select menu: Move V, Hand tool H, Scale K. Insert menu on Frame: Frame F, Text T, Screen, Image/video…, then Rectangle R, Line L, Arrow ⇧L, Ellipse O, Polygon, Star. Picking an option swaps the tool's icon."
+          "status": "decided",
+          "change": "Select menu: Move V, Hand tool H, Scale K. Insert menu on Frame: Frame F, Text T, Screen, Image/video…, then Rectangle R, Line L, Arrow ⇧L, Ellipse O, Polygon, Star. Picking an option swaps the tool's icon."
         },
         {
           "id": "TOOL-05",
-          "status": "exists",
-          "text": "Pen menu: Pen P and Draw ⇧Y. Draw is Annotate, so it only shows with Labs: Annotate on. With the lab off, Pen keeps its chevron and a one-item menu so the toolbar stays 252px."
+          "status": "decided",
+          "change": "Pen menu: Pen P and Draw ⇧Y. Draw is Annotate, so it only shows with the Annotate lab on; with it off, Pen keeps its chevron and a one-item menu so the toolbar stays 252px."
         },
         {
           "id": "TOOL-06",
-          "status": "new",
-          "text": "Agent: the button opens the Agents panel with the composer focused and the selection attached. The chevron opens the Agent menu: Inspiration ⇧I, Debug ⇧S, Polish S. A skill starts a chat run in the Agents panel."
+          "status": "proposed",
+          "change": "Agent (Tabler `sparkles`) opens the Agents panel with the composer focused and the selection attached. The chevron opens the Agent menu: Inspiration ⇧I, Debug ⇧S, Polish S; a skill starts a chat run."
         },
         {
           "id": "TOOL-07",
-          "status": "exists",
-          "text": "Shortcuts come from <code>DESIGN_SHORTCUTS</code> (<code>keyboard-shortcuts.ts</code>): Move V, Hand tool H, Scale K, Frame F, Text T, Image/video ⇧⌘K, Rectangle R, Line L, Arrow ⇧L, Ellipse O, Pen P, Draw ⇧Y, Comment C. Screen, Polygon, and Star have none. Skills keep the Figma Agent menu keys (Inspiration ⇧I, Debug ⇧S, Polish S), which nothing in code uses yet. The mode switch has no single-key shortcut because I is the eyedropper. ⌘K stays with Actions… in the App menu."
+          "status": "context",
+          "today": "Shortcuts from `DESIGN_SHORTCUTS`: Move V, Hand tool H, Scale K, Frame F, Text T, Image/video ⇧⌘K, Rectangle R, Line L, Arrow ⇧L, Ellipse O, Pen P, Draw ⇧Y, Comment C. Screen, Polygon, and Star have none. I is the eyedropper, so the mode switch gets no single-key shortcut, and ⌘K belongs to Actions….",
+          "change": "The Agent menu skills take Figma's keys (Inspiration ⇧I, Debug ⇧S, Polish S), unbound in code today.",
+          "refs": [
+            "templates/design/app/components/design/keyboard-shortcuts.ts#DESIGN_SHORTCUTS"
+          ]
         }
       ]
     },
@@ -509,13 +617,14 @@
       "items": [
         {
           "id": "LAB-01",
-          "status": "new",
-          "text": "Annotate becomes a Labs flag in <code>shared/labs.ts</code>, read with <code>useLab</code> like <code>DESIGN_REVIEW_TOOLS_LAB</code>. Off: two modes, no Draw. On: the Annotate segment and Draw return, with today's Draw overlay."
+          "status": "decided",
+          "today": "Annotate is a mode tab in the floating toolbar.",
+          "change": "Annotate becomes a lab in `shared/labs.ts`, read with `useLab` like `DESIGN_REVIEW_TOOLS_LAB`. Off: two modes, no Draw. On: the Annotate segment and Draw return, with today's Draw overlay. It's listed in Settings › Labs."
         }
       ]
     },
     {
-      "area": "Left rail: File, Agents, Threads",
+      "area": "Left rail and panels",
       "prefix": "RAIL",
       "steps": [
         6
@@ -523,83 +632,124 @@
       "items": [
         {
           "id": "RAIL-01",
-          "status": "new",
-          "text": "The rail is 56px (Figma's width; the code is 64px today). Each item follows Figma's rail button: full width, a 20px icon in a 32px box, the 11/16 label under it truncating with an ellipsis, and the full name in a tooltip to the right after 500ms. Clicking the active item collapses its panel, as the code's <code>onPanelChange(active ? null : panel)</code> already does, so items carry <code>aria-expanded</code>. Footer controls stay 16px."
+          "status": "decided",
+          "today": "The rail is 64px (`--design-chrome-rail-width`); clicking the active item already collapses its panel (`onPanelChange(active ? null : panel)`).",
+          "change": "The rail is 56px. Each item follows Figma's rail button: full width, a 20px icon in a 32px box, the 11/16 label under it truncating with an ellipsis, and the full name in a tooltip to the right after 500ms; items carry `aria-expanded`. Footer controls stay 16px.",
+          "refs": [
+            "templates/design/app/components/design/editor/DesignWorkspaceRail.tsx#onPanelChange"
+          ]
         },
         {
           "id": "RAIL-02",
-          "status": "new",
-          "text": "The rail label for comments is “Threads” (43px at 11px; “Comments” is 56px and truncated in the 56px rail). The code already calls them threads (“Only your threads”). The panel header counts threads; search and filter labels stay the code's “comments” strings."
+          "status": "decided",
+          "today": "The code calls comment threads “threads” in filters (“Only your threads”).",
+          "change": "The comments rail item is labelled “Threads” (43px at 11px; “Comments” is 56px and truncates). The panel header counts threads; search and filter labels keep the code's “comments” strings."
         },
         {
           "id": "RAIL-03",
-          "status": "new",
-          "text": "Comments is a rail item with an open-thread count."
+          "status": "decided",
+          "change": "Threads is a rail item with an open-thread count badge."
         },
         {
           "id": "RAIL-04",
-          "status": "exists",
-          "text": "Logo opens the App menu from Figma: Actions… (⌘K), File, Edit, View, Preferences, Help, each a submenu."
+          "status": "decided",
+          "today": "The logo opens the project menu.",
+          "change": "The logo opens the App menu (MENU-01)."
         },
         {
           "id": "RAIL-05",
-          "status": "exists",
-          "text": "File shows Screens and Layers. Agents shows Recent chats, with the composer pinned at the bottom and the selection attached as context."
+          "status": "decided",
+          "today": "The Agent rail panel mounts `AgentChatSurface` (the chat).",
+          "change": "File shows Screens and Layers. Agents shows Recent chats, with the composer pinned at the bottom and the selection attached as context."
         },
         {
           "id": "RAIL-06",
-          "status": "exists",
-          "text": "Inside a chat, a back chevron before the title returns to the chat list, and the title menu starts with All chats, the toolkit <code>AgentPanel</code> header item (<code>agentPanel.allChats</code>) that opens the history view. The title menu lists recent chats to jump between."
+          "status": "decided",
+          "today": "The toolkit `AgentPanel` header has All chats (`agentPanel.allChats`), which opens the history view.",
+          "change": "Inside a chat, a back chevron before the title returns to the chat list, and the title menu starts with All chats, then recent chats to jump between."
         },
         {
           "id": "RAIL-07",
-          "status": "exists",
-          "text": "Skills start from the composer: typing / opens the toolkit's mention picker (<code>MentionPopover</code>, default density) listing the app's skills (<code>use-skills</code> / <code>slashSkills</code>): icon, name, and the description truncated with the full text in a tooltip; ↑↓ and Enter or Tab pick, Esc closes. Picking inserts an inline skill chip (<code>skillReference</code>) and you keep typing instructions; Enter runs the skill with them. This is the shared <code>PromptComposer</code> behavior today. The panel's Skills section is gone; the toolbar's Agent ▾ menu still lists skills with ⇧I, ⇧S, and S."
+          "status": "decided",
+          "today": "The shared composer already has a / menu: `MentionPopover` lists the app's skills (`use-skills` / `slashSkills`), and picking one inserts an inline `skillReference` chip.",
+          "change": "The Agents panel has no Skills section: skills start from / in the composer. The toolbar's Agent ▾ menu still lists them with ⇧I, ⇧S, and S.",
+          "refs": [
+            "packages/toolkit/src/composer/MentionPopover.tsx#MentionPopover",
+            "packages/toolkit/src/composer/TiptapComposer.tsx#skillReference"
+          ]
         },
         {
           "id": "RAIL-08",
-          "status": "exists",
-          "text": "Apply feedback (n) sits at the top of the Open list and starts the agent run. The rail footer's speech-bubble icon goes away."
+          "status": "proposed",
+          "change": "Apply feedback (n) sits at the top of the Threads list and starts the agent run. The rail footer's speech-bubble icon goes away."
         },
         {
           "id": "RAIL-09",
-          "status": "exists",
-          "text": "Today the list renders inside the inspector (<code>EditPanel.tsx:3189</code>, <code>:3251</code>) and a pin opens the inspector's Comments tab (<code>DesignEditor.tsx:18183</code>). Agent context moves from <code>inspectorTab: comments</code> to <code>leftPanel: comments</code> in <code>use-navigation-state.ts</code>."
+          "status": "proposed",
+          "today": "The comment list renders inside the inspector (`EditPanel.tsx:3189`, `:3251`), and placing a pin opens the inspector's Comments tab.",
+          "change": "Agent context moves from `inspectorTab: comments` to `leftPanel: comments` in `use-navigation-state.ts`.",
+          "refs": [
+            "templates/design/app/components/design/EditPanel.tsx:3251#ReviewCommentsPanel",
+            "templates/design/app/pages/DesignEditor.tsx:18181#setActiveInspectorTab(\"comments\")"
+          ]
         },
         {
           "id": "RAIL-10",
-          "status": "exists",
-          "text": "The rail footer's account control is the toolkit <code>AccountMenu</code> / <code>OrgSwitcher</code> compact trigger: a 24px avatar (tooltip: name and organization), not Figma's briefcase. Its menu opens above the avatar, start-aligned, 6px away, at least 248px wide (<code>side=\"top\" align=\"start\" sideOffset={6}</code>): email, organizations, invitations, Create organization, Settings, Usage, Log out. Design passes no <code>utilityLinks</code>, so Get apps and extensions doesn't show."
+          "status": "decided",
+          "today": "The rail footer uses the toolkit `AccountMenu` / `OrgSwitcher`; Design passes no `utilityLinks`.",
+          "change": "The footer control is the compact trigger: a 24px avatar (tooltip: name and organization), not Figma's briefcase. Its menu opens above it, start-aligned, 6px away, at least 248px wide: email, organizations, invitations, Create organization, Settings ⌘,, Usage, Log out.",
+          "refs": [
+            "packages/toolkit/src/app/org/OrgSwitcher.tsx#OrgSwitcher"
+          ]
         },
         {
           "id": "RAIL-11",
-          "status": "new",
-          "text": "Every left panel shares one header: a label (the count or the chat switcher), then Search, Filter, and +. Only the File panel keeps the hide-panel button; the others collapse from their rail item (click the active one) or ⌘\\. Search swaps in for the line as a focused field; clicking away, ×, or Esc dismisses it and clears the query, while clicking a result row keeps it. Filter uses Tabler <code>filter-2</code> (three shortening lines) in every panel, replacing <code>IconAdjustmentsHorizontal</code> in <code>ReviewCommentsPanel</code>, and turns accent while any filter is on."
+          "status": "decided",
+          "today": "Layers already swaps a search field in for its header (`searchOpen`). `ReviewCommentsPanel` uses `IconAdjustmentsHorizontal` for its filter.",
+          "change": "Every left panel shares one header: a label (count or chat switcher), then Search, Filter, and +. Only the File panel keeps the hide-panel button; the others collapse from their rail item or ⌘\\. Search swaps in as a focused field; click-away, ×, and Esc dismiss it and clear the query, while clicking a result row keeps it. Filter uses Tabler `filter-2` everywhere and turns accent while a filter is on.",
+          "refs": [
+            "templates/design/app/components/design/LayersPanel.tsx:886#searchOpen",
+            "templates/design/app/components/design/ReviewCommentsPanel.tsx#IconAdjustmentsHorizontal"
+          ]
         },
         {
           "id": "RAIL-12",
-          "status": "exists",
-          "text": "Comments: search and filters are the code's <code>ReviewCommentsPanel</code> (today used in review and Present): search matches every message's text; Filter comments holds Show resolved comments, Only your threads, Unread, Only current page, Sort by date or unread, and Mark all as read. It replaces the prototype's Open / Resolved / All picker; the header shows the count."
+          "status": "decided",
+          "today": "`ReviewCommentsPanel` (used in review and Present) has search over every message's text and a Filter comments menu: Show resolved comments, Only your threads, Unread, Only current page, Sort by date or unread, Mark all as read.",
+          "change": "The Threads panel uses that search and filter menu; the header shows the count.",
+          "refs": [
+            "templates/design/app/components/design/ReviewCommentsPanel.tsx#threadFilter"
+          ]
         },
         {
           "id": "RAIL-13",
-          "status": "new",
-          "text": "Agents: search covers chats (title and messages, core's <code>searchThreads</code>). The filter menu holds Sort by date (core's order: pinned first, then newest <code>updatedAt</code>) and Sort by unread, then Pinned only and Show archived chats, from the thread's <code>pinnedAt</code> / <code>archivedAt</code>. Unread is new: a dot marks a chat whose run finished after you last opened it, and core keeps no read state for chats today, so it needs a per-thread last-read time. Pinned chats show a pin, archived ones are dimmed. Search and Filter show on the panel's home list, not inside a chat."
+          "status": "decided",
+          "today": "Core chats have search (`searchThreads`, titles and messages), `pinnedAt`, `archivedAt`, and `updatedAt` (listed pinned first, then newest). There is no read state for chats.",
+          "change": "Agents search covers chats. The filter menu holds Sort by date and Sort by unread, then Pinned only and Show archived chats. Unread is new: a dot marks a chat whose run finished after you last opened it, which needs a per-thread last-read time. Pinned chats show a pin; archived ones are dimmed. Search and Filter show on the chat list, not inside a chat.",
+          "refs": [
+            "packages/core/src/client/use-chat-threads.ts#searchThreads"
+          ]
         },
         {
           "id": "RAIL-14",
-          "status": "new",
-          "text": "Agents use Tabler <code>sparkles</code> everywhere the robot was: the rail item, the toolbar's Agent button, Edit with Agent… and Explore with Agent…, and the agent actions. The Polish skill moves to <code>wand</code> so it doesn't share the agent mark."
+          "status": "decided",
+          "today": "Agent surfaces use a robot icon.",
+          "change": "Agents use Tabler `sparkles` everywhere: the rail item, the toolbar's Agent button, Edit with Agent…, Explore with Agent…, and the agent actions. The Polish skill moves to `wand` so it doesn't share the agent mark."
         },
         {
           "id": "RAIL-15",
           "status": "question",
-          "text": "Should the Agents panel keep the code's 320px minimum width (<code>DesignEditor.tsx:26516</code>, <code>AgentChatSurface</code>) when every other left panel starts at 232px?"
+          "today": "The Agent panel has a 320px minimum width (`activeLeftPanel === \"agent\" ? 320 : 220`).",
+          "change": "Should the Agents panel keep a 320px minimum when every other left panel starts at 232px?",
+          "refs": [
+            "templates/design/app/pages/DesignEditor.tsx:26516#activeLeftPanel === \"agent\""
+          ]
         },
         {
           "id": "RAIL-16",
-          "status": "new",
-          "text": "Update the Figma Navigation page note on the collapsed rails (646:5188, 1850:8474): it still says 72px; the rail is 56px."
+          "status": "proposed",
+          "today": "The Figma Navigation page notes on the collapsed rails (646:5188, 1850:8474) still say 72px.",
+          "change": "Update them to 56px and the Figma rail button."
         }
       ]
     },
@@ -612,18 +762,20 @@
       "items": [
         {
           "id": "FILE-01",
-          "status": "exists",
-          "text": "File name opens the Design file menu from Figma: Rename, Duplicate, Version history, Save as template…, Export…, Move to trash. Move to folder… is hidden until folders exist."
+          "status": "decided",
+          "today": "The title is click-to-rename, beside a minimal-UI toggle; the project menu holds Back to designs, Save as template, Version history, Export, Edit, View.",
+          "change": "The file name opens the Design file menu from Figma: Rename, Duplicate, Version history, Save as template…, Export…, Move to trash."
         },
         {
           "id": "FILE-02",
-          "status": "exists",
-          "text": "Under the name, a ghost button reads “Designs” and goes to /home. No arrow: the label sits flush with the file name, and the hover fill extends 4px past it."
+          "status": "decided",
+          "change": "Under the name, a ghost button reads “Designs” and goes to /home. No arrow: the label sits flush with the file name, and the hover fill extends 4px past it."
         },
         {
           "id": "FILE-03",
-          "status": "exists",
-          "text": "Move to folder… is hidden until designs have folders."
+          "status": "decided",
+          "today": "Designs have no folders.",
+          "change": "Move to folder… stays hidden until designs have folders."
         }
       ]
     },
@@ -636,13 +788,20 @@
       "items": [
         {
           "id": "LAYER-01",
-          "status": "exists",
-          "text": "32px rows, 40px headers. One strip: 16px inset, 24px spacer per depth, 16px disclosure slot (empty on leaves), 8px, 16px icon, 8px, name. Press G to see the spacers."
+          "status": "decided",
+          "today": "`LayersPanel.tsx` overrides rows to 24px and headers to 28px; indent is a 12px slot per level with a 20px caret slot.",
+          "change": "32px rows, 40px headers. One strip: 16px inset, 24px spacer per depth, 16px disclosure slot (empty on leaves), 8px, 16px icon, 8px, name.",
+          "prototype": "Turn on Spacing (G) in the review strip to see the spacers."
         },
         {
           "id": "LAYER-02",
-          "status": "exists",
-          "text": "The left panel resizes from its right edge in 8px steps: 240px default, 232px minimum (the first 8pt width at or above the 227px Figma spec), 416px maximum. Double-click resets to 240px; arrow keys nudge 8px (Shift 40px). Code today defaults to 280px and clamps 220–420px (<code>DesignEditor.tsx:2273</code>, <code>:26513</code>)."
+          "status": "decided",
+          "today": "The left panel defaults to 280px and clamps to 220–420px.",
+          "change": "It resizes from its right edge in 8px steps: 240px default, 232px minimum (the first 8pt width at or above Figma's 227px), 416px maximum. Double-click resets to 240px; arrow keys nudge 8px (Shift 40px).",
+          "refs": [
+            "templates/design/app/pages/DesignEditor.tsx:2273#useState(280)",
+            "templates/design/app/pages/DesignEditor.tsx:26516#420"
+          ]
         }
       ]
     },
@@ -655,28 +814,29 @@
       "items": [
         {
           "id": "INSP-01",
-          "status": "new",
-          "text": "No tab row. The inspector starts at the selection header and only does properties. Comments move to the left rail."
+          "status": "decided",
+          "today": "The inspector has tabs Design / Comments / Tweaks or Code (`EditPanel.tsx`).",
+          "change": "No tab row: the inspector starts at the selection header and only does properties."
         },
         {
           "id": "INSP-02",
-          "status": "exists",
-          "text": "Every section is a 40px header and rows on the 88 / 8 / 88 / 8 / 32 grid; fields are 12px label, 4px, 24px control."
+          "status": "proposed",
+          "change": "Every section is a 40px header and rows on the 88 / 8 / 88 / 8 / 32 grid; fields are 12px label, 4px, 24px control."
         },
         {
           "id": "INSP-03",
-          "status": "exists",
-          "text": "Sections with nothing in them (Stroke, Effects) drop the chevron and keep its space, so titles line up."
+          "status": "proposed",
+          "change": "Empty sections (Stroke, Effects) drop the chevron and keep its space, so titles line up."
         },
         {
           "id": "INSP-04",
-          "status": "new",
-          "text": "Interact and Annotate hide the inspector; the canvas takes the width."
+          "status": "decided",
+          "change": "Interact and Annotate hide the inspector; the canvas takes the width."
         }
       ]
     },
     {
-      "area": "Outside agents (Share › Agents)",
+      "area": "Outside agents",
       "prefix": "AGT",
       "steps": [
         17
@@ -684,58 +844,74 @@
       "items": [
         {
           "id": "AGT-01",
-          "status": "exists",
-          "text": "Every Agent-Native app already mounts a remote MCP server at <code>/mcp</code> (OAuth 2.1; calls run as the signed-in user, under the design's sharing rules). Unlike Paper's local desktop server, a designer's link works from any machine."
+          "status": "context",
+          "today": "Every Agent-Native app mounts a remote MCP server at `/mcp` (OAuth 2.1); calls run as the signed-in user under the design's sharing rules, so a link works from any machine. Design's connector allowlist is `EXTERNAL_CONNECTOR_TOOL_NAMES`.",
+          "refs": [
+            "templates/design/server/plugins/agent-chat.ts#EXTERNAL_CONNECTOR_TOOL_NAMES"
+          ]
         },
         {
           "id": "AGT-02",
-          "status": "new",
-          "text": "<b>Copy link to selection</b> is the first item in Copy/Paste as › on a layer or multi-selection, and sits after Copy on instances and layer rows; the empty canvas gets Copy link to screen. Links carry scope: <code>/design/agent-native-web?screen=home&amp;node=hero-title</code>. Opening one selects the layers and zooms to them."
+          "status": "proposed",
+          "today": "Nothing copies a link to a layer or screen.",
+          "change": "Copy link to selection is the first item in Copy/Paste as › on a layer or multi-selection and sits after Copy on instances and layer rows; the empty canvas gets Copy link to screen. Links carry scope: `/design/<id>?screen=home&node=hero-title` (comma-separated nodes). Opening one selects the layers and zooms to them."
         },
         {
           "id": "AGT-03",
-          "status": "new",
-          "text": "<b>Share</b> is a popover under its button (the toolkit <code>ShareButton</code>) with Content's tabs, <b>People</b> and <b>Agents</b> (<code>peopleTabLabel</code> / <code>agentsTabLabel</code>, <code>DocumentToolbar.tsx:1428</code>). Both panes share one grid cell, so switching tabs never resizes it. Density matches the app: 24px controls, 32px rows, 12/16 text. No Social or Embed rows, and no password or expiry, which only Clips has."
+          "status": "decided",
+          "today": "Content's share popover has People and Agents tabs (`peopleTabLabel` / `agentsTabLabel`); the toolkit `ShareButton` popover takes `agentTabContent`.",
+          "change": "Share is that popover with People and Agents. Both panes share one grid cell, so switching tabs never resizes it. 24px controls, 32px rows, 12/16 text. No Social, Embed, password, or expiry (Clips-only).",
+          "refs": [
+            "templates/content/app/components/editor/DocumentToolbar.tsx:1428#peopleTabLabel",
+            "packages/toolkit/src/app/sharing/ShareButton.tsx#agentTabContent"
+          ]
         },
         {
           "id": "AGT-04",
-          "status": "exists",
-          "text": "People: an invite field with the role inside it (Viewer ▾) and a send button, Who has access (owner, people with role menus), general access with the toolkit's three options (Only people with access can view, Anyone in your organization can view, Anyone signed in with the link can view), then Copy link."
+          "status": "proposed",
+          "today": "The toolkit's general access options: Only people with access can view, Anyone in your organization can view, Anyone signed in with the link can view.",
+          "change": "People: an invite field with the role inside it (Viewer ▾) and a send button, Who has access (owner, people with role menus), general access, then Copy link pinned to the bottom."
         },
         {
           "id": "AGT-05",
-          "status": "new",
-          "text": "<b>Send to ›</b> sits under Edit with Agent… on layers, instances, and multi-selections (scope: the selection) and under Explore with Agent… on the empty canvas (scope: the screen). It lists one shared set of destinations, grouped Agents, Apps, and Channels, then Copy agent prompt and Manage destinations… (Settings › Integrations). Share › Agents shows the same set."
+          "status": "decided",
+          "change": "Send to › sits under Edit with Agent… on layers, instances, and multi-selections (the selection) and under Explore with Agent… on the empty canvas (the screen). One list of destinations, grouped Agents, Apps, and Channels, then Copy agent prompt and Manage destinations… (Settings › Integrations). Share › Agents shows the same list."
         },
         {
           "id": "AGT-06",
-          "status": "exists",
-          "text": "Where each group comes from, and its payload. <b>Agents</b> are the toolkit deep links (<code>buildAgentShareDeepLink</code>: Claude, Claude Code, Codex), always shown since nothing detects installed apps; the prompt carries the scoped link and the MCP URL, and the agent reads the context over the Design MCP. <b>Apps</b> are the workspace's other Agent-Native apps (<code>useOrgSwitcherAppLinks</code>, workspace runtime only); Design calls the app over A2A (<code>call-agent</code>) with an objective and the scoped link, then opens the result with <code>/_agent-native/open</code>. <b>Channels</b> are messaging channels in the on state (<code>list-messaging-channels</code>); posting the scope's screenshot and link is new, since channels only receive today."
+          "status": "proposed",
+          "today": "Agent deep links exist for Claude, Claude Code, and Codex (`buildAgentShareDeepLink`), with no install detection. Sibling apps come from `useOrgSwitcherAppLinks` (workspace runtime only). Messaging channels report on/off/not-set-up (`list-messaging-channels`) but only receive.",
+          "change": "Agents: the prompt carries the scoped link and the MCP URL, and the agent reads the context over the Design MCP. Apps: Design calls the app over A2A (`call-agent`) with an objective and the scoped link, then opens the result with `/_agent-native/open`. Channels: posting the scope's screenshot and link is new.",
+          "refs": [
+            "packages/toolkit/src/sharing/agent-share.ts#buildAgentShareDeepLink",
+            "packages/toolkit/src/app/org/workspace-app-links.ts#useOrgSwitcherAppLinks"
+          ]
         },
         {
           "id": "AGT-07",
-          "status": "exists",
-          "text": "Share › Agents: the scope row (Selection, the screen, This design), Copy agent prompt, Open in Claude / Claude Code / Codex, Send to Slides / Content, Post to #design-review, and MCP server settings (Settings › MCP server, <code>/settings/mcp</code>, where people connect Claude, ChatGPT, Cursor, and other clients). It replaces the earlier Connect an agent link, which didn't say where it went."
+          "status": "proposed",
+          "change": "Share › Agents: the scope row (Selection, the screen, This design), Copy agent prompt, Open in Claude / Claude Code / Codex, Send to Slides / Content, Post to #design-review, and MCP server settings (Settings › MCP server, `/settings/mcp`)."
         },
         {
           "id": "AGT-08",
-          "status": "new",
-          "text": "Needs new read-only MCP tools on Design's connector allowlist: <code>get-design-context { url }</code> (that scope's HTML/CSS, tokens as DTCG, screenshot URL, layer tree, open comments, design system), <code>get-design-tokens { url }</code>, and <code>get-design-screenshot { url }</code>. Today every read action takes an id and nothing parses a Design URL."
+          "status": "proposed",
+          "today": "Every read action takes an id, nothing parses a Design URL, and the allowlist leaves out screenshots and comments.",
+          "change": "New read-only MCP tools on the allowlist: `get-design-context { url }` (that scope's HTML/CSS, tokens as DTCG, screenshot URL, layer tree, open comments, design system), `get-design-tokens { url }`, and `get-design-screenshot { url }`."
         },
         {
           "id": "AGT-09",
           "status": "question",
-          "text": "If the design isn't visible to the engineer's org, should the tab offer to switch General access to Anyone in the org can view, or only say who can open it?"
+          "change": "If the design isn't visible to the engineer's org, should Share › Agents offer to switch General access to Anyone in the organization can view, or only say who can open it?"
         },
         {
           "id": "AGT-10",
           "status": "question",
-          "text": "Rename Share › Agents › MCP server settings to Connect AI apps…, so the row says what the person gets rather than the mechanism?"
+          "change": "Rename Share › Agents › MCP server settings to Connect AI apps…, so the row says what the person gets rather than the mechanism?"
         }
       ]
     },
     {
-      "area": "Settings (as the code has it)",
+      "area": "Settings",
       "prefix": "SET",
       "steps": [
         6
@@ -743,28 +919,44 @@
       "items": [
         {
           "id": "SET-01",
-          "status": "exists",
-          "text": "Settings is the toolkit <code>SettingsShell</code>, a full page at <code>/settings/:page</code>: a 252px rail with Back to Design, Search settings (/ to focus, Enter opens the first hit), and groups Account · Design · Connections · Agent · Organization, then an 824px column under a sticky 60px header with the page's action. Pages, order, labels, and visibility come from <code>core-pages.ts</code> plus what <code>templates/design/app/routes/settings.tsx</code> passes (Labs, MCP about, What's new, Creative context while its lab is on, Agent Observability for owners and admins). Notifications and Extensions don't show in Design."
+          "status": "context",
+          "today": "Settings is the toolkit `SettingsShell`, a full page at `/settings/:page`: a 252px rail with Back to Design, Search settings (/ to focus, Enter opens the first hit), and groups Account · Design · Connections · Agent · Organization, then an 824px column under a sticky 60px header. Pages come from `core-pages.ts` plus `routes/settings.tsx` (Labs, MCP about, What's new, Creative context while its lab is on, Agent Observability for owners and admins); Notifications and Extensions don't show in Design.",
+          "refs": [
+            "packages/toolkit/src/app/settings/shell/core-pages.ts#defineSettingsPage",
+            "templates/design/app/routes/settings.tsx#SettingsTabsPage"
+          ]
         },
         {
           "id": "SET-02",
-          "status": "exists",
-          "text": "Entry points in the prototype: the account menu's Settings (⌘,) opens Profile and Usage opens Usage, as <code>OrgSwitcher</code> does; ⌘, works anywhere; Share › Agents › MCP server settings opens MCP server; Send to › Manage destinations… opens Integrations. Back to Design returns to the editor."
+          "status": "context",
+          "today": "Entry points: the account menu's Settings (⌘,) opens Profile and Usage opens Usage; ⌘, works anywhere.",
+          "change": "Share › Agents › MCP server settings opens MCP server, and Send to › Manage destinations… opens Integrations."
         },
         {
           "id": "SET-03",
-          "status": "new",
-          "text": "Labs adds Tokens and Annotate rows (marked New) for the two labs this redesign proposes; flipping them here changes the editor, like the review strip's Labs switches. Creative context's switch shows or hides its page, as in the code."
+          "status": "proposed",
+          "today": "Labs lists Design tweaks, Full app building, Design review tools, and Creative context.",
+          "change": "Labs adds Tokens (TOK-02) and Annotate (LAB-01).",
+          "prototype": "The Tokens and Annotate rows are marked New; flipping them changes the editor."
         },
         {
           "id": "SET-04",
-          "status": "exists",
-          "text": "Found while mapping it: Design System setup links to <code>/settings/integrations#secrets:GITHUB_TOKEN</code> (<code>DesignSystemSetup.tsx:1350</code>), an anchor nothing on Integrations matches; it probably belongs on API keys."
+          "status": "proposed",
+          "today": "Design System setup links to `/settings/integrations#secrets:GITHUB_TOKEN`, an anchor nothing on Integrations matches.",
+          "change": "Point it at API keys.",
+          "refs": [
+            "templates/design/app/pages/DesignSystemSetup.tsx:1350#GITHUB_TOKEN"
+          ]
         },
         {
           "id": "SET-05",
-          "status": "new",
-          "text": "The app theme is a menu, not a setting: App menu › Preferences › Theme › Light, Dark, System theme (checked), using the code's <code>next-themes</code> <code>setTheme</code>. Today it's only the command menu's Toggle theme (<code>root.tsx:127</code>), which flips light and dark. It replaces Figma's Appearance… item. Interact's Appearance control stays separate: it sets the previewed design's color scheme, not the editor's. Preferences also gets <b>Nudge amount…</b>, a small dialog for the code's Small nudge (1px) and Big nudge (10px), clamped to 1–1000px. It edits the same per-browser editor preference as the keyboard shortcuts window (<code>editor-preferences.ts</code>), and its tooltip carries the code's description."
+          "status": "decided",
+          "today": "The theme (next-themes `setTheme`) is only reachable from the command menu's Toggle theme, which flips light and dark. Nudge amount lives in the shortcuts drawer (`editor-preferences.ts`, 1–1000px, defaults 1 and 10).",
+          "change": "App menu › Preferences › Theme › Light, Dark, System theme, replacing Figma's Appearance…; no Settings page for it. Interact's Appearance stays separate: it sets the previewed design's color scheme. Preferences also gets Nudge amount…, a small dialog editing the same preference, with the code's description in a tooltip.",
+          "refs": [
+            "templates/design/app/root.tsx:127#ThemeToggleItem",
+            "templates/design/app/pages/design-editor/editor-preferences.ts#MAX_NUDGE_AMOUNT"
+          ]
         }
       ]
     }
