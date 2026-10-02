@@ -1869,24 +1869,7 @@ function LLMSectionInner({
                     </p>
                   )}
                   {keySaveRoleUnavailable && (
-                    <div
-                      role="alert"
-                      className={cn(
-                        "flex flex-wrap items-center gap-1.5 text-destructive",
-                        isPage ? "text-xs" : "text-[10px]",
-                      )}
-                    >
-                      <IconAlertCircle size={isPage ? 14 : 10} />
-                      {t("agentPanel.saveScopeRoleUnavailable")}
-                      <Button
-                        intent="neutral"
-                        emphasis="ghost"
-                        onClick={retryKeySaveRole}
-                        className="h-auto px-1 py-0 font-medium text-foreground underline underline-offset-2"
-                      >
-                        {t("agentChat.common.retry")}
-                      </Button>
-                    </div>
+                    <SaveScopeRoleAlert onRetry={retryKeySaveRole} />
                   )}
                   {providerSettingsError && (
                     <div
@@ -2520,6 +2503,31 @@ function AppModelDefaultsSectionInner({
   );
 }
 
+function SaveScopeRoleAlert({ onRetry }: { onRetry: () => void }) {
+  const t = useT();
+  const isPage = useSettingsSurface() === "page";
+  return (
+    <div
+      role="alert"
+      className={cn(
+        "flex flex-wrap items-center gap-1.5 text-destructive",
+        isPage ? "text-xs" : "text-[10px]",
+      )}
+    >
+      <IconAlertCircle size={isPage ? 14 : 10} />
+      {t("agentPanel.saveScopeRoleUnavailable")}
+      <Button
+        intent="neutral"
+        emphasis="ghost"
+        onClick={onRetry}
+        className="h-auto px-1 py-0 font-medium text-foreground underline underline-offset-2"
+      >
+        {t("agentChat.common.retry")}
+      </Button>
+    </div>
+  );
+}
+
 export function EmailSectionInner({
   open,
   onToggle,
@@ -2547,6 +2555,8 @@ export function EmailSectionInner({
     scope: emailScope,
     canChoose: canChooseEmailScope,
     setScope: setEmailScope,
+    roleUnavailable: emailRoleUnavailable,
+    retry: retryEmailRole,
   } = useCredentialSaveScope();
   const emailScopeId = useId();
 
@@ -2565,6 +2575,10 @@ export function EmailSectionInner({
   const fromConfigured =
     envKeys.find((k) => k.key === "EMAIL_FROM")?.configured ?? false;
   const anyConfigured = resendConfigured || sendgridConfigured;
+  const emailNeedsSave = !(
+    (emailProvider === "resend" ? resendConfigured : sendgridConfigured) &&
+    fromConfigured
+  );
 
   useEffect(() => {
     if (sendgridConfigured && !resendConfigured) {
@@ -2636,13 +2650,7 @@ export function EmailSectionInner({
               setEmailProvider(value as "resend" | "sendgrid")
             }
           />
-          {canChooseEmailScope &&
-          emailScope &&
-          !(
-            (emailProvider === "resend"
-              ? resendConfigured
-              : sendgridConfigured) && fromConfigured
-          ) ? (
+          {canChooseEmailScope && emailScope && emailNeedsSave ? (
             <WhoField
               id={emailScopeId}
               choice
@@ -2650,6 +2658,9 @@ export function EmailSectionInner({
               disabled={saving}
               onChange={setEmailScope}
             />
+          ) : null}
+          {emailRoleUnavailable && emailNeedsSave ? (
+            <SaveScopeRoleAlert onRetry={retryEmailRole} />
           ) : null}
 
           {emailProvider === "resend" ? (
@@ -2724,7 +2735,7 @@ export function EmailSectionInner({
                       intent="primary"
                       emphasis="solid"
                       onClick={saveResend}
-                      disabled={!fromAddr.trim() || saving}
+                      disabled={!fromAddr.trim() || saving || !emailScope}
                       className={emailBtnCls}
                     >
                       {saving ? (
@@ -2811,7 +2822,7 @@ export function EmailSectionInner({
                       intent="primary"
                       emphasis="solid"
                       onClick={saveSendgrid}
-                      disabled={!fromAddr.trim() || saving}
+                      disabled={!fromAddr.trim() || saving || !emailScope}
                       className={emailBtnCls}
                     >
                       {saving ? (

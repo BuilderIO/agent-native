@@ -18,14 +18,14 @@ function orgMe(role: "owner" | "admin" | "member") {
   });
 }
 
-async function renderEmail(role: "owner" | "admin" | "member") {
+async function renderEmail(orgMeResponse: () => Response) {
   const saves: Array<Record<string, unknown>> = [];
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith("/_agent-native/org/me")) return orgMe(role);
+      if (url.endsWith("/_agent-native/org/me")) return orgMeResponse();
       if (url.endsWith("/_agent-native/env-status")) return Response.json([]);
       if (url.endsWith("/_agent-native/env-vars")) {
         saves.push(JSON.parse(String(init?.body)));
@@ -81,7 +81,7 @@ afterEach(() => {
 
 describe("Email key save scope", () => {
   it("saves an admin's email key for the organization by default", async () => {
-    const { root, saves } = await renderEmail("admin");
+    const { root, saves } = await renderEmail(() => orgMe("admin"));
     expect(
       document
         .querySelector('[role="radio"][value="org"]')
@@ -98,10 +98,41 @@ describe("Email key save scope", () => {
   });
 
   it("saves a member's email key personally, with no picker", async () => {
-    const { root, saves } = await renderEmail("member");
+    const { root, saves } = await renderEmail(() => orgMe("member"));
     expect(document.querySelector('[role="radiogroup"]')).toBeNull();
     await saveResendKey();
     expect(saves).toEqual([expect.objectContaining({ scope: "user" })]);
+    act(() => root.unmount());
+  });
+
+  it("shows a failed role read with a retry and saves nothing until it loads", async () => {
+    let orgMeFails = true;
+    const { root, saves } = await renderEmail(() =>
+      orgMeFails
+        ? Response.json({ error: "Org context unavailable" }, { status: 500 })
+        : orgMe("admin"),
+    );
+
+    await saveResendKey();
+
+    expect(saves).toEqual([]);
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain(
+      "Couldn't load your organization role",
+    );
+
+    orgMeFails = false;
+    const retry = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent === "Retry",
+    );
+    if (!retry) throw new Error("Missing Retry button");
+    await act(async () => {
+      retry.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+    await saveResendKey();
+    expect(saves).toEqual([expect.objectContaining({ scope: "org" })]);
     act(() => root.unmount());
   });
 });
