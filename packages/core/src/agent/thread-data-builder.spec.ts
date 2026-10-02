@@ -2396,16 +2396,18 @@ describe("buildRepositoryFromCodeAgentTranscript", () => {
 });
 
 describe("upsertUserMessage", () => {
-  it("persists the durable queue identity on a submitted user message", () => {
+  it("persists submitted AgentKit and queue identities on a user message", () => {
     const message = buildUserMessage({
       text: "Run the report",
       runId: "run-submit",
+      agentKitMessageId: "message-agentkit-1",
       queuedMessageId: "queued-1",
     });
 
     expect(message.metadata).toEqual({
       custom: {
         submittedRunId: "run-submit",
+        agentKitMessageId: "message-agentkit-1",
         agentNativeQueuedMessageId: "queued-1",
       },
     });
