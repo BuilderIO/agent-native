@@ -75,6 +75,11 @@ export function toAbsoluteOpenUrl(
   origin: string | undefined,
 ): string {
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(urlOrPath)) return urlOrPath;
+  if (urlOrPath.startsWith("//")) {
+    return origin && URL.canParse(urlOrPath, origin)
+      ? new URL(urlOrPath, origin).toString()
+      : urlOrPath;
+  }
   const basePath = getConfiguredAppBasePath();
   const path = withBasePath(urlOrPath, basePath);
   if (!origin) return path;
