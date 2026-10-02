@@ -13,6 +13,8 @@ const SQL_CTE_QUERY_RE =
   /^(?:select|insert|update|delete|merge|values|with|table)\b/i;
 const SQL_CTE_IDENTIFIER = String.raw`(?:[uU]&"(?:[^"]|"")*"|"(?:[^"]|"")+"|[_\p{ID_Start}][$\p{ID_Continue}]*)`;
 const SQL_CTE_IDENTIFIER_RE = new RegExp(`^${SQL_CTE_IDENTIFIER}`, "iu");
+const SQL_DOLLAR_QUOTE_RE =
+  /^\$(?:[_\p{ID_Start}](?:(?!\$)\p{ID_Continue})*)?\$/u;
 
 export const SECRET_KEY_RE =
   /(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|credential)/i;
@@ -44,6 +46,19 @@ function afterLeadingSqlComments(value: string): string {
     statement = statement.slice(end).trimStart();
   }
   return statement;
+}
+
+function sqlDollarQuoteDelimiter(
+  value: string,
+  index: number,
+): string | undefined {
+  if (
+    value[index] !== "$" ||
+    (index > 0 && /[$\p{ID_Continue}]/u.test(value[index - 1]))
+  ) {
+    return undefined;
+  }
+  return SQL_DOLLAR_QUOTE_RE.exec(value.slice(index))?.[0];
 }
 
 function afterSqlParenthesizedBody(value: string): string | undefined {
@@ -98,19 +113,11 @@ function afterSqlParenthesizedBody(value: string): string | undefined {
         /(?:^|[^A-Za-z0-9_$])(?:E|U&)$/i.test(value.slice(0, index));
       continue;
     }
-    if (
-      value[index] === "$" &&
-      (index === 0 || !/[$\p{ID_Continue}]/u.test(value[index - 1]))
-    ) {
-      const delimiter =
-        /^\$(?:[_\p{ID_Start}](?:(?!\$)\p{ID_Continue})*)?\$/u.exec(
-          value.slice(index),
-        )?.[0];
-      if (delimiter) {
-        dollarQuote = delimiter;
-        index += delimiter.length - 1;
-        continue;
-      }
+    const delimiter = sqlDollarQuoteDelimiter(value, index);
+    if (delimiter) {
+      dollarQuote = delimiter;
+      index += delimiter.length - 1;
+      continue;
     }
     if (value[index] === "(") depth++;
     else if (value[index] === ")" && --depth === 0)
@@ -121,11 +128,8 @@ function afterSqlParenthesizedBody(value: string): string | undefined {
 }
 
 function afterSqlCteHeader(value: string): string | undefined {
-  let statement = afterLeadingSqlComments(value);
-  const name = SQL_CTE_IDENTIFIER_RE.exec(statement);
-  if (!name) return undefined;
-
-  statement = afterLeadingSqlComments(statement.slice(name[0].length));
+  let statement = afterSqlIdentifier(value);
+  if (statement === undefined) return undefined;
   if (statement.startsWith("(")) {
     const afterColumns = afterSqlParenthesizedBody(statement);
     if (afterColumns === undefined) return undefined;
@@ -162,14 +166,109 @@ function afterSqlToken(value: string, token: RegExp): string | undefined {
   return match ? statement.slice(match[0].length) : undefined;
 }
 
+function afterSqlIdentifier(value: string): string | undefined {
+  const statement = afterLeadingSqlComments(value);
+  const identifier = SQL_CTE_IDENTIFIER_RE.exec(statement);
+  if (!identifier) return undefined;
+
+  let remainder = afterLeadingSqlComments(
+    statement.slice(identifier[0].length),
+  );
+  if (!/^[uU]&\"/.test(identifier[0])) return remainder;
+
+  const uescape = /^uescape(?![$\p{ID_Continue}])/iu.exec(remainder);
+  if (!uescape) return remainder;
+
+  remainder = afterLeadingSqlComments(remainder.slice(uescape[0].length));
+  const escapeCharacter = /^(?:[eE])?'(.)'/u.exec(remainder);
+  if (!escapeCharacter || /[\da-f+"'\s]/iu.test(escapeCharacter[1])) {
+    return undefined;
+  }
+  return afterLeadingSqlComments(remainder.slice(escapeCharacter[0].length));
+}
+
+function afterSqlKeywordOutsideQuotedText(
+  value: string,
+  keyword: string,
+): string | undefined {
+  const token = new RegExp(`^${keyword}(?![$\\p{ID_Continue}])`, "iu");
+  let blockCommentDepth = 0;
+  let quote: "'" | '"' | undefined;
+  let escapeString = false;
+  let dollarQuote: string | undefined;
+
+  for (let index = 0; index < value.length; index++) {
+    if (dollarQuote) {
+      if (value.startsWith(dollarQuote, index)) {
+        index += dollarQuote.length - 1;
+        dollarQuote = undefined;
+      }
+      continue;
+    }
+    if (quote) {
+      if (escapeString && value[index] === "\\") {
+        index++;
+      } else if (value[index] === quote) {
+        if (value[index + 1] === quote) index++;
+        else quote = undefined;
+      }
+      continue;
+    }
+    if (blockCommentDepth > 0) {
+      if (value.startsWith("/*", index)) {
+        blockCommentDepth++;
+        index++;
+      } else if (value.startsWith("*/", index)) {
+        blockCommentDepth--;
+        index++;
+      }
+      continue;
+    }
+    if (value.startsWith("--", index)) {
+      const end = value.indexOf("\n", index + 2);
+      if (end < 0) return undefined;
+      index = end;
+      continue;
+    }
+    if (value.startsWith("/*", index)) {
+      blockCommentDepth = 1;
+      index++;
+      continue;
+    }
+    if (value[index] === "'" || value[index] === '"') {
+      quote = value[index] as "'" | '"';
+      escapeString =
+        quote === "'" &&
+        /(?:^|[^A-Za-z0-9_$])(?:E|U&)$/i.test(value.slice(0, index));
+      continue;
+    }
+
+    const delimiter = sqlDollarQuoteDelimiter(value, index);
+    if (delimiter) {
+      dollarQuote = delimiter;
+      index += delimiter.length - 1;
+      continue;
+    }
+
+    const match = token.exec(value.slice(index));
+    if (
+      match &&
+      (index === 0 || !/[$\p{ID_Continue}]/u.test(value[index - 1]))
+    ) {
+      return afterLeadingSqlComments(value.slice(index + match[0].length));
+    }
+  }
+  return undefined;
+}
+
 function afterSqlIdentifierList(value: string): string | undefined {
-  let statement = afterSqlToken(value, SQL_CTE_IDENTIFIER_RE);
+  let statement = afterSqlIdentifier(value);
   if (statement === undefined) return undefined;
 
   while (true) {
     const remainder = afterLeadingSqlComments(statement);
     if (!remainder.startsWith(",")) return remainder;
-    statement = afterSqlToken(remainder.slice(1), SQL_CTE_IDENTIFIER_RE);
+    statement = afterSqlIdentifier(remainder.slice(1));
     if (statement === undefined) return undefined;
   }
 }
@@ -187,7 +286,7 @@ function afterSqlCteSearchClause(value: string): string | undefined {
   if (statement === undefined) return undefined;
   statement = afterSqlToken(statement, /^set\b/i);
   if (statement === undefined) return undefined;
-  return afterSqlToken(statement, SQL_CTE_IDENTIFIER_RE);
+  return afterSqlIdentifier(statement);
 }
 
 function afterSqlCteCycleClause(value: string): string | undefined {
@@ -197,18 +296,11 @@ function afterSqlCteCycleClause(value: string): string | undefined {
   if (statement === undefined) return undefined;
   statement = afterSqlToken(statement, /^set\b/i);
   if (statement === undefined) return undefined;
-  statement = afterSqlToken(statement, SQL_CTE_IDENTIFIER_RE);
+  statement = afterSqlIdentifier(statement);
   if (statement === undefined) return undefined;
 
-  const using = /\busing\b/gi;
-  let match: RegExpExecArray | null;
-  while ((match = using.exec(statement))) {
-    const afterUsing = afterSqlToken(statement.slice(match.index), /^using\b/i);
-    if (afterUsing !== undefined) {
-      return afterSqlToken(afterUsing, SQL_CTE_IDENTIFIER_RE);
-    }
-  }
-  return undefined;
+  const afterUsing = afterSqlKeywordOutsideQuotedText(statement, "using");
+  return afterUsing === undefined ? undefined : afterSqlIdentifier(afterUsing);
 }
 
 function isSqlCteStatement(value: string): boolean {

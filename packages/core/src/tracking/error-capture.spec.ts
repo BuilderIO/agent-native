@@ -200,12 +200,20 @@ describe("tracking captureException", () => {
       String.raw`WITH U&"caf\00E9" AS (SELECT id FROM users WHERE email = $1) SELECT * FROM U&"caf\00E9"`,
     ],
     [
+      "Unicode-escaped CTE identifiers with UESCAPE comments",
+      "WITH U&\"caf!00E9\" /* identifier */ UESCAPE /* marker */ '!' /* AS */ AS (SELECT id FROM users WHERE email = $1) SELECT * FROM U&\"caf!00E9\" UESCAPE '!'",
+    ],
+    [
       "Unicode dollar-quote tags in CTE bodies",
       "WITH data AS (SELECT $é$) ) $é$ AS value) SELECT value FROM data",
     ],
     [
       "dollar signs in unquoted CTE body identifiers",
       "WITH data AS (SELECT col$é$tail FROM users WHERE email = $1) SELECT col$é$tail FROM data",
+    ],
+    [
+      "UESCAPE identifiers and quoted CYCLE values",
+      "WITH RECURSIVE tree(id) AS (SELECT id FROM nodes WHERE id = $1 UNION ALL SELECT id FROM tree WHERE id = $1) SEARCH DEPTH FIRST BY U&\"i!0064\" /* column */ UESCAPE /* escape */ '!' SET U&\"order!0063ol\" UESCAPE '!' CYCLE U&\"i!0064\" UESCAPE '!' SET U&\"mark\" UESCAPE '!' TO 'using select' DEFAULT 'not using' USING U&\"path\" UESCAPE '!' SELECT id FROM tree WHERE id = $2",
     ],
   ])("redacts SQL bind parameters in CTEs with %s", (_case, query) => {
     const privateValue = "private customer value";
