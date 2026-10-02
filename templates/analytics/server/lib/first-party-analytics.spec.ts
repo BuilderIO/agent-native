@@ -123,6 +123,12 @@ import {
   touchPublicKeyLastUsedAt,
   validateFirstPartyAnalyticsSql,
 } from "./first-party-analytics";
+import {
+  MAX_APP_LENGTH,
+  MAX_EVENT_NAME_LENGTH,
+  MAX_PATH_LENGTH,
+  MAX_USER_KEY_LENGTH,
+} from "./indexed-text.js";
 
 beforeEach(() => {
   execute.mockReset();
@@ -277,6 +283,22 @@ describe("resolveAnalyticsEventDimensions", () => {
         hostname: "mail.agent-native.com",
       }),
     ).toEqual({ app: "clips", template: "clips" });
+  });
+
+  it("cuts app and template names to a length that fits an index entry", () => {
+    expect(
+      resolveAnalyticsEventDimensions({
+        properties: {
+          app: "中".repeat(4096),
+          template: `${"t".repeat(MAX_APP_LENGTH - 1)}\u{1F600}`,
+        },
+        context: {},
+        hostname: null,
+      }),
+    ).toEqual({
+      app: "中".repeat(MAX_APP_LENGTH),
+      template: "t".repeat(MAX_APP_LENGTH - 1),
+    });
   });
 });
 
@@ -524,6 +546,36 @@ describe("recordAnalyticsEvents", () => {
       [expect.objectContaining({ eventName: "clip_\uFFFD" })],
       expect.any(String),
     );
+  });
+
+  it("bounds every indexed value so one long value cannot fail the batch", async () => {
+    const long = "中".repeat(4096);
+    await recordAnalyticsEvents("anpk_test", [
+      { event: long, userId: long, properties: { app: long, path: long } },
+      { event: "pageview", userId: "user_1" },
+    ]);
+
+    const [rows] = rollupMocks.upsert.mock.calls[0];
+    expect(rows[0]).toMatchObject({
+      eventName: "中".repeat(MAX_EVENT_NAME_LENGTH),
+      app: "中".repeat(MAX_APP_LENGTH),
+      template: "中".repeat(MAX_APP_LENGTH),
+      path: "中".repeat(MAX_PATH_LENGTH),
+      userKey: "中".repeat(MAX_USER_KEY_LENGTH),
+      userId: long,
+    });
+    expect(rows[1]).toMatchObject({ eventName: "pageview", userKey: "user_1" });
+  });
+
+  it("rejects an unknown key as the caller's error", async () => {
+    analyticsDbMocks.selectLimit.mockResolvedValueOnce([]);
+
+    await expect(
+      recordAnalyticsEvents("anpk_unknown", [{ event: "pageview" }]),
+    ).rejects.toMatchObject({
+      statusCode: 401,
+      message: "Invalid analytics public key",
+    });
   });
 
   it("does not index session events when persistence fails", async () => {

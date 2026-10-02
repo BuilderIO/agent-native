@@ -45,6 +45,7 @@ import {
   resolveAnalyticsEventDimensions,
   touchPublicKeyLastUsedAt,
 } from "./first-party-analytics.js";
+import { parseJsonBody } from "./request-errors.js";
 import {
   pruneSessionEventIndex,
   sessionEventFilterConditions,
@@ -993,8 +994,9 @@ function deriveReplaySignals({
 export function parseSessionReplayIngestPayload(
   raw: unknown,
 ): ParsedSessionReplayIngest {
-  const body =
-    typeof raw === "string" && raw.trim() ? JSON.parse(raw) : replayRecord(raw);
+  const body = replayRecord(
+    typeof raw === "string" && raw.trim() ? parseJsonBody(raw) : raw,
+  );
   const publicKey =
     replayString(body.publicKey) ||
     replayString(body.writeKey) ||

@@ -23,6 +23,11 @@ import {
   type SessionEventNameCount,
 } from "../../shared/session-events.js";
 import { getDb, schema } from "../db/index.js";
+import {
+  MAX_APP_LENGTH,
+  MAX_EVENT_NAME_LENGTH,
+  boundedText,
+} from "./indexed-text.js";
 
 /**
  * Session event index.
@@ -54,8 +59,6 @@ export interface SessionEventScope {
 
 const MAX_PROPERTY_KEYS = 30;
 const PROPERTY_KEY_PATTERN = /^[A-Za-z0-9_.$:-]{1,64}$/;
-const MAX_EVENT_NAME_LENGTH = 200;
-const MAX_APP_LENGTH = 100;
 const MAX_SESSION_ID_LENGTH = 256;
 const STOPPED_FIRING_DAYS = 7;
 const SESSION_EVENT_INDEX_RETENTION_BUFFER_DAYS = 2;
@@ -80,19 +83,6 @@ function viewerTenantKeys(scope: SessionEventScope): string[] {
         sessionEventTenantKey(scope.userEmail, null),
       ]
     : [sessionEventTenantKey(scope.userEmail, null)];
-}
-
-/**
- * Unique indexes hold event names and apps raw, so both are cut to a length
- * that fits an index entry. Never ends on half of a surrogate pair, which
- * Postgres would store as a replacement character.
- */
-function boundedText(
-  value: string | null | undefined,
-  maxLength: number,
-): string {
-  const text = value?.trim().slice(0, maxLength) ?? "";
-  return /[\uD800-\uDBFF]$/.test(text) ? text.slice(0, -1) : text;
 }
 
 /**

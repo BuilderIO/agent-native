@@ -14,6 +14,7 @@ import {
   parseAnalyticsTrackPayload,
   recordAnalyticsEvents,
 } from "../lib/first-party-analytics.js";
+import { errorReply } from "../lib/request-errors.js";
 
 function setCors(event: any): void {
   setResponseHeader(event, "Access-Control-Allow-Origin", "*");
@@ -39,27 +40,16 @@ export const handleAnalyticsTrack = defineEventHandler(async (event) => {
     return { success: true, accepted: 0 };
   }
   try {
-    const headerKey = getHeader(event, "x-agent-native-analytics-key");
-    let body = await readBody(event);
-    if (headerKey) {
-      if (typeof body === "string" && body.trim()) {
-        body = { ...JSON.parse(body), publicKey: headerKey };
-      } else if (body && typeof body === "object" && !Array.isArray(body)) {
-        body = { ...(body as Record<string, unknown>), publicKey: headerKey };
-      } else {
-        body = { publicKey: headerKey };
-      }
-    }
-    const parsed = parseAnalyticsTrackPayload(body);
+    const parsed = parseAnalyticsTrackPayload(
+      await readBody(event),
+      getHeader(event, "x-agent-native-analytics-key"),
+    );
     const result = await recordAnalyticsEvents(parsed.publicKey, parsed.events);
     setResponseStatus(event, 202);
     return { success: true, accepted: result.accepted };
-  } catch (err: any) {
-    const message = err?.message || String(err);
-    const invalidKey = /invalid analytics public key/i.test(message);
-    const statusCode =
-      typeof err?.statusCode === "number" ? err.statusCode : undefined;
-    setResponseStatus(event, invalidKey ? 401 : (statusCode ?? 400));
-    return { error: message };
+  } catch (err) {
+    const reply = errorReply(err, "[first-party-analytics]");
+    setResponseStatus(event, reply.statusCode);
+    return { error: reply.error };
   }
 });
