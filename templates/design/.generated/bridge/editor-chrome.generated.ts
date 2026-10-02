@@ -13105,6 +13105,23 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!target || !target.anchor) return null;
       return target.placement === "inside" ? target.anchor : target.anchor.parentElement;
     }
+    function dropContentSize(el) {
+      var html = el;
+      var style = window.getComputedStyle(el);
+      var rect = el.getBoundingClientRect();
+      var scaleX = html.offsetWidth ? rect.width / html.offsetWidth : 1;
+      var scaleY = html.offsetHeight ? rect.height / html.offsetHeight : 1;
+      return {
+        width: (html.clientWidth - readPx(style.paddingLeft) - readPx(style.paddingRight)) * scaleX,
+        height: (html.clientHeight - readPx(style.paddingTop) - readPx(style.paddingBottom)) * scaleY
+      };
+    }
+    function dropFitsContainer(container, sourceWidth, sourceHeight) {
+      var size = dropContentSize(container);
+      var style = window.getComputedStyle(container);
+      var singleRowFlex = (style.display === "flex" || style.display === "inline-flex") && style.flexDirection.indexOf("row") === 0 && style.flexWrap !== "wrap" && style.flexWrap !== "wrap-reverse";
+      return singleRowFlex ? size.width >= sourceWidth : size.width >= sourceWidth && size.height >= sourceHeight;
+    }
     function isOutsideIframeViewport(clientX, clientY) {
       return clientX < 0 || clientY < 0 || clientX > window.innerWidth || clientY > window.innerHeight;
     }
@@ -13380,8 +13397,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!el || el === document.documentElement) return false;
       if (isOverlayElement(el) || isLayerInteractionBlocked(el)) return false;
       if (el === document.body) return true;
-      var primitiveKind = el.getAttribute("data-an-primitive");
-      if (primitiveKind && primitiveKind !== "frame") return false;
+      var primitiveKind = (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive") || "").toLowerCase();
+      if (primitiveKind && !BRIDGE_ADOPTING_PRIMITIVES[primitiveKind]) {
+        return false;
+      }
       var tag = (el.tagName || "").toLowerCase();
       if (BRIDGE_LEAF_TAGS.indexOf(tag) !== -1 || BRIDGE_TEXT_TAGS.indexOf(tag) !== -1)
         return false;
@@ -16953,7 +16972,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var dragElStartWidth = dragElStartRect.width;
       var dragElStartHeight = dragElStartRect.height;
       function applyFreeDropSizeGuard(target, ev) {
-        if (!target || target.placement !== "inside" || target.dropMode !== "flow-insert" && target.dropMode !== "absolute-container") {
+        if (!target || target.dropMode !== "flow-insert" && target.dropMode !== "absolute-container") {
           return target;
         }
         if (ev && (ignoreAutoLayoutHeld(ev) || isPlatformPrimaryChord(ev))) {
@@ -16964,20 +16983,45 @@ export const editorChromeBridgeScript: string = `"use strict";
           return target;
         }
         var crect = container.getBoundingClientRect();
-        if (crect.width >= dragElStartRect.width && crect.height >= dragElStartRect.height) {
+        if (dropFitsContainer(
+          container,
+          dragElStartRect.width,
+          dragElStartRect.height
+        )) {
           return target;
         }
         var pointerX = ev ? ev.clientX : crect.left + crect.width / 2;
         var pointerY = ev ? ev.clientY : crect.top + crect.height / 2;
         var excluded = [dragEl].concat(groupOthers || []);
+        var rootContainer = container;
+        while (rootContainer.parentElement && rootContainer.parentElement !== document.body) {
+          rootContainer = rootContainer.parentElement;
+        }
+        var boardRootReceiver = rootContainer.parentElement === document.body && (isAutoLayoutElement(rootContainer) || isAbsolutePrimitiveContainer(rootContainer) || isFreeformRelativeContainer(rootContainer));
         var parent = container.parentElement;
         while (parent && parent !== document.documentElement) {
           var parentIsFlow = isAutoLayoutElement(parent);
           var parentIsAbsolute = isAbsolutePrimitiveContainer(parent) || isFreeformRelativeContainer(parent);
-          if (isContainerDropTarget(parent) && parent !== dragEl && (parentIsFlow || parentIsAbsolute)) {
-            var parentRect = parent.getBoundingClientRect();
-            if (parentRect.width >= dragElStartRect.width && parentRect.height >= dragElStartRect.height) {
+          if ((parent === document.body ? boardRootReceiver : isContainerDropTarget(parent)) && parent !== dragEl && (parentIsFlow || parentIsAbsolute || parent === document.body && boardRootReceiver)) {
+            if (dropFitsContainer(
+              parent,
+              dragElStartRect.width,
+              dragElStartRect.height
+            )) {
               if (parentIsFlow) {
+                return nearestChildInsertionTarget(
+                  parent,
+                  pointerX,
+                  pointerY,
+                  excluded
+                ) || {
+                  anchor: parent,
+                  placement: "inside",
+                  axis: parentFlowAxis(parent),
+                  dropMode: "flow-insert"
+                };
+              }
+              if (parent === document.body) {
                 return nearestChildInsertionTarget(
                   parent,
                   pointerX,

@@ -194,7 +194,7 @@ describe("Screen-root auto-layout hit testing", () => {
       });
       await page.setContent(`<!doctype html><html><body style="margin:0;width:640px;height:480px;position:relative">
         <section data-agent-native-node-id="outer" style="position:absolute;left:40px;top:40px;width:420px;height:320px;display:flex;flex-direction:column">
-          <section data-agent-native-node-id="middle" data-agent-native-primitive="frame" style="position:relative;flex:0 0 260px;width:260px;height:260px">
+          <section data-agent-native-node-id="middle" data-agent-native-primitive="rectangle" style="position:absolute;left:0;top:0;width:260px;height:260px">
             <section data-agent-native-node-id="nested" data-an-primitive="frame" style="position:relative;width:140px;height:140px">
               <div data-agent-native-node-id="anchor" style="position:absolute;left:12px;top:12px;width:60px;height:32px"></div>
             </section>
@@ -237,6 +237,77 @@ describe("Screen-root auto-layout hit testing", () => {
         placement: "inside",
         axis: "y",
         dropMode: "absolute-container",
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("keeps flow slots and measures ancestor content space during size fallback", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 640, height: 480 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0;width:640px;height:480px;position:relative">
+        <section data-agent-native-node-id="row" style="position:absolute;left:40px;top:40px;box-sizing:border-box;width:420px;height:70px;padding:20px;display:flex;flex-direction:row;gap:12px">
+          <section data-agent-native-node-id="nested-row" style="flex:none;width:120px;height:40px;display:flex;flex-direction:row">
+            <div data-agent-native-node-id="marker" style="flex:none;width:110px;height:36px">Marker</div>
+          </section>
+          <div data-agent-native-node-id="peer" style="flex:none;width:100px;height:36px">Peer</div>
+        </section>
+        <section data-agent-native-node-id="padded-rect" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:200px;box-sizing:border-box;width:250px;height:180px;padding:20px">
+          <section data-agent-native-node-id="padded-inner" data-an-primitive="frame" style="position:absolute;left:20px;top:20px;width:100px;height:80px"></section>
+        </section>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "flow-slot-fallback",
+            x: 155,
+            y: 80,
+            sourceElementSize: { width: 220, height: 80 },
+          },
+          "*",
+        );
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "content-box-fallback",
+            x: 80,
+            y: 240,
+            sourceElementSize: { width: 220, height: 90 },
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 2,
+      );
+
+      const packets = await page.evaluate(
+        () => (window as any).__hitTestResults,
+      );
+      expect(packets[0]).toMatchObject({
+        correlationId: "flow-slot-fallback",
+        anchorNodeId: "nested-row",
+        placement: "after",
+        axis: "x",
+        dropMode: "flow-insert",
+      });
+      expect(packets[1]).toMatchObject({
+        correlationId: "content-box-fallback",
+        anchorNodeId: "padded-rect",
+        placement: "before",
+        dropMode: "flow-insert",
       });
     } finally {
       await browser.close();

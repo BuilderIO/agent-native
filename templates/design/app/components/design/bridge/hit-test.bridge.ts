@@ -171,6 +171,14 @@
     if (!el || el === document.documentElement) return false;
     if (isOverlayElement(el) || isLayerInteractionBlocked(el)) return false;
     if (el === document.body) return true;
+    var primitiveKind = (
+      el.getAttribute("data-an-primitive") ||
+      el.getAttribute("data-agent-native-primitive") ||
+      ""
+    ).toLowerCase();
+    if (primitiveKind && !BRIDGE_ADOPTING_PRIMITIVES[primitiveKind]) {
+      return false;
+    }
     var tag = (el.tagName || "").toLowerCase();
     if (
       BRIDGE_LEAF_TAGS.indexOf(tag) !== -1 ||
@@ -192,6 +200,39 @@
     )
       return true;
     return BRIDGE_CONTAINER_TAGS.indexOf(tag) !== -1;
+  }
+
+  function dropContentSize(el: Element): { width: number; height: number } {
+    var html = el as HTMLElement;
+    var style = window.getComputedStyle(el);
+    var rect = el.getBoundingClientRect();
+    var scaleX = html.offsetWidth ? rect.width / html.offsetWidth : 1;
+    var scaleY = html.offsetHeight ? rect.height / html.offsetHeight : 1;
+    var paddingLeft = parseFloat(style.paddingLeft) || 0;
+    var paddingRight = parseFloat(style.paddingRight) || 0;
+    var paddingTop = parseFloat(style.paddingTop) || 0;
+    var paddingBottom = parseFloat(style.paddingBottom) || 0;
+    return {
+      width: (html.clientWidth - paddingLeft - paddingRight) * scaleX,
+      height: (html.clientHeight - paddingTop - paddingBottom) * scaleY,
+    };
+  }
+
+  function dropFitsContainer(
+    container: Element,
+    sourceWidth: number,
+    sourceHeight: number,
+  ): boolean {
+    var size = dropContentSize(container);
+    var style = window.getComputedStyle(container);
+    var singleRowFlex =
+      (style.display === "flex" || style.display === "inline-flex") &&
+      style.flexDirection.indexOf("row") === 0 &&
+      style.flexWrap !== "wrap" &&
+      style.flexWrap !== "wrap-reverse";
+    return singleRowFlex
+      ? size.width >= sourceWidth
+      : size.width >= sourceWidth && size.height >= sourceHeight;
   }
 
   function elementFromEditorPoint(
@@ -884,7 +925,6 @@
   ) {
     if (
       !target ||
-      target.placement !== "inside" ||
       (target.dropMode !== "flow-insert" &&
         target.dropMode !== "absolute-container") ||
       !sourceElementSize ||
@@ -894,8 +934,12 @@
     ) {
       return target;
     }
-    var container = target.anchor;
+    var container =
+      target.placement === "inside"
+        ? target.anchor
+        : target.anchor.parentElement;
     if (
+      !container ||
       container === document.body ||
       container === document.documentElement ||
       !isContainerDropTarget(container)
@@ -903,9 +947,24 @@
       return target;
     }
     var crect = container.getBoundingClientRect();
+    var rootContainer = container;
+    while (
+      rootContainer.parentElement &&
+      rootContainer.parentElement !== document.body
+    ) {
+      rootContainer = rootContainer.parentElement;
+    }
+    var boardRootReceiver =
+      rootContainer.parentElement === document.body &&
+      (isAutoLayoutElement(rootContainer) ||
+        isAbsolutePrimitiveContainer(rootContainer) ||
+        isFreeformRelativeContainer(rootContainer));
     if (
-      crect.width >= sourceElementSize.width &&
-      crect.height >= sourceElementSize.height
+      dropFitsContainer(
+        container,
+        sourceElementSize.width,
+        sourceElementSize.height,
+      )
     ) {
       return target;
     }
@@ -916,16 +975,32 @@
         isAbsolutePrimitiveContainer(parent) ||
         isFreeformRelativeContainer(parent);
       if (
-        isContainerDropTarget(parent) &&
+        (parent === document.body
+          ? boardRootReceiver
+          : isContainerDropTarget(parent)) &&
         parent !== container &&
-        (parentIsFlow || parentIsAbsolute)
+        (parentIsFlow ||
+          parentIsAbsolute ||
+          (parent === document.body && boardRootReceiver))
       ) {
-        var parentRect = parent.getBoundingClientRect();
         if (
-          parentRect.width >= sourceElementSize.width &&
-          parentRect.height >= sourceElementSize.height
+          dropFitsContainer(
+            parent,
+            sourceElementSize.width,
+            sourceElementSize.height,
+          )
         ) {
           if (parentIsFlow) {
+            return (
+              nearestChildInsertionTarget(parent, clientX, clientY) || {
+                anchor: parent,
+                placement: "inside",
+                axis: parentFlowAxis(parent),
+                dropMode: "flow-insert",
+              }
+            );
+          }
+          if (parent === document.body) {
             return (
               nearestChildInsertionTarget(parent, clientX, clientY) || {
                 anchor: parent,

@@ -64,6 +64,39 @@ function compileBridgeFunction<T extends (...args: any[]) => any>(
   )(...Object.values(globals)) as T;
 }
 
+describe("editor drop-container primitive eligibility", () => {
+  it("accepts both rectangle primitive markers and rejects non-containers", () => {
+    const isContainerDropTarget = compileBridgeFunction<
+      (element: unknown) => boolean
+    >("isContainerDropTarget", "edgePlacementForRect", {
+      BRIDGE_ADOPTING_PRIMITIVES: {
+        frame: true,
+        rectangle: true,
+        rect: true,
+      },
+      BRIDGE_CONTAINER_TAGS: ["div"],
+      BRIDGE_INTERACTIVE_LEAF_TAGS: [],
+      BRIDGE_LEAF_TAGS: [],
+      BRIDGE_TEXT_TAGS: [],
+      document: { body: {}, documentElement: {} },
+      hasOnlyLeafContent: () => false,
+      isLayerInteractionBlocked: () => false,
+      isOverlayElement: () => false,
+      window: { getComputedStyle: () => ({ display: "block" }) },
+    });
+    const primitive = (kind: string, attribute = "data-an-primitive") => ({
+      tagName: "DIV",
+      getAttribute: (name: string) => (name === attribute ? kind : null),
+    });
+
+    expect(isContainerDropTarget(primitive("rectangle"))).toBe(true);
+    expect(
+      isContainerDropTarget(primitive("rect", "data-agent-native-primitive")),
+    ).toBe(true);
+    expect(isContainerDropTarget(primitive("text"))).toBe(false);
+  });
+});
+
 describe("source vector stroke overlay reconciliation", () => {
   type FakeNode = {
     tagName: string;
