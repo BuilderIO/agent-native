@@ -51,6 +51,10 @@ import {
   resolveSsrCacheKeyHeaders,
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
+import {
+  EMBED_TARGET_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 import { normalizeFrameworkRoutePrefix } from "../shared/framework-route-prefix.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
@@ -1469,6 +1473,10 @@ function normalizeAppBasePath(value) {
 // CLASSIFICATION happens here; the h3 boundary inside the handler is what
 // translates the public prefix to the internal one, exactly once.
 const builtFrameworkRoutePrefix = ${JSON.stringify(builtFrameworkRoutePrefix)};
+const embedActionQueryParams = new Set(${JSON.stringify([
+    EMBED_TARGET_QUERY_PARAM,
+    EMBED_TOKEN_QUERY_PARAM,
+  ])});
 
 function getAppBasePath() {
   const builtAppBasePath = ${JSON.stringify(builtAppBasePath)};
@@ -1495,9 +1503,10 @@ function parseActionSearchParams(searchParams) {
   const params = {};
   for (const [rawKey, value] of searchParams.entries()) {
     const isArrayKey = rawKey.endsWith("[]");
+    const key = isArrayKey ? rawKey.slice(0, -2) : rawKey;
+    if (embedActionQueryParams.has(key)) continue;
     // The core client serializes arrays as key[]=value so one-item arrays
     // survive GET action parsing in generated worker deployments.
-    const key = isArrayKey ? rawKey.slice(0, -2) : rawKey;
     const current = params[key];
     if (current === undefined) {
       params[key] = isArrayKey ? [value] : value;
