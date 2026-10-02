@@ -274,9 +274,9 @@ function CredentialForm({
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Owners and admins pick who can use the key (organization by default).
+  // Owners and admins pick who can use the key (organization by default);
+  // everyone else saves personally — the server refuses a member's shared save.
   const saveScope = useCredentialSaveScope();
-  const chosenScope = saveScope.canChoose ? saveScope.scope : null;
   const whoId = useId();
 
   const fields = method.payload.fields;
@@ -285,6 +285,8 @@ function CredentialForm({
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
+    const scope = saveScope.scope;
+    if (!scope) return;
     setSaving(true);
     setError(null);
     try {
@@ -303,10 +305,7 @@ function CredentialForm({
       const response = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          vars,
-          scope: chosenScope ?? method.payload.writeScope ?? "workspace",
-        }),
+        body: JSON.stringify({ vars, scope }),
       });
 
       if (!response.ok) {
@@ -361,11 +360,11 @@ function CredentialForm({
         })}
       </div>
 
-      {chosenScope ? (
+      {saveScope.canChoose && saveScope.scope ? (
         <WhoField
           id={whoId}
           choice
-          scope={chosenScope}
+          scope={saveScope.scope}
           disabled={saving}
           onChange={saveScope.setScope}
         />
