@@ -4411,13 +4411,38 @@ describe("AgentKitAssistantChat host behavior", () => {
     },
   };
 
-  it("keeps an ordinary failure with Retry after a later run starts", async () => {
+  it("keeps an ordinary failure with Retry when a different run is retried", async () => {
     chatMocks.failureError = { code: "test-error", message: "Run failed" };
     chatMocks.thread.runs = failedThenLaterRun;
+    chatMocks.thread.messages = [
+      {
+        id: "user-retry",
+        role: "user",
+        parts: [{ type: "text", text: "Later prompt" }],
+        metadata: { custom: { agentNativeRecoveryOfRunId: "run-2" } },
+      },
+    ];
 
     await mount(baseProps());
 
     expect(chatMocks.failureProps.onRetry).toEqual(expect.any(Function));
+  });
+
+  it("hides an ordinary failure once a persisted retry answers its run", async () => {
+    chatMocks.failureError = { code: "test-error", message: "Run failed" };
+    chatMocks.thread.runs = failedThenLaterRun;
+    chatMocks.thread.messages = [
+      {
+        id: "user-retry",
+        role: "user",
+        parts: [{ type: "text", text: "Original prompt" }],
+        metadata: { custom: { agentNativeRecoveryOfRunId: "run-1" } },
+      },
+    ];
+
+    await mount(baseProps());
+
+    expect(chatMocks.failureProps).toBeNull();
   });
 
   it("hides an AI-setup refusal once a later run supersedes it", async () => {
