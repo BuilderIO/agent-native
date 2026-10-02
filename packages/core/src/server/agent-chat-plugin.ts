@@ -6613,7 +6613,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               await import("./credential-provider.js");
 
             return {
-              active: true,
+              active: run.inFlight,
               runId: run.runId,
               threadId: run.threadId,
               turnId: run.turnId,

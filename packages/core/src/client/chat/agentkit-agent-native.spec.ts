@@ -1504,27 +1504,77 @@ describe("createAgentNativeAgentKitTransport", () => {
     parts: [{ type: "text", text: "Write forty lines" }],
   };
 
-  it("restores a finished run's reply the reloaded page never saved into the AgentKit snapshot", async () => {
+  // `active` is false once the run is no longer in flight; the finished run's
+  // id and status still come back inside the reconnect window for replay.
+  it.each([true, false])(
+    "restores a finished run's reply the reloaded page never saved into the AgentKit snapshot (active: %s)",
+    async (active) => {
+      const transport = createAgentNativeAgentKitTransport({
+        fetch: vi.fn(async (input: string | URL | Request) =>
+          String(input).includes("/runs/active")
+            ? json({ active, status: "completed", runId: "run-1" })
+            : json(reloadedMidRunThread([reloadedPrompt])),
+        ) as typeof fetch,
+      });
+
+      const snapshot = await transport.getThreadSnapshot?.({
+        threadId: "thread-reloaded",
+      });
+
+      expect(snapshot?.messages).toMatchObject([
+        { id: "user-1", role: "user" },
+        {
+          id: "server-run-1",
+          role: "assistant",
+          parts: [{ type: "text", text: "L1: one\nL40: forty" }],
+        },
+      ]);
+      expect(snapshot?.runs?.find((run) => run.id === "run-1")?.status).toBe(
+        "completed",
+      );
+      expect(snapshot?.activeRunIds ?? []).toEqual([]);
+      await transport.dispose();
+    },
+  );
+
+  it("reports a finished run's failure after the server stops calling it active", async () => {
     const transport = createAgentNativeAgentKitTransport({
       fetch: vi.fn(async (input: string | URL | Request) =>
         String(input).includes("/runs/active")
-          ? json({ active: true, status: "completed", runId: "run-1" })
-          : json(reloadedMidRunThread([reloadedPrompt])),
+          ? json({
+              active: false,
+              status: "completed",
+              runId: "run-timeout",
+              terminalReason: "run_timeout",
+            })
+          : json({
+              id: "thread-timeout",
+              threadData: JSON.stringify({
+                messages: [],
+                agentKit: {
+                  messages: [],
+                  runs: [
+                    {
+                      id: "run-timeout",
+                      threadId: "thread-timeout",
+                      status: "running",
+                      lastSequence: 0,
+                    },
+                  ],
+                  activeRunIds: ["run-timeout"],
+                },
+              }),
+            }),
       ) as typeof fetch,
     });
 
     const snapshot = await transport.getThreadSnapshot?.({
-      threadId: "thread-reloaded",
+      threadId: "thread-timeout",
     });
 
-    expect(snapshot?.messages).toMatchObject([
-      { id: "user-1", role: "user" },
-      {
-        id: "server-run-1",
-        role: "assistant",
-        parts: [{ type: "text", text: "L1: one\nL40: forty" }],
-      },
-    ]);
+    expect(
+      snapshot?.runs?.find((run) => run.id === "run-timeout")?.error,
+    ).toMatchObject({ code: "run_timeout", retryable: true });
     expect(snapshot?.activeRunIds ?? []).toEqual([]);
     await transport.dispose();
   });
