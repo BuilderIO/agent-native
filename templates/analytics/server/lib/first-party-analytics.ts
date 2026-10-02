@@ -669,20 +669,26 @@ export interface RecordAnalyticsEventsResult {
   keyId: string;
 }
 
+const IDENTITY_EMAIL_FIELDS = ["user_email", "userEmail", "email"] as const;
+
 // Senders drop most test-identity events, but a browser only knows the
 // built-in rule and server `$exception`s arrive flagged, so ingest re-checks
-// with the deployment's configured identities.
+// with the deployment's configured identities. The context carries identity
+// too, so it is checked the same way.
 function isTestIdentityEvent(
   userId: string | null,
   properties: Record<string, unknown>,
+  context: Record<string, unknown>,
 ): boolean {
   return (
     properties.test_identity === true ||
     [
       userId,
-      properties.user_email,
-      properties.userEmail,
-      properties.email,
+      ...IDENTITY_EMAIL_FIELDS.flatMap((field) => [
+        properties[field],
+        context[field],
+      ]),
+      asRecord(context.traits).email,
     ].some(isTestIdentity)
   );
 }
@@ -757,7 +763,7 @@ export async function recordAnalyticsEvents(
     })
       ? "false"
       : reportedSignedIn;
-    const testIdentity = isTestIdentityEvent(userId, properties);
+    const testIdentity = isTestIdentityEvent(userId, properties, context);
 
     if (event.event === EXCEPTION_EVENT_NAME) {
       exceptionSources.push({

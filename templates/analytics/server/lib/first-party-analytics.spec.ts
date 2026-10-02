@@ -665,6 +665,23 @@ describe("recordAnalyticsEvents", () => {
     }
   });
 
+  it("checks the identity a sender puts only in the event context", async () => {
+    vi.stubEnv("AGENT_NATIVE_TEST_IDENTITY_EMAILS", "qa@corp.com");
+    resetAppConfigForTests();
+    try {
+      const result = await recordAnalyticsEvents("anpk_test", [
+        { event: "pageview", context: { email: "qa@corp.com" } },
+        { event: "pageview", context: { user_email: "qa@corp.com" } },
+        { event: "pageview", context: { traits: { email: "qa@corp.com" } } },
+        { event: "pageview", context: { email: "dev@corp.com" } },
+      ]);
+      expect(result).toMatchObject({ accepted: 1, suppressedTestIdentity: 3 });
+    } finally {
+      vi.unstubAllEnvs();
+      resetAppConfigForTests();
+    }
+  });
+
   it("preserves SQL exception issues while warehouse delivery is pending", async () => {
     backendMocks.get.mockResolvedValueOnce({
       sink: "bigquery",
