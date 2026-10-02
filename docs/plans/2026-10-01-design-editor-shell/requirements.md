@@ -324,12 +324,13 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
   - Change: Empty sections (Stroke, Effects) drop the chevron and keep its space, so titles line up.
 - **INSP-04** · decided
   - Change: Interact and Annotate hide the inspector; the canvas takes the width.
-- **INSP-05** · proposed
+- **INSP-05** · decided
   - Today: With the Frame tool armed (F), `FramePresetsPanel` replaces the inspector: a “Frame” title, then the code's categories in data order with Desktop first and only it open, no icons. Picking a preset creates a screen (`onCreateScreenFromPreset`).
-  - Change: Same behavior, organized: groups in the order Phone, Tablet, Desktop, Presentation, Watch, Paper, Social media, Ad unit, each with its icon and collapsible (Phone and Tablet open). A row is the preset name on the left, aligned with the group icon, and W × H on the right in tabular figures; long names truncate with the full name on hover. Picking one creates the screen and returns to Move.
+  - Change: Same behavior, organized: groups Phone, Tablet, Desktop, Presentation, Smartwatch, Paper, Social media, each with its icon and collapsible, all open to start. A row is the preset name on the left, aligned with the group icon, and W × H on the right in tabular figures; long names truncate with the full name on hover. Picking one creates the screen and returns to Move.
   - Prototype: Press F, or pick Frame from the toolbar's Frame menu.
-- **INSP-06** · question
-  - Change: Refresh the preset list? The reference shows newer devices (iPhone 18 Pro and Pro Max, iPhone Duo, Pixel 11 line, iPad Air 11″ and 13″, the Apple Watch range) and paper in points (A4 595 × 842), where `FRAME_SIZE_PRESET_CATEGORIES` has the iPhone 16 and 17 era and paper in CSS pixels (A4 794 × 1123).
+- **INSP-06** · decided
+  - Today: `FRAME_SIZE_PRESET_CATEGORIES` has the iPhone 16 and 17 era, an Ad unit group, and paper in CSS pixels (A4 794 × 1123). `BreakpointBar` also reads it to suggest breakpoint widths.
+  - Change: Replace the list: Phone (iPhone 18 Pro 402 × 874, iPhone 18 Pro Max 440 × 956, iPhone Duo 466 × 678, iPhone Duo unfolded 890 × 626, iPhone 17 402 × 874, iPhone Air 420 × 912, iPhone 16 393 × 852, iPhone 16 Plus 430 × 932, iPhone 16e 390 × 844, iPhone 13 mini 375 × 812, iPhone SE 375 × 667, Google Pixel 11 412 × 924, Google Pixel 11 Pro 410 × 914, Google Pixel 11 Pro XL 448 × 997, Google Pixel 11 Pro Fold 791 × 820); Tablet (iPad mini 8.3″ 744 × 1133, iPad Air 11″ 820 × 1180, iPad Air 13″ 1024 × 1366, iPad Pro 11″ 834 × 1210, iPad Pro 13″ 1032 × 1376, Google Pixel Tablet 1280 × 800, Surface Pro 11 1440 × 960); Desktop (MacBook Air 1280 × 832, MacBook Pro 14″ 1512 × 982, MacBook Pro 16″ 1728 × 1117, iMac 24″ 2240 × 1260, Studio Display 27″ 2560 × 1440, Full HD 1920 × 1080, Wireframe 1440 × 1024); Presentation (Slide 16:9 1920 × 1080, Slide 4:3 1024 × 768); Smartwatch (Apple Watch Ultra 3 211 × 257, Apple Watch 46mm 208 × 248, 45mm 198 × 242, 44mm 184 × 224, 42mm 187 × 223, 41mm 176 × 215, 40mm 162 × 197); Paper in points (A4 595 × 842, A5 420 × 595, A6 297 × 420, Letter 612 × 792, Tabloid 792 × 1224); Social media (X post 1200 × 675, X header 1500 × 500, Facebook post 1200 × 630, Facebook cover 820 × 312, Instagram post 1080 × 1350, Instagram square 1080 × 1080, Instagram story 1080 × 1920, Dribbble shot 1600 × 1200, LinkedIn cover 1584 × 396, YouTube thumbnail 1280 × 720). The Ad unit group goes, and “Watch” becomes “Smartwatch” (`framePresets.categories.watch`, with its locale files).
 
 ## Outside agents (AGT, step 17)
 

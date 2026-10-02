@@ -1121,23 +1121,22 @@ document.addEventListener("click", e => {
 
 
 /* ───────── frame tool: size presets replace the inspector (FramePresetsPanel, inspector/frame-size-presets.ts) ───────── */
-// The code's FRAME_SIZE_PRESET_CATEGORIES, reordered phone-first with an icon per group. Picking one creates a screen.
+// Shawn's preset list (2026-10-02), which replaces FRAME_SIZE_PRESET_CATEGORIES: seven groups, paper in points. Picking one creates a screen.
 const FRAME_PRESETS = [
-  ["phone", "Phone", "device-mobile", [["iPhone 17", 402, 874], ["iPhone 16 & 17 Pro", 402, 874], ["iPhone 16", 393, 852], ["iPhone 16 & 17 Pro Max", 440, 956], ["iPhone 16 Plus", 430, 932], ["iPhone Air", 420, 912], ["iPhone 14 & 15 Pro Max", 430, 932], ["iPhone 14 & 15 Pro", 393, 852], ["iPhone 13 & 14", 390, 844], ["iPhone 14 Plus", 428, 926], ["Android Compact", 412, 917], ["Android Medium", 700, 840]]],
-  ["tablet", "Tablet", "device-tablet", [["iPad mini 8.3", 744, 1133], ["Surface Pro 8", 1440, 960], ['iPad Pro 11″', 834, 1194], ['iPad Pro 12.9″', 1024, 1366], ["Android Expanded", 1280, 800]]],
-  ["desktop", "Desktop", "device-desktop", [["Desktop", 1440, 1024], ["Wireframe", 1440, 1024], ["MacBook Air", 1280, 832], ['MacBook Pro 14″', 1512, 982], ['MacBook Pro 16″', 1728, 1117], ["TV", 1280, 720]]],
+  ["phone", "Phone", "device-mobile", [["iPhone 18 Pro", 402, 874], ["iPhone 18 Pro Max", 440, 956], ["iPhone Duo", 466, 678], ["iPhone Duo unfolded", 890, 626], ["iPhone 17", 402, 874], ["iPhone Air", 420, 912], ["iPhone 16", 393, 852], ["iPhone 16 Plus", 430, 932], ["iPhone 16e", 390, 844], ["iPhone 13 mini", 375, 812], ["iPhone SE", 375, 667], ["Google Pixel 11", 412, 924], ["Google Pixel 11 Pro", 410, 914], ["Google Pixel 11 Pro XL", 448, 997], ["Google Pixel 11 Pro Fold", 791, 820]]],
+  ["tablet", "Tablet", "device-tablet", [["iPad mini 8.3″", 744, 1133], ["iPad Air 11″", 820, 1180], ["iPad Air 13″", 1024, 1366], ["iPad Pro 11″", 834, 1210], ["iPad Pro 13″", 1032, 1376], ["Google Pixel Tablet", 1280, 800], ["Surface Pro 11", 1440, 960]]],
+  ["desktop", "Desktop", "device-desktop", [["MacBook Air", 1280, 832], ["MacBook Pro 14″", 1512, 982], ["MacBook Pro 16″", 1728, 1117], ["iMac 24″", 2240, 1260], ["Studio Display 27″", 2560, 1440], ["Full HD", 1920, 1080], ["Wireframe", 1440, 1024]]],
   ["presentation", "Presentation", "presentation", [["Slide 16:9", 1920, 1080], ["Slide 4:3", 1024, 768]]],
-  ["watch", "Watch", "device-watch", [["Apple Watch 45mm", 198, 242]]],
-  ["paper", "Paper", "file", [["Letter", 816, 1056], ["A4", 794, 1123], ["A5", 559, 794], ["Tabloid", 1056, 1632]]],
-  ["socialMedia", "Social media", "messages", [["Instagram Post", 1080, 1080], ["Instagram Story", 1080, 1920], ["X Post", 1200, 675], ["Facebook Cover", 820, 312], ["LinkedIn Cover", 1584, 396]]],
-  ["adUnit", "Ad unit", "ad", [["Medium Rectangle", 300, 250], ["Leaderboard", 728, 90], ["Wide Skyscraper", 160, 600], ["Mobile Leaderboard", 320, 50], ["Billboard", 970, 250]]],
+  ["watch", "Smartwatch", "device-watch", [["Apple Watch Ultra 3", 211, 257], ["Apple Watch 46mm", 208, 248], ["Apple Watch 45mm", 198, 242], ["Apple Watch 44mm", 184, 224], ["Apple Watch 42mm", 187, 223], ["Apple Watch 41mm", 176, 215], ["Apple Watch 40mm", 162, 197]]],
+  ["paper", "Paper", "file", [["A4", 595, 842], ["A5", 420, 595], ["A6", 297, 420], ["Letter", 612, 792], ["Tabloid", 792, 1224]]],
+  ["socialMedia", "Social media", "messages", [["X post", 1200, 675], ["X header", 1500, 500], ["Facebook post", 1200, 630], ["Facebook cover", 820, 312], ["Instagram post", 1080, 1350], ["Instagram square", 1080, 1080], ["Instagram story", 1080, 1920], ["Dribbble shot", 1600, 1200], ["LinkedIn cover", 1584, 396], ["YouTube thumbnail", 1280, 720]]],
 ];
-const PRESETS_OPEN = new Set(["phone", "tablet"]);
+const PRESETS_OPEN = new Set(FRAME_PRESETS.map(c => c[0]));
 const frameToolArmed = () => S.mode === "design" && !H.active && S.tool === "frame" && (PICK.frame ?? 0) === 0;
 function renderFramePresets(el) {
   el.innerHTML = `<div class="fp-head">Frame</div><div class="insp-scroll fp">${FRAME_PRESETS.map(([key, label, icon, presets]) => {
     const open = PRESETS_OPEN.has(key);
-    return `<button class="fp-cat" data-fp-cat="${key}" aria-expanded="${open}"><span class="chev">${ic(open ? "chevron-down" : "chevron-right", "s12")}</span>${ic(icon, "s16")}<span>${label}</span></button>${open ? presets.map(([n, w, h]) => `<button class="fp-row" data-fp="${key}|${n}" title="${n} · ${w} × ${h}"><span class="nm">${n}</span><span class="wh">${w} × ${h}</span></button>`).join("") : ""}`;
+    return `<button class="fp-cat" data-fp-cat="${key}" aria-expanded="${open}"><span class="chev">${ic(open ? "chevron-down" : "chevron-right", "s12")}</span>${ic(icon, "s16")}<span>${label}</span></button>${open ? presets.map(([n, w, h]) => `<button class="fp-row" data-fp="${key}|${n}" title="${n} · ${w} × ${h}"><span class="nm">${n}</span><span class="wh">${w}\u2009×\u2009${h}</span></button>`).join("") : ""}`;
   }).join("")}</div>`;
 }
 document.addEventListener("click", e => {
