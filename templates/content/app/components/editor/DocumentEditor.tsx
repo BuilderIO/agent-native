@@ -1350,6 +1350,7 @@ export function PageEditorSurface({
             iconRow={readPageIconRowHint(documentId)}
           />
         }
+        reloading={manualRetryDocumentId === documentId}
         onReload={() => void retryDocumentQuery()}
       />
     ) : (

@@ -440,7 +440,11 @@ export function isResourceAvailable(
   reg: ShareableResourceRegistration,
   resource: any,
 ): boolean {
-  return reg.availability ? reg.availability.isAvailable(resource) : true;
+  if (!reg.availability) return true;
+  if (reg.availability.columns.some((column) => !(column in resource))) {
+    return true;
+  }
+  return reg.availability.isAvailable(resource);
 }
 
 function hasDynamicPublicAccessRoleResolver(
@@ -455,9 +459,11 @@ async function loadResourceForAccess(
   options: ResolveAccessOptions = {},
 ): Promise<any> {
   const db = reg.getDb() as any;
+  // Hooks that receive the row may read any column, so they get all of it.
   const useProjection =
     options.skipResourceBody === true &&
-    !hasDynamicPublicAccessRoleResolver(reg);
+    !hasDynamicPublicAccessRoleResolver(reg) &&
+    !reg.canManageAccess;
   const projectedColumns = useProjection ? projectedAccessColumns(reg) : null;
   const omittedColumnNames = new Set<string>();
 
@@ -581,8 +587,8 @@ async function resolveAccessImpl(
  * - `denied`: they are signed in, can't open it, and it exists.
  * - `missing`: they are signed in and it doesn't exist, or it is unavailable
  *   and they can't open it, so trash looks the same as deleted.
- * - `signed-out`: nobody is signed in and it isn't open to them, so nothing
- *   about it is revealed.
+ * - `signed-out`: nobody is signed in, so nothing about it is revealed, not
+ *   even whether it exists or is public.
  */
 export type ResourceAccessState =
   | "allowed"
@@ -600,7 +606,9 @@ export interface ResourceAccessStatus {
 /**
  * Resolves a link's {@link ResourceAccessState} for the current viewer. It
  * never returns the resource's title, owner, visibility, or workspace, and
- * database failures stay errors rather than reading as `missing`.
+ * database failures stay errors rather than reading as `missing`. A
+ * signed-out visitor gets `signed-out` before any row is read, so nothing
+ * about the link, including whether it exists, depends on the resource.
  */
 export async function resolveAccessStatus(
   resourceType: string,
@@ -608,6 +616,7 @@ export async function resolveAccessStatus(
   ctx: AccessContext = currentAccess(),
 ): Promise<ResourceAccessStatus> {
   const reg = requireShareableResource(resourceType);
+  if (!normalizeEmailForAccess(ctx.userEmail)) return { state: "signed-out" };
   const access = await resolveAccess(resourceType, resourceId, ctx, {
     skipResourceBody: true,
   });
@@ -617,7 +626,6 @@ export async function resolveAccessStatus(
       role: access.role,
     };
   }
-  if (!normalizeEmailForAccess(ctx.userEmail)) return { state: "signed-out" };
   const resource = await loadResourceForAccess(reg, resourceId, {
     skipResourceBody: true,
   });

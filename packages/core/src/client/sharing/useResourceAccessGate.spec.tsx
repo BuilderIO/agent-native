@@ -12,6 +12,7 @@ import {
 
 const mocks = vi.hoisted(() => ({
   data: undefined as ResourceAccessGateStatus | undefined,
+  refetch: vi.fn(),
   useActionQuery: vi.fn(),
 }));
 
@@ -29,13 +30,18 @@ describe("useResourceAccessGate", () => {
     return null;
   }
 
-  function render(status: ResourceAccessGateStatus | undefined, id = "doc-1") {
+  function render(
+    status: ResourceAccessGateStatus | undefined,
+    id = "doc-1",
+    enabled = true,
+  ) {
     mocks.data = status;
     act(() => {
       root.render(
         <Harness
           resourceType="document"
           resourceId={id}
+          enabled={enabled}
           onAccessGranted={onAccessGranted}
         />,
       );
@@ -45,12 +51,13 @@ describe("useResourceAccessGate", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.data = undefined;
+    mocks.refetch.mockReset();
     mocks.useActionQuery.mockReset();
     mocks.useActionQuery.mockImplementation(() => ({
       data: mocks.data,
       isLoading: !mocks.data,
       isError: false,
-      refetch: vi.fn(),
+      refetch: mocks.refetch,
     }));
     onAccessGranted.mockReset();
     container = document.createElement("div");
@@ -85,16 +92,39 @@ describe("useResourceAccessGate", () => {
     expect(onAccessGranted).toHaveBeenCalledTimes(1);
   });
 
-  it("doesn't report access granted when the first answer is allowed", () => {
+  it("reports access granted once when the first answer is allowed", () => {
+    render({ state: "allowed", role: "owner" });
     render({ state: "allowed", role: "owner" });
 
-    expect(onAccessGranted).not.toHaveBeenCalled();
+    expect(onAccessGranted).toHaveBeenCalledTimes(1);
   });
 
   it("starts over for a different link", () => {
-    render({ state: "denied" }, "doc-1");
-    render({ state: "allowed", role: "viewer" }, "doc-2");
+    render({ state: "allowed", role: "viewer" }, "doc-1");
+    render({ state: "denied" }, "doc-2");
+    expect(onAccessGranted).toHaveBeenCalledTimes(1);
 
-    expect(onAccessGranted).not.toHaveBeenCalled();
+    render({ state: "allowed", role: "viewer" }, "doc-2");
+    expect(onAccessGranted).toHaveBeenCalledTimes(2);
+  });
+
+  it("checks again when focus returns from another window", () => {
+    render({ state: "denied" });
+
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    expect(mocks.refetch).toHaveBeenCalledWith({ cancelRefetch: false });
+  });
+
+  it("doesn't check on focus while disabled", () => {
+    render(undefined, "doc-1", false);
+
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    expect(mocks.refetch).not.toHaveBeenCalled();
   });
 });

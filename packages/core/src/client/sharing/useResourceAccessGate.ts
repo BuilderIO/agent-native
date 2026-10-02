@@ -28,9 +28,10 @@ export interface ResourceAccessGateOptions {
   resourceId: string;
   enabled?: boolean;
   /**
-   * Called when a viewer who couldn't open the resource can now, for example
-   * because the owner shared it while this screen was open. The status is
-   * checked again whenever the window regains focus.
+   * Called once when the status says the viewer can open the resource: either
+   * the read that failed should be tried again, or the owner shared it while
+   * this screen was open. The status is checked again whenever the window
+   * regains focus, including switching back from another browser window.
    */
   onAccessGranted?: () => void;
 }
@@ -65,6 +66,8 @@ export function useResourceAccessGate({
   const state = query.data?.state;
   const onAccessGrantedRef = useRef(onAccessGranted);
   onAccessGrantedRef.current = onAccessGranted;
+  const refetchRef = useRef(query.refetch);
+  refetchRef.current = query.refetch;
   const lastSeenRef = useRef<{
     resourceId: string;
     state: ResourceAccessGateState;
@@ -77,10 +80,20 @@ export function useResourceAccessGate({
         ? lastSeenRef.current.state
         : null;
     lastSeenRef.current = { resourceId, state };
-    if (state === "allowed" && previous && previous !== "allowed") {
+    if (state === "allowed" && previous !== "allowed") {
       onAccessGrantedRef.current?.();
     }
   }, [resourceId, state]);
+
+  // React Query refetches when the tab becomes visible, but not when focus
+  // returns from another window that left this tab visible, such as the
+  // owner's window beside it.
+  useEffect(() => {
+    if (!enabled) return;
+    const refetch = () => void refetchRef.current({ cancelRefetch: false });
+    window.addEventListener("focus", refetch);
+    return () => window.removeEventListener("focus", refetch);
+  }, [enabled]);
 
   return {
     status: query.data,

@@ -11,9 +11,12 @@ import { createSharesTable } from "./schema.js";
 
 const resourceType = "qa-status-doc";
 const plainType = "qa-status-plain";
+const managedType = "qa-status-managed";
+const strictType = "qa-status-strict";
 const ownerEmail = "owner+status@example.com";
 const viewerEmail = "viewer+status@example.com";
 const outsiderEmail = "outsider+status@example.com";
+const adminEmail = "admin+status@example.com";
 
 const docs = table("qa_status_docs", {
   id: text("id").primaryKey(),
@@ -169,12 +172,59 @@ describe("resolveAccessStatus", () => {
     }
   });
 
-  it("opens a public page for a signed-out visitor", async () => {
+  it("asks a signed-out visitor to sign in even for a public page", async () => {
     await insertDoc({ id: "public", visibility: "public" });
+    await insertDoc({
+      id: "public-trashed",
+      visibility: "public",
+      trashedAt: new Date().toISOString(),
+    });
 
-    expect(await statusAs(undefined, "public")).toEqual({
+    for (const id of ["public", "public-trashed"]) {
+      expect(await statusAs(undefined, id)).toEqual({ state: "signed-out" });
+    }
+  });
+
+  it("doesn't call a registration's access hook for a signed-out visitor", async () => {
+    const calls: Array<string | undefined> = [];
+    registerShareableResource({
+      type: managedType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Doc",
+      getDb: () => db,
+      canManageAccess: (_doc, ctx) => {
+        calls.push(ctx.userEmail);
+        if (!ctx.userEmail) throw new Error("401 sign in");
+        return false;
+      },
+    });
+    await insertDoc({ id: "private" });
+
+    expect(await statusAs(undefined, "private", managedType)).toEqual({
+      state: "signed-out",
+    });
+    expect(await statusAs(undefined, "never-created", managedType)).toEqual({
+      state: "signed-out",
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("gives a registration's access hook the whole row", async () => {
+    registerShareableResource({
+      type: managedType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Doc",
+      getDb: () => db,
+      canManageAccess: (doc, ctx) =>
+        ctx.userEmail === adminEmail && doc.title === "Secret title managed",
+    });
+    await insertDoc({ id: "managed" });
+
+    expect(await statusAs(adminEmail, "managed", managedType)).toEqual({
       state: "allowed",
-      role: "viewer",
+      role: "admin",
     });
   });
 
@@ -186,6 +236,30 @@ describe("resolveAccessStatus", () => {
       role: "owner",
     });
     expect(await statusAs(outsiderEmail, "trashed", plainType)).toEqual({
+      state: "denied",
+    });
+  });
+
+  it("counts a row as available when its schema has no availability column", async () => {
+    registerShareableResource({
+      type: strictType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Doc",
+      getDb: () => db,
+      availability: {
+        columns: ["trashedAt"],
+        isAvailable: (doc) => doc.trashedAt === null,
+      },
+    });
+    await insertDoc({ id: "older" });
+    await pglite.exec("ALTER TABLE qa_status_docs DROP COLUMN trashed_at");
+
+    expect(await statusAs(ownerEmail, "older", strictType)).toEqual({
+      state: "allowed",
+      role: "owner",
+    });
+    expect(await statusAs(outsiderEmail, "older", strictType)).toEqual({
       state: "denied",
     });
   });

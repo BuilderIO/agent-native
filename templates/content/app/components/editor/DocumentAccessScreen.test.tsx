@@ -5,11 +5,14 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+type QueryResult = { data?: unknown; isPending: boolean; isError: boolean };
+
 const mocks = vi.hoisted(() => ({
   session: { current: null as { email: string } | null },
   signOut: vi.fn(),
-  callAction: vi.fn(),
   restore: vi.fn(),
+  queries: {} as Record<string, QueryResult>,
+  useActionQuery: vi.fn(),
   gate: {
     status: undefined as { state: string; role?: string } | undefined,
     isError: false,
@@ -22,8 +25,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
-  callAction: mocks.callAction,
   signOut: mocks.signOut,
+  useActionQuery: mocks.useActionQuery,
   useSession: () => ({ session: mocks.session.current }),
 }));
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
@@ -66,9 +69,23 @@ describe("DocumentAccessScreen", () => {
     mocks.session.current = { email: "outsider@example.test" };
     mocks.gate.status = undefined;
     mocks.gate.isError = false;
+    mocks.queries = {};
+    mocks.useActionQuery.mockReset();
+    mocks.useActionQuery.mockImplementation(
+      (
+        name: string,
+        params: { id?: string; resourceId?: string },
+        options: { enabled?: boolean },
+      ) =>
+        (options.enabled &&
+          mocks.queries[`${name}:${params.id ?? params.resourceId}`]) || {
+          data: undefined,
+          isPending: true,
+          isError: false,
+        },
+    );
     for (const fn of [
       mocks.signOut,
-      mocks.callAction,
       mocks.restore,
       mocks.gate.refetch,
       mocks.toast.success,
@@ -88,7 +105,10 @@ describe("DocumentAccessScreen", () => {
     vi.unstubAllGlobals();
   });
 
-  function render(status: { state: string; role?: string } | undefined) {
+  function render(
+    status: { state: string; role?: string } | undefined,
+    reloading = false,
+  ) {
     mocks.gate.status = status;
     act(() => {
       root.render(
@@ -100,6 +120,7 @@ describe("DocumentAccessScreen", () => {
                 <DocumentAccessScreen
                   documentId="private-doc"
                   loading={<p>loading</p>}
+                  reloading={reloading}
                   onReload={onReload}
                 />
               }
@@ -165,12 +186,20 @@ describe("DocumentAccessScreen", () => {
     expect(container.querySelector("a")?.getAttribute("href")).toBe("/home");
   });
 
-  it("reads as missing when the page can be opened but its read still failed", () => {
+  it("reads the page again when it can be opened, then says missing if that fails", () => {
     render({ state: "allowed", role: "owner" });
+    expect(container.textContent).toBe("loading");
 
+    act(() => mocks.gate.onAccessGranted?.());
+    render({ state: "allowed", role: "owner" }, true);
+    expect(onReload).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toBe("loading");
+
+    render({ state: "allowed", role: "owner" }, false);
     expect(container.querySelector("h1")?.textContent).toBe(
       "empty.pageMissing",
     );
+    expect(onReload).toHaveBeenCalledTimes(1);
   });
 
   it("reads the page again when access arrives while the screen is open", () => {
@@ -181,8 +210,16 @@ describe("DocumentAccessScreen", () => {
     expect(onReload).toHaveBeenCalledTimes(1);
   });
 
+  function trashedPage(trashRootId: string | null) {
+    mocks.queries["get-trashed-document:private-doc"] = {
+      data: { trashRootId },
+      isPending: false,
+      isError: false,
+    };
+  }
+
   it("offers the owner Restore and Open Trash for a trashed page", async () => {
-    mocks.callAction.mockResolvedValue({ trashRootId: "parent-doc" });
+    trashedPage(null);
     mocks.restore.mockResolvedValue({ success: true });
     render({ state: "trashed", role: "owner" });
 
@@ -195,18 +232,50 @@ describe("DocumentAccessScreen", () => {
       button("trash.restore")?.click();
     });
 
-    expect(mocks.callAction).toHaveBeenCalledWith(
-      "get-trashed-document",
-      { id: "private-doc" },
-      { method: "GET" },
-    );
-    expect(mocks.restore).toHaveBeenCalledWith({ id: "parent-doc" });
+    expect(mocks.restore).toHaveBeenCalledWith({ id: "private-doc" });
     expect(mocks.toast.success).toHaveBeenCalledWith("trash.restored");
     expect(onReload).toHaveBeenCalledTimes(1);
   });
 
+  it("restores from the page that was deleted when the viewer manages it", async () => {
+    trashedPage("parent-doc");
+    mocks.queries["get-resource-access-status:parent-doc"] = {
+      data: { state: "trashed", role: "admin" },
+      isPending: false,
+      isError: false,
+    };
+    mocks.restore.mockResolvedValue({ success: true });
+    render({ state: "trashed", role: "owner" });
+
+    await act(async () => {
+      button("trash.restore")?.click();
+    });
+
+    expect(mocks.restore).toHaveBeenCalledWith({ id: "parent-doc" });
+  });
+
+  it("doesn't offer Restore when the page was deleted with a parent the viewer can't manage", () => {
+    trashedPage("parent-doc");
+    mocks.queries["get-resource-access-status:parent-doc"] = {
+      data: { state: "trashed", role: "viewer" },
+      isPending: false,
+      isError: false,
+    };
+    render({ state: "trashed", role: "owner" });
+
+    expect(container.textContent).toContain("empty.pageInTrashAskOwner");
+    expect(button("trash.restore")).toBeUndefined();
+    expect(container.querySelector("a")?.getAttribute("href")).toBe("/home");
+  });
+
+  it("shows the loading state while it checks who can restore", () => {
+    render({ state: "trashed", role: "owner" });
+
+    expect(container.textContent).toBe("loading");
+  });
+
   it("says so when Restore fails and stays on the screen", async () => {
-    mocks.callAction.mockResolvedValue({ trashRootId: null });
+    trashedPage(null);
     mocks.restore.mockRejectedValue(new Error("nope"));
     render({ state: "trashed", role: "admin" });
 
