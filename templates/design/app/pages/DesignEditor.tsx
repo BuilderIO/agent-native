@@ -777,6 +777,7 @@ import { runPersistFrameGeometrySave } from "./design-editor/commands/persist-fr
 import { runPrimitiveCreated } from "./design-editor/commands/primitive-created";
 import { runPublishCanonicalContent } from "./design-editor/commands/publish-canonical-content";
 import {
+  readLocalVisualEditPendingState,
   runPublishVisualEditPending,
   shouldPublishVisualEditPending,
 } from "./design-editor/commands/publish-visual-edit-pending";
@@ -1828,6 +1829,7 @@ function DesignEditor() {
   const pendingLiveEditReloadedTargetsRef = useRef<Set<string>>(new Set());
   const liveScreenIdsRef = useRef<ReadonlySet<string>>(new Set());
   const pendingVisualEditPublicationRevisionRef = useRef(0);
+  const pendingVisualEditBridgeRevisionSyncKeyRef = useRef<string | null>(null);
   const pendingVisualEditPublisherIdRef = useRef(crypto.randomUUID());
   const pendingVisualEditPublicationQueueRef = useRef<Promise<void>>(
     Promise.resolve(),
@@ -1848,6 +1850,7 @@ function DesignEditor() {
     useRef<VisualEditHandoffPublicationState | null>(null);
   useEffect(() => {
     pendingVisualEditPublicationRevisionRef.current = 0;
+    pendingVisualEditBridgeRevisionSyncKeyRef.current = null;
     pendingVisualEditPublisherIdRef.current = crypto.randomUUID();
     pendingVisualEditClearRequestedRef.current = null;
     pendingVisualEditHadPendingRef.current = null;
@@ -19156,41 +19159,77 @@ function DesignEditor() {
     ) {
       return;
     }
-    const revision = pendingVisualEditPublicationRevisionRef.current + 1;
-    pendingVisualEditPublicationRevisionRef.current = revision;
-    const pending =
-      pendingVisualEditCount > 0
-        ? {
-            designId: id,
-            publisherId: pendingVisualEditPublisherIdRef.current,
-            revision,
-            pending: {
-              designId: id,
-              pendingEditCount: pendingVisualEditCount,
-              status: "ready" as const,
-              prompt: pendingVisualStylePrompt,
-            },
-          }
-        : {
-            designId: id,
-            publisherId: pendingVisualEditPublisherIdRef.current,
-            revision,
-            pending: null,
-          };
-    if (pending.pending) {
-      pendingVisualEditHandoffPublicationRef.current =
-        updateVisualEditHandoffPublication(
-          pendingVisualEditHandoffPublicationRef.current,
-          { status: "queued", designId: id, publicationRevision: revision },
-        );
-      setPendingVisualEditHandoffServerRevision(null);
-    }
+    const pendingEditCount = pendingVisualEditCount;
+    const pendingPrompt = pendingVisualStylePrompt;
+    const bridgeRevisionSyncKey =
+      activeScreenBridgeUrl &&
+      activeScreenPreviewToken &&
+      activeScreenLiveEditCapability
+        ? `${id}\u0000${activeScreenBridgeUrl}`
+        : null;
     if (pendingVisualEditCount > 0) {
       pendingVisualEditClearRequestedRef.current = null;
       pendingVisualEditHadPendingRef.current = id;
     }
-    const publish = () =>
-      runPublishVisualEditPending({
+    const publish = async () => {
+      if (
+        bridgeRevisionSyncKey &&
+        pendingVisualEditBridgeRevisionSyncKeyRef.current !==
+          bridgeRevisionSyncKey
+      ) {
+        try {
+          const bridgeState = await readLocalVisualEditPendingState({
+            activeScreenBridgeUrl: activeScreenBridgeUrl!,
+            activeScreenPreviewToken: activeScreenPreviewToken!,
+            activeScreenLiveEditCapability: activeScreenLiveEditCapability!,
+            designId: id,
+            fetchImpl: fetch,
+          });
+          pendingVisualEditPublicationRevisionRef.current = Math.max(
+            pendingVisualEditPublicationRevisionRef.current,
+            bridgeState.revision,
+          );
+          pendingVisualEditBridgeRevisionSyncKeyRef.current =
+            bridgeRevisionSyncKey;
+        } catch (error) {
+          console.warn(
+            "[design:visual-edit] local bridge revision read failed",
+            error,
+          );
+          setPendingVisualEditPublicationFailed(true);
+          return;
+        }
+      }
+      const revision = pendingVisualEditPublicationRevisionRef.current + 1;
+      pendingVisualEditPublicationRevisionRef.current = revision;
+      const pending =
+        pendingEditCount > 0
+          ? {
+              designId: id,
+              publisherId: pendingVisualEditPublisherIdRef.current,
+              revision,
+              pending: {
+                designId: id,
+                pendingEditCount,
+                status: "ready" as const,
+                prompt: pendingPrompt,
+              },
+            }
+          : {
+              designId: id,
+              publisherId: pendingVisualEditPublisherIdRef.current,
+              revision,
+              pending: null,
+            };
+      if (pending.pending) {
+        pendingVisualEditHandoffPublicationRef.current =
+          updateVisualEditHandoffPublication(
+            pendingVisualEditHandoffPublicationRef.current,
+            { status: "queued", designId: id, publicationRevision: revision },
+          );
+        setPendingVisualEditHandoffServerRevision(null);
+      }
+      await runPublishVisualEditPending({
         activeScreenBridgeUrl,
         activeScreenPreviewToken,
         activeScreenLiveEditCapability,
@@ -19201,6 +19240,14 @@ function DesignEditor() {
         pending,
         pendingVisualEditClearRequestedRef,
         pendingVisualEditHadPendingRef,
+        onLocalRevisionConflict: () => {
+          if (
+            pendingVisualEditBridgeRevisionSyncKeyRef.current ===
+            bridgeRevisionSyncKey
+          ) {
+            pendingVisualEditBridgeRevisionSyncKeyRef.current = null;
+          }
+        },
         onHandoffPublicationStatusChange: (
           status,
           publicationRevision,
@@ -19264,6 +19311,7 @@ function DesignEditor() {
           );
         },
       });
+    };
     pendingVisualEditPublicationQueueRef.current =
       pendingVisualEditPublicationQueueRef.current
         .catch((error) => {
