@@ -87,12 +87,11 @@ export const SHOTS_DIR = `${WORKTREE}/templates/design/.tmp/parity/shots`;
 mkdirSync(SHOTS_DIR, { recursive: true });
 
 /**
- * Headed mode attaches to the one shared browser (the branch browser, or your
- * Chrome started with --remote-debugging-port=9222). It is a machine-wide
- * singleton: only use it for osmouse/Figma work, and hold the lock while you
- * do. Everything else runs in its own headless browser and is parallel-safe.
+ * Headed mode attaches to the one shared browser (branch browser, or your Chrome
+ * on :9222); locally hold the osmouse lock there, other runs get their own
+ * headless browser. Fusion always uses it, so the branch's screen recording sees each run.
  */
-export const HEADED = process.env.HEADED === "1";
+export const HEADED = FUSION || process.env.HEADED === "1";
 export const CDP_URL = process.env.CDP_URL ?? "http://127.0.0.1:9222";
 export const OSM =
   process.env.OSMOUSE ??
