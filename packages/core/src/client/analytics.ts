@@ -4,6 +4,8 @@ import type * as Sentry from "@sentry/browser";
 import { recordTrackingEvent } from "../observability/tracing.js";
 import {
   AGENT_NATIVE_LIFECYCLE_EVENTS,
+  AGENT_SIGNALS_PAGEVIEW_PROPERTY,
+  AGENT_SIGNALS_VERSION,
   canonicalTrackingEvent,
   legacyLifecycleEvent,
   normalizeTrackingDimension,
@@ -1841,6 +1843,7 @@ function pageviewProperties(reason: string): Record<string, unknown> {
     path: window.location.pathname,
     hostname: window.location.hostname,
     navigation_type: reason,
+    [AGENT_SIGNALS_PAGEVIEW_PROPERTY]: AGENT_SIGNALS_VERSION,
   };
   if (_trackingContentCaptureEnabled && window.location.search) {
     properties.search = scrubUrl(window.location.search);

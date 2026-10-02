@@ -57,7 +57,7 @@ describe("agent trouble causes", () => {
     }
   });
 
-  it("reduces a message to a shape that carries no user text", () => {
+  it("replaces quoted text, emails, ids, and URLs with placeholders", () => {
     expect(
       normalizeAgentTroubleMessage(
         "Can't read 'Q3 plan' for ann@example.com (id 9f8e7d6c) at https://x.test/a?b=1",
@@ -65,5 +65,41 @@ describe("agent trouble causes", () => {
     ).toBe("Can't read <text> for <email> (id <n>) at <url>");
     expect(normalizeAgentTroubleMessage("  ")).toBe("");
     expect(normalizeAgentTroubleMessage("x".repeat(500))).toHaveLength(120);
+  });
+
+  it("replaces Windows, network, and POSIX paths", () => {
+    expect(
+      normalizeAgentTroubleMessage(
+        "ENOENT: open C:\\Users\\jane\\Plans\\q.docx, then D:/exports/jane",
+      ),
+    ).toBe("ENOENT: open <path>, then <path>");
+    expect(
+      normalizeAgentTroubleMessage("\\\\fileserver\\share\\jane is locked"),
+    ).toBe("<path> is locked");
+    expect(
+      normalizeAgentTroubleMessage(
+        "Cannot write /home/jane/notes.md or ~/drafts/plan (and/or ./a/b)",
+      ),
+    ).toBe("Cannot write <path> or <path> (and/or <path>)");
+  });
+
+  it("replaces hostnames, including ones made of letters only", () => {
+    expect(
+      normalizeAgentTroubleMessage(
+        "getaddrinfo ENOTFOUND api.acme-internal.corp.",
+      ),
+    ).toBe("getaddrinfo ENOTFOUND <host>.");
+    expect(
+      normalizeAgentTroubleMessage("fetch to s3.amazonaws.com failed"),
+    ).toBe("fetch to <host> failed");
+    expect(normalizeAgentTroubleMessage("Failed. Retry, e.g. later")).toBe(
+      "Failed. Retry, e.g. later",
+    );
+  });
+
+  it("keeps unquoted words, so a name typed without quotes stays", () => {
+    expect(
+      normalizeAgentTroubleMessage("Deck Quarterly Planning not found"),
+    ).toBe("Deck Quarterly Planning not found");
   });
 });

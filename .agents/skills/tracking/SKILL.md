@@ -197,13 +197,21 @@ providers build it.
 - **Browser outcomes are bounded, too.** `agent_run_outcome` is one event per
   run (`outcome`, legacy `code`, `terminal_source`,
   `verified_after_pipe_closed`, `resume_attempts`, `run_id`, `thread_id`):
-  every `interrupted` / `failed` / `unverified` / `stopped` run up to 30 per
-  page, and `succeeded` sampled at 10% with `sample_weight`. A failed or
-  interrupted run adds its `cause` from `AGENT_TROUBLE_CAUSES`, or else an
-  `error_message` reduced by `normalizeAgentTroubleMessage` (never the raw
-  text). `agent_feedback_submitted` (`sentiment`, `run_id`, `thread_id`) is
-  the browser's copy of a thumbs rating, because `$ai_feedback` has no
-  browser session.
+  every `interrupted` / `failed` / `unverified` run up to 30 per page, every
+  `stopped` run up to its own 30 (so stops never crowd out failures), and
+  `succeeded` sampled at 10% with `sample_weight`. A failed or interrupted
+  run adds its `cause` from `AGENT_TROUBLE_CAUSES`, or else an
+  `error_message` reduced by `normalizeAgentTroubleMessage`, never the raw
+  text. That replaces quoted text, emails, URLs, file paths, hostnames (any
+  dotted name), and numbers or ids; other words remain, so an unquoted name
+  in a message still leaves with it. `agent_feedback_submitted` (`sentiment`,
+  `run_id`, `thread_id`) is the browser's copy of a thumbs rating, because
+  `$ai_feedback` has no browser session. Every `pageview` carries
+  `agent_signals: 1` (`AGENT_SIGNALS_PAGEVIEW_PROPERTY`): clients before it
+  sampled stops at 10% and sent no ratings, so Analytics reads a session's
+  cancelled runs and thumbs-down as measured only after seeing the marker,
+  and counts only stops sent unsampled. Keep both guarantees while the
+  marker ships.
   `session_navigation` is one event per document that left because of the
   session (`reason`, and for `signed_out` the `evidence`: `signed_out_body` or
   `http_401`), never the destination. Both are emitted from the single place
@@ -285,7 +293,7 @@ Template roots call `configureTracking()` once during app startup. That installs
 - Event: `pageview`
 - Fires on initial load, `history.pushState`, `history.replaceState`, and `popstate`
 - De-dupes repeated events for the same URL
-- Includes `url`, `path`, `hostname`, `referrer`, `title`, `navigation_type`, `app`, and inferred `template`
+- Includes `url`, `path`, `hostname`, `referrer`, `title`, `navigation_type`, `agent_signals`, `app`, and inferred `template`
 - Includes LLM connection context on browser events when known: `llm_connection` (`builder`, `anthropic`, `openai`, etc.), `llm_engine`, `llm_model`, `llm_connection_source`, and `llm_connection_configured`
 - Does not send first-party events from localhost/local dev
 

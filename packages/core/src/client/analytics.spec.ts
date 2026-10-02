@@ -308,6 +308,7 @@ describe("browser analytics pageviews", () => {
         referrer: "https://builder.io/start?token=%3Credacted%3E&utm=ok",
         title: "Inbox",
         navigation_type: "load",
+        agent_signals: 1,
         client_platform: "web",
         llm_connection: "builder",
         llm_connection_configured: true,

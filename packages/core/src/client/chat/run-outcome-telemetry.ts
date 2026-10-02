@@ -10,8 +10,9 @@ import type { RunOutcomeReport } from "./run-outcome.js";
  * reports. A run that did not finish well (`interrupted`, `failed`,
  * `unverified`) or that the user stopped is always reported, up to a per-page
  * cap, because each one names a thing to fix and Analytics counts them per
- * session. Only `succeeded` is sampled and carries its weight, so rates still
- * add up. The server counts every run exactly (`agent_run_outcome_daily`,
+ * session. Stops have a cap of their own, so a page of stopped runs never
+ * crowds out a later failure. Only `succeeded` is sampled and carries its
+ * weight, so rates still add up. The server counts every run exactly (`agent_run_outcome_daily`,
  * `$ai_trace`); this event is what the browser saw and how it came to know.
  *
  * A failure carries its named `cause` when it has one, or else its message
@@ -22,11 +23,14 @@ export const RUN_OUTCOME_EVENT = "agent_run_outcome";
 
 const EXPECTED_OUTCOME_SAMPLE_RATE = 0.1;
 const MAX_UNEXPECTED_EVENTS_PER_PAGE = 30;
+const MAX_STOPPED_EVENTS_PER_PAGE = 30;
 
 const stats = {
   sent: 0,
   unexpectedSent: 0,
   unexpectedDropped: 0,
+  stoppedSent: 0,
+  stoppedDropped: 0,
   sampledOut: 0,
 };
 
@@ -38,6 +42,8 @@ export function resetRunOutcomeTelemetryForTests(): void {
   stats.sent = 0;
   stats.unexpectedSent = 0;
   stats.unexpectedDropped = 0;
+  stats.stoppedSent = 0;
+  stats.stoppedDropped = 0;
   stats.sampledOut = 0;
 }
 
@@ -52,6 +58,12 @@ export function trackRunOutcome(
       stats.sampledOut += 1;
       return;
     }
+  } else if (report.outcome === "stopped") {
+    if (stats.stoppedSent >= MAX_STOPPED_EVENTS_PER_PAGE) {
+      stats.stoppedDropped += 1;
+      return;
+    }
+    stats.stoppedSent += 1;
   } else if (stats.unexpectedSent >= MAX_UNEXPECTED_EVENTS_PER_PAGE) {
     stats.unexpectedDropped += 1;
     return;
