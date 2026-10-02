@@ -4370,7 +4370,7 @@ function AgentKitRunFailure({
   );
   if (dismissed === runId || superseded) return null;
   if (setupFailure) {
-    if (surface.setupMissing) return null;
+    if (composerShowsSetupCard(surface)) return null;
     return (
       <BuilderSetupCard
         fullWidth
@@ -4456,6 +4456,14 @@ function useResumeAfterAiSetup(
     if (enabled && setupReady && sawSetupMissingRef.current) resume();
   }, [enabled, resume, setupReady]);
   return resume;
+}
+
+/**
+ * The composer's own setup card covers a refusal only where it renders: hosts
+ * that hide it (Slides home shows a page-level card) still need the thread's.
+ */
+function composerShowsSetupCard(surface: AgentKitSurfaceContextValue) {
+  return surface.setupMissing && surface.props.showMissingApiKeySetup !== false;
 }
 
 /** A refusal the user fixes by connecting Builder or adding a provider key. */
@@ -4564,7 +4572,7 @@ function AgentKitRefusedPromptSetup({ threadId }: { threadId: string }) {
       refused?.parts.filter((part) => part.type === "file") ?? [],
     ),
   );
-  if (surface.setupMissing) return null;
+  if (composerShowsSetupCard(surface)) return null;
   return (
     <BuilderSetupCard
       fullWidth

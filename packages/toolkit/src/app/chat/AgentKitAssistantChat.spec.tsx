@@ -4111,6 +4111,30 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).toHaveLength(1);
   });
 
+  it("answers a refused prompt in the thread when the host hides the composer setup card", async () => {
+    chatMocks.readiness = {
+      canChat: false,
+      missing: true,
+      state: "missing",
+    };
+    chatMocks.failureError = {
+      code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+      message: "Connect Builder AI or a provider API key before chatting.",
+    };
+
+    await mount(
+      baseProps({
+        providerStatusChecksEnabled: true,
+        showMissingApiKeySetup: false,
+      }),
+    );
+
+    expect(
+      container.querySelectorAll('[data-testid="builder-setup-card"]'),
+    ).toHaveLength(1);
+    expect(chatMocks.setupCardProps.onRetry).toEqual(expect.any(Function));
+  });
+
   it("sends a prompt refused for missing AI setup again, once, after setup becomes ready", async () => {
     chatMocks.readiness = { canChat: false, missing: true, state: "missing" };
     chatMocks.failureError = {
