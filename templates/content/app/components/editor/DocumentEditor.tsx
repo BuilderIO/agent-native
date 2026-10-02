@@ -107,6 +107,7 @@ import {
   patchDocumentCaches,
   documentQueryFilter,
   documentQueryKey,
+  startPageOpenReviewReads,
   startPreviewDocumentDraftRead,
   useContentNavigationContext,
   useDeleteDocument,
@@ -146,9 +147,12 @@ import {
   isDocumentCreationPending,
 } from "@/lib/optimistic-document";
 import {
+  readDocumentShapeHint,
   readPageIconRowHint,
+  readPageShapeHint,
   rememberPageIconRow,
-} from "@/lib/page-icon-row-hint";
+  rememberPageShape,
+} from "@/lib/page-startup-hints";
 import { startupAnchor } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
 
@@ -178,9 +182,12 @@ import {
 } from "./CommentsSidebar";
 import type { DatabaseExportContext } from "./database/DatabaseExportDialog";
 import {
+  DOCUMENT_EDITOR_DATABASE_TITLE_SIZE_CLASS_NAME,
+  DOCUMENT_EDITOR_INLINE_REVIEW_MIN_WIDTH,
   DOCUMENT_EDITOR_PAGE_TITLE_SIZE_CLASS_NAME,
   DOCUMENT_EDITOR_TITLE_CLASS_NAME,
   documentEditorBodyClassName,
+  documentEditorDatabaseRegionClassName,
   documentEditorTitleRegionClassName,
   type DocumentEditorIconRow,
 } from "./document-editor-layout";
@@ -1249,13 +1256,13 @@ export function PageEditorSurface({
   });
   useEffect(() => {
     if (readsStartedEarly) return;
-    startPreviewDocumentDraftRead(
-      queryClient,
-      documentId,
-      queryClient.getQueryData<Document>(
-        documentQueryKey(documentId, { databaseId, databaseDocumentId }),
-      ),
+    const cached = queryClient.getQueryData<Document>(
+      documentQueryKey(documentId, { databaseId, databaseDocumentId }),
     );
+    startPreviewDocumentDraftRead(queryClient, documentId, cached);
+    if (cached?.source?.mode !== "local-files") {
+      startPageOpenReviewReads(queryClient, documentId);
+    }
   }, [
     databaseDocumentId,
     databaseId,
@@ -1390,6 +1397,11 @@ export function PageEditorSurface({
       <DocumentEditorSkeleton
         title={optimisticTitle}
         iconRow={readPageIconRowHint(documentId)}
+        shape={
+          document
+            ? readDocumentShapeHint(document)
+            : readPageShapeHint(documentId)
+        }
       />
     );
   }
@@ -1835,7 +1847,9 @@ function useElementMinWidth(
 ) {
   const [matches, setMatches] = useState(false);
 
-  useEffect(() => {
+  // Measured before the first paint: a page that opens beside the review
+  // margin must not first paint without it.
+  useLayoutEffect(() => {
     const element = ref.current;
     if (!element) return;
     const update = () =>
@@ -2015,11 +2029,10 @@ export function documentEditorShowsUtilityPanelSheet(
   return args.utilityPanel === "info" && !args.hasUtilityRailSpace;
 }
 
-export { documentEditorTitleRegionClassName };
-
-export function documentEditorDatabaseRegionClassName() {
-  return "shrink-0 min-w-0 w-full max-w-none px-4 pb-8 sm:px-8 lg:px-10";
-}
+export {
+  documentEditorDatabaseRegionClassName,
+  documentEditorTitleRegionClassName,
+};
 
 export function resizeDocumentTitleTextarea(
   textarea: Pick<HTMLTextAreaElement, "scrollHeight" | "style">,
@@ -6263,9 +6276,11 @@ function PageEditorSessionBody({
     null,
   );
   const appliedSuggestionLinkRef = useRef<string | null>(null);
-  const { data: threads, isLoading: commentsLoading } = useComments(
-    !isLocalFileDocument ? documentId : null,
-  );
+  const {
+    data: threads,
+    isLoading: commentsLoading,
+    isError: commentsQueryFailed,
+  } = useComments(!isLocalFileDocument ? documentId : null);
   const commentAi = useCommentAiRequests(documentId, {
     enabled: !isLocalFileDocument && canComment,
   });
@@ -6294,7 +6309,10 @@ function PageEditorSessionBody({
     useState<AnchoredCommentPosition | null>(null);
   const [commentLaneOffset, setCommentLaneOffset] = useState(0);
   const hasUtilityRailSpace = useElementMinWidth(documentLayoutRef, 960);
-  const hasInlineCommentSpace = useElementMinWidth(documentLayoutRef, 1088);
+  const hasInlineCommentSpace = useElementMinWidth(
+    documentLayoutRef,
+    DOCUMENT_EDITOR_INLINE_REVIEW_MIN_WIDTH,
+  );
   const showCommentsHistoryDrawer =
     utilityPanel === "comments" && commentsBrowseOpen;
   const showDesktopCommentsHistory =
@@ -6327,12 +6345,41 @@ function PageEditorSessionBody({
     hasSelectedCommentThread,
     hasPendingComment: !!pendingComment,
   });
+  const reviewReadsSettled =
+    isLocalFileDocument ||
+    ((threads !== undefined || commentsQueryFailed) &&
+      (suggestionsQuery.data !== undefined || suggestionsQuery.isError));
+  const pageHadOpenReview = useMemo(
+    () => host === "page" && readPageShapeHint(documentId) === "review",
+    [documentId, host],
+  );
   const reserveInlineReviewSpace = documentEditorReservesInlineReviewSpace({
     showInlineComments,
-    preserveInlineReviewSpace,
+    preserveInlineReviewSpace:
+      preserveInlineReviewSpace || (pageHadOpenReview && !reviewReadsSettled),
     hasInlineCommentSpace,
     isDatabasePage: Boolean(document.database),
   });
+  const hasOpenReview = hasOpenCommentThreads || hasOpenSuggestions;
+  useEffect(() => {
+    if (
+      host !== "page" ||
+      document.database ||
+      isLocalFileDocument ||
+      threads === undefined ||
+      suggestionsQuery.data === undefined
+    )
+      return;
+    rememberPageShape(documentId, hasOpenReview ? "review" : "page");
+  }, [
+    document.database,
+    documentId,
+    hasOpenReview,
+    host,
+    isLocalFileDocument,
+    suggestionsQuery.data,
+    threads,
+  ]);
   const showDesktopInfoPanel = utilityPanel === "info" && hasUtilityRailSpace;
   const showDesktopRightRail = showInlineComments || showDesktopInfoPanel;
   const showAnchoredCommentPopover =
@@ -7828,7 +7875,7 @@ function PageEditorSessionBody({
                       DOCUMENT_EDITOR_TITLE_CLASS_NAME,
                       "resize-none overflow-hidden border-none bg-transparent outline-none placeholder:text-muted-foreground/40",
                       host === "preview" || isDatabasePage
-                        ? "text-3xl"
+                        ? DOCUMENT_EDITOR_DATABASE_TITLE_SIZE_CLASS_NAME
                         : DOCUMENT_EDITOR_PAGE_TITLE_SIZE_CLASS_NAME,
                     )}
                   />

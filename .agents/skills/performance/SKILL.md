@@ -338,9 +338,17 @@ layout-shift score ignores placeholders that are removed and replaced.
   last saw in local storage, as counts and ids only: rows per section, section
   order, sidebar width, collapsed state. Then draw that shape at once. Content's
   `sidebar-layout-hint.ts` holds the sidebar's. When the shape depends on the
-  item itself, such as a page's icon or whether this person can edit it,
-  remember it per id. Content's `page-icon-row-hint.ts` holds the row above
-  each page title.
+  item itself, such as a page's icon, whether this person can edit it, whether
+  it is a collection, or whether its open comments hold the review margin
+  open, remember it per id. Content's `page-startup-hints.ts` holds these.
+- **Start every read the first layout depends on together.** A box that opens
+  when a second read answers (the review margin after comments and
+  suggestions) moves the page if that read starts only after the first one
+  lands. Start it with the page read.
+- **Never draw rows in an order the view is about to change.** A collection
+  whose saved view sorts or filters must not show the unsorted rows of a base
+  read first. Resolve the view from what the page read already carries, and
+  keep the placeholder until that view's own rows arrive.
 - **A box whose content loads late keeps its final size.** A library icon
   draws only once its glyph loads, so a wrapper sized by its content is 8px
   tall and then 56px. Give the box the size it ends at.
@@ -368,7 +376,9 @@ node templates/content/scripts/trace-startup.mjs --base-url <url>   --email <fix
 Run it on a production build, since a dev server can reload mid-run. Cover a
 hard refresh (`--state hard`), a phone (`--viewport 390x844`), saved sidebar
 layouts (`--local-storage '{"content.sidebar.collapsed":"true"}'`), a page
-with an icon, and a page the fixture account can only view.
+with an icon, a page the fixture account can only view, a page with open
+comments and a pending suggestion, and a collection page whose saved view
+sorts and filters.
 Then look at the saved frames: the check proves nothing moved, and the frames
 show whether what appeared looked right.
 

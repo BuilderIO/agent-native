@@ -8,10 +8,15 @@ vi.mock("@/components/layout/sidebar-trigger", () => ({
   useSidebarTrigger: () => null,
 }));
 
-import { STARTUP_PAGE_ICON_ROW_ATTRIBUTE } from "@/lib/page-icon-row-hint";
+import {
+  STARTUP_PAGE_ICON_ROW_ATTRIBUTE,
+  STARTUP_PAGE_SHAPE_ATTRIBUTE,
+} from "@/lib/page-startup-hints";
 
 import {
+  DOCUMENT_EDITOR_INLINE_REVIEW_MIN_WIDTH,
   documentEditorBodyClassName,
+  documentEditorDatabaseRegionClassName,
   documentEditorTitleRegionClassName,
 } from "./document-editor-layout";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
@@ -95,5 +100,79 @@ describe("DocumentEditorSkeleton optimistic title", () => {
     expect(row).toContain("h-7");
     expect(row).toContain(`[${mark}=icon]_&]:size-14`);
     expect(row).toContain(`[${mark}=none]_&]:hidden`);
+  });
+
+  it("draws a collection in the collection's own boxes", () => {
+    act(() => {
+      root.render(<DocumentEditorSkeleton title="Tasks" shape="database" />);
+    });
+    const title = container.querySelector('[data-startup-anchor="title"]');
+    expect(title?.parentElement?.className).toBe(
+      documentEditorTitleRegionClassName(true),
+    );
+    expect(title?.className).toContain("text-3xl");
+    expect(title?.className).not.toContain("md:text-4xl");
+    expect(
+      title?.previousElementSibling?.firstElementChild?.className,
+    ).toContain("size-14");
+    const tabs = container.querySelector(
+      '[data-startup-anchor="database-tabs"]',
+    );
+    expect(tabs?.parentElement?.parentElement?.className).toBe(
+      documentEditorDatabaseRegionClassName(),
+    );
+    expect(container.querySelector('[data-startup-anchor="body"]')).toBeNull();
+    expect(tabs?.nextElementSibling?.getAttribute("data-startup-anchor")).toBe(
+      "database-table",
+    );
+  });
+
+  it("holds the sort and filter row a collection last drew", () => {
+    act(() => {
+      root.render(
+        <DocumentEditorSkeleton title="Tasks" shape="database-constrained" />,
+      );
+    });
+    const tabs = container.querySelector(
+      '[data-startup-anchor="database-tabs"]',
+    );
+    expect(tabs?.nextElementSibling?.className).toContain("min-h-8");
+    expect(
+      tabs?.nextElementSibling?.nextElementSibling?.getAttribute(
+        "data-startup-anchor",
+      ),
+    ).toBe("database-table");
+  });
+
+  it("holds the review margin beside a page that last had open comments", () => {
+    act(() => {
+      root.render(<DocumentEditorSkeleton title="Notes" shape="review" />);
+    });
+    const column = container.querySelector('[data-startup-anchor="title"]')
+      ?.parentElement?.parentElement;
+    expect(column?.className).toContain(
+      `@min-[${DOCUMENT_EDITOR_INLINE_REVIEW_MIN_WIDTH}px]:pr-80`,
+    );
+    expect(column?.parentElement?.className).toContain("@container");
+  });
+
+  it("draws the server shell from the startup script's shape mark", () => {
+    act(() => {
+      root.render(<DocumentEditorSkeleton iconRow="startup" shape="startup" />);
+    });
+    const mark = `html[${STARTUP_PAGE_SHAPE_ATTRIBUTE}`;
+    const [pageTitle, databaseTitle] = container.querySelectorAll(
+      '[data-startup-anchor="title"]',
+    );
+    const pageColumn = pageTitle?.parentElement?.parentElement;
+    const databaseColumn = databaseTitle?.parentElement?.parentElement;
+    expect(pageColumn?.className).toContain(
+      `[${mark}=review]_&]:@min-[1088px]:pr-80`,
+    );
+    expect(pageColumn?.className).toContain(`[${mark}=database]_&]:hidden`);
+    expect(databaseColumn?.className).toContain("hidden");
+    expect(databaseColumn?.className).toContain(
+      `[${mark}=database-constrained]_&]:block`,
+    );
   });
 });

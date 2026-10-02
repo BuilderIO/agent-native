@@ -787,6 +787,14 @@ export function useContentDatabase(
   return {
     ...baseQuery,
     data,
+    // Whether `data` holds the requested rows or a read failed. A sorted or
+    // filtered view reads its own rows; until that read first answers, `data`
+    // holds the base read's rows in stored order.
+    itemsSettled:
+      baseQuery.isError ||
+      (tableQuery
+        ? pageQuery.isError || (page !== undefined && !!baseQuery.data)
+        : baseQuery.data !== undefined),
     isLoading: tableQuery ? pageQuery.isLoading && !data : baseQuery.isLoading,
     isFetching: tableQuery ? pageQuery.isFetching : baseQuery.isFetching,
     isError: tableQuery ? pageQuery.isError : baseQuery.isError,

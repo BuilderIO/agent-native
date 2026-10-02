@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const contentDatabaseQueryMock = vi.hoisted(() => vi.fn());
+const databaseItemsState = vi.hoisted(() => ({ settled: true }));
 const databaseRefetchMock = vi.hoisted(() =>
   vi.fn(
     async (): Promise<{
@@ -193,6 +194,7 @@ vi.mock("@/hooks/use-content-database", () => ({
       data: response,
       isLoading: false,
       isFetching: limit !== response.pagination?.limit || Boolean(tableQuery),
+      itemsSettled: databaseItemsState.settled,
       refetch: () => databaseRefetchMock(),
     };
   },
@@ -436,6 +438,7 @@ describe("DatabaseView UI regressions", () => {
     toastErrorMock.mockReset();
     toastSuccessMock.mockReset();
     contentDatabaseQueryMock.mockReset();
+    databaseItemsState.settled = true;
     addItemMutation.mutateAsync.mockReset();
     createDocumentMutation.mutateAsync.mockReset();
     databaseRefetchMock.mockReset().mockResolvedValue({ data: undefined });
@@ -685,6 +688,23 @@ describe("DatabaseView UI regressions", () => {
 
     expect(filterButton?.getAttribute("aria-expanded")).toBe("true");
     expect(document.querySelector("[role=menu]")).toBeTruthy();
+  });
+
+  it("holds the placeholder until the first rows land, then keeps the view through later reads", async () => {
+    databaseItemsState.settled = false;
+    await renderDatabaseView();
+    expect(findButtonByText(container, "New")).toBeUndefined();
+    expect(
+      container.querySelector('[data-startup-anchor="database-table"]'),
+    ).toBeTruthy();
+
+    databaseItemsState.settled = true;
+    await renderDatabaseView();
+    expect(findButtonByText(container, "New")).toBeTruthy();
+
+    databaseItemsState.settled = false;
+    await renderDatabaseView();
+    expect(findButtonByText(container, "New")).toBeTruthy();
   });
 
   it("creates a workspace page from the Files table New button", async () => {

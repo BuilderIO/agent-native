@@ -14,6 +14,8 @@ export const PAINTED_MARK_SUFFIX = ":painted";
 export type StartupAnchor =
   | "title"
   | "body"
+  | "database-tabs"
+  | "database-table"
   | "sidebar-space"
   | "sidebar-search"
   | "sidebar-section-pinned"
