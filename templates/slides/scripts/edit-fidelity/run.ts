@@ -2366,6 +2366,47 @@ async function runAuthoringParityQa(page: Page, base: string, outRoot: string) {
       throw new Error(`expected authoring markup ${selector} in ${html}`);
     }
   };
+  const assertBulletShortcut = async (editor: any) => {
+    const state = await editor.evaluate((root: HTMLElement) => {
+      const listItems = Array.from(root.querySelectorAll("ul > li"));
+      const rows = [
+        ...(root.matches("div") ? [root] : []),
+        ...Array.from(root.querySelectorAll<HTMLElement>("div")),
+      ];
+      const bulletRows = rows.filter((row) => {
+        const marker = row.firstElementChild;
+        const text = row.lastElementChild;
+        return (
+          getComputedStyle(row).display === "flex" &&
+          marker?.tagName === "SPAN" &&
+          /^[•●◦▪‣·⁃–—-]+$/u.test(marker.textContent?.trim() ?? "") &&
+          text?.tagName === "SPAN"
+        );
+      });
+      const authoredListText = [
+        ...listItems.map((item) => item.textContent ?? ""),
+        ...bulletRows.map((row) => row.textContent ?? ""),
+      ];
+      const text = root.textContent ?? "";
+      return {
+        bulletCount: listItems.length + bulletRows.length,
+        tailInBullet: authoredListText.some((value) => value.includes("Tail")),
+        retainedSourceText: text.includes("Alpha"),
+        hasTypedText: text.includes("Tail"),
+        html: root.innerHTML,
+      };
+    });
+    if (
+      state.bulletCount === 0 ||
+      !state.tailInBullet ||
+      !state.retainedSourceText ||
+      !state.hasTypedText
+    ) {
+      throw new Error(
+        `bullet shortcut did not create a new bullet containing the inserted text: ${JSON.stringify(state)}`,
+      );
+    }
+  };
   const assertPlainLine = async (editor: any) => {
     const found = await editor.evaluate((element: HTMLElement) =>
       Array.from(element.querySelectorAll("p, div")).some(
@@ -2399,7 +2440,7 @@ async function runAuthoringParityQa(page: Page, base: string, outRoot: string) {
         await finish(index, async () => {
           const result = test.result;
           if (result === "bullet") {
-            await assertBlock(editor, 'div[style*="display: flex"] > span');
+            await assertBulletShortcut(editor);
           } else if (result === "ordered") {
             await assertBlock(editor, "ol > li");
           } else if (result === "bold") {

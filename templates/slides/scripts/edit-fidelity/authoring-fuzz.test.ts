@@ -3,6 +3,7 @@ import { expect, it } from "vitest";
 import {
   assertAuthoringPersistence,
   assertByteIdenticalHtml,
+  assertShortcutMarkupAdded,
   assertSlideIsScaled,
   authoringFuzzProfileIndex,
   canonicalizeAuthoringFuzzPersistence,
@@ -11,6 +12,13 @@ import {
   lineNavigationKeys,
   runAuthoringFuzz,
 } from "./authoring-fuzz.ts";
+
+it("requires a markdown shortcut to add its result markup", () => {
+  expect(() => assertShortcutMarkupAdded("bullet", 0, 1)).not.toThrow();
+  expect(() => assertShortcutMarkupAdded("bullet", 1, 1)).toThrow(
+    "markdown shortcut did not produce bullet",
+  );
+});
 
 function pageAtScale(scale: number) {
   const element = {

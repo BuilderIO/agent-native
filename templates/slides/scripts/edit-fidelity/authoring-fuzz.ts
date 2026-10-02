@@ -14,6 +14,18 @@ export function authoringFuzzProfileIndex(seed: number): number | null {
   return (seed / 2 - 1) % 6;
 }
 
+export function assertShortcutMarkupAdded(
+  result: string,
+  before: number,
+  after: number,
+) {
+  if (after <= before) {
+    throw new Error(
+      `markdown shortcut did not produce ${result} (${before} -> ${after})`,
+    );
+  }
+}
+
 const { start: lineStartKey, end: lineEndKey } = lineNavigationKeys(
   process.platform,
 );
@@ -1152,8 +1164,23 @@ export async function runAuthoringFuzz(
         return count(`h${level}`);
       }
       switch (expected) {
-        case "bullet":
-          return count('ul > li, [style*="display: flex"] > span');
+        case "bullet": {
+          const rows = [
+            ...(root.matches("div") ? [root] : []),
+            ...Array.from(root.querySelectorAll<HTMLElement>("div")),
+          ];
+          const styledRows = rows.filter((row) => {
+            const marker = row.firstElementChild;
+            const text = row.lastElementChild;
+            return (
+              getComputedStyle(row).display === "flex" &&
+              marker?.tagName === "SPAN" &&
+              /^[•●◦▪‣·⁃–—-]+$/u.test(marker.textContent?.trim() ?? "") &&
+              text?.tagName === "SPAN"
+            );
+          });
+          return count("ul > li") + styledRows.length;
+        }
         case "ordered":
           return count("ol > li");
         case "quote":
@@ -1178,13 +1205,12 @@ export async function runAuthoringFuzz(
     beforeTextLength: number,
   ) => {
     const after = await shortcutResultCount(result);
-    const afterTextLength = (await inspectSelection()).text.length;
-    if (
-      after <= before &&
-      !(result === "bullet" && afterTextLength === beforeTextLength)
-    ) {
+    try {
+      assertShortcutMarkupAdded(result, before, after);
+    } catch (error) {
+      const afterTextLength = (await inspectSelection()).text.length;
       throw new Error(
-        `markdown shortcut did not produce ${result} (${before} -> ${after}, text ${beforeTextLength} -> ${afterTextLength})`,
+        `${String(error)}; text length ${beforeTextLength} -> ${afterTextLength}`,
       );
     }
   };
