@@ -415,6 +415,12 @@ describe("createGetDb pooled transaction scoping", () => {
         `query:SELECT 104@${finalTimeout}ms`,
         "restore:90ms",
       ]);
+      expect(timeoutOperations[6]).toBe(
+        `query:SELECT 102@${timeoutOperations[5]?.slice("set:".length)}`,
+      );
+      expect(timeoutOperations[16]).toBe(
+        `query:SELECT 104@${timeoutOperations[15]?.slice("set:".length)}`,
+      );
       const parentContextQuery = new Promise<void>((resolve, reject) => {
         setTimeout(() => {
           void tx.execute(rawQuery("SELECT 113")).then(resolve, reject);

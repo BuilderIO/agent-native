@@ -4,6 +4,7 @@ const messages = {
   },
   agentChat: {
     setup: {
+      connectBuilder: "Builder.io に接続",
       providerStatusUnavailable: "AI が利用可能か確認できませんでした。",
     },
     common: { retry: "再試行" },
@@ -1470,15 +1471,11 @@ const messages = {
       "5分以内に Builder から応答がありませんでした。ポップアップを確認してもう一度お試しください。",
     builderConnected: "Builder.io 接続済み",
     waitingForBuilder: "Builder を待機中...",
-    connectBuilder: "Builder.io を使用",
+    description:
+      "録画した動画を Builder.io または S3 互換ストレージに保存します。Builder.io には無料のホスティングと AI クレジットが含まれています。",
     createBuilderAccount: "Builder.io アカウントを作成",
     signInWithBuilderAccount: "Builder.io アカウントでサインイン",
-    builderConsentPrefix: "Builder.io アカウントを作成すると、当社の",
-    builderTerms: "利用規約",
-    builderConsentAnd: "および",
-    builderPrivacy: "プライバシーポリシー",
     free: "無料",
-    configureS3: "S3 互換ストレージを設定",
     whyPrompt: "なぜこれが表示されていますか？",
     whyDescription:
       "Clips は 100% 無料でオープンソースのアプリなので、クリップを保存する方法を接続する必要があります。Builder.io で無料プランのストレージと AI を使うか、S3 互換オブジェクトストレージと自分の LLM キーを使用します。",

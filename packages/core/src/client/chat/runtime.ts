@@ -1284,8 +1284,13 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
             : `http_${status}`;
   const explicitRetryable =
     data?.retryable ?? payload?.retryable ?? nestedError?.retryable;
+  const activeRunId =
+    data && "activeRunId" in data ? data.activeRunId : payload?.activeRunId;
   Object.assign(error, {
     code: typeof code === "string" ? code : fallbackCode,
+    ...(typeof activeRunId === "string" || activeRunId === null
+      ? { activeRunId }
+      : {}),
     ...(data?.details === undefined &&
     payload?.details === undefined &&
     nestedError?.details === undefined
@@ -2622,12 +2627,13 @@ export function createAgentNativeChatRuntime(
       },
     },
     mapRequest: ({ session, turn, turnId }) => {
+      const latestUserMessage = [...(turn.messages ?? [])]
+        .reverse()
+        .find((message) => message.role === "user");
       const prompt =
         turn.prompt ??
-        [...(turn.messages ?? [])]
-          .reverse()
-          .find((message) => message.role === "user")
-          ?.content.map((part) => (part.type === "text" ? part.text : ""))
+        latestUserMessage?.content
+          .map((part) => (part.type === "text" ? part.text : ""))
           .join("\n") ??
         "";
       const approvedToolCalls = metadataStringList(
@@ -2651,6 +2657,9 @@ export function createAgentNativeChatRuntime(
           : [];
       return {
         message: prompt,
+        ...(latestUserMessage?.id
+          ? { agentKitMessageId: latestUserMessage.id }
+          : {}),
         displayMessage: prompt,
         history,
         ...(pendingApprovalHistory.length
@@ -2884,7 +2893,7 @@ export function createAgentNativeChatRuntime(
     };
   };
 
-  return {
+  const runtime: AgentChatRuntime<AgentChatRuntimeKnownEvent> = {
     ...nativeRuntime,
     readRunState,
     resume: async (input) => {
@@ -2920,6 +2929,16 @@ export function createAgentNativeChatRuntime(
       };
     },
   };
+  agentNativeChatRuntimes.add(runtime);
+  return runtime;
+}
+
+const agentNativeChatRuntimes = new WeakSet<object>();
+
+export function isAgentNativeChatRuntime(
+  runtime: AgentChatRuntime | undefined,
+): boolean {
+  return runtime !== undefined && agentNativeChatRuntimes.has(runtime);
 }
 
 const SERVER_RUN_STATUSES = [

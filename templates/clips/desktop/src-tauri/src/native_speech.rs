@@ -53,27 +53,33 @@ pub async fn native_speech_request_permission() -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub async fn native_speech_stop(app: AppHandle) -> Result<(), String> {
+pub async fn native_speech_stop(app: AppHandle, owner: Option<String>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        macos::native_speech_stop_impl(app)
+        macos::native_speech_stop_impl(
+            app,
+            owner.map(|o| macos::SessionOwner::from_param(Some(o))),
+        )
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = app;
+        let _ = (app, owner);
         Ok(())
     }
 }
 
 #[tauri::command]
-pub async fn native_speech_cancel(app: AppHandle) -> Result<(), String> {
+pub async fn native_speech_cancel(app: AppHandle, owner: Option<String>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        macos::native_speech_cancel_impl(app)
+        macos::native_speech_cancel_impl(
+            app,
+            owner.map(|o| macos::SessionOwner::from_param(Some(o))),
+        )
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = app;
+        let _ = (app, owner);
         Ok(())
     }
 }
@@ -1391,10 +1397,29 @@ pub(crate) mod macos {
         })
     }
 
-    pub fn native_speech_stop_impl(_app: AppHandle) -> Result<(), String> {
+    fn take_session_for(
+        slot: &mut Option<SpeechSession>,
+        owner: Option<SessionOwner>,
+    ) -> Option<SpeechSession> {
+        // Dictation and meeting transcription share one recognizer slot, so a
+        // stop from one must not tear down the other's live session.
+        let owned_by_other = matches!(
+            (slot.as_ref(), owner),
+            (Some(current), Some(owner)) if current.owner != owner
+        );
+        if owned_by_other {
+            return None;
+        }
+        slot.take()
+    }
+
+    pub fn native_speech_stop_impl(
+        _app: AppHandle,
+        owner: Option<SessionOwner>,
+    ) -> Result<(), String> {
         let session = {
             let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
-            slot.take()
+            take_session_for(&mut slot, owner)
         };
         let Some(session) = session else {
             return Ok(());
@@ -1416,10 +1441,13 @@ pub(crate) mod macos {
         Ok(())
     }
 
-    pub fn native_speech_cancel_impl(_app: AppHandle) -> Result<(), String> {
+    pub fn native_speech_cancel_impl(
+        _app: AppHandle,
+        owner: Option<SessionOwner>,
+    ) -> Result<(), String> {
         let session = {
             let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
-            slot.take()
+            take_session_for(&mut slot, owner)
         };
         let Some(session) = session else {
             return Ok(());

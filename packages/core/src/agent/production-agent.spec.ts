@@ -2000,6 +2000,56 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  it("returns a typed conflict when another run owns the thread slot", async () => {
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: "run-active",
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: vi.fn(),
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A second message",
+          threadId: "thread-1",
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(event),
+    );
+
+    expect(event.res.status).toBe(409);
+    expect(result).toEqual({
+      error: "Run already in progress for this thread",
+      code: "run_slot_busy",
+      retryable: true,
+      activeRunId: "run-active",
+    });
+    expect(engine.stream).not.toHaveBeenCalled();
+  });
+
   it("adds MCP actions for authenticated requests and skips anonymous runs", async () => {
     const seenActionNames: string[][] = [];
     const mcpToolName = `mcp__user_${hashEmail("alice@example.com")}_calendar__list`;
@@ -2862,6 +2912,7 @@ describe("createProductionAgentHandler", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           message: "Run the queued prompt",
+          agentKitMessageId: " message-agentkit-1 ",
           queuedMessageId: " queued-1 ",
         }),
       }),
@@ -2875,6 +2926,7 @@ describe("createProductionAgentHandler", () => {
     expect(onRunPrepared).toHaveBeenCalledWith(
       expect.objectContaining({
         message: "Run the queued prompt",
+        agentKitMessageId: "message-agentkit-1",
         queuedMessageId: "queued-1",
         turnId: expect.any(String),
       }),

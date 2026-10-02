@@ -3,10 +3,34 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { canonicalizeNfm } from "@shared/nfm";
+import { markdownSuggestionOperation } from "@shared/suggestion-diff";
 import { Schema, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { EditorState } from "@tiptap/pm/state";
 import { EditorView } from "@tiptap/pm/view";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+import {
+  createObservedSuggestionPresentationTransition,
+  retainCommittedSuggestionPresentationTransitions,
+  resolveSuggestionPresentationRange,
+  suggestionPresentationTransitionKey,
+} from "../suggestions/presentation-rebase";
+
+const canonicalizeNfmCalls = vi.hoisted(() => ({
+  record: vi.fn<(content: string) => void>(),
+}));
+
+vi.mock("@shared/nfm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@shared/nfm")>();
+  return {
+    ...actual,
+    canonicalizeNfm: (content: string) => {
+      canonicalizeNfmCalls.record(content);
+      return actual.canonicalizeNfm(content);
+    },
+  };
+});
 
 import {
   createSuggestionHighlightPlugin,
@@ -21,10 +45,23 @@ const schema = new Schema({
     text: {},
   },
   marks: {
+    bold: { toDOM: () => ["strong", 0] },
     strong: { toDOM: () => ["strong", 0] },
     emphasis: { toDOM: () => ["em", 0] },
     underline: { toDOM: () => ["u", 0] },
     strike: { toDOM: () => ["s", 0] },
+    link: {
+      attrs: { href: {} },
+      toDOM: (mark) => ["a", { href: mark.attrs.href }, 0],
+    },
+    notionSpan: {
+      attrs: {
+        color: { default: null },
+        bgColor: { default: null },
+        underline: { default: null },
+      },
+      toDOM: (mark) => ["span", mark.attrs, 0],
+    },
   },
 });
 
@@ -52,6 +89,622 @@ function setSpecs(
 }
 
 describe("SuggestionHighlight", () => {
+  it("keeps unrelated paragraph widgets across observed and confirmed acceptance handoffs", () => {
+    const source = "First.\n\nSecond.\n\nThird.\n\nFourth.\n\nFifth.";
+    const record = (
+      word: string,
+      inserted: string,
+      status: "pending" | "accepted" = "pending",
+    ) => ({
+      id: word,
+      status,
+      operations: [
+        markdownSuggestionOperation(
+          source,
+          source.replace(`${word}.`, `${word}${inserted}.`),
+        )!,
+      ],
+    });
+    const first = record("First", " accepted", "accepted");
+    const second = record("Second", " accepted");
+    const remaining = [
+      record("Third", " rejected"),
+      record("Fourth", " rejected"),
+      record("Fifth", " pending"),
+    ];
+    const retained = retainCommittedSuggestionPresentationTransitions(
+      new Map(),
+      [second, ...remaining],
+      [first],
+    );
+    const observed = createObservedSuggestionPresentationTransition([second])!;
+    const combined = createObservedSuggestionPresentationTransition([
+      first,
+      second,
+    ])!;
+    const confirmed = retainCommittedSuggestionPresentationTransitions(
+      retained,
+      remaining,
+      [{ ...second, status: "accepted" }],
+    );
+    const mount = document.createElement("div");
+    const view = new EditorView(mount, { state: state() });
+    try {
+      for (const { current, transitions } of [
+        {
+          current: canonicalizeNfm(first.operations[0]!.after.markdown),
+          transitions: retained,
+        },
+        {
+          current: canonicalizeNfm(first.operations[0]!.after.markdown),
+          transitions: confirmed,
+        },
+        { current: canonicalizeNfm(combined.after), transitions: confirmed },
+      ]) {
+        const canonical = schema.node(
+          "doc",
+          null,
+          current
+            .split("\n")
+            .map((paragraph) =>
+              schema.node("paragraph", null, schema.text(paragraph)),
+            ),
+        );
+        const specs = remaining.flatMap(
+          (suggestion): SuggestionHighlightSpec[] => {
+            const range = resolveSuggestionPresentationRange(
+              current,
+              suggestion.operations[0]!,
+              transitions.get(suggestionPresentationTransitionKey(suggestion)),
+              observed,
+            );
+            if (!range) return [];
+            const paragraph =
+              current.slice(0, range.from).split("\n").length - 1;
+            return [
+              {
+                suggestionId: suggestion.id,
+                kind: "insert",
+                from: range.from + paragraph + 1,
+                to: range.to + paragraph + 1,
+                insertedText: suggestion.operations[0]!.after.changedText,
+              },
+            ];
+          },
+        );
+        view.updateState(
+          setSpecs(
+            EditorState.create({
+              doc: canonical,
+              plugins: [createSuggestionHighlightPlugin()],
+            }),
+            specs,
+          ),
+        );
+        expect(
+          [...mount.querySelectorAll("[data-suggestion-id]")].map((node) =>
+            node.getAttribute("data-suggestion-id"),
+          ),
+        ).toEqual(["Third", "Fourth", "Fifth"]);
+        expect(mount.textContent).toContain(
+          "Third rejected.Fourth rejected.Fifth pending.",
+        );
+        expect(view.state.doc.toJSON()).toEqual(canonical.toJSON());
+      }
+    } finally {
+      view.destroy();
+    }
+  });
+
+  it.each([
+    {
+      kind: "insert" as const,
+      before: "Old tail",
+      after: "New Old tail",
+      beforeRange: [0, 0],
+      afterRange: [0, 4],
+      insertedText: "New ",
+    },
+    {
+      kind: "delete" as const,
+      before: "Old tail",
+      after: " tail",
+      beforeRange: [0, 3],
+      afterRange: [0, 0],
+      insertedText: "",
+    },
+    {
+      kind: "replace" as const,
+      before: "Old tail",
+      after: "New tail",
+      beforeRange: [0, 3],
+      afterRange: [0, 3],
+      insertedText: "New",
+    },
+  ])(
+    "settles a $kind at its anchored operation despite an unrelated peer edit",
+    ({ kind, before, after, beforeRange, afterRange, insertedText }) => {
+      const spec: SuggestionHighlightSpec = {
+        suggestionId: "settling",
+        kind,
+        from: 1,
+        to: kind === "insert" ? 1 : 4,
+        insertedText,
+        settling: true,
+        settlingBeforePresentation: {
+          source: before,
+          from: beforeRange[0]!,
+          to: beforeRange[1]!,
+        },
+        insertedPresentation: {
+          source: after,
+          from: afterRange[0]!,
+          to: afterRange[1]!,
+        },
+      };
+      expect(
+        suggestionHighlightKey
+          .getState(setSpecs(state(`${after} peer`), [spec]))!
+          .decorations.find(),
+      ).toHaveLength(0);
+      expect(
+        suggestionHighlightKey
+          .getState(setSpecs(state(before), [spec]))!
+          .decorations.find().length,
+      ).toBeGreaterThan(0);
+    },
+  );
+
+  it("does not mistake the accepted text elsewhere for this insertion", () => {
+    const spec: SuggestionHighlightSpec = {
+      suggestionId: "repeated",
+      kind: "insert",
+      from: 1,
+      to: 1,
+      insertedText: "New ",
+      settling: true,
+      settlingBeforePresentation: {
+        source: "Old tail",
+        from: 0,
+        to: 0,
+      },
+      insertedPresentation: {
+        source: "New Old tail",
+        from: 0,
+        to: 4,
+      },
+    };
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("Old tail and New Old tail"), [spec]))!
+        .decorations.find().length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("does not duplicate an accepted insertion at the end of a draft", () => {
+    const spec: SuggestionHighlightSpec = {
+      suggestionId: "tail-insert",
+      kind: "insert",
+      from: 7,
+      to: 7,
+      insertedText: "X",
+      settling: true,
+      settlingBeforePresentation: {
+        source: "Before",
+        from: 6,
+        to: 6,
+      },
+      insertedPresentation: {
+        source: "BeforeX",
+        from: 6,
+        to: 7,
+      },
+    };
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("BeforeX"), [spec]))!
+        .decorations.find(),
+    ).toHaveLength(0);
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("Before"), [spec]))!
+        .decorations.find().length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("keeps the preview when accepted text only exists at another location", () => {
+    const spec: SuggestionHighlightSpec = {
+      suggestionId: "other-location",
+      kind: "insert",
+      from: 7,
+      to: 7,
+      insertedText: "X",
+      settling: true,
+      settlingBeforePresentation: {
+        source: "Alpha tail",
+        from: 6,
+        to: 6,
+      },
+      insertedPresentation: {
+        source: "Alpha Xtail",
+        from: 6,
+        to: 7,
+      },
+    };
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("Alpha tail and Alpha Xtail"), [spec]))!
+        .decorations.find().length,
+    ).toBeGreaterThan(0);
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("Alpha Xtail and peer"), [spec]))!
+        .decorations.find(),
+    ).toHaveLength(0);
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("AlphA tail and Alpha Xtail"), [spec]))!
+        .decorations.find().length,
+    ).toBeGreaterThan(0);
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("AlphA Xtail"), [spec]))!
+        .decorations.find(),
+    ).toHaveLength(0);
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("Beta tail and Alpha Xtail"), [spec]))!
+        .decorations.find().length,
+    ).toBeGreaterThan(0);
+    expect(
+      suggestionHighlightKey
+        .getState(
+          setSpecs(state("Beta tail and Alpha Xtail"), [
+            { ...spec, from: 21, to: 21 },
+          ]),
+        )!
+        .decorations.find(),
+    ).toHaveLength(0);
+  });
+
+  it("settles an insertion with peer text at the same boundary", () => {
+    const spec: SuggestionHighlightSpec = {
+      suggestionId: "same-boundary",
+      kind: "insert",
+      from: 1,
+      to: 1,
+      insertedText: "X",
+      settling: true,
+      settlingBeforePresentation: { source: "target", from: 0, to: 0 },
+      insertedPresentation: { source: "Xtarget", from: 0, to: 1 },
+    };
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("XYtarget"), [spec]))!
+        .decorations.find(),
+    ).toHaveLength(0);
+  });
+
+  it("does not settle a replacement from identical text elsewhere", () => {
+    const spec: SuggestionHighlightSpec = {
+      suggestionId: "replaced-elsewhere",
+      kind: "replace",
+      from: 1,
+      to: 4,
+      insertedText: "New",
+      settling: true,
+      settlingBeforePresentation: { source: "Old tail", from: 0, to: 3 },
+      insertedPresentation: { source: "New tail", from: 0, to: 3 },
+    };
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("Peer tail and New tail"), [spec]))!
+        .decorations.find().length,
+    ).toBeGreaterThan(0);
+    expect(
+      suggestionHighlightKey
+        .getState(
+          setSpecs(state("Peer tail and New tail"), [
+            { ...spec, from: 15, to: 18 },
+          ]),
+        )!
+        .decorations.find(),
+    ).toHaveLength(0);
+  });
+
+  it("keeps a replacement preview while the old text starts with the accepted text", () => {
+    const spec: SuggestionHighlightSpec = {
+      suggestionId: "prefix-replacement",
+      kind: "replace",
+      from: 1,
+      to: 9,
+      insertedText: "New",
+      settling: true,
+      settlingBeforePresentation: { source: "New York", from: 0, to: 8 },
+      insertedPresentation: { source: "New", from: 0, to: 3 },
+    };
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("New York peer"), [spec]))!
+        .decorations.find().length,
+    ).toBeGreaterThan(0);
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("New peer"), [{ ...spec, from: 1, to: 4 }]))!
+        .decorations.find(),
+    ).toHaveLength(0);
+  });
+
+  it("keeps a repeated-text deletion preview until readback proves settlement", () => {
+    const spec: SuggestionHighlightSpec = {
+      suggestionId: "repeated-deletion",
+      kind: "delete",
+      from: 1,
+      to: 4,
+      settling: true,
+      settlingBeforePresentation: { source: "foofoo", from: 0, to: 3 },
+      insertedPresentation: { source: "foo", from: 0, to: 0 },
+    };
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("foofoo peer"), [spec]))!
+        .decorations.find().length,
+    ).toBeGreaterThan(0);
+    expect(
+      suggestionHighlightKey
+        .getState(setSpecs(state("foo peer"), [spec]))!
+        .decorations.find().length,
+    ).toBeGreaterThan(0);
+    expect(
+      suggestionHighlightKey
+        .getState(
+          setSpecs(state("foo peer"), [
+            { ...spec, settlingReadbackContent: "foo peer" },
+          ]),
+        )!
+        .decorations.find(),
+    ).toHaveLength(0);
+  });
+
+  it("canonicalizes each unique settling comparison once per decoration build", () => {
+    canonicalizeNfmCalls.record.mockClear();
+    const makeSpec = (
+      suggestionId: string,
+      insertedSource: string,
+    ): SuggestionHighlightSpec => ({
+      suggestionId,
+      kind: "insert",
+      from: 0,
+      to: 0,
+      insertedText: "not present",
+      insertedPresentation: {
+        source: insertedSource,
+        from: 0,
+        to: insertedSource.length,
+      },
+      settlingReadbackContent: "shared readback",
+      settling: true,
+    });
+
+    setSpecs(state("current document"), [
+      makeSpec("first", "shared proposal"),
+      makeSpec("second", "shared proposal"),
+      makeSpec("third", "another proposal"),
+      makeSpec("fourth", "current document"),
+    ]);
+
+    const normalizedInputs = canonicalizeNfmCalls.record.mock.calls.map(
+      ([content]) => content,
+    );
+    expect(normalizedInputs).toHaveLength(4);
+    expect(
+      normalizedInputs.filter((content) => content === "shared proposal"),
+    ).toHaveLength(1);
+    expect(
+      normalizedInputs.filter((content) => content === "another proposal"),
+    ).toHaveLength(1);
+    expect(
+      normalizedInputs.filter((content) => content === "shared readback"),
+    ).toHaveLength(1);
+    expect(
+      normalizedInputs.filter((content) => content === "current document"),
+    ).toHaveLength(1);
+  });
+
+  it("renders same-id settling spans independently after a document transaction", () => {
+    const makeSpec = (
+      from: number,
+      to: number,
+      deletedText: string,
+      insertedText: string,
+    ): SuggestionHighlightSpec => ({
+      suggestionId: "multi-span",
+      kind: "replace",
+      from,
+      to,
+      insertedText,
+      deletedText,
+      settling: true,
+      settlingBeforePresentation: {
+        source: deletedText,
+        from: 0,
+        to: deletedText.length,
+      },
+      insertedPresentation: {
+        source: insertedText,
+        from: 0,
+        to: insertedText.length,
+      },
+    });
+    const view = new EditorView(document.createElement("div"), {
+      state: setSpecs(state("abcdef"), [
+        makeSpec(1, 3, "bc", "first proposal"),
+        makeSpec(4, 6, "de", "second proposal"),
+      ]),
+    });
+
+    try {
+      view.dispatch(view.state.tr.insertText("!", 7));
+
+      expect(view.state.doc.textContent).toBe("abcdef!");
+      expect(
+        Array.from(
+          view.dom.querySelectorAll<HTMLElement>(".suggestion-settling-text"),
+          (widget) => widget.textContent,
+        ),
+      ).toEqual(["first proposal", "second proposal"]);
+    } finally {
+      view.destroy();
+    }
+  });
+
+  it.each([
+    {
+      label: "bold",
+      afterText: "**Echo**",
+      mark: () => schema.marks.bold.create(),
+    },
+    {
+      label: "link",
+      afterText: "[Echo](https://example.test)",
+      mark: () => schema.marks.link.create({ href: "https://example.test" }),
+    },
+    {
+      label: "color",
+      afterText: '<span color="red">Echo</span>',
+      mark: () => schema.marks.notionSpan.create({ color: "red" }),
+    },
+    {
+      label: "colored underline",
+      afterText: '<span color="red" underline="true">Echo</span>',
+      mark: () =>
+        schema.marks.notionSpan.create({ color: "red", underline: "true" }),
+    },
+  ])(
+    "settles accepted $label formatting at its anchor after an unrelated peer suffix",
+    ({ afterText, mark }) => {
+      const before = "Echo sample.";
+      const after = `${afterText} sample.`;
+      const spec: SuggestionHighlightSpec = {
+        suggestionId: `format-${afterText}`,
+        kind: "replace",
+        from: 1,
+        to: 5,
+        insertedText: afterText,
+        settling: true,
+        settlingBeforePresentation: { source: before, from: 0, to: 4 },
+        insertedPresentation: {
+          source: after,
+          from: 0,
+          to: afterText.length,
+        },
+      };
+      const view = new EditorView(document.createElement("div"), {
+        state: setSpecs(state(before), [spec]),
+      });
+
+      try {
+        view.dispatch(view.state.tr.insertText(" peer", 13));
+        expect(
+          view.dom.querySelector(".suggestion-settling-text"),
+        ).not.toBeNull();
+
+        view.dispatch(view.state.tr.addMark(1, 5, mark()));
+
+        expect(view.state.doc.textContent).toBe("Echo sample. peer");
+        expect(view.dom.querySelector(".suggestion-settling-text")).toBeNull();
+      } finally {
+        view.destroy();
+      }
+    },
+  );
+
+  it("keeps a formatted prefix replacement pending until its full range changes", () => {
+    const before = "**New York** peer";
+    const after = "**New** peer";
+    const strong = schema.marks.bold.create();
+    const spec: SuggestionHighlightSpec = {
+      suggestionId: "shrink-prefix",
+      kind: "replace",
+      from: 1,
+      to: 9,
+      insertedText: "**New**",
+      settling: true,
+      settlingBeforePresentation: { source: before, from: 0, to: 12 },
+      insertedPresentation: { source: after, from: 0, to: 7 },
+    };
+    const editorState = EditorState.create({
+      doc: schema.node("doc", null, [
+        schema.node("paragraph", null, [
+          schema.text("New York", [strong]),
+          schema.text(" peer"),
+        ]),
+      ]),
+      plugins: [createSuggestionHighlightPlugin()],
+    });
+    const view = new EditorView(document.createElement("div"), {
+      state: setSpecs(editorState, [spec]),
+    });
+
+    try {
+      view.dispatch(view.state.tr.insertText("!", 14));
+      expect(
+        view.dom.querySelector(".suggestion-settling-text"),
+      ).not.toBeNull();
+
+      view.dispatch(
+        view.state.tr
+          .replaceWith(1, 9, schema.text("New", [strong]))
+          .setMeta(suggestionHighlightKey, {
+            specs: [{ ...spec, from: 1, to: 4 }],
+          }),
+      );
+
+      expect(view.state.doc.textContent).toBe("New peer!");
+      expect(view.dom.querySelector(".suggestion-settling-text")).toBeNull();
+    } finally {
+      view.destroy();
+    }
+  });
+
+  it("does not let the old-text prefix guard block a completed expansion", () => {
+    const before = "New peer";
+    const after = "New York peer";
+    const spec: SuggestionHighlightSpec = {
+      suggestionId: "expand-prefix",
+      kind: "replace",
+      from: 1,
+      to: 4,
+      insertedText: "New York",
+      settling: true,
+      settlingBeforePresentation: { source: before, from: 0, to: 3 },
+      insertedPresentation: { source: after, from: 0, to: 8 },
+    };
+    const view = new EditorView(document.createElement("div"), {
+      state: setSpecs(state(before), [spec]),
+    });
+
+    try {
+      view.dispatch(view.state.tr.insertText("!", 9));
+      expect(
+        view.dom.querySelector(".suggestion-settling-text"),
+      ).not.toBeNull();
+
+      view.dispatch(
+        view.state.tr
+          .replaceWith(1, 4, schema.text("New York"))
+          .setMeta(suggestionHighlightKey, {
+            specs: [{ ...spec, from: 1, to: 9 }],
+          }),
+      );
+
+      expect(view.state.doc.textContent).toBe("New York peer!");
+      expect(view.dom.querySelector(".suggestion-settling-text")).toBeNull();
+    } finally {
+      view.destroy();
+    }
+  });
+
   it("keeps deletions quiet at rest and readable on hover, focus, or selection", () => {
     const css = readFileSync(resolve(process.cwd(), "app/global.css"), {
       encoding: "utf8",

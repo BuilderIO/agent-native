@@ -50,26 +50,11 @@ describeBuilt("prerendered homepage", () => {
 });
 
 describeBuilt("client bundle", () => {
-  it("keeps the vgpu runtime out of the homepage route chunk", () => {
-    const chunks = walk(path.join(CLIENT_DIR, "assets")).filter((file) =>
-      file.endsWith(".js"),
-    );
-    const homepage = chunks.filter((file) =>
-      path.basename(file).startsWith("_index-"),
-    );
-    expect(homepage.length).toBeGreaterThan(0);
-    for (const file of homepage) {
-      const source = readFileSync(file, "utf8");
-      expect(source).not.toContain("fft-ocean-live");
-      expect(source).not.toContain("VGPUError");
-    }
-  });
-
-  it("emits the renderer as its own chunk", () => {
+  it("does not emit the removed WebGPU ocean renderer", () => {
     const withRenderer = walk(path.join(CLIENT_DIR, "assets"))
       .filter((file) => file.endsWith(".js"))
       .filter((file) => readFileSync(file, "utf8").includes("fft-ocean-live"));
-    expect(withRenderer).toHaveLength(1);
+    expect(withRenderer).toHaveLength(0);
   });
 });
 
@@ -83,13 +68,11 @@ describeServer("server bundle", () => {
     expect(offenders.map((file) => path.relative(DOCS_ROOT, file))).toEqual([]);
   });
 
-  it("confines the browser runtime to a single server chunk", () => {
+  it("does not include the removed WebGPU runtime", () => {
     const withRuntime = walk(SERVER_DIR)
       .filter((file) => /\.(js|mjs|cjs)$/.test(file))
       .filter((file) => readFileSync(file, "utf8").includes("fft-ocean-live"));
-    expect(
-      withRuntime.map((file) => path.relative(DOCS_ROOT, file)),
-    ).toHaveLength(1);
+    expect(withRuntime).toHaveLength(0);
   });
 
   it("reports the server bundle size so a regression is visible in CI logs", () => {

@@ -138,7 +138,11 @@ describe("CRM read-through boundaries", () => {
           fieldPolicies: [],
         },
       }),
-    ).rejects.toThrow("CRM provider access changed");
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("CRM provider access changed"),
+      errorCode: "crm_record_withheld",
+      statusCode: 403,
+    });
     expect(getRecord).not.toHaveBeenCalled();
   });
 
