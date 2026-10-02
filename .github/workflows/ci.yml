@@ -342,7 +342,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 

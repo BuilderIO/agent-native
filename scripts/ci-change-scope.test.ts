@@ -391,6 +391,7 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     "templates/design/e2e/base-url.ts",
     "templates/design/e2e/chrome-geometry.reference.ts",
     "templates/design/e2e/global-setup.ts",
+    "templates/design/e2e/global-teardown.ts",
     "templates/design/e2e/parity-vector-endpoints.spec.ts",
     "templates/design/e2e/corner-radius-handle-drag.spec.ts",
     "templates/design/e2e/helpers.ts",
