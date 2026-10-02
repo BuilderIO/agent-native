@@ -5,7 +5,7 @@ import {
   registerTrackingProvider,
   unregisterTrackingProvider,
 } from "./index.js";
-import { redactErrorStack } from "./redaction.js";
+import { redact, redactErrorStack } from "./redaction.js";
 
 describe("tracking captureException", () => {
   afterEach(() => {
@@ -160,6 +160,31 @@ describe("tracking captureException", () => {
     );
     expect(event.properties.exceptionMessage).not.toContain(privateValue);
     expect(event.properties.exceptionStack).not.toContain(privateValue);
+  });
+
+  it.each([
+    [
+      "SEARCH",
+      "WITH RECURSIVE tree(id) AS (SELECT id FROM nodes UNION ALL SELECT id FROM tree WHERE id = $1) SEARCH DEPTH FIRST BY id SET ordercol SELECT id FROM tree WHERE id = $2",
+    ],
+    [
+      "CYCLE",
+      "WITH RECURSIVE tree(id) AS (SELECT id FROM nodes UNION ALL SELECT id FROM tree WHERE id = $1) CYCLE id SET is_cycle USING path SELECT id FROM tree WHERE id = $2",
+    ],
+    [
+      "SEARCH and CYCLE before another CTE",
+      "WITH RECURSIVE tree(id) AS (SELECT id FROM nodes UNION ALL SELECT id FROM tree WHERE id = $1) SEARCH DEPTH FIRST BY id SET ordercol CYCLE id SET is_cycle TO true DEFAULT false USING path, all_nodes AS (SELECT id FROM tree) SELECT id FROM all_nodes WHERE id = $2",
+    ],
+    [
+      "comments between CTE header tokens",
+      "WITH /* note */ RECURSIVE /* recursive */ tree(id) AS (SELECT id FROM nodes WHERE id = $1) SELECT id FROM tree",
+    ],
+  ])("redacts SQL bind parameters in CTEs with %s", (_case, query) => {
+    const privateValue = "private customer value";
+    const redacted = redact(`${query}\n\tparams: ${privateValue}`);
+
+    expect(redacted).toContain("params: <redacted>");
+    expect(redacted).not.toContain(privateValue);
   });
 
   it.each([
