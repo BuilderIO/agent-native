@@ -21,7 +21,7 @@ describe("design-mutating actions", () => {
       join(import.meta.dirname, "..", "..", "actions", `${name}.ts`),
       "utf8",
     );
-    expect(source).toMatch(/changeResource: .*designChangeResource\(/);
+    expect(source).toMatch(/changeResource:[\s\S]*?designChangeResource\(/);
   });
 });
 
