@@ -3163,7 +3163,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }
         crossScreenTargetRef.current = nextTarget;
         setCrossScreenTarget(nextTarget);
-        claimCrossScreenDrop(sourceScreenId, nextTarget.id !== sourceScreenId);
+        claimCrossScreenDrop(
+          sourceScreenId,
+          nextTarget.id !== sourceScreenId ||
+            (nextTarget.id === boardFileId &&
+              crossScreenDragMsgRef.current?.duplicate === true),
+        );
         setCrossScreenGhost(buildCrossScreenGhost(boardPoint, sourceScreenId));
         requestCrossScreenDropGuide(nextTarget, boardPoint);
       } else if (
@@ -3180,7 +3185,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }
         crossScreenTargetRef.current = nextTarget;
         setCrossScreenTarget(nextTarget);
-        claimCrossScreenDrop(sourceScreenId, nextTarget.id !== sourceScreenId);
+        claimCrossScreenDrop(
+          sourceScreenId,
+          nextTarget.id !== sourceScreenId ||
+            (nextTarget.id === boardFileId &&
+              crossScreenDragMsgRef.current?.duplicate === true),
+        );
         setCrossScreenGhost(buildCrossScreenGhost(boardPoint, sourceScreenId));
         requestCrossScreenDropGuide(nextTarget, boardPoint);
       } else {

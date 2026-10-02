@@ -204,7 +204,7 @@
     for (var i = 0; i < targets.length; i += 1) {
       var target = targets[i];
       if (!target || target.nodeType !== 1) continue;
-      if (isOverlayElement(target) || isCloneElement(target)) continue;
+      if (isOverlayElement(target) || isTransientCloneElement(target)) continue;
       if (isLayerInteractionBlocked(target)) return null;
       return target;
     }
@@ -335,6 +335,7 @@
     var seen: Element[] = [];
     for (var i = 0; i < hits.length; i += 1) {
       var cursor: Element | null = hits[i];
+      if (isOverlayElement(cursor) || isTransientCloneElement(cursor)) continue;
       var candidate: Element | null = null;
       while (cursor && cursor !== document.body) {
         if (
@@ -348,7 +349,11 @@
       }
       if (!candidate || seen.indexOf(candidate) !== -1) continue;
       seen.push(candidate);
-      if (isOverlayElement(candidate) || isLayerInteractionBlocked(candidate)) {
+      if (
+        isOverlayElement(candidate) ||
+        isTransientCloneElement(candidate) ||
+        isLayerInteractionBlocked(candidate)
+      ) {
         continue;
       }
       return {
@@ -420,7 +425,7 @@
     nodeId: string,
     anchor: Element | null,
   ): { versionHash?: string; uniqueNodeId?: string } | undefined {
-    if (!anchor || isCloneElement(anchor)) return undefined;
+    if (!anchor || isTransientCloneElement(anchor)) return undefined;
     var candidate = (window as any).__agentNativeSourceProvenance;
     if (!candidate || typeof candidate !== "object") return undefined;
     var versionHash =
@@ -456,12 +461,14 @@
     return "";
   }
 
-  function isCloneElement(el: Element | null): boolean {
+  function isTransientCloneElement(el: Element | null): boolean {
     var node: Element | null = el;
     while (node && node !== document.documentElement) {
       var parent = node.parentElement;
       if (!parent) return false;
-      if (node.getAttribute("data-agent-native-clone-root") === "true") {
+      if (
+        node.getAttribute("data-agent-native-transient-drag-clone") === "true"
+      ) {
         return true;
       }
       if (alpineGeneratedChildrenOf(parent).indexOf(node) !== -1) return true;
@@ -478,7 +485,7 @@
         child.nodeType === 1 &&
         !isOverlayElement(child) &&
         !isLayerInteractionBlocked(child) &&
-        !isCloneElement(child)
+        !isTransientCloneElement(child)
       );
     });
   }
@@ -504,7 +511,7 @@
   function getOrMintPendingNodeId(el: Element | null): string {
     if (!el || !el.getAttribute || !el.setAttribute) return "";
     if (el === document.body || el === document.documentElement) return "";
-    if (isCloneElement(el)) return "";
+    if (isTransientCloneElement(el)) return "";
     var existing = el.getAttribute("data-an-pending-node-id");
     if (existing) return existing;
     var minted = freshRuntimeNodeId("pending");
@@ -726,7 +733,7 @@
       if (isLayerInteractionBlocked(cursor)) return null;
       var parent: Element | null = cursor.parentElement;
       if (parent && isAutoLayoutElement(parent)) {
-        if (isCloneElement(cursor)) {
+        if (isTransientCloneElement(cursor)) {
           var cloneFallback = nearestChildInsertionTarget(
             parent,
             clientX,
@@ -1067,7 +1074,7 @@
       if (
         NON_SELECTABLE_TAGS.indexOf(node.tagName.toLowerCase()) !== -1 ||
         isEditorInjectedElement(node) ||
-        isCloneElement(node) ||
+        isTransientCloneElement(node) ||
         (node as SVGElement).ownerSVGElement
       ) {
         return;

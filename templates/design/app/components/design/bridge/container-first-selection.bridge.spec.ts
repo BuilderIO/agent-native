@@ -228,7 +228,7 @@ describe("container-first click selection", () => {
       await page.keyboard.up("Shift");
       await vi.waitFor(() => expect(selections.length).toBeGreaterThan(0));
 
-      expect(selections.at(-1)).toEqual(["solo-a"]);
+      expect(selections[selections.length - 1]).toEqual(["solo-a"]);
     } finally {
       await browser.close();
     }

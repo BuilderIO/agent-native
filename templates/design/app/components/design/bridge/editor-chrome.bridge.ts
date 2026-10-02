@@ -16710,7 +16710,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         options?.styleSnapshot !== undefined
           ? options.styleSnapshot
           : collectPortableStyleSnapshot(el ?? null);
-      activeCrossScreenSourceHtml = el?.outerHTML;
+      activeCrossScreenSourceHtml = el
+        ? cloneHtmlForPersistence(el)
+        : undefined;
       var computed = el ? window.getComputedStyle(el) : null;
       activeCrossScreenComputedSize = crossScreenAutoLayoutSizeFallback(
         el ?? null,
@@ -16800,6 +16802,12 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       activeCrossScreenDragIdentity = null;
       activeCrossScreenDeleteRequestId = undefined;
     }
+  }
+
+  function cloneHtmlForPersistence(el: Element): string {
+    var clone = el.cloneNode(true) as Element;
+    clone.removeAttribute("data-agent-native-transient-drag-clone");
+    return clone.outerHTML;
   }
 
   var BRIDGE_CONTAINER_TAGS = [
@@ -19414,7 +19422,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         sourceNodeIdMap: Array.isArray(sourceNodeIdMap)
           ? sourceNodeIdMap
           : undefined,
-        cloneHtml: cloneEl.outerHTML,
+        cloneHtml: cloneHtmlForPersistence(cloneEl),
         payload: getElementInfo(cloneEl),
         anchorPayload: getElementInfo(anchorEl),
       },
@@ -20562,6 +20570,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var clone = selectedEl.cloneNode(true);
       duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone);
       clone.setAttribute("data-agent-native-clone-root", "true");
+      clone.setAttribute("data-agent-native-transient-drag-clone", "true");
       selectedEl.parentElement.insertBefore(clone, selectedEl.nextSibling);
       resetFlowDuplicateGridPlacement(clone as HTMLElement);
       publishSourceDocumentProvenance(undefined, true);
@@ -20987,6 +20996,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         var clone = sourceEl.cloneNode(true) as HTMLElement;
         duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone);
         clone.setAttribute("data-agent-native-clone-root", "true");
+        clone.setAttribute("data-agent-native-transient-drag-clone", "true");
         if (sourceEl.parentElement) {
           sourceEl.parentElement.insertBefore(clone, sourceEl.nextSibling);
         }
@@ -22117,6 +22127,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var clone = source.cloneNode(true) as HTMLElement;
       duplicatedSourceNodeIdMap = resetRuntimeStableIds(clone);
       clone.setAttribute("data-agent-native-clone-root", "true");
+      clone.setAttribute("data-agent-native-transient-drag-clone", "true");
       source.parentElement.insertBefore(clone, source.nextSibling);
       clone.style.position = heldPosition.position;
       clone.style.left = heldPosition.left;

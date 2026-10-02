@@ -87,7 +87,8 @@ describe("source vector stroke overlay reconciliation", () => {
       sourceOwned,
       children: [],
       parent: null,
-      hasAttribute: (name) => Object.hasOwn(attributes, name),
+      hasAttribute: (name) =>
+        Object.prototype.hasOwnProperty.call(attributes, name),
       getAttribute: (name) => attributes[name] ?? null,
       remove: () => {
         if (!node.parent) return;

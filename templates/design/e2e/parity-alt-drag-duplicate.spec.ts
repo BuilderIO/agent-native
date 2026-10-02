@@ -614,6 +614,9 @@ async function dragBoardLayerCopyToEmptyCanvas(
       timeout: 20_000,
     })
     .toContain(`data-agent-native-node-id="${copyInfo!.id}"`);
+  expect(await fileContent(request, designId, "__board__.html")).not.toContain(
+    'data-agent-native-transient-drag-clone="true"',
+  );
   return {
     copyId: copyInfo!.id,
     copyBox,
@@ -649,6 +652,7 @@ async function expectBoardCopyAfterReload(
   expect(rootIds).toContain(copyId);
   const html = await fileContent(request, designId, "__board__.html");
   expect(html).toContain(`data-agent-native-node-id="${copyId}"`);
+  expect(html).not.toContain('data-agent-native-transient-drag-clone="true"');
   return {
     html,
     original: boardFrame.locator('[data-agent-native-node-id="root-frame"]'),
