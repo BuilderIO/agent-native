@@ -1,15 +1,47 @@
-import { withCollapsedAgentSidebarParam } from "../shared/agent-sidebar-url.js";
+import {
+  AGENT_NATIVE_OPEN_PATH,
+  withCollapsedAgentSidebarParam,
+} from "../shared/agent-sidebar-url.js";
 import {
   getConfiguredAppBasePath,
   normalizeAppBasePath,
+  stripAppBasePath,
 } from "./app-base-path.js";
-import { publicFrameworkPath } from "./framework-route-prefix.js";
+import {
+  canonicalFrameworkPathname,
+  publicFrameworkPath,
+} from "./framework-route-prefix.js";
 
 export const OPEN_ROUTE_SUBPATH = "/open";
 
 export const DESKTOP_OPEN_URL = "agentnative://open";
 
 export const VSCODE_OPEN_URL = "vscode://builder.agent-native/open";
+
+export function isSameOriginUrl(urlOrPath: string, origin?: string): boolean {
+  const hasAuthority =
+    /^[a-z][a-z0-9+.-]*:/i.test(urlOrPath) || urlOrPath.startsWith("//");
+  if (!hasAuthority) return true;
+  if (!origin) return false;
+  if (!URL.canParse(origin) || !URL.canParse(urlOrPath, origin)) return false;
+  return new URL(urlOrPath, origin).origin === new URL(origin).origin;
+}
+
+export function isAgentNativeOpenUrl(
+  urlOrPath: string,
+  origin?: string,
+  basePath = getConfiguredAppBasePath(),
+): boolean {
+  const base = origin ?? "http://agent-native.invalid";
+  if (!URL.canParse(urlOrPath, base)) return false;
+  const url = new URL(urlOrPath, base);
+  if (url.protocol === "agentnative:" && url.host === "open") return true;
+  if (!isSameOriginUrl(urlOrPath, origin)) return false;
+  return (
+    canonicalFrameworkPathname(stripAppBasePath(url.pathname, basePath)) ===
+    AGENT_NATIVE_OPEN_PATH
+  );
+}
 
 export interface DeepLinkInput {
   app?: string;
