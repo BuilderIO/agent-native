@@ -30,6 +30,20 @@ export interface RecordFirstFile extends LocalExportedFile {
 }
 
 /**
+ * What one file of a capture holds. A separate desktop file carries the
+ * screen and the take's audio but no camera; a separate camera file holds
+ * only camera video.
+ */
+export function recordFirstMediaFlags(
+  role: string,
+  take: { hasAudio: boolean; hasCamera: boolean },
+): { hasAudio: boolean; hasCamera: boolean } {
+  if (role === "desktop") return { hasAudio: take.hasAudio, hasCamera: false };
+  if (role === "camera") return { hasAudio: false, hasCamera: true };
+  return take;
+}
+
+/**
  * The files a stopped record-first capture leaves to upload: its composed
  * file, or every file it wrote when there is none.
  */

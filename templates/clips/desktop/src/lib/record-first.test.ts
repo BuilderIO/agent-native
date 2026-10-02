@@ -13,6 +13,7 @@ import {
   recordFirstFilesKey,
   RecordFirstHandoffResetError,
   recordFirstFilesToQueue,
+  recordFirstMediaFlags,
   saveRecordFirstFiles,
   stageRecordFirstFile,
   stagedIdAfterFailure,
@@ -223,6 +224,20 @@ describe("record-first file list", () => {
       ).toThrow();
       expect(storage.getItem("unclaimed")).toBe("{not json");
       expect(paths(storage, "acct")).toEqual(["/mine.webm"]);
+    });
+  });
+
+  it("describes each separate file by what it holds", () => {
+    const take = { hasAudio: true, hasCamera: true };
+
+    expect(recordFirstMediaFlags("composed", take)).toEqual(take);
+    expect(recordFirstMediaFlags("desktop", take)).toEqual({
+      hasAudio: true,
+      hasCamera: false,
+    });
+    expect(recordFirstMediaFlags("camera", take)).toEqual({
+      hasAudio: false,
+      hasCamera: true,
     });
   });
 

@@ -121,7 +121,12 @@ import {
 } from "@/lib/recording-visibility";
 import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
 import { uploadChunkRequest } from "@/lib/upload-request";
-import { uploadTargetAtStart } from "@/lib/upload-target";
+import {
+  abandonUploadTarget,
+  openUploadTarget,
+  uploadTargetAtStart,
+  type CreatedUploadTarget,
+} from "@/lib/upload-target";
 import { cn } from "@/lib/utils";
 import { probeVideoMetadata, resolveVideoMimeType } from "@/lib/video-metadata";
 
@@ -639,15 +644,6 @@ interface PendingRecording {
   uploadMode?: UploadMode;
   /** No server row yet: storage was not connected when recording started. */
   localOnly?: boolean;
-}
-
-/** The server upload create-recording opened for a take. */
-interface CreatedUploadTarget {
-  id: string;
-  uploadChunkUrl: string;
-  abortUrl: string;
-  resetChunksUrl?: string;
-  uploadMode?: UploadMode;
 }
 
 const RECORDING_INTERRUPTED_REASON =
@@ -1537,94 +1533,53 @@ export default function RecordRoute() {
           ).catch(() => {
             // coercion-ok: no row, or one already marked failed.
           });
-        // Opens the server upload when storage reads as connected. Without an
-        // intake it never throws: anything short of a target (no storage, an
-        // unreadable status, a refused create) records into the local copy and
-        // asks for storage after Stop, with the bytes already safe.
-        const resolveTarget = async (): Promise<CreatedUploadTarget | null> => {
-          if (!intake) {
-            // coercion-ok: an unreadable status records locally; the upload step re-reads it.
-            const status = await fetchVideoStorageStatus().catch(() => null);
-            if (isStale()) return null;
-            if (status) markStorageConfigured(status);
-            if (status?.configured !== true) return null;
-          }
-          const serverId = intake ? undefined : newRecordingId();
-          const res = await createRecordingRequest(
-            agentNativePath(
-              intake
-                ? "/_agent-native/actions/create-intake-recording"
-                : "/_agent-native/actions/create-recording",
-            ),
-            intake
-              ? {
-                  ...recordingPayload,
-                  intakeId: intake.intakeId,
-                  intakeToken: intake.token,
-                  bugReport: reportContext ?? undefined,
-                }
-              : { ...recordingPayload, id: serverId },
-          ).catch((err: unknown) => {
-            if (intake) throw err;
-            // Recording continues locally; the cause must still be visible.
-            console.warn(
-              "[recorder] create-recording failed; recording locally:",
-              err,
-            );
-            trackEvent("clips_recording_create_failed", {
-              app_name: "clips",
-              cause: "network",
-              message: err instanceof Error ? err.message : String(err),
-            });
-            return null;
+        // The account signed in now, at capture start: the upload row is
+        // opened for it, and a later account switch records locally instead.
+        const ownerAtCapture = authSessionEmailRef.current;
+        const resolveTarget = () =>
+          openUploadTarget({
+            intake: !!intake,
+            ownerEmail: ownerAtCapture,
+            newId: newRecordingId,
+            isStale,
+            fetchStatus: async () => {
+              // coercion-ok: an unreadable status records locally; the upload step re-reads it.
+              const status = await fetchVideoStorageStatus().catch(() => null);
+              if (status) markStorageConfigured(status);
+              return status;
+            },
+            create: (extra) =>
+              createRecordingRequest(
+                agentNativePath(
+                  intake
+                    ? "/_agent-native/actions/create-intake-recording"
+                    : "/_agent-native/actions/create-recording",
+                ),
+                intake
+                  ? {
+                      ...recordingPayload,
+                      intakeId: intake.intakeId,
+                      intakeToken: intake.token,
+                      bugReport: reportContext ?? undefined,
+                    }
+                  : { ...recordingPayload, ...extra },
+              ),
+            dropRow,
+            onCreateFailed: (cause) => {
+              // Recording continues locally; the cause must still be visible.
+              console.warn(
+                "[recorder] create-recording failed; recording locally:",
+                cause,
+              );
+              trackEvent("clips_recording_create_failed", {
+                app_name: "clips",
+                cause: cause.kind,
+                ...(cause.kind === "http"
+                  ? { status: cause.status }
+                  : { message: cause.message }),
+              });
+            },
           });
-          if (res?.ok) {
-            const created = (await res.json()) as {
-              result?: CreatedUploadTarget;
-            } & Partial<CreatedUploadTarget>;
-            const info = created.result ?? (created as CreatedUploadTarget);
-            if (!info?.id) {
-              if (intake)
-                throw new Error("create-recording did not return an id");
-              if (serverId) dropRow(serverId);
-              return null;
-            }
-            // Cancelled while the row was being opened: drop it, keep nothing.
-            if (!intake && isStale()) {
-              dropRow(info.id);
-              return null;
-            }
-            return info;
-          }
-          if (intake) {
-            if (res?.status === 401 || res?.status === 403) {
-              throw new Error("SESSION_EXPIRED");
-            }
-            // coercion-ok: a non-JSON error body falls back to the HTTP status below.
-            const body = (await res?.json().catch(() => null)) as {
-              error?: string;
-            } | null;
-            throw new Error(
-              body?.error ?? `create-recording failed (${res?.status})`,
-            );
-          }
-          // Storage read as connected but the server could not open an
-          // upload (an expired Builder grant, a provider outage, a lost
-          // session). Keep recording locally; the failure surfaces after
-          // Stop with the bytes already safe. Drop any row it left behind.
-          if (res) {
-            console.warn(
-              `[recorder] create-recording returned ${res.status}; recording locally`,
-            );
-            trackEvent("clips_recording_create_failed", {
-              app_name: "clips",
-              cause: "http",
-              status: res.status,
-            });
-          }
-          if (serverId) dropRow(serverId);
-          return null;
-        };
 
         if (intake) {
           // An intake upload has no local-only fallback, so it is opened
@@ -2420,6 +2375,27 @@ export default function RecordRoute() {
     } catch (err) {
       browserDiagnosticsRef.current?.dispose();
       browserDiagnosticsRef.current = null;
+      // The recorder never started: give up the upload row it was given and
+      // the copy's lock. The copy itself is kept, so nothing recorded is lost.
+      void abandonUploadTarget(pendingRef.current, {
+        intake: !!clipIntakeRef.current,
+        trash: (id) =>
+          callAction(
+            "trash-recording" as any,
+            { id, skipIfReady: true } as any,
+          ),
+        abort: (abortUrl) =>
+          fetch(abortUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              reason: "The recorder could not start.",
+              failureCode: "upload_failed",
+            }),
+          }),
+      });
+      pendingRef.current = null;
+      releaseLocalCopy();
       const message =
         err instanceof Error
           ? err.message
@@ -2435,6 +2411,7 @@ export default function RecordRoute() {
     extensionCapture,
     holdLocalCopy,
     recordingMode,
+    releaseLocalCopy,
     resolvedDisplaySurface,
     showRecordingErrorToast,
   ]);

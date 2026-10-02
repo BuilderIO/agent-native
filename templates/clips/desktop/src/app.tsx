@@ -139,6 +139,7 @@ import {
   RecordFirstFileMissingError,
   recordFirstFilesKey,
   recordFirstFilesToQueue,
+  recordFirstMediaFlags,
   stagedIdAfterFailure,
   transferRecordFirstFiles,
   type RecordFirstFile,
@@ -3263,8 +3264,10 @@ export function App({
             rememberRecordFirstFile(
               {
                 ...file,
-                hasAudio: micOn || systemAudioOn,
-                hasCamera: mode !== "screen",
+                ...recordFirstMediaFlags(file.role, {
+                  hasAudio: micOn || systemAudioOn,
+                  hasCamera: mode !== "screen",
+                }),
                 savedAt: new Date().toISOString(),
               },
               queueKey,
