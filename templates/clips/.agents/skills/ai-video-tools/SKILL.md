@@ -132,7 +132,7 @@ Transcription takes an audio file and returns text + segments. That's not a prom
 3. **Cloud fallback — Groq Whisper.** `GROQ_API_KEY` → `https://api.groq.com/openai/v1/audio/transcriptions`, model `whisper-large-v3-turbo`. Fast (~$0.04/hour of audio) Whisper-compatible speech-to-text used when Builder is unavailable.
 
 Cloud transcription always re-encodes the audio to mono 16 kHz and splits it
-into parts of about 8 minutes, transcribed a few at a time and stitched back on
+into parts of about 15 minutes, transcribed a few at a time and stitched back on
 the recording timeline. Long uploads therefore transcribe like short ones; do
 not tell users a recording is "too long" to transcribe. The provider numbers
 speakers per part, so in a multi-part transcript the same label may refer to

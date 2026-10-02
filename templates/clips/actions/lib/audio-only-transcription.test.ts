@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { createRequire } from "node:module";
 import type { AddressInfo } from "node:net";
-import { tmpdir } from "node:os";
+import { EOL, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
@@ -173,6 +173,29 @@ describe("audio-only transcription media", () => {
         timeoutMs: 30_000,
       }),
     ).rejects.toMatchObject({ code: "NO_AUDIO_TRACK" });
+  });
+
+  it("refuses files that point ffmpeg at other inputs", async () => {
+    const concatList = join(dir, "crafted-concat");
+    await writeFile(
+      concatList,
+      ["ffconcat version 1.0", "file stereo.wav", ""].join(EOL),
+    );
+    const playlist = join(dir, "crafted-playlist");
+    const playlistLines = ["EXTM3U", "EXTINF:1,", "EXT-X-ENDLIST"].map(
+      (tag) => "#" + tag,
+    );
+    playlistLines.splice(2, 0, serverUrl);
+    await writeFile(playlist, [...playlistLines, ""].join(EOL));
+
+    for (const path of [concatList, playlist]) {
+      await expect(
+        extractAudioOnlyWithFfmpeg({
+          source: { kind: "file", path },
+          timeoutMs: 30_000,
+        }),
+      ).rejects.toMatchObject({ code: "EXTRACTION_FAILED" });
+    }
   });
 
   it("treats recordings known to have no saved audio as terminal failures", () => {

@@ -141,11 +141,24 @@ const TRANSCRIPTION_AUDIO = {
   ],
 };
 
+// Recording bytes are user-supplied. Playlist and concat formats would let a
+// crafted file make ffmpeg open other local files or arbitrary URLs.
+const INPUT_FORMAT_ALLOWLIST = ["-format_whitelist", "mov,matroska,wav"];
+
 function ffmpegInputArgs(source: AudioExtractionSource): string[] {
-  if (source.kind === "file") return ["-i", source.path];
+  if (source.kind === "file") {
+    return [
+      ...INPUT_FORMAT_ALLOWLIST,
+      "-protocol_whitelist",
+      "file",
+      "-i",
+      source.path,
+    ];
+  }
   const protocols =
     new URL(source.url).protocol === "https:" ? "https,tls,tcp" : "http,tcp";
   return [
+    ...INPUT_FORMAT_ALLOWLIST,
     "-protocol_whitelist",
     protocols,
     "-reconnect",
