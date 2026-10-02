@@ -19,9 +19,22 @@ const sharesQuery = {
   refetch: vi.fn(),
 };
 
+const requestsQuery = {
+  data: [] as unknown[],
+  isError: false,
+  refetch: vi.fn(),
+};
+const approveRequest = vi.fn(async () => undefined);
+
 vi.mock("@agent-native/core/client/use-action", () => ({
-  useActionQuery: () => sharesQuery,
-  useActionMutation: () => ({ mutate: vi.fn(), isPending: false }),
+  useActionQuery: (name: string) =>
+    name === "list-resource-access-requests" ? requestsQuery : sharesQuery,
+  useActionMutation: (name: string) => ({
+    mutate: vi.fn(),
+    mutateAsync:
+      name === "approve-resource-access-request" ? approveRequest : vi.fn(),
+    isPending: false,
+  }),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, values?: Record<string, string>) =>
@@ -51,6 +64,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  requestsQuery.data = [];
   act(() => root.unmount());
   queryClient.clear();
   container.remove();
@@ -193,5 +207,55 @@ describe("ShareDialog primitive normalization", () => {
     });
 
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ShareDialog access requests", () => {
+  it("lists pending requests above people with access and allows as Viewer", async () => {
+    requestsQuery.data = [
+      {
+        id: "req-1",
+        generation: 3,
+        state: "pending",
+        requester: { email: "requester@example.test", name: "Pat Example" },
+        note: "Need this for the launch review.",
+        requestedAt: "2026-10-01T10:00:00.000Z",
+        decidedAt: null,
+        grantedRole: null,
+        resource: {
+          type: "document",
+          id: "doc-1",
+          label: "Document",
+          title: "Quarterly plan",
+          path: "/page/doc-1",
+        },
+      },
+    ];
+    await renderDialog();
+
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Pat Example");
+    expect(text).toContain("requester@example.test");
+    expect(text).toContain("Need this for the launch review.");
+    expect(text.indexOf("share.accessRequests")).toBeGreaterThan(-1);
+    expect(text.indexOf("share.accessRequests")).toBeLessThan(
+      text.indexOf("share.peopleWithAccess"),
+    );
+
+    const allow = document.body.querySelector<HTMLButtonElement>(
+      'button[aria-label="agentChat.share.allowRequestFrom"]',
+    );
+    await act(async () => allow?.click());
+    expect(approveRequest).toHaveBeenCalledWith({
+      requestId: "req-1",
+      generation: 3,
+      role: "viewer",
+    });
+  });
+
+  it("shows no requests section when nothing is pending", async () => {
+    await renderDialog();
+
+    expect(document.body.textContent).not.toContain("share.accessRequests");
   });
 });

@@ -20,6 +20,7 @@ registerShareableResource({
   titleColumn: "title",
   getResourcePath: (document) => `/page/${document.id}`,
   ownerAccessIgnoresOrg: true,
+  accessRequests: true,
   // A trashed page reads as missing to anyone who can't open it.
   availability: {
     columns: ["trashedAt"],

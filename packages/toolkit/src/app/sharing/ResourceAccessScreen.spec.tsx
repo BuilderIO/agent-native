@@ -134,6 +134,89 @@ describe("ResourceAccessScreen", () => {
     );
   });
 
+  function typeInto(element: HTMLTextAreaElement, value: string) {
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value",
+    )?.set;
+    act(() => {
+      setter?.call(element, value);
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  function bodyButton(label: string) {
+    return [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent === label,
+    );
+  }
+
+  it("offers Request access with an optional note, announced politely", async () => {
+    const onRequest = vi.fn(async () => undefined);
+    render({
+      state: "denied",
+      signedInEmail: "outsider@example.test",
+      request: { sent: false, onRequest },
+      onSwitchAccount: () => {},
+    });
+
+    expect(buttons()).toEqual(["Request access", "Switch account"]);
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "Request access and the owner will be notified.",
+    );
+
+    act(() => bodyButton("Request access")?.click());
+    const note = document.body.querySelector("textarea");
+    expect(note).not.toBeNull();
+    typeInto(note!, "Need this for the launch review.");
+    await act(async () => bodyButton("Send request")?.click());
+
+    expect(onRequest).toHaveBeenCalledWith("Need this for the launch review.");
+    expect(document.body.querySelector("textarea")).toBeNull();
+  });
+
+  it("says the request was sent and stops offering another", () => {
+    render({
+      state: "denied",
+      request: { sent: true, onRequest: vi.fn() },
+      onSwitchAccount: () => {},
+    });
+
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "Request sent. The owner has been notified.",
+    );
+    expect(buttons()).toEqual(["Switch account"]);
+  });
+
+  it("explains a rate limit apart from other failures", async () => {
+    const request = {
+      sent: false,
+      onRequest: vi.fn(async () => {
+        throw new Error("failed");
+      }),
+      error: { errorCode: "access_request_rate_limited" },
+    };
+    render({ state: "denied", request });
+
+    act(() => bodyButton("Request access")?.click());
+    await act(async () => bodyButton("Send request")?.click());
+    expect(document.body.textContent).toContain(
+      "Too many requests right now. Try again later.",
+    );
+
+    render({ state: "denied", request: { ...request, error: null } });
+    await act(async () => bodyButton("Send request")?.click());
+    expect(document.body.textContent).toContain(
+      "Couldn't send your request. Try again.",
+    );
+  });
+
+  it("tells a signed-out visitor that signing in is how to ask", () => {
+    render({ state: "signed-out", acceptsRequests: true });
+
+    expect(container.textContent).toContain("Sign in to request access.");
+  });
+
   it("translates its own strings", async () => {
     render({ state: "denied", signedInEmail: "a@example.test" }, "de-DE");
 

@@ -1363,6 +1363,40 @@ const messages: ToolkitAgentChatTranslation = {
   "accessGate.signIn": "Anmelden",
   "accessGate.signedInAs": "Du bist als {{email}} angemeldet",
   "accessGate.switchAccount": "Konto wechseln",
+  "accessGate.requestDescription":
+    "Fordere Zugriff an, und der Eigentümer wird benachrichtigt.",
+  "accessGate.requestSent":
+    "Anfrage gesendet. Der Eigentümer wurde benachrichtigt.",
+  "accessGate.requestAccess": "Zugriff anfordern",
+  "accessGate.requestNoteLabel": "Notiz (optional)",
+  "accessGate.requestNotePlaceholder": "Notiz für den Eigentümer hinzufügen",
+  "accessGate.sendRequest": "Anfrage senden",
+  "accessGate.cancel": "Abbrechen",
+  "accessGate.requestRateLimited":
+    "Gerade zu viele Anfragen. Versuche es später erneut.",
+  "accessGate.requestFailed":
+    "Deine Anfrage konnte nicht gesendet werden. Versuche es erneut.",
+  "accessGate.signedOutRequestDescription":
+    "Melde dich an, um Zugriff anzufordern.",
+  "accessRequest.title": "{{name}} bittet um Zugriff",
+  "accessRequest.approvedTitle": "Zugriff gewährt",
+  "accessRequest.declinedTitle": "Anfrage abgelehnt",
+  "accessRequest.allow": "Zulassen",
+  "accessRequest.decline": "Ablehnen",
+  "accessRequest.unavailableTitle": "Du kannst diese Anfrage nicht prüfen",
+  "accessRequest.unavailableDescription":
+    "Sie wurde möglicherweise zurückgezogen, oder dieses Konto kann den Zugriff nicht verwalten.",
+  "accessRequest.loadFailed": "Diese Anfrage konnte nicht geladen werden.",
+  "accessRequest.retry": "Erneut versuchen",
+  "accessRequest.decisionFailed":
+    "Deine Entscheidung konnte nicht gespeichert werden. Versuche es erneut.",
+  "accessRequest.stale":
+    "Jemand hat diese Anfrage bereits bearbeitet, oder sie wurde geändert.",
+  "share.accessRequests": "Zugriffsanfragen",
+  "share.accessRequestsLoadFailed":
+    "Zugriffsanfragen konnten nicht geladen werden.",
+  "share.allowRequestFrom": "{{name}} zulassen",
+  "share.declineRequestFrom": "{{name}} ablehnen",
   "share.add": "Hinzufügen",
   "share.addPeopleEmail": "Personen per E-Mail hinzufügen",
   "share.addPeopleOrganization": "Personen aus deiner Organisation hinzufügen",

@@ -1,6 +1,10 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
-import { ActionButton } from "@agent-native/toolkit/design-system";
+import {
+  ActionButton,
+  Dialog,
+  TextArea,
+} from "@agent-native/toolkit/design-system";
 import { cn } from "@agent-native/toolkit/utils";
 import {
   IconFileUnknown,
@@ -8,13 +12,25 @@ import {
   IconLogin2,
   IconTrash,
 } from "@tabler/icons-react";
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 export type ResourceAccessScreenState =
   | "denied"
   | "missing"
   | "trashed"
   | "signed-out";
+
+/** Asking the owner for access, on the `denied` state. */
+export interface ResourceAccessScreenRequest {
+  /** The viewer already asked, and their request is open. */
+  sent: boolean;
+  /** Sends the request with an optional note; rejects when it fails. */
+  onRequest: (note: string) => Promise<void>;
+  /** A request is being sent. */
+  sending?: boolean;
+  /** Why the last request failed. */
+  error?: { errorCode: string | null } | null;
+}
 
 export interface ResourceAccessScreenProps {
   state: ResourceAccessScreenState;
@@ -32,6 +48,14 @@ export interface ResourceAccessScreenProps {
    * and comes back to this link.
    */
   onSignIn?: () => void;
+  /** Offers Request access on the `denied` state. */
+  request?: ResourceAccessScreenRequest;
+  /**
+   * The app takes access requests for this kind of resource, so the
+   * signed-out state says signing in is how to ask. It says nothing about
+   * this particular link.
+   */
+  acceptsRequests?: boolean;
   /** Rendered above the screen, such as a sidebar toggle. */
   header?: ReactNode;
   /** Render as the page's `main` landmark when the app shell has none. */
@@ -60,6 +84,8 @@ export function ResourceAccessScreen({
   actions,
   onSwitchAccount,
   onSignIn,
+  request,
+  acceptsRequests = false,
   header,
   landmark = false,
   className,
@@ -67,12 +93,14 @@ export function ResourceAccessScreen({
   const t = useT();
   const headingId = useId();
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const [requestOpen, setRequestOpen] = useState(false);
   const Icon = STATE_ICONS[state];
   const Root = landmark ? "main" : "div";
   const signIn =
     state === "signed-out"
       ? (onSignIn ?? (() => window.location.assign(buildSignInReturnHref())))
       : undefined;
+  const offersRequest = state === "denied" && request !== undefined;
 
   useEffect(() => {
     headingRef.current?.focus({ preventScroll: true });
@@ -83,9 +111,17 @@ export function ResourceAccessScreen({
       title: t("agentChat.accessGate.deniedTitle", {
         defaultValue: "You don't have access",
       }),
-      description: t("agentChat.accessGate.deniedDescription", {
-        defaultValue: "Ask the owner to share it with you.",
-      }),
+      description: request
+        ? request.sent
+          ? t("agentChat.accessGate.requestSent", {
+              defaultValue: "Request sent. The owner has been notified.",
+            })
+          : t("agentChat.accessGate.requestDescription", {
+              defaultValue: "Request access and the owner will be notified.",
+            })
+        : t("agentChat.accessGate.deniedDescription", {
+            defaultValue: "Ask the owner to share it with you.",
+          }),
     },
     missing: {
       title: t("agentChat.accessGate.missingTitle", {
@@ -107,9 +143,13 @@ export function ResourceAccessScreen({
       title: t("agentChat.accessGate.signedOutTitle", {
         defaultValue: "Sign in to continue",
       }),
-      description: t("agentChat.accessGate.signedOutDescription", {
-        defaultValue: "Sign in with an account that has access.",
-      }),
+      description: acceptsRequests
+        ? t("agentChat.accessGate.signedOutRequestDescription", {
+            defaultValue: "Sign in to request access.",
+          })
+        : t("agentChat.accessGate.signedOutDescription", {
+            defaultValue: "Sign in with an account that has access.",
+          }),
     },
   }[state];
 
@@ -138,7 +178,12 @@ export function ResourceAccessScreen({
           >
             {title ?? defaults.title}
           </h1>
-          <p className="mt-3 text-sm leading-6 text-muted-foreground">
+          {/* A request's outcome is announced politely when it changes; the
+              state on arrival is read from the focused heading instead. */}
+          <p
+            role={offersRequest ? "status" : undefined}
+            className="mt-3 text-sm leading-6 text-muted-foreground"
+          >
             {description ?? defaults.description}
           </p>
           {signedInEmail ? (
@@ -149,12 +194,19 @@ export function ResourceAccessScreen({
               })}
             </p>
           ) : null}
-          {signIn || actions || onSwitchAccount ? (
+          {signIn || actions || onSwitchAccount || offersRequest ? (
             <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
               {signIn ? (
                 <ActionButton onPress={signIn}>
                   {t("agentChat.accessGate.signIn", {
                     defaultValue: "Sign in",
+                  })}
+                </ActionButton>
+              ) : null}
+              {offersRequest && !request.sent ? (
+                <ActionButton onPress={() => setRequestOpen(true)}>
+                  {t("agentChat.accessGate.requestAccess", {
+                    defaultValue: "Request access",
                   })}
                 </ActionButton>
               ) : null}
@@ -170,6 +222,96 @@ export function ResourceAccessScreen({
           ) : null}
         </section>
       </div>
+      {offersRequest ? (
+        <RequestAccessDialog
+          open={requestOpen}
+          onOpenChange={setRequestOpen}
+          request={request}
+        />
+      ) : null}
     </Root>
+  );
+}
+
+function RequestAccessDialog({
+  open,
+  onOpenChange,
+  request,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  request: ResourceAccessScreenRequest;
+}) {
+  const t = useT();
+  const [note, setNote] = useState("");
+  const [failed, setFailed] = useState(false);
+  const errorCode = failed ? (request.error?.errorCode ?? null) : null;
+
+  const send = async () => {
+    setFailed(false);
+    try {
+      await request.onRequest(note);
+      setNote("");
+      onOpenChange(false);
+    } catch {
+      setFailed(true);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) setFailed(false);
+        onOpenChange(next);
+      }}
+      title={t("agentChat.accessGate.requestAccess", {
+        defaultValue: "Request access",
+      })}
+      closeLabel={t("agentChat.accessGate.cancel", { defaultValue: "Cancel" })}
+      size="small"
+      footer={
+        <div className="flex justify-end gap-2">
+          <ActionButton emphasis="outline" onPress={() => onOpenChange(false)}>
+            {t("agentChat.accessGate.cancel", { defaultValue: "Cancel" })}
+          </ActionButton>
+          <ActionButton
+            pending={request.sending}
+            disabled={request.sending}
+            onPress={() => void send()}
+          >
+            {t("agentChat.accessGate.sendRequest", {
+              defaultValue: "Send request",
+            })}
+          </ActionButton>
+        </div>
+      }
+    >
+      <TextArea
+        label={t("agentChat.accessGate.requestNoteLabel", {
+          defaultValue: "Note (optional)",
+        })}
+        placeholder={t("agentChat.accessGate.requestNotePlaceholder", {
+          defaultValue: "Add a note for the owner",
+        })}
+        value={note}
+        onChange={setNote}
+        maxLength={500}
+        rows={3}
+        autoFocus
+        errorMessage={
+          failed
+            ? errorCode === "access_request_rate_limited"
+              ? t("agentChat.accessGate.requestRateLimited", {
+                  defaultValue: "Too many requests right now. Try again later.",
+                })
+              : t("agentChat.accessGate.requestFailed", {
+                  defaultValue: "Couldn't send your request. Try again.",
+                })
+            : undefined
+        }
+        invalid={failed}
+      />
+    </Dialog>
   );
 }

@@ -530,6 +530,7 @@
     "./client/review/use-review": "./dist/client/review/use-review.js",
     "./client/settings": "./dist/client/tombstone/settings.js",
     "./client/sharing/share-controller-helpers": "./dist/client/sharing/share-controller-helpers.js",
+    "./client/sharing/useAccessRequestReview": "./dist/client/sharing/useAccessRequestReview.js",
     "./client/sharing/useResourceAccessGate": "./dist/client/sharing/useResourceAccessGate.js",
     "./client/sharing/useShareButtonController": "./dist/client/sharing/useShareButtonController.js",
     "./client/sharing/useShareDialogController": "./dist/client/sharing/useShareDialogController.js",

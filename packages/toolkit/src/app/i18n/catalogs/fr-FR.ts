@@ -1377,6 +1377,38 @@ const messages: ToolkitAgentChatTranslation = {
   "accessGate.signIn": "Se connecter",
   "accessGate.signedInAs": "Vous êtes connecté en tant que {{email}}",
   "accessGate.switchAccount": "Changer de compte",
+  "accessGate.requestDescription":
+    "Demandez l’accès et le propriétaire sera averti.",
+  "accessGate.requestSent": "Demande envoyée. Le propriétaire a été averti.",
+  "accessGate.requestAccess": "Demander l’accès",
+  "accessGate.requestNoteLabel": "Note (facultatif)",
+  "accessGate.requestNotePlaceholder": "Ajouter une note pour le propriétaire",
+  "accessGate.sendRequest": "Envoyer la demande",
+  "accessGate.cancel": "Annuler",
+  "accessGate.requestRateLimited":
+    "Trop de demandes pour le moment. Réessayez plus tard.",
+  "accessGate.requestFailed": "Impossible d’envoyer votre demande. Réessayez.",
+  "accessGate.signedOutRequestDescription":
+    "Connectez-vous pour demander l’accès.",
+  "accessRequest.title": "{{name}} demande l’accès",
+  "accessRequest.approvedTitle": "Accès autorisé",
+  "accessRequest.declinedTitle": "Demande refusée",
+  "accessRequest.allow": "Autoriser",
+  "accessRequest.decline": "Refuser",
+  "accessRequest.unavailableTitle": "Vous ne pouvez pas examiner cette demande",
+  "accessRequest.unavailableDescription":
+    "Elle a peut-être été retirée, ou ce compte ne peut pas gérer l’accès.",
+  "accessRequest.loadFailed": "Impossible de charger cette demande.",
+  "accessRequest.retry": "Réessayer",
+  "accessRequest.decisionFailed":
+    "Impossible d’enregistrer votre décision. Réessayez.",
+  "accessRequest.stale":
+    "Quelqu’un a déjà traité cette demande, ou elle a changé.",
+  "share.accessRequests": "Demandes d’accès",
+  "share.accessRequestsLoadFailed":
+    "Impossible de charger les demandes d’accès.",
+  "share.allowRequestFrom": "Autoriser {{name}}",
+  "share.declineRequestFrom": "Refuser {{name}}",
   "share.add": "Ajouter",
   "share.addPeopleEmail": "Ajouter des personnes par email",
   "share.addPeopleOrganization": "Ajouter des personnes de votre organisation",
