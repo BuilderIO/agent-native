@@ -172,6 +172,25 @@ export function appendChatThreadScopeParams(
   params.set("scopeId", scope.id);
 }
 
+/**
+ * The scope a thread save reports for the thread: a scope, `null` when the
+ * server holds the thread unscoped, `undefined` when the response says nothing
+ * (an older server or an unreadable body), so the local scope is left alone.
+ */
+function savedThreadScope(body: unknown): ChatThreadScope | null | undefined {
+  const record = body as { scope?: unknown } | null;
+  if (!record || typeof record !== "object" || !("scope" in record)) {
+    return undefined;
+  }
+  const scope = record.scope;
+  if (scope === null) return null;
+  if (!scope || typeof scope !== "object") return undefined;
+  const { type, id } = scope as { type?: unknown; id?: unknown };
+  return typeof type === "string" && typeof id === "string"
+    ? (scope as ChatThreadScope)
+    : undefined;
+}
+
 function withChatThreadScope(
   url: string,
   scope?: ChatThreadScope | null,
@@ -377,6 +396,9 @@ export function useChatThreads(
       : new Set(),
   );
   const explicitlyOpenedThreadIdsRef = useRef<Set<string>>(new Set());
+  // Bumped when a thread's scope is changed on purpose (detach), so a save
+  // response that was in flight across the change cannot restore the old scope.
+  const scopeMutationsRef = useRef<Map<string, number>>(new Map());
   const optimisticThreadScopesRef = useRef<Map<string, ChatThreadScope | null>>(
     new Map(),
   );
@@ -969,6 +991,12 @@ export function useChatThreads(
 
   const detachThread = useCallback(
     async (threadId: string): Promise<void> => {
+      const bumpScopeMutation = () =>
+        scopeMutationsRef.current.set(
+          threadId,
+          (scopeMutationsRef.current.get(threadId) ?? 0) + 1,
+        );
+      bumpScopeMutation();
       try {
         const res = await fetch(
           withChatThreadScope(
@@ -985,6 +1013,7 @@ export function useChatThreads(
           await fetchThreads();
           return;
         }
+        bumpScopeMutation();
         knownThreadScopesRef.current.set(threadId, null);
         optimisticThreadScopesRef.current.set(threadId, null);
         const wasActive = activeThreadIdRef.current === threadId;
@@ -1319,6 +1348,7 @@ export function useChatThreads(
         titleSource?: ThreadTitleSource;
       },
     ) => {
+      const scopeEpoch = scopeMutationsRef.current.get(id) ?? 0;
       try {
         const { titleSource, ...threadDataPayload } = data;
         const localThread = threadsRef.current.find((t) => t.id === id);
@@ -1374,6 +1404,15 @@ export function useChatThreads(
           response = await putThread();
         }
         if (!response.ok) return;
+        const reportedScope = savedThreadScope(
+          // coercion-ok: a save response without a readable body carries no scope, and the local scope stays as it was.
+          await response.json().catch(() => null),
+        );
+        // A response that was in flight across a detach describes the thread
+        // as it was before it, so it must not put the old scope back.
+        const scopeChangedDuringSave =
+          (scopeMutationsRef.current.get(id) ?? 0) !== scopeEpoch;
+        const savedScope = scopeChangedDuringSave ? undefined : reportedScope;
         serverConfirmedThreadIdsRef.current.add(id);
         clearClientDraftThreadMarker(id);
         newlyCreatedRef.current.delete(id);
@@ -1400,12 +1439,22 @@ export function useChatThreads(
                       ...(data.messageCount != null && {
                         messageCount: data.messageCount,
                       }),
+                      // The run adopts the scope it was sent with, which the
+                      // visible page at save time may no longer be; take the
+                      // server's, or the active pointer stays under the
+                      // unscoped key and a reload here starts fresh.
+                      ...(savedScope !== undefined
+                        ? { scope: savedScope }
+                        : {}),
                       updatedAt: Date.now(),
                     }
                   : t,
               ),
             );
           }
+          // A thread the list no longer holds because it was detached while
+          // this save ran must not come back under the page's current scope.
+          if (scopeChangedDuringSave) return prev;
           const now = Date.now();
           return sortThreadSummaries([
             {
@@ -1415,7 +1464,10 @@ export function useChatThreads(
               messageCount: data.messageCount ?? 0,
               createdAt: now,
               updatedAt: now,
-              scope: scopeRef.current ?? null,
+              scope:
+                savedScope !== undefined
+                  ? savedScope
+                  : (scopeRef.current ?? null),
             },
             ...prev,
           ]);

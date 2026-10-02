@@ -171,30 +171,12 @@ test.describe("clips recorder", () => {
       });
       await renderedText(page, "beta.clips idle recorder");
       // "Clips recorder" is the mode picker's accessible name, not page text.
-      // An account with no video storage is shown the setup card in its place:
-      // that is the product working, so both idle states are accepted and the
-      // one seen is recorded.
-      const recorderModes = page.getByRole("group", {
-        name: /Clips recorder/i,
-      });
-      const storageSetup = page.getByText(/Connect storage/i).first();
-      const idleState = async () =>
-        (await recorderModes.isVisible())
-          ? "recorder"
-          : (await storageSetup.isVisible())
-            ? "storage-setup"
-            : "neither";
-      await expect
-        .poll(idleState, {
-          timeout: 45_000,
-          message:
-            "beta.clips /record rendered neither the idle recorder's mode picker nor the storage setup card",
-        })
-        .not.toBe("neither");
-      test.info().annotations.push({
-        type: "clips-record-idle-state",
-        description: await idleState(),
-      });
+      // A single-select toggle group is a radiogroup. Recording never asks for
+      // storage first, so an account with no video storage sees it too.
+      await expect(
+        page.getByRole("radiogroup", { name: /Clips recorder/i }),
+        "beta.clips /record did not render the idle recorder's mode picker",
+      ).toBeVisible({ timeout: 45_000 });
       const recorderBody = await renderedText(page, "beta.clips idle recorder");
       expect(recorderBody).not.toMatch(
         /preparing sources|recording your screen|saving your recording|already recording/i,

@@ -6637,7 +6637,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               await import("./credential-provider.js");
 
             return {
-              active: true,
+              active: run.inFlight,
               runId: run.runId,
               threadId: run.threadId,
               turnId: run.turnId,
@@ -7044,7 +7044,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   const incomingScope = parseScopeFromBody(body.scope);
                   await setThreadScope(threadId, owner, incomingScope);
                 }
-                return { ok: true };
+                // The scope the thread really has now (a detach can land
+                // between the read above and this save), so the client records
+                // what the server holds instead of guessing from the page.
+                const saved = await resolveThreadAccess(
+                  owner,
+                  threadId,
+                  "editor",
+                  { orgId },
+                );
+                return { ok: true, scope: saved?.scope ?? null };
               });
             }
 

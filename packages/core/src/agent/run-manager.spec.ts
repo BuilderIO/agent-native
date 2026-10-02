@@ -3695,6 +3695,7 @@ describe("run manager soft timeout", () => {
       turnId: "run-recent-completed",
       status: "completed",
       heartbeatAt: expect.any(Number),
+      inFlight: false,
     });
     expect(getRunByThread).toHaveBeenCalledWith("thread-recent", {
       includeTerminal: true,
@@ -3808,6 +3809,7 @@ describe("run manager soft timeout", () => {
     expect(result).toMatchObject({
       runId: "run-recent-errored",
       status: "errored",
+      inFlight: false,
     });
   });
 
@@ -3839,6 +3841,7 @@ describe("run manager soft timeout", () => {
     expect(result).toMatchObject({
       runId: "run-mem-background",
       status: "running",
+      inFlight: true,
       dispatchMode: "background-processing",
       terminalReason: null,
       diagStage: '{"stage":"worker_started","at":1}',
@@ -3874,6 +3877,7 @@ describe("run manager soft timeout", () => {
     expect(result).toMatchObject({
       runId: "run-mem-terminal",
       status: "completed",
+      inFlight: false,
       dispatchMode: "background-processing",
       terminalReason: "done",
     });
