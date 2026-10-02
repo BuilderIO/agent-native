@@ -34,9 +34,19 @@ function required(name) {
 const baseUrl = required("base-url").replace(/\/+$/, "");
 const email = required("email");
 const password = required("password");
-const rowCount = Number(args.get("rows") ?? 230);
+function positiveInteger(name, fallback) {
+  const raw = args.get(name);
+  if (raw === undefined) return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`--${name} must be a positive integer, got "${raw}"`);
+  }
+  return value;
+}
+
+const rowCount = positiveInteger("rows", 230);
 const title = args.get("title") ?? "Perf Task Priorities";
-const concurrency = Math.max(1, Number(args.get("concurrency") ?? 6));
+const concurrency = positiveInteger("concurrency", 6);
 const allowRegister = args.get("register") !== "false";
 const manifestPath = resolve(
   args.get("manifest") ??
@@ -345,8 +355,32 @@ if (!manifest.databaseId) {
 const databaseId = manifest.databaseId;
 const databaseDocumentId = manifest.databaseDocumentId;
 
-for (const property of PROPERTY_PLAN) {
-  if (manifest.properties[property.key]) continue;
+const pendingProperties = PROPERTY_PLAN.filter(
+  (property) => !manifest.properties[property.key],
+);
+// A run stopped after a property was created but before the manifest saved
+// it leaves that property in the collection; reuse it instead of adding a
+// second one with the same name.
+const existingProperties =
+  pendingProperties.length > 0
+    ? (
+        await readAction(cookie, "get-content-database", {
+          databaseId,
+          limit: "0",
+        })
+      ).properties
+    : [];
+for (const property of pendingProperties) {
+  const existing = existingProperties.find(
+    (candidate) =>
+      candidate.definition.name === property.name &&
+      candidate.definition.type === property.type,
+  );
+  if (existing) {
+    manifest.properties[property.key] = existing.definition.id;
+    saveManifest(manifest);
+    continue;
+  }
   const response = await callAction(cookie, "configure-document-property", {
     documentId: databaseDocumentId,
     databaseId,
