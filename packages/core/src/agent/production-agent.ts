@@ -9962,13 +9962,11 @@ export function createProductionAgentHandler(
     ) {
       try {
         const { getThread } = await import("../chat-threads/store.js");
-        const { threadDataToEngineMessages } =
+        const { resumeThreadHistoryForRequest } =
           await import("./thread-data-builder.js");
-        const priorThreadData = (await getThread(effectiveThreadId))
-          ?.threadData;
-        const resumed = threadDataToEngineMessages(priorThreadData, {
-          includeToolCalls: true,
-        });
+        const resumed = resumeThreadHistoryForRequest(
+          (await getThread(effectiveThreadId))?.threadData,
+        );
         // A continuation always follows a stopped run, so a missing or empty
         // thread means its history was lost, not that there was none.
         if (autoContinueOfRunId && resumed.length === 0) {

@@ -380,4 +380,173 @@ describe("an automatic continuation request", () => {
       expect(textOf(seen[0]!.at(-1))).toMatch(/^Summarize the signups\./);
     },
   );
+
+  describe("resumed history", () => {
+    const stoppedTurn = [
+      {
+        message: {
+          id: "user-1",
+          role: "user",
+          content: [{ type: "text", text: "How many signups last week?" }],
+        },
+      },
+      {
+        message: {
+          id: "assistant-1",
+          role: "assistant",
+          content: [
+            { type: "text", text: "Checking." },
+            {
+              type: "tool-call",
+              toolCallId: "call-1",
+              toolName: "call-agent",
+              args: DELEGATION,
+              result: "412 signups",
+            },
+          ],
+        },
+      },
+    ];
+
+    function priorTurn(n: number, size: number, withTool = true) {
+      return [
+        {
+          message: {
+            id: `old-user-${n}`,
+            role: "user",
+            content: [{ type: "text", text: `q${n} ${"q".repeat(size)}` }],
+          },
+        },
+        {
+          message: {
+            id: `old-assistant-${n}`,
+            role: "assistant",
+            content: [
+              { type: "text", text: `a${n} ${"a".repeat(size)}` },
+              ...(withTool
+                ? [
+                    {
+                      type: "tool-call",
+                      toolCallId: `old-call-${n}`,
+                      toolName: "list-signups",
+                      args: {},
+                      result: `${n} rows`,
+                    },
+                  ]
+                : []),
+            ],
+          },
+        },
+      ];
+    }
+
+    async function resumeFrom(threadData: { messages: unknown[] }) {
+      claimRunSlot.mockReset();
+      claimRunSlot.mockResolvedValue({ claimed: true, activeRunId: null });
+      turnLedger.mockResolvedValue(FINISHED_DELEGATION);
+      vi.mocked(getThread).mockResolvedValueOnce({
+        id: "thread-auto",
+        threadData: JSON.stringify(threadData),
+      } as Awaited<ReturnType<typeof getThread>>);
+      const seen: EngineMessage[][] = [];
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine: repeatingDelegationEngine(seen),
+        actions: {},
+      });
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(autoContinueRequest()),
+      );
+      await new Response(response as ReadableStream).text();
+      turnLedger.mockReset();
+      return seen[0]!;
+    }
+
+    function unpairedToolIds(messages: EngineMessage[]): string[] {
+      return messages.flatMap((message, i) =>
+        message.content.flatMap((part) => {
+          if (part.type === "tool-call") {
+            const answered = messages[i + 1]?.content.some(
+              (next) =>
+                next.type === "tool-result" && next.toolCallId === part.id,
+            );
+            return answered ? [] : [part.id];
+          }
+          if (part.type === "tool-result") {
+            const asked = messages[i - 1]?.content.some(
+              (prev) =>
+                prev.type === "tool-call" && prev.id === part.toolCallId,
+            );
+            return asked ? [] : [part.toolCallId];
+          }
+          return [];
+        }),
+      );
+    }
+
+    it("bounds a long thread's earlier turns but keeps the whole stopped turn", async () => {
+      // The last earlier turn has no tool call, so a plain message-count cut
+      // lands on a tool result whose call it dropped.
+      const resumed = await resumeFrom({
+        messages: [
+          ...Array.from({ length: 30 }, (_, n) => priorTurn(n, 5_000)).flat(),
+          ...priorTurn(30, 5_000, false),
+          ...stoppedTurn,
+        ],
+      });
+
+      const earlier = resumed.slice(0, -4);
+      expect(earlier.length).toBeLessThanOrEqual(12);
+      expect(
+        earlier.reduce((sum, m) => sum + textOf(m).length, 0),
+      ).toBeLessThan(32_000);
+      expect(textOf(earlier.at(-1))).toMatch(/^a30 /);
+      expect(unpairedToolIds(resumed)).toEqual([]);
+      expect(resumed.slice(-4, -1)).toEqual([
+        {
+          role: "user",
+          content: [{ type: "text", text: "How many signups last week?" }],
+        },
+        {
+          role: "assistant",
+          content: [
+            { type: "text", text: "Checking." },
+            {
+              type: "tool-call",
+              id: "call-1",
+              name: "call-agent",
+              input: DELEGATION,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            expect.objectContaining({
+              type: "tool-result",
+              toolCallId: "call-1",
+              content: "412 signups",
+            }),
+          ],
+        },
+      ]);
+      expect(textOf(resumed.at(-1))).toContain("do NOT re-run these");
+    });
+
+    it("keeps a short thread whole, earlier tool calls included", async () => {
+      const threadData = {
+        messages: [...priorTurn(0, 100), ...stoppedTurn],
+      };
+      const { threadDataToEngineMessages } =
+        await import("./thread-data-builder.js");
+
+      const resumed = await resumeFrom(threadData);
+
+      expect(resumed.slice(0, -1)).toEqual(
+        threadDataToEngineMessages(threadData, { includeToolCalls: true }),
+      );
+      expect(resumed).toHaveLength(7);
+    });
+  });
 });
