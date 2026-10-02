@@ -37,13 +37,25 @@ const FEEDBACK_REGEX_CASES = [
   [false, "eyes-only thread"],
 ];
 
-const FEEDBACK_REPLY_TONE_RE =
-  /\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\bclarif(?:ication|y)\b|\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b|\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b[^.!?]{0,80}\b(?:url|link|details?|information|issue)\b|\bclarif(?:ication|y)\b[^.!?]{0,120}\b(?:already|thread|reply|fixed|fixing|solved|found|agent-native|someone|details?|not|unfriendly|robotic|tone|warm|harsh)\b|\bthank(?:s|ed|ing)?\b[^.!?]{0,80}\b(?:first|before|them|reporter)\b|\b(?:didn'?t|doesn'?t|without|skipped|forgot(?:ten)?)\b[^.!?]{0,80}\bthank(?:s|ed|ing)?\b|\b(?:slack|feedback)\b[^.!?\n]{0,120}\b(?:messages?|replies?|updates?)\b[^.!?\n]{0,120}\b(?:way\s+too\s+|too\s+|overly\s+)?(?:technical|detailed|verbose)\b|\b(?:slack|feedback)\b[^.!?\n]{0,120}\b(?:messages?|replies?|updates?)\b[^.!?\n]{0,120}\b(?:high[- ]level|plain[- ]language|non[- ]technical)\b/i;
+const FEEDBACK_REPLY_TONE_RE = new RegExp(
+  [
+    String.raw`\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\bclarif(?:ication|y)\b|\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b|\b(?:again|repeat(?:ed|ing)?|restate|re-?provide)\b[^.!?]{0,80}\b(?:url|link|details?|information|issue)\b|\bclarif(?:ication|y)\b[^.!?]{0,120}\b(?:already|thread|reply|fixed|fixing|solved|found|agent-native|someone|details?|not|unfriendly|robotic|tone|warm|harsh)\b|\bthank(?:s|ed|ing)?\b[^.!?]{0,80}\b(?:first|before|them|reporter)\b|\b(?:didn'?t|doesn'?t|without|skipped|forgot(?:ten)?)\b[^.!?]{0,80}\bthank(?:s|ed|ing)?\b`,
+    String.raw`\b(?:slack|feedback)\b[^.!?\n]{0,120}\b(?:messages?|repl(?:y|ies)|updates?)\b[^.!?\n]{0,120}\b(?:way\s+too\s+|too\s+|overly\s+)?(?:technical|detailed|verbose|high[- ]level|plain[- ]language|non[- ]technical)\b`,
+    String.raw`\b(?:messages?|repl(?:y|ies)|updates?|answers?|status)\b[^.!?\n]{0,100}\b(?:way\s+too\s+|too\s+|overly\s+)?(?:long|wordy|verbose|technical|detailed|unclear)\b`,
+    String.raw`\b(?:shorter|clearer|simpler|brief(?:er)?|concise|plain[- ]language|high[- ]level|non[- ]technical)\b[^.!?\n]{0,100}\b(?:messages?|repl(?:y|ies)|updates?|answers?|status)\b`,
+    String.raw`\b(?:make|keep|write)\b[^.!?\n]{0,80}\b(?:messages?|repl(?:y|ies)|updates?|answers?|status)\b[^.!?\n]{0,100}\b(?:shorter|clearer|simpler|brief(?:er)?|concise|plain[- ]language|high[- ]level|non[- ]technical)\b`,
+  ].join("|"),
+  "i",
+);
 
 const FEEDBACK_REPLY_TONE_REGEX_CASES = [
   [true, "Slack messages are way too technical and detailed for reporters."],
   [true, "Make feedback replies high-level and easy for nontechnical people."],
+  [true, "The feedback reply is too wordy."],
+  [true, "Make the reply shorter and clearer."],
+  [true, "The Slack message is too long."],
   [false, "The technical feedback needs a detailed explanation."],
+  [false, "Please make the test output clearer."],
 ];
 
 const RESOURCE_CLEANUP_TARGET = String.raw`(?:tabs?|browsers?|processes|servers?|node(?:\.js)?|watchers?|repls?)`;

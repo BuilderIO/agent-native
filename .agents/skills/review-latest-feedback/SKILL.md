@@ -472,9 +472,11 @@ Share only new or useful information.
 
 After a Slack-fix PR merges, update each affected thread once, including
 clusters. This is the only exception to the single-owner rule; name the fix.
-For beta app fixes, verify when the update should appear before giving a
-timeframe; if delayed, say it's pending and keep checking. For packages, state
-when the update will be available. Never claim live without runtime proof.
+For beta app fixes, confirm the merge-triggered publisher run succeeded before
+sharing timing. Then state when it should appear in plain language.
+If the run is missing or failed, say publication is pending and keep checking.
+For packages, state when the update will be available. Never claim live without
+runtime proof.
 
 For mixed reports, list each unaddressed item and why, including subjective or
 out-of-scope items. Ask one targeted question if needed. Say clear deferred
