@@ -249,7 +249,7 @@ where it names Annotate or the old toolbar.
 - 2026-10-02: Zoom ends 8px before the inspector's left edge. TOP-11.
 - 2026-10-02: Theme and Nudge amount live in App menu › Preferences, not Settings. SET-05.
 - 2026-10-02: The Frame tool's presets use Shawn's list: seven icon groups (Phone, Tablet, Desktop, Presentation, Smartwatch, Paper, Social media), current devices, paper in points, no Ad unit. INSP-05, INSP-06.
-- 2026-10-02: A screen's Source shows only for URL screens, as one row; Position's device sizes open the Frame tool's preset list. INSP-07, INSP-08.
+- 2026-10-02: Position's device sizes open the Frame tool's preset list. INSP-08.
 - 2026-10-02: Responsive design drops the breakpoint mode. A frame is a frame with width presets from tokens; responsive rules live on layers and compile to container queries with token thresholds; the agent writes them; fixed widths are only viewports to check. RESP-04, RESP-05, RESP-06, RESP-07, RESP-08, RESP-09.
 
 ## Open questions

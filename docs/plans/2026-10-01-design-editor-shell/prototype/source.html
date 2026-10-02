@@ -1091,9 +1091,13 @@ const boundToken = () => RESP.tok && RESP.tok[1] === RESP.w ? RESP.tok : null;
 const frameToken = () => boundToken() || nearestToken(RESP.w);
 const widthMenu = (cur, run) => { const [name, , kind] = (cur === RESP.w ? frameToken() : nearestToken(cur)) || []; return [{ label: "Container" }, ...widthTokens("container").map(([n, px]) => ({ t: n, k: String(px), radio: true, on: kind === "container" && name === n, run: () => run(px, [n, px, "container"]) })), "-", { label: "Breakpoint" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: n, k: String(px), radio: true, on: kind === "breakpoint" && name === n, run: () => run(px, [n, px, "breakpoint"]) }))]; };
 const whenMenu = (r) => [{ label: "Container (this layer's parent)" }, ...widthTokens("container").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), radio: true, on: r.scale === "container" && r.token === n, run: () => { r.scale = "container"; r.token = n; renderPage(); renderInspector(); } })), "-", { label: "Breakpoint (the frame)" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), radio: true, on: r.scale === "breakpoint" && r.token === n, run: () => { r.scale = "breakpoint"; r.token = n; renderPage(); renderInspector(); } }))];
-// Source only shows for a URL screen (a live page, usually a connected local app); static screens have nothing to choose.
-const SRC = { live: true, url: "localhost:5173/home" };
-const urlScreen = () => S.scenario === "local";
+// A URL screen is like an instance of your app's route: it shows where it comes from, its Route row swaps the
+// route, and Detach from app freezes it as a static copy. Static screens have no source UI at all.
+const SRC = { live: true, app: "localhost:5173", apps: [["Agent-Native Web", "localhost:5173"]] };
+const urlScreen = () => S.scenario === "local" && SRC.live;
+const routeMenu = () => [...SRC.apps.flatMap(([name, host]) => [{ label: `${name} · ${host}` }, ...ROUTES.map(r => ({ icon: "world", t: r.path, k: r.screen, radio: true, on: S.route === r.path, run: () => { S.screenSel = true; go(r.path); } }))]),
+  { t: "Custom path…", toast: "Type a path on this app, like /plans" }, "-",
+  { icon: "file-code", t: "Detach from app", run: () => { SRC.live = false; render(); toast("Detached. This screen is now a static copy of the page; ⌘Z to undo."); } }];
 // Device sizes use the Frame tool's list, so there's one set of presets; a device sets W and a fixed H.
 const deviceMenu = () => FRAME_PRESETS.map(([key, label, icon, list]) => ({ icon, t: label, sub: list.map(([n, w, h]) => ({ t: n, k: `${w}\u2009×\u2009${h}`, radio: true, on: RESP.w === w && RESP.h === h, run: () => { RESP.h = h; setFrameWidth(w); } })) }));
 // The selected screen's frame, in the code's order: Screen, Position (X/Y, size with device presets),
@@ -1103,9 +1107,9 @@ function renderScreenInspector(el) {
   const wField = tok
     ? `<label class="inp tokfield"><span class="pre">W</span><button class="tok-chip" data-w-menu title="${tok[2] === "breakpoint" ? "Breakpoint" : "Container"} ${tok[0]} · ${tok[1]}px">${ic("assembly", "s12")}${tok[0]}</button><button class="post" data-w-menu aria-haspopup="menu" title="Width tokens">${ic("chevron-down", "s12")}</button></label>`
     : `<label class="inp"><span class="pre">W</span><input id="screen-w" value="${RESP.w}" aria-label="Frame width" inputmode="numeric"><button class="post" data-w-menu aria-haspopup="menu" title="Width tokens">${ic("chevron-down", "s12")}</button></label>`;
-  el.innerHTML = `<div class="sel-head"><div class="g"><span class="nm">${ic("frame", "s14")}<span>${screenName()}</span></span><span class="muted" style="font-size:12px">${S.route}</span></div></div>
+  el.innerHTML = `<div class="sel-head"><div class="g"><span class="nm">${ic("frame", "s14")}<span>${screenName()}</span></span><span class="muted" style="font-size:12px" title="${urlScreen() ? "Live route from your connected app" : ""}">${urlScreen() ? SRC.app : S.route}</span></div></div>
     <div class="insp-scroll">
-    ${urlScreen() ? sec("screen", "Screen", "", `<div class="src-row"><span class="flabel">Source</span><button class="inp sel" data-src-menu aria-haspopup="menu">${ic(SRC.live ? "world" : "file-code", "s12")}<span>${SRC.live ? SRC.url : "Static snapshot"}</span>${ic("chevron-down", "s12")}</button></div>`) : ""}
+    ${urlScreen() ? sec("screen", "Screen", "", `<div class="src-row"><span class="flabel">Route</span><button class="inp sel" data-route-menu aria-haspopup="menu">${ic("world", "s12")}<span>${S.route}</span>${ic("chevron-down", "s12")}</button></div>`) : ""}
     ${sec("position", "Position", `<button class="icon-btn xs" data-device-menu aria-haspopup="menu" title="Device sizes">${ic("devices")}</button>`, `
       <div class="g5">${field("Position", inp("X", "0px"))}${field("&nbsp;", inp("Y", "0px"), "c3")}</div>
       <div class="g5">${field("Size", wField)}${field("&nbsp;", `<label class="inp"><span class="pre">H</span><input id="screen-h" value="${RESP.h ? RESP.h : "Hug"}" aria-label="Frame height"></label>`, "c3")}</div>`)}
@@ -1127,8 +1131,9 @@ document.addEventListener("click", e => {
   const t = e.target;
   if (t.closest?.("[data-select-screen]")) { S.screenSel = true; S.multi = []; renderTree(); renderPage(); renderInspector(); return; }
   const dm = t.closest?.("[data-device-menu]"); if (dm) return openMenu(dm, deviceMenu(), { align: "right" });
-  const sm = t.closest?.("[data-src-menu]");
-  if (sm) return openMenu(sm, [{ icon: "world", t: "Live URL", k: SRC.url, radio: true, on: SRC.live, run: () => { SRC.live = true; renderInspector(); } }, { icon: "file-code", t: "Static snapshot", radio: true, on: !SRC.live, run: () => { SRC.live = false; renderInspector(); toast("Saved the current page as a static snapshot"); } }, "-", { t: "Change URL…", toast: "Edits the screen URL (/plans or http://localhost:5173/plans)" }, { t: "Choose local app…", toast: "Picks one of the connected local apps" }]);
+  const rm = t.closest?.("[data-route-menu]"); if (rm) return openMenu(rm, routeMenu(), { minWidth: 220 });
+  const as = t.closest?.("[data-add-screen]");
+  if (as) return openMenu(as, [{ icon: "frame", t: "Blank screen", toast: "Adds a blank screen; press F for device sizes" }, ...(S.scenario === "local" ? [{ icon: "world", t: "From your app…", toast: "Lists your app's routes to add as live screens (Add a screen from your app)" }] : [{ icon: "world", t: "From your app…", toast: "Connect your app first: run agent-native design connect in its repo" }])], { align: "right" });
   const wm = t.closest?.("[data-w-menu]");
   if (wm) return openMenu(wm.closest(".inp") || wm, [...widthMenu(RESP.w, (px, tok) => setFrameWidth(px, false, tok)), ...(boundToken() ? ["-", { t: "Detach token", run: () => setFrameWidth(RESP.w) }] : [])]);
   if (t.closest?.("[data-resp-add]")) { const root = !FLAT[S.selected]?.parent; RESP.rules.push({ id: RESP.nextId++, node: S.selected, scale: root ? "breakpoint" : "container", token: root ? "md" : "md", change: respChoices(S.selected)[0] }); renderPage(); renderInspector(); return; }
@@ -1172,7 +1177,7 @@ function rowHTML({ depth = 0, disc = null, icon, label, id, selected, cls = "", 
 }
 function renderTree() {
   const t = $("#tree");
-  let h = `<div class="sec-head"><button class="sec-toggle" data-sec="screens" aria-expanded="${S.screens}"><span class="chev">${ic("chevron-down", "s12")}</span>Screens</button><div class="sec-actions"><button class="icon-btn sm" title="Add screen" data-toast="Adds a screen to this design">${ic("plus", "s12")}</button></div></div>`;
+  let h = `<div class="sec-head"><button class="sec-toggle" data-sec="screens" aria-expanded="${S.screens}"><span class="chev">${ic("chevron-down", "s12")}</span>Screens</button><div class="sec-actions"><button class="icon-btn sm" title="Add screen" data-add-screen aria-haspopup="menu">${ic("plus", "s12")}</button></div></div>`;
   if (S.screens) {
     h += `<div class="sec-block" role="tree" aria-label="Screens">`;
     h += screenRow("all", ic("layout-grid"), "All screens", S.route === "*");

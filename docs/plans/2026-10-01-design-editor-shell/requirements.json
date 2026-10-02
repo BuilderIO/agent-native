@@ -866,14 +866,14 @@
         },
         {
           "id": "INSP-07",
-          "status": "decided",
+          "status": "proposed",
           "today": "Every selected screen shows a Source segmented control, Static | URL (`update-screen-source`). URL reveals a Screen URL field with Update and, with more than one connected app, Choose local app. The Static label reuses `editPanel.positionOptions.static`, the Position option of the same name.",
-          "change": "Source shows only for a URL screen (a live page, usually a connected local app), as one row: Source, then the URL with a menu holding Live URL, Static snapshot, Change URL…, and Choose local app…. A static screen has no Source row, and no Screen section when that leaves it empty. Static snapshot gets its own string instead of the Position option's.",
+          "change": "Treat a URL screen like an instance of your app's route, and drop the Source control. Static screens show no source UI at all. A URL screen's header names its app (`localhost:5173`), and its Screen section is one Route row (`/home ▾`) whose menu lists the connected app's routes, grouped by app when more than one is connected (replacing Choose local app), then Custom path… and Detach from app, which freezes the page as a static copy (⌘Z to undo). Adding a route as a screen moves to Screens' + menu (Blank screen, From your app…), the code's “Add a screen from your app” flow. Converting a static mock to a route stays available to the agent (`update-screen-source`) but not as a toggle. “Static snapshot” no longer needs its own string.",
           "refs": [
             "templates/design/app/components/design/EditPanel.tsx#editPanel.screenSource.title",
             "templates/design/actions/update-screen-source.ts#static HTML and a live localhost URL"
           ],
-          "prototype": "Scenario: Local app screen, then select the screen."
+          "prototype": "Scenario: Local app screen, select the screen, then open Route. Screens' + shows From your app…."
         },
         {
           "id": "INSP-08",
