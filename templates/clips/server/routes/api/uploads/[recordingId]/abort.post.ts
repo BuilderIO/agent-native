@@ -112,15 +112,21 @@ export async function handleAbortRecordingUpload(
     "Recording cancelled during countdown",
     "Upload cancelled",
   ]);
-  const normalizedFailureCode = !reasonText
-    ? "unknown"
-    : requestedFailureCode === "unknown" &&
-        legacyCancellationReasons.has(reasonText)
-      ? "user_cancelled"
-      : requestedFailureCode;
+  const legacyInterruptionReasons = new Set([
+    "Recording interruption has unknown cause",
+    "The recorder page closed before the recording finished saving.",
+  ]);
+  const normalizedFailureCode =
+    requestedFailureCode !== "unknown"
+      ? requestedFailureCode
+      : legacyCancellationReasons.has(reasonText)
+        ? "user_cancelled"
+        : legacyInterruptionReasons.has(reasonText)
+          ? "recording_interrupted"
+          : "upload_aborted";
   const failureCode =
     (normalizedFailureCode === "upload_failed" ||
-      normalizedFailureCode === "unknown") &&
+      normalizedFailureCode === "upload_aborted") &&
     isHtmlFailure
       ? "chunk_html_error"
       : normalizedFailureCode;

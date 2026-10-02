@@ -293,6 +293,11 @@ import {
 export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
 
+type AgentChatRunTrackingSource = Pick<
+  TrackingMeta,
+  "userId" | "authUserId" | "anonymousId" | "sessionId"
+> & { isSyntheticTraffic?: boolean };
+
 export function trackAgentChatRunLifecycle(
   event: "run_started" | "run_finished" | "run_no_reply",
   threadId: string | undefined,
@@ -300,8 +305,15 @@ export function trackAgentChatRunLifecycle(
   userId?: string,
   properties: Record<string, unknown> = {},
   appId?: string,
+  trackingSource?: AgentChatRunTrackingSource,
 ): void {
-  if (!threadId?.trim() || !attemptId?.trim()) return;
+  if (
+    !threadId?.trim() ||
+    !attemptId?.trim() ||
+    trackingSource?.isSyntheticTraffic === true
+  ) {
+    return;
+  }
   track(
     event,
     {
@@ -310,7 +322,7 @@ export function trackAgentChatRunLifecycle(
       thread_id: threadId,
       attempt_id: attemptId,
     },
-    runLifecycleTrackingSource(userId),
+    trackingSource ?? runLifecycleTrackingSource(userId),
   );
 }
 
@@ -3497,6 +3509,7 @@ export function createAgentChatPlugin(
       const onRunComplete = async (
         run: ActiveRun,
         threadId: string | undefined,
+        trackingSource?: AgentChatRunTrackingSource,
       ) => {
         const runThreadId = String(run?.threadId ?? threadId ?? "");
         const chatScope = getRequestRunContext()?.chatScope;
@@ -3537,6 +3550,7 @@ export function createAgentChatPlugin(
               : {}),
           },
           options?.appId,
+          trackingSource,
         );
         if (!assistantMsg) {
           trackAgentChatRunLifecycle(
@@ -3546,6 +3560,7 @@ export function createAgentChatPlugin(
             getRequestRunContext()?.owner,
             {},
             options?.appId,
+            trackingSource,
           );
         }
         if (!threadId) {
@@ -4646,9 +4661,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             { threadId, runId },
           );
         },
-        onRunComplete: async (run: ActiveRun, threadId: string | undefined) => {
+        onRunComplete: async (
+          run: ActiveRun,
+          threadId: string | undefined,
+          trackingSource?: AgentChatRunTrackingSource,
+        ) => {
           if (threadId) _runSendByThread.delete(threadId);
-          await onRunComplete(run, threadId);
+          await onRunComplete(run, threadId, trackingSource);
         },
         resolveAdditionalActions: ({ ownerEmail, orgId }) =>
           getMcpActionEntriesForPrincipal(ownerEmail, orgId),
@@ -4723,9 +4742,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               onRunComplete: async (
                 run: ActiveRun,
                 threadId: string | undefined,
+                trackingSource?: AgentChatRunTrackingSource,
               ) => {
                 if (threadId) _runSendByThread.delete(threadId);
-                await onRunComplete(run, threadId);
+                await onRunComplete(run, threadId, trackingSource);
               },
               resolveOwnerEmail: getOwnerFromEvent,
             })
@@ -5002,9 +5022,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           onRunComplete: async (
             run: ActiveRun,
             threadId: string | undefined,
+            trackingSource?: AgentChatRunTrackingSource,
           ) => {
             if (threadId) _runSendByThread.delete(threadId);
-            await onRunComplete(run, threadId);
+            await onRunComplete(run, threadId, trackingSource);
           },
         });
       }

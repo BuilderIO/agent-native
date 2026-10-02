@@ -475,6 +475,38 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     );
   });
 
+  it("reports generation when a stylesheet is saved for an existing design", async () => {
+    setExistingFile("<html><body>old</body></html>");
+
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Update the stylesheet",
+      files: [
+        {
+          filename: "styles.css",
+          fileType: "css",
+          content: "body { color: black; }",
+        },
+      ],
+    });
+
+    expect(result.savedFiles).toMatchObject([
+      { filename: "styles.css", fileType: "css" },
+    ]);
+    expect(track).toHaveBeenCalledWith(
+      "generation_completed",
+      expect.objectContaining({
+        app_name: "design",
+        output_id: "design-1",
+        output_type: "design",
+        file_count: 1,
+        outcome: "completed",
+        source: "generate_design_action",
+      }),
+      undefined,
+    );
+  });
+
   it("reports (never throws) the conflict when the live content changed since it was read (concurrent write)", async () => {
     setExistingFile("<html><body>old</body></html>");
 
