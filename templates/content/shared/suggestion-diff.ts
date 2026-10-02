@@ -2,7 +2,9 @@ import { canonicalizeNfm } from "./nfm.js";
 import {
   suggestionFormattingChanges,
   suggestionMarkedSourceRanges,
+  suggestionSourceAlignment,
   SuggestionFormattingMappingError,
+  type SuggestionSourceAlignment,
 } from "./suggestion-formatting.js";
 import { resolveMarkdownSuggestionRange } from "./suggestion-rebase.js";
 
@@ -838,8 +840,13 @@ export function markdownSuggestionOperationsForEditorRevision(input: {
       },
     ];
   }
-  const editorBefore = canonicalizeNfm(input.before);
+  const alignment = suggestionSourceAlignment(input.before);
+  const editorBefore = alignment
+    ? alignment.canonical
+    : canonicalizeNfm(input.before);
   const replacements = input.replacements.map(({ from, to }) => {
+    const aligned = alignment && alignedRange(alignment, from, to, "stored");
+    if (aligned) return aligned;
     const changedText = input.before.slice(from, to);
     const range = resolveMarkdownSuggestionRange(editorBefore, {
       before: { markdown: input.before, changedText },
@@ -854,47 +861,142 @@ export function markdownSuggestionOperationsForEditorRevision(input: {
     if (!range) throw new SuggestionFormattingMappingError();
     return range;
   });
+  const operations = markdownSuggestionOperationsForReplacements({
+    before: editorBefore,
+    after: input.after,
+    replacements,
+  });
   return isolateSiblingAnchorContexts(
-    markdownSuggestionOperationsForReplacements({
-      before: editorBefore,
-      after: input.after,
-      replacements,
-    }).map((operation, ordinal) => {
-      const range = resolveMarkdownSuggestionRange(input.before, operation);
-      if (!range) throw new SuggestionFormattingMappingError();
-      return operationForChange(
+    (alignment &&
+      alignedStoredOperations(
         input.before,
+        input.after,
+        operations,
+        alignment,
+      )) ??
+      operations.map((operation, ordinal) => {
+        const range = resolveMarkdownSuggestionRange(input.before, operation);
+        if (!range) throw new SuggestionFormattingMappingError();
+        return operationForChange(
+          input.before,
+          range.from,
+          range.to,
+          operation.after.changedText,
+          ordinal,
+        );
+      }),
+  );
+}
+
+function alignedRange(
+  alignment: SuggestionSourceAlignment,
+  from: number,
+  to: number,
+  side: "canonical" | "stored",
+) {
+  const alignedFrom = alignment.map(from, side);
+  const alignedTo = alignment.map(to, side);
+  return alignedFrom === null || alignedTo === null
+    ? null
+    : { from: alignedFrom, to: alignedTo };
+}
+
+function alignedStoredOperations(
+  before: string,
+  after: string,
+  operations: MarkdownSuggestionOperation[],
+  alignment: SuggestionSourceAlignment,
+): MarkdownSuggestionOperation[] | null {
+  const stored: MarkdownSuggestionOperation[] = [];
+  for (const operation of operations) {
+    const range = alignedRange(
+      alignment,
+      operation.anchor.from,
+      operation.anchor.to,
+      "canonical",
+    );
+    if (!range) return null;
+    stored.push(
+      operationForChange(
+        before,
         range.from,
         range.to,
         operation.after.changedText,
-        ordinal,
-      );
-    }),
-  );
+        stored.length,
+      ),
+    );
+  }
+  let reconstructed = before;
+  for (const operation of [...stored].reverse())
+    reconstructed =
+      reconstructed.slice(0, operation.anchor.from) +
+      operation.after.changedText +
+      reconstructed.slice(operation.anchor.to);
+  // An edit spanning a gap writes the editor's syntax for it, which a stored
+  // pipe table cannot hold; only a reparse shows the page still matches.
+  return reconstructed === after ||
+    canonicalizeNfm(reconstructed) === canonicalizeNfm(after)
+    ? stored
+    : null;
+}
+
+// Replays the operations onto the base's canonical form; the result must be
+// the draft byte for byte, so every anchor lands where the editor shows it.
+function alignedDraftAnchors(
+  operations: readonly MarkdownSuggestionOperation[],
+  draft: string,
+): MarkdownSuggestionOperation["anchor"][] | null {
+  const alignment = suggestionSourceAlignment(operations[0]!.before.markdown);
+  if (!alignment) return null;
+  const ranges: Array<{ from: number; to: number }> = [];
+  let reconstructed = "";
+  let cursor = 0;
+  for (const operation of operations) {
+    const range = alignedRange(
+      alignment,
+      operation.anchor.from,
+      operation.anchor.to,
+      "stored",
+    );
+    if (!range || range.from < cursor) return null;
+    reconstructed += alignment.canonical.slice(cursor, range.from);
+    ranges.push({
+      from: reconstructed.length,
+      to: reconstructed.length + operation.after.changedText.length,
+    });
+    reconstructed += operation.after.changedText;
+    cursor = range.to;
+  }
+  if (reconstructed + alignment.canonical.slice(cursor) !== draft) return null;
+  return ranges.map(({ from, to }) => ({
+    from,
+    to,
+    prefix: draft.slice(Math.max(0, from - 32), from),
+    suffix: draft.slice(to, to + 32),
+  }));
 }
 
 export function draftSuggestionAnchors(
   operations: readonly MarkdownSuggestionOperation[],
   draft: string,
 ): MarkdownSuggestionOperation["anchor"][] {
-  const canonical = operations.every(
-    (operation) =>
-      canonicalizeNfm(operation.after.markdown) === operation.after.markdown,
-  );
-  let proposedRaw = operations[0]?.before.markdown ?? draft;
+  if (operations.length === 0) return [];
+  const aligned = alignedDraftAnchors(operations, draft);
+  if (aligned) return aligned;
+  let proposedRaw = operations[0]!.before.markdown;
   for (const operation of [...operations].reverse()) {
     proposedRaw =
       proposedRaw.slice(0, operation.anchor.from) +
       operation.after.changedText +
       proposedRaw.slice(operation.anchor.to);
   }
-  const parts = canonical ? null : diffParts(proposedRaw, draft);
-  if (!canonical && !parts) throw new SuggestionFormattingMappingError();
+  const parts = diffParts(proposedRaw, draft);
+  if (!parts) throw new SuggestionFormattingMappingError();
   const boundaryMap = new Array<number>(proposedRaw.length + 1);
   let rawOffset = 0;
   let draftOffset = 0;
   boundaryMap[0] = 0;
-  for (const part of parts ?? []) {
+  for (const part of parts) {
     if (part.type === "insert") {
       draftOffset += part.text.length;
       boundaryMap[rawOffset] = draftOffset;
@@ -906,27 +1008,11 @@ export function draftSuggestionAnchors(
       boundaryMap[rawOffset] = draftOffset;
     }
   }
-  if (
-    !canonical &&
-    (rawOffset !== proposedRaw.length || draftOffset !== draft.length)
-  )
+  if (rawOffset !== proposedRaw.length || draftOffset !== draft.length)
     throw new SuggestionFormattingMappingError();
 
   let delta = 0;
   return operations.map((operation) => {
-    if (canonical) {
-      const from = operation.anchor.from + delta;
-      const to = from + operation.after.changedText.length;
-      delta +=
-        operation.after.changedText.length -
-        operation.before.changedText.length;
-      return {
-        from,
-        to,
-        prefix: draft.slice(Math.max(0, from - 32), from),
-        suffix: draft.slice(to, to + 32),
-      };
-    }
     const rawFrom = operation.anchor.from + delta;
     const rawTo = rawFrom + operation.after.changedText.length;
     const from = boundaryMap[rawFrom];
