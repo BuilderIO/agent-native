@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  formatMobileModelLabel,
   getMobileAgentId,
   getMobileModelGroups,
   MOBILE_AGENT_OPTIONS,
@@ -22,6 +23,18 @@ describe("mobile model picker", () => {
     expect(getMobileAgentId("codex-cli")).toBe("codex");
     expect(getMobileAgentId("claude-cli")).toBe("claude-code");
     expect(getMobileAgentId("ai-sdk:openai")).toBe("default");
+  });
+
+  it("shows current provider model versions", () => {
+    expect(formatMobileModelLabel("claude-sonnet-5-5")).toBe("Sonnet 5.5");
+    expect(formatMobileModelLabel("anthropic/claude-opus-5.5")).toBe(
+      "Opus 5.5",
+    );
+    expect(formatMobileModelLabel("claude-haiku-4-5-20251001")).toBe(
+      "Haiku 4.5",
+    );
+    expect(formatMobileModelLabel("openai/gpt-6-luna")).toBe("GPT-6 Luna");
+    expect(formatMobileModelLabel("gemini-3-8-flash")).toBe("Gemini 3.8 Flash");
   });
 
   it("keeps hosted model groups on Default and selects a local model by agent", () => {

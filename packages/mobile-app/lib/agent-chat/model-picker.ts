@@ -58,13 +58,32 @@ export function getMobileAgentLabel(engine: string | undefined): string {
 
 export function formatMobileModelLabel(model: string | undefined): string {
   if (!model) return "Auto";
-  const raw = model.replace(/-\d{8}$/, "");
-  if (/sonnet/i.test(raw)) return "Sonnet 5";
-  if (/opus/i.test(raw)) return "Opus 3.5";
-  if (/haiku/i.test(raw)) return "Haiku 3.5";
+  const raw = model
+    .split("/")
+    .pop()!
+    .replace(/-\d{8}$/, "");
+  const claude = raw.match(/^claude-(sonnet|opus|haiku)-(\d+(?:[-.]\d+)?)$/i);
+  if (claude) {
+    const family = claude[1]![0]!.toUpperCase() + claude[1]!.slice(1);
+    return `${family} ${claude[2]!.replace("-", ".")}`;
+  }
   if (/gpt-4o/i.test(raw)) return "GPT-4o";
-  if (/gpt-5-6-luna/i.test(raw)) return "GPT-5.6 Luna";
-  if (/gemini/i.test(raw)) return "Gemini 2.0";
+  const gpt = raw.match(
+    /^gpt-(\d+)(?:[.-](\d+))?(?:-(luna|sol|terra|mini|codex-mini))?$/i,
+  );
+  if (gpt) {
+    const version = gpt[2] ? `${gpt[1]}.${gpt[2]}` : gpt[1];
+    const suffix = gpt[3]?.replaceAll("-", " ");
+    return `GPT-${version}${suffix ? ` ${suffix[0]!.toUpperCase()}${suffix.slice(1)}` : ""}`;
+  }
+  const gemini = raw.match(
+    /^gemini-(\d+)(?:[.-](\d+))?-(flash(?:-lite)?|pro)(?:-preview)?$/i,
+  );
+  if (gemini) {
+    const version = gemini[2] ? `${gemini[1]}.${gemini[2]}` : gemini[1];
+    const variant = gemini[3]!.replaceAll("-", " ");
+    return `Gemini ${version} ${variant[0]!.toUpperCase()}${variant.slice(1)}`;
+  }
   return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 

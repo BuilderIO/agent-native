@@ -236,7 +236,7 @@ type CreateMenuView =
 const AGENT_MODEL_OPTIONS = [
   { value: "inherit", label: "Default model" },
   { value: "claude-fable-5", label: "Claude Fable 5" },
-  { value: "claude-opus-4-8", label: "Claude Opus 4.8" },
+  { value: "claude-opus-5-5", label: "Claude Opus 5.5" },
   { value: CLAUDE_SONNET_MODEL_ID, label: CLAUDE_SONNET_MODEL_LABEL },
   { value: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
 ] as const;

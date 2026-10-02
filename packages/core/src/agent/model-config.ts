@@ -4,6 +4,7 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "claude-opus-4-8": 1_000_000,
   "claude-opus-4-7": 1_000_000,
   "claude-sonnet-5": 1_000_000,
+  "claude-sonnet-5-5": 1_000_000,
   "claude-sonnet-4-6": 1_000_000,
   "claude-haiku-4-5": 200_000,
   "claude-haiku-4-5-20251001": 200_000,
@@ -21,6 +22,7 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   "anthropic/claude-opus-4.8": 1_000_000,
   "anthropic/claude-opus-4.7": 1_000_000,
   "anthropic/claude-sonnet-5": 1_000_000,
+  "anthropic/claude-sonnet-5.5": 1_000_000,
   "anthropic/claude-sonnet-4.6": 1_000_000,
   "openai/gpt-5.6-sol": 1_050_000,
   "openai/gpt-5.6-terra": 1_050_000,
@@ -93,6 +95,7 @@ const MODEL_MAX_OUTPUT_TOKENS: Record<string, number> = {
   "claude-opus-4-8": 128_000,
   "claude-opus-4-7": 128_000,
   "claude-sonnet-5": 128_000,
+  "claude-sonnet-5-5": 128_000,
   "claude-sonnet-4-6": 128_000,
   "claude-haiku-4-5": 64_000,
   "claude-haiku-4-5-20251001": 64_000,
@@ -106,6 +109,7 @@ const MODEL_MAX_OUTPUT_TOKENS: Record<string, number> = {
   "anthropic/claude-opus-4.8": 128_000,
   "anthropic/claude-opus-4.7": 128_000,
   "anthropic/claude-sonnet-5": 128_000,
+  "anthropic/claude-sonnet-5.5": 128_000,
   "anthropic/claude-sonnet-4.6": 128_000,
   "openai/gpt-5.6-sol": 40_000,
   "openai/gpt-5.6-terra": 40_000,
@@ -162,18 +166,12 @@ export function getMaxOutputTokensForModel(
   return DEFAULT_MAX_OUTPUT_TOKENS_CEILING;
 }
 
-const ENABLE_CLAUDE_SONNET_5 = true;
+export const CLAUDE_SONNET_MODEL_ID = "claude-sonnet-5-5";
+export const CLAUDE_SONNET_MODEL_LABEL = "Claude Sonnet 5.5";
 
-export const CLAUDE_SONNET_MODEL_ID = ENABLE_CLAUDE_SONNET_5
-  ? "claude-sonnet-5"
-  : "claude-sonnet-4-6";
-export const CLAUDE_SONNET_MODEL_LABEL = ENABLE_CLAUDE_SONNET_5
-  ? "Claude Sonnet 5"
-  : "Claude Sonnet 4.6";
-
-const OPENROUTER_CLAUDE_SONNET_MODEL_ID = ENABLE_CLAUDE_SONNET_5
-  ? "anthropic/claude-sonnet-5"
-  : "anthropic/claude-sonnet-4.6";
+// The Builder gateway still accepts Sonnet 5 while direct Anthropic serves 5.5.
+const BUILDER_CLAUDE_SONNET_MODEL_ID = "claude-sonnet-5";
+const OPENROUTER_CLAUDE_SONNET_MODEL_ID = "anthropic/claude-sonnet-5.5";
 
 const ANTHROPIC_DEFAULT_MODEL_ID = CLAUDE_SONNET_MODEL_ID;
 
@@ -181,7 +179,7 @@ function openRouterModelId(provider: string, model: string): string {
   return `${provider}/${model}`;
 }
 
-const FRAMEWORK_DEFAULT_OPENAI_MODEL = "gpt-5.6-luna";
+const FRAMEWORK_DEFAULT_OPENAI_MODEL = "gpt-6-luna";
 const FRAMEWORK_DEFAULT_BUILDER_MODEL = "gpt-6-luna";
 const FRAMEWORK_DEFAULT_OPENROUTER_MODEL = openRouterModelId(
   "openai",
@@ -194,14 +192,19 @@ export const AGENT_MODEL_CONFIG = {
     supportedModels: [
       "auto",
       "claude-haiku-4-5",
-      CLAUDE_SONNET_MODEL_ID,
+      BUILDER_CLAUDE_SONNET_MODEL_ID,
       "claude-opus-5-5",
+      "gpt-5-4",
+      "gpt-5-5",
+      "gpt-5-4-mini",
+      "gpt-5-1-codex-mini",
       "gpt-6-sol",
       "gpt-5-6-terra",
       "gpt-6-luna",
       "gemini-3-1-pro",
       "gemini-3-8-flash",
       "gemini-3-5-flash-lite",
+      "gemini-3-1-flash-lite",
       "grok-code-fast",
       "qwen3-coder",
       "kimi-k2-5",
@@ -235,8 +238,8 @@ export const AGENT_MODEL_CONFIG = {
     openai: {
       defaultModel: FRAMEWORK_DEFAULT_OPENAI_MODEL,
       supportedModels: [
-        "gpt-5.6-luna",
         "gpt-6-luna",
+        "gpt-5.6-luna",
         "gpt-5.6-terra",
         "gpt-5.6-sol",
         "gpt-6-sol",
@@ -245,8 +248,8 @@ export const AGENT_MODEL_CONFIG = {
     openrouter: {
       defaultModel: FRAMEWORK_DEFAULT_OPENROUTER_MODEL,
       supportedModels: [
-        "openai/gpt-5.6-luna",
         "openai/gpt-6-luna",
+        "openai/gpt-5.6-luna",
         "openai/gpt-5.6-terra",
         "openai/gpt-5.6-sol",
         "openai/gpt-6-sol",

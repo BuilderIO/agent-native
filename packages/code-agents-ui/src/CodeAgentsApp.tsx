@@ -586,8 +586,8 @@ const DEFAULT_CODE_AGENT_MODEL_OPTIONS: CodeAgentModelOption[] = [
   {
     engine: "ai-sdk:openai",
     engineLabel: "OpenAI",
-    model: "gpt-5.6-luna",
-    label: "GPT-5.6 Luna",
+    model: "gpt-6-luna",
+    label: "GPT-6 Luna",
     description: "Model list is loading.",
     configured: false,
   },

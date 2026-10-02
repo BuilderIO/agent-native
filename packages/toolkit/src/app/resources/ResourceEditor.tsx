@@ -179,7 +179,7 @@ function FrontmatterBar({
           >
             <option value="inherit">Default model</option>
             <option value="claude-fable-5">Claude Fable 5</option>
-            <option value="claude-opus-4-8">Claude Opus 4.8</option>
+            <option value="claude-opus-5-5">Claude Opus 5.5</option>
             <option value={CLAUDE_SONNET_MODEL_ID}>
               {CLAUDE_SONNET_MODEL_LABEL}
             </option>

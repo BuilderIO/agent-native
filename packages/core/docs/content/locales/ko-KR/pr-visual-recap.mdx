@@ -226,7 +226,7 @@ GitHub가 구성된 모든 레이블과 일치하는 온라인 러너를 찾지 
 - **`VISUAL_RECAP_MODEL`**은 CLI에 전달되는 모델을 고정합니다(`--model`) —
   예를 들어 Codex라면 `gpt-5.6-luna`, Claude 모델 ID, 또는 DeepSeek라면
   `deepseek-chat`. `openai-compatible`에서는 필수입니다. **Claude** 백엔드의
-  경우 설정하지 않으면 이제 `claude-sonnet-5`가 기본값이 됩니다. 다른
+  경우 설정하지 않으면 이제 `claude-sonnet-5-5`가 기본값이 됩니다. 다른
   Claude 모델을 쓰려면(더 저렴한 `claude-haiku-4-5` 등) 변수를 명시적으로
   설정하세요. **Codex** 백엔드의 경우 설정하지 않으면 Codex CLI 자체의
   기본 모델이 사용됩니다.
@@ -270,7 +270,7 @@ DeepSeek을 사용하려면 `VISUAL_RECAP_AGENT=openai-compatible`,
 
 - **더 저렴한 모델을 고정하세요.** Claude의 경우 단순하거나 작은 저장소에는
   `VISUAL_RECAP_MODEL=claude-haiku-4-5`를 설정하세요 — 가장 저렴한 Claude
-  등급입니다. `claude-sonnet-5`(기본값)는 균형 잡힌 등급입니다.
+  등급입니다. `claude-sonnet-5-5`(기본값)는 균형 잡힌 등급입니다.
 - **더 저렴한 모델과 함께 Codex로 전환하세요.**
   `VISUAL_RECAP_AGENT=codex`와 함께 `VISUAL_RECAP_MODEL=gpt-5.6-luna`(가장
   저렴한 GPT-5.6 등급)나 `gpt-5.6-terra`(중간 등급)를 설정하고,
@@ -340,18 +340,18 @@ npx @agent-native/recap-cli@latest recap setup
 
 ### 선택 사항(기본값을 바꿀 때만)
 
-| 시크릿 / 변수                  | 기본값                                             | 필요한 경우                                                                                                                                                                                                                                                                  |
-| ------------------------------ | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`               | —                                                  | 시크릿. `VISUAL_RECAP_AGENT=codex`와 함께 설정해 대신 Codex로 요약을 실행합니다.                                                                                                                                                                                             |
-| `VISUAL_RECAP_API_KEY`         | —                                                  | 시크릿. DeepSeek, Kimi, 또는 다른 OpenAI 호환 제공업체를 위해 `VISUAL_RECAP_AGENT=openai-compatible`과 함께 설정합니다.                                                                                                                                                      |
-| `VISUAL_RECAP_AGENT`           | `claude`                                           | 변수. 코딩 에이전트 백엔드를 선택합니다(`claude`, `codex`, `openai-compatible`).                                                                                                                                                                                             |
-| `VISUAL_RECAP_BASE_URL`        | 호환 백엔드에서는 필수                             | 변수. OpenAI 호환 백엔드의 HTTP(S) 기본 URL입니다. 자격 증명이 포함되면 거부됩니다.                                                                                                                                                                                          |
-| `VISUAL_RECAP_MODEL`           | Claude는 `claude-sonnet-5`; 호환 백엔드에서는 필수 | 변수. OpenAI 호환 백엔드의 제공업체 모델 ID(그곳에서는 필수). Claude는 설정하지 않으면 이제 `claude-sonnet-5`가 기본값입니다 — 다른 값(예: 가장 저렴한 등급인 `claude-haiku-4-5`)으로 재정의하려면 설정하세요. Codex는 설정하지 않으면 Codex CLI 자체의 기본값을 사용합니다. |
-| `VISUAL_RECAP_REASONING`       | 각 모델의 기본값                                   | 변수. 추론 깊이: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`. Codex 백엔드에 적용됩니다.                                                                                                                                                                             |
-| `VISUAL_RECAP_REQUIRED_LABELS` | —                                                  | 변수. 쉼표로 구분된 PR 레이블입니다. 설정하면 게이트는 나열된 레이블이 하나 이상 붙을 때까지 PR을 건너뜁니다. 예: `visual recap`.                                                                                                                                            |
-| `VISUAL_RECAP_AUTO_REFRESH`    | `true`                                             | 변수, copy 변형 전용(재사용 호출자는 무시함). `false`로 설정하면 푸시할 때마다 리캡하지 않습니다. 이후에는 PR이 열리거나 다시 열리거나 리뷰 준비가 되거나 머지될 때와 `recap` 레이블이 붙었을 때만 리캡합니다. 필수 레이블만 붙여서는 시작되지 않습니다.                     |
-| `RECAP_CLI_VERSION`            | `latest`                                           | 변수. 워크플로가 설치하는 `@agent-native/recap-cli` 버전을 고정합니다 — 예: `1.5.0`. [버전 고정](#version-pinning-copy-variant)을 참조하세요.                                                                                                                                |
-| `PLAN_RECAP_APP_URL`           | `https://plan.agent-native.com`                    | 시크릿. Plans 앱을 다른 origin에서 자체 호스팅할 때만 필요합니다.                                                                                                                                                                                                            |
+| 시크릿 / 변수                  | 기본값                                               | 필요한 경우                                                                                                                                                                                                                                                                    |
+| ------------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `OPENAI_API_KEY`               | —                                                    | 시크릿. `VISUAL_RECAP_AGENT=codex`와 함께 설정해 대신 Codex로 요약을 실행합니다.                                                                                                                                                                                               |
+| `VISUAL_RECAP_API_KEY`         | —                                                    | 시크릿. DeepSeek, Kimi, 또는 다른 OpenAI 호환 제공업체를 위해 `VISUAL_RECAP_AGENT=openai-compatible`과 함께 설정합니다.                                                                                                                                                        |
+| `VISUAL_RECAP_AGENT`           | `claude`                                             | 변수. 코딩 에이전트 백엔드를 선택합니다(`claude`, `codex`, `openai-compatible`).                                                                                                                                                                                               |
+| `VISUAL_RECAP_BASE_URL`        | 호환 백엔드에서는 필수                               | 변수. OpenAI 호환 백엔드의 HTTP(S) 기본 URL입니다. 자격 증명이 포함되면 거부됩니다.                                                                                                                                                                                            |
+| `VISUAL_RECAP_MODEL`           | Claude는 `claude-sonnet-5-5`; 호환 백엔드에서는 필수 | 변수. OpenAI 호환 백엔드의 제공업체 모델 ID(그곳에서는 필수). Claude는 설정하지 않으면 이제 `claude-sonnet-5-5`가 기본값입니다 — 다른 값(예: 가장 저렴한 등급인 `claude-haiku-4-5`)으로 재정의하려면 설정하세요. Codex는 설정하지 않으면 Codex CLI 자체의 기본값을 사용합니다. |
+| `VISUAL_RECAP_REASONING`       | 각 모델의 기본값                                     | 변수. 추론 깊이: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`. Codex 백엔드에 적용됩니다.                                                                                                                                                                               |
+| `VISUAL_RECAP_REQUIRED_LABELS` | —                                                    | 변수. 쉼표로 구분된 PR 레이블입니다. 설정하면 게이트는 나열된 레이블이 하나 이상 붙을 때까지 PR을 건너뜁니다. 예: `visual recap`.                                                                                                                                              |
+| `VISUAL_RECAP_AUTO_REFRESH`    | `true`                                               | 변수, copy 변형 전용(재사용 호출자는 무시함). `false`로 설정하면 푸시할 때마다 리캡하지 않습니다. 이후에는 PR이 열리거나 다시 열리거나 리뷰 준비가 되거나 머지될 때와 `recap` 레이블이 붙었을 때만 리캡합니다. 필수 레이블만 붙여서는 시작되지 않습니다.                       |
+| `RECAP_CLI_VERSION`            | `latest`                                             | 변수. 워크플로가 설치하는 `@agent-native/recap-cli` 버전을 고정합니다 — 예: `1.5.0`. [버전 고정](#version-pinning-copy-variant)을 참조하세요.                                                                                                                                  |
+| `PLAN_RECAP_APP_URL`           | `https://plan.agent-native.com`                      | 시크릿. Plans 앱을 다른 origin에서 자체 호스팅할 때만 필요합니다.                                                                                                                                                                                                              |
 
 워크플로는 헬퍼 CLI를 호출하는 방식을 자동으로 감지하므로(이 모노레포
 내부에서는 로컬 소스, 그 외에서는 게시된 `@agent-native/recap-cli`),
