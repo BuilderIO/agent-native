@@ -1906,6 +1906,28 @@ export function mergeThreadDataForClientSave(
   const nextMessages: any[] = [];
   const idRewrites = new Map<string, string>();
 
+  // A message that keeps its own id owns the incoming copy with that id; a
+  // run or turn match is weaker and must not take it from the message itself.
+  const incomingByOwnId = new Map<number, number>();
+  existingMessages.forEach((entry: unknown, existingIndex: number) => {
+    const existingMessage = getStoredMessage(entry);
+    const id = messageId(existingMessage);
+    if (
+      !id ||
+      (existingMessage?.role === "assistant" &&
+        messageContentIsEmpty(existingMessage.content))
+    ) {
+      return;
+    }
+    const incomingIndex = incomingKeySets.findIndex(
+      (keys, index) =>
+        !usedIncoming.has(index) && keys.strong.includes(`id:${id}`),
+    );
+    if (incomingIndex === -1) return;
+    usedIncoming.add(incomingIndex);
+    incomingByOwnId.set(existingIndex, incomingIndex);
+  });
+
   for (
     let existingIndex = 0;
     existingIndex < existingMessages.length;
@@ -1921,12 +1943,14 @@ export function mergeThreadDataForClientSave(
     }
 
     const existingKeys = messageIdentityKeySet(existingMessage, eventRunIds);
-    const incomingIndex = findRankedIdentityMatch(
-      existingKeys,
-      incomingKeySets,
-      usedIncoming,
-      existingIndex,
-    );
+    const incomingIndex =
+      incomingByOwnId.get(existingIndex) ??
+      findRankedIdentityMatch(
+        existingKeys,
+        incomingKeySets,
+        usedIncoming,
+        existingIndex,
+      );
 
     if (incomingIndex === -1) {
       nextMessages.push(existingEntry);

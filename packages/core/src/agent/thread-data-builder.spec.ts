@@ -1984,6 +1984,43 @@ describe("mergeThreadDataForClientSave", () => {
     ).toEqual([serverReply]);
   });
 
+  it("refreshes the chat UI's own stored copy of a reply instead of letting the server's reply take its save", () => {
+    const serverReply = {
+      message: {
+        id: "server-run-1",
+        role: "assistant",
+        status: { type: "complete", reason: "stop" },
+        content: [{ type: "text", text: "L1 one\nL40 forty" }],
+        metadata: { runId: "run-1", custom: { foldedRunIds: ["run-1"] } },
+      },
+      parentId: "user-1",
+    };
+
+    // A thread that already holds both copies: the server's reply and the chat
+    // UI's mid-stream one.
+    const merged = mergeThreadDataForClientSave(
+      {
+        messages: [
+          userEntry,
+          serverReply,
+          clientSavedReply("streaming", "L1 one"),
+        ],
+      },
+      {
+        messages: [
+          userEntry,
+          clientSavedReply("complete", "L1 one\nL40 forty"),
+        ],
+        agentKit: replyEvents,
+      },
+    );
+
+    const uiCopy = merged.messages.find(
+      (entry: any) => entry.message.id === "agentkit-reply",
+    );
+    expect(uiCopy.message.status).not.toBe("streaming");
+  });
+
   it("keeps the durable queue over a stale save's copy of it", () => {
     const existing = {
       _claimedQueuedMessageIds: ["queued-1"],

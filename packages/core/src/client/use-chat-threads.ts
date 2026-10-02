@@ -172,6 +172,15 @@ export function appendChatThreadScopeParams(
   params.set("scopeId", scope.id);
 }
 
+function savedThreadScope(body: unknown): ChatThreadScope | null {
+  const scope = (body as { scope?: unknown } | null)?.scope;
+  if (!scope || typeof scope !== "object") return null;
+  const { type, id } = scope as { type?: unknown; id?: unknown };
+  return typeof type === "string" && typeof id === "string"
+    ? (scope as ChatThreadScope)
+    : null;
+}
+
 function withChatThreadScope(
   url: string,
   scope?: ChatThreadScope | null,
@@ -1374,6 +1383,10 @@ export function useChatThreads(
           response = await putThread();
         }
         if (!response.ok) return;
+        const savedScope = savedThreadScope(
+          // coercion-ok: a save response without a readable body carries no scope, and the local scope stays as it was.
+          await response.json().catch(() => null),
+        );
         serverConfirmedThreadIdsRef.current.add(id);
         clearClientDraftThreadMarker(id);
         newlyCreatedRef.current.delete(id);
@@ -1400,10 +1413,11 @@ export function useChatThreads(
                       ...(data.messageCount != null && {
                         messageCount: data.messageCount,
                       }),
-                      // Mirror the run adopting the visible scope
-                      // (resolveRunThreadScope), or the active pointer stays
-                      // under the unscoped key and a reload here starts fresh.
-                      scope: t.scope ?? scopeRef.current ?? null,
+                      // The run adopts the scope it was sent with, which the
+                      // visible page at save time may no longer be; take the
+                      // server's, or the active pointer stays under the
+                      // unscoped key and a reload here starts fresh.
+                      ...(savedScope ? { scope: savedScope } : {}),
                       updatedAt: Date.now(),
                     }
                   : t,
@@ -1419,7 +1433,7 @@ export function useChatThreads(
               messageCount: data.messageCount ?? 0,
               createdAt: now,
               updatedAt: now,
-              scope: scopeRef.current ?? null,
+              scope: savedScope ?? scopeRef.current ?? null,
             },
             ...prev,
           ]);

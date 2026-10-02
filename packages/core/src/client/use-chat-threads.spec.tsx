@@ -1623,7 +1623,8 @@ describe("useChatThreads", () => {
         return jsonResponse({ threads: serverThreads });
       }
       if (url === "/chat/threads/draft-1" && init?.method === "PUT") {
-        return jsonResponse({ ok: true });
+        // The run adopted the page's scope on the server.
+        return jsonResponse({ ok: true, scope: page });
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
@@ -1686,6 +1687,64 @@ describe("useChatThreads", () => {
     // A navigation (not a reload) mints a fresh browser tab id.
     await act(async () => {
       root.render(<Harness scope={page} browserTabId="tab-2" />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.activeThreadId).toBe("draft-1");
+  });
+
+  it("keeps a chat started outside a resource unscoped when its save lands inside one", async () => {
+    let draftCount = 0;
+    vi.stubGlobal("crypto", { randomUUID: () => `draft-${++draftCount}` });
+    const deck: ChatThreadScope = { type: "deck", id: "deck-b" };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      if (url === "/chat/threads/draft-1" && init?.method === "PUT") {
+        // The run was sent from home, so the server holds no scope.
+        return jsonResponse({ ok: true, scope: null });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness({ scope }: { scope: ChatThreadScope | null }) {
+      hook = useChatThreads("/chat", undefined, scope, {
+        browserTabId: "tab-1",
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness scope={null} />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(hook!.activeThreadId).toBe("draft-1");
+
+    // The agent created a deck and navigated there; the turn's save lands now.
+    await act(async () => {
+      root.render(<Harness scope={deck} />);
+    });
+    await act(async () => {
+      await hook!.saveThreadData("draft-1", {
+        threadData: JSON.stringify({
+          messages: [{ id: "m-1" }, { id: "m-2" }],
+        }),
+        title: "",
+        preview: "Make a deck",
+        messageCount: 2,
+      });
+    });
+    await act(async () => {
+      root.render(<Harness scope={null} />);
     });
     await act(async () => {
       await Promise.resolve();
