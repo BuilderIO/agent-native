@@ -55,6 +55,10 @@ import {
 } from "../server/lib/seekable-media-state.js";
 import { isStreamingUploadDisabled } from "../server/lib/streaming-upload-mode.js";
 import {
+  uploadLeaseExpiry,
+  waitingStorageLeaseExpiry,
+} from "../server/lib/upload-lease.js";
+import {
   probeHasAudioStream,
   remuxWebmToSeekable,
 } from "../server/lib/video-remux.js";
@@ -899,6 +903,19 @@ async function markRecordingReady(params: {
     };
   }
 
+  // Published as soon as the row is ready, before any follow-up work can
+  // fail: a client deletes its local copy only when these source bytes match.
+  await writeAppState(`recording-upload-${id}`, {
+    recordingId: id,
+    status: "ready",
+    progress: 100,
+    videoUrl,
+    videoSizeBytes,
+    sourceSizeBytes,
+    durationMs: finalDurationMs,
+    finishedAt: now,
+  });
+
   track(
     "recording_ready",
     {
@@ -944,16 +961,6 @@ async function markRecordingReady(params: {
     });
   }
 
-  await writeAppState(`recording-upload-${id}`, {
-    recordingId: id,
-    status: "ready",
-    progress: 100,
-    videoUrl,
-    videoSizeBytes,
-    sourceSizeBytes,
-    durationMs: finalDurationMs,
-    finishedAt: now,
-  });
   await deleteAppState(mediaVerificationStateKey(id)).catch((err) => {
     console.warn("[finalize] failed to clear media verification marker", {
       id,
@@ -1323,7 +1330,11 @@ export default defineAction({
       if (generationId !== null && existing.status === "uploading") {
         const claimed = await db
           .update(schema.recordings)
-          .set({ status: "processing", updatedAt: new Date().toISOString() })
+          .set({
+            status: "processing",
+            uploadLeaseExpiresAt: uploadLeaseExpiry(),
+            updatedAt: new Date().toISOString(),
+          })
           .where(
             and(
               eq(schema.recordings.id, id),
@@ -1352,12 +1363,21 @@ export default defineAction({
           console.warn("[finalize] failed to delete resumable session:", err),
         );
         await deleteAppState(mediaVerificationStateKey(id)).catch(() => {});
+        const readyState = await readAppState(`recording-upload-${id}`);
         return {
           id,
           status: "ready" as const,
           videoUrl: existing.videoUrl,
           videoSizeBytes: existing.videoSizeBytes ?? 0,
-          sourceSizeBytes: existing.videoSizeBytes ?? 0,
+          // The received bytes, never the served size: a client compares this
+          // with its local copy, and 0 reads as "unverified", not a mismatch.
+          sourceSizeBytes:
+            stateNumber(
+              readyState && typeof readyState === "object"
+                ? (readyState as Record<string, unknown>)
+                : null,
+              "sourceSizeBytes",
+            ) ?? 0,
           durationMs: existing.durationMs ?? 0,
         };
       }
@@ -2148,6 +2168,7 @@ export default defineAction({
           .set({
             status: "uploading",
             failureReason: STORAGE_SETUP_REQUIRED_REASON,
+            uploadLeaseExpiresAt: waitingStorageLeaseExpiry(),
             durationMs: finalDurationMs,
             width: finalWidth,
             height: finalHeight,

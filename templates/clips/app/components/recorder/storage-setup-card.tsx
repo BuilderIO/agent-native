@@ -30,6 +30,11 @@ export interface StorageSetupCardProps {
   connectedDescription?: string;
   connectSource?: string;
   connectFlow?: string;
+  /**
+   * Open the S3 settings form in a new tab so the page holding an unsaved
+   * recording never navigates away.
+   */
+  openSettingsInNewTab?: boolean;
 }
 
 export function StorageSetupCard({
@@ -39,6 +44,7 @@ export function StorageSetupCard({
   connectedDescription = "You're all set. Starting recorder...",
   connectSource = "clips_file_upload_storage_setup_card",
   connectFlow = "file_upload",
+  openSettingsInNewTab = false,
 }: StorageSetupCardProps) {
   const t = useT();
   const storageSetupHref = useStorageSetupHref();
@@ -253,7 +259,14 @@ export function StorageSetupCard({
         {!connected && storageSetupHref ? (
           <>
             <Button asChild variant="secondary" className="w-full">
-              <a href={storageSetupHref}>{t("settings.s3Title")}</a>
+              <a
+                href={storageSetupHref}
+                {...(openSettingsInNewTab
+                  ? { target: "_blank", rel: "noopener noreferrer" }
+                  : {})}
+              >
+                {t("settings.s3Title")}
+              </a>
             </Button>
             <p className="text-center text-xs text-muted-foreground">
               AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO

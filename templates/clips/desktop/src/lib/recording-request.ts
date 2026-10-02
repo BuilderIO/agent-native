@@ -13,6 +13,8 @@ export interface NativeRecordingRequestOptions {
   requestStreaming?: boolean;
   streamingUploadClient?: "desktop-native";
   visibility?: NativeRecordingVisibility;
+  /** The server refuses the row unless the signed-in account is this one. */
+  expectedOwnerEmail?: string;
 }
 
 export function buildCreateRecordingRequestHeaders(
@@ -44,6 +46,9 @@ export function buildCreateRecordingRequestBody(
     spaceIds: [],
     recordingPlatform: "desktop",
     ...(options?.visibility ? { visibility: options.visibility } : {}),
+    ...(options?.expectedOwnerEmail
+      ? { expectedOwnerEmail: options.expectedOwnerEmail }
+      : {}),
     ...(options?.requestStreaming
       ? {
           requestStreaming: true,

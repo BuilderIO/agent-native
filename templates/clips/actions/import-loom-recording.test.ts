@@ -125,6 +125,10 @@ vi.mock("./lib/loom-transcript.js", () => ({
 
 vi.mock("./lib/loom-video.js", () => ({ downloadLoomVideo: vi.fn() }));
 
+import {
+  WAITING_STORAGE_EXPIRED_REASON,
+  WAITING_STORAGE_LEASE_MS,
+} from "../server/lib/upload-lease.js";
 import importLoomRecording, {
   enqueueFirstImportEmailIfEligible,
 } from "./import-loom-recording";
@@ -398,6 +402,85 @@ describe("first imported recording transactional email", () => {
     });
   });
 
+  it("retries a direct import in place after the reaper expired its storage wait", async () => {
+    const sourceUrl = "https://media.example.com/source.mp4";
+    const updateValues = vi.fn();
+    const existing = {
+      id: "recording-expired",
+      organizationId: "org-1",
+      ownerEmail: "owner@example.com",
+      status: "failed",
+      videoUrl: null,
+      failureReason: WAITING_STORAGE_EXPIRED_REASON,
+      sourceAppName: "Video link",
+      sourceWindowTitle: sourceUrl,
+      thumbnailUrl: null,
+      editsJson: "{}",
+      title: "Parked import",
+      titleSource: "upload",
+      spaceIds: "[]",
+      visibility: "private",
+      folderId: null,
+      description: "",
+      createdAt: "2026-09-01T00:00:00.000Z",
+    };
+    const db = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi
+            .fn()
+            .mockResolvedValueOnce([existing])
+            .mockResolvedValueOnce([]),
+        })),
+      })),
+      insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
+      update: vi.fn(() => ({
+        set: (values: unknown) => {
+          updateValues(values);
+          return { where: vi.fn(async () => undefined) };
+        },
+      })),
+    } as any;
+    mocks.getDb.mockReturnValue(db);
+    mocks.getCurrentOwnerEmail.mockReturnValue("owner@example.com");
+    mocks.requireOrganizationAccess.mockResolvedValue({
+      organizationId: "org-1",
+    });
+    mocks.getDefaultRecordingVisibility.mockResolvedValue("private");
+    mocks.parseSpaceIds.mockReturnValue([]);
+    mocks.stringifySpaceIds.mockReturnValue("[]");
+    mocks.isCandidateDirectVideoUrl.mockReturnValue(true);
+    mocks.hasRequestVideoStorage.mockResolvedValue(true);
+    mocks.downloadDirectVideo.mockResolvedValue({
+      bytes: new Uint8Array([1, 2, 3]),
+      mimeType: "video/mp4",
+      sizeBytes: 3,
+    });
+    mocks.uploadFile.mockResolvedValue({
+      id: "asset-1",
+      url: "https://media.example.com/recording-expired.mp4",
+      provider: "builder",
+    });
+    mocks.queueBuilderMediaCompression.mockResolvedValue(undefined);
+    mocks.ensureEnabledAt.mockRejectedValue(
+      new Error("email store unavailable"),
+    );
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    const result = await importLoomRecording.run({
+      url: sourceUrl,
+      recordingId: "recording-expired",
+    });
+
+    expect(result).toMatchObject({
+      recordingId: "recording-expired",
+      status: "ready",
+    });
+    expect(updateValues).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ready", failureReason: null }),
+    );
+  });
+
   it("completes a persisted import when transactional email enqueue fails", async () => {
     const insertValues = vi.fn(async () => undefined);
     const db = {
@@ -511,5 +594,46 @@ describe("Loom imports", () => {
       kind: "loom-import",
       requireAccepted: true,
     });
+  });
+
+  it("parks an import without storage on the days-long waiting lease", async () => {
+    const insertValues = vi.fn(async () => undefined);
+    mocks.getDb.mockReturnValue({
+      insert: vi.fn(() => ({ values: insertValues })),
+    });
+    mocks.getCurrentOwnerEmail.mockReturnValue("owner@example.com");
+    mocks.requireOrganizationAccess.mockResolvedValue({
+      organizationId: "org-1",
+    });
+    mocks.getDefaultRecordingVisibility.mockResolvedValue("private");
+    mocks.nanoid.mockReturnValue("recording-loom");
+    mocks.parseSpaceIds.mockReturnValue([]);
+    mocks.stringifySpaceIds.mockReturnValue("[]");
+    mocks.hasRequestVideoStorage.mockResolvedValue(false);
+    mocks.ssrfSafeFetch.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          type: "video",
+          html: "<iframe></iframe>",
+          title: "Demo",
+          duration: 5,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const before = Date.now();
+
+    const result = await importLoomRecording.run({
+      url: "https://www.loom.com/share/abcDEF_123456",
+    });
+
+    expect(result).toMatchObject({ status: "waiting_storage" });
+    const recording = insertValues.mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(recording).toMatchObject({ status: "uploading" });
+    expect(
+      Date.parse(String(recording?.uploadLeaseExpiresAt)) - before,
+    ).toBeGreaterThanOrEqual(WAITING_STORAGE_LEASE_MS);
   });
 });

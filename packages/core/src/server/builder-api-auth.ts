@@ -183,6 +183,8 @@ export async function resolveBuilderRequestAuthorization(
     requiredScope?: BuilderOAuthPermissionScope;
     oauthResource?: "general" | "publish";
     legacyCredentialKeys?: readonly BuilderLegacyCredentialKey[];
+    /** Refresh the OAuth access token even though it has not expired. */
+    forceRefresh?: boolean;
   } = {},
 ): Promise<BuilderRequestAuthorization | null> {
   const ownerEmail = getRequestUserEmail();
@@ -212,7 +214,9 @@ export async function resolveBuilderRequestAuthorization(
     let session: Awaited<ReturnType<typeof getBuilderOAuthSession>>;
     try {
       session = await readCredentialStore(() =>
-        getBuilderOAuthSession(ownerEmail, orgId, input.requiredScope),
+        getBuilderOAuthSession(ownerEmail, orgId, input.requiredScope, {
+          forceRefresh: input.forceRefresh,
+        }),
       );
     } catch (err) {
       if (
@@ -318,8 +322,12 @@ export async function resolveBuilderLegacyRequestAuthorization(
  */
 export async function resolveBuilderApiAuthorization(
   requiredScope?: BuilderOAuthPermissionScope,
+  options: { forceRefresh?: boolean } = {},
 ): Promise<string> {
-  const resolved = await resolveBuilderRequestAuthorization({ requiredScope });
+  const resolved = await resolveBuilderRequestAuthorization({
+    requiredScope,
+    forceRefresh: options.forceRefresh,
+  });
   if (!resolved) {
     throw new ActionContractError("Builder.io is not connected.", {
       errorCode: "builder_oauth_reauthorization_required",

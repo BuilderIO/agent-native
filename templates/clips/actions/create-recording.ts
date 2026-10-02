@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getActiveFileUploadProviderForRequest } from "@agent-native/core/file-upload";
 import type { UploadMode } from "@shared/recording-core.js";
@@ -96,6 +96,15 @@ export default defineAction({
   run: async (args, actionContext) => {
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
+    if (
+      args.expectedOwnerEmail &&
+      args.expectedOwnerEmail.toLowerCase() !== ownerEmail.toLowerCase()
+    ) {
+      fail("This recording belongs to another account.", {
+        errorCode: "recording_owner_mismatch",
+        statusCode: 409,
+      });
+    }
     const id = args.id || nanoid();
     const now = new Date().toISOString();
     const title = args.title?.trim() || DEFAULT_RECORDING_TITLE;

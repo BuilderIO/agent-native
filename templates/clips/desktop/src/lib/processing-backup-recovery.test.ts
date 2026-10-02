@@ -19,6 +19,53 @@ describe("reconcileProcessingBackup", () => {
     expect(onUnresolved).not.toHaveBeenCalled();
   });
 
+  it("deletes a backup at ready only when the server received every byte", async () => {
+    const onReady = vi.fn(async () => undefined);
+    const onUnresolved = vi.fn(async () => undefined);
+    const local = async () => ({ bytes: 100, durationMs: 60_000 });
+
+    await expect(
+      reconcileProcessingBackup({
+        waitForReady: async () => ({
+          status: "ready",
+          sourceSizeBytes: 40,
+          durationMs: 60_000,
+        }),
+        local,
+        onReady,
+        onUnresolved,
+      }),
+    ).resolves.toBe("unresolved");
+    expect(onReady).not.toHaveBeenCalled();
+    expect(onUnresolved).toHaveBeenCalledWith(
+      expect.stringContaining("40 of 100 source bytes"),
+    );
+
+    await expect(
+      reconcileProcessingBackup({
+        waitForReady: async () => ({ status: "ready" }),
+        local,
+        onReady,
+        onUnresolved,
+      }),
+    ).resolves.toBe("unresolved");
+    expect(onReady).not.toHaveBeenCalled();
+
+    await expect(
+      reconcileProcessingBackup({
+        waitForReady: async () => ({
+          status: "ready",
+          sourceSizeBytes: 100,
+          durationMs: 60_500,
+        }),
+        local,
+        onReady,
+        onUnresolved,
+      }),
+    ).resolves.toBe("ready");
+    expect(onReady).toHaveBeenCalledOnce();
+  });
+
   it("flags terminal failures and timeouts without deleting the backup", async () => {
     const onReady = vi.fn(async () => undefined);
     const onUnresolved = vi.fn(async () => undefined);
