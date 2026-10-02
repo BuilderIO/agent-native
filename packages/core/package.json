@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.199.0",
+  "version": "0.200.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -676,6 +676,7 @@
     "safe-regex2": "5.1.1",
     "turndown": "^7.2.4",
     "undici": "^7.28.0",
+    "ws": "^8.22.0",
     "y-protocols": "catalog:",
     "yaml": "^2.9.0",
     "yjs": "catalog:",
@@ -746,7 +747,6 @@
     "typescript-7": "catalog:",
     "vite": "catalog:",
     "vitest": "^4.1.5",
-    "ws": "^8.18.0",
     "xlsx": "^0.18.5"
   },
   "peerDependencies": {
@@ -792,7 +792,6 @@
     "tailwindcss": ">=4",
     "ts-morph": "^28.0.0",
     "vite": ">=7",
-    "ws": ">=8",
     "xlsx": "^0.18.5"
   },
   "peerDependenciesMeta": {
@@ -923,9 +922,6 @@
       "optional": true
     },
     "vite": {
-      "optional": true
-    },
-    "ws": {
       "optional": true
     },
     "xlsx": {

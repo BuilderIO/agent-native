@@ -248,7 +248,7 @@ const databaseExactEnglish = {
     "साझा कुंजी के लिए दोनों स्रोतों का विश्लेषण किया जा रहा है",
   bodyDiff: "बॉडी अंतर",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder कनेक्ट नहीं है। पहले अपना खाता कनेक्ट करने के लिए वापस जाएं।",
+    "Builder कनेक्ट नहीं है। पहले Builder.io इस्तेमाल करने के लिए वापस जाएं।",
   calendarBy: "कैलेंडर इसके अनुसार",
   checkingBuilderConnection: "Builder कनेक्शन जांचा जा रहा है",
   clearAll: "सब साफ़ करें",
@@ -260,7 +260,7 @@ const databaseExactEnglish = {
   collapseAllGroups: "सभी समूह समेटें",
   collapseAll: "सभी समेटें",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "इसके spaces और models ब्राउज़ करने के लिए अपना Builder खाता कनेक्ट करें।",
+    "इसके spaces और models ब्राउज़ करने के लिए अपने Builder खाते का इस्तेमाल करें।",
   connectedSources: "कनेक्ट किए गए स्रोत",
   couldntSyncRetry: "सिंक नहीं हो सका · फिर कोशिश करें",
   countAll: "सभी की गिनती",

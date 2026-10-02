@@ -235,7 +235,7 @@ function buildCleanupConfigurationError({
   builderFailureMessage: string | null;
 }): FeatureNotConfiguredError {
   let message =
-    "Transcript cleanup needs Builder.io Connect (free tier available) or a fallback AI key.";
+    "Use Builder.io (free credits available) or a fallback AI key for transcript cleanup.";
 
   if (builderConfigured && builderReturnedEmpty) {
     message =

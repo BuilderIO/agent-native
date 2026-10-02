@@ -8,7 +8,9 @@ import path from "node:path";
 import vm from "node:vm";
 
 import { chromium, type Browser } from "playwright";
+import { createServer } from "vite";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { WebSocket, WebSocketServer } from "ws";
 
 const spawnMock = vi.hoisted(() => vi.fn());
 
@@ -893,18 +895,21 @@ describe("design connect bridge endpoints", () => {
     const base = `http://127.0.0.1:${port}`;
     const designId = "design-revision-survives-reload";
     const auth = liveEditAuth(bridge, designId);
-    const publish = (revision: number) =>
+    const publish = (
+      revision: number,
+      pending: Record<string, unknown> | null = {
+        designId,
+        pendingEditCount: 1,
+        status: "ready",
+        prompt: `Revision ${revision}`,
+      },
+    ) =>
       postJson(
         `${base}/live-edit-pending`,
         {
           designId,
           revision,
-          pending: {
-            designId,
-            pendingEditCount: 1,
-            status: "ready",
-            prompt: `Revision ${revision}`,
-          },
+          pending,
         },
         auth,
       );
@@ -921,6 +926,10 @@ describe("design connect bridge endpoints", () => {
     try {
       expect((await register("revision-survivor")).status).toBe(200);
       expect((await publish(9)).status).toBe(200);
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=${designId}`, auth))
+          .body,
+      ).toMatchObject({ pending: { prompt: "Revision 9" }, revision: 9 });
       for (let index = 0; index < 128; index += 1) {
         const otherDesign = `design-key-eviction-${index}`;
         const otherAuth = liveEditAuth(bridge, otherDesign);
@@ -937,7 +946,9 @@ describe("design connect bridge endpoints", () => {
       }
       expect((await publish(8)).status).toBe(403);
       expect((await register("revision-survivor-again")).status).toBe(200);
-      expect((await publish(8)).status).toBe(409);
+      const staleAfterReregistration = await publish(8);
+      expect(staleAfterReregistration.status).toBe(409);
+      expect(staleAfterReregistration.body.revision).toBe(9);
     } finally {
       await new Promise<void>((resolve) => bridge.server.close(resolve));
     }
@@ -947,8 +958,18 @@ describe("design connect bridge endpoints", () => {
       expect((await register("revision-survivor-after-restart")).status).toBe(
         200,
       );
-      expect((await publish(8)).status).toBe(409);
+      const staleAfterRestart = await publish(8);
+      expect(staleAfterRestart.status).toBe(409);
+      expect(staleAfterRestart.body.revision).toBe(9);
       expect((await publish(10)).status).toBe(200);
+      expect((await publish(11, null)).status).toBe(200);
+      expect(
+        (await getJson(`${base}/live-edit-pending?designId=${designId}`, auth))
+          .body,
+      ).toMatchObject({ pending: null, revision: 11 });
+      const staleAfterClear = await publish(10);
+      expect(staleAfterClear.status).toBe(409);
+      expect(staleAfterClear.body.revision).toBe(11);
     } finally {
       await new Promise<void>((resolve) => bridge.server.close(resolve));
     }
@@ -1256,7 +1277,7 @@ describe("design connect bridge endpoints", () => {
       expect(
         (await getJson(`${base}/live-edit-pending?designId=design-1`, auth))
           .body,
-      ).toEqual({ ok: true, pending: null });
+      ).toEqual({ ok: true, pending: null, revision: 0 });
       expect(
         (
           await postJson(
@@ -1530,7 +1551,7 @@ describe("design connect bridge endpoints", () => {
       expect(
         (await getJson(`${base}/live-edit-pending?designId=design-1`, auth))
           .body,
-      ).toEqual({ ok: true, pending: null });
+      ).toEqual({ ok: true, pending: null, revision: 11 });
       const staleAfterClear = await postJson(
         `${base}/live-edit-pending`,
         {
@@ -1549,7 +1570,7 @@ describe("design connect bridge endpoints", () => {
       expect(
         (await getJson(`${base}/live-edit-pending?designId=design-1`, auth))
           .body,
-      ).toEqual({ ok: true, pending: null });
+      ).toEqual({ ok: true, pending: null, revision: 11 });
       expect(
         (await getJson(`${base}/live-edit-pending?designId=design-2`, authB))
           .body.pending,
@@ -2273,6 +2294,7 @@ describe("design connect bridge endpoints", () => {
       const iframeUrls: string[] = [];
       const nodePrototype = {
         appendChild: (node: unknown) => node,
+        insertBefore: (node: unknown) => node,
       };
       const xhrPrototype = { open: () => undefined };
       const windowObject = {
@@ -2310,6 +2332,53 @@ describe("design connect bridge endpoints", () => {
       };
       nodePrototype.appendChild(externalIframe);
       expect(iframeUrls).toHaveLength(1);
+      const liveReloadedStylesheet = {
+        nodeType: 1,
+        tagName: "LINK",
+        value: `${base}/app/global.css?t=123`,
+        getAttribute(name: string) {
+          return name === "href" ? this.value : null;
+        },
+        setAttribute(name: string, value: string) {
+          if (name === "href") this.value = value;
+        },
+      };
+      nodePrototype.insertBefore(liveReloadedStylesheet, null);
+      expect(liveReloadedStylesheet.value).toBe(
+        `${base}/app/global.css?t=123&previewToken=${bridge.previewToken}`,
+      );
+      const stylesheetAuthScript = html.body.match(
+        /<script data-agent-native-vite-css-auth>([\s\S]*?)<\/script>/,
+      )?.[1];
+      if (!stylesheetAuthScript)
+        throw new Error("missing stylesheet auth shim");
+      const insertedAfter: unknown[][] = [];
+      const elementPrototype = {
+        after(...nodes: unknown[]) {
+          insertedAfter.push(nodes);
+        },
+      };
+      vm.runInNewContext(stylesheetAuthScript, {
+        Element: { prototype: elementPrototype },
+        document: { baseURI: `${base}/live-edit` },
+        URL,
+      });
+      const viteReplacementLink = {
+        nodeType: 1,
+        tagName: "LINK",
+        value: `${base}/app/global.css?t=456`,
+        getAttribute(name: string) {
+          return name === "href" ? this.value : null;
+        },
+        setAttribute(name: string, value: string) {
+          if (name === "href") this.value = value;
+        },
+      };
+      elementPrototype.after(viteReplacementLink);
+      expect(viteReplacementLink.value).toBe(
+        `${base}/app/global.css?t=456&previewToken=${bridge.previewToken}`,
+      );
+      expect(insertedAfter).toEqual([[viteReplacementLink]]);
       new (windowObject.WebSocket as unknown as new (url: string) => unknown)(
         `ws://${new URL(base).host}/hmr`,
       );
@@ -3415,6 +3484,278 @@ describe("design connect bridge endpoints", () => {
       await new Promise<void>((resolve) => devServer.close(() => resolve()));
     }
   });
+
+  it("carries the preview token from Vite HMR updates into module requests", async () => {
+    const root = tmpDir();
+    const devPort = await freePort();
+    const port = await freePort();
+    const upstreamRequests: string[] = [];
+    const upstreamWebSocketExtensions: Array<string | undefined> = [];
+    const devServer = http.createServer((req, res) => {
+      upstreamRequests.push(req.url ?? "");
+      res
+        .writeHead(200, { "content-type": "application/javascript" })
+        .end("export const updated = true;");
+    });
+    const upstreamWebSockets = new WebSocketServer({
+      noServer: true,
+      perMessageDeflate: false,
+    });
+    devServer.on("upgrade", (req, socket, head) => {
+      upstreamWebSocketExtensions.push(req.headers["sec-websocket-extensions"]);
+      upstreamWebSockets.handleUpgrade(req, socket, head, (client) => {
+        client.send(
+          JSON.stringify({
+            type: "update",
+            updates: [
+              {
+                type: "js-update",
+                path: "/app/components/library/empty-state.tsx",
+                acceptedPath: "/app/components/library/empty-state.tsx",
+                timestamp: 123,
+              },
+            ],
+          }),
+        );
+      });
+    });
+    await new Promise<void>((resolve, reject) => {
+      devServer.once("error", reject);
+      devServer.listen(devPort, "127.0.0.1", () => {
+        devServer.off("error", reject);
+        resolve();
+      });
+    });
+    const manifest = await prepareDesignConnectManifest({
+      root,
+      url: `http://127.0.0.1:${devPort}`,
+      port,
+    });
+    const bridge = await startDesignConnectBridge(manifest);
+    let client: WebSocket | null = null;
+    let rawServerClose: Promise<void> | null = null;
+    let socketCloseTimeout: NodeJS.Timeout | undefined;
+    try {
+      const bridgeOrigin = `http://127.0.0.1:${port}`;
+      client = new WebSocket(
+        `${bridgeOrigin}/@vite/client?previewToken=${bridge.previewToken}`,
+        "vite-hmr",
+        { origin: "null" },
+      );
+      let timeout: NodeJS.Timeout | undefined;
+      const updatePayload = await new Promise<string>((resolve, reject) => {
+        client!.once("message", (data) => resolve(data.toString()));
+        client!.once("error", reject);
+        timeout = setTimeout(
+          () => reject(new Error("Vite HMR update timed out")),
+          2_000,
+        );
+      });
+      if (timeout) clearTimeout(timeout);
+      const update = JSON.parse(updatePayload) as {
+        updates: Array<{
+          path: string;
+          acceptedPath: string;
+          timestamp: number | string;
+        }>;
+      };
+      const moduleUpdate = update.updates[0];
+      expect(moduleUpdate?.path).toBe(
+        "/app/components/library/empty-state.tsx",
+      );
+      expect(moduleUpdate?.acceptedPath).toBe(moduleUpdate?.path);
+      expect(moduleUpdate?.timestamp).toBe(
+        `123&previewToken=${bridge.previewToken}`,
+      );
+      expect(upstreamRequests).toEqual([]);
+
+      const module = await getText(
+        `${bridgeOrigin}${moduleUpdate!.acceptedPath}?import&t=${moduleUpdate!.timestamp}`,
+        { origin: "null" },
+      );
+      expect(module.status).toBe(200);
+      expect(module.headers["access-control-allow-origin"]).toBe("null");
+      expect(module.body).toContain("updated = true");
+      expect(upstreamRequests).toEqual([
+        "/app/components/library/empty-state.tsx?import&t=123",
+      ]);
+      expect(upstreamWebSocketExtensions).toEqual([undefined]);
+      const upstreamClient = [...upstreamWebSockets.clients][0];
+      expect(upstreamClient).toBeDefined();
+      const socketsClosed = Promise.all([
+        new Promise<void>((resolve) => client!.once("close", resolve)),
+        new Promise<void>((resolve) => upstreamClient!.once("close", resolve)),
+      ]);
+      rawServerClose = new Promise<void>((resolve) =>
+        bridge.server.close(() => resolve()),
+      );
+      await Promise.race([
+        Promise.all([rawServerClose, socketsClosed]),
+        new Promise<never>((_resolve, reject) => {
+          socketCloseTimeout = setTimeout(
+            () => reject(new Error("HMR sockets survived server.close()")),
+            2_000,
+          );
+        }),
+      ]);
+      expect(upstreamWebSockets.clients.size).toBe(0);
+    } finally {
+      if (socketCloseTimeout) clearTimeout(socketCloseTimeout);
+      client?.terminate();
+      for (const upstreamClient of upstreamWebSockets.clients) {
+        upstreamClient.terminate();
+      }
+      await new Promise<void>((resolve) =>
+        upstreamWebSockets.close(() => resolve()),
+      );
+      if (rawServerClose) await rawServerClose;
+      else await bridge.close();
+      await new Promise<void>((resolve) => devServer.close(() => resolve()));
+    }
+  });
+
+  it("applies real Vite JavaScript and imported stylesheet HMR through the bridge", async () => {
+    const root = tmpDir();
+    await fsPromises.mkdir(path.join(root, "src"), { recursive: true });
+    await fsPromises.writeFile(
+      path.join(root, "index.html"),
+      '<!doctype html><html><head></head><body><div id="value"></div><script type="module" src="/src/main.js"></script></body></html>',
+    );
+    const mainPath = path.join(root, "src", "main.js");
+    const stylesheetPath = path.join(root, "src", "style.css");
+    await fsPromises.writeFile(
+      mainPath,
+      'import "./style.css"; document.querySelector("#value").textContent = "before"; if (import.meta.hot) import.meta.hot.accept();',
+    );
+    await fsPromises.writeFile(
+      stylesheetPath,
+      ":root { --bridge-hmr-probe: before; }",
+    );
+
+    const devPort = await freePort();
+    const vite = await createServer({
+      configFile: false,
+      logLevel: "silent",
+      root,
+      server: { host: "127.0.0.1", port: devPort, strictPort: true },
+    });
+    let bridge: Awaited<ReturnType<typeof startDesignConnectBridge>> | null =
+      null;
+    let browser: Browser | null = null;
+    const diagnostics: string[] = [];
+    try {
+      await vite.listen();
+      const bridgePort = await freePort();
+      const manifest = await prepareDesignConnectManifest({
+        root,
+        url: `http://127.0.0.1:${devPort}`,
+        port: bridgePort,
+      });
+      bridge = await startDesignConnectBridge(manifest);
+      browser = await launchBrowser();
+      const page = await browser.newPage();
+      page.on("requestfailed", (request) =>
+        diagnostics.push(
+          `request failed ${request.url()}: ${request.failure()?.errorText}`,
+        ),
+      );
+      page.on(
+        "console",
+        (message) =>
+          message.type() === "error" &&
+          diagnostics.push(`console error: ${message.text()}`),
+      );
+      const previewUrl = new URL("/live-edit", bridge.manifest.bridgeUrl);
+      previewUrl.searchParams.set("url", `http://127.0.0.1:${devPort}/`);
+      previewUrl.searchParams.set("previewToken", bridge.previewToken);
+      previewUrl.searchParams.set("bridge", "0");
+      await page.goto(previewUrl.toString());
+      await page.waitForFunction(
+        () => document.querySelector("#value")?.textContent === "before",
+        undefined,
+        { timeout: 10_000 },
+      );
+      await page.waitForFunction(
+        () =>
+          getComputedStyle(document.documentElement)
+            .getPropertyValue("--bridge-hmr-probe")
+            .trim() === "before",
+        undefined,
+        { timeout: 10_000 },
+      );
+
+      await fsPromises.writeFile(
+        mainPath,
+        'import "./style.css"; document.querySelector("#value").textContent = "after"; if (import.meta.hot) import.meta.hot.accept();',
+      );
+      await page.waitForFunction(
+        () => document.querySelector("#value")?.textContent === "after",
+        undefined,
+        { timeout: 10_000 },
+      );
+
+      const stylesheetChange = new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(
+          () => reject(new Error("Vite did not observe the stylesheet edit")),
+          5_000,
+        );
+        const onChange = (changedPath: string) => {
+          if (path.resolve(changedPath) !== stylesheetPath) return;
+          clearTimeout(timeout);
+          vite.watcher.off("change", onChange);
+          resolve();
+        };
+        vite.watcher.on("change", onChange);
+      });
+      await fsPromises.writeFile(
+        stylesheetPath,
+        ":root { --bridge-hmr-probe: after; }",
+      );
+      await stylesheetChange;
+      try {
+        await page.waitForFunction(
+          () =>
+            getComputedStyle(document.documentElement)
+              .getPropertyValue("--bridge-hmr-probe")
+              .trim() === "after",
+          undefined,
+          { timeout: 10_000 },
+        );
+      } catch (error) {
+        const state = await page.evaluate(() => ({
+          stylesheets: [
+            ...document.querySelectorAll("link[rel=stylesheet]"),
+          ].map((link) => ({
+            href: (link as HTMLLinkElement).href,
+            media: (link as HTMLLinkElement).media,
+          })),
+          style: getComputedStyle(document.documentElement)
+            .getPropertyValue("--bridge-hmr-probe")
+            .trim(),
+        }));
+        throw new Error(
+          `${String(error)}\n${JSON.stringify(state)}\n${diagnostics.join("\n")}`,
+        );
+      }
+
+      let shutdownTimeout: ReturnType<typeof setTimeout> | undefined;
+      const shutdownCompleted = await Promise.race([
+        bridge.close().then(() => true),
+        new Promise<boolean>((resolve) => {
+          shutdownTimeout = setTimeout(() => resolve(false), 1_500);
+        }),
+      ]);
+      if (shutdownTimeout) clearTimeout(shutdownTimeout);
+      expect(shutdownCompleted).toBe(true);
+      bridge = null;
+    } finally {
+      await browser?.close();
+      if (bridge) {
+        await bridge.close();
+      }
+      await vite.close();
+    }
+  }, 60_000);
 
   it("rejects snapshot URLs outside the connected dev server origin", async () => {
     const root = tmpDir();

@@ -4387,6 +4387,7 @@ function AgentKitRunFailure({
       />
     );
   }
+  if (wasRetried(thread.messages, runId)) return null;
   const info: RunErrorInfo = {
     message: formatAgentKitErrorText(error, t),
     errorCode: error.code,

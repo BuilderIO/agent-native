@@ -1392,7 +1392,7 @@ const generateDesignAction = defineAction({
       );
       return source ? isRenderableDesignFile(source) : false;
     });
-    if (firstRenderableSavedFile) {
+    if (savedFiles.length > 0) {
       track(
         "generation_completed",
         {

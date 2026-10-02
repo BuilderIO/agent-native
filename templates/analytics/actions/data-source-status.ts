@@ -96,6 +96,7 @@ export default defineAction({
       ),
   }),
   http: { method: "GET" },
+  mcpTool: true,
   run: async (args) => {
     const ctx = tryRequestCredentialContext();
     if (!ctx) {

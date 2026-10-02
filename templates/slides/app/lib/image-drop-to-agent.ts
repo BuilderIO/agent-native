@@ -36,7 +36,8 @@ export function isMissingUploadProviderError(
     lower.includes("no object storage is connected") ||
     lower.includes("no file upload provider") ||
     lower.includes("registerfileuploadprovider") ||
-    lower.includes("connect builder.io")
+    lower.includes("connect builder.io") ||
+    lower.includes("use builder.io")
   );
 }
 
@@ -112,7 +113,7 @@ export function buildImageDropAgentPayload(args: {
   if (!inlineDataUrl) {
     throw new Error(
       args.upload.error ||
-        "Image upload failed. Connect Builder.io (free) or configure your own S3-compatible storage keys.",
+        "Image upload failed. Use Builder.io (free) or configure your own S3-compatible storage keys.",
     );
   }
 
