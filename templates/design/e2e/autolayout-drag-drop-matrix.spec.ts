@@ -98,14 +98,16 @@ const OVERSIZED_CROSS_SCREEN_SECOND_HTML = `<!doctype html>
 
 const GRID_CROSS_SCREEN_PRIMARY_HTML = `<!doctype html>
 <html><body style="margin:0;position:relative;width:1000px;height:780px;background:#0f172a">
-  <div data-agent-native-node-id="grid-source" data-agent-native-layer-name="Grid source"
-    style="position:absolute;left:500px;top:300px;width:60px;height:40px;background:#ea580c">Source</div>
+  <section data-agent-native-node-id="source-grid" style="position:absolute;left:500px;top:300px;width:180px;height:120px;display:grid;grid-template-columns:repeat(3,60px);grid-template-rows:repeat(3,40px)">
+    <div data-agent-native-node-id="grid-source" data-agent-native-layer-name="Grid source"
+      style="grid-column:span 2;grid-row:span 2;background:#ea580c">Source</div>
+  </section>
 </body></html>`;
 
 const GRID_CROSS_SCREEN_SECOND_HTML = `<!doctype html>
 <html><body style="margin:0;position:relative;width:1000px;height:780px;background:#111827">
   <section data-agent-native-node-id="target-grid" data-agent-native-layer-name="Target grid"
-    style="position:absolute;left:80px;top:120px;width:360px;height:180px;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,1fr);gap:0;background:#374151">
+    style="position:absolute;left:80px;top:120px;width:360px;height:180px;display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(3,1fr);gap:0;background:#374151">
     <div data-agent-native-node-id="grid-first" style="grid-column:1;grid-row:1;background:#64748b"></div>
     <div data-agent-native-node-id="grid-second" style="grid-column:2;grid-row:1;background:#64748b"></div>
   </section>
@@ -2713,7 +2715,7 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
     }
   });
 
-  test("cross-Screen drop into an empty grid cell previews and persists that cell through undo, redo, and reload", async ({
+  test("cross-Screen drop preserves a spanning grid item through preview, undo, redo, and reload", async ({
     page,
     request,
   }) => {
@@ -2728,8 +2730,8 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       const source = await boxFor(page, design.primaryId, "grid-source");
       const grid = await boxFor(page, design.secondId!, "target-grid");
       const release = {
-        x: grid.x + (grid.width * 5) / 6,
-        y: grid.y + (grid.height * 3) / 4,
+        x: grid.x + (grid.width * 3) / 8,
+        y: grid.y + grid.height / 2,
       };
       await page.mouse.click(
         source.x + source.width / 2,
@@ -2754,12 +2756,14 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       await expect(guide).toBeVisible();
       const guideBox = await guide.boundingBox();
       expect(guideBox).not.toBeNull();
-      expect(
-        Math.abs(guideBox!.x + guideBox!.width / 2 - release.x),
-      ).toBeLessThan(4);
-      expect(
-        Math.abs(guideBox!.y + guideBox!.height / 2 - release.y),
-      ).toBeLessThan(4);
+      expect(guideBox!.x).toBeCloseTo(grid.x + grid.width / 4, 0);
+      expect(guideBox!.y).toBeCloseTo(grid.y + grid.height / 3, 0);
+      expect(guideBox!.width).toBeCloseTo(grid.width / 2, 0);
+      expect(guideBox!.height).toBeCloseTo((grid.height * 2) / 3, 0);
+      expect(release.x).toBeGreaterThan(guideBox!.x);
+      expect(release.x).toBeLessThan(guideBox!.x + guideBox!.width);
+      expect(release.y).toBeGreaterThan(guideBox!.y);
+      expect(release.y).toBeLessThan(guideBox!.y + guideBox!.height);
       await expect(page.locator("[data-cross-screen-drag-ghost]")).toHaveCount(
         1,
       );
@@ -2793,13 +2797,17 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
                 "data-agent-native-node-id",
               ),
               column: style.gridColumnStart,
+              columnEnd: style.gridColumnEnd,
               row: style.gridRowStart,
+              rowEnd: style.gridRowEnd,
             };
           });
       await expect.poll(persistedPlacement).toEqual({
         parent: "target-grid",
-        column: "3",
+        column: "2",
+        columnEnd: "4",
         row: "2",
+        rowEnd: "4",
       });
 
       await page.keyboard.press(`${COMMAND}+z`);
@@ -2831,8 +2839,10 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
       await settleReload(page, design.secondId!);
       await expect.poll(persistedPlacement).toEqual({
         parent: "target-grid",
-        column: "3",
+        column: "2",
+        columnEnd: "4",
         row: "2",
+        rowEnd: "4",
       });
     } finally {
       await deleteDesign(request, design.id);

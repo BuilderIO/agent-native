@@ -135,7 +135,7 @@ export const hitTestBridgeScript: string = `"use strict";
         return "y";
       }
       if (cs.display === "grid" || cs.display === "inline-grid") {
-        var cols = (cs.gridTemplateColumns || "").split(" ").filter(Boolean).length;
+        var cols = hitTestGridTracks(cs.gridTemplateColumns || "").length;
         return cols > 1 ? "x" : "y";
       }
       return "y";
@@ -153,9 +153,12 @@ export const hitTestBridgeScript: string = `"use strict";
     function hitTestGridTracks(template) {
       if (!template || template === "none") return [];
       var tracks = [];
-      var tokens = template.trim().split(/\\s+/);
+      var tokens = template.trim().match(/\\[[^\\]]*\\]|[^\\s]+/g) || [];
       for (var index = 0; index < tokens.length; index += 1) {
         var token = tokens[index];
+        if (token.charAt(0) === "[" && token.charAt(token.length - 1) === "]") {
+          continue;
+        }
         if (!/^-?(?:\\d+\\.?\\d*|\\.\\d+)px$/.test(token)) return [];
         var size = parseFloat(token);
         if (!Number.isFinite(size) || size < 0) return [];
@@ -172,13 +175,15 @@ export const hitTestBridgeScript: string = `"use strict";
       if (!(leftover > 0.01)) return { offset: 0, gap };
       var mode = (distribution || "normal").split(" ").pop() || "normal";
       if (mode === "center") return { offset: leftover / 2, gap };
-      if (mode === "end" || mode === "flex-end" || mode === "right") {
-        return {
-          offset: mode === "right" || !reverse ? leftover : 0,
-          gap
-        };
+      if (mode === "end" || mode === "flex-end") {
+        return { offset: leftover, gap };
       }
-      if (mode === "left") return { offset: 0, gap };
+      if (mode === "right") {
+        return { offset: reverse ? 0 : leftover, gap };
+      }
+      if (mode === "left") {
+        return { offset: reverse ? leftover : 0, gap };
+      }
       if (mode === "space-between" && tracks.length > 1) {
         return { offset: 0, gap: gap + leftover / (tracks.length - 1) };
       }
@@ -190,16 +195,33 @@ export const hitTestBridgeScript: string = `"use strict";
         var evenly = leftover / (tracks.length + 1);
         return { offset: evenly, gap: gap + evenly };
       }
-      return { offset: reverse ? leftover : 0, gap };
+      return { offset: 0, gap };
     }
-    function gridEmptyCellInsertionTarget(container, clientX, clientY) {
+    function hasTransformedGridAncestor(container) {
+      var current = container;
+      while (current) {
+        var styles = window.getComputedStyle(current);
+        if (styles.transform !== "none" || styles.translate !== "none" || styles.rotate !== "none" || styles.scale !== "none" || styles.zoom !== "1" && styles.zoom !== "normal") {
+          return true;
+        }
+        current = current.parentElement;
+      }
+      return false;
+    }
+    function gridEmptyCellInsertionTarget(container, clientX, clientY, sourceGridSpan) {
       var styles = window.getComputedStyle(container);
       if (styles.display !== "grid" && styles.display !== "inline-grid" || styles.writingMode !== "horizontal-tb") {
         return null;
       }
+      if (hasTransformedGridAncestor(container)) return null;
       var columns = hitTestGridTracks(styles.gridTemplateColumns);
       var rows = hitTestGridTracks(styles.gridTemplateRows);
       if (!columns.length || !rows.length) return null;
+      var columnSpan = sourceGridSpan?.columns ?? 1;
+      var rowSpan = sourceGridSpan?.rows ?? 1;
+      if (!Number.isSafeInteger(columnSpan) || !Number.isSafeInteger(rowSpan) || columnSpan < 1 || rowSpan < 1) {
+        return null;
+      }
       var rect = container.getBoundingClientRect();
       var px = function(value) {
         var parsed = parseFloat(value);
@@ -253,12 +275,14 @@ export const hitTestBridgeScript: string = `"use strict";
       var row = rowBounds.findIndex(
         (bound) => clientY >= bound.start && clientY <= bound.end
       );
-      if (column < 0 || row < 0) return null;
+      if (column < 0 || row < 0 || column + columnSpan > columnBounds.length || row + rowSpan > rowBounds.length) {
+        return null;
+      }
       var cell = {
         left: columnBounds[column].start,
         top: rowBounds[row].start,
-        width: columnBounds[column].end - columnBounds[column].start,
-        height: rowBounds[row].end - rowBounds[row].start
+        width: columnBounds[column + columnSpan - 1].end - columnBounds[column].start,
+        height: rowBounds[row + rowSpan - 1].end - rowBounds[row].start
       };
       var children = draggableElementChildren(container);
       for (var childIndex = 0; childIndex < children.length; childIndex += 1) {
@@ -281,9 +305,9 @@ export const hitTestBridgeScript: string = `"use strict";
         dropMode: "flow-insert",
         gridPlacement: {
           column: column + 1,
-          columnEnd: column + 2,
+          columnEnd: column + columnSpan + 1,
           row: row + 1,
-          rowEnd: row + 2
+          rowEnd: row + rowSpan + 1
         },
         guideRect: cell
       };
@@ -556,15 +580,21 @@ export const hitTestBridgeScript: string = `"use strict";
       parts.unshift("body");
       return parts.join(" > ");
     }
-    function nearestChildInsertionTarget(container, clientX, clientY) {
-      var gridTarget = gridEmptyCellInsertionTarget(container, clientX, clientY);
+    function nearestChildInsertionTarget(container, clientX, clientY, sourceGridSpan) {
+      var gridTarget = gridEmptyCellInsertionTarget(
+        container,
+        clientX,
+        clientY,
+        sourceGridSpan
+      );
       if (gridTarget) return gridTarget;
       var children = draggableElementChildren(container);
       if (!children.length) return null;
       var wrappedFlexAxis = wrappedFlexMainAxis(container);
       var axis = wrappedFlexAxis || parentFlowAxis(container);
       var containerStyles = window.getComputedStyle(container);
-      var multiTrackGrid = (containerStyles.display === "grid" || containerStyles.display === "inline-grid") && (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
+      var columns = hitTestGridTracks(containerStyles.gridTemplateColumns || "");
+      var multiTrackGrid = (containerStyles.display === "grid" || containerStyles.display === "inline-grid") && columns.length > 1;
       var best = null;
       var bestDistance = Infinity;
       var placement = "after";
@@ -592,16 +622,21 @@ export const hitTestBridgeScript: string = `"use strict";
         dropMode: "flow-insert"
       };
     }
-    function screenRootFlowInsertionTargetForPoint(clientX, clientY) {
+    function screenRootFlowInsertionTargetForPoint(clientX, clientY, sourceGridSpan) {
       if (!isAutoLayoutElement(document.body)) return null;
       var bodyRect = document.body.getBoundingClientRect();
       if (bodyRect.width <= 0 || bodyRect.height <= 0 || clientX < bodyRect.left || clientX > bodyRect.right || // i18n-ignore non-user-facing pointer geometry condition
       clientY < bodyRect.top || clientY > bodyRect.bottom) {
         return null;
       }
-      return nearestChildInsertionTarget(document.body, clientX, clientY);
+      return nearestChildInsertionTarget(
+        document.body,
+        clientX,
+        clientY,
+        sourceGridSpan
+      );
     }
-    function resolveHitTarget(clientX, clientY, forceNestedAutoLayout = false) {
+    function resolveHitTarget(clientX, clientY, forceNestedAutoLayout = false, sourceGridSpan) {
       var hit = elementFromEditorPoint(clientX, clientY);
       if (!hit || hit === document.documentElement) return null;
       var cursor = hit;
@@ -611,7 +646,12 @@ export const hitTestBridgeScript: string = `"use strict";
             return null;
           }
           if (isAutoLayoutElement(cursor) && isContainerDropTarget(cursor)) {
-            return nearestChildInsertionTarget(cursor, clientX, clientY) || {
+            return nearestChildInsertionTarget(
+              cursor,
+              clientX,
+              clientY,
+              sourceGridSpan
+            ) || {
               anchor: cursor,
               placement: "inside",
               axis: parentFlowAxis(cursor),
@@ -629,14 +669,16 @@ export const hitTestBridgeScript: string = `"use strict";
           var emptyGridCell = gridEmptyCellInsertionTarget(
             parent,
             clientX,
-            clientY
+            clientY,
+            sourceGridSpan
           );
           if (emptyGridCell) return emptyGridCell;
           if (isTransientCloneElement(cursor)) {
             var cloneFallback = nearestChildInsertionTarget(
               parent,
               clientX,
-              clientY
+              clientY,
+              sourceGridSpan
             );
             if (cloneFallback) return cloneFallback;
             return {
@@ -651,7 +693,8 @@ export const hitTestBridgeScript: string = `"use strict";
             var wrappedParentSlot = nearestChildInsertionTarget(
               parent,
               clientX,
-              clientY
+              clientY,
+              sourceGridSpan
             );
             if (wrappedParentSlot) return wrappedParentSlot;
           }
@@ -686,7 +729,8 @@ export const hitTestBridgeScript: string = `"use strict";
           var betweenChildren = nearestChildInsertionTarget(
             cursor,
             clientX,
-            clientY
+            clientY,
+            sourceGridSpan
           );
           if (betweenChildren) return betweenChildren;
           return {
@@ -708,7 +752,8 @@ export const hitTestBridgeScript: string = `"use strict";
       }
       var screenRootTarget = screenRootFlowInsertionTargetForPoint(
         clientX,
-        clientY
+        clientY,
+        sourceGridSpan
       );
       if (screenRootTarget) return screenRootTarget;
       var absoluteTarget = absolutePrimitiveContainerTargetForPoint(
@@ -722,7 +767,8 @@ export const hitTestBridgeScript: string = `"use strict";
           var emptyContainerGridCell = gridEmptyCellInsertionTarget(
             blockCursor,
             clientX,
-            clientY
+            clientY,
+            sourceGridSpan
           );
           if (emptyContainerGridCell) return emptyContainerGridCell;
           return {
@@ -1044,12 +1090,18 @@ export const hitTestBridgeScript: string = `"use strict";
         width: sourceElementSize.width,
         height: sourceElementSize.height
       } : void 0;
+      var rawSourceGridSpan = e.data.sourceGridSpan;
+      var sourceGridSpan = rawSourceGridSpan && Number.isSafeInteger(rawSourceGridSpan.columns) && Number.isSafeInteger(rawSourceGridSpan.rows) && rawSourceGridSpan.columns > 0 && rawSourceGridSpan.rows > 0 ? {
+        columns: rawSourceGridSpan.columns,
+        rows: rawSourceGridSpan.rows
+      } : void 0;
       var result = ignoreAutoLayoutHitTarget(
         applyHitTestSizeGuard(
           resolveHitTarget(
             x,
             y,
-            e.data.modifiers?.forceNestedAutoLayout === true
+            e.data.modifiers?.forceNestedAutoLayout === true,
+            sourceGridSpan
           ),
           x,
           y,

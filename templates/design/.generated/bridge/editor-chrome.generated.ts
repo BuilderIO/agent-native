@@ -5636,6 +5636,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var activeCrossScreenStyleSnapshot = void 0;
     var activeCrossScreenSourceHtml = void 0;
     var activeCrossScreenComputedSize;
+    var activeCrossScreenGridSpan;
     var activeCrossScreenDeleteRequestId = void 0;
     var activeCrossScreenDragIdentity = null;
     function rememberEndedCrossScreenModifierSnapshot(snapshotId) {
@@ -13212,6 +13213,17 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return ev.timeStamp >= 1e12 ? ev.timeStamp : eventPerformance.timeOrigin + ev.timeStamp;
     }
+    function crossScreenGridSpanForElement(el) {
+      var parent = el?.parentElement;
+      if (!el || !parent) return void 0;
+      var display = window.getComputedStyle(parent).display;
+      if (display !== "grid" && display !== "inline-grid") return void 0;
+      var layout = gridTrackLayoutForElement(parent);
+      return {
+        columns: gridItemAxisPlacement(el, layout, "column").span,
+        rows: gridItemAxisPlacement(el, layout, "row").span
+      };
+    }
     function postCrossScreenDrag(phase, el, ev, options) {
       dndLog("post:cross-screen", { phase, el: getSelector(el ?? null) });
       if (phase === "cancel") {
@@ -13219,6 +13231,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         activeCrossScreenStyleSnapshot = void 0;
         activeCrossScreenSourceHtml = void 0;
         activeCrossScreenComputedSize = void 0;
+        activeCrossScreenGridSpan = void 0;
         activeCrossScreenDragIdentity = null;
         activeCrossScreenDeleteRequestId = void 0;
         window.parent.postMessage(
@@ -13246,6 +13259,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           activeCrossScreenStyleSnapshot,
           computed
         );
+        activeCrossScreenGridSpan = crossScreenGridSpanForElement(el ?? null);
         var startSourceId = getSourceId(el ?? null);
         var startProvenance = nodeProvenanceForSourceId(
           startSourceId,
@@ -13292,6 +13306,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           pointerOffset,
           styleSnapshot: activeCrossScreenStyleSnapshot,
           sourceComputedSize: activeCrossScreenComputedSize,
+          sourceGridSpan: activeCrossScreenGridSpan,
           styleSnapshotCaptureFailed: activeCrossScreenStyleSnapshot === null,
           modifiers: options?.modifiers,
           duplicate: options?.duplicate === true ? true : void 0,
@@ -13307,6 +13322,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         activeCrossScreenStyleSnapshot = void 0;
         activeCrossScreenSourceHtml = void 0;
         activeCrossScreenComputedSize = void 0;
+        activeCrossScreenGridSpan = void 0;
         activeCrossScreenDragIdentity = null;
         activeCrossScreenDeleteRequestId = void 0;
       }

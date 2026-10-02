@@ -6635,6 +6635,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var activeCrossScreenComputedSize:
     | { width?: number; height?: number }
     | undefined;
+  var activeCrossScreenGridSpan: { columns: number; rows: number } | undefined;
   var activeCrossScreenDeleteRequestId: string | undefined = undefined;
   var activeCrossScreenDragIdentity: {
     selector: string;
@@ -16659,6 +16660,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       : eventPerformance.timeOrigin + ev.timeStamp;
   }
 
+  function crossScreenGridSpanForElement(el: Element | null) {
+    var parent = el?.parentElement;
+    if (!el || !parent) return undefined;
+    var display = window.getComputedStyle(parent).display;
+    if (display !== "grid" && display !== "inline-grid") return undefined;
+    var layout = gridTrackLayoutForElement(parent);
+    return {
+      columns: gridItemAxisPlacement(el, layout, "column").span,
+      rows: gridItemAxisPlacement(el, layout, "row").span,
+    };
+  }
+
   function postCrossScreenDrag(
     phase: "start" | "move" | "end" | "cancel",
     el?: Element | null,
@@ -16687,6 +16700,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       activeCrossScreenStyleSnapshot = undefined;
       activeCrossScreenSourceHtml = undefined;
       activeCrossScreenComputedSize = undefined;
+      activeCrossScreenGridSpan = undefined;
       activeCrossScreenDragIdentity = null;
       activeCrossScreenDeleteRequestId = undefined;
       (window.parent as Window).postMessage(
@@ -16719,6 +16733,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         activeCrossScreenStyleSnapshot,
         computed,
       );
+      activeCrossScreenGridSpan = crossScreenGridSpanForElement(el ?? null);
       var startSourceId = getSourceId(el ?? null);
       var startProvenance = nodeProvenanceForSourceId(
         startSourceId,
@@ -16776,6 +16791,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         pointerOffset,
         styleSnapshot: activeCrossScreenStyleSnapshot,
         sourceComputedSize: activeCrossScreenComputedSize,
+        sourceGridSpan: activeCrossScreenGridSpan,
         styleSnapshotCaptureFailed: activeCrossScreenStyleSnapshot === null,
         modifiers: options?.modifiers,
         duplicate: options?.duplicate === true ? true : undefined,
@@ -16799,6 +16815,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       activeCrossScreenStyleSnapshot = undefined;
       activeCrossScreenSourceHtml = undefined;
       activeCrossScreenComputedSize = undefined;
+      activeCrossScreenGridSpan = undefined;
       activeCrossScreenDragIdentity = null;
       activeCrossScreenDeleteRequestId = undefined;
     }
