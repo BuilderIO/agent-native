@@ -6276,11 +6276,9 @@ function PageEditorSessionBody({
     null,
   );
   const appliedSuggestionLinkRef = useRef<string | null>(null);
-  const {
-    data: threads,
-    isLoading: commentsLoading,
-    isError: commentsQueryFailed,
-  } = useComments(!isLocalFileDocument ? documentId : null);
+  const { data: threads, isLoading: commentsLoading } = useComments(
+    !isLocalFileDocument ? documentId : null,
+  );
   const commentAi = useCommentAiRequests(documentId, {
     enabled: !isLocalFileDocument && canComment,
   });
@@ -6345,10 +6343,11 @@ function PageEditorSessionBody({
     hasSelectedCommentThread,
     hasPendingComment: !!pendingComment,
   });
+  // A failed read says nothing about whether the page still has open review,
+  // so the remembered margin holds until both reads answer.
   const reviewReadsSettled =
     isLocalFileDocument ||
-    ((threads !== undefined || commentsQueryFailed) &&
-      (suggestionsQuery.data !== undefined || suggestionsQuery.isError));
+    (threads !== undefined && suggestionsQuery.data !== undefined);
   const pageHadOpenReview = useMemo(
     () => host === "page" && readPageShapeHint(documentId) === "review",
     [documentId, host],

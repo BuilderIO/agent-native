@@ -3367,6 +3367,12 @@ function DatabaseTable({
           properties={orderedProperties}
           canEdit={effectiveCanEdit}
         />
+      ) : database.itemsFailed ? (
+        <QueryErrorState
+          compact
+          onRetry={() => void database.retryItems()}
+          retrying={database.itemsRetrying}
+        />
       ) : activeView.type === "board" ? (
         <DatabaseBoardView
           databaseId={databaseId}

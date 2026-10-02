@@ -770,6 +770,9 @@ export function useContentDatabase(
     },
   );
   const page = tableQuery ? pageQuery.data : undefined;
+  const baseFailed = baseQuery.isError && baseQuery.data === undefined;
+  const pageFailed =
+    Boolean(tableQuery) && pageQuery.isError && page === undefined;
   const data =
     page &&
     baseQuery.data &&
@@ -795,6 +798,16 @@ export function useContentDatabase(
       (tableQuery
         ? pageQuery.isError || (page !== undefined && !!baseQuery.data)
         : baseQuery.data !== undefined),
+    // No rows for the requested view could be read. After a failed sorted or
+    // filtered read, `data` still holds the base read's rows in stored order;
+    // they are not this view's rows and must not draw as them.
+    itemsFailed: baseFailed || pageFailed,
+    retryItems: () =>
+      Promise.all([
+        baseFailed ? baseQuery.refetch() : null,
+        pageFailed ? pageQuery.refetch() : null,
+      ]),
+    itemsRetrying: baseQuery.isFetching || pageQuery.isFetching,
     isLoading: tableQuery ? pageQuery.isLoading && !data : baseQuery.isLoading,
     isFetching: tableQuery ? pageQuery.isFetching : baseQuery.isFetching,
     isError: tableQuery ? pageQuery.isError : baseQuery.isError,
