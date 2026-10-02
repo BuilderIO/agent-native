@@ -2330,6 +2330,30 @@ describe("in-place text session: commands", () => {
     expect(styledText?.textContent).toContain("First line");
   });
 
+  it("converts a dash prefix when a trailing space follows an inherited link", () => {
+    const el = mount(
+      '<p id="t"><a href="https://example.test">-</a>&nbsp;</p>',
+    );
+    session = startInPlaceTextSession(el);
+    const space = textOf(el, "\u00a0");
+    caret(space, space.length);
+
+    el.dispatchEvent(
+      new InputEvent("input", {
+        inputType: "insertText",
+        data: " ",
+        bubbles: true,
+      }),
+    );
+
+    const row = session.element.querySelector(
+      ':scope > div[style*="display: flex"]',
+    );
+    expect(row?.firstElementChild?.textContent).toBe("●");
+    expect(row?.lastElementChild?.textContent?.replaceAll(ZWSP, "")).toBe("");
+    expect(row?.contains(window.getSelection()?.anchorNode ?? null)).toBe(true);
+  });
+
   it("turns '---' into a divider without requiring a trailing space", () => {
     const el = mount('<div id="t"><p>First line</p><p></p></div>');
     session = startInPlaceTextSession(el);
