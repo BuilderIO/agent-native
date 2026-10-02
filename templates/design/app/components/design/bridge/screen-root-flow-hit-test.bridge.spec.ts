@@ -497,6 +497,103 @@ describe("Screen-root auto-layout hit testing", () => {
     }
   });
 
+  it("uses a fitting board-root flow slot when the direct auto-layout receiver is too small", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 640, height: 480 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0;width:640px;height:480px;position:relative">
+        <section data-agent-native-node-id="root-flow" style="position:absolute;left:40px;top:40px;width:140px;height:80px;display:flex;flex-direction:row">
+          <div data-agent-native-node-id="root-child" style="flex:none;width:80px;height:40px"></div>
+        </section>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "root-flow-sibling-fallback",
+            x: 100,
+            y: 60,
+            sourceElementSize: { width: 220, height: 96 },
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+
+      expect(
+        await page.evaluate(() => (window as any).__hitTestResults[0]),
+      ).toMatchObject({
+        correlationId: "root-flow-sibling-fallback",
+        anchorNodeId: "root-flow",
+        placement: "before",
+        axis: "y",
+        dropMode: "flow-insert",
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("does not invent a linear slot for an oversized drop in a multi-track grid", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 640, height: 480 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0;width:640px;height:480px;position:relative">
+        <section data-agent-native-node-id="grid-root" style="position:absolute;left:40px;top:40px;width:320px;height:180px;display:grid;grid-template-columns:repeat(2,140px);grid-template-rows:180px;gap:20px">
+          <section data-agent-native-node-id="nested-flow" style="display:flex;flex-direction:column;width:100px;height:72px">
+            <div data-agent-native-node-id="nested-child" style="flex:none;width:80px;height:32px"></div>
+          </section>
+          <div data-agent-native-node-id="grid-sibling" style="width:120px;height:80px"></div>
+        </section>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "multi-track-grid-fallback",
+            x: 60,
+            y: 60,
+            sourceElementSize: { width: 180, height: 80 },
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+
+      const packet = await page.evaluate(
+        () => (window as any).__hitTestResults[0],
+      );
+      expect(packet).toMatchObject({
+        correlationId: "multi-track-grid-fallback",
+        anchorNodeId: "",
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("skips a fitting static section when no valid ancestor container fits", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

@@ -678,6 +678,14 @@
     return parts.join(" > ");
   }
 
+  function isMultiTrackGrid(container: Element) {
+    var styles = window.getComputedStyle(container);
+    return (
+      (styles.display === "grid" || styles.display === "inline-grid") &&
+      (styles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1
+    );
+  }
+
   function nearestChildInsertionTarget(
     container: Element,
     clientX: number,
@@ -688,11 +696,7 @@
     var wrappedFlexAxis = wrappedFlexMainAxis(container);
     var axis = wrappedFlexAxis || parentFlowAxis(container);
     var containerStyles = window.getComputedStyle(container);
-    var multiTrackGrid =
-      (containerStyles.display === "grid" ||
-        containerStyles.display === "inline-grid") &&
-      (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean)
-        .length > 1;
+    var multiTrackGrid = isMultiTrackGrid(container);
     var reverseFlow =
       !multiTrackGrid && isReverseFlexFlow(containerStyles, axis);
     var best: Element | null = null;
@@ -994,6 +998,10 @@
           )
         ) {
           if (parentIsFlow) {
+            if (isMultiTrackGrid(parent)) {
+              parent = parent.parentElement;
+              continue;
+            }
             return (
               nearestChildInsertionTarget(parent, clientX, clientY) || {
                 anchor: parent,
@@ -1012,6 +1020,18 @@
         }
       }
       parent = parent.parentElement;
+    }
+    var containerPrimitive = (
+      container.getAttribute("data-an-primitive") ||
+      container.getAttribute("data-agent-native-primitive") ||
+      ""
+    ).toLowerCase();
+    if (
+      isAutoLayoutElement(container) &&
+      container.parentElement === document.body &&
+      containerPrimitive !== "frame"
+    ) {
+      return nearestChildInsertionTarget(document.body, clientX, clientY);
     }
     return null;
   }

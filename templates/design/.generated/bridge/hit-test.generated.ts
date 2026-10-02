@@ -452,13 +452,17 @@ export const hitTestBridgeScript: string = `"use strict";
       parts.unshift("body");
       return parts.join(" > ");
     }
+    function isMultiTrackGrid(container) {
+      var styles = window.getComputedStyle(container);
+      return (styles.display === "grid" || styles.display === "inline-grid") && (styles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
+    }
     function nearestChildInsertionTarget(container, clientX, clientY) {
       var children = draggableElementChildren(container);
       if (!children.length) return null;
       var wrappedFlexAxis = wrappedFlexMainAxis(container);
       var axis = wrappedFlexAxis || parentFlowAxis(container);
       var containerStyles = window.getComputedStyle(container);
-      var multiTrackGrid = (containerStyles.display === "grid" || containerStyles.display === "inline-grid") && (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
+      var multiTrackGrid = isMultiTrackGrid(container);
       var reverseFlow = !multiTrackGrid && isReverseFlexFlow(containerStyles, axis);
       var best = null;
       var bestDistance = Infinity;
@@ -664,6 +668,10 @@ export const hitTestBridgeScript: string = `"use strict";
             sourceElementSize.height
           )) {
             if (parentIsFlow) {
+              if (isMultiTrackGrid(parent)) {
+                parent = parent.parentElement;
+                continue;
+              }
               return nearestChildInsertionTarget(parent, clientX, clientY) || {
                 anchor: parent,
                 placement: "inside",
@@ -680,6 +688,10 @@ export const hitTestBridgeScript: string = `"use strict";
           }
         }
         parent = parent.parentElement;
+      }
+      var containerPrimitive = (container.getAttribute("data-an-primitive") || container.getAttribute("data-agent-native-primitive") || "").toLowerCase();
+      if (isAutoLayoutElement(container) && container.parentElement === document.body && containerPrimitive !== "frame") {
+        return nearestChildInsertionTarget(document.body, clientX, clientY);
       }
       return null;
     }

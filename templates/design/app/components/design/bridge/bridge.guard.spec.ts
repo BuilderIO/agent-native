@@ -129,6 +129,7 @@ describe("editor oversized-drop receiver guards", () => {
     } as unknown as Element;
     const nested = {
       parentElement: root,
+      getAttribute: () => null,
       getBoundingClientRect: () => ({
         left: 0,
         top: 0,

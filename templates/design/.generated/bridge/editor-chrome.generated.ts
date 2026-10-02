@@ -17032,6 +17032,15 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
           parent = parent.parentElement;
         }
+        var containerPrimitive = (container.getAttribute("data-an-primitive") || container.getAttribute("data-agent-native-primitive") || "").toLowerCase();
+        if (isAutoLayoutElement(container) && container.parentElement === document.body && containerPrimitive !== "frame") {
+          return nearestChildInsertionTarget(
+            document.body,
+            pointerX,
+            pointerY,
+            excluded
+          );
+        }
         return null;
       }
       function cancelAutoLayoutTargetResolution() {
