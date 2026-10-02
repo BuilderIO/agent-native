@@ -12948,15 +12948,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cs = window.getComputedStyle(el);
       return cs.display === "flex" || cs.display === "inline-flex" || cs.display === "grid" || cs.display === "inline-grid";
     }
-    function isAutoLayoutFlowTarget(el) {
-      if (!el) return false;
-      if (isAutoLayoutElement(el)) return true;
-      if (el.getAttribute("data-an-primitive") !== "frame" || !isAutoLayoutElement(el.parentElement)) {
-        return false;
-      }
-      var position = window.getComputedStyle(el).position;
-      return position !== "absolute" && position !== "fixed";
-    }
     var BRIDGE_REPLACED_TAGS = {
       img: true,
       video: true,
@@ -16962,26 +16953,54 @@ export const editorChromeBridgeScript: string = `"use strict";
       var dragElStartWidth = dragElStartRect.width;
       var dragElStartHeight = dragElStartRect.height;
       function applyFreeDropSizeGuard(target, ev) {
-        if (!target || target.placement !== "inside" || target.dropMode !== "flow-insert") {
+        if (!target || target.placement !== "inside" || target.dropMode !== "flow-insert" && target.dropMode !== "absolute-container") {
           return target;
         }
         if (ev && (ignoreAutoLayoutHeld(ev) || isPlatformPrimaryChord(ev))) {
           return target;
         }
         var container = dropContainerForTarget(target);
-        if (!container || container === dragEl || container === document.body || container === document.documentElement || !isAutoLayoutFlowTarget(container)) {
+        if (!container || container === dragEl || container === document.body || container === document.documentElement || !isContainerDropTarget(container)) {
           return target;
         }
         var crect = container.getBoundingClientRect();
         if (crect.width >= dragElStartRect.width && crect.height >= dragElStartRect.height) {
           return target;
         }
-        var parent = container.parentElement;
-        if (!parent) return null;
         var pointerX = ev ? ev.clientX : crect.left + crect.width / 2;
         var pointerY = ev ? ev.clientY : crect.top + crect.height / 2;
         var excluded = [dragEl].concat(groupOthers || []);
-        return nearestChildInsertionTarget(parent, pointerX, pointerY, excluded);
+        var parent = container.parentElement;
+        while (parent && parent !== document.documentElement) {
+          var parentIsFlow = isAutoLayoutElement(parent);
+          var parentIsAbsolute = isAbsolutePrimitiveContainer(parent) || isFreeformRelativeContainer(parent);
+          if (isContainerDropTarget(parent) && parent !== dragEl && (parentIsFlow || parentIsAbsolute)) {
+            var parentRect = parent.getBoundingClientRect();
+            if (parentRect.width >= dragElStartRect.width && parentRect.height >= dragElStartRect.height) {
+              if (parentIsFlow) {
+                return nearestChildInsertionTarget(
+                  parent,
+                  pointerX,
+                  pointerY,
+                  excluded
+                ) || {
+                  anchor: parent,
+                  placement: "inside",
+                  axis: parentFlowAxis(parent),
+                  dropMode: "flow-insert"
+                };
+              }
+              return {
+                anchor: parent,
+                placement: "inside",
+                axis: "y",
+                dropMode: "absolute-container"
+              };
+            }
+          }
+          parent = parent.parentElement;
+        }
+        return null;
       }
       function cancelAutoLayoutTargetResolution() {
         pendingAutoLayoutTargetPoint = null;

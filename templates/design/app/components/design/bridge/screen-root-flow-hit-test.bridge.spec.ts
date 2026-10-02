@@ -92,6 +92,239 @@ describe("Screen-root auto-layout hit testing", () => {
     }
   });
 
+  it("falls back through undersized plain frames to the nearest fitting auto-layout ancestor", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 640, height: 480 },
+      });
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.setContent(`<!doctype html><html><body style="margin:0;width:640px;height:480px;position:relative">
+        <section data-agent-native-node-id="outer" style="position:absolute;left:40px;top:40px;width:420px;height:320px;display:flex;flex-direction:column">
+          <section data-agent-native-node-id="middle" data-an-primitive="frame" style="position:relative;flex:0 0 180px;width:180px;height:180px">
+            <section data-agent-native-node-id="nested" data-an-primitive="frame" style="position:relative;width:140px;height:140px">
+              <div data-agent-native-node-id="anchor" style="position:absolute;left:12px;top:12px;width:60px;height:32px"></div>
+            </section>
+          </section>
+        </section>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        const nested = document.querySelector(
+          '[data-agent-native-node-id="nested"]',
+        )!;
+        const rect = nested.getBoundingClientRect();
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "oversized-nested-plain-frame",
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+            preview: true,
+            sourceElementSize: { width: 220, height: 96 },
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+
+      const packet = await page.evaluate(
+        () => (window as any).__hitTestResults[0],
+      );
+      expect(packet).toMatchObject({
+        correlationId: "oversized-nested-plain-frame",
+        anchorNodeId: "middle",
+        placement: "before",
+        axis: "y",
+        dropMode: "flow-insert",
+      });
+      expect(
+        await page.evaluate(() => {
+          const sourceSize = { width: 220, height: 96 };
+          const middle = document.querySelector(
+            '[data-agent-native-node-id="middle"]',
+          )!;
+          const outer = middle.parentElement!;
+          const middleRect = middle.getBoundingClientRect();
+          const outerRect = outer.getBoundingClientRect();
+          return {
+            selectedSlotParent: outer.getAttribute("data-agent-native-node-id"),
+            middleFits:
+              middleRect.width >= sourceSize.width &&
+              middleRect.height >= sourceSize.height,
+            outerFits:
+              outerRect.width >= sourceSize.width &&
+              outerRect.height >= sourceSize.height,
+          };
+        }),
+      ).toEqual({
+        selectedSlotParent: "outer",
+        middleFits: false,
+        outerFits: true,
+      });
+      expect(
+        await page
+          .locator("[data-agent-native-hit-test-preview]")
+          .evaluate((element) => ({
+            display: getComputedStyle(element).display,
+            width: element.getBoundingClientRect().width,
+            height: element.getBoundingClientRect().height,
+          })),
+      ).toMatchObject({ display: "block", width: 180, height: 2 });
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("uses a fitting legacy-marked plain frame as an absolute container, not a flow slot", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 640, height: 480 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0;width:640px;height:480px;position:relative">
+        <section data-agent-native-node-id="outer" style="position:absolute;left:40px;top:40px;width:420px;height:320px;display:flex;flex-direction:column">
+          <section data-agent-native-node-id="middle" data-agent-native-primitive="frame" style="position:relative;flex:0 0 260px;width:260px;height:260px">
+            <section data-agent-native-node-id="nested" data-an-primitive="frame" style="position:relative;width:140px;height:140px">
+              <div data-agent-native-node-id="anchor" style="position:absolute;left:12px;top:12px;width:60px;height:32px"></div>
+            </section>
+          </section>
+        </section>
+        </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        const nested = document.querySelector(
+          '[data-agent-native-node-id="nested"]',
+        )!;
+        const rect = nested.getBoundingClientRect();
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "legacy-frame-absolute-fallback",
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+            preview: true,
+            sourceElementSize: { width: 220, height: 96 },
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+
+      expect(
+        await page.evaluate(() => (window as any).__hitTestResults[0]),
+      ).toMatchObject({
+        correlationId: "legacy-frame-absolute-fallback",
+        anchorNodeId: "middle",
+        placement: "inside",
+        axis: "y",
+        dropMode: "absolute-container",
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("skips a fitting static section when no valid ancestor container fits", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 640, height: 480 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0;width:640px;height:480px">
+        <section data-agent-native-node-id="static" style="width:480px;height:320px;background:#334155">
+          <div data-agent-native-node-id="nested" data-an-primitive="frame" style="position:relative;width:140px;height:140px;background:#64748b">
+            <div data-agent-native-node-id="anchor" style="position:absolute;left:12px;top:12px;width:40px;height:32px"></div>
+          </div>
+        </section>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        const nested = document.querySelector(
+          '[data-agent-native-node-id="nested"]',
+        )!;
+        const rect = nested.getBoundingClientRect();
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "oversized-under-static-section",
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+            preview: true,
+            sourceElementSize: { width: 220, height: 96 },
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+
+      const packet = await page.evaluate(
+        () => (window as any).__hitTestResults[0],
+      );
+      expect(packet).toMatchObject({
+        correlationId: "oversized-under-static-section",
+        anchorNodeId: "",
+        placement: "inside",
+        dropMode: "flow-insert",
+      });
+      expect(packet.anchorRect).toBeUndefined();
+      expect(
+        await page.evaluate(() => {
+          const sourceSize = { width: 220, height: 96 };
+          const nested = document.querySelector(
+            '[data-agent-native-node-id="nested"]',
+          )!;
+          const section = document.querySelector(
+            '[data-agent-native-node-id="static"]',
+          )!;
+          const nestedRect = nested.getBoundingClientRect();
+          const sectionRect = section.getBoundingClientRect();
+          return {
+            sectionPosition: getComputedStyle(section).position,
+            nestedFits:
+              nestedRect.width >= sourceSize.width &&
+              nestedRect.height >= sourceSize.height,
+            sectionFits:
+              sectionRect.width >= sourceSize.width &&
+              sectionRect.height >= sourceSize.height,
+          };
+        }),
+      ).toEqual({
+        sectionPosition: "static",
+        nestedFits: false,
+        sectionFits: true,
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("never uses a transient drag copy as its own insertion anchor", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

@@ -380,11 +380,15 @@ test("Figma G9 Bring to Front reorders an auto-layout child and undo restores it
     await enterDirectMode(page);
     await selectLayer(page, "First");
     expect((await renderedRect(page, "first")).x).toBe(12);
+    expect((await renderedRect(page, "second")).x).toBe(124);
 
     await page.keyboard.press("]");
     await expect
       .poll(async () => (await renderedRect(page, "first")).x)
       .toBe(124);
+    await expect
+      .poll(async () => (await renderedRect(page, "second")).x)
+      .toBe(12);
     await expect
       .poll(() =>
         indexHtml(request, designId).then((html) => childNodeIds(html, "auto")),
@@ -395,6 +399,9 @@ test("Figma G9 Bring to Front reorders an auto-layout child and undo restores it
     await expect
       .poll(async () => (await renderedRect(page, "first")).x)
       .toBe(12);
+    await expect
+      .poll(async () => (await renderedRect(page, "second")).x)
+      .toBe(124);
     await expect
       .poll(() =>
         indexHtml(request, designId).then((html) => childNodeIds(html, "auto")),

@@ -598,11 +598,11 @@ export const hitTestBridgeScript: string = `"use strict";
       };
     }
     function applyHitTestSizeGuard(target, clientX, clientY, sourceElementSize, modifiers) {
-      if (!target || target.placement !== "inside" || target.dropMode !== "flow-insert" || !sourceElementSize || modifiers?.metaKey || modifiers?.ctrlKey || modifiers?.ignoreAutoLayout) {
+      if (!target || target.placement !== "inside" || target.dropMode !== "flow-insert" && target.dropMode !== "absolute-container" || !sourceElementSize || modifiers?.metaKey || modifiers?.ctrlKey || modifiers?.ignoreAutoLayout) {
         return target;
       }
       var container = target.anchor;
-      if (container === document.body || container === document.documentElement || !isAutoLayoutElement(container)) {
+      if (container === document.body || container === document.documentElement || !isContainerDropTarget(container)) {
         return target;
       }
       var crect = container.getBoundingClientRect();
@@ -610,16 +610,31 @@ export const hitTestBridgeScript: string = `"use strict";
         return target;
       }
       var parent = container.parentElement;
-      if (!parent) return null;
-      var pAxis = parentFlowAxis(parent);
-      var center = pAxis === "x" ? crect.left + crect.width / 2 : crect.top + crect.height / 2;
-      var pointer = pAxis === "x" ? clientX : clientY;
-      return {
-        anchor: container,
-        placement: pointer < center ? "before" : "after",
-        axis: pAxis,
-        dropMode: "flow-insert"
-      };
+      while (parent && parent !== document.documentElement) {
+        var parentIsFlow = isAutoLayoutElement(parent);
+        var parentIsAbsolute = isAbsolutePrimitiveContainer(parent) || isFreeformRelativeContainer(parent);
+        if (isContainerDropTarget(parent) && parent !== container && (parentIsFlow || parentIsAbsolute)) {
+          var parentRect = parent.getBoundingClientRect();
+          if (parentRect.width >= sourceElementSize.width && parentRect.height >= sourceElementSize.height) {
+            if (parentIsFlow) {
+              return nearestChildInsertionTarget(parent, clientX, clientY) || {
+                anchor: parent,
+                placement: "inside",
+                axis: parentFlowAxis(parent),
+                dropMode: "flow-insert"
+              };
+            }
+            return {
+              anchor: parent,
+              placement: "inside",
+              axis: "y",
+              dropMode: "absolute-container"
+            };
+          }
+        }
+        parent = parent.parentElement;
+      }
+      return null;
     }
     function showInsertionGuideFor(target) {
       if (!target || !target.anchor) {

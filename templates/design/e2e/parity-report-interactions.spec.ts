@@ -120,6 +120,37 @@ async function fileContent(
   );
 }
 
+async function nodePlacement(page: Page, html: string, nodeId: string) {
+  return page.evaluate(
+    ({ html, nodeId }) => {
+      const node = new DOMParser()
+        .parseFromString(html, "text/html")
+        .querySelector(`[data-agent-native-node-id="${nodeId}"]`);
+      if (!node?.parentElement) return null;
+      const parent = node.parentElement;
+      return {
+        parent:
+          parent.tagName === "BODY"
+            ? "BODY"
+            : parent.getAttribute("data-agent-native-node-id"),
+        siblingIndex: Array.from(parent.children).indexOf(node),
+        left: (node as HTMLElement).style.left,
+        top: (node as HTMLElement).style.top,
+      };
+    },
+    { html, nodeId },
+  );
+}
+
+async function topLevelNodeIds(page: Page, html: string): Promise<string[]> {
+  return page.evaluate((html) => {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    return Array.from(doc.body.children)
+      .map((node) => node.getAttribute("data-agent-native-node-id"))
+      .filter((nodeId): nodeId is string => nodeId !== null);
+  }, html);
+}
+
 async function designData(
   request: APIRequestContext,
   designId: string,
@@ -270,6 +301,14 @@ async function dragBoardSourceIntoNestedFrame(page: Page): Promise<{
     { steps: 4 },
   );
   await page.mouse.move(release.x, release.y, { steps: 24 });
+  const ghost = page.locator("[data-cross-screen-drag-ghost]");
+  await expect(ghost).toBeVisible();
+  await expect
+    .poll(async () => (await ghost.boundingBox())?.x ?? null)
+    .toBeCloseTo(release.x - grabOffset.x, 0);
+  await expect
+    .poll(async () => (await ghost.boundingBox())?.y ?? null)
+    .toBeCloseTo(release.y - grabOffset.y, 0);
   await page.mouse.up();
   return { release, sourceBefore, grabOffset };
 }
@@ -352,6 +391,27 @@ test("report path: board frame drops directly into a nested screen frame and sur
   const designId = await createDesign(request);
   try {
     await gotoEditor(page, designId);
+    const originalBoardHtml = await fileContent(
+      request,
+      designId,
+      "__board__.html",
+    );
+    const originalBoardPlacement = await nodePlacement(
+      page,
+      originalBoardHtml,
+      "board-source",
+    );
+    expect(originalBoardPlacement).toEqual({
+      parent: "BODY",
+      siblingIndex: 0,
+      left: "-400px",
+      top: "140px",
+    });
+    expect(await topLevelNodeIds(page, originalBoardHtml)).toEqual([
+      "board-source",
+      "board-text",
+    ]);
+
     const { release, sourceBefore, grabOffset } =
       await dragBoardSourceIntoNestedFrame(page);
 
@@ -383,9 +443,27 @@ test("report path: board frame drops directly into a nested screen frame and sur
     await expect(moved).toHaveCount(1);
     const movedBox = await moved.boundingBox();
     expect(movedBox).not.toBeNull();
-    expect(movedBox!.x).toBeCloseTo(release.x - grabOffset.x, -1);
-    expect(movedBox!.y).toBeCloseTo(release.y - grabOffset.y, -1);
+    expect(
+      Math.abs(movedBox!.x - (release.x - grabOffset.x)),
+    ).toBeLessThanOrEqual(2);
+    expect(
+      Math.abs(movedBox!.y - (release.y - grabOffset.y)),
+    ).toBeLessThanOrEqual(2);
     expect(movedBox!.x).toBeGreaterThan(sourceBefore.x);
+
+    const movedHtml = await fileContent(request, designId, "index.html");
+    const movedPlacement = await nodePlacement(page, movedHtml, "board-source");
+    expect(movedPlacement).not.toBeNull();
+    expect(movedPlacement).toMatchObject({
+      parent: "nested-frame",
+      siblingIndex: 1,
+    });
+    expect(
+      await topLevelNodeIds(
+        page,
+        await fileContent(request, designId, "__board__.html"),
+      ),
+    ).toEqual(["board-text"]);
 
     await expandAllLayers(page);
     const selected = page
@@ -402,10 +480,26 @@ test("report path: board frame drops directly into a nested screen frame and sur
     });
     await page.keyboard.press(`${MOD}+z`);
     await expect
-      .poll(() => fileContent(request, designId, "__board__.html"), {
-        timeout: 20_000,
-      })
-      .toContain('data-agent-native-node-id="board-source"');
+      .poll(
+        async () =>
+          nodePlacement(
+            page,
+            await fileContent(request, designId, "__board__.html"),
+            "board-source",
+          ),
+        { timeout: 20_000 },
+      )
+      .toEqual(originalBoardPlacement);
+    await expect
+      .poll(
+        async () =>
+          topLevelNodeIds(
+            page,
+            await fileContent(request, designId, "__board__.html"),
+          ),
+        { timeout: 20_000 },
+      )
+      .toEqual(["board-source", "board-text"]);
     await expect
       .poll(
         async () =>
@@ -430,6 +524,18 @@ test("report path: board frame drops directly into a nested screen frame and sur
         },
       )
       .toEqual(["nested-anchor", "board-source"]);
+    await expect
+      .poll(
+        async () =>
+          nodePlacement(
+            page,
+            await fileContent(request, designId, "index.html"),
+            "board-source",
+          ),
+        { timeout: 20_000 },
+      )
+      .toEqual(movedPlacement);
+
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect
       .poll(
@@ -441,6 +547,27 @@ test("report path: board frame drops directly into a nested screen frame and sur
         { timeout: 20_000 },
       )
       .toEqual(["nested-anchor", "board-source"]);
+    await expect
+      .poll(
+        async () =>
+          nodePlacement(
+            page,
+            await fileContent(request, designId, "index.html"),
+            "board-source",
+          ),
+        { timeout: 20_000 },
+      )
+      .toEqual(movedPlacement);
+    await expect
+      .poll(
+        async () =>
+          topLevelNodeIds(
+            page,
+            await fileContent(request, designId, "__board__.html"),
+          ),
+        { timeout: 20_000 },
+      )
+      .toEqual(["board-text"]);
     await expect(
       page
         .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")

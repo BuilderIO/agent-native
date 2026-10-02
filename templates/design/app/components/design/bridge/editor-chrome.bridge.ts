@@ -16314,19 +16314,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function isAutoLayoutFlowTarget(el: Element | null): boolean {
-    if (!el) return false;
-    if (isAutoLayoutElement(el)) return true;
-    if (
-      el.getAttribute("data-an-primitive") !== "frame" ||
-      !isAutoLayoutElement(el.parentElement)
-    ) {
-      return false;
-    }
-    var position = window.getComputedStyle(el).position;
-    return position !== "absolute" && position !== "fixed";
-  }
-
   var BRIDGE_REPLACED_TAGS: Record<string, boolean> = {
     img: true,
     video: true,
@@ -21915,7 +21902,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       if (
         !target ||
         target.placement !== "inside" ||
-        target.dropMode !== "flow-insert"
+        (target.dropMode !== "flow-insert" &&
+          target.dropMode !== "absolute-container")
       ) {
         return target;
       }
@@ -21928,7 +21916,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         container === dragEl ||
         container === document.body ||
         container === document.documentElement ||
-        !isAutoLayoutFlowTarget(container)
+        !isContainerDropTarget(container)
       ) {
         return target;
       }
@@ -21939,12 +21927,51 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       ) {
         return target;
       }
-      var parent = container.parentElement;
-      if (!parent) return null;
       var pointerX = ev ? ev.clientX : crect.left + crect.width / 2;
       var pointerY = ev ? ev.clientY : crect.top + crect.height / 2;
       var excluded = [dragEl].concat(groupOthers || []);
-      return nearestChildInsertionTarget(parent, pointerX, pointerY, excluded);
+      var parent = container.parentElement;
+      while (parent && parent !== document.documentElement) {
+        var parentIsFlow = isAutoLayoutElement(parent);
+        var parentIsAbsolute =
+          isAbsolutePrimitiveContainer(parent) ||
+          isFreeformRelativeContainer(parent);
+        if (
+          isContainerDropTarget(parent) &&
+          parent !== dragEl &&
+          (parentIsFlow || parentIsAbsolute)
+        ) {
+          var parentRect = parent.getBoundingClientRect();
+          if (
+            parentRect.width >= dragElStartRect.width &&
+            parentRect.height >= dragElStartRect.height
+          ) {
+            if (parentIsFlow) {
+              return (
+                nearestChildInsertionTarget(
+                  parent,
+                  pointerX,
+                  pointerY,
+                  excluded,
+                ) || {
+                  anchor: parent,
+                  placement: "inside",
+                  axis: parentFlowAxis(parent),
+                  dropMode: "flow-insert",
+                }
+              );
+            }
+            return {
+              anchor: parent,
+              placement: "inside",
+              axis: "y",
+              dropMode: "absolute-container",
+            };
+          }
+        }
+        parent = parent.parentElement;
+      }
+      return null;
     }
     function cancelAutoLayoutTargetResolution(): void {
       pendingAutoLayoutTargetPoint = null;
