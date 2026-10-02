@@ -111,6 +111,22 @@
   }
 }
 
+[data-sonner-toaster] [data-sonner-toast]:has([data-button]) {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  row-gap: 12px;
+}
+
+[data-sonner-toaster] [data-sonner-toast]:has([data-button]) [data-content] {
+  flex: 1 1 calc(100% - 32px) !important;
+}
+
+[data-sonner-toaster]
+  [data-sonner-toast]:has([data-button])
+  [data-button]:first-of-type {
+  margin-inline-start: auto;
+}
+
 @keyframes clips-import-progress {
   0% {
     transform: translateX(-100%);
