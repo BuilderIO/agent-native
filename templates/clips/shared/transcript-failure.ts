@@ -9,6 +9,8 @@ export type TranscriptFailureCode =
   | "NO_AUDIO_SAVED"
   /** Cloud transcription was attempted and threw. */
   | "CLOUD_FAILED"
+  /** A long recording was split and one of its parts could not be transcribed. */
+  | "CHUNK_FAILED"
   /** No cloud provider is connected for this owner. */
   | "CLOUD_UNCONFIGURED"
   /** Anything not yet classified. Prose is preserved; never retried blindly. */
@@ -18,6 +20,7 @@ const RETRYABLE: ReadonlySet<TranscriptFailureCode> = new Set([
   "TIMEOUT",
   "EXTRACTION_FAILED",
   "CLOUD_FAILED",
+  "CHUNK_FAILED",
 ]);
 
 export function isRetryableTranscriptFailure(
@@ -42,6 +45,8 @@ export function transcriptFailureMessage(code: TranscriptFailureCode): string {
       return "Transcription timed out before it finished. Retrying usually works.";
     case "CLOUD_FAILED":
       return "No transcript was captured locally, and cloud transcription could not finish. Retrying usually works; if it persists, check the recording's audio and the Builder connection.";
+    case "CHUNK_FAILED":
+      return "Part of this recording could not be transcribed, so no transcript was saved. Retrying usually works.";
     case "CLOUD_UNCONFIGURED":
       return "No transcript was captured locally, and no cloud transcription provider is connected. Connect Builder in Settings to transcribe automatically.";
     case "UNKNOWN":
