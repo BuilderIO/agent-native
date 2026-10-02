@@ -308,7 +308,10 @@ import {
   resolveAgentToolApprovalTurnId,
 } from "./tool-approval-store.js";
 import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
-import { findCompletedJournalEntry } from "./tool-call-journal.js";
+import {
+  buildResumeJournalNote,
+  findCompletedJournalEntry,
+} from "./tool-call-journal.js";
 import {
   redactSensitiveFields,
   sanitizeToolErrorText,
@@ -2877,7 +2880,7 @@ export type AgentLoopContinuationReason =
 export function appendAgentLoopContinuation(
   messages: EngineMessage[],
   reason: AgentLoopContinuationReason,
-  options: { actionPreparationTool?: string } = {},
+  options: { actionPreparationTool?: string; journalNote?: string } = {},
 ) {
   const note =
     reason === "loop_limit"
@@ -2898,12 +2901,15 @@ export function appendAgentLoopContinuation(
   const actionInputNote = options.actionPreparationTool
     ? actionPreparationContinuationNote(options.actionPreparationTool)
     : "";
+  // The journal rides in the same message: the turn's last user message must
+  // still start with the continue prompt to read as a continuation.
+  const journalNote = options.journalNote ? `\n\n${options.journalNote}` : "";
   messages.push({
     role: "user",
     content: [
       {
         type: "text",
-        text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: ${note}${actionInputNote}`,
+        text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: ${note}${actionInputNote}${journalNote}`,
       },
     ],
   });
@@ -8683,6 +8689,7 @@ export function createProductionAgentHandler(
       queuedMessageClaimId,
       agentKitMessageId: requestedAgentKitMessageId,
       internalContinuation,
+      autoContinueOfRunId: requestedAutoContinueOfRunId,
       turnId: requestTurnId,
       model: requestModel,
       engine: requestEngine,
@@ -8693,6 +8700,12 @@ export function createProductionAgentHandler(
       trackInRunsTray,
       skipPendingSelectionContext,
     } = body;
+    const autoContinueOfRunId =
+      internalContinuation === true &&
+      typeof requestedAutoContinueOfRunId === "string" &&
+      requestedAutoContinueOfRunId.trim().length <= 200
+        ? requestedAutoContinueOfRunId.trim() || undefined
+        : undefined;
     if (requestEngine !== undefined && typeof requestEngine !== "string") {
       setResponseStatus(event, 400);
       return { error: "engine must be a string" };
@@ -9834,6 +9847,9 @@ export function createProductionAgentHandler(
           ...(dispatchToBackground
             ? { dispatchPayload: JSON.stringify(body) }
             : {}),
+          ...(autoContinueOfRunId
+            ? { autoContinueOf: autoContinueOfRunId }
+            : {}),
         });
       } catch (error) {
         await setupResumeClaim?.release();
@@ -9849,6 +9865,15 @@ export function createProductionAgentHandler(
       if (slot.turnAborted) {
         await setupResumeClaim?.release();
         return { ok: true, stopped: true };
+      }
+      if (slot.autoContinueRefused) {
+        await setupResumeClaim?.release();
+        setResponseStatus(event, 409);
+        return {
+          error: "This turn will not continue automatically.",
+          code: slot.autoContinueRefused,
+          retryable: false,
+        };
       }
       if (slot.completedRunId) {
         const stream = await replayCompletedTurn(threadId, effectiveTurnId);
@@ -9927,7 +9952,13 @@ export function createProductionAgentHandler(
       ? Math.max(0, priorTurnInputTokensFromBody)
       : 0;
 
-    if (isChainedBackgroundContinuation && effectiveThreadId) {
+    // A server successor and an automatic continuation resume the same turn
+    // the same way: the thread's tool calls and results, plus the turn's
+    // journal of finished steps, so nothing already done is sent again.
+    if (
+      (isChainedBackgroundContinuation || autoContinueOfRunId) &&
+      effectiveThreadId
+    ) {
       try {
         const { getThread } = await import("../chat-threads/store.js");
         const { threadDataToEngineMessages } =
@@ -9948,8 +9979,17 @@ export function createProductionAgentHandler(
           )
             ? backgroundRunMarker.continuationReason
             : "run_timeout";
+          const journalRead = await loadPriorTurnToolCallJournal(
+            effectiveThreadId,
+            effectiveTurnId,
+          );
+          const journalNote =
+            journalRead.status === "read" && journalRead.toolCallJournal
+              ? buildResumeJournalNote(journalRead.toolCallJournal)
+              : null;
           appendAgentLoopContinuation(resumed, continuationReason, {
             ...(actionPreparationTool ? { actionPreparationTool } : {}),
+            ...(journalNote ? { journalNote } : {}),
           });
           messages.length = 0;
           messages.push(...resumed);

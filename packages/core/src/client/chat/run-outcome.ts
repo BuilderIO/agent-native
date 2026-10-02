@@ -1,6 +1,10 @@
 import type { AgentError, AgentEvent } from "@agent-native/agentkit/protocol";
 
 import { isRequestedStopAbortReason } from "../../agent/abort-reasons.js";
+import {
+  isTimeLimitStop,
+  type AutoContinueRefusalCode,
+} from "../../agent/auto-continue.js";
 import { isContinuationTerminalReason } from "../../agent/types.js";
 import {
   BACKGROUND_FUNCTION_WALL_HEADROOM_MS,
@@ -80,6 +84,8 @@ export const LEGACY_RUN_CODES = [
   "missing_credentials",
   "run_events_unreachable",
   "run_state_unreadable",
+  "auto_continue_cap_reached",
+  "auto_continue_unavailable",
 ] as const;
 
 export type LegacyRunCode = (typeof LEGACY_RUN_CODES)[number];
@@ -128,6 +134,8 @@ const LEGACY_RUN_CODE_OUTCOMES = {
   missing_credentials: "failed",
   run_events_unreachable: "unverified",
   run_state_unreadable: "unverified",
+  auto_continue_cap_reached: "interrupted",
+  auto_continue_unavailable: "interrupted",
 } as const satisfies Record<LegacyRunCode, RunOutcome>;
 
 function isLegacyRunCode(code: string): code is LegacyRunCode {
@@ -238,6 +246,14 @@ export interface StreamClosedContext {
   /** Consecutive attempts to open the run's event stream that failed. */
   readonly subscribeFailures: number;
   readonly nowMs: number;
+  /**
+   * Time-limit stops this reader already asked the server to continue, with
+   * the server's refusal when it refused. Absent: this reader cannot continue
+   * a turn, so a time-limit stop ends as interrupted.
+   */
+  readonly autoContinue?: {
+    readonly asked: ReadonlyMap<string, AutoContinueRefusalCode | null>;
+  };
 }
 
 export type StreamClosedDecision =
@@ -250,6 +266,12 @@ export type StreamClosedDecision =
       readonly drain: boolean;
     }
   | { readonly type: "wait"; readonly delayMs: number }
+  /** Ask the server to continue the turn from the run it stopped at its time limit. */
+  | {
+      readonly type: "continue";
+      readonly runId: string;
+      readonly turnId: string;
+    }
   | { readonly type: "terminal"; readonly outcome: "succeeded" | "stopped" }
   | {
       readonly type: "terminal";
@@ -403,10 +425,23 @@ export function decideAfterStreamClosed(
     state.status === "truncated" ||
     (abortReason !== undefined && isContinuationTerminalReason(abortReason))
   ) {
+    // A time-limit stop continues in the same turn, once per stopped run; the
+    // server decides whether the turn still may (its cap is durable there).
+    const turnId = isTimeLimitStop(state) ? state.turnId : undefined;
+    const asked = turnId ? context.autoContinue?.asked : undefined;
+    const refusal = asked?.get(state.runId);
+    if (refusal) return interruptedOrFailed(refusal, state.runId);
+    const proceed =
+      turnId && asked && !asked.has(state.runId)
+        ? ({ type: "continue", runId: state.runId, turnId } as const)
+        : undefined;
+    // Only a background or self-chaining run can still get a server successor.
+    if (proceed && state.dispatchMode === "foreground") return proceed;
     const waitingSinceMs = context.waitingSinceMs ?? context.nowMs;
     if (context.nowMs - waitingSinceMs < BACKGROUND_FUNCTION_WALL_HEADROOM_MS) {
       return { type: "wait", delayMs: backoff };
     }
+    if (proceed) return proceed;
     return interruptedOrFailed(
       abortReason ?? (reason || "stream_ended"),
       state.runId,
