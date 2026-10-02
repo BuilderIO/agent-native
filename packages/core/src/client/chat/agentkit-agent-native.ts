@@ -2104,8 +2104,24 @@ export function createAgentNativeAgentKitTransport(
     };
   }
 
+  // A server that predates `active` meaning "in flight" reports a run inside
+  // its reconnect window as `active` with a terminal status.
+  function runIsInFlight(status: ActiveRunStatus): boolean {
+    return (
+      status.active === true &&
+      ![
+        "completed",
+        "complete",
+        "failed",
+        "cancelled",
+        "errored",
+        "aborted",
+      ].includes(status.status ?? "")
+    );
+  }
+
   function runSlotIsClear(status: ActiveRunStatus): boolean {
-    return status.awaitingRedispatch !== true && status.active !== true;
+    return status.awaitingRedispatch !== true && !runIsInFlight(status);
   }
 
   async function waitForRunSlot(
@@ -2332,7 +2348,7 @@ export function createAgentNativeAgentKitTransport(
           }
           if (interruptActiveRun) {
             const activeRun = await activeRunStatus(threadId);
-            if (activeRun.active === true) {
+            if (runIsInFlight(activeRun)) {
               if (typeof activeRun.runId !== "string" || !activeRun.runId) {
                 throw new TypeError(
                   "Agent chat active-run response must include an active run ID.",
