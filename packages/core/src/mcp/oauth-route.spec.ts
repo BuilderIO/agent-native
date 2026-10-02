@@ -135,7 +135,9 @@ vi.mock("./oauth-store.js", () => ({
       const now = Date.now();
       row.lastUsedAt = now;
       row.expiresAt = now + 365 * 24 * 60 * 60_000;
+      return "renewed";
     }
+    return "invalid";
   }),
   revokeOAuthRefreshToken: vi.fn(async (refreshToken: string) => {
     const row = refreshRows.get(refreshToken);
@@ -2177,6 +2179,33 @@ describe("MCP OAuth grant validation", () => {
       before.expiresAt,
     );
   });
+
+  it.each(["revoked", "deleted"])(
+    "mints nothing when the refresh token is %s between lookup and renewal",
+    async (change) => {
+      const { clientId, code } = await authorizedCode();
+      const issued = await (await exchange(clientId, code)).json();
+      checkCredentialOrgMembershipMock.mockImplementationOnce(async () => {
+        if (change === "deleted") refreshRows.delete(issued.refresh_token);
+        else refreshRows.get(issued.refresh_token).revokedAt = Date.now();
+        return "member";
+      });
+      const token = await import("./oauth-token.js");
+      const sign = vi.spyOn(token, "signMcpOAuthAccessToken");
+      const store = await import("./oauth-store.js");
+
+      const response = await refresh(clientId, issued.refresh_token);
+      const body = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(body.error).toBe("invalid_grant");
+      expect(body.access_token).toBeUndefined();
+      expect(sign).not.toHaveBeenCalled();
+      expect(store.touchOAuthRefreshToken).toHaveBeenCalledWith(
+        issued.refresh_token,
+      );
+    },
+  );
 
   it("refuses and consumes an authorization code once the user has left", async () => {
     const { clientId, code } = await authorizedCode();

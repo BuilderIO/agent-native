@@ -1145,7 +1145,10 @@ async function handleRefreshTokenGrant(
     return oauthError("invalid_grant", NOT_A_MEMBER_DESCRIPTION);
   }
   try {
-    await touchOAuthRefreshToken(refreshToken);
+    const renewal = await touchOAuthRefreshToken(refreshToken);
+    if (renewal !== "renewed") {
+      return oauthError("invalid_grant", "Invalid refresh token");
+    }
   } catch {
     return grantUnavailableError(
       "Unable to renew the refresh token. Retry the request.",

@@ -341,7 +341,9 @@ describe("refresh tokens", () => {
     await s.createOAuthRefreshToken(refreshParams);
     vi.spyOn(Date, "now").mockReturnValue(2000);
 
-    await s.touchOAuthRefreshToken("raw-refresh-token");
+    await expect(s.touchOAuthRefreshToken("raw-refresh-token")).resolves.toBe(
+      "renewed",
+    );
 
     const found = await s.getOAuthRefreshToken("raw-refresh-token");
     expect(found).toMatchObject({
@@ -363,6 +365,41 @@ describe("refresh tokens", () => {
     const touched = await s.getOAuthRefreshToken("raw-refresh-token");
     expect(touched?.expiresAt).toBe(2000 + s.MCP_OAUTH_REFRESH_TOKEN_TTL_MS);
     expect(touched?.lastUsedAt).toBe(2000);
+  });
+
+  it.each(["revoked", "deleted"])(
+    "reports invalid when renewal of a %s token updates zero rows",
+    async (change) => {
+      const s = await freshStore();
+      await s.createOAuthRefreshToken(refreshParams);
+      if (change === "revoked") {
+        await s.revokeOAuthRefreshToken("raw-refresh-token");
+      } else {
+        await pglite.exec("DELETE FROM mcp_oauth_refresh_tokens");
+      }
+      const execute = vi.spyOn(exec, "execute");
+
+      await expect(s.touchOAuthRefreshToken("raw-refresh-token")).resolves.toBe(
+        "invalid",
+      );
+      await expect(execute.mock.results.at(-1)!.value).resolves.toMatchObject({
+        rowsAffected: 0,
+      });
+      expect(await s.getOAuthRefreshToken("raw-refresh-token")).toBeNull();
+    },
+  );
+
+  it("rejects unreadable renewal row counts instead of treating them as renewed", async () => {
+    const s = await freshStore();
+    await s.createOAuthRefreshToken(refreshParams);
+    vi.spyOn(exec, "execute").mockResolvedValueOnce({
+      rows: [],
+      rowsAffected: NaN,
+    });
+
+    await expect(s.touchOAuthRefreshToken("raw-refresh-token")).rejects.toThrow(
+      /invalid row count/,
+    );
   });
 
   it("refresh token TTL is 365d by default", async () => {

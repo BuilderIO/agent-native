@@ -558,15 +558,18 @@ export async function getOAuthRefreshToken(
  */
 export async function touchOAuthRefreshToken(
   refreshToken: string,
-): Promise<void> {
+): Promise<"renewed" | "invalid"> {
   await ensureTable();
   const client = getDbExec();
   const tokenHash = hashOAuthToken(refreshToken);
   const now = Date.now();
-  await client.execute({
+  const result = await client.execute({
     sql: `UPDATE mcp_oauth_refresh_tokens SET last_used_at = ?, expires_at = ? WHERE token_hash = ? AND revoked_at IS NULL`,
     args: [now, now + MCP_OAUTH_REFRESH_TOKEN_TTL_MS, tokenHash],
   });
+  if (result.rowsAffected === 0) return "invalid";
+  if (result.rowsAffected === 1) return "renewed";
+  throw new Error("Refresh-token renewal returned an invalid row count");
 }
 
 /**
