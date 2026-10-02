@@ -108,19 +108,41 @@ export interface ComposerDraftSnapshot {
   attachmentIds: string[];
 }
 
+const attachmentFileInstances = new WeakMap<object, number>();
+let nextAttachmentFileInstance = 0;
+
+/**
+ * Names and ids can repeat: a replacement file may carry the same name, and
+ * the image adapter has used the name as the id. The attachment's own File
+ * object is what tells one file from another, so it is part of the identity.
+ */
+function composerAttachmentIdentity(attachment: {
+  id?: string;
+  name?: string;
+  file?: unknown;
+}): string {
+  const label = attachment.id ?? attachment.name ?? "";
+  const file = attachment.file;
+  if (!file || typeof file !== "object") return label;
+  let instance = attachmentFileInstances.get(file);
+  if (instance === undefined) {
+    instance = ++nextAttachmentFileInstance;
+    attachmentFileInstances.set(file, instance);
+  }
+  return `${label}#${instance}`;
+}
+
 export function composerDraftSnapshot(
   text: string,
   references: readonly Reference[],
-  attachments: readonly { id?: string; name?: string }[],
+  attachments: readonly { id?: string; name?: string; file?: unknown }[],
 ): ComposerDraftSnapshot {
   return {
     text,
     referenceKeys: references.map(
       (ref) => `${ref.type}:${ref.path}:${ref.refId ?? ""}:${ref.name}`,
     ),
-    attachmentIds: attachments.map(
-      (attachment) => attachment.id ?? attachment.name ?? "",
-    ),
+    attachmentIds: attachments.map(composerAttachmentIdentity),
   };
 }
 
