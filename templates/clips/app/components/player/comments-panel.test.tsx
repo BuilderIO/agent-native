@@ -459,6 +459,9 @@ describe("CommentsPanel reply composer", () => {
     );
 
     expect(signInButton).toBeDefined();
+    expect(signInButton?.className).toContain("justify-start");
+    expect(signInButton?.querySelector("span.rounded-xl")).toBeNull();
+    expect(signInButton?.querySelector("svg")).toBeNull();
     expect(
       container.querySelector(
         'textarea[placeholder="commentsPanel.leaveComment"]',
