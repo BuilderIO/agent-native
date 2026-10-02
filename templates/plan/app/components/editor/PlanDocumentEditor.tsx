@@ -30,7 +30,10 @@ import { blocksToProseJSON, proseJSONToBlocks } from "@shared/plan-doc";
 import {
   adoptSnapshot,
   documentIsAheadOfSaved,
+  hasUnknownStructuredData,
+  knownBlocksById,
   normalizeBlocksValue,
+  PlanBlockDataUnknownError,
 } from "@shared/plan-doc-adoption";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorView } from "@tiptap/pm/view";
@@ -1052,9 +1055,12 @@ export function PlanDocumentEditor({
         let keptLiveEdits = false;
         if (collabEnabledRef.current) {
           const live = proseJSONToBlocks(editor.getJSON(), blocksRef.current);
+          // An editor still waiting for its first content is empty, which is
+          // not someone deleting every block.
+          const hydrated = live.length > 0 || hasSeededRef.current;
           ({ target: parsed, keptLiveEdits } = adoptSnapshot(
             docBaseRef.current,
-            live,
+            hydrated ? live : null,
             snapshot,
           ));
         }
@@ -1179,7 +1185,7 @@ export function PlanDocumentEditor({
     // was built from the blocks as they were when the document last changed, and
     // this runs later: a collaborator's edit adopted since then must not be
     // written back over.
-    const currentById = new Map(held.map((block) => [block.id, block]));
+    const currentById = knownBlocksById(held);
     next = next.map((block) => {
       const current = currentById.get(block.id);
       return current &&
@@ -1208,9 +1214,8 @@ export function PlanDocumentEditor({
       return null;
     }
     if (next.length > 0) hasSeededRef.current = true;
-    const prevIds = new Set(blocksRef.current.map((block) => block.id));
     next = next.map((block) => {
-      if (block.type === "rich-text" || prevIds.has(block.id)) return block;
+      if (block.type === "rich-text" || currentById.has(block.id)) return block;
       const data = (block as { data?: unknown }).data;
       if (
         data &&
@@ -1229,11 +1234,29 @@ export function PlanDocumentEditor({
       const seeded = spec?.empty?.();
       return seeded ? ({ ...block, data: seeded } as PlanBlock) : block;
     });
+    // Where the registry registers a type, empty data is a new block's real
+    // data; for a type it cannot vouch for, empty data is data we lack.
+    const unknown = next.filter(
+      (block) =>
+        hasUnknownStructuredData(block, currentById) &&
+        !registry?.get(block.type),
+    );
+    if (unknown.length > 0) {
+      throw new PlanBlockDataUnknownError(unknown.map((block) => block.id));
+    }
     return next;
   };
 
   const handleChange = (serialized: string) => {
-    const next = blocksFromSerialized(serialized);
+    let next: PlanBlock[] | null;
+    try {
+      next = blocksFromSerialized(serialized);
+    } catch (error) {
+      if (!(error instanceof PlanBlockDataUnknownError)) throw error;
+      // The edit stays in the document, and the next save reads the document.
+      console.error("Not committing the plan document yet:", error);
+      return;
+    }
     if (next) commit(next);
   };
 
@@ -1271,9 +1294,20 @@ export function PlanDocumentEditor({
     if (!editor || editor.isDestroyed || !getMountedEditorView(editor)) {
       return null;
     }
+    // `pending` is only what the last local edit captured. Structured data is
+    // not in the document, so a block `pending` lacks (it is empty after a
+    // snapshot reached an unfilled editor; a collaborator added the block) takes
+    // its data from the blocks the editor holds or last saved.
+    const known = [
+      ...knownBlocksById(
+        pending,
+        blocksRef.current,
+        savedBlocksRef.current,
+      ).values(),
+    ];
     const next = blocksFromSerialized(
-      JSON.stringify(proseJSONToBlocks(editor.getJSON(), pending)),
-      pending,
+      JSON.stringify(proseJSONToBlocks(editor.getJSON(), known)),
+      known,
     );
     if (!next) return null;
     rememberEmitted(JSON.stringify(next));

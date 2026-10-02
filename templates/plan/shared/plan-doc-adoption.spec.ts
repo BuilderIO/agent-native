@@ -1,10 +1,18 @@
+// @vitest-environment happy-dom
+
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 import type { PlanBlock } from "./plan-content";
-import { adoptSnapshot, documentIsAheadOfSaved } from "./plan-doc-adoption";
+import { blocksToProseJSON, proseJSONToBlocks } from "./plan-doc";
+import {
+  adoptSnapshot,
+  documentIsAheadOfSaved,
+  hasUnknownStructuredData,
+  knownBlocksById,
+} from "./plan-doc-adoption";
 
 const prose = (id: string, markdown: string) =>
   ({ id, type: "rich-text", data: { markdown } }) as PlanBlock;
@@ -51,6 +59,88 @@ describe("adoptSnapshot", () => {
     const adopted = adoptSnapshot(base, live, snapshot);
     expect(adopted.target).toEqual(snapshot);
     expect(adopted.keptLiveEdits).toBe(false);
+  });
+});
+
+describe("adoptSnapshot before the document is filled", () => {
+  const saved = [prose("a", "Alpha."), callout("c", "Note.")];
+
+  it("merging an empty document reads as deleting every block", () => {
+    const adopted = adoptSnapshot(saved, [], saved);
+    expect(adopted.target).toEqual([]);
+    expect(adopted.keptLiveEdits).toBe(true);
+  });
+
+  it("adopts the snapshot as is when the document holds nothing yet", () => {
+    const snapshot = [
+      prose("a", "Alpha."),
+      callout("c", "Changed by an agent."),
+    ];
+    const adopted = adoptSnapshot(saved, null, snapshot);
+    expect(adopted.target).toEqual(snapshot);
+    expect(adopted.keptLiveEdits).toBe(false);
+  });
+});
+
+describe("serializing the document with partial pending blocks", () => {
+  const saved = [
+    prose("a", "Alpha."),
+    callout("c", "Note body."),
+    prose("b", "Bravo."),
+  ];
+  const doc = blocksToProseJSON(saved);
+
+  it("blanks a callout when the blocks it reads data from do not hold it", () => {
+    const blocks = proseJSONToBlocks(doc, []);
+    expect(blocks.find((block) => block.id === "c")).toEqual({
+      id: "c",
+      type: "callout",
+      data: {},
+    });
+  });
+
+  it("keeps a callout's data when the saved blocks are among the sources", () => {
+    const known = [...knownBlocksById([], [], saved).values()];
+    expect(proseJSONToBlocks(doc, known)).toEqual(saved);
+  });
+});
+
+describe("knownBlocksById", () => {
+  it("takes each block from the earliest source that has it", () => {
+    const known = knownBlocksById(
+      [callout("c", "Pending.")],
+      [callout("c", "Held."), prose("a", "Held alpha.")],
+      [prose("a", "Saved alpha."), prose("b", "Saved bravo.")],
+    );
+    expect(known.get("c")).toEqual(callout("c", "Pending."));
+    expect(known.get("a")).toEqual(prose("a", "Held alpha."));
+    expect(known.get("b")).toEqual(prose("b", "Saved bravo."));
+  });
+});
+
+describe("hasUnknownStructuredData", () => {
+  const known = knownBlocksById([callout("c", "Note.")]);
+
+  it("flags a structured block nothing knows with empty data", () => {
+    expect(
+      hasUnknownStructuredData(
+        { id: "new", type: "callout", data: {} } as PlanBlock,
+        known,
+      ),
+    ).toBe(true);
+  });
+
+  it("does not flag a block that is known, has data, or is prose", () => {
+    expect(
+      hasUnknownStructuredData(
+        { id: "c", type: "callout", data: {} } as PlanBlock,
+        known,
+      ),
+    ).toBe(false);
+    expect(hasUnknownStructuredData(callout("new", "Has data."), known)).toBe(
+      false,
+    );
+    expect(hasUnknownStructuredData(prose("new", ""), known)).toBe(false);
   });
 });
 

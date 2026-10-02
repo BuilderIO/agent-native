@@ -5,6 +5,7 @@ import {
   type Browser,
   type BrowserContext,
   type Page,
+  type Route,
 } from "@playwright/test";
 
 import { planE2eAuthStatePath } from "./auth-state";
@@ -428,6 +429,74 @@ test("opening a plan in two editors at once seeds it exactly once", async ({
       expect(
         occurrences(await editorText(page), "Single seed marker line."),
       ).toBe(1);
+    }
+  } finally {
+    await closePair(pair);
+  }
+});
+
+test("a callout another writer saved while the editor was still hydrating is not blanked by the next autosave", async ({
+  browser,
+}) => {
+  test.setTimeout(180_000);
+  let pair: Pair | undefined;
+  try {
+    pair = await openPair(browser, TWO_BLOCKS, "Bravo block seed.");
+    const { pageB, planId } = pair;
+    // A third editor opens the plan with its live document held empty, so the
+    // editor is not ready when the other writer's save reaches it by polling.
+    const ctxC = await browser.newContext({ storageState: STATE_FILE });
+    try {
+      const pageC = await ctxC.newPage();
+      const autosaveErrors: string[] = [];
+      pageC.on("console", (message) => {
+        if (message.text().includes("Failed to autosave plan document")) {
+          autosaveErrors.push(message.text());
+        }
+      });
+      let releaseHeld: () => void = () => {};
+      const held = new Promise<void>((resolve) => {
+        releaseHeld = resolve;
+      });
+      const holdRoute = async (route: Route) => {
+        await held;
+        await route.continue();
+      };
+      await pageC.route("**/_agent-native/actions/seed-plan-collab", holdRoute);
+      await pageC.route(
+        new RegExp(`/collab/plan(:|%3A)${planId}/state`),
+        holdRoute,
+      );
+      await pageC.goto(`/plans/${planId}`);
+      const saved = `CALLOUTHYDRATE${Date.now() % 100000}`;
+      const write = await pageB.request.post(
+        "/_agent-native/actions/update-visual-plan",
+        {
+          data: {
+            planId,
+            contentPatches: [
+              {
+                op: "update-block",
+                blockId: "divider",
+                patch: { data: { tone: "info", body: saved } },
+              },
+            ],
+          },
+        },
+      );
+      expect(write.ok(), `update-block: ${await write.text()}`).toBeTruthy();
+      await pageC.waitForTimeout(6_000); // e2e-harness-ignore: the editor must stay unhydrated while polling delivers the saved callout
+      releaseHeld();
+      await expect(surface(pageC)).toContainText("Bravo block seed.", {
+        timeout: 25_000,
+      });
+      await expectEveryViewHas({ ...pair, pageB: pageC }, [saved]);
+      expect(
+        autosaveErrors,
+        "the hydrating editor must not send a save the server refuses",
+      ).toEqual([]);
+    } finally {
+      await ctxC.close().catch(() => {});
     }
   } finally {
     await closePair(pair);
