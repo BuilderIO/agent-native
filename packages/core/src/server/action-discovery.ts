@@ -179,6 +179,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   ) {
     out.planMode = entry.planMode;
   }
+  if (typeof entry.changeEvents === "boolean") {
+    out.changeEvents = entry.changeEvents;
+  }
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
   }

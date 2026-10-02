@@ -2,18 +2,175 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { LLM_MISSING_CREDENTIALS_MESSAGE } from "./engine/credential-errors.js";
 import {
   buildAssistantMessage,
   buildRepositoryFromCodeAgentTranscript,
   buildUserMessage,
+  applySubmittedUserMessage,
   extractThreadMeta,
   foldAssistantTurn,
+  foldUnstartedTurnFailure,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
   upsertAssistantMessage,
   upsertUserMessage,
 } from "./thread-data-builder.js";
 import type { RunEvent } from "./types.js";
+
+describe("foldUnstartedTurnFailure", () => {
+  it("answers a refused turn with a typed notice and a failed run, once", () => {
+    const failure = {
+      runId: "turn-1",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+      message: "Connect Builder AI or a provider API key before chatting.",
+    };
+    const withPrompt = upsertUserMessage(
+      {},
+      buildUserMessage({
+        text: "Make a deck",
+        runId: "turn-1",
+        turnId: "turn-1",
+      }),
+    );
+
+    const repo = foldUnstartedTurnFailure(
+      foldUnstartedTurnFailure(withPrompt, failure),
+      failure,
+    );
+
+    expect(repo.messages.map((entry: any) => entry.message.role)).toEqual([
+      "user",
+      "assistant",
+    ]);
+    expect(repo.messages[1].message).toMatchObject({
+      status: { type: "incomplete", reason: "error" },
+      metadata: {
+        runId: "turn-1",
+        custom: {
+          agentNativeRunNotStarted: true,
+          runError: { errorCode: "AGENT_CHAT_AI_SETUP_REQUIRED" },
+        },
+      },
+    });
+    expect(repo.agentKit.runs).toEqual([
+      expect.objectContaining({
+        id: "turn-1",
+        threadId: "thread-1",
+        status: "failed",
+        error: {
+          code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+          message: failure.message,
+          retryable: false,
+        },
+      }),
+    ]);
+    expect(extractThreadMeta(repo).preview).toBeTruthy();
+  });
+});
+
+describe("buildUserMessage for a refused turn", () => {
+  it("stores what a retry resends and marks the prompt as refused", () => {
+    const message = buildUserMessage({
+      text: "Make a deck",
+      runId: "turn-1",
+      turnId: "turn-1",
+      refusedRetry: {
+        references: [{ id: "reference-1", type: "document" }],
+        model: "model-original",
+        effort: "high",
+        requestMode: "plan",
+      },
+    });
+
+    expect(message.metadata).toEqual({
+      references: [{ id: "reference-1", type: "document" }],
+      model: "model-original",
+      effort: "high",
+      requestMode: "plan",
+      custom: {
+        submittedRunId: "turn-1",
+        submittedTurnId: "turn-1",
+        agentNativeRunNotStarted: true,
+      },
+    });
+  });
+
+  it("leaves an ordinary prompt unmarked", () => {
+    const { metadata } = buildUserMessage({ text: "Hi", runId: "run-1" });
+
+    expect(metadata).toEqual({ custom: { submittedRunId: "run-1" } });
+  });
+});
+
+describe("a client thread save after a refused turn", () => {
+  it("keeps the refusal marker and retry context of the prompt it re-saves", () => {
+    const retry = {
+      references: [
+        {
+          type: "file" as const,
+          path: "docs/brief.md",
+          name: "brief.md",
+          source: "workspace",
+        },
+      ],
+      model: "model-original",
+      effort: "high",
+      requestMode: "plan" as const,
+    };
+    const existing = foldUnstartedTurnFailure(
+      upsertUserMessage(
+        {},
+        buildUserMessage({
+          text: "Make a deck",
+          runId: "turn-1",
+          turnId: "turn-1",
+          refusedRetry: retry,
+        }),
+      ),
+      {
+        runId: "turn-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        code: "missing_credentials",
+        message: "No LLM provider is connected.",
+      },
+    );
+    // The client's copy of the same prompt, as it saves its own history.
+    const incoming = {
+      messages: [
+        {
+          message: {
+            id: "client-user-1",
+            role: "user",
+            content: [{ type: "text", text: "Make a deck" }],
+            metadata: { custom: {} },
+          },
+          parentId: null,
+        },
+      ],
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, incoming);
+
+    const users = merged.messages
+      .map((entry: any) => entry.message)
+      .filter((message: any) => message.role === "user");
+    expect(users).toHaveLength(1);
+    expect(users[0].metadata).toMatchObject({
+      ...retry,
+      custom: {
+        submittedRunId: "turn-1",
+        agentNativeRunNotStarted: true,
+      },
+    });
+    expect(merged.agentKit.runs).toEqual([
+      expect.objectContaining({ id: "turn-1", status: "failed" }),
+    ]);
+  });
+});
 
 describe("extractThreadMeta", () => {
   it("prefers a manual title override while keeping the message preview", () => {
@@ -949,8 +1106,12 @@ describe("buildAssistantMessage", () => {
 
     const message = buildAssistantMessage(events, "run-missing-key");
 
+    // Persisted from the typed code, so the stored row reads as actionable copy.
     expect(message?.content).toEqual([
-      { type: "text", text: "checking...\n\nError: Missing API key" },
+      {
+        type: "text",
+        text: `checking...\n\nError: ${LLM_MISSING_CREDENTIALS_MESSAGE}`,
+      },
     ]);
     expect(message?.status).toEqual({ type: "incomplete", reason: "error" });
   });
@@ -1738,7 +1899,128 @@ describe("mergeThreadDataForClientSave", () => {
     expect(merged.queuedMessages).toBeUndefined();
   });
 
-  it("does not restore a queued message after the server claimed it", () => {
+  // The chat UI saves AgentKit messages into `messages` under their own ids and
+  // without a runId; only the AgentKit events say which run produced them.
+  const clientSavedReply = (status: string, text: string) => ({
+    message: {
+      id: "agentkit-reply",
+      role: "assistant",
+      status,
+      content: [{ type: "text", text }],
+    },
+    parentId: "user-1",
+  });
+  const userEntry = {
+    message: {
+      id: "user-1",
+      role: "user",
+      content: [{ type: "text", text: "Write forty lines" }],
+    },
+    parentId: null,
+  };
+  const replyEvents = {
+    events: [
+      {
+        type: "message.completed",
+        runId: "run-1",
+        message: { id: "agentkit-reply", role: "assistant" },
+      },
+    ],
+  };
+
+  it("folds a finished run into the reply the chat UI already saved for it", () => {
+    const serverReply = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "L1 one\nL40 forty" } },
+        { seq: 1, event: { type: "done" } },
+      ],
+      "run-1",
+      { turnId: "turn-1" },
+    );
+
+    const folded = foldAssistantTurn(
+      {
+        messages: [userEntry, clientSavedReply("streaming", "L1 one")],
+        agentKit: replyEvents,
+      },
+      serverReply!,
+      { turnId: "turn-1", runId: "run-1" },
+    );
+
+    const replies = folded.messages.filter(
+      (entry: any) => entry.message.role === "assistant",
+    );
+    expect(replies).toHaveLength(1);
+    expect(replies[0].message.status).toMatchObject({ type: "complete" });
+    expect(replies[0].message.content).toEqual([
+      { type: "text", text: "L1 one\nL40 forty" },
+    ]);
+  });
+
+  it("drops a stale mid-stream copy the chat UI saves after the server folded the run", () => {
+    const serverReply = {
+      message: {
+        id: "server-run-1",
+        role: "assistant",
+        status: { type: "complete", reason: "stop" },
+        content: [{ type: "text", text: "L1 one\nL40 forty" }],
+        metadata: { runId: "run-1", custom: { foldedRunIds: ["run-1"] } },
+      },
+      parentId: "user-1",
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      { messages: [userEntry, serverReply] },
+      {
+        messages: [userEntry, clientSavedReply("streaming", "L1 one")],
+        agentKit: replyEvents,
+      },
+    );
+
+    expect(
+      merged.messages.filter(
+        (entry: any) => entry.message.role === "assistant",
+      ),
+    ).toEqual([serverReply]);
+  });
+
+  it("leaves one reply for a run whose server and chat UI copies are both already stored", () => {
+    const serverReply = {
+      message: {
+        id: "server-run-1",
+        role: "assistant",
+        status: { type: "complete", reason: "stop" },
+        content: [{ type: "text", text: "L1 one\nL40 forty" }],
+        metadata: { runId: "run-1", custom: { foldedRunIds: ["run-1"] } },
+      },
+      parentId: "user-1",
+    };
+
+    const merged = mergeThreadDataForClientSave(
+      {
+        messages: [
+          userEntry,
+          serverReply,
+          clientSavedReply("streaming", "L1 one"),
+        ],
+      },
+      {
+        messages: [
+          userEntry,
+          clientSavedReply("complete", "L1 one\nL40 forty"),
+        ],
+        agentKit: replyEvents,
+      },
+    );
+
+    expect(
+      merged.messages.filter(
+        (entry: any) => entry.message.role === "assistant",
+      ),
+    ).toEqual([serverReply]);
+  });
+
+  it("keeps the durable queue over a stale save's copy of it", () => {
     const existing = {
       _claimedQueuedMessageIds: ["queued-1"],
       queuedMessages: [],
@@ -1761,9 +2043,7 @@ describe("mergeThreadDataForClientSave", () => {
     const merged = mergeThreadDataForClientSave(existing, staleIncoming);
 
     expect(merged._claimedQueuedMessageIds).toEqual(["queued-1"]);
-    expect(merged.queuedMessages).toEqual([
-      { id: "queued-2", text: "send the summary" },
-    ]);
+    expect(merged.queuedMessages).toEqual([]);
   });
 
   it("dedupes a client-save user message against the server's submittedRunId copy of the same prompt", () => {
@@ -2391,16 +2671,54 @@ describe("buildRepositoryFromCodeAgentTranscript", () => {
 });
 
 describe("upsertUserMessage", () => {
-  it("persists the durable queue identity on a submitted user message", () => {
+  it("reconciles an already persisted queue submission without duplicating it", () => {
+    const user = buildUserMessage({
+      text: "Run once",
+      runId: "run-1",
+      queuedMessageId: "queued-1",
+    });
+    const result = applySubmittedUserMessage(
+      {
+        messages: [
+          { message: user, parentId: null },
+          {
+            message: {
+              id: "later-user",
+              role: "user",
+              content: [{ type: "text", text: "Later message" }],
+            },
+            parentId: user.id,
+          },
+        ],
+        queuedMessages: [{ id: "queued-1", text: "Run once" }],
+      },
+      user,
+      { id: "queued-1", claimId: "tab-1" },
+    );
+
+    expect(result.status).toBe("already_submitted");
+    if (
+      result.status === "already_claimed" ||
+      result.status === "claim_expired"
+    ) {
+      throw new Error("Expected an already-submitted result.");
+    }
+    expect(result.repo.messages).toHaveLength(2);
+    expect(result.repo.queuedMessages).toEqual([]);
+  });
+
+  it("persists submitted AgentKit and queue identities on a user message", () => {
     const message = buildUserMessage({
       text: "Run the report",
       runId: "run-submit",
+      agentKitMessageId: "message-agentkit-1",
       queuedMessageId: "queued-1",
     });
 
     expect(message.metadata).toEqual({
       custom: {
         submittedRunId: "run-submit",
+        agentKitMessageId: "message-agentkit-1",
         agentNativeQueuedMessageId: "queued-1",
       },
     });

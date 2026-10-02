@@ -305,7 +305,13 @@ export function RealtimeVoiceModeEntry({
                     className="w-full justify-start px-3"
                     disabled={connectingBuilder}
                     onClick={() =>
-                      choose("realtime", onConnectBuilder ?? onStartVoiceMode)
+                      choose("realtime", () =>
+                        // Without the consent popover there is no terms
+                        // line, so never create an account.
+                        onConnectBuilder
+                          ? onConnectBuilder({ provisionAccount: false })
+                          : onStartVoiceMode(),
+                      )
                     }
                   >
                     {connectingBuilder ? (

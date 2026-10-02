@@ -5,6 +5,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { openUrlInBrowser } from "./open-url.js";
+
 const CONTENT_APP_ID = "content";
 const MANIFEST_FILE = "agent-native.json";
 const DEFAULT_PORT = 8083;
@@ -358,22 +360,6 @@ export async function prepareContentLocalLaunch(options: {
   };
 }
 
-function openBrowser(url: string) {
-  const command =
-    process.platform === "darwin"
-      ? "open"
-      : process.platform === "win32"
-        ? "cmd"
-        : "xdg-open";
-  const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
-  const child = spawn(command, args, {
-    detached: true,
-    stdio: "ignore",
-    shell: false,
-  });
-  child.unref();
-}
-
 function printHelp() {
   console.log(`Usage:
   agent-native content local-files <file-or-folder> [options]
@@ -416,7 +402,7 @@ export async function runContentLocal(argv: string[]) {
   console.log(`Opening: ${plan.url}`);
 
   if (parsed.open) {
-    setTimeout(() => openBrowser(plan.url), 1000).unref();
+    setTimeout(() => openUrlInBrowser(plan.url), 1000).unref();
   }
 
   const child = spawn(plan.command, plan.args, {

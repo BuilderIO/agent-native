@@ -387,7 +387,7 @@ const messages: ToolkitAgentChatTranslation = {
     "La limite d’utilisation de votre forfait ChatGPT a été atteinte.",
   "error.chatgptPlanUsageUnavailable":
     "OpenAI n’a pas pu vérifier la limite d’utilisation de ce forfait ChatGPT. Vérifiez votre utilisation de ChatGPT ou essayez un autre modèle.",
-  "error.failed": "L’agent a rencontré une erreur",
+  "error.failed": "L’exécution de l’agent a échoué avant son terme.",
   "error.render": "Impossible d’afficher ce contenu.",
   "error.stopped": "L’agent s’est arrêté avant d’avoir terminé",
   "header.switchToCli": "Passer à la CLI",
@@ -1251,6 +1251,14 @@ const messages: ToolkitAgentChatTranslation = {
     "Le schéma d’un outil n’était pas valide. Le modèle a donc rejeté la demande avant son démarrage. Vous pouvez ignorer cet outil et réessayer.",
   "errorMessages.malformedRequest":
     "Le fournisseur du modèle a rejeté cette demande car elle était mal formée, elle n’a donc pas été réessayée. Réessayez ou démarrez une nouvelle conversation si le problème persiste.",
+  "errorMessages.requestTooLarge":
+    "Cette requête a dépassé la limite de taille du serveur (HTTP 413). Démarrez un nouveau chat ou supprimez les pièces jointes ou références volumineuses, puis réessayez.",
+  "errorMessages.runInterrupted": "L’agent s’est arrêté avant de terminer.",
+  "errorMessages.runFailed": "L’exécution de l’agent a échoué.",
+  "errorMessages.runUnverified":
+    "Cette conversation a perdu la trace de l’agent, qui est peut-être encore en cours. Rechargez pour voir sa progression.",
+  "errorMessages.runSignedOut":
+    "Vous êtes déconnecté, cette conversation ne peut donc pas suivre l’agent. Reconnectez-vous, puis rechargez.",
   "errorMessages.malformedRequestAttachment":
     "Le modèle a rejeté un fichier joint, donc ce message n’a jamais été envoyé. Retirez la pièce jointe et réessayez : un PDF, un fichier texte brut ou une image JPEG, PNG, GIF ou WebP est lu directement ; les autres formats doivent être téléversés puis liés.",
   "errorMessages.noProviderConnected":

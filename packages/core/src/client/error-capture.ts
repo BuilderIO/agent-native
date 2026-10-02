@@ -1,4 +1,12 @@
-import { isDynamicImportFailureMessage } from "./route-chunk-recovery.js";
+import {
+  classifyErrorNoise,
+  type ErrorNoiseReason,
+} from "../shared/error-noise.js";
+import {
+  readStaleChunkRecoveryExhausted,
+  STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT,
+  type StaleChunkRecoveryExhausted,
+} from "./route-chunk-recovery.js";
 import { scrubUrl } from "./url-scrub.js";
 
 export type ExceptionLevel = "fatal" | "error" | "warning" | "info" | "debug";
@@ -48,6 +56,29 @@ export interface InstallErrorCaptureOptions {
   captureUnhandledRejections?: boolean;
   maxBreadcrumbs?: number;
   dedupeWindowMs?: number;
+  /** Events one page session may send in total. Default 20. */
+  maxEventsPerSession?: number;
+  /** Events one error signature may send per session. Default 3. */
+  maxEventsPerSignature?: number;
+  /** How long to wait before reporting what the budget dropped. Default 15s. */
+  budgetSummaryDelayMs?: number;
+}
+
+interface ErrorCaptureBudget {
+  sent: number;
+  bySignature: Map<string, number>;
+  dropped: number;
+  droppedTotal: number;
+  droppedBySignature: Map<string, number>;
+  noise: Partial<Record<ErrorNoiseReason, number>>;
+  summaryFlushes: number;
+  summaryTimer: ReturnType<typeof setTimeout> | null;
+}
+
+export interface ErrorCaptureStats {
+  sent: number;
+  budgetDropped: number;
+  noiseSuppressed: Partial<Record<ErrorNoiseReason, number>>;
 }
 
 interface ErrorCaptureRuntime {
@@ -59,6 +90,9 @@ interface ErrorCaptureRuntime {
       | "captureUnhandledRejections"
       | "maxBreadcrumbs"
       | "dedupeWindowMs"
+      | "maxEventsPerSession"
+      | "maxEventsPerSignature"
+      | "budgetSummaryDelayMs"
     >
   > &
     Omit<
@@ -67,11 +101,16 @@ interface ErrorCaptureRuntime {
       | "captureUnhandledRejections"
       | "maxBreadcrumbs"
       | "dedupeWindowMs"
+      | "maxEventsPerSession"
+      | "maxEventsPerSignature"
+      | "budgetSummaryDelayMs"
     >;
   breadcrumbs: ExceptionBreadcrumb[];
   recentSignatures: Map<string, number>;
+  budget?: ErrorCaptureBudget;
   removeHandlers: (() => void) | null;
   navigationInstalled: boolean;
+  staleChunkExhaustedReported?: boolean;
 }
 
 const MAX_MESSAGE_LENGTH = 1000;
@@ -82,6 +121,18 @@ const MAX_EXTRA_DEPTH = 4;
 const MAX_EXTRA_OBJECT_KEYS = 20;
 const MAX_EXTRA_ARRAY_ITEMS = 20;
 const MAX_EXTRA_STRING_LENGTH = 2000;
+const DEFAULT_MAX_EVENTS_PER_SESSION = 20;
+const DEFAULT_MAX_EVENTS_PER_SIGNATURE = 3;
+const DEFAULT_BUDGET_SUMMARY_DELAY_MS = 15_000;
+const MAX_TRACKED_BUDGET_SIGNATURES = 200;
+const MAX_TRACKED_DROPPED_SIGNATURES = 50;
+const OTHER_DROPPED_SIGNATURES_KEY = "other";
+// A signature seen for the first time passes the session cap up to this
+// multiple of it: a long-lived tab must still report a new bug after its first
+// 20 errors, while a storm of distinct messages stays bounded.
+const NEW_SIGNATURE_SESSION_CAP_FACTOR = 2;
+const MAX_BUDGET_SUMMARIES_PER_SESSION = 3;
+const BUDGET_EXCEEDED_EVENT_TYPE = "ErrorBudgetExceeded";
 
 const ERROR_CAPTURE_STATE_KEY = Symbol.for("agent-native.client.errorCapture");
 
@@ -115,6 +166,9 @@ function getRuntime(): ErrorCaptureRuntime {
         captureUnhandledRejections: true,
         maxBreadcrumbs: 20,
         dedupeWindowMs: 3000,
+        maxEventsPerSession: DEFAULT_MAX_EVENTS_PER_SESSION,
+        maxEventsPerSignature: DEFAULT_MAX_EVENTS_PER_SIGNATURE,
+        budgetSummaryDelayMs: DEFAULT_BUDGET_SUMMARY_DELAY_MS,
       },
       breadcrumbs: [],
       recentSignatures: new Map(),
@@ -291,52 +345,154 @@ function normalizeGlobalErrorEvent(event: ErrorEvent): {
   return normalized;
 }
 
-function shouldIgnoreAutoCapturedError(normalized: {
-  type: string;
-  message: string;
-  stack?: string;
-}): boolean {
-  const message = (normalized.message || "").trim();
-  const stack = normalized.stack || "";
+// Hosts that serve this app's scripts: the page, and wherever this bundle was
+// loaded from (a deployment may serve its assets from a CDN host). Frames on any
+// other host are foreign; without these the noise rules only trust positively
+// identified third parties.
+export function firstPartyHosts(): string[] {
+  const hosts: string[] = [];
+  try {
+    if (window.location.hostname) hosts.push(window.location.hostname);
+    // coercion-ok: no page host just narrows the rules to known third parties.
+  } catch {
+    // window.location is unavailable outside a browser.
+  }
+  try {
+    const assetHost = new URL(import.meta.url).hostname;
+    if (assetHost) hosts.push(assetHost);
+    // coercion-ok: no asset host just narrows the rules to known third parties.
+  } catch {
+    // import.meta.url is not a URL in every bundler.
+  }
+  return hosts;
+}
 
+function getBudget(runtime: ErrorCaptureRuntime): ErrorCaptureBudget {
+  return (runtime.budget ??= {
+    sent: 0,
+    bySignature: new Map(),
+    dropped: 0,
+    droppedTotal: 0,
+    droppedBySignature: new Map(),
+    noise: {},
+    summaryFlushes: 0,
+    summaryTimer: null,
+  });
+}
+
+export function getErrorCaptureStats(): ErrorCaptureStats {
+  const budget = getBudget(getRuntime());
+  return {
+    sent: budget.sent,
+    budgetDropped: budget.droppedTotal,
+    noiseSuppressed: { ...budget.noise },
+  };
+}
+
+function budgetKeyOf(event: CapturedExceptionEvent): string {
+  const message = event.message
+    .replace(/https?:\/\/\S+/gi, "<url>")
+    .replace(/\d+/g, "#")
+    .slice(0, 120);
+  return `${event.type}|${message}`;
+}
+
+function flushBudgetSummary(runtime: ErrorCaptureRuntime): void {
+  const budget = getBudget(runtime);
+  if (budget.summaryTimer !== null) clearTimeout(budget.summaryTimer);
+  budget.summaryTimer = null;
+  if (budget.dropped === 0) return;
+  if (budget.summaryFlushes >= MAX_BUDGET_SUMMARIES_PER_SESSION) {
+    budget.dropped = 0;
+    budget.droppedBySignature.clear();
+    return;
+  }
+  budget.summaryFlushes += 1;
+  const topSignatures = [...budget.droppedBySignature]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([signature, count]) => ({ signature, count }));
+  const event = buildEvent(
+    runtime,
+    {
+      type: BUDGET_EXCEEDED_EVENT_TYPE,
+      message: "Client error budget exceeded",
+    },
+    {
+      handled: true,
+      level: "warning",
+      extra: {
+        dropped: budget.dropped,
+        sent: budget.sent,
+        noiseSuppressed: { ...budget.noise },
+        topSignatures,
+      },
+    },
+  );
+  budget.dropped = 0;
+  budget.droppedBySignature.clear();
+  try {
+    runtime.config.send(event);
+  } catch {
+    // coercion-ok: transport must never throw into the host app
+  }
+}
+
+function recordBudgetDrop(
+  runtime: ErrorCaptureRuntime,
+  budget: ErrorCaptureBudget,
+  key: string,
+): void {
+  budget.droppedTotal += 1;
+  // No summary will ever carry these, so do not accumulate them.
+  if (budget.summaryFlushes >= MAX_BUDGET_SUMMARIES_PER_SESSION) return;
+  budget.dropped += 1;
+  const slot =
+    budget.droppedBySignature.has(key) ||
+    budget.droppedBySignature.size < MAX_TRACKED_DROPPED_SIGNATURES
+      ? key
+      : OTHER_DROPPED_SIGNATURES_KEY;
+  budget.droppedBySignature.set(
+    slot,
+    (budget.droppedBySignature.get(slot) ?? 0) + 1,
+  );
+  if (budget.summaryTimer !== null || typeof setTimeout !== "function") return;
+  budget.summaryTimer = setTimeout(
+    () => flushBudgetSummary(runtime),
+    runtime.config.budgetSummaryDelayMs,
+  );
+  (budget.summaryTimer as { unref?: () => void }).unref?.();
+}
+
+// Returns true when this event fits the session and per-signature budgets.
+function consumeBudget(
+  runtime: ErrorCaptureRuntime,
+  event: CapturedExceptionEvent,
+): boolean {
+  const budget = getBudget(runtime);
+  const key = budgetKeyOf(event);
+  const forSignature = budget.bySignature.get(key) ?? 0;
+  const sessionCap = runtime.config.maxEventsPerSession;
+  const sessionFull =
+    budget.sent >= sessionCap &&
+    !(
+      forSignature === 0 &&
+      budget.sent < sessionCap * NEW_SIGNATURE_SESSION_CAP_FACTOR
+    );
+  if (sessionFull || forSignature >= runtime.config.maxEventsPerSignature) {
+    recordBudgetDrop(runtime, budget, key);
+    return false;
+  }
   if (
-    /^ResizeObserver loop (?:limit exceeded|completed with undelivered notifications\.?)$/i.test(
-      message,
-    )
+    !budget.bySignature.has(key) &&
+    budget.bySignature.size >= MAX_TRACKED_BUDGET_SIGNATURES
   ) {
-    return true;
+    const oldest = budget.bySignature.keys().next().value;
+    if (oldest !== undefined) budget.bySignature.delete(oldest);
   }
-
-  if (!stack && isDynamicImportFailureMessage(message)) {
-    return true;
-  }
-
-  if (
-    normalized.type === "InvalidStateError" &&
-    /^Transition was aborted because of invalid state$/i.test(message)
-  ) {
-    return true;
-  }
-
-  if (
-    /^This script should only be loaded in a browser extension\.?$/i.test(
-      message,
-    )
-  ) {
-    return true;
-  }
-
-  const hasExtensionFrame =
-    /\b(?:chrome|moz|safari|webkit)-extension:\/\//i.test(stack) ||
-    /\binjectScriptAdjust\.js\b/i.test(stack);
-  if (
-    hasExtensionFrame &&
-    /^(?:TypeError:\s*)?Failed to fetch(?:\s*\([^)]*\))?$/i.test(message)
-  ) {
-    return true;
-  }
-
-  return false;
+  budget.bySignature.set(key, forSignature + 1);
+  budget.sent += 1;
+  return true;
 }
 
 function shouldDedupe(
@@ -459,8 +615,27 @@ function dispatch(
   event: CapturedExceptionEvent,
   emitToReplay: boolean,
 ): void {
+  // Messages are deliberate reports with no stack to attribute; every other
+  // event, auto-captured or explicit, passes the one shared noise boundary.
+  if (event.type !== "Message") {
+    const verdict = classifyErrorNoise({
+      surface: "browser",
+      type: event.type,
+      value: event.message,
+      stack: event.stack,
+      pageUrl: event.url,
+      firstPartyHosts: firstPartyHosts(),
+      tags: event.tags,
+    });
+    if (verdict.drop) {
+      const noise = getBudget(runtime).noise;
+      noise[verdict.reason] = (noise[verdict.reason] ?? 0) + 1;
+      return;
+    }
+  }
   const signature = signatureOf(event.type, event.message, event.stack);
   if (shouldDedupe(runtime, signature)) return;
+  if (!consumeBudget(runtime, event)) return;
   try {
     runtime.config.send(event);
   } catch {
@@ -499,6 +674,25 @@ export function captureException(
   }
 }
 
+// Once per page session: a chunk that stays missing re-fails on every route.
+function reportStaleChunkRecoveryExhausted(
+  runtime: ErrorCaptureRuntime,
+  exhausted: StaleChunkRecoveryExhausted | undefined,
+): void {
+  if (!exhausted || runtime.staleChunkExhaustedReported) return;
+  runtime.staleChunkExhaustedReported = true;
+  const error = new Error(
+    "A stale route chunk could not be recovered by reloading the page",
+  );
+  error.name = "RouteChunkRecoveryExhausted";
+  captureException(error, {
+    tags: {
+      context: "route_chunk_recovery_exhausted",
+      reason: exhausted.reason,
+    },
+  });
+}
+
 export function captureMessage(
   message: string,
   level: ExceptionLevel = "info",
@@ -527,6 +721,19 @@ export function installErrorCapture(
     captureUnhandledRejections: options.captureUnhandledRejections ?? true,
     maxBreadcrumbs: options.maxBreadcrumbs ?? runtime.config.maxBreadcrumbs,
     dedupeWindowMs: options.dedupeWindowMs ?? runtime.config.dedupeWindowMs,
+    // `runtime` may be a global left by an older copy of this module.
+    maxEventsPerSession:
+      options.maxEventsPerSession ??
+      runtime.config.maxEventsPerSession ??
+      DEFAULT_MAX_EVENTS_PER_SESSION,
+    maxEventsPerSignature:
+      options.maxEventsPerSignature ??
+      runtime.config.maxEventsPerSignature ??
+      DEFAULT_MAX_EVENTS_PER_SIGNATURE,
+    budgetSummaryDelayMs:
+      options.budgetSummaryDelayMs ??
+      runtime.config.budgetSummaryDelayMs ??
+      DEFAULT_BUDGET_SUMMARY_DELAY_MS,
   };
 
   if (typeof window === "undefined") return () => {};
@@ -543,7 +750,6 @@ export function installErrorCapture(
       try {
         if (event.defaultPrevented) return;
         const normalized = normalizeGlobalErrorEvent(event);
-        if (shouldIgnoreAutoCapturedError(normalized)) return;
         dispatch(
           runtime,
           buildEvent(runtime, normalized, {
@@ -571,7 +777,6 @@ export function installErrorCapture(
         if (!normalized.type || normalized.type === "Error") {
           normalized.type = "UnhandledRejection";
         }
-        if (shouldIgnoreAutoCapturedError(normalized)) return;
         dispatch(
           runtime,
           buildEvent(runtime, normalized, {
@@ -592,6 +797,31 @@ export function installErrorCapture(
       ),
     );
   }
+
+  // A page that is going away is the last chance to say what was dropped.
+  const onPageHide = () => flushBudgetSummary(runtime);
+  window.addEventListener("pagehide", onPageHide);
+  removers.push(() => window.removeEventListener("pagehide", onPageHide));
+
+  // The raw stale-chunk failure is dropped as noise because route-chunk-recovery
+  // reloads on it; this is the report for when that reload could not happen.
+  const onStaleChunkExhausted = (event: Event) => {
+    reportStaleChunkRecoveryExhausted(
+      runtime,
+      (event as CustomEvent<StaleChunkRecoveryExhausted>).detail,
+    );
+  };
+  window.addEventListener(
+    STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT,
+    onStaleChunkExhausted,
+  );
+  removers.push(() =>
+    window.removeEventListener(
+      STALE_CHUNK_RECOVERY_EXHAUSTED_EVENT,
+      onStaleChunkExhausted,
+    ),
+  );
+  reportStaleChunkRecoveryExhausted(runtime, readStaleChunkRecoveryExhausted());
 
   runtime.installed = true;
   runtime.removeHandlers = () => {

@@ -1843,6 +1843,13 @@ export function DesignCanvas({
       } else {
         focusVisitedInspectorPopup = false;
         if (
+          event.target === iframeRef.current &&
+          !textEditInspectorFocusedRef.current &&
+          textEditingStateRef.current.hasRange
+        ) {
+          return;
+        }
+        if (
           textEditingStateRef.current.hasRange ||
           textEditInspectorFocusedRef.current
         ) {

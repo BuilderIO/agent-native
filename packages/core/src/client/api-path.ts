@@ -117,7 +117,7 @@ function pathMatchesBasePath(pathname: string, basePath: string): boolean {
   return pathname === basePath || pathname.startsWith(`${basePath}/`);
 }
 
-function isWorkspaceRuntime(): boolean {
+export function isWorkspaceRuntime(): boolean {
   const env = clientEnv();
   const projected =
     typeof window !== "undefined" &&

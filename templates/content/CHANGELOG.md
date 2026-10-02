@@ -3,14 +3,49 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
-## 2026-09-30
+## 2026-10-01
+
+### Improved
+
+- Pages and the sidebar load in place instead of jumping around
 
 ### Fixed
 
+- Fixed Content's ChatGPT connector guidance so it refers only to available actions.
+- Accepting or rejecting suggested edits keeps desktop comments in place without opening an extra panel.
+- Suggested edits stay visible across paragraphs, and Suggesting opens without false formatting warnings.
+- Suggestion retries keep desktop comments open and failed decisions restore each draft change only once.
+- Suggested edits replace whole words on pages with bold, italic, code, or links, so a changed date reads as one word instead of scattered letters
+- Accepted suggestions stay visible once after another person edits the page, and reviewing your amended suggestion no longer shows a false conflict.
+- The editor no longer shifts focus to another document when you switch away from suggested edits.
+
+## 2026-09-30
+
+### Added
+
+- Connect ChatGPT to draft documents and organize workspace records in Content.
+
+### Improved
+
+- Search stays fast in large workspaces and finds parts of code names and links, plus Japanese, Chinese, and Korean text.
+
+### Fixed
+
+- Pending suggested edits keep their highlights when nearby edits are accepted
+- Recent page icons update immediately when changed or removed
+- Suggestion review controls remain reachable beside long author names.
 - Chat stays ready for your next draft while a message is being sent.
 - Page edits and comments save reliably
 
+### Changed
+
+- Search matches page text from the start of each word. Titles and descriptions still match anywhere.
+
 ## 2026-09-29
+
+### Added
+
+- Connected agents can give up to 250 collection rows different values, such as a new rank for each row, in one atomic call.
 
 ### Improved
 
@@ -20,6 +55,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Suggested edits work on pages created through MCP that have blank lines between paragraphs or a dollar sign
 - Chat prompts clear immediately while the assistant thinks.
 - Duplicated rows and restored document versions keep collaborators' uploaded icons.
 - Text typed just before leaving a page and coming back is no longer lost or reported as a failed save

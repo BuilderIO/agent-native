@@ -25,6 +25,12 @@ pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
 The Slides chat E2E job in `ci.yml` runs this check for pull requests that
 change Slides, Core, or Toolkit files.
 
+Run the job's focused line-edge caret check for in-place slide text editing:
+
+```bash
+pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa
+```
+
 Run the Chromium IME Escape regression in an in-place slide text session:
 
 ```bash
@@ -62,13 +68,15 @@ representative source slides from the selected corpus. The gate requires
 absolute positioning, flex/grid, styled list rows, and a viewport-scaled slide;
 it saves and reloads each result and compares canonical markup plus
 outside-block style/geometry. On the largest corpus slide, it reports Event
-Timing input-to-paint latency and gates the p95 time from keydown through the
-first animation frame and forced layout at 16 ms. Event Timing includes browser
-presentation scheduling, so it is diagnostic; browsers without Event Timing
-use the same frame/layout gate. Slides with `data:` URLs are excluded from the
-authoring rounds; the largest-slide latency copy replaces those URLs with
-`about:blank` while preserving the source geometry, so embedded image bytes are
-never copied into the scratch database:
+Timing keydown-to-paint p95 and warns when it exceeds 16 ms. Since Event Timing
+omits entries below 16 ms, the report uses all keydowns and shows a `<=16 ms`
+bound when the p95 is below that threshold. It gates the p95 time from keydown
+through the first animation frame and forced layout at 16 ms;
+that measurement is a proxy, not paint. Browsers without Event Timing use the
+same proxy gate. Slides with `data:` URLs are excluded from the authoring
+rounds; the largest-slide latency copy replaces those URLs with `about:blank`
+while preserving source geometry, so embedded image bytes are never copied into
+the scratch database:
 
 ```bash
 pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-corpus
@@ -142,6 +150,7 @@ because it creates and rewrites decks.
 | `--cpu-throttle N`             | Slow each editor page's CPU N times, to reproduce timing-dependent saves                                                           |
 | `--headed`                     | Show the browser                                                                                                                   |
 | `--typing-chat`                | Check selection direction on edit entry and Agent chat typing with slide editing left open                                         |
+| `--caret-qa`                   | Check Home/End or macOS line-edge caret navigation in a synthetic slide text edit                                                  |
 | `--ime-escape`                 | Verify composing Escape does not exit an in-place slide text edit session                                                          |
 | `--text-surface-qa`            | Exercise Slides text fields, IME, paste, undo/redo, and slide switching in synthetic decks; defaults to Chromium                   |
 | `--authoring`                  | Exercise slash commands, Markdown shortcuts, and list authoring in synthetic decks; defaults to Chromium                           |

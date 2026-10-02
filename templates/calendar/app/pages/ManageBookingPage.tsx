@@ -1,5 +1,4 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
 import {
   IconCalendar,
   IconClock,
@@ -25,6 +24,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { appApiPath } from "@/lib/api-path";
 
 interface BookingInfo {
@@ -82,7 +82,26 @@ export function ManageBookingPage() {
   const isPast = booking ? new Date(booking.end) < new Date() : false;
 
   if (isLoading) {
-    return <DefaultSpinner />;
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center px-4">
+        <div className="w-full max-w-md space-y-6" aria-busy="true">
+          <div className="flex flex-col items-center gap-2">
+            <Skeleton className="h-7 w-44" />
+            <Skeleton className="h-4 w-64 max-w-full" />
+          </div>
+          <div className="space-y-3 rounded-lg border border-border bg-card p-5">
+            <Skeleton className="h-6 w-3/4" />
+            <Skeleton className="h-4 w-48 max-w-full" />
+            <Skeleton className="h-4 w-40 max-w-full" />
+            <Skeleton className="h-4 w-32 max-w-full" />
+          </div>
+          <div className="flex flex-col gap-3">
+            <Skeleton className="h-10 w-full rounded-md" />
+            <Skeleton className="h-10 w-full rounded-md" />
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (error || !booking) {

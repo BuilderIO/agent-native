@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CLAUDE_SONNET_MODEL_ID } from "../model-config.js";
+import { BUILDER_CLAUDE_SONNET_MODEL_ID } from "../model-config.js";
 import { isRetryableError } from "../production-agent.js";
 import { createBuilderEngine } from "./builder-engine.js";
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "./credential-errors.js";
@@ -65,7 +65,7 @@ function jsonErrorResponse(status: number, body: unknown): Response {
 }
 
 const BASE_OPTS: EngineStreamOptions = {
-  model: CLAUDE_SONNET_MODEL_ID,
+  model: BUILDER_CLAUDE_SONNET_MODEL_ID,
   systemPrompt: "You are helpful.",
   messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
   tools: [],

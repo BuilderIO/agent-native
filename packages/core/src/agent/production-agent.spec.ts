@@ -110,6 +110,9 @@ import type { AgentChatEvent, RunEvent } from "./types.js";
 const mockTryClaimRunSlot = vi.hoisted(() =>
   vi.fn(async () => ({ claimed: true, activeRunId: null })),
 );
+const mockGetSlotHoldingRunId = vi.hoisted(() =>
+  vi.fn(async (): Promise<string | undefined> => undefined),
+);
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),
@@ -118,11 +121,45 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
+const setupResumeClaims = vi.hoisted(() => new Map<string, string>());
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
+  // The claim store, with the compare-and-set retry the real one performs.
+  mutateSetting: async (
+    key: string,
+    updater: (
+      current: Record<string, unknown> | null,
+    ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+  ) => {
+    for (;;) {
+      const raw = setupResumeClaims.get(key) ?? null;
+      const next = await updater(raw === null ? null : JSON.parse(raw));
+      await Promise.resolve();
+      if ((setupResumeClaims.get(key) ?? null) === raw) {
+        setupResumeClaims.set(key, JSON.stringify(next));
+        return next;
+      }
+    }
+  },
+  listSettingsByPrefix: async (prefix: string) =>
+    [...setupResumeClaims]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, value]) => ({ key, value: JSON.parse(value) })),
+  deleteSettingIfValue: async (
+    key: string,
+    expected: Record<string, unknown>,
+  ) => {
+    if (setupResumeClaims.get(key) !== JSON.stringify(expected)) return false;
+    return setupResumeClaims.delete(key);
+  },
+}));
+
 vi.mock("./run-manager.js", async () => ({
   ...(await vi.importActual<typeof import("./run-manager.js")>(
     "./run-manager.js",
   )),
   tryClaimRunSlot: mockTryClaimRunSlot,
+  getSlotHoldingRunId: mockGetSlotHoldingRunId,
 }));
 
 describe("runCompletionCallbackWithDatabaseRetry", () => {
@@ -1996,6 +2033,171 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  it("returns a typed conflict when another run owns the thread slot", async () => {
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: "run-active",
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: vi.fn(),
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A second message",
+          threadId: "thread-1",
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(event),
+    );
+
+    expect(event.res.status).toBe(409);
+    expect(result).toEqual({
+      error: "Run already in progress for this thread",
+      code: "run_slot_busy",
+      retryable: true,
+      activeRunId: "run-active",
+    });
+    expect(engine.stream).not.toHaveBeenCalled();
+  });
+
+  describe("resuming a refused prompt after AI setup", () => {
+    function resumeHandler() {
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        stream: vi.fn(),
+      };
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine,
+        actions: {},
+      });
+      const resume = (metadataOverrides = {}) =>
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () =>
+            handler(
+              mockEvent(
+                new Request("http://app.example.com/_agent-native/agent-chat", {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({
+                    message: "Create a pitch deck",
+                    threadId: "thread-refused",
+                    metadata: {
+                      custom: {
+                        agentNativeRecoveryAction: "retry",
+                        agentNativeRecoveryOfRunId: "run-refused",
+                        agentNativeResumeAfterSetup: true,
+                        ...metadataOverrides,
+                      },
+                    },
+                  }),
+                }),
+              ),
+            ),
+        );
+      return { engine, resume };
+    }
+
+    const busy = { claimed: false, activeRunId: "run-winner" };
+
+    it("starts one run when two tabs resume the same refused prompt", async () => {
+      setupResumeClaims.clear();
+      mockTryClaimRunSlot.mockClear();
+      let releaseSlot!: () => void;
+      mockTryClaimRunSlot.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            releaseSlot = () => resolve(busy);
+          }),
+      );
+      const { engine, resume } = resumeHandler();
+
+      const tabs = [resume(), resume()];
+      const loser = await Promise.race(
+        tabs.map((tab, index) => tab.then((result) => ({ index, result }))),
+      );
+      releaseSlot();
+      await Promise.all(tabs);
+
+      expect(loser.result).toEqual({
+        ok: true,
+        stopped: true,
+        resumeAlreadySent: true,
+      });
+      expect(mockTryClaimRunSlot).toHaveBeenCalledOnce();
+      expect(engine.stream).not.toHaveBeenCalled();
+    });
+
+    it("does not tell a later resend it already went out when the thread's run slot was busy", async () => {
+      setupResumeClaims.clear();
+      mockTryClaimRunSlot.mockClear();
+      mockTryClaimRunSlot.mockResolvedValueOnce(busy);
+      const { resume } = resumeHandler();
+
+      await resume();
+      expect([...setupResumeClaims.keys()]).toEqual([]);
+
+      mockTryClaimRunSlot.mockResolvedValueOnce(busy);
+      const later = await resume();
+
+      expect(later).not.toMatchObject({ resumeAlreadySent: true });
+      expect(mockTryClaimRunSlot).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps the claim once the run slot is taken, and never holds back a manual retry", async () => {
+      setupResumeClaims.clear();
+      mockTryClaimRunSlot.mockClear();
+      mockTryClaimRunSlot.mockResolvedValueOnce({
+        claimed: false,
+        activeRunId: null,
+        completedRunId: "run-done",
+      } as never);
+      const { resume } = resumeHandler();
+
+      await resume().catch(() => undefined);
+      expect(setupResumeClaims.size).toBe(1);
+
+      mockTryClaimRunSlot.mockClear();
+      mockTryClaimRunSlot.mockResolvedValueOnce(busy);
+      await resume({ agentNativeResumeAfterSetup: undefined });
+      expect(mockTryClaimRunSlot).toHaveBeenCalledOnce();
+    });
+  });
+
   it("adds MCP actions for authenticated requests and skips anonymous runs", async () => {
     const seenActionNames: string[][] = [];
     const mcpToolName = `mcp__user_${hashEmail("alice@example.com")}_calendar__list`;
@@ -2062,6 +2264,108 @@ describe("createProductionAgentHandler", () => {
     expect(seenActionNames[1]).not.toContain(mcpToolName);
   });
 
+  it("records a turn refused for missing credentials before answering it", async () => {
+    const { registerAgentEngine, unregisterAgentEngine } =
+      await import("./engine/registry.js");
+    const engine: AgentEngine = {
+      name: "needs-key-test",
+      label: "Needs key",
+      defaultModel: "needs-key-model",
+      supportedModels: ["needs-key-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: vi.fn(),
+    };
+    registerAgentEngine({
+      name: engine.name,
+      label: engine.label,
+      description: "Test engine that needs a key",
+      capabilities: engine.capabilities,
+      defaultModel: engine.defaultModel,
+      supportedModels: engine.supportedModels,
+      requiredEnvVars: ["NEEDS_KEY_TEST_API_KEY"],
+      create: () => engine,
+    });
+    const onRunNotStarted = vi.fn(async () => undefined);
+    const onRunPrepared = vi.fn();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      onRunPrepared,
+      onRunNotStarted,
+    });
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () =>
+          handler(
+            mockEvent(
+              new Request("http://app.example.com/_agent-native/agent-chat", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  message: "Create a pitch deck",
+                  threadId: "thread-unconnected",
+                  turnId: "turn-unconnected",
+                  model: "model-original",
+                  effort: "high",
+                  mode: "plan",
+                  metadata: {
+                    references: [
+                      {
+                        type: "file",
+                        path: "docs/brief.md",
+                        name: "brief.md",
+                        source: "workspace",
+                      },
+                    ],
+                    custom: { ignored: "not kept" },
+                  },
+                }),
+              }),
+            ),
+          ),
+      );
+
+      expect(onRunNotStarted).toHaveBeenCalledWith({
+        runId: "turn-unconnected",
+        turnId: "turn-unconnected",
+        threadId: "thread-unconnected",
+        message: "Create a pitch deck",
+        attachments: [],
+        retryContext: {
+          references: [
+            {
+              type: "file",
+              path: "docs/brief.md",
+              name: "brief.md",
+              source: "workspace",
+            },
+          ],
+          model: "model-original",
+          effort: "high",
+          requestMode: "plan",
+        },
+        failure: {
+          code: "missing_credentials",
+          message: expect.stringContaining("No LLM provider"),
+        },
+      });
+      expect(onRunPrepared).not.toHaveBeenCalled();
+      expect(engine.stream).not.toHaveBeenCalled();
+      const body = await new Response(response as ReadableStream).text();
+      expect(body).toContain('"errorCode":"missing_credentials"');
+    } finally {
+      unregisterAgentEngine(engine.name);
+    }
+  });
+
   it("rejects a non-string request engine before resolving provider credentials", async () => {
     const stream = vi.fn();
     const systemPrompt = vi.fn(async () => "Test");
@@ -2103,6 +2407,65 @@ describe("createProductionAgentHandler", () => {
     });
     expect(event.res.status).toBe(400);
     expect(systemPrompt).not.toHaveBeenCalled();
+    expect(stream).not.toHaveBeenCalled();
+  });
+
+  it("refuses a busy thread before uploading the message's attachments", async () => {
+    // The client sends the same message again once the thread frees up, so
+    // uploading before the refusal would store every file again per retry.
+    mockGetSlotHoldingRunId.mockResolvedValueOnce("run-earlier");
+    mockTryClaimRunSlot.mockClear();
+    const stream = vi.fn();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        stream,
+      },
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "Look at this",
+          threadId: "thread-busy",
+          attachments: [
+            {
+              type: "image",
+              name: "shot.png",
+              contentType: "image/png",
+              data: "data:image/png;base64,iVBORw0KGgo=",
+            },
+          ],
+        }),
+      }),
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: "alice@example.com", run: {} }, () =>
+        handler(event),
+      ),
+    ).resolves.toEqual({
+      error: "Run already in progress for this thread",
+      code: "run_slot_busy",
+      retryable: true,
+      activeRunId: "run-earlier",
+    });
+    expect(event.res.status).toBe(409);
+    expect(mockGetSlotHoldingRunId).toHaveBeenCalledWith("thread-busy");
+    expect(mockTryClaimRunSlot).not.toHaveBeenCalled();
     expect(stream).not.toHaveBeenCalled();
   });
 
@@ -2799,6 +3162,7 @@ describe("createProductionAgentHandler", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           message: "Run the queued prompt",
+          agentKitMessageId: " message-agentkit-1 ",
           queuedMessageId: " queued-1 ",
         }),
       }),
@@ -2812,10 +3176,110 @@ describe("createProductionAgentHandler", () => {
     expect(onRunPrepared).toHaveBeenCalledWith(
       expect.objectContaining({
         message: "Run the queued prompt",
+        agentKitMessageId: "message-agentkit-1",
         queuedMessageId: "queued-1",
         turnId: expect.any(String),
       }),
     );
+  });
+
+  it("preserves request tracking identity through delayed run completion", async () => {
+    const onRunComplete = vi.fn();
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      onRunComplete,
+    });
+
+    const startRun = async (
+      userEmail: string,
+      authUserId: string | undefined,
+      browserSessionId: string,
+      anonymous = false,
+      synthetic = false,
+    ) => {
+      const response = await runWithRequestContext(
+        {
+          userEmail,
+          ...(authUserId ? { authUserId } : {}),
+          browserSessionId,
+          ...(anonymous ? { agentRunAnonymous: true } : {}),
+          ...(synthetic ? { isSyntheticTraffic: true } : {}),
+          run: {},
+        },
+        () =>
+          handler(
+            mockEvent(
+              new Request("http://app.example.com/_agent-native/agent-chat", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  message: "Run",
+                }),
+              }),
+            ),
+          ),
+      );
+      if (response instanceof ReadableStream) {
+        await new Response(response).text();
+      }
+    };
+
+    await Promise.all([
+      startRun("alice@example.com", "auth-user-1", "session-1"),
+      startRun("bob@example.com", "auth-user-2", "session-2"),
+      startRun("visitor-1", undefined, "session-anonymous", true),
+      startRun(
+        "synthetic@example.com",
+        "auth-synthetic",
+        "session-synthetic",
+        false,
+        true,
+      ),
+    ]);
+
+    await vi.waitFor(() => expect(onRunComplete).toHaveBeenCalledTimes(4));
+    const sources = onRunComplete.mock.calls.map(([, , source]) => source);
+    expect(sources).toContainEqual({
+      userId: "alice@example.com",
+      authUserId: "auth-user-1",
+      sessionId: "session-1",
+    });
+    expect(sources).toContainEqual({
+      userId: "bob@example.com",
+      authUserId: "auth-user-2",
+      sessionId: "session-2",
+    });
+    expect(sources).toContainEqual({
+      anonymousId: "visitor-1",
+      sessionId: "session-anonymous",
+    });
+    expect(sources).toContainEqual({
+      userId: "synthetic@example.com",
+      authUserId: "auth-synthetic",
+      sessionId: "session-synthetic",
+      isSyntheticTraffic: true,
+    });
   });
 
   it("terminalizes a preclaimed row when turn persistence fails", () => {
@@ -6349,6 +6813,154 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("validates raw MCP schemas using their declared 2020-12 dialect", async () => {
+    const run = vi.fn(async () => "should not run");
+    const events = await runToolCallSequence(
+      [{ name: "mcp-tool", input: { primary: "value" } }],
+      {
+        "mcp-tool": {
+          tool: {
+            description: "Validate an MCP schema",
+            parameters: {
+              $schema: "https://json-schema.org/draft/2020-12/schema",
+              type: "object",
+              properties: {
+                primary: { type: "string" },
+                secondary: { type: "string" },
+              },
+              dependentRequired: { primary: ["secondary"] },
+            } as any,
+          },
+          fromMcpServer: true,
+          run,
+        },
+      },
+    );
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "mcp-tool",
+        result: expect.stringContaining("secondary"),
+      }),
+    );
+  });
+
+  it("uses MCP's 2020-12 default when the schema omits $schema", async () => {
+    const run = vi.fn(async () => "should not run");
+    const events = await runToolCallSequence(
+      [{ name: "mcp-tool", input: { primary: "value" } }],
+      {
+        "mcp-tool": {
+          tool: {
+            description: "Validate an MCP schema",
+            parameters: {
+              type: "object",
+              properties: {
+                primary: { type: "string" },
+                secondary: { type: "string" },
+              },
+              dependentRequired: { primary: ["secondary"] },
+            } as any,
+          },
+          fromMcpServer: true,
+          run,
+        },
+      },
+    );
+
+    expect(run).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "mcp-tool",
+        result: expect.stringContaining("secondary"),
+      }),
+    );
+  });
+
+  it("keeps MCP and legacy validators separate in the schema cache", async () => {
+    const parameters = {
+      type: "object",
+      properties: {
+        primary: { type: "string" },
+        secondary: { type: "string" },
+      },
+      dependentRequired: { primary: ["secondary"] },
+    } as any;
+    const legacyRun = vi.fn(async () => "legacy ran");
+
+    await runToolCallSequence(
+      [{ name: "legacy-tool", input: { primary: "value" } }],
+      {
+        "legacy-tool": {
+          tool: { description: "Validate a legacy schema", parameters },
+          run: legacyRun,
+        },
+      },
+    );
+
+    expect(legacyRun).toHaveBeenCalledOnce();
+
+    const mcpRun = vi.fn(async () => "should not run");
+    const events = await runToolCallSequence(
+      [{ name: "mcp-tool", input: { primary: "value" } }],
+      {
+        "mcp-tool": {
+          tool: { description: "Validate an MCP schema", parameters },
+          fromMcpServer: true,
+          run: mcpRun,
+        },
+      },
+    );
+
+    expect(mcpRun).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "mcp-tool",
+        result: expect.stringContaining("secondary"),
+      }),
+    );
+  });
+
+  it("does not apply MCP's default dialect to a local action just because it is externally exposed", async () => {
+    const run = vi.fn(async () => "local ran");
+    const events = await runToolCallSequence(
+      [{ name: "local-tool", input: { primary: "value" } }],
+      {
+        "local-tool": {
+          tool: {
+            description: "A local action exposed to external MCP callers",
+            parameters: {
+              type: "object",
+              properties: {
+                primary: { type: "string" },
+                secondary: { type: "string" },
+              },
+              dependentRequired: { primary: ["secondary"] },
+            } as any,
+          },
+          // `mcpTool` only controls external exposure of a *local* action;
+          // it must not be treated as evidence the schema follows MCP's
+          // 2020-12 default dialect the way `fromMcpServer` does.
+          mcpTool: true,
+          run,
+        },
+      },
+    );
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "local-tool",
+        result: "local ran",
+      }),
+    );
+  });
+
   it("rejects null raw JSON Schema parameters instead of validating as an empty object", async () => {
     const run = vi.fn(async () => "should not run");
     const engine: AgentEngine = {
@@ -7751,10 +8363,14 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("stops after repeated identical tool errors", async () => {
+  it("stops after repeated tool errors when a cooldown countdown changes", async () => {
     let streamCalls = 0;
+    let attempts = 0;
     const run = vi.fn(async () => {
-      throw new Error("DB failed: token=SENSITIVE_VALUE");
+      attempts += 1;
+      throw new Error(
+        `Email service is briefly busy and will be ready again in about ${24 - attempts * 3}s. token=SENSITIVE_VALUE`,
+      );
     });
     const engine: AgentEngine = {
       name: "test",

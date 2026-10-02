@@ -131,8 +131,9 @@ export interface TraceSpan {
   cacheWriteTokens: number;
   costCentsX100: number;
   durationMs: number;
-  status: "success" | "error";
+  status: "success" | "error" | "paused";
   errorMessage: string | null;
+  errorDetail?: "full" | "signature" | "withheld" | "unrecorded";
   metadata: Record<string, unknown> | null;
   createdAt: number;
 }

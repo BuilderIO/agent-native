@@ -1321,6 +1321,7 @@ const overrides = {
   localFiles: localFiles,
   root: {
     commandContent: "内容",
+    loadingContent: "正在加载内容",
     commandSearchDocuments: "搜索文档",
     searchSince: "自 {{date}} 起",
     searchModifiedSince: "修改时间自 {{date}} 起",

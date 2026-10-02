@@ -2,7 +2,7 @@ import {
   type Dispatch,
   type SetStateAction,
   useCallback,
-  useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -63,7 +63,8 @@ export function usePersistentSidebarCollapsed({
   });
   const collapsedRef = useRef(state.collapsed);
 
-  useEffect(() => {
+  // Read before the first paint, so a collapsed sidebar never draws expanded.
+  useLayoutEffect(() => {
     const storedState = readStoredSidebarState(storageKey, defaultCollapsed);
     collapsedRef.current = storedState.collapsed;
     setState(storedState);

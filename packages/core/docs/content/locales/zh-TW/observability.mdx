@@ -121,7 +121,7 @@ export default function ObservabilityPage() {
 
 「對話」分頁會顯示已記錄的執行。選取一個執行即可檢視其範圍，展開任一範圍即可查看已擷取的工具輸入、輸出、錯誤和中繼資料。選取**開啟完整對話**可前往相關的聊天對話串。
 
-工具引數和結果預設不會擷取。若要儲存這些內容，請在 `observability` 設定中啟用 `captureToolArgs` 和 `captureToolResults`。敏感欄位和工具錯誤訊息會在儲存前遮蔽。
+預設不會擷取工具引數、結果和完整的錯誤內文。若要儲存這些內容，請在 `observability` 設定中啟用 `captureToolArgs`（儲存引數）和 `captureToolResults`（儲存結果和完整錯誤內文）。敏感欄位會在儲存前遮蔽。失敗的工具一律會保留其錯誤的第一行（長度有限），其中的憑證、電子郵件地址和較長的不透明 ID 會被遮蔽，因此即使關閉 `captureToolResults`，失敗仍可診斷。
 
 ### 人工審查 {#review}
 
@@ -288,7 +288,7 @@ export default defineAppConfig({
 
 <Callout id="doc-block-1xvsimn" tone="info">
 
-Content is **redacted by default** — only token counts, costs, and timing are stored. `capturePrompts`, `captureToolArgs`, and `captureToolResults` are opt-in; turn them on only when you need prompt/argument content for debugging.
+內容**預設會遮蔽**：儲存的是 token 數量、成本和耗時，對於失敗的工具，還會儲存其錯誤的第一行（長度有限），其中的憑證、電子郵件地址和較長的不透明 ID 會被遮蔽。除非啟用 `capturePrompts`、`captureToolArgs` 和 `captureToolResults`，否則提示詞、工具輸入、工具結果和完整錯誤內文都不會被儲存。僅在偵錯需要提示詞或引數內容時才啟用它們。
 
 </Callout>
 

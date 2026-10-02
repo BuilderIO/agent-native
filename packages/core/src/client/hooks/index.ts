@@ -48,6 +48,10 @@ export {
   type KeepaliveActionCallRejectionReason,
   type KeepaliveActionCallResult,
 } from "../use-action.js";
+export {
+  actionErrorCode,
+  isTerminalActionError,
+} from "../action-failure-circuit.js";
 export { createAgentNativeQueryClient } from "../create-query-client.js";
 export {
   APP_CHAT_SIDEBAR_STATE_EVENT,

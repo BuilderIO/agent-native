@@ -267,7 +267,7 @@ const expandAll = async () => {
 ```js
 const files = async () => {
   const d = await rest
-    .get(`/_agent-native/actions/get-design?id=${designId}`)
+    .get(`_agent-native/actions/get-design?id=${designId}`)
     .then((r) => r.json());
   return Object.fromEntries(d.files.map((f) => [f.filename, f.content]));
 };

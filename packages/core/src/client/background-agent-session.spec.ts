@@ -78,7 +78,7 @@ describe("background agent sessions", () => {
     expect(url).toBe("/_agent-native/agent-chat");
     expect(JSON.parse(String(init?.body))).toMatchObject({
       message:
-        "Reply to the comment\n\n<context>\nUse only the supplied comment context.\n</context>",
+        'Reply to the comment\n\n<context data-agentkit-context-encoding="entities-v1">\nUse only the supplied comment context.\n</context>',
       displayMessage: "Reply to the comment",
       queuedMessageId: "operation-1",
       turnId: handle.turnId,

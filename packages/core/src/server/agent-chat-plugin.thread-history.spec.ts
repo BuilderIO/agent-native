@@ -4,9 +4,32 @@ import {
   buildAssistantMessage,
   mergeThreadDataForClientSave,
 } from "../agent/thread-data-builder.js";
-import { foldAgentChatRunCompletion } from "./agent-chat-plugin.js";
+import {
+  foldAgentChatRunCompletion,
+  parseQueuedMessageForThread,
+} from "./agent-chat-plugin.js";
 
 describe("AgentKit thread history", () => {
+  it("rejects queued messages with invalid run options", () => {
+    const queued = {
+      id: "queued-options",
+      threadId: "thread-1",
+      text: "Run once",
+      options: { reasoningEffort: "unbounded" },
+    };
+
+    expect(parseQueuedMessageForThread(queued, "thread-1")).toBeNull();
+    expect(
+      parseQueuedMessageForThread(
+        { ...queued, options: { reasoningEffort: "high" } },
+        "thread-1",
+      ),
+    ).toMatchObject({
+      id: "queued-options",
+      options: { reasoningEffort: "high" },
+    });
+  });
+
   it("deduplicates plain replies across thread snapshot saves", () => {
     const reply = "Hello, AgentKit Browser!";
     const message = (id: string) => ({

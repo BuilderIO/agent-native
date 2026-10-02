@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-01
+
+### Improved
+
+- Public booking pages show their background and a layout-matched skeleton while details load
+
 ## 2026-09-30
 
 ### Fixed

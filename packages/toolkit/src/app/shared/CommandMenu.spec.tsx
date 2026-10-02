@@ -795,6 +795,48 @@ describe("CommandMenu docs group", () => {
     expect(document.body.textContent).toContain("open");
   });
 
+  it("opens from the focused agent composer without opting into contenteditable", () => {
+    const onOpen = vi.fn();
+    function ShortcutHarness() {
+      useCommandMenuShortcut(onOpen);
+      return (
+        <>
+          <div data-agent-composer-slot="root">
+            <div contentEditable data-testid="composer" />
+          </div>
+          <div contentEditable data-testid="document" />
+        </>
+      );
+    }
+    act(() => root.render(<ShortcutHarness />));
+
+    const composerEvent = new KeyboardEvent("keydown", {
+      key: "k",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      document
+        .querySelector('[data-testid="composer"]')!
+        .dispatchEvent(composerEvent);
+    });
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(composerEvent.defaultPrevented).toBe(true);
+
+    // A rich-text document that did not opt in keeps swallowing the chord.
+    act(() => {
+      document.querySelector('[data-testid="document"]')!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "k",
+          ctrlKey: true,
+          bubbles: true,
+        }),
+      );
+    });
+    expect(onOpen).toHaveBeenCalledOnce();
+  });
+
   it("leaves modified K chords available to app commands", () => {
     const onOpen = vi.fn();
     function ShortcutHarness() {

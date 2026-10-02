@@ -20,6 +20,7 @@ import {
   useUpdatePreviewDocumentDraft,
 } from "@/hooks/use-documents";
 import { isDocumentCreationPending } from "@/lib/optimistic-document";
+import { readPageIconRowHint } from "@/lib/page-icon-row-hint";
 
 import { documentBodyHydrationIsPending } from "./body-hydration";
 import { saveDocumentWithRebase } from "./document-save-rebase";
@@ -228,7 +229,11 @@ export function PageDraftRecovery({
       setJournalState("checking");
     };
     void (async () => {
-      if (journalSnapshot.saveAttemptId) {
+      const attemptIds = [
+        journalSnapshot.saveAttemptId,
+        ...(journalSnapshot.equivalentSaveAttemptIds ?? []),
+      ].filter((attemptId): attemptId is string => !!attemptId);
+      for (const attemptId of attemptIds) {
         const receipt = await callAction<{
           found: boolean;
           preservationRequired?: {
@@ -239,7 +244,7 @@ export function PageDraftRecovery({
           "get-document-save-attempt",
           {
             id: document.id,
-            browserSaveAttemptId: journalSnapshot.saveAttemptId,
+            browserSaveAttemptId: attemptId,
           },
           { method: "GET" },
         );
@@ -304,6 +309,7 @@ export function PageDraftRecovery({
             baseRevision: base.revision,
             saveAttemptId,
             priorSaveAttemptIds: undefined,
+            equivalentSaveAttemptIds: undefined,
           };
           const written = writePageDraftJournal({
             scope: entry.scope,
@@ -665,11 +671,22 @@ export function PageDraftRecovery({
     journalState === "checking" ||
     journalState === "promoting"
   )
-    return <DocumentEditorSkeleton title={document.title} />;
+    return (
+      <DocumentEditorSkeleton
+        title={document.title}
+        iconRow={readPageIconRowHint(document.id)}
+      />
+    );
   if (!draft) return withNotice(null);
   // Legacy drafts are preserved automatically; that path toasts once.
   if (!hasEditIdentity && !failure) return withNotice(null);
-  if (!failure) return <DocumentEditorSkeleton title={document.title} />;
+  if (!failure)
+    return (
+      <DocumentEditorSkeleton
+        title={document.title}
+        iconRow={readPageIconRowHint(document.id)}
+      />
+    );
   const savedVersion = conflictDocument ?? document;
   return (
     <RecoveryComparison

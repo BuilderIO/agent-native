@@ -66,6 +66,29 @@ const FULL_CHECK_FILES = new Set([
   "vitest.shared.ts",
 ]);
 
+const DESIGN_CANVAS_E2E_FILES = new Set([
+  "templates/design/e2e/base-url.ts",
+  "templates/design/e2e/chrome-geometry.reference.ts",
+  "templates/design/e2e/corner-radius-handle-drag.spec.ts",
+  "templates/design/e2e/cross-screen-auto-layout-parity.spec.ts",
+  "templates/design/e2e/drag-and-drop.auto-layout-parity.spec.ts",
+  "templates/design/e2e/drag-and-drop.reparenting-rules.spec.ts",
+  "templates/design/e2e/drag-and-drop.shared.ts",
+  "templates/design/e2e/global-setup.ts",
+  "templates/design/e2e/global-teardown.ts",
+  "templates/design/e2e/helpers.ts",
+  "templates/design/e2e/parity-vector-endpoints.spec.ts",
+  "templates/design/playwright.config.ts",
+]);
+
+const DESIGN_CANVAS_CONFIG_FILES = new Set([
+  "templates/design/agent-native.config.ts",
+  "templates/design/agent-native.json",
+  "templates/design/package.json",
+  "templates/design/react-router.config.ts",
+  "templates/design/vite.config.ts",
+]);
+
 const CHECK_NAMES = [
   "lint",
   "typecheck",
@@ -83,6 +106,9 @@ const CHECK_NAMES = [
   "agentkit_acceptance",
   "neon_query_budget",
   "neon_connection_budget",
+  "design_canvas_interaction_e2e",
+  "slides_chat_e2e",
+  "slides_authoring_e2e",
   "changeset",
 ] as const;
 
@@ -355,6 +381,30 @@ function hasPath(paths: readonly string[], prefix: string): boolean {
   return paths.some((path) => path.startsWith(prefix));
 }
 
+function isDesignDndRuntimePath(path: string): boolean {
+  if (
+    DESIGN_CANVAS_E2E_FILES.has(path) ||
+    DESIGN_CANVAS_CONFIG_FILES.has(path)
+  ) {
+    return true;
+  }
+
+  const designAppSource =
+    path.startsWith("templates/design/app/") &&
+    !path.startsWith("templates/design/app/i18n/") &&
+    !path.startsWith("templates/design/app/assets/") &&
+    !/\/i18n-[^/]+\.ts$/u.test(path) &&
+    /\.(?:[cm]?[jt]sx?|css)$/u.test(path);
+  const designSharedRuntimeSource =
+    (path.startsWith("templates/design/actions/") ||
+      path.startsWith("templates/design/server/") ||
+      path.startsWith("templates/design/shared/") ||
+      path.startsWith("templates/design/.generated/bridge/")) &&
+    /\.(?:[cm]?[jt]sx?)$/u.test(path);
+
+  return designAppSource || designSharedRuntimeSource;
+}
+
 function isKnownQueryBudgetUnrelatedPath(path: string): boolean {
   const normalized = normalizeChangedPath(path);
   return (
@@ -472,6 +522,17 @@ function buildChecks(
     measuresEveryQueryBudgetApp(changedPaths) ||
     hasPath(changedPaths, "packages/creative-context/") ||
     changedQueryBudgetApps(changedPaths).length > 0;
+  const slidesE2eChanged =
+    hasPath(changedPaths, "templates/slides/") ||
+    coreChanged ||
+    toolkitChanged ||
+    hasPath(changedPaths, "packages/creative-context/");
+  const slidesChatE2eChanged = slidesE2eChanged || agentkitChanged;
+  const designCanvasInteractionE2eChanged =
+    changedPaths.some(isDesignDndRuntimePath) ||
+    coreChanged ||
+    toolkitChanged ||
+    hasPath(changedPaths, "packages/creative-context/");
 
   return {
     lint: workspaceChanged || instructionsChanged || guardScriptsChanged,
@@ -509,6 +570,9 @@ function buildChecks(
     // The probe imports only core's database client, so templates cannot
     // move it.
     neon_connection_budget: coreChanged,
+    design_canvas_interaction_e2e: designCanvasInteractionE2eChanged,
+    slides_chat_e2e: slidesChatE2eChanged,
+    slides_authoring_e2e: slidesE2eChanged,
     changeset: changedPaths.some(isChangesetPath),
   };
 }

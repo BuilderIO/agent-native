@@ -185,12 +185,12 @@ describe("dashboard catalog", () => {
       "agent-native-templates-first-party",
     );
     expect(entry?.dataSources).toEqual(["first-party"]);
-    expect(entry?.panelCount).toBe(43);
 
     const config = cloneDashboardConfig(entry!);
     expect(config.name).toBe("Agent-Native Templates (First-party)");
-    expect(config.panels).toHaveLength(47);
-    expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(47);
+    expect(entry?.panelCount).toBe(config.panels.length);
+    expect(config.panels).toHaveLength(48);
+    expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(48);
     for (const id of [
       "activation-funnel",
       "signup-method-conversion",
@@ -288,7 +288,7 @@ describe("dashboard catalog", () => {
       const seedPanel = seedPanels.find((panel) => panel.id === id);
       const seedLookbackFilter =
         id === "retention-over-time"
-          ? "ELSE to_char(CURRENT_DATE - INTERVAL '371 days', 'YYYY-MM-DD') END"
+          ? "event_date >= to_char(CURRENT_DATE - INTERVAL '371 days', 'YYYY-MM-DD')"
           : "event_date >= to_char(CURRENT_DATE - INTERVAL '365 days', 'YYYY-MM-DD')";
       expect(seedPanel?.sql).toContain(seedLookbackFilter);
       if (id !== "retention-over-time") {
@@ -308,7 +308,7 @@ describe("dashboard catalog", () => {
           customLookbackFilter,
           presetLookbackFilter,
         ]) {
-          const lookback = sql.indexOf(lookbackFilter);
+          const lookback = sql.lastIndexOf(lookbackFilter);
           expect(lookback).toBeGreaterThan(baseStart);
           expect(lookback).toBeLessThan(baseEnd);
         }
@@ -329,7 +329,7 @@ describe("dashboard catalog", () => {
     }
   });
 
-  it("keeps signed-in activity panels resilient to session telemetry gaps", () => {
+  it("uses content and chat activity for retention while visitor panels tolerate session gaps", () => {
     const seed = loadDashboardSeed("agent-native-templates-first-party");
     const seedPanels = seed?.panels as Array<{
       id?: string;
@@ -340,9 +340,6 @@ describe("dashboard catalog", () => {
       "repeat-users",
       "dau-over-time",
       "wau-over-time",
-      "retention-over-time",
-      "one-day-retention-by-template",
-      "seven-day-retention-by-template",
       "recurring-users-by-template",
       "recurring-users-by-template-bar",
     ]) {
@@ -353,6 +350,26 @@ describe("dashboard catalog", () => {
           "event_name IN ('session status', 'session_status')",
         );
         expect(sql).toContain("event_name = 'app_entered'");
+      }
+    }
+
+    for (const id of [
+      "retention-over-time",
+      "one-day-retention-by-template",
+      "seven-day-retention-by-template",
+    ]) {
+      const catalogSql = requiredFirstPartyPanel(id).sql;
+      const seedSql = seedPanels.find((panel) => panel.id === id)?.sql;
+      expect(seedSql).toBe(catalogSql);
+      for (const sql of [catalogSql, seedSql]) {
+        expect(sql).toContain("event_name = 'run_started'");
+        expect(sql).toContain("generation_completed");
+        expect(sql).toContain(
+          "NULLIF(properties::jsonb ->> 'auth_user_id', '') AS user_key",
+        );
+        expect(sql).toContain(
+          "NULLIF(properties::jsonb ->> 'auth_user_id', '') IS NOT NULL",
+        );
       }
     }
   });
@@ -390,7 +407,7 @@ describe("dashboard catalog", () => {
     expect(panel.sql).toBe(current.sql);
   });
 
-  it("repairs the materialized one-day retention self-join to one analytics scan", () => {
+  it("repairs one-day retention with a separate canonical identity lookup", () => {
     const current = requiredFirstPartyPanel("one-day-retention-by-template");
     const repaired = repairFirstPartyObservedRetentionPanels({
       panels: [
@@ -404,7 +421,8 @@ describe("dashboard catalog", () => {
     expect(repaired.changed).toBe(true);
     const sql = (repaired.config.panels as Array<{ sql: string }>)[0]?.sql;
     expect(sql).toBe(current.sql);
-    expect(sql?.match(/FROM analytics_events/g)).toHaveLength(1);
+    expect(sql?.match(/FROM analytics_events/g)).toHaveLength(2);
+    expect(sql).toContain("identity_emails AS");
     expect(sql).toContain("FIRST_VALUE(template) OVER");
     expect(sql).toContain("MAX(CASE WHEN event_date > cohort_date");
     expect(sql).not.toContain("JOIN base");

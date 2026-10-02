@@ -1,5 +1,49 @@
 # @agent-native/dispatch
 
+## 0.40.11
+
+### Patch Changes
+
+- b5a3453: Bundle Dispatch view-screen's built-in action dispatch with static action imports so production builds can resolve Dreams and connected-agent actions.
+- Release all public npm packages with a patch version bump.
+- ab62f9c: Fix packaged Dispatch catch-all routes crashing during server-side rendering.
+- 9d8b0b6: Replace workspace catch-all loading UI with a layout-matched skeleton.
+- Updated dependencies [4aa4088]
+- Updated dependencies [bf2b2ae]
+- Updated dependencies [73c2373]
+- Updated dependencies [563e22a]
+- Updated dependencies [73c2373]
+- Updated dependencies [53f0c01]
+- Updated dependencies [0c17540]
+- Updated dependencies
+- Updated dependencies [5113a23]
+- Updated dependencies [9a09590]
+- Updated dependencies [73c2373]
+- Updated dependencies [73c2373]
+- Updated dependencies [73c2373]
+- Updated dependencies [73c2373]
+- Updated dependencies [4bee69d]
+- Updated dependencies [7ec9079]
+- Updated dependencies [73c2373]
+  - @agent-native/toolkit@0.200.0
+
+## 0.40.10
+
+### Patch Changes
+
+- ebface7: Harden the boundaries behind the most-reported breakage. A closed chat stream now asks the server for the run's real state before the UI shows an outcome, and a user message sent during an active run waits instead of erroring. Sign-in state is one shared fact with one navigator, so reloads no longer flash to sign-in. Credential state is one typed value, so the credits banner and chat errors agree and activation can no longer replace an organization's Builder connection. Attachments resolve through one typed reference. Background automations record their real failure cause and pause after repeated identical failures instead of re-failing every tick. Error capture classifies and aggregates floods, groups one error into one issue, and filters third-party noise at one boundary. Tool-call errors keep a redacted reason, and human-in-the-loop pauses are no longer counted as errors. Expected action failures are typed 4xx responses, action hooks back off and stop on terminal errors, and a guard rejects new bare `throw new Error(...)` in actions. The shared command menu opens from the focused agent composer.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [452757b]
+- Updated dependencies [6f27cff]
+- Updated dependencies [a1e74f5]
+- Updated dependencies [a80ad13]
+- Updated dependencies [a1e74f5]
+- Updated dependencies [ebface7]
+- Updated dependencies
+- Updated dependencies [5b643b7]
+- Updated dependencies [c13429a]
+  - @agent-native/toolkit@0.199.0
+
 ## 0.40.9
 
 ### Patch Changes
@@ -1064,24 +1108,5 @@
 ### Patch Changes
 
 - 1b7d8c2: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
-
-## 0.27.4
-
-### Patch Changes
-
-- fa0f828: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
-
-## 0.27.3
-
-### Patch Changes
-
-- 81fb79e: Keep Dispatch chat surfaces at the full viewport height so the composer stays anchored to the bottom of the page.
-- 81fb79e: Avoid querying admin-only vault grants from workspace member key panels and
-  return a proper forbidden response for unauthorized grant requests.
-- 81fb79e: Keep Dispatch's collapsed chat-first sidebar actions visible and icon-only, matching the Electron rail.
-- 81fb79e: Keep selected chat-first apps visible and open granted external apps from Dispatch.
-- 81fb79e: Make shared-auth rollout failures fail closed while allowing an explicitly allowlisted operator to manage feature flags across deployments without a local organization. Clear stale Dispatch fallback errors after a successful direct load, and keep hosted chat restore controls local-only.
-- Updated dependencies [81fb79e]
-  - @agent-native/toolkit@0.16.3
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

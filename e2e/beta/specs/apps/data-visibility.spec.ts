@@ -169,8 +169,15 @@ test.describe("clips recorder", () => {
         waitUntil: "domcontentloaded",
         timeout: 90_000,
       });
+      await renderedText(page, "beta.clips idle recorder");
+      // "Clips recorder" is the mode picker's accessible name, not page text.
+      // A single-select toggle group is a radiogroup. Recording never asks for
+      // storage first, so an account with no video storage sees it too.
+      await expect(
+        page.getByRole("radiogroup", { name: /Clips recorder/i }),
+        "beta.clips /record did not render the idle recorder's mode picker",
+      ).toBeVisible({ timeout: 45_000 });
       const recorderBody = await renderedText(page, "beta.clips idle recorder");
-      expect(recorderBody).toMatch(/Clips recorder/i);
       expect(recorderBody).not.toMatch(
         /preparing sources|recording your screen|saving your recording|already recording/i,
       );

@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import type { Browser, BrowserContext } from "@playwright/test";
 
 import { isAutozQaEmail } from "../../../packages/core/src/shared/qa-test-email";
+import type { SetupStep } from "./deadline";
 import { type BetaSite, originFor } from "./fleet";
 import {
   BETA_E2E_TEST_TRAFFIC_HEADERS,
@@ -232,6 +233,7 @@ async function readSessionIdentity(
 export async function bootstrapAppSession(
   browser: Browser,
   site: BetaSite,
+  onStep: SetupStep = () => {},
 ): Promise<SessionIdentity> {
   const origin = originFor(site);
   const email = expectedEmail();
@@ -252,6 +254,7 @@ export async function bootstrapAppSession(
 
   try {
     if (token) {
+      onStep("exchanging the session token");
       const page = await context.newPage();
       const exchangeSession = async () => {
         const response = await page.goto(
@@ -276,9 +279,11 @@ export async function bootstrapAppSession(
           await sleep(1_000 * attempt);
           promoted = await exchangeSession();
         }
-      } catch {
+      } catch (error) {
         await page.close();
-        throw new Error(`${origin} failed while exchanging the session token.`);
+        throw new Error(
+          `${origin} failed while exchanging the session token: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
       await page.close();
       if (promoted.status() >= 500) {
@@ -288,6 +293,7 @@ export async function bootstrapAppSession(
       }
     }
 
+    onStep("reading the session identity");
     let session = await readSessionIdentity(context, origin);
     for (
       let attempt = 1;

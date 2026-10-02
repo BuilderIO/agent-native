@@ -19,6 +19,10 @@ import {
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import {
+  RUN_NOT_STARTED_METADATA_KEY,
+  type RefusedTurnRetryContext,
+} from "../shared/agent-chat-run-not-started.js";
 import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
 import { stringifyToolUseInputForGateway } from "./engine/translate-anthropic.js";
 import type { EngineContentPart, EngineMessage } from "./engine/types.js";
@@ -566,12 +570,19 @@ interface MessageIdentityKeySet {
   fingerprint: string[];
 }
 
-function messageIdentityKeySet(message: any): MessageIdentityKeySet {
+function messageIdentityKeySet(
+  message: any,
+  eventRunIds?: Map<string, string>,
+): MessageIdentityKeySet {
   const strong: string[] = [];
   if (typeof message?.id === "string" && message.id) {
     strong.push(`id:${message.id}`);
   }
-  const runId = getMessageRunId(message);
+  const runId =
+    getMessageRunId(message) ??
+    (typeof message?.id === "string"
+      ? eventRunIds?.get(message.id)
+      : undefined);
   if (runId) strong.push(`run:${runId}`);
   const turnId = turnIdOf(message);
   if (turnId) strong.push(`turn:${turnId}`);
@@ -1378,6 +1389,76 @@ export function claimQueuedMessage(repo: any, messageId: string): any {
   return pruneClaimedQueuedMessages(normalized);
 }
 
+export function applySubmittedUserMessage(
+  repo: any,
+  userMessage: UserMessage,
+  queuedMessage?: { id: string; claimId?: string; now?: number },
+):
+  | { status: "submitted" | "already_submitted"; repo: any }
+  | { status: "already_claimed" | "claim_expired" } {
+  if (!queuedMessage) {
+    return { status: "submitted", repo: upsertUserMessage(repo, userMessage) };
+  }
+
+  const userCustom = userMessage.metadata.custom as
+    | Record<string, unknown>
+    | undefined;
+  const wasSubmitted = Array.isArray(repo?.messages)
+    ? repo.messages.some((entry: unknown) => {
+        const outer = entry as Record<string, unknown> | null;
+        const message = outer?.message ?? outer;
+        if (!message || typeof message !== "object") return false;
+        const metadata = (message as Record<string, unknown>).metadata;
+        if (!metadata || typeof metadata !== "object") return false;
+        const custom = (metadata as Record<string, unknown>).custom;
+        return (
+          custom !== null &&
+          typeof custom === "object" &&
+          (custom as Record<string, unknown>).agentNativeQueuedMessageId ===
+            queuedMessage.id &&
+          (custom as Record<string, unknown>).submittedRunId ===
+            userCustom?.submittedRunId
+        );
+      })
+    : false;
+  if (wasSubmitted) {
+    return {
+      status: "already_submitted",
+      repo: claimQueuedMessage(repo, queuedMessage.id),
+    };
+  }
+  if (hasClaimedQueuedMessage(repo, queuedMessage.id)) {
+    return { status: "already_claimed" };
+  }
+
+  const queued = Array.isArray(repo?.queuedMessages)
+    ? repo.queuedMessages.find(
+        (message: unknown) =>
+          message &&
+          typeof message === "object" &&
+          (message as Record<string, unknown>).id === queuedMessage.id,
+      )
+    : undefined;
+  const claim = queued?.promotionClaim;
+  if (
+    !queued ||
+    typeof queuedMessage.claimId !== "string" ||
+    claim?.id !== queuedMessage.claimId ||
+    typeof claim.expiresAt !== "number" ||
+    claim.expiresAt <= (queuedMessage.now ?? Date.now())
+  ) {
+    return { status: "claim_expired" };
+  }
+
+  return {
+    status: "submitted",
+    repo: upsertUserMessage(
+      claimQueuedMessage(repo, queuedMessage.id),
+      userMessage,
+    ),
+  };
+}
+
 function snapshotEntryId(entry: any, kind: "message" | "toolCall" | "widget") {
   if (!entry || typeof entry !== "object") return undefined;
   if (kind === "widget") {
@@ -1779,20 +1860,20 @@ export function mergeThreadDataForClientSave(
     typeof existingNormalized === "object"
   ) {
     for (const [key, value] of Object.entries(existingNormalized)) {
-      if (key === "messages" || key === "headId") continue;
-      if (key === "queuedMessages" && !preserveExistingQueuedMessages) {
+      if (key === "messages" || key === "headId" || key === "queuedMessages") {
         continue;
       }
       if (!(key in merged)) {
         merged[key] = value;
       }
     }
-  } else if (
+  }
+  // Queue mutations are the only writer of the queue and opt out here. Any
+  // other save carries a queue it read earlier, and letting that copy win drops
+  // a promotion claim or an append that landed in between.
+  if (
     preserveExistingQueuedMessages &&
-    existingNormalized &&
-    typeof existingNormalized === "object" &&
-    existingNormalized.queuedMessages !== undefined &&
-    merged.queuedMessages === undefined
+    existingNormalized?.queuedMessages !== undefined
   ) {
     merged.queuedMessages = existingNormalized.queuedMessages;
   }
@@ -1814,12 +1895,38 @@ export function mergeThreadDataForClientSave(
     return pruneClaimedQueuedMessages(merged);
   }
 
+  // The chat UI saves its replies under AgentKit ids with no runId; only the
+  // AgentKit events tie them to the run the server folded under its own id.
+  const eventRunIds = snapshotMessageRunIds(merged.agentKit);
   const incomingKeySets: MessageIdentityKeySet[] = incomingMessages.map(
-    (entry: unknown) => messageIdentityKeySet(getStoredMessage(entry)),
+    (entry: unknown) =>
+      messageIdentityKeySet(getStoredMessage(entry), eventRunIds),
   );
   const usedIncoming = new Set<number>();
   const nextMessages: any[] = [];
   const idRewrites = new Map<string, string>();
+
+  // A message that keeps its own id owns the incoming copy with that id; a
+  // run or turn match is weaker and must not take it from the message itself.
+  const incomingByOwnId = new Map<number, number>();
+  existingMessages.forEach((entry: unknown, existingIndex: number) => {
+    const existingMessage = getStoredMessage(entry);
+    const id = messageId(existingMessage);
+    if (
+      !id ||
+      (existingMessage?.role === "assistant" &&
+        messageContentIsEmpty(existingMessage.content))
+    ) {
+      return;
+    }
+    const incomingIndex = incomingKeySets.findIndex(
+      (keys, index) =>
+        !usedIncoming.has(index) && keys.strong.includes(`id:${id}`),
+    );
+    if (incomingIndex === -1) return;
+    usedIncoming.add(incomingIndex);
+    incomingByOwnId.set(existingIndex, incomingIndex);
+  });
 
   for (
     let existingIndex = 0;
@@ -1835,13 +1942,15 @@ export function mergeThreadDataForClientSave(
       continue;
     }
 
-    const existingKeys = messageIdentityKeySet(existingMessage);
-    const incomingIndex = findRankedIdentityMatch(
-      existingKeys,
-      incomingKeySets,
-      usedIncoming,
-      existingIndex,
-    );
+    const existingKeys = messageIdentityKeySet(existingMessage, eventRunIds);
+    const incomingIndex =
+      incomingByOwnId.get(existingIndex) ??
+      findRankedIdentityMatch(
+        existingKeys,
+        incomingKeySets,
+        usedIncoming,
+        existingIndex,
+      );
 
     if (incomingIndex === -1) {
       nextMessages.push(existingEntry);
@@ -1871,7 +1980,33 @@ export function mergeThreadDataForClientSave(
     nextMessages.push(incomingMessages[index]);
   }
 
-  merged.messages = nextMessages.map((entry) =>
+  // One reply per run: the server's folded reply carries the run in its
+  // metadata, and the chat UI's own copy of it (saved under an AgentKit id,
+  // tied to the run only by events) is dropped wherever both ended up stored.
+  const serverReplyRuns = new Set<string>();
+  for (const entry of nextMessages) {
+    const message = getStoredMessage(entry);
+    const runId =
+      message?.role === "assistant" ? getMessageRunId(message) : null;
+    if (runId) serverReplyRuns.add(runId);
+  }
+  const keptMessages = nextMessages.filter((entry) => {
+    const message = getStoredMessage(entry);
+    if (message?.role !== "assistant" || getMessageRunId(message)) return true;
+    const runId =
+      typeof message.id === "string" ? eventRunIds.get(message.id) : undefined;
+    if (!runId || !serverReplyRuns.has(runId)) return true;
+    const kept = nextMessages.find((candidate) => {
+      const other = getStoredMessage(candidate);
+      return other?.role === "assistant" && getMessageRunId(other) === runId;
+    });
+    const keptId = messageId(getStoredMessage(kept));
+    const droppedId = messageId(message);
+    if (keptId && droppedId) idRewrites.set(droppedId, keptId);
+    return false;
+  });
+
+  merged.messages = keptMessages.map((entry) =>
     rewriteEntryParentId(entry, idRewrites),
   );
   const normalizedMerged = normalizeThreadRepository(
@@ -2026,8 +2161,11 @@ export function buildUserMessage(opts: {
   attachments?: AgentChatAttachment[];
   runId?: string;
   turnId?: string;
+  agentKitMessageId?: string;
   queuedMessageId?: string;
   createdAt?: Date;
+  /** The turn was refused before a run started; its retry reads this back. */
+  refusedRetry?: RefusedTurnRetryContext;
 }): {
   id: string;
   createdAt: Date;
@@ -2044,12 +2182,17 @@ export function buildUserMessage(opts: {
     content: [{ type: "text", text: opts.text }],
     ...(attachments.length > 0 ? { attachments } : {}),
     metadata: {
+      ...opts.refusedRetry,
       custom: {
         submittedRunId: opts.runId,
         ...(opts.turnId ? { submittedTurnId: opts.turnId } : {}),
+        ...(opts.agentKitMessageId
+          ? { agentKitMessageId: opts.agentKitMessageId }
+          : {}),
         ...(opts.queuedMessageId
           ? { agentNativeQueuedMessageId: opts.queuedMessageId }
           : {}),
+        ...(opts.refusedRetry ? { [RUN_NOT_STARTED_METADATA_KEY]: true } : {}),
       },
     },
   };
@@ -2466,6 +2609,84 @@ export function foldAssistantTurn(
   nextRepo.messages[lastIndex] = { ...lastEntry, message: mergedMessage };
   nextRepo.headId = mergedMessage.id ?? nextRepo.headId;
   return nextRepo;
+}
+
+/**
+ * A turn the server refused before any run started (no usable model
+ * credential, AI setup missing) still answers in the thread: a typed
+ * assistant error in the durable history and a failed AgentKit run, keyed by
+ * the turn id the client already uses as the run id, so the transcript shows
+ * the failure card with a retry instead of an unanswered prompt.
+ */
+export function foldUnstartedTurnFailure(
+  repo: any,
+  failure: {
+    runId: string;
+    threadId: string;
+    turnId?: string;
+    code: string;
+    message: string;
+    at?: Date;
+  },
+): any {
+  const assistant = buildAssistantMessage(
+    [
+      {
+        seq: 0,
+        event: {
+          type: "error",
+          error: failure.message,
+          errorCode: failure.code,
+        },
+      },
+    ],
+    failure.runId,
+    failure.turnId ? { turnId: failure.turnId } : {},
+  );
+  if (assistant) {
+    assistant.metadata.custom = {
+      ...(assistant.metadata.custom as Record<string, unknown> | undefined),
+      [RUN_NOT_STARTED_METADATA_KEY]: true,
+    };
+  }
+  const folded = assistant
+    ? foldAssistantTurn(repo, assistant, {
+        runId: failure.runId,
+        turnId: failure.turnId,
+      })
+    : normalizeThreadRepository(repo);
+  const at = (failure.at ?? new Date()).toISOString();
+  const previous = folded.agentKit ?? {};
+  const runs: AgentRunSnapshot[] = Array.isArray(previous.runs)
+    ? previous.runs.filter(
+        (run: AgentRunSnapshot | null) => run?.id !== failure.runId,
+      )
+    : [];
+  return {
+    ...folded,
+    agentKit: {
+      ...previous,
+      runs: [
+        ...runs,
+        {
+          id: failure.runId,
+          threadId: failure.threadId,
+          status: "failed",
+          lastSequence: 0,
+          startedAt: at,
+          completedAt: at,
+          error: {
+            code: failure.code,
+            message: failure.message,
+            retryable: false,
+          },
+        } satisfies AgentRunSnapshot,
+      ],
+      activeRunIds: Array.isArray(previous.activeRunIds)
+        ? previous.activeRunIds.filter((id: string) => id !== failure.runId)
+        : [],
+    },
+  };
 }
 
 export function normalizeThreadTitle(value: unknown): string {

@@ -9,6 +9,7 @@ import { z } from "zod";
 import { defineAction } from "../action.js";
 import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 import { createMCPServerForRequest } from "./build-server.js";
+import * as mcpBuildServer from "./build-server.js";
 import { MCP_DIRECTORY_ROUTE_PREFIX } from "./route-paths.js";
 
 const builtinToolMocks = vi.hoisted(() => ({
@@ -745,6 +746,208 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
     expect(directoryInitialize.result.instructions).not.toMatch(
       /view-screen|ask_app|tool-search|WebMCP/i,
+    );
+  });
+
+  it("returns a typed 503 for broken directory annotations while regular MCP works", async () => {
+    process.env.AGENT_NATIVE_MCP_DEV_OPEN = "1";
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.ACCESS_TOKENS;
+    delete process.env.A2A_SECRET;
+    delete process.env.BETTER_AUTH_SECRET;
+
+    const directoryAction = defineAction({
+      description: "A production directory action.",
+      parameters: {},
+      run: async () => ({ ok: true }),
+    });
+    const directoryConfig = {
+      ...config,
+      actions: {
+        "echo-thing": config.actions["echo-thing"]!,
+        "directory-only": directoryAction,
+      },
+      productionActions: {
+        ...config.actions,
+        "directory-only": directoryAction,
+      },
+      directoryProfile: { connectorCatalog: ["directory-only"] },
+    };
+    const logError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const directoryEvent = makeWebEvent({
+      path: "/",
+      ip: "127.0.0.1",
+      body: { jsonrpc: "2.0", id: 143, method: "tools/list", params: {} },
+      headers: {
+        authorization: "",
+        host: "localhost:8100",
+        "x-forwarded-proto": "https",
+      },
+    });
+    const directoryResult = await handleMcpRequest(
+      directoryEvent,
+      directoryConfig as any,
+      MCP_DIRECTORY_ROUTE_PREFIX,
+    );
+
+    expect(directoryEvent._status).toBe(503);
+    expect(directoryEvent._responseHeaders?.["cache-control"]).toBe("no-store");
+    expect(directoryResult).toEqual({
+      error: "MCP_DIRECTORY_PROFILE_INVALID",
+      message:
+        "The MCP directory is unavailable because its profile or widget origin is invalid.",
+    });
+    expect(logError).toHaveBeenCalledWith(
+      "[mcp] MCP directory profile validation failed:",
+      expect.any(Error),
+    );
+
+    const retryEvent = makeWebEvent({
+      path: "/",
+      ip: "127.0.0.1",
+      body: { jsonrpc: "2.0", id: 144, method: "tools/list", params: {} },
+      headers: {
+        authorization: "",
+        host: "localhost:8100",
+        "x-forwarded-proto": "http",
+      },
+    });
+    await handleMcpRequest(
+      retryEvent,
+      directoryConfig as any,
+      MCP_DIRECTORY_ROUTE_PREFIX,
+    );
+    expect(logError).toHaveBeenCalledTimes(1);
+    logError.mockRestore();
+
+    delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
+    process.env.ACCESS_TOKEN = "test-access-token";
+    const { client } = await createModernClient(directoryConfig);
+    try {
+      const listed = await client.listTools();
+      expect(listed.tools.map((tool) => tool.name)).toContain("echo-thing");
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("keeps dev-open directory requests sparse with a configured owner", async () => {
+    process.env.AGENT_NATIVE_MCP_DEV_OPEN = "1";
+    process.env.AGENT_NATIVE_OWNER_EMAIL = "owner@example.com";
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.ACCESS_TOKENS;
+    delete process.env.A2A_SECRET;
+    delete process.env.BETTER_AUTH_SECRET;
+
+    const productionOnlyAction = defineAction({
+      description: "A production-only directory action.",
+      parameters: {},
+      readOnly: true,
+      mcpAnnotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      run: async () => ({ ok: true }),
+    });
+    const directoryConfig = {
+      ...config,
+      actions: { "echo-thing": config.actions["echo-thing"]! },
+      productionActions: {
+        ...config.actions,
+        "production-only": productionOnlyAction,
+      },
+      directoryProfile: { connectorCatalog: ["production-only"] },
+    };
+    const logError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const event = makeWebEvent({
+      path: "/",
+      ip: "127.0.0.1",
+      body: { jsonrpc: "2.0", id: 145, method: "tools/list", params: {} },
+      headers: {
+        authorization: "",
+        host: "localhost:8100",
+        "x-forwarded-proto": "https",
+      },
+    });
+
+    const result = await handleMcpRequest(
+      event,
+      directoryConfig as any,
+      MCP_DIRECTORY_ROUTE_PREFIX,
+    );
+
+    expect(event._status).toBe(503);
+    expect(result).toMatchObject({ error: "MCP_DIRECTORY_PROFILE_INVALID" });
+    expect(logError).toHaveBeenCalledWith(
+      "[mcp] MCP directory profile validation failed:",
+      expect.any(Error),
+    );
+    logError.mockRestore();
+  });
+
+  it("passes catalog mode to MCP App CSP and HTML builders", async () => {
+    const cspContexts: any[] = [];
+    const htmlContexts: any[] = [];
+    const directoryAction = defineAction({
+      description: "Render a directory widget.",
+      parameters: {},
+      readOnly: true,
+      mcpAnnotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
+      mcpApp: {
+        resource: {
+          uri: "ui://mail/directory-context/shell-v65",
+          title: "Directory widget",
+          html: (context) => {
+            htmlContexts.push(context);
+            return `<!doctype html><html><body>${context.catalogMode}</body></html>`;
+          },
+          csp: (context) => {
+            cspContexts.push(context);
+            return { connectDomains: ["https://mail.agent-native.com"] };
+          },
+        },
+      },
+      run: async () => ({ ok: true }),
+    });
+    const directoryConfig = {
+      ...config,
+      catalogMode: "directory" as const,
+      directoryProfile: { connectorCatalog: ["directory-context"] },
+      actions: { "directory-context": directoryAction },
+      productionActions: { "directory-context": directoryAction },
+    };
+    const headers = await mcpAppsAuthHeaders({
+      resource: `https://mail.agent-native.com${MCP_DIRECTORY_ROUTE_PREFIX}`,
+    });
+    const read = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 144,
+        method: "resources/read",
+        params: { uri: "ui://mail/directory-context/shell-v65" },
+      },
+      {
+        headers,
+        config: directoryConfig,
+        routePath: MCP_DIRECTORY_ROUTE_PREFIX,
+      },
+    );
+
+    expect(read.result.contents[0].text).toContain("directory");
+    expect(cspContexts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ catalogMode: "directory" }),
+      ]),
+    );
+    expect(htmlContexts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ catalogMode: "directory" }),
+      ]),
     );
   });
 

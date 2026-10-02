@@ -181,9 +181,14 @@ describe("extension content patching", () => {
     vi.doMock("prettier/standalone", () => {
       throw missingPeer;
     });
+    // A mock only applies to modules evaluated after it, and the statically
+    // imported copy above may already hold a loaded Prettier.
+    vi.resetModules();
+    const { applyExtensionContentUpdate: applyWithoutPrettier } =
+      await import("./content-patch.js");
 
     await expect(
-      applyExtensionContentUpdate("<p>unformatted</p>", { format: true }),
+      applyWithoutPrettier("<p>unformatted</p>", { format: true }),
     ).rejects.toMatchObject({
       code: "ERR_AGENT_NATIVE_OPTIONAL_PEER",
       name: "OptionalPeerDependencyError",

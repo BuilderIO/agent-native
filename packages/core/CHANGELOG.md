@@ -51,6 +51,80 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.200.0
+
+### Minor Changes
+
+- 53f0c01: Default direct Anthropic and OpenRouter connections to Claude Sonnet 5.5, align the Builder model picker with the current gateway catalog, and refresh model labels.
+- 47c52cf: Add `registerObservabilityProvider()` to `@agent-native/core/server` so a host can hand core its OpenTelemetry tracer and meter providers. Core now records the unsampled `http.server.request.duration` histogram, measured at the response boundary, and the `agent_native.telemetry.flush_failures` counter, and force-flushes registered providers on the response hook with a 2-second cap so serverless exports are not lost; each provider's flush is awaited and counted on its own. `isServerlessRuntime()` is now exported from `@agent-native/core/server`. Scaffolded apps no longer carry a first-party template's workspace-only OpenTelemetry wiring.
+- ba09465: Pass app client compatibility versions through to action routes and support an explicit cache-busted retry after a stale-client reload is canceled.
+
+### Patch Changes
+
+- 1f6a79d: An app action that shares a name with a code-execution tool, such as `list-data-programs`, now keeps that name. Previously the framework's version replaced it on every agent and MCP surface, which dropped the app's `mcpTool` exposure.
+- 01131c3: Keep first-turn chat persistence reliable, record typed run failures, and expose chat readiness and signup attribution in analytics.
+- 563e22a: Creating a Builder.io account from "Create and activate" or "Create Builder.io account" is now one `POST /_agent-native/builder/provision` request with no popup window, so popup blockers no longer stop it; only connecting an existing account opens Builder's sign-in window, and composer runtimes without the consent popover never create an account.
+- 4f52c40: Builder.io asset uploads (signed URL, small-file, and upload-complete requests) now refresh the OAuth access token and retry once when refused with 401, instead of failing on a token that was revoked or rotated before its stated expiry. The retry only happens when the refresh produced a different token. `resolveOAuthCredentialAccess` gains a `forceRefresh` option that refreshes even a token with no stated expiry, and `resolveBuilderApiAuthorization`, `resolveBuilderRequestAuthorization`, `getBuilderOAuthSession`, and `getMcpOAuthAccessToken` pass it through.
+- 10aa0e1: Add a core search index that apps opt into with `registerSearchableResource`, fed by a general resource change feed that captures every write with database triggers. Search answers from the index only when it is current and never polls, so it never wakes a sleeping database. A term too long for the index throws `SearchTermTooLongError`, which apps answer with their previous search. The query parser moves to `@agent-native/core/search-query`.
+- 5c41297: Preserve verified request identity when recording completed agent runs.
+- 891062d: Label `agent_native.telemetry.flush_failures` with `agent_native.telemetry.signal` (`metrics` or `traces`) so a timed-out or failed flush can be attributed to the export that caused it.
+- da846cf: Keep the JWKS endpoint publishing the live signing key once an app's `jwks` table holds more than 100 rows, and stop minting a new key on every signature in that state.
+- 1323e3a: Store the default template's `.env.example` and `_gitignore`, and the package's `.npmignore`, with LF line endings like the rest of the repo. No content change.
+- 24f73c2: Keep Vite hot updates authenticated when a live Design frame has an opaque origin.
+- Release all public npm packages with a patch version bump.
+- 1f6a79d: Let apps limit `listVisibleMcpTools` and `callMcpTool` to servers whose URL belongs to a named provider, so a server that reuses another provider's tool names cannot receive its calls.
+- 5113a23: Make follow-up queueing reliable, preserve each prompt's run options, and keep internal context out of user-visible text.
+- 9a09590: Keep useful agent activity labels visible while a run is active.
+- 8aae00f: Keep CLI commands running when the platform browser opener is unavailable.
+- 2254122: Scope workspace navigation per app and preserve agent status lookup failures.
+- 73c2373: A prompt refused for missing AI setup now keeps what its retry needs (references, model, engine, effort, request mode) and a refusal marker in the thread, so the setup card finds it after a reload; the server lets only one tab send the after-setup resend of a refused run. The composer's `onBeforeSubmit` receives the draft it is holding and the handle gains `getDraftSnapshot()`, so a host resumes only a draft that was not edited while connecting. An unreadable provider 403 during a key check is retryable instead of a rejected key, and a misconfigured Builder host is no longer reported as a credit-service outage.
+- 73c2373: A refused prompt's refusal marker and retry context now survive a client thread save and reload, and the references stored with it are validated against the composer's bounded reference shape. The after-setup resend claim is released when the thread's run slot is busy and swept with a compare-and-delete, provider 408 and 425 answers during a key check are retryable, and the composer's draft snapshot tells apart a replaced attachment that has the same name and compares every field of each reference, so a held-back draft is resumed only when nothing it would submit changed.
+- 73c2373: Answer chat turns the server refuses before a run starts (AI setup missing, no usable model credential) in the thread itself: the prompt and a typed failed run are persisted server-side, the chat shows the connect card with a retry, and the refused prompt is sent again once after Builder or a provider key is connected. Run lifecycle analytics now carry the canonical user id from the request context and count refused turns as `run_no_reply`.
+- da846cf: Complete a chat reply that continued across several runs when the page was reloaded before the last continuation finished, instead of showing only the first half.
+- 73c2373: `onAgentRunComplete` now receives `{ turnContinues }` so an observer can tell a finished turn from a run that handed off to a continuation run. The retry marker on a recovery message now survives a reload, so a refused prompt is sent again only once across cards, tabs, and reloads, and only AI-setup refusal cards are hidden once a later run starts.
+- a2d1e33: Redact SQL bind parameters from error telemetry and server logs.
+- 393d119: Mark tracked browser analytics events on session replay timelines. Each marker records only the event name; telemetry events such as page views and action responses stay unmarked.
+- 4bee69d: Explain oversized agent chat requests and improve actionable failure recovery feedback.
+- 29a6eef: Restore chat runs and return typed run-slot conflicts after a thread reload.
+- 73c2373: Report Builder credit-service outages and unverifiable provider key checks as typed, retryable failures instead of generic 500s and "rejected key" 400s, and accept OpenAI project keys restricted from listing models.
+- 73c2373: Persist first-touch utm_source, utm_medium, utm_campaign, utm_term, gclid, msclkid, vector_source, and referring host on the Better Auth user row at signup (additive nullable columns), for every signup path that carries browser attribution.
+- Updated dependencies
+- Updated dependencies [5113a23]
+  - @agent-native/agentkit@0.200.0
+  - @agent-native/recap-cli@0.5.60
+
+## 0.199.0
+
+### Minor Changes
+
+- a80ad13: Add official Sign in with ChatGPT plan access for local open-source apps.
+- 9e1dbd1: Add a curated MCP directory profile with explicit tool annotations, widget origins, and the OpenAI domain challenge route.
+
+### Patch Changes
+
+- 917578c: Tag internal AgentKit startup activities with stable IDs so clients can hide them without matching display text.
+- 3f34a17: Keep active durable chat runs connected after repeated stream interruptions.
+- 2a52597: Show Builder credit balance and quota in the sidebar for workspace admins.
+- a77dfe9: Disable the remote MCP Apps bridge fallback for ChatGPT directory widgets, validate profiles against the request MCP action surface, keep dev-open requests on the sparse surface, resolve the configured owner through typed app config, and return a typed 503 for invalid profiles or widget origins.
+- a1e74f5: Gate ChatGPT plan access behind an opt-in lab and simplify account management.
+- a1e74f5: Count a connected ChatGPT plan as a model provider in Settings, offer its models as the default, and simplify the ChatGPT account row with a disconnect confirmation.
+- 628a01f: Fix local Claude Code runs failing at startup with "Cannot read properties of undefined (reading 'userEmail')" when loading workspace MCP servers.
+- 1ef02b8: Give local Claude Code runs the same workspace app MCP servers that Codex runs already receive, through a private `--mcp-config` file that is removed after the run. Both paths now reject MCP server IDs that normalize to the same key (for example `sales.prod` and `sales/prod`) instead of silently dropping one of them.
+- e00c9c1: Actions that throw `FeatureNotConfiguredError` now return its message with a 400 status and `errorCode: "feature_not_configured"` instead of a generic "Internal server error".
+- 44825d4: Preserve full structured results from read-only MCP tools in agent context.
+- ebface7: Harden the boundaries behind the most-reported breakage. A closed chat stream now asks the server for the run's real state before the UI shows an outcome, and a user message sent during an active run waits instead of erroring. Sign-in state is one shared fact with one navigator, so reloads no longer flash to sign-in. Credential state is one typed value, so the credits banner and chat errors agree and activation can no longer replace an organization's Builder connection. Attachments resolve through one typed reference. Background automations record their real failure cause and pause after repeated identical failures instead of re-failing every tick. Error capture classifies and aggregates floods, groups one error into one issue, and filters third-party noise at one boundary. Tool-call errors keep a redacted reason, and human-in-the-loop pauses are no longer counted as errors. Expected action failures are typed 4xx responses, action hooks back off and stop on terminal errors, and a guard rejects new bare `throw new Error(...)` in actions. The shared command menu opens from the focused agent composer.
+- Release all public npm packages with a patch version bump.
+- 00518ee: Expose request-scoped secret prefetching through the server API so apps can batch credential lookups.
+- d385f5a: Preserve the client asset directory when assembling a Netlify workspace app named `assets`.
+- e47f4a2: Protect hosted serverless schema guards when `NODE_ENV=test` is set.
+- d98fcf3: Validate raw MCP tool schemas with their declared or protocol-default JSON
+  Schema dialect.
+- 08d2811: Resolve the authenticated principal before building MCP configuration for Claude CLI runs, and reject inconsistent Builder credit quota totals.
+- 452757b: Normalize changing provider cooldown countdowns so repeated tool failures trigger the shared stop guard.
+- Updated dependencies
+  - @agent-native/agentkit@0.199.0
+  - @agent-native/recap-cli@0.5.59
+
 ## 0.198.8
 
 ### Patch Changes
@@ -3660,25 +3734,5 @@ delete(no approval)]` in one message, the human saw an approval card for the
 ### Patch Changes
 
 - d5ceae9: Preserve the beta environment opt-out when custom authentication pages are served.
-
-## 0.164.25
-
-### Patch Changes
-
-- 562194a: Stop sending `temperature` on model requests that carry Claude thinking. Effort
-  defaults to High on every reasoning-capable Claude model, so internal callers
-  that asked only for `temperature: 0` — the Observational Memory compactor, eval
-  judges, sentiment inference — always got a 400 ("`temperature` may only be set
-  to 1 when thinking is enabled or in adaptive mode"). The Anthropic, AI SDK, and
-  Builder gateway engines now drop the sampling parameters when thinking is on or
-  when the model family removed them, and Observational Memory compaction runs at
-  low effort so thinking cannot consume its whole output budget.
-
-## 0.164.24
-
-### Patch Changes
-
-- 14a3f87: Preserve the beta environment opt-out when custom authentication pages are served.
-- 14a3f87: Keep BYOA sign-in and liveness routes available while unrelated serverless bootstrap work is waiting on the database.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

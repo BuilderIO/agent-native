@@ -33,6 +33,7 @@ import {
   ANALYTICS_USER_PREFS_KEY,
   type AnalyticsUserPrefs,
 } from "../../shared/analytics-user-prefs";
+import { ANALYTICS_SESSIONS_TRIAGE_LAB } from "../../shared/labs";
 import { AnalyticsReviewArtifactPreview } from "../components/AnalyticsReviewArtifactPreview";
 import { AlertRulesSettingsCard } from "./settings/AlertRulesSettingsCard";
 import {
@@ -198,6 +199,11 @@ export default function Settings() {
         ...CREATIVE_CONTEXT_LIBRARY_LAB,
         displayName: t("creativeContext.share.title"),
         description: t("creativeContext.description"),
+      },
+      {
+        ...ANALYTICS_SESSIONS_TRIAGE_LAB,
+        displayName: t("sessions.labName"),
+        description: t("sessions.labDescription"),
       },
     ],
     [t],

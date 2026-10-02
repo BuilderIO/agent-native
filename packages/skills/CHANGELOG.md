@@ -1,5 +1,70 @@
 # @agent-native/skills
 
+## 0.3.22
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [1f6a79d]
+- Updated dependencies [01131c3]
+- Updated dependencies [563e22a]
+- Updated dependencies [4f52c40]
+- Updated dependencies [10aa0e1]
+- Updated dependencies [53f0c01]
+- Updated dependencies [5c41297]
+- Updated dependencies [891062d]
+- Updated dependencies [da846cf]
+- Updated dependencies [1323e3a]
+- Updated dependencies [24f73c2]
+- Updated dependencies
+- Updated dependencies [1f6a79d]
+- Updated dependencies [47c52cf]
+- Updated dependencies [5113a23]
+- Updated dependencies [9a09590]
+- Updated dependencies [8aae00f]
+- Updated dependencies [2254122]
+- Updated dependencies [73c2373]
+- Updated dependencies [73c2373]
+- Updated dependencies [73c2373]
+- Updated dependencies [da846cf]
+- Updated dependencies [73c2373]
+- Updated dependencies [a2d1e33]
+- Updated dependencies [393d119]
+- Updated dependencies [ba09465]
+- Updated dependencies [4bee69d]
+- Updated dependencies [29a6eef]
+- Updated dependencies [73c2373]
+- Updated dependencies [73c2373]
+  - @agent-native/core@0.200.0
+
+## 0.3.21
+
+### Patch Changes
+
+- ebface7: Harden the boundaries behind the most-reported breakage. A closed chat stream now asks the server for the run's real state before the UI shows an outcome, and a user message sent during an active run waits instead of erroring. Sign-in state is one shared fact with one navigator, so reloads no longer flash to sign-in. Credential state is one typed value, so the credits banner and chat errors agree and activation can no longer replace an organization's Builder connection. Attachments resolve through one typed reference. Background automations record their real failure cause and pause after repeated identical failures instead of re-failing every tick. Error capture classifies and aggregates floods, groups one error into one issue, and filters third-party noise at one boundary. Tool-call errors keep a redacted reason, and human-in-the-loop pauses are no longer counted as errors. Expected action failures are typed 4xx responses, action hooks back off and stop on terminal errors, and a guard rejects new bare `throw new Error(...)` in actions. The shared command menu opens from the focused agent composer.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [917578c]
+- Updated dependencies [3f34a17]
+- Updated dependencies [2a52597]
+- Updated dependencies [a77dfe9]
+- Updated dependencies [a1e74f5]
+- Updated dependencies [a80ad13]
+- Updated dependencies [a1e74f5]
+- Updated dependencies [9e1dbd1]
+- Updated dependencies [628a01f]
+- Updated dependencies [1ef02b8]
+- Updated dependencies [e00c9c1]
+- Updated dependencies [44825d4]
+- Updated dependencies [ebface7]
+- Updated dependencies
+- Updated dependencies [00518ee]
+- Updated dependencies [d385f5a]
+- Updated dependencies [e47f4a2]
+- Updated dependencies [d98fcf3]
+- Updated dependencies [08d2811]
+- Updated dependencies [452757b]
+  - @agent-native/core@0.199.0
+
 ## 0.3.20
 
 ### Patch Changes
@@ -1863,20 +1928,5 @@
 
 - Updated dependencies [d5ceae9]
   - @agent-native/core@0.164.26
-
-## 0.2.655
-
-### Patch Changes
-
-- Updated dependencies [562194a]
-  - @agent-native/core@0.164.25
-
-## 0.2.654
-
-### Patch Changes
-
-- Updated dependencies [14a3f87]
-- Updated dependencies [14a3f87]
-  - @agent-native/core@0.164.24
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

@@ -81,6 +81,7 @@ export default defineAction({
       getSingleNumericAnalysisResult(result) !== null,
   },
   readOnly: true,
+  mcpTool: false,
   http: false,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   grounding: true,

@@ -88,12 +88,18 @@ certified ones); label figures "Unverified" when no live query ran.
 - `list-session-recordings` filters scoped replays by date, app, duration,
   signals, visitor type, and email domain. Use `paginated: true` for sorted
   pages with a real total and app counts; the default returns an array.
+- With the Sessions triage Lab on, `didEvents` / `didNotEvents` filter by
+  tracked events. Get real names and session counts from
+  `list-session-event-names`, and event health from `list-event-catalog`. Both
+  read Analytics' own index, which covers sessions only from its coverage
+  start. Never query BigQuery for these views.
 
 ## Application State
 
 - `navigation` exposes the current dashboard, analysis, source, chart, and
   selection. `navigate` moves the user between supported Analytics surfaces,
-  `"sessions"`, `"monitoring"`, and `"agents"`. Use `view-screen` when the
+  `"sessions"`, `"event-catalog"`, `"monitoring"`, and `"agents"`. Use
+  `view-screen` when the
   active context is unclear.
 - Clicking a panel stages it as a chat context chip and writes `selected-object`
   with `type="dashboard-panel"`. Read `dashboard-management` for the

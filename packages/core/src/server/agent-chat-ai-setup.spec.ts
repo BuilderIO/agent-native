@@ -21,6 +21,7 @@ vi.mock("./credential-provider.js", () => ({
 import {
   AGENT_CHAT_AI_SETUP_REQUIRED_CODE,
   isAgentChatAiSetupReady,
+  isAgentChatAiSetupRequiredError,
   queuedMessagesNeedAgentChatAiSetup,
   requireAgentChatAiSetup,
 } from "./agent-chat-ai-setup.js";
@@ -44,6 +45,11 @@ describe("Agent-Native chat AI setup gate", () => {
       statusCode: 403,
       data: { code: AGENT_CHAT_AI_SETUP_REQUIRED_CODE },
     });
+    const refusal = await requireAgentChatAiSetup().catch(
+      (error: unknown) => error,
+    );
+    expect(isAgentChatAiSetupRequiredError(refusal)).toBe(true);
+    expect(isAgentChatAiSetupRequiredError(new Error("other"))).toBe(false);
   });
 
   it("accepts a usable Builder gateway or OAuth credential", async () => {
@@ -226,6 +232,13 @@ describe("Agent-Native chat AI setup gate", () => {
     expect(
       invokeBlock.indexOf("await requireAgentChatAiSetup();"),
     ).toBeLessThan(invokeBlock.indexOf("return handler(event);"));
+    // A refused turn is answered in its thread before the 403 is rethrown.
+    expect(
+      invokeBlock.indexOf("await recordSetupRequiredTurn(event, error);"),
+    ).toBeGreaterThan(invokeBlock.indexOf("await requireAgentChatAiSetup();"));
+    expect(
+      invokeBlock.indexOf("await recordSetupRequiredTurn(event, error);"),
+    ).toBeLessThan(invokeBlock.indexOf("throw error;"));
 
     const queueStart = plugin.indexOf("// POST /threads/:id/queued");
     const queueEnd = plugin.indexOf('isThreadSubroute("rename")', queueStart);

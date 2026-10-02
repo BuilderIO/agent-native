@@ -1,12 +1,9 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { fetchUploadStatus } from "./upload-request";
 
 export async function getRecordingUploadRecoveryEnabled(
   recordingId: string,
 ): Promise<boolean> {
-  const response = await fetch(
-    `${appBasePath()}/api/uploads/${encodeURIComponent(recordingId)}/status`,
-    { cache: "no-store", credentials: "include" },
-  );
+  const response = await fetchUploadStatus(recordingId);
   if (!response.ok) {
     throw new Error(`Could not check recording recovery (${response.status}).`);
   }

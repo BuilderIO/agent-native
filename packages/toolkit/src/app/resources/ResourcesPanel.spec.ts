@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act, createElement } from "react";
+import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -62,7 +62,16 @@ vi.mock("@agent-native/core/client/resources/use-builtin-capabilities", () => ({
   useBuiltinCapabilities: () => ({ data: undefined }),
   parseMcpBuiltinVirtualId: () => null,
 }));
-vi.mock("./ResourceTree.js", () => ({ ResourceTree: () => null }));
+vi.mock("./ResourceTree.js", async () => {
+  const React = await import("react");
+  return {
+    ResourceTree: ({ emptyStateAction }: { emptyStateAction?: ReactNode }) =>
+      React.createElement("div", null, emptyStateAction),
+  };
+});
+vi.mock("./McpIntegrationDialog.js", () => ({
+  McpIntegrationDialog: () => null,
+}));
 vi.mock("../chat/FileStorageSetupPopover.js", () => ({
   FileStorageSetupPopover: ({
     open,
@@ -465,13 +474,15 @@ describe("ResourcesPanel storage retries", () => {
       .IS_REACT_ACT_ENVIRONMENT;
   });
 
-  function renderPanel() {
+  function renderPanel(
+    resourceFilter: "instructions" | "agents" = "instructions",
+  ) {
     act(() =>
       root.render(
         createElement(ResourcesPanel, {
           scope: "personal",
           showOnlyRequestedScope: true,
-          resourceFilter: "instructions",
+          resourceFilter,
           showMcpServers: false,
         }),
       ),
@@ -748,6 +759,35 @@ describe("ResourcesPanel storage retries", () => {
     expect(
       (storageMocks.upload.mock.calls[0]?.[0].get("file") as File).name,
     ).toBe("current.png");
+  });
+
+  it("offers the gateway-compatible Sonnet model when creating custom agents", () => {
+    renderPanel("agents");
+    const addAgent = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Add agent"),
+    );
+    expect(addAgent).toBeDefined();
+    act(() => addAgent!.click());
+
+    const createAgent = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Create Custom Agent"),
+    );
+    expect(createAgent).toBeDefined();
+    act(() => createAgent!.click());
+
+    const fillForm = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Fill Form"),
+    );
+    expect(fillForm).toBeDefined();
+    act(() => fillForm!.click());
+
+    const modelPicker = document.querySelector("select")!;
+    expect(Array.from(modelPicker.options)).toContainEqual(
+      expect.objectContaining({
+        value: "claude-sonnet-5",
+        textContent: "Claude Sonnet 5",
+      }),
+    );
   });
 });
 

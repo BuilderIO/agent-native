@@ -691,6 +691,11 @@ export class McpClientManager {
     return [...(this.servers.get(serverId)?.tools ?? [])];
   }
 
+  /** The config the server's current tools were loaded from. */
+  getServerConfig(serverId: string): McpServerConfig | null {
+    return this.servers.get(serverId)?.config ?? null;
+  }
+
   hasServer(serverId: string): boolean {
     const entry = this.servers.get(serverId);
     return !!entry?.client && !entry.error;

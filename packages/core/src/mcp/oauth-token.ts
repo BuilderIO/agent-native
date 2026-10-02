@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import * as jose from "jose";
 
 import { getAuthSecret } from "../server/better-auth-instance.js";
+import { getMissingAuthSecretKey } from "../server/deploy-settings.js";
 import {
   MCP_OAUTH_ACCESS_TOKEN_TTL,
   MCP_OAUTH_ACCESS_TOKEN_TTL_SECONDS,
@@ -41,11 +42,13 @@ function signingSecret(): Uint8Array {
 function verifySecrets(): Uint8Array[] {
   const enc = new TextEncoder();
   const a2a = process.env.A2A_SECRET?.trim();
-  const auth = getAuthSecret();
-  if (a2a && a2a !== auth) {
-    return [enc.encode(a2a), enc.encode(auth)];
-  }
-  return [enc.encode(a2a || auth)];
+  // A deploy without an auth signing secret never issued a token signed with
+  // one, so a presented bearer token simply fails to verify (401). Reading the
+  // secret here would turn every MCP probe on such a deploy into a 500.
+  const auth = getMissingAuthSecretKey() === null ? getAuthSecret() : "";
+  return [...new Set([a2a, auth].filter((key): key is string => !!key))].map(
+    (key) => enc.encode(key),
+  );
 }
 
 export function normalizeOAuthScope(input: unknown): string | null {

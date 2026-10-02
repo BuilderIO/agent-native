@@ -3288,6 +3288,37 @@ describe("run manager soft timeout", () => {
     expect(output).not.toContain('"type":"done"');
   });
 
+  it("never reads a deferred handoff as done before its auto_continue is saved", async () => {
+    // The deferred handoff flips the chunk to truncated inside onComplete; the
+    // run manager saves its auto_continue only after onComplete returns.
+    vi.mocked(getRunById).mockResolvedValue({
+      id: "run-sql-deferred",
+      threadId: "thread-sql-deferred",
+      status: "truncated",
+      startedAt: Date.now(),
+      errorCode: null,
+      errorDetail: null,
+      terminalReason: "background_continuation_dispatch_deferred",
+    } as any);
+    vi.mocked(getRunEventsSince).mockResolvedValue([]);
+    vi.mocked(getLastTerminalRunEvent).mockResolvedValue(null);
+
+    const stream = subscribeToRun("run-sql-deferred", 0);
+    const reader = stream!.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+
+    for (let i = 0; i < 5; i++) {
+      const next = await reader.read();
+      if (next.done) break;
+      chunks.push(decoder.decode(next.value));
+    }
+
+    const output = chunks.join("");
+    expect(output).toContain('"type":"auto_continue"');
+    expect(output).not.toContain('"type":"done"');
+  });
+
   it("re-emits auto_continue instead of done for a completed chunk-boundary SQL run", async () => {
     vi.mocked(getRunById).mockResolvedValue({
       id: "run-sql-chunk",
@@ -3664,6 +3695,7 @@ describe("run manager soft timeout", () => {
       turnId: "run-recent-completed",
       status: "completed",
       heartbeatAt: expect.any(Number),
+      inFlight: false,
     });
     expect(getRunByThread).toHaveBeenCalledWith("thread-recent", {
       includeTerminal: true,
@@ -3777,6 +3809,7 @@ describe("run manager soft timeout", () => {
     expect(result).toMatchObject({
       runId: "run-recent-errored",
       status: "errored",
+      inFlight: false,
     });
   });
 
@@ -3808,6 +3841,7 @@ describe("run manager soft timeout", () => {
     expect(result).toMatchObject({
       runId: "run-mem-background",
       status: "running",
+      inFlight: true,
       dispatchMode: "background-processing",
       terminalReason: null,
       diagStage: '{"stage":"worker_started","at":1}',
@@ -3843,6 +3877,7 @@ describe("run manager soft timeout", () => {
     expect(result).toMatchObject({
       runId: "run-mem-terminal",
       status: "completed",
+      inFlight: false,
       dispatchMode: "background-processing",
       terminalReason: "done",
     });

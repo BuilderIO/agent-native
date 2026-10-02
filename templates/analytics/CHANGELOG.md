@@ -3,7 +3,27 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-02
+
+### Improved
+
+- Retention reports now compare returns from paid and untagged signups.
+
+## 2026-10-01
+
+### Improved
+
+- Clear all resets every Sessions filter in one click.
+- The first-party retention chart now splits 1-7d return into paid and untagged signups, and a Chat Readiness at Prompt panel shows whether AI was ready and how many prompts got no reply.
+- Error issues in Monitoring link straight to the chat thread that failed, and one underlying error now stays a single issue instead of splitting after each deploy
+- The observability settings tab is now labeled Observability.
+
 ## 2026-09-30
+
+### Added
+
+- External agents connected over MCP can read dashboards, saved analyses, the data dictionary, blog articles and provider data directly, without handing the question to the Analytics agent.
+- With the Sessions triage Lab on, filter sessions by events they did or didn't send, see app events and failed actions on replay timelines, and browse an event catalog.
 
 ### Improved
 

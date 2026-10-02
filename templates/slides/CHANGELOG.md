@@ -3,10 +3,50 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
-## 2026-09-30
+## 2026-10-02
+
+### Fixed
+
+- Heading text stays intact when Backspace joins it into a styled block.
+- Slide text editing now preserves formatting and caret placement across browsers.
+
+## 2026-10-01
 
 ### Improved
 
+- Recover failed deck saves with explicit retry or reload
+- The observability settings tab is now labeled Observability.
+
+### Fixed
+
+- A prompt you send before connecting AI is sent automatically once you connect, and a deck generation that ends without slides shows Try again instead of an empty canvas.
+- Blank speaker notes can be edited and saved without a conflict.
+- New deck prompts no longer add a default design system unless you choose one, and empty failed generations explain what happened.
+- Home prompt suggestions no longer fail when the model's answer runs long.
+- Images can be removed from chat without opening their preview
+- Markdown bullet shortcuts work after you press Enter.
+- Preserve concurrent slide metadata edits while saving
+- Selected slide text can be linked with the keyboard shortcut
+- New slide decks are persisted only after generation setup is ready.
+- Slide edits preserve unrelated changes when another editor updates the same field
+- Slides warns before refreshing a tab with unsaved edits
+- Undoing a conflicting slide edit preserves the latest update from another editor
+- When an attached file can't be read, Slides now says so instead of showing an internal error code.
+- Importing a PDF or other file from chat no longer fails with an invalid uploaded file error, and a failed import now offers a retry instead of showing page text
+- Shift-clicking images selects them together on a slide
+- Slides keeps sidebar navigation beside the single home toolbar and shows credit usage only near the limit.
+
+## 2026-09-30
+
+### Added
+
+- Connect ChatGPT to create and revise presentations in Slides.
+
+### Improved
+
+- Anchored comments stay visible on the slide, filters stay tucked away, and edits on separate slides recover from simultaneous saves.
+- Asking the agent to make a deck beautiful now applies a designer's eye for type, layout, and color while keeping your design system and reference deck in charge, and slides using the Fraunces font now display it instead of falling back to Georgia.
+- Comments stay attached to highlighted text, and collaborators can edit the same deck without losing changes.
 - Typing stays responsive while slides fit longer text.
 - Add references through compact dropdown menus and find decks with the centered home search.
 - Rich text editing preserves imported slide layouts.
@@ -15,6 +55,9 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Fixed list editing and slash commands on imported slide layouts.
+- New decks can be created in empty workspaces without a design system
+- The agent no longer adds decorative circles, dots, or rings to slides unless they carry meaning.
 - Empty Slides libraries show one clear next step without search and filter controls.
 - Slides retries honor deck links in edited prompts
 - Start presentation generation immediately after submitting a prompt.

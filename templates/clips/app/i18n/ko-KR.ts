@@ -2,6 +2,7 @@ const messages = {
   meetingAsk: { resizeOrDismissAnswers: "답변 영역 크기 조절 또는 닫기" },
   agentChat: {
     setup: {
+      connectBuilder: "Builder.io 연결",
       providerStatusUnavailable: "AI를 사용할 수 있는지 확인할 수 없습니다.",
     },
     common: { retry: "다시 시도" },
@@ -1214,7 +1215,7 @@ const messages = {
     discardRecording: "녹화 삭제",
     restart: "녹화 다시 시작",
     restartShortcut: "다시 시작 (⌥⇧R)",
-    restartQuestion: "새 녹화를 시작할까요?",
+    restartQuestion: "이 녹화를 삭제하고 다시 시작할까요?",
     restartConfirm: "다시 시작",
   },
   countdownOverlay: {
@@ -1451,15 +1452,11 @@ const messages = {
       "5분 동안 Builder 응답이 없습니다. 팝업을 확인하고 다시 시도하세요.",
     builderConnected: "Builder.io 연결됨",
     waitingForBuilder: "Builder 대기 중...",
-    connectBuilder: "Builder.io 사용",
+    description:
+      "녹화한 동영상을 Builder.io 또는 S3 호환 스토리지에 저장하세요. Builder.io에는 무료 호스팅과 AI 크레딧이 포함되어 있습니다.",
     createBuilderAccount: "Builder.io 계정 만들기",
     signInWithBuilderAccount: "Builder.io 계정으로 로그인",
-    builderConsentPrefix: "Builder.io 계정을 만들면 당사의",
-    builderTerms: "서비스 약관",
-    builderConsentAnd: "및",
-    builderPrivacy: "개인정보 처리방침",
     free: "무료",
-    configureS3: "S3 호환 스토리지 구성",
     whyPrompt: "왜 이 화면이 보이나요?",
     whyDescription:
       "Clips는 100% 무료 오픈 소스 앱이므로 클립을 저장할 방법을 연결해야 합니다. Builder.io로 무료 티어 스토리지와 AI를 사용하거나, S3 호환 객체 스토리지와 직접 보유한 LLM 키를 사용하세요.",
@@ -1797,10 +1794,60 @@ const messages = {
       "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 저장을 완료합니다.",
     connectStorageToRetryLoom:
       "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 가져오기를 다시 시도합니다.",
-    leaveConfirmTitle: "나가서 이 녹화를 삭제하시겠습니까?",
+    leaveConfirmTitle: "이 녹화에서 나갈까요?",
     leaveConfirmDescription:
-      "진행 중인 녹화가 아직 저장되지 않았습니다. 지금 이 페이지를 나가면 삭제됩니다.",
+      "이 녹화는 이 탭에만 있습니다. 먼저 사본을 다운로드하지 않으면 나갈 때 삭제됩니다.",
     leaveAndDiscard: "나가서 삭제",
+    recordingWithoutSound:
+      "소리 없이 녹화 중입니다. 대본을 받으려면 마이크를 켜세요.",
+    pendingStorageTitle: "녹화를 저장하려면 저장소를 연결하세요",
+    pendingStorageDescription: "스토리지를 연결하면 Clips가 바로 업로드합니다.",
+    storageConnectedUploading: "저장소가 연결되었습니다. 녹화를 업로드하는 중…",
+    downloadCopy: "사본 다운로드",
+    localRecordingOpenElsewhere:
+      "이 녹화는 아직 다른 Clips 탭에서 열려 있습니다.",
+    uploadWaitingForConnection:
+      "업로드가 일시 중지되었습니다. Clips가 자동으로 다시 시도합니다.",
+    uploadDidNotFinish: "업로드가 완료되지 않았습니다.",
+    unfinishedRecording: "업로드가 끝나지 않은 녹화가 있습니다",
+    finishUpload: "업로드 완료하기",
+    leaveKeepDescription:
+      "Clips가 이 브라우저에 보관하고, 다시 돌아오면 업로드를 마치도록 안내합니다. '나가서 삭제'를 선택하면 영구적으로 삭제됩니다.",
+    leaveAndKeep: "보관하고 나가기",
+    copySafeInBrowser: "녹화는 이 브라우저에 안전하게 보관되어 있습니다.",
+    copyOnlyInThisTab:
+      "이 녹화는 이 탭에만 있습니다. 탭을 열어 두거나 사본을 다운로드하세요.",
+    localCopyFull:
+      "이 브라우저의 저장 공간이 부족해 Clips가 안전 사본을 보관할 수 없습니다. 업로드가 끝날 때까지 이 탭을 열어 두거나 사본을 다운로드하세요.",
+    localCopyFailed:
+      "Clips가 이 브라우저에 안전 사본을 보관하지 못했습니다. 업로드가 끝날 때까지 이 탭을 열어 두거나 사본을 다운로드하세요.",
+    localCopyUnreadable: "이 브라우저에 있는 녹화 사본을 읽을 수 없습니다.",
+    recordingOwnedByAnotherAccount:
+      "이 녹화는 다른 계정의 것입니다. 업로드하려면 이 브라우저에서 해당 계정으로 로그인하세요.",
+    unclaimedRecording: "이 브라우저에 계정과 연결되지 않은 녹화가 있습니다",
+    reviewRecording: "검토",
+    claimRecordingPrompt:
+      "이 녹화는 아직 어떤 계정과도 연결되지 않았습니다. {{email}}에 업로드할까요?",
+    claimRecording: "내 계정에 업로드",
+    lowBrowserStorage:
+      "이 브라우저의 저장 공간이 부족해 긴 녹화는 안전 사본에 들어가지 않을 수 있습니다. 업로드가 끝날 때까지 이 탭을 열어 두세요.",
+    recordingEndMissing:
+      "이 녹화의 마지막 부분이 저장되지 않았습니다. Clips가 있는 만큼 업로드하고 사본을 보관합니다.",
+    uploadedPartialCopyKept:
+      "이 브라우저에 저장된 만큼 업로드했습니다. 끝부분이 빠졌을 수 있어 Clips가 사본을 여기에 보관했습니다.",
+    uploadUnverifiedCopyKept:
+      "Clips가 녹화 전체가 업로드되었는지 확인하지 못해 사본을 여기에 보관했습니다.",
+    copyKeptAfterUpload:
+      "이 녹화는 업로드되었지만 Clips가 완전한지 확인하지 못해 사본을 여기에 보관했습니다.",
+    localCopyLockUnavailable:
+      "다른 탭이 이 녹화를 사용하고 있지 않은지 Clips가 확인할 수 없어 여기서 업로드하거나 삭제하지 않습니다. 대신 사본을 다운로드하세요.",
+    uploadAgain: "다시 업로드",
+    keptCopyWaiting: "Clips가 이 브라우저에 녹화 사본을 보관하고 있습니다",
+    savedRecordingsUnreadable:
+      "Clips가 이 브라우저에 저장된 녹화를 읽지 못했습니다.",
+    remindTomorrow: "내일 다시 알림",
+    stillProcessingCopyKept:
+      "이 녹화는 아직 처리 중이므로 Clips가 사본을 여기에 보관했습니다. 기다리거나 다시 업로드하세요.",
   },
   importRoute: {
     pageTitle: "Loom 가져오기 — Clips",

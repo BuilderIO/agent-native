@@ -3,7 +3,6 @@ import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
-import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
 import {
   IconArrowLeft,
   IconArrowUpRight,
@@ -23,6 +22,7 @@ import { ActionQueryError } from "../../components/action-query-error";
 import { DispatchShell } from "../../components/dispatch-shell";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
+import { Skeleton } from "../../components/ui/skeleton";
 import { resolveServerCatchAllTarget } from "../../lib/catch-all-target";
 import {
   navigateToWorkspaceApp,
@@ -120,7 +120,22 @@ export default function WorkspaceAppCatchAllRoute() {
     (isLoading && !app) ||
     (app && app.status !== "pending" && href && !navigationFailed)
   ) {
-    return <DefaultSpinner />;
+    return (
+      <DispatchShell title={app?.name ?? ""} loading>
+        <div
+          className="max-w-2xl space-y-4 rounded-lg bg-card p-5"
+          aria-busy="true"
+        >
+          <Skeleton className="h-8 w-24" />
+          <div className="space-y-3">
+            <Skeleton className="h-5 w-2/3" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-4/5" />
+          </div>
+          <Skeleton className="h-9 w-28 rounded-md" />
+        </div>
+      </DispatchShell>
+    );
   }
 
   return (

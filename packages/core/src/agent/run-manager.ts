@@ -1889,7 +1889,7 @@ function subscribeInMemory(
                 phase: "memory-subscription-terminal",
                 runStatus: run.status,
               },
-              extra: { runId: run.runId, fromSeq },
+              extra: { runId: run.runId, threadId: run.threadId, fromSeq },
             },
           );
           try {
@@ -2156,7 +2156,9 @@ function subscribeFromSQL(
                 // the run's REAL terminal event, then the terminal_reason,
                 // before falling back to `done`. "completed" is still checked
                 // for chunk-boundary rows written before the truncated status
-                // existed, which linger for one retention window.
+                // existed, which linger for one retention window. A truncated
+                // row always hands its turn on, whatever its reason (a deferred
+                // handoff is truncated before its auto_continue is saved).
                 const existing = await getLastTerminalRunEvent(runId).catch(
                   () => null,
                 );
@@ -2164,7 +2166,9 @@ function subscribeFromSQL(
                   ? existing.event
                   : isContinuationTerminalReason(run.terminalReason)
                     ? { type: "auto_continue", reason: run.terminalReason }
-                    : { type: "done" };
+                    : run.status === "truncated"
+                      ? { type: "auto_continue", reason: "stream_ended" }
+                      : { type: "done" };
                 try {
                   controller.enqueue(
                     encoder.encode(
@@ -2319,6 +2323,13 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
   threadId: string;
   turnId: string;
   status: string;
+  /**
+   * The one answer to "is a run in flight on this thread". A terminal run is
+   * still returned inside `TERMINAL_RUN_RECONNECT_WINDOW_MS` so a reconnecting
+   * client can replay it, which is why `status` alone being present means
+   * nothing; `/runs/active` reports this as its `active` flag.
+   */
+  inFlight: boolean;
   heartbeatAt: number;
   lastProgressAt: number | null;
   dispatchMode?: string | null;
@@ -2358,6 +2369,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
           threadId: successor.threadId,
           turnId: successor.turnId ?? successor.id,
           status: successor.status,
+          inFlight: true,
           heartbeatAt: successor.heartbeatAt ?? successor.startedAt,
           lastProgressAt: successor.lastProgressAt,
           dispatchMode: successor.dispatchMode,
@@ -2383,6 +2395,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
       threadId: memRun.threadId,
       turnId: memRun.turnId,
       status,
+      inFlight: status === "running",
       heartbeatAt,
       lastProgressAt: sqlSnapshot?.lastProgressAt ?? null,
       dispatchMode: sqlSnapshot?.dispatchMode ?? null,
@@ -2448,6 +2461,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
         threadId: sqlRun.threadId,
         turnId: sqlRun.turnId ?? sqlRun.id,
         status: sqlRun.status,
+        inFlight: true,
         heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
         lastProgressAt: sqlRun.lastProgressAt,
         dispatchMode: sqlRun.dispatchMode,
@@ -2472,6 +2486,7 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
         threadId: sqlRun.threadId,
         turnId: sqlRun.turnId ?? sqlRun.id,
         status: legacyWireRunStatus(sqlRun.status),
+        inFlight: false,
         heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
         lastProgressAt: sqlRun.lastProgressAt,
         dispatchMode: sqlRun.dispatchMode,
@@ -2559,7 +2574,12 @@ export async function abortRunDurably(
         source: "agent-run-manager",
         phase: "abort-run",
       },
-      extra: { runId, reason, abortedInMemory },
+      extra: {
+        runId,
+        threadId: activeRuns.get(runId)?.threadId,
+        reason,
+        abortedInMemory,
+      },
     });
     console.error(
       "[run-manager] durable abort persistence failed:",
@@ -2603,4 +2623,4 @@ export async function abortTurnDurably(
   }
 }
 
-export { tryClaimRunSlot } from "./run-store.js";
+export { getSlotHoldingRunId, tryClaimRunSlot } from "./run-store.js";

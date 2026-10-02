@@ -1054,6 +1054,7 @@ const enUS = {
   creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     commandContent: "Content",
+    loadingContent: "Loading Content",
     commandSearchDocuments: "Search documents",
     searchSince: "Since {{date}}",
     searchModifiedSince: "Modified since {{date}}",
