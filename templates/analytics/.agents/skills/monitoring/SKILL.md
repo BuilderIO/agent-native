@@ -64,6 +64,11 @@ selection to the `monitoring` application-state key.
   (`captureException` / `captureMessage` / `addErrorBreadcrumb`),
   auto-enabled by `configureTracking` and transported through the first-party
   analytics ingest as a `$exception` event.
+- Test identities (QA/E2E accounts, `isTestIdentity`) keep their exceptions:
+  occurrences are flagged `testIdentity`, never count toward users affected,
+  and never alert. An issue only they have hit is `testIdentityOnly` and hidden
+  from `list-error-issues` unless `includeTestIdentities: true`; the new-issue
+  alert fires on its first real-user occurrence instead.
 - Deep link: `?view=errors&issue=<id>`. Issue detail includes recent
   frequency, parsed/raw stack traces, source code snippets when available,
   breadcrumbs, tags, occurrence history, and session replay links.

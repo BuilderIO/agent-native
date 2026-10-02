@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 
+import { resetAppConfigForTests } from "@agent-native/core/app-config";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { PGlite } = createRequire(
+  new URL("../../../../packages/core/package.json", import.meta.url),
+)("@electric-sql/pglite");
 
 const execute = vi.fn();
 const rollupMocks = vi.hoisted(() => ({
@@ -513,6 +519,50 @@ describe("recordAnalyticsEvents", () => {
     expect(exceptionMocks.recordFailure).toHaveBeenCalledWith(2, failure);
   });
 
+  it("keeps test identities out of analytics tables but routes their exceptions to error issues", async () => {
+    const result = await recordAnalyticsEvents("anpk_test", [
+      { event: "pageview", userId: "real@example.com" },
+      { event: "pageview", userId: "qa+autoz@builder.io" },
+      { event: "signup", properties: { user_email: "probe@agents.test" } },
+      { event: "$exception", properties: { error: "real", app: "analytics" } },
+      {
+        event: "$exception",
+        properties: { error: "qa", app: "analytics", test_identity: true },
+      },
+    ]);
+
+    expect(result).toMatchObject({ accepted: 2, suppressedTestIdentity: 3 });
+    expect(analyticsDbMocks.insertValues).toHaveBeenCalledWith([
+      expect.objectContaining({
+        eventName: "pageview",
+        userId: "real@example.com",
+      }),
+      expect.objectContaining({ eventName: "$exception" }),
+    ]);
+    expect(rollupMocks.upsert.mock.calls[0]?.[0]).toHaveLength(2);
+    const [, sources] = exceptionMocks.ingest.mock.calls[0]!;
+    expect(
+      sources.map((source: { derived: { testIdentity: boolean } }) => [
+        source.derived.testIdentity,
+      ]),
+    ).toEqual([[false], [true]]);
+  });
+
+  it("checks deployment-configured test identities a browser cannot know", async () => {
+    vi.stubEnv("AGENT_NATIVE_TEST_IDENTITY_EMAILS", "qa@corp.com");
+    resetAppConfigForTests();
+    try {
+      const result = await recordAnalyticsEvents("anpk_test", [
+        { event: "pageview", userId: "qa@corp.com" },
+        { event: "pageview", userId: "dev@corp.com" },
+      ]);
+      expect(result).toMatchObject({ accepted: 1, suppressedTestIdentity: 1 });
+    } finally {
+      vi.unstubAllEnvs();
+      resetAppConfigForTests();
+    }
+  });
+
   it("preserves SQL exception issues while warehouse delivery is pending", async () => {
     backendMocks.get.mockResolvedValueOnce({
       sink: "bigquery",
@@ -881,9 +931,91 @@ describe("scopedAnalyticsSql", () => {
     );
 
     expect(scoped.sql).toContain(
-      "FROM (SELECT * FROM analytics_user_days WHERE tenant_key = $1 AND event_date <= $2)",
+      "FROM (SELECT * FROM analytics_user_days WHERE tenant_key = $1 AND event_date <= $2 AND NOT (",
     );
     expect(scoped.args).toEqual(["user:alice@example.com", "2026-07-01"]);
+  });
+
+  it("excludes test identities from every source that carries an identity", async () => {
+    const client = await PGlite.create("memory://");
+    try {
+      await client.query(
+        "CREATE TABLE analytics_events (org_id text, owner_email text, event_date text, timestamp text, user_id text)",
+      );
+      await client.query(
+        "CREATE TABLE session_recordings (org_id text, owner_email text, started_at text, user_id text)",
+      );
+      for (const userId of [
+        "real@example.com",
+        null,
+        "qa+autoz@builder.io",
+        "bot@agents.test",
+      ]) {
+        await client.query(
+          "INSERT INTO analytics_events VALUES (NULL, 'alice@example.com', '2026-07-01', '2026-07-01T00:00:00Z', $1)",
+          [userId],
+        );
+        await client.query(
+          "INSERT INTO session_recordings VALUES (NULL, 'alice@example.com', '2026-07-01T00:00:00Z', $1)",
+          [userId],
+        );
+      }
+      const count = async (sql: string, includeTestIdentities?: boolean) => {
+        const scoped = scopedAnalyticsSql(
+          sql,
+          { userEmail: "alice@example.com", orgId: null },
+          "2026-07-01",
+          { includeTestIdentities },
+        );
+        const result = (await client.query(scoped.sql, scoped.args)) as {
+          rows: Array<{ n: number }>;
+        };
+        return Number(result.rows[0]!.n);
+      };
+
+      expect(await count("SELECT COUNT(*) AS n FROM analytics_events")).toBe(2);
+      expect(await count("SELECT COUNT(*) AS n FROM session_recordings")).toBe(
+        2,
+      );
+      expect(
+        await count("SELECT COUNT(*) AS n FROM analytics_events", true),
+      ).toBe(4);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("leaves identity-free daily rollups unfiltered and renders the filter for BigQuery", async () => {
+    const { renderFirstPartyAnalyticsBigQuerySql } = await vi.importActual<
+      typeof import("./first-party-analytics-backend.js")
+    >("./first-party-analytics-backend.js");
+    const rollups = scopedAnalyticsSql(
+      "SELECT SUM(event_count) AS events FROM analytics_event_daily_rollups",
+      { userEmail: "alice@example.com", orgId: null },
+      "2026-07-01",
+    );
+    expect(rollups.sql).not.toContain("NOT (");
+
+    const events = scopedAnalyticsSql(
+      "SELECT COUNT(*) AS n FROM analytics_events",
+      { userEmail: "alice@example.com", orgId: "org_123" },
+      "2026-07-01",
+    );
+    expect(events.sql.match(/AND NOT \(strpos\(/g)).toHaveLength(2);
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      events.sql,
+      events.args,
+      {
+        projectId: "builder-3b0a2",
+        datasetId: "analytics",
+        tableId: "first_party_analytics_events_raw",
+        fullyQualified:
+          "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      },
+    );
+    expect(rendered).toMatch(
+      /AND NOT \(strpos\(lower\(trim\(COALESCE\(user_id, ''\)\)\), '@'\) > 1 AND [^]*\)\) QUALIFY ROW_NUMBER\(\)/,
+    );
   });
 });
 

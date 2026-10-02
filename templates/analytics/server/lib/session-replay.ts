@@ -13,7 +13,11 @@ import {
   readPrivateBlob,
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
-import { recordChange, runWithRequestContext } from "@agent-native/core/server";
+import {
+  isTestIdentity,
+  recordChange,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import {
   accessFilter,
   resolveAccess,
@@ -1402,20 +1406,28 @@ function replayListSearchCondition(query: string | undefined) {
   );
 }
 
+export type SessionReplayIngestResult =
+  | { skipped: "test-identity"; acceptedChunks: 0 }
+  | {
+      recordingId: string;
+      sessionId: string;
+      acceptedChunks: number;
+      duplicateChunks: number;
+      chunkCount: number;
+      eventCount: number;
+      totalBytes: number;
+    };
+
 export async function recordSessionReplayChunks(
   input: ParsedSessionReplayIngest,
   context: SessionReplayIngestContext = {},
-): Promise<{
-  recordingId: string;
-  sessionId: string;
-  acceptedChunks: number;
-  duplicateChunks: number;
-  chunkCount: number;
-  eventCount: number;
-  totalBytes: number;
-}> {
+): Promise<SessionReplayIngestResult> {
   const key = await resolveReplayPublicKey(input.publicKey);
   await assertReplayKeyBudget(key, context);
+  // Test identities run every flow but never land in replay metrics.
+  if (isTestIdentity(input.userId)) {
+    return { skipped: "test-identity", acceptedChunks: 0 };
+  }
   const db = getDb() as any;
   const ingestedAt = replayTimestamp(context.now) ?? replayNowIso();
   const clampedInput = clampReplayIngestTiming(input, ingestedAt);

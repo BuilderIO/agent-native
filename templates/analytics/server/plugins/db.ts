@@ -1474,6 +1474,12 @@ ALTER TABLE analysis_revisions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
       ON CONFLICT (lease_id) DO NOTHING`,
       },
     },
+    {
+      version: 153,
+      name: "error-capture-test-identity-flags",
+      sql: `ALTER TABLE error_issues ADD COLUMN IF NOT EXISTS test_identity_only BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE error_events ADD COLUMN IF NOT EXISTS test_identity BOOLEAN NOT NULL DEFAULT false`,
+    },
   ],
   { table: "analytics_migrations" },
 );

@@ -1,3 +1,5 @@
+import { testIdentityEmailSql } from "@agent-native/core/shared";
+
 export type MetricWindow = "30d" | "90d" | "all";
 
 export const FIRST_PARTY_DASHBOARD_ID = "agent-native-templates-first-party";
@@ -1082,7 +1084,7 @@ const ONBOARDING_EVENTS_CTE = `WITH auth_identity_bridge AS (
 ), onboarding_events AS (
   SELECT * FROM scoped_onboarding_events
   WHERE ${FUNNEL_EMAIL_FILTER}
-    AND lower(coalesce(funnel_user_email, '')) NOT LIKE '%+autoz%'
+    AND NOT ${testIdentityEmailSql("funnel_user_email")}
 )`;
 const SIGNIFICANT_ACTION_FILTER = `((event_name IN ('action_completed', 'core_action_completed') AND COALESCE(properties::jsonb ->> 'success', 'true') = 'true') OR event_name = 'app.first_action' OR (event_name = 'action.response' AND COALESCE(properties::jsonb ->> 'success', '') = 'true' AND COALESCE(upper(properties::jsonb ->> 'method'), '') <> 'GET'))`;
 const ACTION_RESPONSE_WEIGHT_SQL = `CASE WHEN NULLIF(properties::jsonb ->> 'sample_weight', '') IS NOT NULL THEN (properties::jsonb ->> 'sample_weight')::numeric WHEN COALESCE(properties::jsonb ->> 'success', '') = 'true' AND COALESCE((properties::jsonb ->> 'duration_ms')::numeric, 1000) < 1000 AND COALESCE((properties::jsonb ->> 'status_code')::int, 200) < 400 AND NULLIF(properties::jsonb ->> 'framework_ready_wait_ms', '') IS NULL AND NULLIF(properties::jsonb ->> 'startup_db_operation_wall_ms', '') IS NULL THEN 10 ELSE 1 END`;
@@ -2229,7 +2231,7 @@ const ENTRIES: FirstPartyMetric[] = [
     config: {
       xKey: "step_id",
       description:
-        "Distinct people who viewed, completed, skipped, or had no recorded outcome for each first-run or checklist step. Completion and skip counts can overlap if a person retries; no outcome means neither event was recorded. This is per-step reach, not a sequential funnel. +autoz identities are excluded.",
+        "Distinct people who viewed, completed, skipped, or had no recorded outcome for each first-run or checklist step. Completion and skip counts can overlap if a person retries; no outcome means neither event was recorded. This is per-step reach, not a sequential funnel. Test identities are excluded.",
       columns: [
         { key: "step_index", label: "Order" },
         { key: "flow", label: "Flow" },
@@ -2256,7 +2258,7 @@ const ENTRIES: FirstPartyMetric[] = [
     buildSql: fixed(ONBOARDING_SETUP_CHOICE_SQL),
     config: {
       description:
-        "Choice-screen viewers, first selected setup path, repeat selections, and linked Builder connection outcomes. Rates use choice-screen viewers or resolved Builder outcomes as their denominator; started attempts with no outcome are unknown or abandoned, not assumed failures. Handoff failures are reported separately from Builder connection failures. A successful Builder outcome confirms credentials connected, not that a new external account was created. Account-exists is counted as a failed create-account attempt. +autoz identities are excluded.",
+        "Choice-screen viewers, first selected setup path, repeat selections, and linked Builder connection outcomes. Rates use choice-screen viewers or resolved Builder outcomes as their denominator; started attempts with no outcome are unknown or abandoned, not assumed failures. Handoff failures are reported separately from Builder connection failures. A successful Builder outcome confirms credentials connected, not that a new external account was created. Account-exists is counted as a failed create-account attempt. Test identities are excluded.",
       columns: [
         { key: "method_label", label: "Setup choice" },
         {

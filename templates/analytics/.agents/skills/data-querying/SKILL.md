@@ -28,6 +28,13 @@ production organization after the BigQuery cutover, these logical tables are
 served by partitioned BigQuery data and views; the source still does not require
 an end user's separate warehouse connection.
 
+First-party reads exclude test identities (QA/E2E accounts): ingest never
+stores their events or replays, and the read scope filters `user_id` (events,
+replays) and `user_key` (user-days). Pass `includeTestIdentities: true` to
+`query-agent-native-analytics` only to debug those accounts. Daily event
+rollups and BigQuery-source panels that query the raw warehouse table directly
+are clean from ingest onward but are not filtered at read time.
+
 Before a large or historical first-party query, call
 `get-first-party-analytics-health`. Keep Neon as the default while its status is
 `healthy` or `monitor`; a `recommend_bigquery` result means the app has observed

@@ -102,6 +102,7 @@ describe("Analytics MCP connector catalog", () => {
     );
     expect(parameterNames(queryAgentNativeAnalytics)).toEqual([
       "sql",
+      "includeTestIdentities",
       "showTable",
     ]);
     expect(parameterNames(listErrorIssues)).toEqual(
@@ -124,6 +125,7 @@ describe("Analytics MCP connector catalog", () => {
     expect(queryAgentNativeAnalytics.http).toBe(false);
     expect(parameterNames(queryAgentNativeAnalytics)).toEqual([
       "sql",
+      "includeTestIdentities",
       "showTable",
     ]);
     expect(ANALYTICS_CONNECTOR_CATALOG).not.toContain(
