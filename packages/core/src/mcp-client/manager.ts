@@ -416,10 +416,12 @@ export class McpClientManager {
     );
     let handshakeComplete = false;
     let callbackError: unknown;
+    let callbackErrorsAreHttp400 = true;
     const recordConnectionError: ErrorSink = (error) => {
       const message = formatMcpConnectError(error);
       entry.error = message;
       callbackError ??= error;
+      callbackErrorsAreHttp400 &&= httpStatusFromError(error) === 400;
       if (handshakeComplete) this.emitChange();
       if (this.debug) {
         console.warn(
@@ -439,7 +441,18 @@ export class McpClientManager {
         `MCP server ${entry.id} connect`,
         timeoutMs,
       );
-      if (callbackError) throw callbackError;
+      if (callbackError) {
+        // Auto-negotiation can report its rejected probe before fallback succeeds.
+        const negotiatedAfterProbe =
+          cfg.type === "http" &&
+          httpStatusFromError(callbackError) === 400 &&
+          callbackErrorsAreHttp400 &&
+          typeof client.getNegotiatedProtocolVersion === "function" &&
+          Boolean(client.getNegotiatedProtocolVersion());
+        if (!negotiatedAfterProbe) throw callbackError;
+        callbackError = undefined;
+        entry.error = undefined;
+      }
       const listed = await withConnectTimeout(
         Promise.resolve(client.listTools()),
         `MCP server ${entry.id} tools/list`,
