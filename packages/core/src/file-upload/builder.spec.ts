@@ -298,7 +298,10 @@ describe("builderFileUploadProvider", () => {
     );
   });
 
-  it("reports a second 401 instead of retrying forever", async () => {
+  it("reports a 401 after a real refresh instead of retrying forever", async () => {
+    resolveBuilderApiAuthorizationMock
+      .mockResolvedValueOnce("Bearer revoked-token")
+      .mockResolvedValueOnce("Bearer also-refused");
     fetchMock.mockResolvedValue(errorResponse(401, "Unauthorized"));
 
     await expect(
@@ -309,6 +312,45 @@ describe("builderFileUploadProvider", () => {
       ),
     ).rejects.toMatchObject({ status: 401 });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not resend the same token when the refresh could not change it", async () => {
+    fetchMock.mockResolvedValue(errorResponse(401, "Unauthorized"));
+
+    await expect(
+      builderFileUploadProvider.resumable!.startSession(
+        "rec.webm",
+        "video/webm",
+        1024,
+      ),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(resolveBuilderApiAuthorizationMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes and retries the small-file upload path on 401", async () => {
+    resolveBuilderApiAuthorizationMock
+      .mockResolvedValueOnce("Bearer revoked-token")
+      .mockResolvedValueOnce("Bearer fresh-token");
+    fetchMock
+      .mockResolvedValueOnce(errorResponse(401, "Unauthorized"))
+      .mockResolvedValueOnce(
+        jsonResponse({ url: "https://cdn.builder.io/abc", id: "abc" }),
+      );
+
+    const result = await builderFileUploadProvider.upload({
+      data: new Uint8Array([1, 2, 3]),
+      filename: "photo.png",
+      mimeType: "image/png",
+    });
+
+    expect(result.url).toBe("https://cdn.builder.io/abc");
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(
+      "Bearer revoked-token",
+    );
+    expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe(
+      "Bearer fresh-token",
+    );
   });
 
   it("includes the target space when uploading with a personal access token", async () => {

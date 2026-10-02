@@ -71,23 +71,30 @@ type AssetAuthorization = { authorization: string; apiKey?: string };
 /**
  * Run a Builder asset API call, and on a 401 refresh the OAuth access token
  * once and retry. A token can be revoked or rotated before its stated
- * expiry; only a second 401 means the connection itself needs reconnecting.
+ * expiry; only a 401 after a real refresh means the connection needs
+ * reconnecting. `held` carries a refreshed token to the caller's next step.
  */
 async function withAssetAuthorization<T>(
   run: (auth: AssetAuthorization) => Promise<T>,
-  auth?: AssetAuthorization,
+  held: { auth?: AssetAuthorization } = {},
 ): Promise<T> {
+  const auth = held.auth ?? (held.auth = await assetAuthorization());
   try {
-    return await run(auth ?? (await assetAuthorization()));
+    return await run(auth);
   } catch (error) {
     if ((error as { status?: unknown } | null)?.status !== 401) throw error;
-    return run(await assetAuthorization({ forceRefresh: true }));
+    const refreshed = await assetAuthorization({ forceRefresh: true });
+    // The same token again (no refresh token, a key credential) would only
+    // repeat the 401; report the original refusal instead.
+    if (refreshed.authorization === auth.authorization) throw error;
+    held.auth = refreshed;
+    return run(refreshed);
   }
 }
 
 async function uploadLargeFileViaSignedUrl(
   input: FileUploadInput,
-  auth: AssetAuthorization,
+  held: { auth?: AssetAuthorization },
   bareMimeType: string,
   bytes: Uint8Array,
 ): Promise<FileUploadResult> {
@@ -108,7 +115,7 @@ async function uploadLargeFileViaSignedUrl(
         bareMimeType,
         bytes.byteLength,
       ),
-    auth,
+    held,
   );
   console.log(`[builder-upload] step 1 ok: assetId=${assetId}`);
 
@@ -132,7 +139,7 @@ async function uploadLargeFileViaSignedUrl(
         stableUrl: input.stableUrl,
         recordAsset: input.recordAsset,
       }),
-    auth,
+    held,
   );
   console.log(`[builder-upload] done [${assetId}]: ${url}`);
   return { url, id, provider: "builder" };
@@ -242,8 +249,11 @@ async function uploadSmallFile(url: URL, init: RequestInit): Promise<Response> {
 
   const status = response?.status ?? 0;
   const statusText = response?.statusText ?? "no response";
-  throw new Error(
-    `Builder.io upload failed (${status}): ${lastErrorBody || statusText}`,
+  throw Object.assign(
+    new Error(
+      `Builder.io upload failed (${status}): ${lastErrorBody || statusText}`,
+    ),
+    { status },
   );
 }
 
@@ -302,8 +312,7 @@ export const builderFileUploadProvider: FileUploadProvider = {
   },
   upload: async (input: FileUploadInput) => {
     const { data, filename, mimeType } = input;
-    const auth = await assetAuthorization();
-    const { authorization, apiKey } = auth;
+    const held = { auth: await assetAuthorization() };
 
     const bareMimeType = (mimeType || "application/octet-stream")
       .split(";")[0]
@@ -314,29 +323,33 @@ export const builderFileUploadProvider: FileUploadProvider = {
     const mb = (bytes.byteLength / (1024 * 1024)).toFixed(1);
 
     if (shouldUseSignedUrlUpload(bytes, bareMimeType)) {
-      return uploadLargeFileViaSignedUrl(input, auth, bareMimeType, bytes);
+      return uploadLargeFileViaSignedUrl(input, held, bareMimeType, bytes);
     }
 
     console.log(
       `[builder-upload] small-file path: ${filename ?? "upload"} ${mb}MB ${bareMimeType}`,
     );
 
-    const url = new URL("/api/v1/upload", builderUploadHost());
-    if (apiKey) url.searchParams.set("apiKey", apiKey);
-    if (filename) url.searchParams.set("name", filename);
-    if (input.stableUrl) {
-      setStableUrlQueryParam(url);
-    }
-    setRecordAssetQueryParam(url, input.recordAsset);
-
-    const response = await uploadSmallFile(url, {
-      method: "POST",
-      headers: {
-        Authorization: authorization,
-        "Content-Type": bareMimeType,
+    const response = await withAssetAuthorization(
+      ({ authorization, apiKey }) => {
+        const url = new URL("/api/v1/upload", builderUploadHost());
+        if (apiKey) url.searchParams.set("apiKey", apiKey);
+        if (filename) url.searchParams.set("name", filename);
+        if (input.stableUrl) {
+          setStableUrlQueryParam(url);
+        }
+        setRecordAssetQueryParam(url, input.recordAsset);
+        return uploadSmallFile(url, {
+          method: "POST",
+          headers: {
+            Authorization: authorization,
+            "Content-Type": bareMimeType,
+          },
+          body: makeBody(bytes, bareMimeType),
+        });
       },
-      body: makeBody(bytes, bareMimeType),
-    });
+      held,
+    );
 
     const json = (await response.json().catch(() => ({}))) as {
       url?: string;

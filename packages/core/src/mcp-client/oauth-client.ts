@@ -1159,11 +1159,8 @@ export async function getMcpOAuthAccessToken(options: {
       legacyAccountKey: true,
       validateCredential: (credential) =>
         serverUrlsMatch(credential.serverUrl, serverUrl),
-      // An infinite skew treats any stored token as due, so it refreshes
-      // under the same lease as an expiry refresh (one refresher at a time).
-      expirySkewMs: options.forceRefresh
-        ? Number.POSITIVE_INFINITY
-        : TOKEN_EXPIRY_SKEW_MS,
+      expirySkewMs: TOKEN_EXPIRY_SKEW_MS,
+      forceRefresh: options.forceRefresh,
       refresh: async ({ credential: credentials }) => {
         const refreshToken = credentials.tokens.refresh_token;
         const discovery = credentials.discoveryState;
