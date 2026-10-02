@@ -844,12 +844,27 @@ export function useCollabReconcile({
         requestCollabSync &&
         syncedBeforeAdoptRef.current !== snapshotKey
       ) {
-        void requestCollabSync()
-          .catch(() => null)
-          .then(() => {
-            syncedBeforeAdoptRef.current = snapshotKey;
-            if (!cancelled) apply(deferred);
-          });
+        // Adopting without the catch-up is the behavior before this step
+        // existed, so a failed sync degrades to it, loudly.
+        const adopt = () => {
+          syncedBeforeAdoptRef.current = snapshotKey;
+          if (!cancelled) apply(deferred);
+        };
+        void requestCollabSync().then(
+          (result) => {
+            if (result.status === "failed") {
+              console.warn("Adopting a saved snapshot without a live sync");
+            }
+            adopt();
+          },
+          (error: unknown) => {
+            console.warn(
+              "Adopting a saved snapshot without a live sync:",
+              error,
+            );
+            adopt();
+          },
+        );
         return;
       }
 

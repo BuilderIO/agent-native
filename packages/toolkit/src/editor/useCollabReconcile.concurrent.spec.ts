@@ -474,6 +474,35 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     }
   });
 
+  it("still adopts the snapshot, with a warning, when the catch-up sync fails", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const baseline = "original body\n\nSecond paragraph.";
+    const harness = makePeerReconcileHarness(baseline);
+    try {
+      act(() => root.render(React.createElement(harness.Harness)));
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      const requestSync = vi.fn(async () => ({ status: "failed" as const }));
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            value: `Accepted ${baseline}`,
+            revision: null,
+            updatedAt: "2024-01-01T00:00:02.000Z",
+            requestCollabSync: requestSync,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(30000));
+      expect(requestSync).toHaveBeenCalledTimes(1);
+      expect(harness.markdown()).toBe(`Accepted ${baseline}`);
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+      harness.dispose();
+    }
+  });
+
   it.each([
     [false, false],
     [true, false],
