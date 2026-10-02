@@ -2556,8 +2556,6 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.checkingSaved": "正在检查已保存的密钥",
   "settingsModel.chooseModel": "选择模型",
   "settingsModel.clear": "清除",
-  "settingsModel.connect": "连接",
-  "settingsModel.connecting": "正在连接…",
   "settingsModel.defaultModelDescription":
     "除非应用自行设置，否则所有应用都使用此模型。",
   "settingsModel.defaultModelNeedsProvider": "添加提供商后即可选择默认模型。",

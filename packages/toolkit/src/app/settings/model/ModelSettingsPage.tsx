@@ -397,7 +397,7 @@ function NoProviderEmpty({
       <Button type="button" size="sm" disabled={builder.connecting}>
         {builder.connecting ? <Spinner /> : null}
         {builder.connecting
-          ? t(`${K}connecting`)
+          ? t("agentChat.composer.connectingBuilder")
           : t("agentChat.setup.connectBuilder")}
       </Button>
     </DeferredBuilderConnectPopover>

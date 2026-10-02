@@ -2930,8 +2930,6 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.checkingSaved": "جارٍ التحقق من المفتاح المحفوظ",
   "settingsModel.chooseModel": "اختر نموذجًا",
   "settingsModel.clear": "مسح",
-  "settingsModel.connect": "توصيل",
-  "settingsModel.connecting": "جارٍ التوصيل…",
   "settingsModel.defaultModelDescription":
     "يُستخدم في كل تطبيق ما لم يحدد التطبيق نموذجه الخاص.",
   "settingsModel.defaultModelNeedsProvider": "أضف مزوّدًا لاختيار نموذج افتراضي.",

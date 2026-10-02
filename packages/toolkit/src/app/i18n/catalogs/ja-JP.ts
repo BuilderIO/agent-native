@@ -2791,8 +2791,6 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.checkingSaved": "保存済みのキーを確認しています",
   "settingsModel.chooseModel": "モデルを選択",
   "settingsModel.clear": "クリア",
-  "settingsModel.connect": "接続",
-  "settingsModel.connecting": "接続しています…",
   "settingsModel.defaultModelDescription":
     "アプリが独自に設定しない限り、すべてのアプリで使われます。",
   "settingsModel.defaultModelNeedsProvider":

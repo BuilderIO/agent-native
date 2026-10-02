@@ -2742,8 +2742,6 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.checkingSaved": "सहेजी गई कुंजी जाँची जा रही है",
   "settingsModel.chooseModel": "मॉडल चुनें",
   "settingsModel.clear": "साफ़ करें",
-  "settingsModel.connect": "कनेक्ट करें",
-  "settingsModel.connecting": "कनेक्ट हो रहा है…",
   "settingsModel.defaultModelDescription":
     "हर ऐप में इस्तेमाल होता है, जब तक ऐप अपना मॉडल सेट न करे।",
   "settingsModel.defaultModelNeedsProvider":

@@ -2926,8 +2926,6 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.checkingSaved": "Der gespeicherte Schlüssel wird geprüft",
   "settingsModel.chooseModel": "Modell auswählen",
   "settingsModel.clear": "Leeren",
-  "settingsModel.connect": "Verbinden",
-  "settingsModel.connecting": "Wird verbunden…",
   "settingsModel.defaultModelDescription":
     "Wird in jeder App verwendet, sofern die App kein eigenes festlegt.",
   "settingsModel.defaultModelNeedsProvider":

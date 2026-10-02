@@ -2981,8 +2981,6 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.checkingSaved": "Vérification de la clé enregistrée",
   "settingsModel.chooseModel": "Choisir un modèle",
   "settingsModel.clear": "Effacer",
-  "settingsModel.connect": "Connecter",
-  "settingsModel.connecting": "Connexion…",
   "settingsModel.defaultModelDescription":
     "Utilisé dans chaque app, sauf si l’app définit le sien.",
   "settingsModel.defaultModelNeedsProvider":

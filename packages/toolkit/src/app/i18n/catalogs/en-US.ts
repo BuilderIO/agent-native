@@ -2804,8 +2804,6 @@ const messages = {
   "settingsModel.checkingSaved": "Checking the saved key",
   "settingsModel.chooseModel": "Choose a model",
   "settingsModel.clear": "Clear",
-  "settingsModel.connect": "Connect",
-  "settingsModel.connecting": "Connecting…",
   "settingsModel.defaultModelDescription":
     "Used in every app unless the app sets its own.",
   "settingsModel.defaultModelNeedsProvider":

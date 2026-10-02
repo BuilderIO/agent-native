@@ -2568,8 +2568,6 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.checkingSaved": "正在檢查已儲存的金鑰",
   "settingsModel.chooseModel": "選擇模型",
   "settingsModel.clear": "清除",
-  "settingsModel.connect": "連線",
-  "settingsModel.connecting": "正在連線…",
   "settingsModel.defaultModelDescription":
     "除非應用程式自行設定，否則所有應用程式都會使用此模型。",
   "settingsModel.defaultModelNeedsProvider": "新增供應商後即可選擇預設模型。",
