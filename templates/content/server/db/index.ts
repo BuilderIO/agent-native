@@ -37,7 +37,7 @@ export const documentSearchIndex = registerSearchableResource({
   type: "document",
   table: schema.documents,
   idColumn: schema.documents.id,
-  version: 1,
+  version: 2,
   load: async (ids) => {
     // guard:allow-unscoped — the indexer projects changed documents by id with no caller; search-documents applies access live when reading the index.
     const rows = await getDb()

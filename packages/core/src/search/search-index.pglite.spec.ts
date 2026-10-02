@@ -1068,6 +1068,52 @@ describe("change capture", () => {
     await run(`UPDATE shapes SET title = title WHERE id = 's1'`);
     expect(await seq()).toBe(updated);
   });
+
+  it("is installed again by a release that changes it", async () => {
+    const { runMigrations } = await import("../db/migrations.js");
+    await run(
+      `CREATE TABLE search_released (id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '')`,
+    );
+    const table = isolatedTable("search_released");
+    const registered = search.registerSearchableResource({
+      app: "isolated",
+      type: "released",
+      table,
+      idColumn: table.id,
+      version: 1,
+      load: async () => [],
+    });
+    const source = {
+      app: "isolated",
+      resourceType: "released",
+      table: "search_released",
+      idColumn: "id",
+    };
+    const migrate = (entry: import("../db/migrations.js").MigrationEntry) =>
+      runMigrations([entry], { table: "released_migrations" })(
+        undefined as any,
+      );
+    // An earlier build ran the migration under the same name, but installed
+    // capture this build doesn't recognize.
+    await migrate({
+      version: 1,
+      name: "capture-released",
+      sql: {},
+      run: async () => {},
+    });
+    expect(await feed.resourceChangeCaptureInstalled(exec(), source)).toBe(
+      false,
+    );
+    await migrate(
+      search.searchIndexMigration(registered, {
+        version: 1,
+        name: "capture-released",
+      }),
+    );
+    expect(await feed.resourceChangeCaptureInstalled(exec(), source)).toBe(
+      true,
+    );
+  });
 });
 
 describe("index writes", () => {

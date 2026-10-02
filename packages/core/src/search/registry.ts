@@ -6,6 +6,7 @@ import {
   assertResourceKey,
   installResourceChangeCapture,
   registerAfterWriteDrain,
+  resourceChangeCaptureFingerprint,
   resourceChangeTriggerNames,
   type ResourceChangeSource,
 } from "../resource-changes/store.js";
@@ -140,24 +141,31 @@ export function searchableResourceSource(
 /**
  * A named migration that creates the search tables and installs change
  * capture on the registration's table. Add it to the app's `runMigrations`
- * list with the app's next version number.
+ * list with the app's next version number. It's recorded under `name` plus a
+ * fingerprint of the capture SQL, so a release that changes that SQL installs
+ * it again.
  */
 export function searchIndexMigration(
   registration: SearchableResourceRegistration,
   entry: { version: number; name: string },
 ): MigrationEntry {
+  const source = searchableResourceSource(registration);
   return {
     version: entry.version,
-    name: entry.name,
+    // Under the bare name, a database that recorded an earlier build's
+    // capture would never get this one, and search would stay on the
+    // fallback for good.
+    name: `${entry.name}@${resourceChangeCaptureFingerprint(source)}`,
     sql: {},
     run: async (exec) => {
       await ensureSearchIndexTables(exec);
       const installed = await installResourceChangeCapture(
         exec,
-        searchableResourceSource(registration),
+        source,
         SEARCH_CHANGE_CONSUMER,
       );
-      // A busy table: try again on the next boot rather than block writes.
+      // A busy table: try again at the next migration run, which serverless
+      // hosts reach only at their next release, rather than block writes.
       if (!installed) return deferMigration();
     },
   };

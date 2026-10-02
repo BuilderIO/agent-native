@@ -243,8 +243,14 @@ Instead:
 2. **Capture is installed by a migration.** `searchIndexMigration()` installs
    the triggers and subscribes search. It replaces existing triggers in place,
    and waits at most 3 seconds for each table lock. On a table too busy for
-   that, the migration stays pending and runs again at the next boot rather
-   than block writes.
+   that, the migration stays pending and runs again at the next migration run
+   rather than block writes. A Node server migrates at boot; a serverless
+   host migrates only at release, so there it waits for the next release.
+
+   The migration is recorded under its name plus a hash of the trigger SQL. A
+   release that changes that SQL, including the trigger names, installs it
+   again; under the bare name, a database that recorded an earlier build's
+   capture would keep it, and search would stay on the fallback.
 
    Search checks at most once a minute that the triggers exist and are
    enabled. If they're missing or disabled, search reports
@@ -621,3 +627,7 @@ Planned:
    expected about 3,000 of 12,000 rows to match "task prio" when all did.
    Turning off nested loops per statement would need a transaction per search
    and would make selective queries scan every document the caller can see.
+5. Should a change to core's tokenizing rebuild every app's index? A row's
+   `content_hash` covers the app's version and the source text, not the
+   tokenizer, so a row tokenized by an earlier core keeps its tokens, even
+   through a rebuild, until its source changes or the app raises its version.
