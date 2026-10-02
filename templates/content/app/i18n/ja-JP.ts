@@ -952,8 +952,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "前回のページを利用できないため、ようこそページを開きました。",
-  requestedPageUnavailable:
-    "そのページはお使いのアカウントでは利用できないため、ようこそページを開きました。",
   saveFailed: "現在位置を保存できませんでした",
   workspaceWelcomeUnavailableTitle: "まだ何も開かれていません",
   workspaceWelcomeUnavailableDescription:
@@ -1350,6 +1348,9 @@ const overrides = {
   },
   empty: {
     noPageTitle: "ページが選択されていません",
+    signedInAs: "ログイン中のアカウント: {{email}}",
+    goToMyPages: "自分のページへ",
+    switchAccount: "アカウントを切り替える",
     noPageDescription:
       "サイドバーからページを選ぶか、新しいページを作成してください。",
     newPage: "新しいページ",

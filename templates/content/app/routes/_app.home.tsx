@@ -28,10 +28,7 @@ import {
   startPageOpenDocumentReads,
 } from "@/hooks/use-documents";
 import { useLastLocationTitleHint } from "@/hooks/use-optimistic-document-title";
-import {
-  isPersonalLanding,
-  readContentLandingRecovery,
-} from "@/lib/content-landing";
+import { isPersonalLanding } from "@/lib/content-landing";
 import {
   landingOptimisticTitle,
   stashLandingTitleHint,
@@ -119,8 +116,6 @@ export default function HomeRoute() {
   const lastLocationHint = useLastLocationTitleHint();
   const lastLocationHintRef = useRef(lastLocationHint);
   lastLocationHintRef.current = lastLocationHint;
-  const recoveredDocumentId =
-    readContentLandingRecovery(location.state)?.unavailableDocumentId ?? null;
   const queryClient = useQueryClient();
   const { session } = useSession();
   const scope = filesRootHintScope(session?.email, session?.orgId);
@@ -181,9 +176,7 @@ export default function HomeRoute() {
         void navigate(contentRecentHref(result.target), { replace: true });
         return;
       }
-      if (recoveredDocumentId) {
-        toast.info(t("landing.requestedPageUnavailable"));
-      } else if (result.fallbackReason === "saved-document-unavailable") {
+      if (result.fallbackReason === "saved-document-unavailable") {
         toast.info(t("landing.previousPageUnavailable"));
       }
       const hint = lastLocationHintRef.current;
@@ -201,15 +194,7 @@ export default function HomeRoute() {
     } catch (error) {
       console.error("Failed to resolve the Content landing page", error);
     }
-  }, [
-    location.hash,
-    location.search,
-    navigate,
-    recoveredDocumentId,
-    resolveLanding,
-    spaceId,
-    t,
-  ]);
+  }, [location.hash, location.search, navigate, resolveLanding, spaceId, t]);
 
   useEffect(() => {
     void openLanding();
