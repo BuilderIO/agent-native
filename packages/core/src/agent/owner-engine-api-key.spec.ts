@@ -73,13 +73,13 @@ describe("getOwnerApiKey scope order", () => {
     readAppSecretMock.mockImplementation(
       async ({ key, scope }: { key: string; scope: string }) =>
         key === "ANTHROPIC_API_KEY" && (scope === "user" || scope === "org")
-          ? { value: `sk-ant-${scope}`, last4: "-key", updatedAt: 1 }
+          ? { value: `test-anthropic-${scope}`, last4: "-key", updatedAt: 1 }
           : null,
     );
     for (const [role, expected] of [
-      ["owner", "sk-ant-org"],
-      ["admin", "sk-ant-org"],
-      ["member", "sk-ant-user"],
+      ["owner", "test-anthropic-org"],
+      ["admin", "test-anthropic-org"],
+      ["member", "test-anthropic-user"],
     ] as const) {
       readOrgMemberRoleMock.mockResolvedValue(role);
       await expect(
@@ -97,7 +97,7 @@ describe("resolveOwnerEngineApiKey", () => {
   it("resolves the named engine's own key rather than the active setting's", async () => {
     getSettingMock.mockResolvedValue({ engine: "anthropic" });
     ownerSecrets({
-      ANTHROPIC_API_KEY: "sk-ant-owner",
+      ANTHROPIC_API_KEY: "test-anthropic-owner",
       OPENAI_API_KEY: "sk-openai-owner",
     });
 
@@ -118,7 +118,7 @@ describe("resolveOwnerEngineApiKey", () => {
 
   it("never returns another provider's key for an engine the owner has no key for", async () => {
     getSettingMock.mockResolvedValue({ engine: "anthropic" });
-    ownerSecrets({ ANTHROPIC_API_KEY: "sk-ant-owner" });
+    ownerSecrets({ ANTHROPIC_API_KEY: "test-anthropic-owner" });
 
     await expect(
       resolveOwnerEngineApiKey({
@@ -150,12 +150,12 @@ describe("resolveOwnerEngineApiKey", () => {
     // The registry may select another engine, so the key must stay tagged for
     // provider matching while retaining the scope that owns its value.
     getSettingMock.mockResolvedValue({ engine: "anthropic" });
-    ownerSecrets({ ANTHROPIC_API_KEY: "sk-ant-owner" });
+    ownerSecrets({ ANTHROPIC_API_KEY: "test-anthropic-owner" });
 
     await expect(
       resolveOwnerEngineApiKey({ ownerEmail: "owner@example.com" }),
     ).resolves.toEqual({
-      apiKey: "sk-ant-owner",
+      apiKey: "test-anthropic-owner",
       apiKeyEnvVar: undefined,
       credentialProvenance: {
         scope: "user",
@@ -198,7 +198,7 @@ describe("resolveOwnerEngineApiKey", () => {
       resolveOwnerEngineApiKey({
         engineOption: "openai",
         ownerEmail: "owner@example.com",
-        anthropicFallback: "sk-ant-plugin-key",
+        anthropicFallback: "test-anthropic-plugin-key",
       }),
     ).resolves.toEqual({
       apiKey: "sk-openai-deploy",
@@ -212,10 +212,10 @@ describe("resolveOwnerEngineApiKey", () => {
       resolveOwnerEngineApiKey({
         engineOption: "openai",
         ownerEmail: "owner@example.com",
-        anthropicFallback: "sk-ant-plugin-key",
+        anthropicFallback: "test-anthropic-plugin-key",
       }),
     ).resolves.toEqual({
-      apiKey: "sk-ant-plugin-key",
+      apiKey: "test-anthropic-plugin-key",
       apiKeyEnvVar: "ANTHROPIC_API_KEY",
       credentialProvenance: { scope: "deployment" },
     });

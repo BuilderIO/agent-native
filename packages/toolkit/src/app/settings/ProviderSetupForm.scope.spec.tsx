@@ -110,7 +110,7 @@ describe("AgentProviderSetupForm save scope", () => {
     const fixture = fetchFixture(() => orgMe(role));
     const root = await renderForm(fixture.fetchMock);
 
-    await enterKeyAndSave("sk-ant-obviously-fake");
+    await enterKeyAndSave("test-anthropic-obviously-fake");
 
     expect(fixture.saves).toEqual([
       expect.objectContaining({ key: "ANTHROPIC_API_KEY", scope }),
@@ -139,7 +139,7 @@ describe("AgentProviderSetupForm save scope", () => {
         .find((radio) => radio.getAttribute("value") === "user")!
         .click();
     });
-    await enterKeyAndSave("sk-ant-obviously-fake");
+    await enterKeyAndSave("test-anthropic-obviously-fake");
 
     expect(fixture.saves).toEqual([
       expect.objectContaining({ key: "ANTHROPIC_API_KEY", scope: "user" }),
@@ -158,7 +158,7 @@ describe("AgentProviderSetupForm save scope", () => {
     const fixture = fetchFixture(() => orgMe("admin"));
     const root = await renderForm(fixture.fetchMock, { scope: "user" });
 
-    await enterKeyAndSave("sk-ant-obviously-fake");
+    await enterKeyAndSave("test-anthropic-obviously-fake");
 
     expect(fixture.saves).toEqual([
       expect.objectContaining({ key: "ANTHROPIC_API_KEY", scope: "user" }),
@@ -175,7 +175,7 @@ describe("AgentProviderSetupForm save scope", () => {
     );
     const root = await renderForm(fixture.fetchMock);
 
-    await enterKeyAndSave("sk-ant-obviously-fake");
+    await enterKeyAndSave("test-anthropic-obviously-fake");
 
     expect(submitButton().disabled).toBe(true);
     expect(fixture.saves).toEqual([]);
@@ -207,7 +207,7 @@ describe("AgentProviderSetupForm save scope", () => {
     const fixture = fetchFixture(() => new Promise<Response>(() => {}));
     const root = await renderForm(fixture.fetchMock);
 
-    await enterKeyAndSave("sk-ant-obviously-fake");
+    await enterKeyAndSave("test-anthropic-obviously-fake");
 
     expect(submitButton().disabled).toBe(true);
     expect(fixture.saves).toEqual([]);

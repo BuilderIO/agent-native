@@ -2829,13 +2829,13 @@ describe("Restrict personal API keys", () => {
   it("uses the org key instead of a restricted member's personal key", async () => {
     restrictOrg("member");
     storeRows({
-      "user:member@b.com:ANTHROPIC_API_KEY": "sk-ant-personal",
-      [`org:${ORG}:ANTHROPIC_API_KEY`]: "sk-ant-org",
+      "user:member@b.com:ANTHROPIC_API_KEY": "test-anthropic-personal",
+      [`org:${ORG}:ANTHROPIC_API_KEY`]: "test-anthropic-org",
     });
 
     await expect(
       resolveSecretDetailed("ANTHROPIC_API_KEY"),
-    ).resolves.toMatchObject({ value: "sk-ant-org", source: "org" });
+    ).resolves.toMatchObject({ value: "test-anthropic-org", source: "org" });
     expect(
       mockReadAppSecret.mock.calls.some((call) => call[0].scope === "user"),
     ).toBe(false);
@@ -2860,24 +2860,30 @@ describe("Restrict personal API keys", () => {
     for (const role of ["owner", "admin"]) {
       restrictOrg(role);
       storeRows({
-        "user:member@b.com:ANTHROPIC_API_KEY": "sk-ant-personal",
+        "user:member@b.com:ANTHROPIC_API_KEY": "test-anthropic-personal",
       });
       await expect(
         resolveSecretDetailed("ANTHROPIC_API_KEY"),
-      ).resolves.toMatchObject({ value: "sk-ant-personal", source: "user" });
+      ).resolves.toMatchObject({
+        value: "test-anthropic-personal",
+        source: "user",
+      });
     }
   });
 
   it("uses the member's personal key again once the restriction is off", async () => {
     restrictOrg("member", false);
     storeRows({
-      "user:member@b.com:ANTHROPIC_API_KEY": "sk-ant-personal",
-      [`org:${ORG}:ANTHROPIC_API_KEY`]: "sk-ant-org",
+      "user:member@b.com:ANTHROPIC_API_KEY": "test-anthropic-personal",
+      [`org:${ORG}:ANTHROPIC_API_KEY`]: "test-anthropic-org",
     });
 
     await expect(
       resolveSecretDetailed("ANTHROPIC_API_KEY"),
-    ).resolves.toMatchObject({ value: "sk-ant-personal", source: "user" });
+    ).resolves.toMatchObject({
+      value: "test-anthropic-personal",
+      source: "user",
+    });
   });
 
   it("leaves a member's other personal secrets alone", async () => {
@@ -2894,7 +2900,9 @@ describe("Restrict personal API keys", () => {
     mockGetSetting.mockRejectedValue(
       new Error("db query timed out after 12000ms"),
     );
-    storeRows({ "user:member@b.com:ANTHROPIC_API_KEY": "sk-ant-personal" });
+    storeRows({
+      "user:member@b.com:ANTHROPIC_API_KEY": "test-anthropic-personal",
+    });
 
     await expect(
       resolveSecretDetailed("ANTHROPIC_API_KEY"),
@@ -2928,8 +2936,8 @@ describe("Restrict personal API keys", () => {
       "user:member@b.com:BUILDER_PUBLIC_KEY": "pub-personal",
       [`org:${ORG}:BUILDER_PRIVATE_KEY`]: "bpk-org",
       [`org:${ORG}:BUILDER_PUBLIC_KEY`]: "pub-org",
-      "user:member@b.com:ANTHROPIC_API_KEY": "sk-ant-personal",
-      [`org:${ORG}:ANTHROPIC_API_KEY`]: "sk-ant-org",
+      "user:member@b.com:ANTHROPIC_API_KEY": "test-anthropic-personal",
+      [`org:${ORG}:ANTHROPIC_API_KEY`]: "test-anthropic-org",
       "user:member@b.com:SVC_ID": "id-personal",
       "user:member@b.com:SVC_SECRET": "secret-personal",
       [`org:${ORG}:SVC_ID`]: "id-org",
@@ -2952,7 +2960,7 @@ describe("Restrict personal API keys", () => {
       await expect(
         resolveSecretDetailed("ANTHROPIC_API_KEY"),
       ).resolves.toMatchObject({
-        value: `sk-ant-${expected}`,
+        value: `test-anthropic-${expected}`,
         source: expected === "org" ? "org" : "user",
       });
       await expect(
@@ -2969,8 +2977,8 @@ describe("Restrict personal API keys", () => {
       }),
     });
     storeRows({
-      "user:member@b.com:ANTHROPIC_API_KEY": "sk-ant-personal",
-      [`org:${ORG}:ANTHROPIC_API_KEY`]: "sk-ant-org",
+      "user:member@b.com:ANTHROPIC_API_KEY": "test-anthropic-personal",
+      [`org:${ORG}:ANTHROPIC_API_KEY`]: "test-anthropic-org",
       "user:member@b.com:BUILDER_PRIVATE_KEY": "bpk-personal",
       "user:member@b.com:BUILDER_PUBLIC_KEY": "pub-personal",
     });

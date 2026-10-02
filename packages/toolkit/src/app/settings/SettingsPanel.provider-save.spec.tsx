@@ -574,14 +574,14 @@ describe("AgentSettingsContent provider save", () => {
       'input[type="password"]',
     );
     if (!key) throw new Error("Missing API key input");
-    await changeInput(key, "sk-obviously-fake-openai-key");
+    await changeInput(key, "obviously-fake-openai-value");
 
     await click(buttonNamed("Save"));
 
     expect(fixture.providerSettingsRequests).toEqual([
       {
         key: "OPENAI_API_KEY",
-        value: "sk-obviously-fake-openai-key",
+        value: "obviously-fake-openai-value",
         scope: "org",
         defaultModel: {
           engine: "ai-sdk:openai",
@@ -632,7 +632,7 @@ describe("AgentSettingsContent provider save", () => {
       'input[type="password"]',
     );
     if (!key) throw new Error("Missing API key input");
-    await changeInput(key, "sk-obviously-fake-openai-key");
+    await changeInput(key, "obviously-fake-openai-value");
 
     await click(buttonNamed("Save"));
 
@@ -668,13 +668,13 @@ describe("AgentSettingsContent provider save", () => {
     if (!key) throw new Error("Missing API key input");
     expect(buttonNamed("Save").disabled).toBe(true);
 
-    await changeInput(key, "sk-obviously-fake-openai-key");
+    await changeInput(key, "obviously-fake-openai-value");
     await click(buttonNamed("Save"));
 
     expect(fixture.providerSettingsRequests).toEqual([
       {
         key: "OPENAI_API_KEY",
-        value: "sk-obviously-fake-openai-key",
+        value: "obviously-fake-openai-value",
         scope: "user",
       },
     ]);
@@ -714,7 +714,7 @@ describe("AgentSettingsContent provider save", () => {
       'input[type="password"]',
     );
     if (!key) throw new Error("Missing API key input");
-    await changeInput(key, "sk-obviously-fake-openai-key");
+    await changeInput(key, "obviously-fake-openai-value");
     await click(buttonNamed("Save"));
 
     expect(fixture.providerSettingsRequests).toEqual([
@@ -755,7 +755,7 @@ describe("AgentSettingsContent provider save", () => {
       'input[type="password"]',
     );
     if (!key) throw new Error("Missing API key input");
-    await changeInput(key, "sk-obviously-fake-openai-key");
+    await changeInput(key, "obviously-fake-openai-value");
 
     expect(buttonNamed("Save").disabled).toBe(true);
     expect(document.body.textContent).toContain(
