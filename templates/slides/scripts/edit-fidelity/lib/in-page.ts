@@ -92,6 +92,11 @@ export interface Snapshot {
   editedLayoutPath?: string[];
 }
 
+export type OutsideSnapshot = Pick<
+  Snapshot,
+  "records" | "editedRect" | "editedInFlow"
+>;
+
 export interface EditorState {
   editing: boolean;
   focusInEditor: boolean;
@@ -129,6 +134,7 @@ export interface InPageHelpers {
     canvasSel: string,
     edited: { targetIndex?: number; text?: string; marker?: string },
   ): Snapshot;
+  outsideSnapshot(canvasSel: string): OutsideSnapshot;
   editorState(canvasSel: string): EditorState;
   /** Why the selection entering edit left is not at the gesture's point, or null. */
   entryCaretProblem(
@@ -842,7 +848,7 @@ export function installInPageHelpers(chromeSelector: string) {
     return `selection at character ${start}${end !== start ? `-${end}` : ""} of ${editorText.length}${inRow ? "" : " in another row"}, click at ${from}${to !== from ? `-${to}` : ""}`;
   }
 
-  function snapshot(
+  function captureSnapshot(
     canvasSel: string,
     edited: {
       targetIndex?: number;
@@ -850,7 +856,8 @@ export function installInPageHelpers(chromeSelector: string) {
       marker?: string;
       targetBuilderId?: string;
     },
-  ): Snapshot {
+    outsideOnly = false,
+  ): Snapshot | OutsideSnapshot {
     const root = document.querySelector(canvasSel);
     if (!root) throw new Error(`canvas not found: ${canvasSel}`);
     const origin = root.getBoundingClientRect();
@@ -1083,6 +1090,7 @@ export function installInPageHelpers(chromeSelector: string) {
     };
 
     const visit = (el: Element) => {
+      if (outsideOnly && insideEdited(el)) return;
       if (el.tagName === "STYLE" || el.tagName === "SCRIPT") return;
       if (isChrome(el)) return;
       // The hidden source of a floating editor is represented by the
@@ -1151,6 +1159,12 @@ export function installInPageHelpers(chromeSelector: string) {
     visit(root);
     if (host) visit(host);
 
+    const editedRect = editedBox
+      ? rectOf(paintedRect(editedBox), origin)
+      : null;
+    const editedInFlow = isInNormalFlow(editedBox);
+    if (outsideOnly) return { records, editedRect, editedInFlow };
+
     const all = Array.from(root.querySelectorAll("*")).filter(
       (el) => el.tagName !== "STYLE" && !isChrome(el),
     );
@@ -1172,11 +1186,27 @@ export function installInPageHelpers(chromeSelector: string) {
       records,
       inventory,
       text: norm((root as HTMLElement).innerText),
-      editedRect: editedBox ? rectOf(paintedRect(editedBox), origin) : null,
-      editedInFlow: isInNormalFlow(editedBox),
+      editedRect,
+      editedInFlow,
       editedText: editedEl ? lines(editedEl) : null,
       editedLayoutPath: editedBox ? layoutPathOf(editedBox) : undefined,
     };
+  }
+
+  function snapshot(
+    canvasSel: string,
+    edited: {
+      targetIndex?: number;
+      text?: string;
+      marker?: string;
+      targetBuilderId?: string;
+    },
+  ): Snapshot {
+    return captureSnapshot(canvasSel, edited) as Snapshot;
+  }
+
+  function outsideSnapshot(canvasSel: string): OutsideSnapshot {
+    return captureSnapshot(canvasSel, {}, true) as OutsideSnapshot;
   }
 
   function backgroundPoint(canvasSel: string) {
@@ -1385,6 +1415,7 @@ export function installInPageHelpers(chromeSelector: string) {
     takeWriteStacks,
     takeKeepaliveWrites,
     snapshot,
+    outsideSnapshot,
     editorState,
     entryCaretProblem,
     backgroundPoint,

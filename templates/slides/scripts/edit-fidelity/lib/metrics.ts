@@ -6,7 +6,13 @@
 import { parse, type DefaultTreeAdapterTypes as P5 } from "parse5";
 
 import { resolvePnpmEntry } from "../../export-fidelity/resolve-pkg.ts";
-import type { KeepaliveWrite, Rect, SnapRecord, Snapshot } from "./in-page.ts";
+import type {
+  KeepaliveWrite,
+  OutsideSnapshot,
+  Rect,
+  SnapRecord,
+  Snapshot,
+} from "./in-page.ts";
 
 // ---------------------------------------------------------------- pixels ---
 
@@ -201,7 +207,10 @@ const baseOf = (key: string) => key.replace(/#\d+$/, "");
  * middle by key, then leftover text records whose text only grew or shrank at
  * the end (append / enter3 change the edited run's own key).
  */
-export function diffSnapshots(a: Snapshot, b: Snapshot): StyleDiff {
+export function diffSnapshots(
+  a: Pick<Snapshot, "records">,
+  b: Pick<Snapshot, "records">,
+): StyleDiff {
   const allA = a.records;
   const allB = b.records;
   const stableB = new Map(
@@ -312,7 +321,10 @@ export function diffSnapshots(a: Snapshot, b: Snapshot): StyleDiff {
   };
 }
 
-export function outsideChangesFor(before: Snapshot, after: Snapshot) {
+export function outsideChangesFor(
+  before: OutsideSnapshot,
+  after: OutsideSnapshot,
+) {
   const outside = diffSnapshots(before, after);
   const targetResized =
     before.editedRect !== null &&

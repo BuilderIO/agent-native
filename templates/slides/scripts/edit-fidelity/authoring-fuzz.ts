@@ -1,4 +1,4 @@
-import type { Snapshot } from "./lib/in-page.ts";
+import type { OutsideSnapshot } from "./lib/in-page.ts";
 import { outsideChangesFor } from "./lib/metrics.ts";
 
 type Page = any;
@@ -17,7 +17,10 @@ export function authoringFuzzProfileIndex(seed: number): number | null {
   return (seed / 2 - 1) % 6;
 }
 
-export function outsideAuthoringChangesFor(before: Snapshot, after: Snapshot) {
+export function outsideAuthoringChangesFor(
+  before: OutsideSnapshot,
+  after: OutsideSnapshot,
+) {
   return outsideChangesFor(before, after).changes;
 }
 
@@ -520,142 +523,8 @@ export async function runAuthoringFuzz(
     const before = await inspectSelection();
     if (!before.inside)
       throw new Error("cannot type: selection is outside the edited element");
-    const probe = verifyPlacement && value.length === 1;
-    if (probe) {
-      await editor.evaluate((root: HTMLElement) => {
-        const scope = window as Window & {
-          __authoringFuzzInputProbe?: {
-            root: HTMLElement;
-            listener: (event: Event) => void;
-            events: Array<Record<string, unknown>>;
-            snapshot: () => Record<string, unknown>;
-            before: Record<string, unknown>;
-          };
-        };
-        const pathFor = (point: Node | null) => {
-          const path: string[] = [];
-          for (
-            let current =
-              point instanceof Element ? point : point?.parentElement;
-            current && current !== root;
-          ) {
-            const owner = current.parentElement;
-            if (!owner) break;
-            path.unshift(
-              `${current.tagName}:${Array.from(owner.children).indexOf(current)}`,
-            );
-            current = owner;
-          }
-          return path;
-        };
-        const snapshot = () => {
-          const selection = window.getSelection();
-          const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-          const node = range?.startContainer ?? null;
-          const parent = node instanceof Element ? node : node?.parentElement;
-          const visible = (root.textContent ?? "")
-            .replaceAll("\u200b", "")
-            .replaceAll("\u00a0", " ");
-          const offset = range
-            ? (() => {
-                const prefix = document.createRange();
-                prefix.selectNodeContents(root);
-                prefix.setEnd(range.startContainer, range.startOffset);
-                return prefix
-                  .toString()
-                  .replaceAll("\u200b", "")
-                  .replaceAll("\u00a0", " ").length;
-              })()
-            : null;
-          return {
-            collapsed: selection?.isCollapsed ?? false,
-            inside:
-              !!selection &&
-              root.contains(selection.anchorNode) &&
-              root.contains(selection.focusNode),
-            anchorPath: pathFor(selection?.anchorNode ?? null),
-            focusPath: pathFor(selection?.focusNode ?? null),
-            anchorOffset: selection?.anchorOffset ?? null,
-            focusOffset: selection?.focusOffset ?? null,
-            rangeEndOffset: range?.endOffset ?? null,
-            nodeType: node?.nodeType ?? null,
-            nodeLength: node instanceof Text ? node.length : null,
-            nodeOffset: range?.startOffset ?? null,
-            parentChildren: parent
-              ? Array.from(parent.childNodes).map((child) =>
-                  child instanceof Text
-                    ? `TEXT:${child.length}`
-                    : `${(child as Element).tagName}:${child.childNodes.length}`,
-                )
-              : [],
-            offset,
-            nearbyCodes:
-              offset === null
-                ? []
-                : Array.from(
-                    visible.slice(Math.max(0, offset - 3), offset + 4),
-                    (character) => character.codePointAt(0),
-                  ),
-          };
-        };
-        const events: Array<Record<string, unknown>> = [];
-        const listener = (event: Event) => {
-          const input = event as InputEvent;
-          const record: Record<string, unknown> = {
-            inputType: input.inputType,
-            dataCodes: input.data
-              ? Array.from(input.data, (character) => character.codePointAt(0))
-              : null,
-            cancelable: input.cancelable,
-            defaultPrevented: null,
-            targetRanges: input.getTargetRanges?.().map((range) => ({
-              collapsed: range.collapsed,
-              startPath: pathFor(range.startContainer),
-              startOffset: range.startOffset,
-              endPath: pathFor(range.endContainer),
-              endOffset: range.endOffset,
-            })),
-          };
-          events.push(record);
-          queueMicrotask(() => {
-            record.defaultPrevented = input.defaultPrevented;
-          });
-        };
-        root.addEventListener("beforeinput", listener, true);
-        scope.__authoringFuzzInputProbe = {
-          root,
-          listener,
-          events,
-          snapshot,
-          before: snapshot(),
-        };
-      });
-    }
     await editor.pressSequentially(value, { delay: 0 });
     const after = await inspectSelection();
-    const diagnostics = probe
-      ? await editor.evaluate((root: HTMLElement) => {
-          const scope = window as Window & {
-            __authoringFuzzInputProbe?: {
-              root: HTMLElement;
-              listener: (event: Event) => void;
-              events: Array<Record<string, unknown>>;
-              snapshot: () => Record<string, unknown>;
-              before: Record<string, unknown>;
-            };
-          };
-          const input = scope.__authoringFuzzInputProbe;
-          if (!input || input.root !== root) return null;
-          root.removeEventListener("beforeinput", input.listener, true);
-          const result = {
-            before: input.before,
-            after: input.snapshot(),
-            events: input.events,
-          };
-          delete scope.__authoringFuzzInputProbe;
-          return result;
-        })
-      : null;
     if (!after.inside)
       throw new Error(
         `typed burst ${JSON.stringify(value)} outside the editor`,
@@ -674,7 +543,7 @@ export async function runAuthoringFuzz(
         after.start !== before.start + value.length
       ) {
         throw new Error(
-          `typed burst ${JSON.stringify(value)} missed the caret (expected offset ${before.start + value.length}, got ${after.start}; text lengths ${expected.length} and ${after.text.length}; selection=${before.collapsed}:${before.start}-${before.end} to ${after.collapsed}:${after.start}-${after.end}; first mismatch=${textMismatch ?? "none"} codes=${textMismatch === undefined ? "none" : `${expected.codePointAt(textMismatch)}>${after.text.codePointAt(textMismatch)}`}; input=${JSON.stringify(diagnostics)})`,
+          `typed burst ${JSON.stringify(value)} missed the caret (expected offset ${before.start + value.length}, got ${after.start}; text lengths ${expected.length} and ${after.text.length}; selection=${before.collapsed}:${before.start}-${before.end} to ${after.collapsed}:${after.start}-${after.end}; first mismatch=${textMismatch ?? "none"} codes=${textMismatch === undefined ? "none" : `${expected.codePointAt(textMismatch)}>${after.text.codePointAt(textMismatch)}`})`,
         );
       }
     }
@@ -689,7 +558,7 @@ export async function runAuthoringFuzz(
     await typeBurst(payload, verifyPlacement);
     if (trigger) await typeBurst(trigger, false);
   };
-  const snapshotOutside = async (): Promise<Snapshot> =>
+  const snapshotOutside = async (): Promise<OutsideSnapshot> =>
     page.evaluate(
       ({ slide, editor }: { slide: string; editor: string }) => {
         const root = document.querySelector(slide);
@@ -699,7 +568,7 @@ export async function runAuthoringFuzz(
             "slide/editor selectors must resolve inside the same slide",
           );
         }
-        return window.__editFidelity.snapshot(slide, {});
+        return window.__editFidelity.outsideSnapshot(slide);
       },
       { slide: slideSelector, editor: editorSelector },
     );
@@ -723,6 +592,8 @@ export async function runAuthoringFuzz(
           throw new Error("cannot snapshot editor siblings without a caret");
         }
         const scope = window as Window & {
+          __authoringFuzzComputedStyleProperties?: string[];
+          __authoringFuzzComputedStylePropertySet?: Set<string>;
           __authoringFuzzSiblingSnapshot?: {
             root: HTMLElement;
             records: Array<{
@@ -730,7 +601,7 @@ export async function runAuthoringFuzz(
               parent: Node;
               index: number;
               order?: number;
-              style: string;
+              styleValues: string[];
               attributes: string;
               attributeNames: string;
               text: string;
@@ -833,15 +704,53 @@ export async function runAuthoringFuzz(
           "transform-origin",
           "width",
         ]);
-        const css = (element: Element) => {
+        const properties = new Set(
+          scope.__authoringFuzzComputedStyleProperties ?? [],
+        );
+        if (phase === "capture" || !properties.size) {
+          for (const element of [root, ...root.querySelectorAll("*")]) {
+            const style = getComputedStyle(element);
+            for (let index = 0; index < style.length; index++) {
+              const property = style[index];
+              if (property && !layoutProperties.has(property)) {
+                properties.add(property);
+              }
+            }
+          }
+          scope.__authoringFuzzComputedStyleProperties = [...properties].sort();
+          scope.__authoringFuzzComputedStylePropertySet = properties;
+        }
+        const stylePropertyNames =
+          scope.__authoringFuzzComputedStyleProperties!;
+        const stylePropertySet = scope.__authoringFuzzComputedStylePropertySet!;
+        const styleValues = (element: Element) => {
           const style = getComputedStyle(element);
-          return Array.from(style)
-            .filter((property) => !layoutProperties.has(property))
-            .sort()
-            .map(
-              (property) => `${property}:${style.getPropertyValue(property)}`,
-            )
-            .join(";");
+          const values = new Array<string>(stylePropertyNames.length);
+          for (let index = 0; index < stylePropertyNames.length; index++) {
+            values[index] = style.getPropertyValue(stylePropertyNames[index]!);
+          }
+          return values;
+        };
+        const changedStyleProperties = (element: Element, before: string[]) => {
+          const style = getComputedStyle(element);
+          const changes: string[] = [];
+          for (let index = 0; index < stylePropertyNames.length; index++) {
+            const property = stylePropertyNames[index]!;
+            if (before[index] !== style.getPropertyValue(property)) {
+              changes.push(property);
+            }
+          }
+          for (let index = 0; index < style.length; index++) {
+            const property = style[index];
+            if (
+              property &&
+              !layoutProperties.has(property) &&
+              !stylePropertySet.has(property)
+            ) {
+              changes.push(property);
+            }
+          }
+          return changes;
         };
         const chrome = [
           "[data-slide-selection-chrome]",
@@ -926,7 +835,7 @@ export async function runAuthoringFuzz(
             parent: element.parentNode,
             index: Array.from(element.parentNode.childNodes).indexOf(element),
             order: order.get(element),
-            style: css(element),
+            styleValues: styleValues(element),
             attributes: `${element.getAttribute("class") ?? ""}:${element.getAttribute("style") ?? ""}`,
             attributeNames: Array.from(element.attributes)
               .map(({ name }) => name)
@@ -942,7 +851,7 @@ export async function runAuthoringFuzz(
             node: text,
             parent,
             index: Array.from(parent.childNodes).indexOf(text),
-            style: css(parent),
+            styleValues: styleValues(parent),
             attributes: "",
             attributeNames: "",
             text: text.data,
@@ -1043,39 +952,19 @@ export async function runAuthoringFuzz(
               `moved ${structure(record.node)} ${path(record.parent)}->${path(record.node.parentNode ?? record.parent)}`,
             );
           }
-          const style = css(
+          const styleNode =
             record.node instanceof Text
               ? (record.node.parentElement ?? (parent as Element))
-              : record.node,
-          );
+              : record.node;
           const attributes =
             record.node instanceof Element
               ? `${record.node.getAttribute("class") ?? ""}:${record.node.getAttribute("style") ?? ""}`
               : "";
-          const styleChanged = record.style !== style;
-          const changedStyle: string[] = [];
-          if (styleChanged) {
-            const styleProperties = (value: string) =>
-              new Map(
-                value.split(";").map((entry) => {
-                  const separator = entry.indexOf(":");
-                  return [
-                    entry.slice(0, separator),
-                    entry.slice(separator + 1),
-                  ];
-                }),
-              );
-            const beforeStyle = styleProperties(record.style);
-            const afterStyle = styleProperties(style);
-            changedStyle.push(
-              ...[
-                ...new Set([...beforeStyle.keys(), ...afterStyle.keys()]),
-              ].filter(
-                (property) =>
-                  beforeStyle.get(property) !== afterStyle.get(property),
-              ),
-            );
-          }
+          const changedStyle = changedStyleProperties(
+            styleNode,
+            record.styleValues,
+          );
+          const styleChanged = changedStyle.length > 0;
           const changes = styleChanged ? ["style"] : [];
           if (record.node instanceof Text && record.node.data !== record.text)
             changes.push("text");
@@ -1132,7 +1021,7 @@ export async function runAuthoringFuzz(
       },
       { selector: editorSelector, phase, operation },
     );
-  const assertOutsideUnchanged = async (baseline: Snapshot) => {
+  const assertOutsideUnchanged = async (baseline: OutsideSnapshot) => {
     const current = await snapshotOutside();
     const changes = outsideAuthoringChangesFor(baseline, current);
     if (changes.length) {
@@ -1559,8 +1448,14 @@ export async function runAuthoringFuzz(
     await newPlainLine(`${kind} list`);
     let afterShortcut = before;
     if (kind === "styled") {
-      await typeText("- ", false);
+      await typeBurst("-", true);
+      await typeBurst(" ", false);
       afterShortcut = await listRowCount(kind);
+      if (afterShortcut <= before) {
+        throw new Error(
+          `styled bullet shortcut did not add a row (${JSON.stringify({ before, afterShortcut, state: await shortcutState() })})`,
+        );
+      }
       await typeText(firstToken);
     } else {
       await runSlashCommand(kind === "ul" ? "bulletList" : "orderedList");
@@ -1597,11 +1492,51 @@ export async function runAuthoringFuzz(
             }
             return null;
           };
+          const rows = [
+            ...(root.matches("div") ? [root] : []),
+            ...Array.from(root.querySelectorAll<HTMLElement>("div")),
+          ];
           return {
             focused: document.activeElement === root,
             caretInside: !!anchor && root.contains(anchor),
             anchorTag: element?.tagName ?? null,
             rootDisplay: getComputedStyle(root).display,
+            lists: {
+              styled: rows.filter((row) => {
+                const marker = row.firstElementChild;
+                return (
+                  getComputedStyle(row).display === "flex" &&
+                  marker?.tagName === "SPAN" &&
+                  /^[•●◦▪‣·⁃–—-]+$/u.test(marker.textContent?.trim() ?? "") &&
+                  row.lastElementChild?.tagName === "SPAN"
+                );
+              }).length,
+              unordered: root.querySelectorAll("ul > li").length,
+              ordered: root.querySelectorAll("ol > li").length,
+            },
+            lastBlocks: Array.from(root.children)
+              .slice(-8)
+              .map((block) => ({
+                tag: block.tagName,
+                children: Array.from(block.children, (child) => child.tagName),
+                textLength: block.textContent?.length ?? 0,
+                hasFirst: block.textContent?.includes(tokens[0] ?? "") ?? false,
+                hasSecond:
+                  block.textContent?.includes(tokens[1] ?? "") ?? false,
+                display: getComputedStyle(block).display,
+              })),
+            caretAncestors: (() => {
+              const tags: string[] = [];
+              for (
+                let current = element;
+                current && root.contains(current);
+                current = current.parentElement
+              ) {
+                tags.push(current.tagName);
+                if (current === root) break;
+              }
+              return tags;
+            })(),
             firstTokenPresent: root.textContent?.includes(tokens[0] ?? ""),
             secondTokenPresent: root.textContent?.includes(tokens[1] ?? ""),
             firstTokenBlock: tokenBlock(tokens[0] ?? ""),
@@ -2336,6 +2271,8 @@ export async function runAuthoringFuzz(
                   breaksBefore: before,
                   breaksAfter: root.querySelectorAll("br").length,
                   events: [],
+                  focused: false,
+                  caretInside: false,
                 };
               }
               root.removeEventListener("keydown", probe.keydown, true);
@@ -2344,7 +2281,7 @@ export async function runAuthoringFuzz(
               return {
                 breaksBefore: before,
                 breaksAfter: root.querySelectorAll("br").length,
-                focused: document.activeElement === root,
+                focused: root.contains(document.activeElement),
                 caretInside:
                   !!window.getSelection()?.anchorNode &&
                   root.contains(window.getSelection()!.anchorNode),
@@ -2353,7 +2290,11 @@ export async function runAuthoringFuzz(
             },
             breaksBefore,
           );
-          if (softBreakResult.breaksAfter <= softBreakResult.breaksBefore) {
+          if (
+            softBreakResult.breaksAfter <= softBreakResult.breaksBefore ||
+            !softBreakResult.focused ||
+            !softBreakResult.caretInside
+          ) {
             throw new Error(
               `Shift+Enter did not insert a soft break (${JSON.stringify(softBreakResult)})`,
             );
