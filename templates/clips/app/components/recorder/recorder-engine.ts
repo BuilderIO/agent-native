@@ -502,6 +502,8 @@ export class RecorderEngine {
   private discarded = false;
   /** False when the recorder never delivered its final chunk on Stop. */
   private captureComplete = true;
+  /** Set once Stop saw the final chunk; a later chunk must not undo it. */
+  private backupCompletedAt: string | null = null;
   private backupDetails: {
     ownerEmail: string | null;
     title: string | null;
@@ -1198,6 +1200,7 @@ export class RecorderEngine {
     this.backupError = null;
     this.discarded = false;
     this.captureComplete = true;
+    this.backupCompletedAt = null;
     this.uploadAbort = new AbortController();
     this.uploadMode = this.opts.uploadMode ?? "buffered";
     this.uploadAttemptId = null;
@@ -2695,6 +2698,9 @@ export class RecorderEngine {
     const hasCamera = this.recordedCameraVideo;
     const durationMs = Math.round(this.getElapsedMs());
     const bytes = this.totalRecordedBytes;
+    // Read now, not when the write runs: only a chunk that arrives after
+    // Stop's final one belongs to an already finished copy.
+    const completedAt = this.backupCompletedAt;
     this.backupMirrorQueue = this.backupMirrorQueue
       .then(async () => {
         if (this.backupError) return;
@@ -2713,8 +2719,10 @@ export class RecorderEngine {
             bytes,
             chunkCount: index + 1,
             savedAt: new Date().toISOString(),
-            completedAt: null,
-            state: "recording",
+            // A recorder can deliver one more chunk after Stop's final one;
+            // that chunk extends a finished copy instead of reopening it.
+            completedAt,
+            state: completedAt ? "recorded-local" : "recording",
             localOnly: this.localOnly,
             ...(this.backupDetails && index === 0 ? this.backupDetails : {}),
           }),
@@ -2726,10 +2734,11 @@ export class RecorderEngine {
   private markRecordingBackupComplete(meta: RecordingFinalizeMeta): void {
     const recordingId = this.opts.recordingId;
     if (!recordingId || recordingId === "__pending__") return;
+    const completedAt = new Date().toISOString();
+    this.backupCompletedAt = completedAt;
     this.backupMirrorQueue = this.backupMirrorQueue
       .then(() => {
         if (this.backupError) return;
-        const completedAt = new Date().toISOString();
         return retryBackupWrite(() =>
           putRecordingBackupMeta({
             recordingId,

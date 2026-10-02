@@ -245,8 +245,8 @@ export interface LocalUploadOptions {
     whole?: boolean;
   };
   /**
-   * Upload again even though an earlier attempt reads ready, because that
-   * server copy did not match this one.
+   * The user asked to upload again: an earlier attempt reads ready, but its
+   * server copy was not proven to match this one.
    */
   reuploadMismatched?: boolean;
   onProgress?: (fraction: number) => void;
@@ -368,7 +368,7 @@ export async function uploadLocalRecording(
     const previous = await fetchServerUploadStatus(previousServerId, signal);
     if (previous.found && previous.status === "ready") {
       const proof = verifyServerCopy(previous, local);
-      if (proof !== "mismatch" || !options.reuploadMismatched) {
+      if (proof === "verified" || !options.reuploadMismatched) {
         return settleReady(previousServerId, proof);
       }
     }

@@ -903,6 +903,19 @@ async function markRecordingReady(params: {
     };
   }
 
+  // Published as soon as the row is ready, before any follow-up work can
+  // fail: a client deletes its local copy only when these source bytes match.
+  await writeAppState(`recording-upload-${id}`, {
+    recordingId: id,
+    status: "ready",
+    progress: 100,
+    videoUrl,
+    videoSizeBytes,
+    sourceSizeBytes,
+    durationMs: finalDurationMs,
+    finishedAt: now,
+  });
+
   track(
     "recording_ready",
     {
@@ -948,16 +961,6 @@ async function markRecordingReady(params: {
     });
   }
 
-  await writeAppState(`recording-upload-${id}`, {
-    recordingId: id,
-    status: "ready",
-    progress: 100,
-    videoUrl,
-    videoSizeBytes,
-    sourceSizeBytes,
-    durationMs: finalDurationMs,
-    finishedAt: now,
-  });
   await deleteAppState(mediaVerificationStateKey(id)).catch((err) => {
     console.warn("[finalize] failed to clear media verification marker", {
       id,

@@ -1305,6 +1305,27 @@ describe("finalize-recording media serve verification", () => {
     },
   );
 
+  it("publishes the received source bytes before any follow-up work can fail", async () => {
+    seedBufferedRecording();
+    mockUploadFile.mockResolvedValue({ url: "/api/uploads/rec_1/blob" });
+    mockTrack.mockImplementation((event: string) => {
+      if (event === "recording_ready") throw new Error("analytics down");
+    });
+
+    await finalizeRecording
+      .run({ id: "rec_1", mimeType: "video/webm" })
+      .catch(() => undefined);
+
+    expect(mockWriteAppState).toHaveBeenCalledWith(
+      "recording-upload-rec_1",
+      expect.objectContaining({
+        status: "ready",
+        sourceSizeBytes: expect.any(Number),
+      }),
+    );
+    mockTrack.mockReset();
+  });
+
   it("skips verification for app-relative dev media URLs", async () => {
     const chunkKeys = seedBufferedRecording();
     mockUploadFile.mockResolvedValue({ url: "/api/uploads/rec_1/blob" });

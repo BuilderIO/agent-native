@@ -131,4 +131,28 @@ describe("RecorderEngine local copy lifecycle (IndexedDB)", () => {
       chunkCount: 2,
     });
   });
+
+  it("keeps a finished copy finished when one more chunk arrives after Stop", async () => {
+    const engine = await startedEngine();
+    const recorder = AsyncFinalChunkRecorder.instance!;
+    recorder.stop = function stopWithTwoChunks(this: AsyncFinalChunkRecorder) {
+      this.state = "inactive";
+      setTimeout(() => this.emitChunk(new Blob(["mid"])), 1);
+      setTimeout(() => {
+        this.emitChunk(new Blob(["tail"]));
+        this.dispatchEvent(new Event("stop"));
+      }, 10);
+    };
+    recorder.emitChunk(new Blob(["head"]));
+
+    await engine.stop();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await written(engine);
+
+    expect(await getRecordingBackupMeta("local-1")).toMatchObject({
+      state: "recorded-local",
+      chunkCount: 3,
+      completedAt: expect.any(String),
+    });
+  });
 });

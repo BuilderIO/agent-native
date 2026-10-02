@@ -484,4 +484,23 @@ describe("uploadLocalRecording", () => {
     expect(again.kept).toBeUndefined();
     expect(mocks.deleteRecordingBackup).toHaveBeenCalledWith("local-1");
   });
+
+  it("uploads again over a ready clip the server never proved complete", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(
+      copy({ serverRecordingId: "srv-1", state: "uploaded" }),
+    );
+    fetchMock.mockImplementation(async () =>
+      json({ recording: { status: "ready", verificationPending: false } }),
+    );
+    mocks.uploadChunkRequest.mockResolvedValue(readyFor(10));
+
+    const again = await uploadLocalRecording("local-1", {
+      ...ME,
+      reuploadMismatched: true,
+    });
+
+    expect(again.recordingId).not.toBe("srv-1");
+    expect(again.kept).toBeUndefined();
+    expect(mocks.deleteRecordingBackup).toHaveBeenCalledWith("local-1");
+  });
 });
