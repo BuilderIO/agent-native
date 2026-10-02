@@ -1869,6 +1869,70 @@ describe("useChatThreads", () => {
     ).toBeNull();
   });
 
+  it("does not bring a detached thread back into an isolated list from a save in flight", async () => {
+    let draftCount = 0;
+    vi.stubGlobal("crypto", { randomUUID: () => `draft-${++draftCount}` });
+    const page: ChatThreadScope = { type: "document", id: "page-1" };
+    let releaseSave: (() => void) | undefined;
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.startsWith("/chat/threads") && !init) {
+        return jsonResponse({ threads: [] });
+      }
+      if (url.startsWith("/chat/threads/draft-1") && init?.method === "PUT") {
+        const body = JSON.parse(String(init.body));
+        if ("scope" in body && body.scope === null) {
+          return jsonResponse({ ok: true, scope: null });
+        }
+        await new Promise<void>((resolve) => {
+          releaseSave = resolve;
+        });
+        return jsonResponse({ ok: true, scope: page });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", undefined, page, {
+        browserTabId: "tab-1",
+        isolateHistory: true,
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    let save: Promise<void> | undefined;
+    await act(async () => {
+      save = hook!.saveThreadData("draft-1", {
+        threadData: JSON.stringify({
+          messages: [{ id: "m-1" }, { id: "m-2" }],
+        }),
+        title: "",
+        preview: "Autosave",
+        messageCount: 2,
+      });
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await hook!.detachThread("draft-1");
+    });
+    await act(async () => {
+      releaseSave?.();
+      await save;
+    });
+
+    expect(hook!.threads.some((thread) => thread.id === "draft-1")).toBe(false);
+  });
+
   it("rejects an older thread the list page missed once its scope resolves elsewhere", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:design-app:scope:design:design-b",

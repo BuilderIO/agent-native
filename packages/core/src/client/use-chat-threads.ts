@@ -1410,10 +1410,9 @@ export function useChatThreads(
         );
         // A response that was in flight across a detach describes the thread
         // as it was before it, so it must not put the old scope back.
-        const savedScope =
-          (scopeMutationsRef.current.get(id) ?? 0) === scopeEpoch
-            ? reportedScope
-            : undefined;
+        const scopeChangedDuringSave =
+          (scopeMutationsRef.current.get(id) ?? 0) !== scopeEpoch;
+        const savedScope = scopeChangedDuringSave ? undefined : reportedScope;
         serverConfirmedThreadIdsRef.current.add(id);
         clearClientDraftThreadMarker(id);
         newlyCreatedRef.current.delete(id);
@@ -1453,6 +1452,9 @@ export function useChatThreads(
               ),
             );
           }
+          // A thread the list no longer holds because it was detached while
+          // this save ran must not come back under the page's current scope.
+          if (scopeChangedDuringSave) return prev;
           const now = Date.now();
           return sortThreadSummaries([
             {
