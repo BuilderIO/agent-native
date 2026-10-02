@@ -1507,6 +1507,14 @@ describe("AgentKitChat", () => {
                   text: "Assistant reply\n<context>private assistant context</context>",
                 },
               ],
+              metadata: {
+                contextItems: [
+                  {
+                    title: "Internal source",
+                    context: "private assistant metadata context",
+                  },
+                ],
+              },
             },
           ],
         };
@@ -1607,6 +1615,12 @@ describe("AgentKitChat", () => {
     expect(visibleText(messageActions.mock.calls[0]![0].value)).toBe(
       "Assistant reply",
     );
+    expect(
+      JSON.stringify(messageSupplement.mock.calls[0]![0].value),
+    ).not.toContain("private assistant metadata context");
+    expect(
+      JSON.stringify(messageActions.mock.calls[0]![0].value),
+    ).not.toContain("private assistant metadata context");
 
     const messageActionsTrailing = vi.fn(
       ({
