@@ -89,14 +89,10 @@ certified ones); label figures "Unverified" when no live query ran.
   signals, visitor type, and email domain. Use `paginated: true` for sorted
   pages with a real total and app counts; the default returns an array.
 - With the Sessions triage Lab on, `didEvents` / `didNotEvents` filter by
-  tracked events. Get real names and session counts from
+  tracked events and `slow` by speed. Get real names and session counts from
   `list-session-event-names`, and event health from `list-event-catalog`. Both
   read Analytics' own index, which covers sessions only from its coverage
   start. Never query BigQuery for these views.
-- With the Lab on, `slow` (`any`, `vitals`, `requests`) keeps sessions with a
-  poor Core Web Vital or a request of 1 s or more, and `includePerformance`
-  adds each session's worst vitals. `list-route-performance` returns p50/p95
-  per page route from daily histograms. A null metric means no data, not fast.
 
 ## Application State
 
