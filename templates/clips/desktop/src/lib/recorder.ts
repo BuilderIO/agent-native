@@ -2563,6 +2563,7 @@ async function prepareCountdownEventWaiter(signal?: AbortSignal): Promise<{
     resolveEvent = resolve;
     rejectEvent = reject;
   });
+  void event.catch(() => {});
   let timer: ReturnType<typeof setTimeout> | null = null;
   const unlistens: UnlistenFn[] = [];
   let done = false;
@@ -2984,6 +2985,10 @@ async function tryStartRewindFullscreenRecording(
       void saveTranscriptFailure(TRANSCRIPTION_START_FAILURE);
     }
   };
+  const countdownController = new AbortController();
+  const countdownSignal = params.signal
+    ? AbortSignal.any([params.signal, countdownController.signal])
+    : countdownController.signal;
   const recordingPromise = localOnly
     ? Promise.resolve<{ id: string; uploadMode: UploadMode }>({
         id: folderName,
@@ -3035,7 +3040,7 @@ async function tryStartRewindFullscreenRecording(
       },
       async countdown() {
         try {
-          await runRecordingCountdown(true, params.signal);
+          await runRecordingCountdown(true, countdownSignal);
           console.log("[rewind-latency] countdown completed");
         } catch (err) {
           countdownFailed = true;
@@ -3044,9 +3049,7 @@ async function tryStartRewindFullscreenRecording(
         }
       },
       cancelCountdown() {
-        void emit("clips:countdown-cancel", {
-          cause: "prepare-failed",
-        }).catch(() => {});
+        countdownController.abort();
       },
       async beforeActivate() {
         await audioCue.playBeforeCapture();
@@ -3430,6 +3433,10 @@ async function startNativeFullscreenRecording(
   let captureRegion: RegionCaptureRect | null = null;
   let transcriptionCapture: TranscriptionCapture | null = null;
   let countdownPromise: Promise<void> | null = null;
+  const countdownController = new AbortController();
+  const countdownSignal = params.signal
+    ? AbortSignal.any([params.signal, countdownController.signal])
+    : countdownController.signal;
   let startupFailed = false;
   const assertStartupActive = () => {
     throwIfRecordingStartAborted(params.signal);
@@ -3524,7 +3531,7 @@ async function startNativeFullscreenRecording(
       bubbleCaptureExcluded = true;
     }
 
-    countdownPromise = runRecordingCountdown(true, params.signal);
+    countdownPromise = runRecordingCountdown(true, countdownSignal);
     void countdownPromise.catch(() => {
       startupFailed = true;
     });
@@ -3677,6 +3684,7 @@ async function startNativeFullscreenRecording(
   } catch (err) {
     startupFailed = true;
     if (countdownPromise) {
+      countdownController.abort();
       await emit("clips:countdown-cancel").catch(() => {});
       await countdownPromise.catch(() => {});
     }

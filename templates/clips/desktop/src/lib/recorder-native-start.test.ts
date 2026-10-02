@@ -523,6 +523,40 @@ describe("native recording startup", () => {
     ).toHaveLength(1);
   });
 
+  it("cancels Rewind countdown while event listeners are still registering", async () => {
+    const listenerRegistration = deferred<void>();
+    mocks.listen.mockImplementation(async (name, callback) => {
+      if (
+        name === "clips:countdown-done" ||
+        name === "clips:countdown-cancel"
+      ) {
+        await listenerRegistration.promise;
+      }
+      const callbacks = handlers.get(name) ?? new Set();
+      callbacks.add(callback);
+      handlers.set(name, callbacks);
+      return () => callbacks.delete(callback);
+    });
+    nativeCommands.set("rewind_clip_status", async () => ({
+      compatibility: "compatible",
+      active: false,
+    }));
+    fetchMock.mockImplementation(async (url: string) =>
+      url.endsWith("/create-recording")
+        ? new Response("Unavailable", { status: 503 })
+        : new Response("{}", { status: 200 }),
+    );
+
+    const pending = startRecording({ ...params, source: "full-screen" });
+    const failed = expect(pending).rejects.toThrow("SERVER_UNAVAILABLE");
+    await flush();
+
+    listenerRegistration.resolve();
+    await failed;
+
+    expect(calls("show_countdown")).toHaveLength(0);
+  });
+
   it("fails startup when the visible countdown never completes", async () => {
     nativeCommands.set("show_countdown", async () => 1);
 
