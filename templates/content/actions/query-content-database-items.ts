@@ -58,7 +58,7 @@ export default defineAction({
           .max(MAX_NAVIGATION_EXPAND_IDS)
           .optional()
           .describe(
-            "Expanded document IDs; each one this read returns comes back with its first child page in branches",
+            "Expanded document IDs, most important first; each one this read returns comes back with its first child page in branches, and branchesTruncated is true when the cap left any out",
           ),
       })
       .optional()
@@ -97,26 +97,30 @@ export default defineAction({
     }
     // A person's saved order is theirs alone, so it is read while the
     // database's access check runs; it is used only if that check passes.
-    const [resolved, earlyOverrides] = await Promise.all([
+    // The check answers first: an unavailable database returns its typed
+    // response even when the saved order cannot be read.
+    const [resolved, [earlyOverrides]] = await Promise.all([
       resolveContentDatabaseRead({ databaseId, documentId }),
-      navigation && userEmail && databaseId
-        ? readPersonalDatabaseViewOverrides(userEmail, databaseId)
-        : undefined,
+      Promise.allSettled(
+        navigation && userEmail && databaseId
+          ? [readPersonalDatabaseViewOverrides(userEmail, databaseId)]
+          : [],
+      ),
     ]);
     if (!resolved.available) return resolved;
 
     if (navigation) {
       if (!userEmail) throw new Error("Not authenticated.");
+      if (earlyOverrides?.status === "rejected") throw earlyOverrides.reason;
       return getContentDatabaseNavigationPage({
         database: resolved.database,
         userEmail,
-        overrides:
-          earlyOverrides !== undefined
-            ? earlyOverrides
-            : await readPersonalDatabaseViewOverrides(
-                userEmail,
-                resolved.database.id,
-              ),
+        overrides: earlyOverrides
+          ? earlyOverrides.value
+          : await readPersonalDatabaseViewOverrides(
+              userEmail,
+              resolved.database.id,
+            ),
         parentId: navigation.parentId,
         sort: navigation.sort,
         viewId: navigation.viewId,

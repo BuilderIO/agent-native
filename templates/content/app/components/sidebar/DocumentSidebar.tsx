@@ -90,7 +90,6 @@ import {
   contentDatabaseCreationRequest,
   contentDatabaseByIdQueryKey,
   contentDatabaseNavigationQueryFilter,
-  invalidateContentDatabaseNavigationQueries,
   isContentDatabaseUnavailable,
   removeOptimisticItemFromContentDatabase,
   useContentDatabaseById,
@@ -131,7 +130,10 @@ import {
   getDesktopContentFiles,
   type DesktopContentFilesFolder,
 } from "@/lib/desktop-content-files";
-import { filesNavigationOrder } from "@/lib/files-navigation";
+import {
+  filesNavigationOrder,
+  openFilesFolderIds,
+} from "@/lib/files-navigation";
 import {
   filesRootHintScope,
   prefetchPagedFilesRoot,
@@ -151,6 +153,7 @@ import {
 import {
   readSidebarLayoutHint,
   rememberSidebarLayout,
+  withShownFilesBranch,
   type SidebarLayoutHint,
   type SidebarRowsHint,
 } from "@/lib/sidebar-layout-hint";
@@ -421,8 +424,6 @@ function useDeferredFilesDatabaseId(
   return { databaseId: expanded ? databaseId : null, enabled: ready };
 }
 
-const UNSEEN_PERSONAL_VIEW = Symbol("unseen personal view");
-
 function WorkspaceSidebarItem({
   space,
   selected,
@@ -661,25 +662,6 @@ function WorkspaceSidebarItem({
       databaseId: space.filesDatabaseId,
     });
   }, [filesRootConfirmed, filesRootScope, space.filesDatabaseId]);
-  // The server orders the tree by the saved view, so the tree reads again
-  // when that view changes. A change this sidebar is saving waits for the
-  // save: a read during it can still see the old order.
-  const treeOrderedBy = useRef<unknown>(UNSEEN_PERSONAL_VIEW);
-  const pagedViewSettled =
-    !localFileMode &&
-    filesPersonalView.isSuccess &&
-    !filesPersonalView.isPlaceholderData &&
-    !updateFilesPersonalView.isPending;
-  useEffect(() => {
-    if (!pagedViewSettled) return;
-    const previous = treeOrderedBy.current;
-    treeOrderedBy.current = pagedOverrides;
-    if (previous !== UNSEEN_PERSONAL_VIEW && previous !== pagedOverrides) {
-      invalidateContentDatabaseNavigationQueries(queryClient, {
-        databaseId: space.filesDatabaseId,
-      });
-    }
-  }, [pagedOverrides, pagedViewSettled, queryClient, space.filesDatabaseId]);
   const reorderLabels: SidebarReorderLabels = {
     drag: (label) => t("sidebar.dragToReorder", { label }),
     moveUp: t("sidebar.moveUp"),
@@ -1636,7 +1618,7 @@ export function DocumentSidebar({
     return ids;
   }, [activeDocumentId, navigationContextQuery.data?.path]);
   const visibleExpandedDocumentIds = useMemo(
-    () => new Set([...expandedDocumentIds, ...activeAncestorIds]),
+    () => openFilesFolderIds(activeAncestorIds, expandedDocumentIds),
     [activeAncestorIds, expandedDocumentIds],
   );
   // Open folders are kept by ID with the rows they drew, so the next load
@@ -1649,10 +1631,9 @@ export function DocumentSidebar({
         filesRootScope,
         selectedSpaceId,
       ).branches;
-      const branches = {
-        ...current,
-        ...(shown ? { [shown.documentId]: shown.rows } : {}),
-      };
+      const branches = shown
+        ? withShownFilesBranch(current, shown.documentId, shown.rows)
+        : { ...current };
       rememberLayout({
         branches: Object.fromEntries(
           Object.entries(branches).filter(

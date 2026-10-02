@@ -1502,6 +1502,7 @@ describe("query-content-database-items Files navigation", () => {
       "expand-a-1",
       "expand-a-1-x",
     ]);
+    expect(tree.branchesTruncated).toBe(false);
     for (const [parentId, branch] of Object.entries(tree.branches!)) {
       expect(branch).toEqual(await navigate({ parentId }, 3));
     }
@@ -1509,9 +1510,9 @@ describe("query-content-database-items Files navigation", () => {
       tree.branches!["expand-a"]!.items.map((item) => item.documentId),
     ).toEqual(["expand-a-0", "expand-a-1", "expand-a-2"]);
 
-    expect(await navigate({ parentId: null }, 3)).not.toHaveProperty(
-      "branches",
-    );
+    const unexpanded = await navigate({ parentId: null }, 3);
+    expect(unexpanded).not.toHaveProperty("branches");
+    expect(unexpanded).not.toHaveProperty("branchesTruncated");
   });
 
   it("opens expanded folders past their parent's first page only from that first page", async () => {
@@ -1580,6 +1581,81 @@ describe("query-content-database-items Files navigation", () => {
     );
     expect(tree.branches).toHaveProperty("expand-cap-0");
     expect(tree.branches).toHaveProperty("expand-cap-1");
+    // The folders the cap left out are marked, not reported as empty.
+    expect(tree.branchesTruncated).toBe(true);
+  });
+
+  it("keeps the folders asked for first, with the open folders above them, when the cap applies", async () => {
+    const { MAX_NAVIGATION_EXPANDED_BRANCHES } =
+      await import("./_database-navigation.js");
+    const wide: string[] = [];
+    for (let index = 0; index < 40; index += 1) {
+      const id = `cap-wide-${String(index).padStart(2, "0")}`;
+      await addFile({ id, position: index });
+      await addFile({ id: `${id}-x`, parentId: id });
+      wide.push(id);
+    }
+    const deep = ["cap-deep-0", "cap-deep-1", "cap-deep-2", "cap-deep-3"];
+    for (const [index, id] of deep.entries()) {
+      await addFile({ id, parentId: index === 0 ? null : deep[index - 1] });
+    }
+    await addFile({ id: "cap-deep-3-x", parentId: "cap-deep-3" });
+
+    // The deepest open folder is asked for first, ahead of its ancestors.
+    const tree = await navigate(
+      { parentId: null, expand: ["cap-deep-3", ...wide, ...deep] },
+      20,
+    );
+
+    expect(Object.keys(tree.branches ?? {})).toHaveLength(
+      MAX_NAVIGATION_EXPANDED_BRANCHES,
+    );
+    for (const id of deep) expect(tree.branches).toHaveProperty(id);
+    expect(tree.branches).toHaveProperty(wide[0]!);
+    expect(tree.branches).not.toHaveProperty(wide[wide.length - 1]!);
+    expect(tree.branchesTruncated).toBe(true);
+  });
+
+  it("returns a deleted database's typed response even when its saved view cannot be read", async () => {
+    const { personalDatabaseViewSettingKey } =
+      await import("./_content-database-personal-view.js");
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id: "deleted-files-document",
+      ownerEmail: OWNER,
+      title: "Deleted Files",
+      content: "",
+      visibility: "private",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb().insert(schema.contentDatabases).values({
+      id: "deleted-files",
+      ownerEmail: OWNER,
+      documentId: "deleted-files-document",
+      title: "Deleted Files",
+      deletedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await putUserSetting(
+      OWNER,
+      personalDatabaseViewSettingKey("deleted-files"),
+      { version: 0, views: "unreadable" },
+    );
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        action.run(
+          { databaseId: "deleted-files", navigation: { parentId: null } },
+          { userEmail: OWNER } as any,
+        ),
+      ),
+    ).resolves.toMatchObject({
+      available: false,
+      reason: "deleted",
+      databaseId: "deleted-files",
+    });
   });
 
   it("requires an explicit parent and rejects unsupported pagination combinations", () => {

@@ -37,6 +37,7 @@ function parseRows(value: unknown, max: number): SidebarRowsHint | undefined {
   return { rows: Math.min(rows, max), more: more === true };
 }
 
+// Folders are stored oldest first, so the cap keeps the most recently drawn.
 function parseBranches(
   value: unknown,
 ): Record<string, SidebarRowsHint> | undefined {
@@ -45,12 +46,22 @@ function parseBranches(
   }
   return Object.fromEntries(
     Object.entries(value)
-      .slice(0, MAX_HINTED_FILES_BRANCHES)
+      .slice(-MAX_HINTED_FILES_BRANCHES)
       .flatMap(([documentId, rows]) => {
         const parsed = parseRows(rows, MAX_HINTED_FILES_ROWS);
         return parsed ? [[documentId, parsed]] : [];
       }),
   );
+}
+
+/** Open folders with `documentId` moved last, as the most recently drawn. */
+export function withShownFilesBranch(
+  branches: Readonly<Record<string, SidebarRowsHint>> | undefined,
+  documentId: string,
+  rows: SidebarRowsHint,
+): Record<string, SidebarRowsHint> {
+  const { [documentId]: _previous, ...others } = branches ?? {};
+  return { ...others, [documentId]: rows };
 }
 
 function readStoredHint(): {

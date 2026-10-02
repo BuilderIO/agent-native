@@ -12,6 +12,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({ callAction }));
 import {
   filesNavigationPageParams,
   filesNavigationQueryKey,
+  openFilesFolderIds,
   readFilesNavigationPage,
 } from "./files-navigation";
 import {
@@ -173,5 +174,31 @@ describe("Files root hint", () => {
       params,
       expect.objectContaining({ method: "GET" }),
     );
+  });
+
+  it("asks for the open page's ancestors first when more folders are open than one read takes", async () => {
+    const queryClient = new QueryClient();
+    const params = filesNavigationPageParams({
+      databaseId: "files-1",
+      parentId: null,
+    });
+    const expanded = Array.from(
+      { length: 120 },
+      (_, index) => `expanded-${index}`,
+    );
+    callAction.mockResolvedValue({ ...page([]), branchesTruncated: true });
+
+    const read = await readFilesNavigationPage(
+      queryClient,
+      params,
+      openFilesFolderIds(["ancestor-a", "ancestor-b"], expanded),
+    );
+
+    const [, sent] = callAction.mock.calls[0]!;
+    const expand = (sent as { navigation: { expand: string[] } }).navigation
+      .expand;
+    expect(expand).toHaveLength(100);
+    expect(expand.slice(0, 2)).toEqual(["ancestor-a", "ancestor-b"]);
+    expect(read).toEqual(page([]));
   });
 });

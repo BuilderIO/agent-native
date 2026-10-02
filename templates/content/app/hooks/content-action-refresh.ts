@@ -253,12 +253,15 @@ function queryTargetsDatabase(query: ActionQuery, documentId: string): boolean {
   );
 }
 
+// The Files tree is ordered by the stored personal view but not keyed by it,
+// so it reads again with that view.
 function queryTargetsActiveDatabasePresentation(query: ActionQuery): boolean {
-  return (
-    query.queryKey[0] === "action" &&
-    query.queryKey[1] === "get-content-database-personal-view" &&
-    query.isActive?.() === true
-  );
+  if (query.queryKey[0] !== "action" || query.isActive?.() !== true)
+    return false;
+  if (query.queryKey[1] === "get-content-database-personal-view") return true;
+  if (query.queryKey[1] !== "query-content-database-items") return false;
+  const args = query.queryKey[2];
+  return !!args && typeof args === "object" && "navigation" in args;
 }
 
 function queryTargetsActiveNavigationOrRecent(query: ActionQuery): boolean {
@@ -411,20 +414,18 @@ export function contentActionInvalidatePredicate(
           eventRefreshesDocumentQuery(event.key, query.queryKey[1]),
       );
     }
+    if (
+      queryTargetsActiveDatabasePresentation(query) &&
+      eventsIncludeMutation(events, DATABASE_PRESENTATION_MUTATIONS)
+    ) {
+      return true;
+    }
     if (queryTargetsDatabase(query, documentId)) {
       return events.some(
         (event) =>
           event.source === "action" &&
           typeof event.key === "string" &&
           DATABASE_RESULT_MUTATIONS.has(event.key),
-      );
-    }
-    if (queryTargetsActiveDatabasePresentation(query)) {
-      return events.some(
-        (event) =>
-          event.source === "action" &&
-          typeof event.key === "string" &&
-          DATABASE_PRESENTATION_MUTATIONS.has(event.key),
       );
     }
     return false;

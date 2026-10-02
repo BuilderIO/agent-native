@@ -24,6 +24,7 @@ import { getDb, schema } from "../server/db/index.js";
 import type {
   ContentDatabaseFilter,
   ContentDatabaseFilterMode,
+  ContentDatabaseNavigationPage,
   ContentDatabaseNavigationPageResponse,
   ContentDatabaseNavigationSort,
   ContentDatabasePersonalViewOverrides,
@@ -313,8 +314,6 @@ function combineRevisions(parts: NavigationRevision[]) {
 // document IDs it accepts.
 export const MAX_NAVIGATION_EXPANDED_BRANCHES = 32;
 export const MAX_NAVIGATION_EXPAND_IDS = 100;
-
-type NavigationPage = Omit<ContentDatabaseNavigationPageResponse, "branches">;
 
 export async function getContentDatabaseNavigationPage(args: {
   database: typeof schema.contentDatabases.$inferSelect;
@@ -830,7 +829,7 @@ export async function getContentDatabaseNavigationPage(args: {
   const readBranch = async (
     parentId: string | null,
     after: NavigationCursor | null,
-  ): Promise<NavigationPage> => {
+  ): Promise<ContentDatabaseNavigationPage> => {
     const order =
       effectiveSort !== "custom"
         ? sortedOrder
@@ -946,11 +945,13 @@ export async function getContentDatabaseNavigationPage(args: {
   // shows the open page's ancestors under their parent's first page wherever
   // they sort.
   const branchReads = checked.then(async (rows) => {
-    if (!parentFound(rows)) return [];
+    if (!parentFound(rows)) return { branches: [], truncated: false };
     const expand = new Set(args.expand);
+    const parentOf = new Map<string, string | null>();
     const expandedChildren = new Map<string | null, string[]>();
     for (const row of rows) {
       if (!expand.has(row.id)) continue;
+      parentOf.set(row.id, row.parentId);
       const siblings = expandedChildren.get(row.parentId) ?? [];
       siblings.push(row.id);
       expandedChildren.set(row.parentId, siblings);
@@ -962,32 +963,51 @@ export async function getContentDatabaseNavigationPage(args: {
       );
       level = level.filter((documentId) => listed.has(documentId));
     }
-    const opened: string[] = [];
-    while (
-      level.length > 0 &&
-      opened.length < MAX_NAVIGATION_EXPANDED_BRANCHES
-    ) {
-      const take = level.slice(
-        0,
-        MAX_NAVIGATION_EXPANDED_BRANCHES - opened.length,
-      );
-      opened.push(...take);
-      level = take.flatMap(
-        (documentId) => expandedChildren.get(documentId) ?? [],
+    // Stored parent links can form a cycle through the requested parent, so
+    // a folder is reached once and the parent itself never opens.
+    const reachable = new Set<string>();
+    while (level.length > 0) {
+      for (const documentId of level) reachable.add(documentId);
+      level = level.flatMap((documentId) =>
+        (expandedChildren.get(documentId) ?? []).filter(
+          (child) => child !== args.parentId && !reachable.has(child),
+        ),
       );
     }
+    // The cap keeps folders in the order the caller asked for them, each with
+    // the open folders above it, so the open page's ancestors, asked for
+    // first, are not cut for breadth.
+    const opened = new Set<string>();
+    for (const documentId of args.expand ?? []) {
+      const chain: string[] = [];
+      for (
+        let id: string | null | undefined = documentId;
+        typeof id === "string" && reachable.has(id) && !opened.has(id);
+        id = parentOf.get(id)
+      ) {
+        chain.push(id);
+      }
+      if (opened.size + chain.length > MAX_NAVIGATION_EXPANDED_BRANCHES) {
+        continue;
+      }
+      for (const id of chain) opened.add(id);
+    }
+    const openedIds = [...opened];
     const pages = await Promise.all(
-      opened.map((documentId) => readBranch(documentId, null)),
+      openedIds.map((documentId) => readBranch(documentId, null)),
     );
-    // A folder with no children the caller can see draws no branch.
-    return opened.flatMap((documentId, index) =>
-      pages[index]!.items.length > 0
-        ? [[documentId, pages[index]!] as const]
-        : [],
-    );
+    return {
+      // A folder with no children the caller can see draws no branch.
+      branches: openedIds.flatMap((documentId, index) =>
+        pages[index]!.items.length > 0
+          ? [[documentId, pages[index]!] as const]
+          : [],
+      ),
+      truncated: opened.size < reachable.size,
+    };
   });
 
-  const [checkedRows, page, branches] = await Promise.all([
+  const [checkedRows, page, expanded] = await Promise.all([
     checked,
     pageRead,
     branchReads,
@@ -998,7 +1018,12 @@ export async function getContentDatabaseNavigationPage(args: {
       statusCode: 400,
     });
   }
-  return branches.length > 0
-    ? { ...page, branches: Object.fromEntries(branches) }
-    : page;
+  if (!args.expand?.length) return page;
+  return {
+    ...page,
+    ...(expanded.branches.length > 0
+      ? { branches: Object.fromEntries(expanded.branches) }
+      : {}),
+    branchesTruncated: expanded.truncated,
+  };
 }

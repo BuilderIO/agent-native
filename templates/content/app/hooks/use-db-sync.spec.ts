@@ -634,7 +634,7 @@ describe("contentActionInvalidatePredicate", () => {
     ).toBe(true);
   });
 
-  it("refreshes only the active personal-view query for personal presentation writes", () => {
+  it("refreshes only the active personal view and the Files tree it orders for personal presentation writes", () => {
     const predicate = contentActionInvalidatePredicate("/page/database-page");
     const personalViewQuery = {
       queryKey: [
@@ -644,19 +644,37 @@ describe("contentActionInvalidatePredicate", () => {
       ],
       isActive: () => true,
     };
+    const filesTreeQuery = {
+      queryKey: [
+        "action",
+        "query-content-database-items",
+        { databaseId: "files", limit: 20, navigation: { parentId: null } },
+      ],
+      isActive: () => true,
+    };
+    const tableQuery = {
+      queryKey: [
+        "action",
+        "query-content-database-items",
+        { documentId: "database-page", limit: 100 },
+      ],
+      isActive: () => true,
+    };
+    const events = [
+      { source: "action", key: "update-content-database-personal-view" },
+    ];
 
+    expect(predicate(personalViewQuery, events)).toBe(true);
     expect(
-      predicate(personalViewQuery, [
-        { source: "action", key: "update-content-database-personal-view" },
-      ]),
-    ).toBe(true);
+      predicate({ ...personalViewQuery, isActive: () => false }, events),
+    ).toBe(false);
+    expect(predicate(filesTreeQuery, events)).toBe(true);
     expect(
-      predicate({ ...personalViewQuery, isActive: () => false }, [
-        {
-          source: "action",
-          key: "update-content-database-personal-view",
-        },
-      ]),
+      predicate({ ...filesTreeQuery, isActive: () => false }, events),
+    ).toBe(false);
+    expect(predicate(tableQuery, events)).toBe(false);
+    expect(
+      predicate(filesTreeQuery, [{ source: "action", key: "add-comment" }]),
     ).toBe(false);
   });
 

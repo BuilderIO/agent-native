@@ -1077,12 +1077,24 @@ export interface ContentDatabaseNavigationPageResponse {
     hasMore: boolean;
     nextCursor: string | null;
   };
-  /** First pages of the requested expanded folders, by parent document ID. */
-  branches?: Record<
-    string,
-    Omit<ContentDatabaseNavigationPageResponse, "branches">
-  >;
+  /**
+   * First pages of the requested expanded folders, by parent document ID. A
+   * folder with no children the caller can see is left out.
+   */
+  branches?: Record<string, ContentDatabaseNavigationPage>;
+  /**
+   * Present when the read asked for expanded folders: true when the cap on
+   * branches per read left out folders it could have opened, which then read
+   * their own pages.
+   */
+  branchesTruncated?: boolean;
 }
+
+/** One Files navigation page on its own, without expanded folders. */
+export type ContentDatabaseNavigationPage = Omit<
+  ContentDatabaseNavigationPageResponse,
+  "branches" | "branchesTruncated"
+>;
 
 export interface BuilderActionTiming {
   name: string;

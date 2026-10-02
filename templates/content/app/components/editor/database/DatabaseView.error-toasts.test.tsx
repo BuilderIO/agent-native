@@ -223,6 +223,11 @@ vi.mock("@/hooks/use-content-database", () => ({
   useSetContentDatabaseSourceWriteMode: () => benignMutation,
   useContentDatabasePersonalView: () => ({ data: undefined, isLoading: false }),
   useUpdateContentDatabasePersonalView: () => benignMutation,
+  contentPersonalViewSaveKey: (databaseId: string | null) => [
+    "content-personal-view-save",
+    databaseId,
+  ],
+  refreshAfterPersonalViewSave: vi.fn(),
   useUpdateContentDatabaseView: () => updateViewMutation,
   useRemoveDatabaseItems: () => benignMutation,
   useDuplicateDatabaseItem: () => benignMutation,

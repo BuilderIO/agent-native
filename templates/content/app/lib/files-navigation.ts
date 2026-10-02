@@ -16,6 +16,18 @@ export const FILES_NAVIGATION_PAGE_SIZE = 20;
 // Most expanded folders one read asks for; the server caps what it returns.
 const MAX_EXPANDED_IDS_PER_READ = 100;
 
+/**
+ * The folders the Files tree draws open, most important first: both caps on
+ * the folders one read opens keep the first ones, so the open page's
+ * ancestors come before the folders a person expanded.
+ */
+export function openFilesFolderIds(
+  activeAncestorIds: Iterable<string>,
+  expandedDocumentIds: Iterable<string>,
+): ReadonlySet<string> {
+  return new Set([...activeAncestorIds, ...expandedDocumentIds]);
+}
+
 /** The Files tree order a person chose, as the paged navigation query reads it. */
 export function filesNavigationOrder(
   overrides: ContentDatabasePersonalViewOverrides | null | undefined,
@@ -82,7 +94,10 @@ export async function readFilesNavigationPage(
     { method: "GET", signal },
   );
   if ("available" in response) return response;
-  const { branches, ...page } = response;
+  // A folder left out of `branches`, whether the cap dropped it
+  // (`branchesTruncated`) or it has no children to show, is not seeded as
+  // empty: it reads its own page when it draws.
+  const { branches, branchesTruncated, ...page } = response;
   for (const [parentId, branch] of Object.entries(branches ?? {})) {
     const key = filesNavigationQueryKey(
       filesNavigationPageParams({
