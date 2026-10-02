@@ -1,4 +1,8 @@
-import { isTestIdentity, readBody } from "@agent-native/core/server";
+import {
+  isTestIdentity,
+  readBody,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import {
   SYNTHETIC_TRAFFIC_HEADER,
   isSyntheticTrafficValue,
@@ -6,8 +10,10 @@ import {
 import { defineEventHandler, getHeader, setResponseStatus } from "h3";
 
 import { getAppEventsTable } from "../lib/bigquery";
-import { resolveCredential } from "../lib/credentials";
-import { withRequestContextFromEvent } from "../lib/credentials";
+import {
+  getCredentialContextFromEvent,
+  resolveCredential,
+} from "../lib/credentials";
 import { getAccessToken } from "../lib/gcloud";
 
 export const handleTrackEvent = defineEventHandler(async (event) => {
@@ -24,13 +30,20 @@ export const handleTrackEvent = defineEventHandler(async (event) => {
       return { error: "Missing or invalid 'event' field" };
     }
 
+    // The legacy client sends an opaque uid, so only the signed-in email can
+    // match a configured test identity. No session is not a test identity.
+    const ctx = await getCredentialContextFromEvent(event);
     // `$exception` stays: this table is the only place it is queryable.
     const props = data && typeof data === "object" ? data : {};
     if (
       eventName !== "$exception" &&
-      [userId, props.user_email, props.userEmail, props.email].some(
-        isTestIdentity,
-      )
+      [
+        userId,
+        ctx?.userEmail,
+        props.user_email,
+        props.userEmail,
+        props.email,
+      ].some(isTestIdentity)
     ) {
       setResponseStatus(event, 202);
       return { success: true, accepted: 0, suppressedTestIdentity: 1 };
@@ -58,18 +71,23 @@ export const handleTrackEvent = defineEventHandler(async (event) => {
       modelId: null,
     };
 
-    const ctxResult = await withRequestContextFromEvent(event, async (ctx) => {
-      const [credentials, projectId] = await Promise.all([
-        resolveCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", ctx),
-        resolveCredential("BIGQUERY_PROJECT_ID", ctx),
-      ]);
-      if (!credentials || !projectId) return null;
-      const [token, table] = await Promise.all([
-        getAccessToken(),
-        getAppEventsTable(projectId, ctx),
-      ]);
-      return { token, table };
-    });
+    const ctxResult = ctx
+      ? await runWithRequestContext(
+          { userEmail: ctx.userEmail, orgId: ctx.orgId ?? undefined },
+          async () => {
+            const [credentials, projectId] = await Promise.all([
+              resolveCredential("GOOGLE_APPLICATION_CREDENTIALS_JSON", ctx),
+              resolveCredential("BIGQUERY_PROJECT_ID", ctx),
+            ]);
+            if (!credentials || !projectId) return null;
+            const [token, table] = await Promise.all([
+              getAccessToken(),
+              getAppEventsTable(projectId, ctx),
+            ]);
+            return { token, table };
+          },
+        )
+      : null;
 
     if (ctxResult) {
       const { token, table } = ctxResult;
