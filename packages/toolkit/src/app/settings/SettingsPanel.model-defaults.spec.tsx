@@ -8,7 +8,7 @@ import { AppDefaultModelField } from "./SettingsPanel.js";
 
 const BUILDER_MODELS = [
   "auto",
-  "claude-opus-4-8",
+  "claude-opus-5-5",
   "claude-sonnet-5",
   "claude-haiku-4-5",
   "gpt-5-6-sol",
@@ -71,7 +71,7 @@ describe("AppDefaultModelField", () => {
     );
     expect(options).toEqual([
       "auto",
-      "Opus 4.8",
+      "Opus 5.5",
       "Sonnet 5",
       "Haiku 4.5",
       "GPT-5.6 Sol",

@@ -55,7 +55,7 @@ const OPENAI_LIVE_SESSIONS_URL = "https://api.openai.com/v1/live/sessions";
 const OPENAI_REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const DEFAULT_MODEL = "gpt-live-1";
 const LEGACY_MODEL = "gpt-realtime-2.1";
-const DEFAULT_DELEGATED_MODEL = "gpt-5.6-luna";
+const DEFAULT_DELEGATED_MODEL = "gpt-6-luna";
 const DEFAULT_VOICE = "marin";
 const DEFAULT_INSTRUCTIONS =
   "You are the live voice interface for this Agent-Native app. Speak naturally, briefly, and conversationally. Use the available function tools when the user asks you to navigate or take an action. When the user asks about a previous conversation, saved chat details, or something they told you before, search with the `chat-history` tool before saying you cannot access it. Summarize a matching result and open a thread only when the user asks. If the user repeats a request, acknowledge the prior attempt and finish or correct the missing part instead of restarting from scratch or asking the same clarification again. Never claim an action succeeded until its tool result confirms success. If a tool requires approval, explain that the user must approve it in chat.";

@@ -95,4 +95,32 @@ describe("ResourceEditor markdown editing", () => {
       "---\nname: Release notes\ndescription: Ship safely\n---\n# Updated\n",
     );
   });
+
+  it("offers the gateway-compatible Sonnet model for custom agents", () => {
+    const onSave = vi.fn();
+    act(() => {
+      root.render(
+        <ResourceEditor
+          resource={{
+            ...resource,
+            path: "agents/researcher.md",
+            content:
+              "---\nname: Researcher\nmodel: claude-sonnet-5\n---\n# Research\n",
+          }}
+          onSave={onSave}
+          view="visual"
+        />,
+      );
+    });
+
+    const modelPicker = container.querySelector("select")!;
+    expect(modelPicker.value).toBe("claude-sonnet-5");
+    expect(
+      Array.from(modelPicker.options).some(
+        (option) =>
+          option.value === "claude-sonnet-5" &&
+          option.textContent === "Claude Sonnet 5",
+      ),
+    ).toBe(true);
+  });
 });
