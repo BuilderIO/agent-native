@@ -117,6 +117,13 @@ function setupFetch(options?: {
   deferredDuplicate?: boolean;
   patchFailures?: { deckId: string; count: number };
   revisionConflicts?: { deckId: string; count: number };
+  slideFieldConflicts?: {
+    deckId: string;
+    count: number;
+    slideId: string;
+    field: string;
+    remoteValue: unknown;
+  };
   staleContentConflicts?: boolean;
   staleContentFailures?: { deckId: string; count: number };
   getDeckFailures?: { deckId: string; count: number };
@@ -625,6 +632,42 @@ function setupFetch(options?: {
             contentPatch && typeof contentPatch === "object"
               ? ((contentPatch as { slideId?: string }).slideId ?? "slide-1")
               : "slide-1",
+          ),
+        );
+      }
+      const slideFieldConflict = options?.slideFieldConflicts;
+      if (
+        accessibleDeck &&
+        slideFieldConflict?.deckId === deckId &&
+        attempts <= slideFieldConflict.count
+      ) {
+        const updatedAt = nextDeckRevision(accessibleDeck.updatedAt);
+        accessibleDeck = {
+          ...accessibleDeck,
+          updatedAt,
+          slides: accessibleDeck.slides.map((slide) =>
+            slide.id === slideFieldConflict.slideId
+              ? {
+                  ...slide,
+                  [slideFieldConflict.field]: slideFieldConflict.remoteValue,
+                }
+              : slide,
+          ),
+        };
+        if (options?.serverFaithfulClientWrites) {
+          serverWriteRevisions.set(deckId, { updatedAt });
+        }
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              error: "Slide field changed since it was read",
+              errorCode: "slide_field_stale",
+              details: {
+                slideId: slideFieldConflict.slideId,
+                field: slideFieldConflict.field,
+              },
+            }),
+            { status: 409 },
           ),
         );
       }
@@ -1692,7 +1735,7 @@ describe("DeckContext deck creation persistence", () => {
     expect(hasUnsavedDeckChanges(deckId)).toBe(false);
   });
 
-  it("keeps mixed content and metadata revision conflicts terminal", async () => {
+  it("retries a mixed content and metadata patch across an unrelated revision conflict", async () => {
     const deckId = "mixed-slide-revision-conflict-deck";
     window.history.pushState({}, "", `/deck/${deckId}`);
     const {
@@ -1732,20 +1775,156 @@ describe("DeckContext deck creation persistence", () => {
       );
     });
 
-    await waitFor(() => expect(hasFailedDeckSave(deckId)).toBe(true));
     await act(async () => {
-      await expect(result.current.flushDeckSave(deckId)).rejects.toThrow(
-        "Failed to save deck",
+      await result.current.flushDeckSave(deckId);
+    });
+
+    expect(getPatchAttempts(deckId)).toBe(2);
+    expect(deckFetchCalls(fetchMock)).toHaveLength(readsBeforeEdit + 1);
+    expect(
+      actionCallBody(
+        fetchMock.mock.calls.filter(([url]) =>
+          requestString(url).includes("/_agent-native/actions/patch-deck"),
+        )[1]?.[1],
+      ).operations,
+    ).toMatchObject([
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { content: "Edited", notes: "New notes" },
+        baseContentHash: hashSlideContent("One"),
+        baseFields: { notes: { present: true, value: "Old notes" } },
+      },
+    ]);
+    expect(getAccessibleDeck()?.slides).toMatchObject([
+      { id: "slide-1", content: "Edited", notes: "New notes" },
+      { id: "slide-4", notes: "Remote revision 1" },
+    ]);
+    expect(hasFailedDeckSave(deckId)).toBe(false);
+    expect(hasUnsavedDeckChanges(deckId)).toBe(false);
+  });
+
+  it("quarantines a stale slide field while saving unrelated edits", async () => {
+    const deckId = "mixed-slide-field-conflict-deck";
+    window.history.pushState({}, "", `/deck/${deckId}`);
+    const {
+      fetchMock,
+      setAccessibleDeck,
+      getAccessibleDeck,
+      getPatchAttempts,
+    } = setupFetch({
+      slideFieldConflicts: {
+        deckId,
+        count: 1,
+        slideId: "slide-1",
+        field: "notes",
+        remoteValue: "Peer notes",
+      },
+      serverFaithfulClientWrites: true,
+    });
+    const { result } = renderHook(() => useDecks(), { wrapper });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    setAccessibleDeck({
+      id: deckId,
+      title: "Slide field conflict deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        { id: "slide-1", content: "One", notes: "Old notes", layout: "title" },
+        {
+          id: "slide-2",
+          content: "Two",
+          notes: "Other old notes",
+          layout: "content",
+        },
+      ],
+    });
+    await act(async () => {
+      await result.current.reloadDecks();
+    });
+
+    act(() => {
+      result.current.updateSlide(
+        deckId,
+        "slide-1",
+        { content: "Local content", notes: "Local notes" },
+        { persistence: "immediate" },
+      );
+      result.current.updateSlide(
+        deckId,
+        "slide-2",
+        { notes: "Other notes" },
+        { persistence: "immediate" },
       );
     });
 
-    expect(getPatchAttempts(deckId)).toBe(1);
-    expect(deckFetchCalls(fetchMock)).toHaveLength(readsBeforeEdit);
-    expect(getAccessibleDeck()?.slides).toMatchObject([
-      { id: "slide-1", content: "One", notes: "Old notes" },
-      { id: "slide-4", notes: "Remote revision 1" },
+    await act(async () => {
+      await expect(result.current.flushDeckSave(deckId)).rejects.toThrow(
+        "unresolved slide field conflict",
+      );
+    });
+
+    const patchCalls = fetchMock.mock.calls.filter(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    expect(getPatchAttempts(deckId)).toBe(2);
+    expect(actionCallBody(patchCalls[1]?.[1]).operations).toMatchObject([
+      {
+        op: "patch-slide",
+        slideId: "slide-1",
+        fields: { content: "Local content" },
+        baseContentHash: hashSlideContent("One"),
+      },
+      {
+        op: "patch-slide",
+        slideId: "slide-2",
+        fields: { notes: "Other notes" },
+      },
     ]);
+    expect(getAccessibleDeck()?.slides).toMatchObject([
+      { id: "slide-1", content: "Local content", notes: "Peer notes" },
+      { id: "slide-2", notes: "Other notes" },
+    ]);
+    expect(
+      result.current.decks
+        .find((deck) => deck.id === deckId)
+        ?.slides.find((slide) => slide.id === "slide-1")?.notes,
+    ).toBe("Local notes");
+    expect(hasFailedDeckSave(deckId)).toBe(true);
     expect(hasUnsavedDeckChanges(deckId)).toBe(true);
+
+    act(() => {
+      result.current.updateSlide(
+        deckId,
+        "slide-1",
+        { notes: "Reconciled notes" },
+        { persistence: "immediate" },
+      );
+    });
+    await act(async () => {
+      await result.current.flushDeckSave(deckId);
+    });
+
+    const resolvedPatchCalls = fetchMock.mock.calls.filter(([url]) =>
+      requestString(url).includes("/_agent-native/actions/patch-deck"),
+    );
+    expect(actionCallBody(resolvedPatchCalls[2]?.[1]).operations).toMatchObject(
+      [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          fields: { notes: "Reconciled notes" },
+          baseFields: { notes: { present: true, value: "Peer notes" } },
+        },
+      ],
+    );
+    expect(getAccessibleDeck()?.slides).toMatchObject([
+      { id: "slide-1", notes: "Reconciled notes" },
+      { id: "slide-2", notes: "Other notes" },
+    ]);
+    expect(hasFailedDeckSave(deckId)).toBe(false);
+    expect(hasUnsavedDeckChanges(deckId)).toBe(false);
   });
 
   it("does not refetch or retry a non-revision 409", async () => {

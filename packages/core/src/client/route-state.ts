@@ -477,7 +477,7 @@ export function useAgentRouteState<
         );
       }
       options.onNavigate?.(command, path);
-      if (path === currentRouterPath(location)) return;
+      if (!workspaceAppTarget && path === currentRouterPath(location)) return;
 
       const navigateOptions = options.navigateOptions;
       const resolvedOptions =

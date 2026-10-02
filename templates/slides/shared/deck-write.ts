@@ -30,7 +30,6 @@ export function isMergeSafeDeckPatchOperations(operations: unknown): boolean {
       (field) => field !== "content" && patchFields[field] !== undefined,
     );
     if (nonContentFields.length === 0) return hasContent;
-    if (hasContent) return false;
 
     const baselines = candidate.baseFields;
     if (
