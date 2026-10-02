@@ -129,6 +129,9 @@ describe("MessageQueueDrawer", () => {
           labels={labels}
           variant="recessed"
           onRemove={() => undefined}
+          getItemActions={() => [
+            { id: "move-to-top", label: "Move to top", onSelect: () => {} },
+          ]}
         />,
       );
     });
@@ -137,6 +140,13 @@ describe("MessageQueueDrawer", () => {
       '[data-agent-message-queue="true"]',
     );
     expect(drawer?.dataset.empty).toBe("false");
+    expect(drawer?.className).toContain("border-0");
+    expect(drawer?.className).toContain("rounded-b-none");
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        'button[aria-label="More actions"]',
+      ),
+    ).toBeNull();
     expect(drawer?.style.getPropertyValue("--agent-message-queue-height")).toBe(
       "46px",
     );

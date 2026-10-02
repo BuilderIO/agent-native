@@ -894,11 +894,18 @@ describe("AgentKitAssistantChat host behavior", () => {
 
   async function useRealComposer(
     startRun: AgentTransport["startRun"] = vi.fn(),
+    transportOverrides: Partial<AgentTransport> = {},
   ) {
     const at = "2026-09-28T00:00:00.000Z";
+    const subscribeToRun =
+      transportOverrides.subscribeToRun ?? async function* () {};
     const client = new AgentKitClient({
       transport: {
-        capabilities: { suggestions: true },
+        ...transportOverrides,
+        capabilities: {
+          suggestions: true,
+          ...transportOverrides.capabilities,
+        },
         getThreadSnapshot: async ({ threadId }) => ({
           id: threadId,
           createdAt: at,
@@ -913,8 +920,8 @@ describe("AgentKitAssistantChat host behavior", () => {
           suggestions: chatMocks.thread.suggestions,
         }),
         startRun,
-        async *subscribeToRun() {},
-        async cancelRun() {},
+        subscribeToRun,
+        cancelRun: transportOverrides.cancelRun ?? (async () => {}),
       },
     });
     await client.loadThread(chatMocks.threadId);
@@ -922,6 +929,152 @@ describe("AgentKitAssistantChat host behavior", () => {
     chatMocks.readThread = () => client.getThread(chatMocks.threadId);
     return client;
   }
+
+  it("queues a real composer submission while a run is active", async () => {
+    const at = "2026-09-28T00:00:00.000Z";
+    const activeRunFinished = Promise.withResolvers<void>();
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => ({
+      runId: "run-active",
+    }));
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ threadId, text }) => ({
+        message: {
+          id: "queued-1",
+          threadId,
+          text,
+          createdAt: at,
+        },
+      }),
+    );
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    const client = await useRealComposer(startRun, {
+      capabilities: { messageQueue: true },
+      queueMessage,
+      async *subscribeToRun({ threadId, runId }) {
+        await activeRunFinished.promise;
+        yield {
+          id: "event-run-completed",
+          type: "run.completed",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: at,
+        };
+      },
+    });
+
+    try {
+      await client.sendMessage({
+        threadId: chatMocks.threadId,
+        text: "Current turn",
+      });
+      expect(client.getThread(chatMocks.threadId).activeRunIds).toEqual([
+        "run-active",
+      ]);
+
+      await mount(baseProps({ showModelSelector: false }));
+      const composer = chatMocks.composerProps.composerRef.current;
+      await act(async () => composer.setText("Next turn"));
+      const send = container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      )!;
+      expect(send.disabled).toBe(false);
+
+      await act(async () => send.click());
+
+      expect(queueMessage).toHaveBeenCalledOnce();
+      expect(queueMessage.mock.calls[0]?.[0]).toMatchObject({
+        threadId: chatMocks.threadId,
+        text: "Next turn",
+      });
+      expect(startRun).toHaveBeenCalledOnce();
+      expect(client.getThread(chatMocks.threadId).queuedMessages).toEqual([
+        expect.objectContaining({ text: "Next turn" }),
+      ]);
+    } finally {
+      activeRunFinished.resolve();
+      await flush();
+    }
+  });
+
+  it("uses Cmd-click to steer an active run without a second run-slot send", async () => {
+    const at = "2026-09-28T00:00:00.000Z";
+    const activeRunFinished = Promise.withResolvers<void>();
+    const startRun = vi.fn<AgentTransport["startRun"]>(async () => ({
+      runId: "run-active",
+    }));
+    const queueMessage = vi.fn<NonNullable<AgentTransport["queueMessage"]>>(
+      async ({ threadId, text }) => ({
+        message: {
+          id: "queued-steer",
+          threadId,
+          text,
+          createdAt: at,
+        },
+      }),
+    );
+    const steerQueuedMessage = vi.fn<
+      NonNullable<AgentTransport["steerQueuedMessage"]>
+    >(async () => undefined);
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    const client = await useRealComposer(startRun, {
+      capabilities: { messageQueue: true },
+      queueMessage,
+      steerQueuedMessage,
+      async *subscribeToRun({ threadId, runId }) {
+        await activeRunFinished.promise;
+        yield {
+          id: "event-run-completed",
+          type: "run.completed",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: at,
+        };
+      },
+    });
+
+    try {
+      await client.sendMessage({
+        threadId: chatMocks.threadId,
+        text: "Current turn",
+      });
+      await mount(baseProps({ showModelSelector: false }));
+      await act(async () =>
+        chatMocks.composerProps.composerRef.current.setText("Steer this turn"),
+      );
+      const send = container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      )!;
+
+      await act(async () => {
+        send.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            metaKey: true,
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(queueMessage).toHaveBeenCalledOnce();
+      expect(steerQueuedMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          threadId: chatMocks.threadId,
+          messageId: "queued-steer",
+          interruptActiveRun: true,
+        }),
+        expect.anything(),
+      );
+      expect(startRun).toHaveBeenCalledOnce();
+      expect(client.getThread(chatMocks.threadId).queuedMessages).toEqual([]);
+    } finally {
+      activeRunFinished.resolve();
+      await flush();
+    }
+  });
 
   it("keeps the real editor editable while a submission is in flight", async () => {
     chatMocks.useRealChat = true;
@@ -1780,13 +1933,13 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
     await flush();
 
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledExactlyOnceWith(
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({
         text: "Follow up after Analytics Add Panel",
         queuedWhileRunActive: true,
       }),
     );
-    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
     expect(chatMocks.appState.has(stateKey!)).toBe(false);
   });
 
@@ -2412,10 +2565,7 @@ describe("AgentKitAssistantChat host behavior", () => {
         text: "Keep this selection",
         capturedAt: Date.now(),
       });
-      const send =
-        intent === "queued"
-          ? chatMocks.control.queueMessage
-          : chatMocks.control.sendMessage;
+      const send = chatMocks.control.sendMessage;
       send.mockRejectedValueOnce(new Error("Send refused"));
       await mount(baseProps());
       await flush();
@@ -3211,16 +3361,22 @@ describe("AgentKitAssistantChat host behavior", () => {
       });
     });
 
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledTimes(2);
-    expect(chatMocks.control.queueMessage).toHaveBeenNthCalledWith(
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledTimes(2);
+    expect(chatMocks.control.sendMessage).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ text: "Next imperative turn" }),
+      expect.objectContaining({
+        text: "Next imperative turn",
+        queuedWhileRunActive: true,
+      }),
     );
-    expect(chatMocks.control.queueMessage).toHaveBeenNthCalledWith(
+    expect(chatMocks.control.sendMessage).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ text: "Next guided turn" }),
+      expect.objectContaining({
+        text: "Next guided turn",
+        queuedWhileRunActive: true,
+      }),
     );
-    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
   });
 
   it("sends directly when a stale composer render outlives the queued run", async () => {
@@ -3243,7 +3399,11 @@ describe("AgentKitAssistantChat host behavior", () => {
     await act(async () => {
       await ref.current?.sendMessage("Queue while the follow-up is active");
     });
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage.mock.calls[0]?.[0]).toMatchObject({
+      text: "Queue while the follow-up is active",
+      queuedWhileRunActive: true,
+    });
 
     chatMocks.thread.runs["run-queued-follow-up"].status = "completed";
     await act(async () => {
@@ -3253,7 +3413,11 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ text: "Send directly after completion" }),
     );
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledTimes(2);
+    expect(chatMocks.control.sendMessage.mock.calls[1]?.[0]).toMatchObject({
+      text: "Send directly after completion",
+      queuedWhileRunActive: false,
+    });
   });
 
   it("queues an unresolved approval and sends directly after its resolution event", async () => {
@@ -3288,8 +3452,11 @@ describe("AgentKitAssistantChat host behavior", () => {
     await act(async () => {
       await ref.current?.sendMessage("Queue during approval");
     });
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ text: "Queue during approval" }),
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "Queue during approval",
+        queuedWhileRunActive: true,
+      }),
     );
 
     chatMocks.thread.events.push({
@@ -3322,7 +3489,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ text: "Guided send after approval" }),
     );
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
   });
 
   it("forwards slash commands, skills, and localized labels to AgentKit", async () => {
@@ -3491,9 +3658,10 @@ describe("AgentKitAssistantChat host behavior", () => {
     });
     expect(resume).toBeInstanceOf(Promise);
     await act(async () => resume);
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledWith(
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         text: "Continue after connecting the integration.",
+        queuedWhileRunActive: true,
       }),
     );
 
@@ -3523,17 +3691,20 @@ describe("AgentKitAssistantChat host behavior", () => {
       });
     });
 
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledOnce();
-    expect(chatMocks.control.queueMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ text: "Continue after OAuth." }),
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledOnce();
+    expect(chatMocks.control.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "Continue after OAuth.",
+        queuedWhileRunActive: true,
+      }),
     );
-    expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+    expect(chatMocks.control.queueMessage).not.toHaveBeenCalled();
   });
 
   it("keeps failed integration prompt submissions resumable", async () => {
     chatMocks.thread.activeRunIds = ["run-1"];
     const submissionError = new Error("Temporary send failure");
-    chatMocks.control.queueMessage.mockRejectedValueOnce(submissionError);
+    chatMocks.control.sendMessage.mockRejectedValueOnce(submissionError);
     await mount(baseProps());
 
     await expect(

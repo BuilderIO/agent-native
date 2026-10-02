@@ -87,6 +87,7 @@ import {
 } from "./composer-submission.js";
 export type { AgentKitComposerSubmission } from "./composer-submission.js";
 
+import { splitAgentKitMessageContext } from "@agent-native/agentkit";
 import type { AgentThreadState } from "@agent-native/agentkit/client";
 import {
   AgentKitCapabilityError,
@@ -2192,7 +2193,10 @@ function AgentUserMessageText({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
   const [expandable, setExpandable] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
-  const content = useMemo(() => renderUserMessageText(text), [text]);
+  const content = useMemo(
+    () => renderUserMessageText(splitAgentKitMessageContext(text).message),
+    [text],
+  );
 
   useLayoutEffect(() => {
     const element = contentRef.current;
@@ -2278,11 +2282,15 @@ export function AgentMessagePartView({
 }: AgentMessagePartViewProps) {
   const { labels, slots, registry } = useAgentKit();
   if (part.type === "reasoning" && part.visibility === "hidden") return null;
+  const displayPart =
+    part.type === "text"
+      ? { ...part, text: splitAgentKitMessageContext(part.text).message }
+      : part;
   const RegisteredRenderer = registry.messageParts?.[part.type];
   if (RegisteredRenderer) {
     return (
       <RegisteredRenderer
-        value={part}
+        value={displayPart}
         threadId={threadId}
         active={active}
         resetKey={resetKey}
@@ -2291,19 +2299,23 @@ export function AgentMessagePartView({
   }
   switch (part.type) {
     case "text": {
+      const textPart = displayPart as Extract<
+        AgentMessagePart,
+        { type: "text" }
+      >;
       const Renderer = userMessage ? undefined : slots.text;
       return Renderer ? (
         <Renderer
-          value={part}
+          value={textPart}
           threadId={threadId}
           active={active}
           resetKey={resetKey}
         />
       ) : userMessage ? (
-        <AgentUserMessageText text={part.text} />
-      ) : part.format === "markdown" ? (
+        <AgentUserMessageText text={textPart.text} />
+      ) : textPart.format === "markdown" ? (
         <AgentStreamingText
-          text={part.text}
+          text={textPart.text}
           active={active}
           resetKey={resetKey}
         >
@@ -2312,7 +2324,7 @@ export function AgentMessagePartView({
       ) : (
         <p data-format="plain">
           <AgentStreamingText
-            text={part.text}
+            text={textPart.text}
             active={active}
             resetKey={resetKey}
           />
@@ -2609,7 +2621,7 @@ export function AgentMessageActions({
   const forkingCapability = useAgentCapability("threadForking");
   const control = useAgentKitControl(threadId);
   const editContext = useContext(AgentMessageEditContext);
-  const text = messageText(message);
+  const text = splitAgentKitMessageContext(messageText(message)).message;
   const previousUserMessage =
     message.role === "assistant"
       ? findPreviousUserMessage(thread.messages, message.id)
@@ -2937,7 +2949,7 @@ export function AgentMessageActions({
             ) : null}
             {slots.messageActionsTrailing ? (
               <slots.messageActionsTrailing
-                value={message}
+                value={stripAgentMessageContext(message)}
                 threadId={threadId}
               />
             ) : null}
@@ -3064,6 +3076,7 @@ export function AgentMessageView({
 }: AgentKitRenderProps<AgentMessage>) {
   const { labels, slots } = useAgentKit();
   const thread = useAgentThread(threadId);
+  const visibleMessage = stripAgentMessageContext(message);
   const Supplement = slots.messageSupplement;
   const Actions = slots.messageActions ?? AgentMessageActions;
   const embeddedWidgetIds = new Set(
@@ -3092,7 +3105,7 @@ export function AgentMessageView({
     !attachedAnnotations.length
   ) {
     return Supplement ? (
-      <Supplement value={message} threadId={threadId} />
+      <Supplement value={visibleMessage} threadId={threadId} />
     ) : null;
   }
   return (
@@ -3104,7 +3117,7 @@ export function AgentMessageView({
       aria-busy={message.status === "streaming"}
     >
       <div className="agentkit-message-content">
-        {message.parts.map((part, index) => (
+        {visibleMessage.parts.map((part, index) => (
           <AgentMessagePartView
             key={`${message.id}-${index}`}
             value={part}
@@ -3132,11 +3145,38 @@ export function AgentMessageView({
             ))}
           </div>
         ) : null}
-        {Supplement ? <Supplement value={message} threadId={threadId} /> : null}
+        {Supplement ? (
+          <Supplement value={visibleMessage} threadId={threadId} />
+        ) : null}
       </div>
-      <Actions value={message} threadId={threadId} />
+      <Actions
+        value={slots.messageActions ? visibleMessage : message}
+        threadId={threadId}
+      />
     </article>
   );
+}
+
+function stripAgentMessageContext(message: AgentMessage): AgentMessage {
+  const metadata = stripAgentContextMetadata(message.metadata);
+  return {
+    ...message,
+    ...(metadata ? { metadata } : {}),
+    parts: message.parts.map((part) =>
+      part.type === "text"
+        ? { ...part, text: splitAgentKitMessageContext(part.text).message }
+        : part,
+    ),
+  };
+}
+
+function stripAgentContextMetadata(
+  metadata?: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (!metadata) return metadata;
+  const visibleMetadata = { ...metadata };
+  delete visibleMetadata.contextItems;
+  return visibleMetadata;
 }
 
 export function AgentRunFailure({
@@ -3424,7 +3464,7 @@ export function AgentKitComposer({
   const executionMode = mode ?? uncontrolledMode;
   const active = hasActiveRuns(thread);
   const composerInitialText = editingMessage
-    ? messageText(editingMessage)
+    ? splitAgentKitMessageContext(messageText(editingMessage)).message
     : initialText;
   const composerInitialTextKey = editingMessage
     ? `edit:${editingMessage.id}`
@@ -3665,16 +3705,14 @@ export function AgentKitComposer({
       attachments: [...payload.attachments],
       options: payload.options,
       metadata: sendMetadata,
+      queueWhileRunning,
+      ...(options.steer ? { interruptActiveRun: true } : {}),
       onLocalSubmit,
     };
-    if (payload.intent === "queued") {
-      await control.queueMessage({
-        ...message,
-        queuedWhileRunActive: activeAtSubmit,
-      });
-    } else {
-      await control.sendMessage(message);
-    }
+    await control.sendMessage({
+      ...message,
+      queuedWhileRunActive: activeAtSubmit,
+    });
   };
   const prepareHostSubmit = async () => {
     if (disabled) {
@@ -3691,15 +3729,7 @@ export function AgentKitComposer({
           void command
             .execute(async () => {
               if (!(await prepareHostSubmit())) return;
-              if (onSubmitOverride) {
-                await submitMessage(item.text, [], [], {
-                  intent: "immediate",
-                  attachments: item.attachments,
-                });
-                await control.removeQueued(item.id);
-              } else {
-                await control.steerQueued(item.id);
-              }
+              await control.steerQueued(item.id, { interruptActiveRun: true });
             })
             .catch(() => undefined)
             .finally(focusComposer)
@@ -3755,7 +3785,14 @@ export function AgentKitComposer({
       {queueCapability.visible ? (
         Queue ? (
           <Queue
-            items={thread.queuedMessages}
+            items={thread.queuedMessages.map((message) => {
+              const metadata = stripAgentContextMetadata(message.metadata);
+              return {
+                ...message,
+                text: splitAgentKitMessageContext(message.text).message,
+                ...(metadata ? { metadata } : {}),
+              };
+            })}
             threadId={threadId}
             active={active}
             pending={command.pending || Boolean(disabled)}
@@ -3767,7 +3804,7 @@ export function AgentKitComposer({
             variant="recessed"
             items={thread.queuedMessages.map((message) => ({
               id: message.id,
-              text: message.text,
+              text: splitAgentKitMessageContext(message.text).message,
               images: (message.attachments ?? []).flatMap((attachment) => {
                 if (!attachment.mediaType?.startsWith("image/")) return [];
                 const src = safeAgentImageSrc(attachment.url);
@@ -3863,6 +3900,10 @@ export function AgentKitComposer({
         autoFocus={autoFocus}
         composerRef={composerRef}
         willQueue={active && queueWhileRunning && canQueue}
+        onEmptySubmit={() => {
+          const next = thread.queuedMessages[0];
+          if (next) steerQueued?.(next);
+        }}
         showModelSelector={showModelSelector && canSelectModel}
         availableModels={availableModels}
         modelListLoading={modelListLoading}
@@ -4551,13 +4592,16 @@ export function AgentKitChat({
         </AgentWorkDisclosure>,
       );
     }
+    const messageValue = messageRenderer
+      ? stripAgentMessageContext(displayMessage)
+      : displayMessage;
     transcriptItems.push(
       <AgentKitSurfaceBoundary
         key={`message:${threadId}:${message.id}`}
         surface="message"
         resetKey={`${message.id}:${thread.events.length}`}
       >
-        <Message value={displayMessage} threadId={threadId} />
+        <Message value={messageValue} threadId={threadId} />
       </AgentKitSurfaceBoundary>,
     );
     if (isAssistantBoundary && runId) {

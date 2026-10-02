@@ -170,6 +170,7 @@
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
         "@agent-native/agentkit",
+        "@agent-native/core",
         "@assistant-ui/react",
         "@radix-ui/react-avatar",
         "@radix-ui/react-checkbox",

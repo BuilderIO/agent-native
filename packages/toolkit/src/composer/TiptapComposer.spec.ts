@@ -1245,7 +1245,7 @@ describe("createTiptapComposerExtensions", () => {
     );
   });
 
-  it("maps Enter keybindings to immediate and queued submit intents", () => {
+  it("maps modified Enter to an immediate steer intent", () => {
     const enter = {
       key: "Enter",
       shiftKey: false,
@@ -1257,10 +1257,10 @@ describe("createTiptapComposerExtensions", () => {
     expect(getComposerSubmitIntentForEnterKey(enter, false)).toBe("immediate");
     expect(
       getComposerSubmitIntentForEnterKey({ ...enter, metaKey: true }, true),
-    ).toBe("queued");
+    ).toBe("immediate");
     expect(
       getComposerSubmitIntentForEnterKey({ ...enter, ctrlKey: true }, false),
-    ).toBe("queued");
+    ).toBe("immediate");
     expect(
       getComposerSubmitIntentForEnterKey(
         { ...enter, shiftKey: true, metaKey: true },

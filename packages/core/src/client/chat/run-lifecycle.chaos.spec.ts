@@ -1,3 +1,4 @@
+import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
 import type { AgentEvent } from "@agent-native/agentkit/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -656,125 +657,34 @@ describe("a message sent while the server still owns the thread", () => {
     vi.useRealTimers();
   });
 
-  /**
-   * A thread another run holds for `busyPolls` reads of `/runs/active`, with
-   * the server's real queue: the message only exists on the server once it
-   * sits in `queue`.
-   */
-  function createBusyThreadServer(
-    options: {
-      busyPolls?: number;
-      activeAnswer?: (poll: number) => Response | undefined;
-      /** AgentKit messages already in the saved thread. */
-      savedMessages?: unknown[];
-    } = {},
-  ) {
+  function createBusyThreadServer() {
     const posts: string[] = [];
-    const bodies: Wire[] = [];
-    const queue: { id: string; text: string }[] = [];
-    const mutations: string[] = [];
-    let activePolls = 0;
+    let queueMutationRequests = 0;
     const fetcher = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = new URL(String(input), "http://localhost");
         const method = String(init?.method ?? "GET").toUpperCase();
-        const busy = activePolls <= (options.busyPolls ?? 3);
         if (method === "POST" && url.pathname === API) {
           const body = JSON.parse(String(init?.body)) as Wire;
-          bodies.push(body);
           posts.push(String(body.message));
-          if (busy || (posts.length === 1 && options.busyPolls !== 0)) {
-            return Response.json(
-              {
-                error: "Run already in progress for this thread",
-                code: "run_slot_busy",
-                retryable: true,
-                activeRunId: "run-earlier",
-              },
-              { status: 409 },
-            );
-          }
-          return new Response(
-            [
-              { type: "text", text: "On it.", seq: 0 },
-              { type: "done", seq: 1 },
-            ]
-              .map((event) => `data: ${JSON.stringify(event)}\n\n`)
-              .join(""),
+          return Response.json(
             {
-              headers: {
-                "Content-Type": "text/event-stream",
-                "X-Run-Id": "run-next",
-              },
+              error: "Run already in progress for this thread",
+              code: "run_slot_busy",
+              retryable: true,
+              activeRunId: "run-earlier",
             },
+            { status: 409 },
           );
         }
-        if (url.pathname === `${API}/runs/active`) {
-          activePolls += 1;
-          return (
-            options.activeAnswer?.(activePolls) ??
-            Response.json(
-              activePolls <= (options.busyPolls ?? 3)
-                ? { active: true, status: "running", runId: "run-earlier" }
-                : { active: false, status: "idle" },
-            )
-          );
-        }
-        if (url.pathname === `${API}/threads/${THREAD}/queued`) {
-          const mutation = (
-            JSON.parse(String(init?.body)) as {
-              mutation: {
-                type: string;
-                messageId?: string;
-                message?: { id: string; text: string };
-                index?: number;
-              };
-            }
-          ).mutation;
-          mutations.push(mutation.type);
-          if (mutation.type === "append" || mutation.type === "restore") {
-            queue.splice(mutation.index ?? queue.length, 0, mutation.message!);
-            return Response.json({
-              queuedMessages: queue,
-              message: mutation.message,
-            });
-          }
-          const index = queue.findIndex(
-            (message) => message.id === mutation.messageId,
-          );
-          const [removed] = index >= 0 ? queue.splice(index, 1) : [];
-          if (mutation.type === "claim" && !removed) {
-            return Response.json(
-              { error: `Unknown queued message: ${mutation.messageId}` },
-              { status: 500 },
-            );
-          }
-          return Response.json({
-            queuedMessages: queue,
-            ...(removed ? { removedMessage: removed, index } : {}),
-          });
-        }
-        if (url.pathname === `${API}/threads/${THREAD}`) {
-          return Response.json({
-            id: THREAD,
-            threadData: JSON.stringify({
-              queuedMessages: queue,
-              ...(options.savedMessages
-                ? { agentKit: { messages: options.savedMessages } }
-                : {}),
-            }),
-          });
-        }
+        if (url.pathname.endsWith("/queued")) queueMutationRequests += 1;
         throw new Error(`Unexpected request: ${method} ${url}`);
       },
     );
     return {
       fetch: fetcher as unknown as typeof fetch,
-      bodies,
       posts,
-      queue,
-      mutations,
-      activePolls: () => activePolls,
+      queueMutationRequests: () => queueMutationRequests,
     };
   }
 
@@ -808,21 +718,7 @@ describe("a message sent while the server still owns the thread", () => {
     return { result, done };
   }
 
-  async function settle(
-    pending: ReturnType<typeof send>,
-    limitMs = 30_000,
-  ): Promise<void> {
-    for (
-      let elapsed = 0;
-      !pending.result.started && !pending.result.error && elapsed < limitMs;
-      elapsed += 500
-    ) {
-      await vi.advanceTimersByTimeAsync(500);
-    }
-    await pending.done;
-  }
-
-  it("is delivered once the earlier run finishes instead of failing with 409", async () => {
+  it("surfaces a 409 run-slot conflict for AgentKitClient to queue", async () => {
     const server = createBusyThreadServer();
     const transport = createAgentNativeAgentKitTransport({
       apiUrl: API,
@@ -830,137 +726,17 @@ describe("a message sent while the server still owns the thread", () => {
     });
 
     const pending = send(transport);
-    await settle(pending);
-
-    expect(pending.result.error).toBeUndefined();
-    expect(pending.result.started?.runId).toBe("run-next");
-    // Refused once before it was saved, parked in the server's queue, then
-    // claimed back and delivered exactly once.
-    expect(server.posts).toEqual(["And the next thing", "And the next thing"]);
-    expect(server.mutations).toEqual(["append", "claim"]);
-    expect(server.queue).toEqual([]);
-    expect(server.activePolls()).toBeGreaterThanOrEqual(5);
-
-    const observed = await readUntilSettled(
-      transport.subscribeToRun({ threadId: THREAD, runId: "run-next" }),
-      () => 0,
-    );
-    expect(runOutcomeOfEvents(observed.map(({ event }) => event))).toBe(
-      "succeeded",
-    );
-    await transport.dispose();
-  });
-
-  it("keeps the message on the server when the page goes away mid-wait, for the next page to send", async () => {
-    const server = createBusyThreadServer({ busyPolls: Infinity });
-    const transport = createAgentNativeAgentKitTransport({
-      apiUrl: API,
-      fetch: server.fetch,
-    });
-    const unmount = new AbortController();
-
-    const pending = send(transport, unmount.signal);
-    await vi.advanceTimersByTimeAsync(5_000);
-    // While this page waits to deliver it, its own queue does not list it,
-    // so its queue promotion cannot race the wait.
-    await expect(
-      transport.listQueuedMessages!({ threadId: THREAD }),
-    ).resolves.toEqual([]);
-
-    unmount.abort();
-    await settle(pending);
-
-    expect(pending.result.error).toBeDefined();
-    expect(server.queue).toEqual([
-      expect.objectContaining({ id: "user-2", text: "And the next thing" }),
-    ]);
-    // The next page sees it queued, and promotes it like any queued message.
-    const nextPage = createAgentNativeAgentKitTransport({
-      apiUrl: API,
-      fetch: server.fetch,
-    });
-    await expect(
-      nextPage.listQueuedMessages!({ threadId: THREAD }),
-    ).resolves.toEqual([expect.objectContaining({ id: "user-2" })]);
-    await transport.dispose();
-    await nextPage.dispose();
-  });
-
-  it("sends a parked message once when the next page finds it both saved and queued", async () => {
-    // The earlier run finished while the send waited, and saving its thread
-    // took the waiting message with it; the parked copy is still queued.
-    const server = createBusyThreadServer({
-      busyPolls: 0,
-      savedMessages: [
-        {
-          id: "user-2",
-          role: "user",
-          status: "complete",
-          createdAt: "2026-10-01T00:00:00.000Z",
-          parts: [{ type: "text", text: "And the next thing" }],
-        },
-      ],
-    });
-    server.queue.push({ id: "user-2", text: "And the next thing" });
-    const nextPage = createAgentNativeAgentKitTransport({
-      apiUrl: API,
-      fetch: server.fetch,
-    });
-
-    const promoting = nextPage.steerQueuedMessage!({
-      threadId: THREAD,
-      messageId: "user-2",
-    });
-    await vi.advanceTimersByTimeAsync(5_000);
-    await promoting;
-
-    expect(server.posts).toEqual(["And the next thing"]);
-    expect(server.bodies[0]?.history).toEqual([]);
-    expect(server.queue).toEqual([]);
-    await nextPage.dispose();
-  });
-
-  it("keeps waiting through a transient /runs/active failure", async () => {
-    const server = createBusyThreadServer({
-      activeAnswer: (poll) =>
-        poll === 2
-          ? Response.json({ error: "Service unavailable" }, { status: 503 })
-          : undefined,
-    });
-    const transport = createAgentNativeAgentKitTransport({
-      apiUrl: API,
-      fetch: server.fetch,
-    });
-
-    const pending = send(transport);
-    await settle(pending);
-
-    expect(pending.result.error).toBeUndefined();
-    expect(pending.result.started?.runId).toBe("run-next");
-    expect(server.queue).toEqual([]);
-    await transport.dispose();
-  });
-
-  it("takes the message back out and fails visibly when the wait cannot go on", async () => {
-    const server = createBusyThreadServer({
-      activeAnswer: (poll) =>
-        poll >= 2
-          ? Response.json({ error: "Forbidden" }, { status: 403 })
-          : undefined,
-    });
-    const transport = createAgentNativeAgentKitTransport({
-      apiUrl: API,
-      fetch: server.fetch,
-    });
-
-    const pending = send(transport);
-    await settle(pending);
+    await pending.done;
 
     expect(pending.result.started).toBeUndefined();
-    expect(pending.result.error).toMatchObject({ status: 403 });
-    // Not left queued to be sent behind the user's back after the failure.
-    expect(server.queue).toEqual([]);
-    expect(server.mutations).toEqual(["append", "remove"]);
+    expect(pending.result.error).toBeInstanceOf(AgentKitRunSlotBusyError);
+    expect(pending.result.error).toMatchObject({
+      code: "run_slot_busy",
+      activeRunId: "run-earlier",
+      status: 409,
+    });
+    expect(server.posts).toEqual(["And the next thing"]);
+    expect(server.queueMutationRequests()).toBe(0);
     await transport.dispose();
   });
 });

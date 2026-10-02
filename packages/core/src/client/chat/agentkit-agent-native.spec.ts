@@ -1569,14 +1569,28 @@ describe("createAgentNativeAgentKitTransport", () => {
         if (url.endsWith("/threads/thread-1/queued")) {
           const mutation = JSON.parse(String(init?.body)).mutation;
           queueWrites.push(mutation);
-          const index = queuedMessages.findIndex(
-            (message) => message.id === mutation.messageId,
-          );
-          const removedMessage = queuedMessages[index];
-          queuedMessages = queuedMessages.filter(
-            (message) => message.id !== mutation.messageId,
-          );
-          return json({ queuedMessages, removedMessage, index });
+          if (mutation.type === "claim") {
+            const index = queuedMessages.findIndex(
+              (message) => message.id === mutation.messageId,
+            );
+            const claimedMessage = {
+              ...queuedMessages[index],
+              promotionClaim: {
+                id: mutation.claimId,
+                expiresAt: Date.now() + 10_000,
+              },
+            };
+            queuedMessages[index] = claimedMessage;
+            return json({ queuedMessages, claimedMessage });
+          }
+          if (mutation.type === "release") {
+            queuedMessages = queuedMessages.map((message) => {
+              if (message.id !== mutation.messageId) return message;
+              const { promotionClaim: _claim, ...released } = message;
+              return released;
+            });
+          }
+          return json({ queuedMessages });
         }
         if (url.endsWith("/_agent-native/agent-chat")) {
           const stream = [
@@ -1647,8 +1661,14 @@ describe("createAgentNativeAgentKitTransport", () => {
       }
     }
 
-    expect(queueWrites).toEqual([{ type: "claim", messageId: "queued-1" }]);
-    expect(activeRunChecks).toBe(3);
+    expect(queueWrites).toEqual([
+      {
+        type: "claim",
+        messageId: "queued-1",
+        claimId: expect.any(String),
+      },
+    ]);
+    expect(activeRunChecks).toBe(1);
     expect(events.map((event) => event.type)).toEqual([
       "run.started",
       "run.status",
@@ -3686,164 +3706,50 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
-  it("keeps queued work behind approval and input waits", async () => {
-    let activeRunChecks = 0;
-    let queueWriteRunCheckCount = 0;
-    const queuedMessage = {
-      id: "queued-approval",
-      text: "Continue after approval",
-    };
+  it("releases a claimed queue item when starting its run fails", async () => {
+    const queueWrites: unknown[] = [];
+    let queuedMessages = [{ id: "queued-terminal", text: "Try again" }];
+    let startRunRequests = 0;
+    let claimId: string | undefined;
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
-        if (url.includes("/runs/active?threadId=thread-approval")) {
-          activeRunChecks += 1;
-          if (activeRunChecks === 1) {
-            return json({ active: true, status: "awaiting_approval" });
-          }
-          if (activeRunChecks === 2) {
-            return json({ active: true, status: "awaiting_input" });
-          }
-          return json({ active: false, status: "completed" });
-        }
-        if (url.endsWith("/threads/thread-approval") && !init?.method) {
+        if (url.endsWith("/threads/thread-terminal") && !init?.method) {
           return json({
-            id: "thread-approval",
+            id: "thread-terminal",
             threadData: JSON.stringify({
-              queuedMessages: [queuedMessage],
+              queuedMessages,
             }),
           });
         }
-        if (url.endsWith("/threads/thread-approval/queued")) {
-          queueWriteRunCheckCount = activeRunChecks;
-          return json({
-            queuedMessages: [],
-            removedMessage: queuedMessage,
-            index: 0,
-          });
+        if (url.endsWith("/threads/thread-terminal/queued")) {
+          const mutation = JSON.parse(String(init?.body)).mutation;
+          queueWrites.push(mutation);
+          if (mutation.type === "claim") {
+            claimId = mutation.claimId;
+            const claimedMessage = {
+              ...queuedMessages[0],
+              promotionClaim: {
+                id: claimId,
+                expiresAt: Date.now() + 10_000,
+              },
+            };
+            queuedMessages[0] = claimedMessage;
+            return json({ queuedMessages, claimedMessage });
+          }
+          if (mutation.type === "release") {
+            const { promotionClaim: _claim, ...released } = queuedMessages[0];
+            queuedMessages[0] = released;
+          }
+          return json({ queuedMessages });
         }
         if (url.endsWith("/_agent-native/agent-chat")) {
-          return new Response('data: {"type":"done"}\n\n', {
-            headers: { "content-type": "text/event-stream" },
-          });
+          startRunRequests += 1;
+          return json({ error: "Deterministic start rejection" }, 502);
         }
         return json({ error: "Not found" }, 404);
       },
     );
-    const transport = createAgentNativeAgentKitTransport({
-      apiUrl: "/_agent-native/agent-chat",
-      fetch: fetcher as typeof fetch,
-    });
-
-    await transport.steerQueuedMessage?.({
-      threadId: "thread-approval",
-      messageId: "queued-approval",
-    });
-
-    expect(activeRunChecks).toBe(4);
-    expect(queueWriteRunCheckCount).toBe(4);
-    await transport.dispose();
-  });
-
-  it.each(["errored", "aborted"] as const)(
-    "releases queued work after an active %s run is terminal",
-    async (terminalStatus) => {
-      const queueWrites: unknown[] = [];
-      let queuedMessages = [{ id: "queued-terminal", text: "Try again" }];
-      let startRunRequests = 0;
-      const fetcher = vi.fn(
-        async (input: string | URL | Request, init?: RequestInit) => {
-          const url = String(input);
-          if (url.includes("/runs/active?threadId=thread-terminal")) {
-            return json({ active: true, status: terminalStatus });
-          }
-          if (url.endsWith("/threads/thread-terminal") && !init?.method) {
-            return json({
-              id: "thread-terminal",
-              threadData: JSON.stringify({
-                queuedMessages,
-              }),
-            });
-          }
-          if (url.endsWith("/threads/thread-terminal/queued")) {
-            const mutation = JSON.parse(String(init?.body)).mutation;
-            queueWrites.push(mutation);
-            if (mutation.type === "claim") {
-              const index = queuedMessages.findIndex(
-                (message) => message.id === mutation.messageId,
-              );
-              const removedMessage = queuedMessages[index];
-              queuedMessages = queuedMessages.filter(
-                (message) => message.id !== mutation.messageId,
-              );
-              return json({ queuedMessages, removedMessage, index });
-            }
-            queuedMessages.splice(mutation.index, 0, mutation.message);
-            return json({ queuedMessages });
-          }
-          if (url.endsWith("/_agent-native/agent-chat")) {
-            startRunRequests += 1;
-            return json({ error: "Deterministic start rejection" }, 502);
-          }
-          return json({ error: "Not found" }, 404);
-        },
-      );
-      const transport = createAgentNativeAgentKitTransport({
-        apiUrl: "/_agent-native/agent-chat",
-        fetch: fetcher as typeof fetch,
-      });
-
-      await expect(
-        transport.steerQueuedMessage?.({
-          threadId: "thread-terminal",
-          messageId: "queued-terminal",
-        }),
-      ).rejects.toThrow("Deterministic start rejection");
-
-      expect(startRunRequests).toBe(1);
-      expect(queueWrites).toHaveLength(2);
-      expect(queueWrites[0]).toEqual({
-        type: "claim",
-        messageId: "queued-terminal",
-      });
-      expect(queueWrites[1]).toMatchObject({
-        type: "restore",
-        index: 0,
-        message: { id: "queued-terminal", text: "Try again" },
-      });
-      await transport.dispose();
-    },
-  );
-
-  it("preserves the active run ID when a queued promotion remains blocked", async () => {
-    let activeRunChecks = 0;
-    const fetcher = vi.fn(async (input: string | URL | Request) => {
-      const url = String(input);
-      if (url.includes("/runs/active?threadId=thread-busy")) {
-        activeRunChecks += 1;
-        return json({
-          active: true,
-          status: "running",
-          runId: `run-active-${activeRunChecks}`,
-        });
-      }
-      if (url.endsWith("/threads/thread-busy")) {
-        return json({
-          id: "thread-busy",
-          threadData: JSON.stringify({
-            queuedMessages: [
-              {
-                id: "queued-busy",
-                threadId: "thread-busy",
-                text: "Wait for the current run",
-                createdAt: "2026-09-01T00:00:00.000Z",
-              },
-            ],
-          }),
-        });
-      }
-      return json({ error: "Not found" }, 404);
-    });
     const transport = createAgentNativeAgentKitTransport({
       apiUrl: "/_agent-native/agent-chat",
       fetch: fetcher as typeof fetch,
@@ -3851,54 +3757,67 @@ describe("createAgentNativeAgentKitTransport", () => {
 
     await expect(
       transport.steerQueuedMessage?.({
-        threadId: "thread-busy",
-        messageId: "queued-busy",
+        threadId: "thread-terminal",
+        messageId: "queued-terminal",
       }),
-    ).rejects.toMatchObject({
-      code: "run_slot_busy",
-      activeRunId: "run-active-4",
-    });
+    ).rejects.toThrow("Deterministic start rejection");
 
-    expect(activeRunChecks).toBe(4);
+    expect(startRunRequests).toBe(1);
+    expect(queueWrites).toHaveLength(2);
+    expect(queueWrites[0]).toEqual({
+      type: "claim",
+      messageId: "queued-terminal",
+      claimId: expect.any(String),
+    });
+    expect(queueWrites[1]).toMatchObject({
+      type: "release",
+      messageId: "queued-terminal",
+      claimId,
+    });
+    expect(queuedMessages).toEqual([
+      { id: "queued-terminal", text: "Try again" },
+    ]);
     await transport.dispose();
   });
 
-  it("hides a locally parked send from active-run snapshots while its waiter owns delivery", async () => {
-    const threadId = "thread-parked-snapshot";
-    let resolveAppend!: () => void;
-    let resolveAppendResponse!: () => void;
-    const appendSaved = new Promise<void>((resolve) => {
-      resolveAppend = resolve;
-    });
-    const appendResponse = new Promise<void>((resolve) => {
-      resolveAppendResponse = resolve;
-    });
-    let queuedMessages: Array<Record<string, unknown>> = [];
-    let activeRunChecks = 0;
+  it("returns a typed busy promotion to the client for automatic retry", async () => {
+    const threadId = "thread-busy";
+    const queueWrites: Array<Record<string, unknown>> = [];
+    const queuedMessages: Array<Record<string, unknown>> = [
+      {
+        id: "queued-busy",
+        threadId,
+        text: "Wait for the current run",
+        createdAt: "2026-09-01T00:00:00.000Z",
+      },
+    ];
     let startRequests = 0;
     const fetcher = vi.fn(
       async (input: string | URL | Request, init?: RequestInit) => {
         const url = String(input);
-        if (url.endsWith("/agent-chat") && init?.method === "POST") {
-          startRequests += 1;
-          return json(
-            {
-              error: "Run already in progress for this thread",
-              code: "run_slot_busy",
-              retryable: true,
-              activeRunId: "run-existing",
-            },
-            409,
-          );
-        }
         if (url.endsWith(`/threads/${threadId}/queued`)) {
           const mutation = JSON.parse(String(init?.body)).mutation;
-          if (mutation.type === "append") {
-            queuedMessages = [mutation.message];
-            resolveAppend();
-            await appendResponse;
+          queueWrites.push(mutation);
+          if (mutation.type === "claim") {
+            const claimedMessage = {
+              ...queuedMessages[0],
+              promotionClaim: {
+                id: mutation.claimId,
+                expiresAt: Date.now() + 10_000,
+              },
+            };
+            queuedMessages[0] = claimedMessage;
+            return json({ queuedMessages, claimedMessage });
           }
-          return json({ queuedMessages, message: mutation.message });
+          if (mutation.type === "release") {
+            queuedMessages[0] = {
+              id: "queued-busy",
+              threadId,
+              text: "Wait for the current run",
+              createdAt: "2026-09-01T00:00:00.000Z",
+            };
+          }
+          return json({ queuedMessages });
         }
         if (url.endsWith(`/threads/${threadId}`)) {
           return json({
@@ -3906,91 +3825,20 @@ describe("createAgentNativeAgentKitTransport", () => {
             threadData: JSON.stringify({ queuedMessages }),
           });
         }
-        if (url.includes(`/runs/active?threadId=${threadId}`)) {
-          activeRunChecks += 1;
-          return json({
-            active: true,
-            status: "running",
-            runId: "run-existing",
-          });
-        }
-        return json({ error: "Not found" }, 404);
-      },
-    );
-    const transport = createAgentNativeAgentKitTransport({
-      apiUrl: "/_agent-native/agent-chat",
-      fetch: fetcher as typeof fetch,
-    });
-    const controller = new AbortController();
-    const send = transport.startRun(
-      {
-        threadId,
-        messages: [
-          {
-            id: "parked-send",
-            role: "user",
-            parts: [{ type: "text", text: "Wait behind the current run" }],
-          },
-        ],
-      },
-      { signal: controller.signal },
-    );
-
-    await appendSaved;
-    const snapshot = await transport.getThreadSnapshot?.({ threadId });
-    resolveAppendResponse();
-    await vi.waitFor(() => expect(activeRunChecks).toBeGreaterThan(0));
-
-    expect(snapshot?.queuedMessages).not.toContainEqual(
-      expect.objectContaining({ id: "parked-send" }),
-    );
-    controller.abort();
-    await expect(send).rejects.toMatchObject({ name: "AbortError" });
-    expect(startRequests).toBe(1);
-    await transport.dispose();
-  });
-
-  it("waits for the runtime continuation to release the thread before promotion", async () => {
-    const queueWrites: unknown[] = [];
-    let activeRunChecks = 0;
-    let queuedMessages = [{ id: "queued-1", text: "Wait for approval" }];
-    const fetcher = vi.fn(
-      async (input: string | URL | Request, init?: RequestInit) => {
-        const url = String(input);
-        if (url.includes("/runs/active?threadId=thread-1")) {
-          activeRunChecks += 1;
-          return json({
-            active: activeRunChecks <= 2,
-            status: activeRunChecks <= 2 ? "running" : "completed",
-            awaitingRedispatch: activeRunChecks <= 2,
-          });
-        }
-        if (url.endsWith("/threads/thread-1") && !init?.method) {
-          return json({
-            id: "thread-1",
-            threadData: JSON.stringify({ queuedMessages }),
-          });
-        }
-        if (url.endsWith("/threads/thread-1/queued")) {
-          const mutation = JSON.parse(String(init?.body)).mutation;
-          queueWrites.push(mutation);
-          const index = queuedMessages.findIndex(
-            (message) => message.id === mutation.messageId,
-          );
-          const removedMessage = queuedMessages[index];
-          queuedMessages = queuedMessages.filter(
-            (message) => message.id !== mutation.messageId,
-          );
-          return json({ queuedMessages, removedMessage, index });
-        }
-        if (url.endsWith("/_agent-native/agent-chat")) {
-          const stream = `data: ${JSON.stringify({ type: "done" })}\n\n`;
-          return new Response(stream, {
-            headers: {
-              "content-type": "text/event-stream",
-              "x-run-id": "run-promoted",
+        if (
+          url.endsWith("/_agent-native/agent-chat") &&
+          init?.method === "POST"
+        ) {
+          startRequests += 1;
+          return json(
+            {
+              error: "Run already in progress for this thread",
+              code: "run_slot_busy",
+              retryable: true,
+              activeRunId: "run-active",
             },
-          });
+            409,
+          );
         }
         return json({ error: "Not found" }, 404);
       },
@@ -4000,15 +3848,29 @@ describe("createAgentNativeAgentKitTransport", () => {
       fetch: fetcher as typeof fetch,
     });
 
-    const promoted = await transport.steerQueuedMessage?.({
-      threadId: "thread-1",
-      messageId: "queued-1",
+    await expect(
+      transport.steerQueuedMessage?.({
+        threadId,
+        messageId: "queued-busy",
+      }),
+    ).rejects.toMatchObject({
+      code: "run_slot_busy",
+      activeRunId: "run-active",
+      retryable: true,
     });
 
-    expect(activeRunChecks).toBeGreaterThanOrEqual(4);
-    expect(promoted).toMatchObject({ runId: "run-promoted" });
-    expect(queueWrites).toEqual([{ type: "claim", messageId: "queued-1" }]);
-    expect(queuedMessages).toEqual([]);
+    expect(startRequests).toBe(1);
+    expect(queueWrites).toMatchObject([
+      { type: "claim", messageId: "queued-busy", claimId: expect.any(String) },
+      {
+        type: "release",
+        messageId: "queued-busy",
+        claimId: expect.any(String),
+      },
+    ]);
+    expect(queueWrites[1]?.claimId).toBe(queueWrites[0]?.claimId);
+    expect(queuedMessages[0]).not.toHaveProperty("promotionClaim");
+    await transport.dispose();
   });
 
   it("distinguishes a missing thread from an empty durable queue", async () => {

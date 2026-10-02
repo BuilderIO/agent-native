@@ -465,9 +465,11 @@ function preserveQueuedIntent(
   preparedOptions: PromptComposerSubmitOptions,
   originalOptions: PromptComposerSubmitOptions,
 ): PromptComposerSubmitOptions {
-  return originalOptions.intent === "queued"
-    ? { ...preparedOptions, intent: "queued" }
-    : preparedOptions;
+  return {
+    ...preparedOptions,
+    ...(originalOptions.intent === "queued" ? { intent: "queued" } : {}),
+    ...(originalOptions.steer ? { steer: true } : {}),
+  };
 }
 
 function captureQueuedRunState(
@@ -1993,32 +1995,26 @@ const AgentKitAssistantChatBody = forwardRef<
       };
       localSubmissionRef.current = true;
       try {
-        if (composerOptions.intent === "queued") {
-          await control.queueMessage({
-            text: message,
-            attachments: fileParts,
+        await control.sendMessage({
+          text: message,
+          attachments: fileParts,
+          queuedWhileRunActive:
+            composerOptions.queuedWhileRunActive ||
+            composerOptions.intent === "queued",
+          interruptActiveRun: composerOptions.steer,
+          options: {
+            model,
+            mode: requestMode,
+            agentId: selectedAgent,
+            reasoningEffort:
+              effort && effort !== "auto" && effort !== "max"
+                ? (effort as "low" | "medium" | "high" | "xhigh")
+                : undefined,
             metadata,
-            queuedWhileRunActive: composerOptions.queuedWhileRunActive,
-            onLocalSubmit: composerOptions.onLocalSubmit,
-          });
-        } else {
-          await control.sendMessage({
-            text: message,
-            attachments: fileParts,
-            options: {
-              model,
-              mode: requestMode,
-              agentId: selectedAgent,
-              reasoningEffort:
-                effort && effort !== "auto" && effort !== "max"
-                  ? (effort as "low" | "medium" | "high" | "xhigh")
-                  : undefined,
-              metadata,
-            },
-            metadata,
-            onLocalSubmit: composerOptions.onLocalSubmit,
-          });
-        }
+          },
+          metadata,
+          onLocalSubmit: composerOptions.onLocalSubmit,
+        });
         reportAgentChatSubmitResult(options.submitMessageId, true);
         if (
           !options.recoveryAction &&

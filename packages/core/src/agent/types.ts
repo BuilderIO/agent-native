@@ -284,6 +284,7 @@ export interface AgentChatRequest {
   agentKitMessageId?: string;
   actionScope?: AgentActionScope;
   queuedMessageId?: string;
+  queuedMessageClaimId?: string;
   displayMessage?: string;
   history?: AgentMessage[];
   structuredHistory?: AgentChatStructuredMessage[];

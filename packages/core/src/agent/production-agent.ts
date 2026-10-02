@@ -1615,6 +1615,7 @@ export interface ProductionAgentOptions {
     agentKitMessageId?: string;
     attachments?: AgentChatAttachment[];
     queuedMessageId?: string;
+    queuedMessageClaimId?: string;
   }) => void | Promise<void>;
   prepareRequest?: (details: {
     event: any;
@@ -8655,6 +8656,7 @@ export function createProductionAgentHandler(
       displayMessage,
       parentId,
       queuedMessageId,
+      queuedMessageClaimId,
       agentKitMessageId: requestedAgentKitMessageId,
       internalContinuation,
       turnId: requestTurnId,
@@ -9912,6 +9914,10 @@ export function createProductionAgentHandler(
           attachments: requestAttachments,
           ...(typeof queuedMessageId === "string" && queuedMessageId.trim()
             ? { queuedMessageId: queuedMessageId.trim() }
+            : {}),
+          ...(typeof queuedMessageClaimId === "string" &&
+          queuedMessageClaimId.trim()
+            ? { queuedMessageClaimId: queuedMessageClaimId.trim() }
             : {}),
         });
       } catch (error) {
