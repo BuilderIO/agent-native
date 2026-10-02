@@ -269,6 +269,34 @@ describe("an automatic continuation request", () => {
         } as Awaited<ReturnType<typeof getThread>>);
       },
     ],
+    [
+      "thread has no user prompt",
+      () => {
+        turnLedger.mockResolvedValue(FINISHED_DELEGATION);
+        vi.mocked(getThread).mockResolvedValueOnce({
+          id: "thread-auto",
+          threadData: JSON.stringify({
+            messages: [
+              {
+                message: {
+                  id: "assistant-1",
+                  role: "assistant",
+                  content: [
+                    {
+                      type: "tool-call",
+                      toolCallId: "call-1",
+                      toolName: "call-agent",
+                      args: DELEGATION,
+                      result: "412 signups",
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+        } as Awaited<ReturnType<typeof getThread>>);
+      },
+    ],
   ])(
     "fails retryably and runs nothing when the stopped turn's %s",
     async (_, breakRead) => {

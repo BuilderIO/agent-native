@@ -1057,17 +1057,19 @@ export function recoverThreadHistoryForRequest(
 /**
  * History for resuming a stopped turn: earlier turns get the recovery window,
  * while the turn itself, from its last user message on, stays whole so every
- * finished tool call keeps its result.
+ * finished tool call keeps its result. Without a user message, the turn's
+ * prompt is not in the thread: `foundTurnPrompt` is false and every message is
+ * returned unbounded.
  */
 export function resumeThreadHistoryForRequest(
   threadData: string | Record<string, unknown> | null | undefined,
-): EngineMessage[] {
+): { messages: EngineMessage[]; foundTurnPrompt: boolean } {
   const messages = threadDataToEngineMessages(threadData, {
     includeToolCalls: true,
   });
   let turnStart = messages.length - 1;
   while (
-    turnStart > 0 &&
+    turnStart >= 0 &&
     !(
       messages[turnStart]!.role === "user" &&
       messages[turnStart]!.content.some((part) => part.type === "text")
@@ -1075,10 +1077,14 @@ export function resumeThreadHistoryForRequest(
   ) {
     turnStart--;
   }
-  return [
-    ...boundedHistoryWindow(messages.slice(0, turnStart)),
-    ...messages.slice(turnStart),
-  ];
+  if (turnStart < 0) return { messages, foundTurnPrompt: false };
+  return {
+    messages: [
+      ...boundedHistoryWindow(messages.slice(0, turnStart)),
+      ...messages.slice(turnStart),
+    ],
+    foundTurnPrompt: true,
+  };
 }
 
 const MAX_INTEGRATION_ARTIFACTS_IN_CONTEXT = 12;

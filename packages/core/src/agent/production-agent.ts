@@ -10006,13 +10006,15 @@ export function createProductionAgentHandler(
         const { getThread } = await import("../chat-threads/store.js");
         const { resumeThreadHistoryForRequest } =
           await import("./thread-data-builder.js");
-        const resumed = resumeThreadHistoryForRequest(
-          (await getThread(effectiveThreadId))?.threadData,
-        );
-        // A continuation always follows a stopped run, so a missing or empty
-        // thread means its history was lost, not that there was none.
-        if (autoContinueOfRunId && resumed.length === 0) {
-          throw new Error(`thread ${effectiveThreadId} has no history`);
+        const { messages: resumed, foundTurnPrompt } =
+          resumeThreadHistoryForRequest(
+            (await getThread(effectiveThreadId))?.threadData,
+          );
+        // A continuation always follows a stopped run, so a thread without
+        // that turn's prompt means its history was lost, not that there was
+        // none. A successor stays best-effort and resumes from what is there.
+        if (autoContinueOfRunId && !foundTurnPrompt) {
+          throw new Error(`thread ${effectiveThreadId} has no turn prompt`);
         }
         if (resumed.length > 0) {
           const actionPreparationTool =
