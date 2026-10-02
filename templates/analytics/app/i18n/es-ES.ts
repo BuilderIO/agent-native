@@ -1397,6 +1397,9 @@ export default {
     slowRequestCount: "{{count}} solicitudes lentas",
     slowRequestCountSingular: "{{count}} solicitud lenta",
     speedIncomplete: "Datos de velocidad incompletos",
+    labStateUnavailable:
+      "No se pudieron cargar tus ajustes de Lab, así que los filtros de este enlace no se aplican.",
+    speedUnavailable: "No se pudieron cargar los datos de velocidad.",
     markerPageVitals: "Métricas de la página",
     markerSlowRequest: "Solicitud lenta",
     perfRoute: "Ruta de página",

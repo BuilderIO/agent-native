@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { getSessionRecordingPerformance } from "../server/lib/session-replay.js";
 import { assertSessionsTriageLabEnabled } from "../server/lib/sessions-triage-lab.js";
+import { SESSION_PAGE_SIZE } from "../shared/session-page.js";
 
 export default defineAction({
   description:
@@ -14,9 +15,9 @@ export default defineAction({
   schema: z.object({
     recordingIds: z
       .array(z.string().min(1).max(200))
-      .max(100)
+      .max(SESSION_PAGE_SIZE)
       .default([])
-      .describe("Recording ids, at most 100"),
+      .describe(`Recording ids, at most ${SESSION_PAGE_SIZE}: one list page`),
   }),
   http: { method: "GET" },
   readOnly: true,

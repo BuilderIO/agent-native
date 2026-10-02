@@ -11,22 +11,39 @@ const mocks = vi.hoisted(() => ({
   pending: false,
   recordings: [] as Record<string, unknown>[],
   speed: {} as Record<string, unknown>,
+  speedError: null as Error | null,
+  speedRefetch: vi.fn(),
   lab: { enabled: false, isLoading: false, isError: false },
+  labRefetch: vi.fn(),
   error: null as Error | null,
   refetch: vi.fn(),
-  useActionQuery: vi.fn((name: string) => ({
-    data:
-      name === "list-session-performance"
-        ? { performance: mocks.speed, coverageStartedAt: null }
-        : mocks.pending
-          ? undefined
-          : { recordings: mocks.recordings, total: mocks.total, appCounts: [] },
-    error: mocks.error,
-    isPending: mocks.pending,
-    isLoading: false,
-    isFetching: false,
-    refetch: mocks.refetch,
-  })),
+  useActionQuery: vi.fn((name: string) =>
+    name === "list-session-performance"
+      ? {
+          data: mocks.speedError
+            ? undefined
+            : { performance: mocks.speed, coverageStartedAt: null },
+          error: mocks.speedError,
+          isPending: false,
+          isLoading: false,
+          isFetching: false,
+          refetch: mocks.speedRefetch,
+        }
+      : {
+          data: mocks.pending
+            ? undefined
+            : {
+                recordings: mocks.recordings,
+                total: mocks.total,
+                appCounts: [],
+              },
+          error: mocks.error,
+          isPending: mocks.pending,
+          isLoading: false,
+          isFetching: false,
+          refetch: mocks.refetch,
+        },
+  ),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -36,7 +53,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 vi.mock("@agent-native/core/client/labs", () => ({
-  useLabState: () => mocks.lab,
+  useLabState: () => ({ ...mocks.lab, refetch: mocks.labRefetch }),
 }));
 vi.mock("@agent-native/toolkit/app/blocks", () => ({
   CodeSurface: () => <div data-testid="installation-snippet" />,
@@ -83,6 +100,7 @@ describe("Sessions empty states", () => {
     mocks.pending = false;
     mocks.recordings = [];
     mocks.speed = {};
+    mocks.speedError = null;
     mocks.lab = { enabled: false, isLoading: false, isError: false };
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -470,5 +488,51 @@ describe("Sessions empty states", () => {
     expect(container.textContent).toContain("LCP sessions.perfAtLeast");
     expect(container.textContent).toContain("sessions.speedIncomplete");
     expect(container.textContent).not.toContain("sessions.slowRequestCount");
+  });
+
+  function clickButton(label: string) {
+    return act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === label)
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  }
+
+  it("says speed hints could not load and retries them", async () => {
+    mocks.lab = { enabled: true, isLoading: false, isError: false };
+    mocks.total = 1;
+    mocks.recordings = [recording];
+    mocks.speedError = new Error("Internal Server Error");
+    await renderSessions();
+
+    expect(container.textContent).toContain("sessions.speedUnavailable");
+    await clickButton("sidebar.retry");
+    expect(mocks.speedRefetch).toHaveBeenCalledOnce();
+  });
+
+  it("says a Lab state that failed to load is why a link's filters are off", async () => {
+    mocks.lab = { enabled: false, isLoading: false, isError: true };
+    await renderSessions("/sessions?slow=vitals&event=clip_viewed");
+
+    expect(container.textContent).toContain("sessions.labStateUnavailable");
+    expect(container.textContent).not.toContain("sessions.speedFilterNeedsLab");
+    expect(container.textContent).not.toContain("sessions.eventFiltersNeedLab");
+    await clickButton("sidebar.retry");
+    expect(mocks.labRefetch).toHaveBeenCalledOnce();
+  });
+
+  it("stops holding a Lab-filter link when the Lab state hangs", async () => {
+    vi.useFakeTimers();
+    mocks.lab = { enabled: false, isLoading: true, isError: false };
+    await renderSessions("/sessions?slow=vitals");
+    expect(listCalls()[listCalls().length - 1][2].enabled).toBe(false);
+
+    await act(async () => {
+      vi.advanceTimersByTime(5_000);
+    });
+
+    const calls = listCalls();
+    expect(calls[calls.length - 1][2].enabled).toBe(true);
+    expect(container.textContent).toContain("sessions.labStateUnavailable");
   });
 });

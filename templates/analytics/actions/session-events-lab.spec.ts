@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { SESSION_PAGE_SIZE } from "../shared/session-page.js";
+
 const labEnabled = vi.hoisted(() => ({ value: false }));
 const getUserLabEnabled = vi.hoisted(() => vi.fn(async () => labEnabled.value));
 const listSessionRecordings = vi.hoisted(() => vi.fn(async () => []));
@@ -163,9 +165,20 @@ describe("Sessions triage Lab guard on event actions", () => {
     expect(listSpeed.schema.parse({})).toEqual({ recordingIds: [] });
     expect(
       listSpeed.schema.safeParse({
-        recordingIds: Array.from({ length: 101 }, (_, index) => `r${index}`),
+        recordingIds: Array.from(
+          { length: SESSION_PAGE_SIZE + 1 },
+          (_, index) => `r${index}`,
+        ),
       }).success,
     ).toBe(false);
+    expect(
+      listSpeed.schema.safeParse({
+        recordingIds: Array.from(
+          { length: SESSION_PAGE_SIZE },
+          (_, index) => `r${index}`,
+        ),
+      }).success,
+    ).toBe(true);
   });
 
   it("rejects event range bounds that are not timestamps", () => {

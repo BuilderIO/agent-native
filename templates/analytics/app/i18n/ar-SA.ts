@@ -1358,6 +1358,9 @@ export default {
     slowRequestCount: "{{count}} طلبات بطيئة",
     slowRequestCountSingular: "{{count}} طلب بطيء",
     speedIncomplete: "بيانات السرعة غير مكتملة",
+    labStateUnavailable:
+      "تعذّر تحميل إعدادات Lab، لذلك لم تُطبَّق عوامل التصفية في هذا الرابط.",
+    speedUnavailable: "تعذّر تحميل بيانات السرعة.",
     markerPageVitals: "مؤشرات الصفحة",
     markerSlowRequest: "طلب بطيء",
     perfRoute: "مسار الصفحة",

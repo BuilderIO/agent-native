@@ -1346,6 +1346,9 @@ export default {
     slowRequestCount: "{{count}} धीमे अनुरोध",
     slowRequestCountSingular: "{{count}} धीमा अनुरोध",
     speedIncomplete: "गति डेटा अधूरा है",
+    labStateUnavailable:
+      "आपकी Lab सेटिंग्स लोड नहीं हो सकीं, इसलिए इस लिंक के फ़िल्टर लागू नहीं हैं।",
+    speedUnavailable: "गति डेटा लोड नहीं हो सका।",
     markerPageVitals: "पेज वाइटल्स",
     markerSlowRequest: "धीमा अनुरोध",
     perfRoute: "पेज रूट",

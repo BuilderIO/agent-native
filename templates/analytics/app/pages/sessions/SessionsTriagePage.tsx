@@ -9,7 +9,7 @@ import {
   IconRefresh,
   IconX,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -100,6 +100,7 @@ type Page = {
 const RANGES: Range[] = ["24h", "7d", "30d", "90d", "all"];
 const SORTS: Sort[] = ["newest", "longest", "errors", "events", "rage"];
 const DURATIONS = [0, 60_000, 5 * 60_000, 15 * 60_000, 30 * 60_000];
+const LAB_STATE_WAIT_MS = 5_000;
 // Every other search param counts as a filter for Clear all, so a param that
 // is not a filter must be listed here or Clear all will show and drop it.
 const NON_FILTER_PARAMS = new Set(["sort", "page"]);
@@ -223,11 +224,20 @@ export function SessionsTriagePage() {
   const slow: SlowSessionFilter | undefined =
     eventsLabEnabled && isSlowSessionFilter(urlSlow) ? urlSlow : undefined;
   const urlHasSlowFilter = isSlowSessionFilter(urlSlow);
-  // A shared link with event or slow conditions waits for the Lab state
-  // instead of briefly listing unfiltered sessions. Nothing else waits: a slow
-  // or failed Lab read must not hold up the base list.
-  const waitingForEventsLab =
-    (urlHasEventConditions || urlHasSlowFilter) && eventsLab.isLoading;
+  // A shared link with event or slow conditions waits briefly for the Lab
+  // state instead of listing unfiltered sessions. Nothing else waits, and a
+  // hung read stops holding the list and reads as failed.
+  const urlHasLabFilters = urlHasEventConditions || urlHasSlowFilter;
+  const [labWaitExpired, setLabWaitExpired] = useState(false);
+  const waitsForLab = urlHasLabFilters && eventsLab.isLoading;
+  useEffect(() => {
+    if (!waitsForLab) return;
+    const timer = setTimeout(() => setLabWaitExpired(true), LAB_STATE_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [waitsForLab]);
+  const waitingForEventsLab = waitsForLab && !labWaitExpired;
+  const labStateFailed =
+    eventsLab.isError || (eventsLab.isLoading && labWaitExpired);
 
   useEffect(() => {
     if (requestedPage === null || requestedPage === String(page)) return;
@@ -349,7 +359,12 @@ export function SessionsTriagePage() {
   const total = data?.total ?? 0;
   // Speed hints load beside the list, keyed on its rows, so turning the Lab
   // on adds them without fetching the list again.
-  const { data: speed } = useActionQuery<SessionRecordingPerformance>(
+  const {
+    data: speed,
+    error: speedError,
+    isFetching: speedFetching,
+    refetch: refetchSpeed,
+  } = useActionQuery<SessionRecordingPerformance>(
     "list-session-performance",
     { recordingIds: recordings.map((recording) => recording.id) },
     { staleTime: 30_000, enabled: eventsLabEnabled && data !== undefined },
@@ -713,15 +728,17 @@ export function SessionsTriagePage() {
                     ))}
                   </SelectContent>
                 </Select>
-                {speed ? (
+                {speed || speedError ? (
                   <p className="text-xs text-muted-foreground">
-                    {speed.coverageStartedAt
-                      ? t("sessions.speedCoverageSince", {
-                          date: new Date(
-                            speed.coverageStartedAt,
-                          ).toLocaleDateString(),
-                        })
-                      : t("sessions.speedCoverageStarting")}
+                    {!speed
+                      ? t("sessions.speedUnavailable")
+                      : speed.coverageStartedAt
+                        ? t("sessions.speedCoverageSince", {
+                            date: new Date(
+                              speed.coverageStartedAt,
+                            ).toLocaleDateString(),
+                          })
+                        : t("sessions.speedCoverageStarting")}
                   </p>
                 ) : null}
                 <Button asChild variant="outline" size="sm">
@@ -745,14 +762,49 @@ export function SessionsTriagePage() {
           </Button>
         ) : null}
       </div>
-      {urlHasEventConditions && !eventsLabEnabled && !eventsLab.isLoading ? (
+      {urlHasLabFilters && !eventsLabEnabled && labStateFailed ? (
+        <p
+          className="flex items-center gap-2 text-xs text-muted-foreground"
+          role="status"
+        >
+          {t("sessions.labStateUnavailable")}
+          <Button variant="ghost" size="xs" onClick={eventsLab.refetch}>
+            <IconRefresh />
+            {t("sidebar.retry")}
+          </Button>
+        </p>
+      ) : null}
+      {urlHasEventConditions &&
+      !eventsLabEnabled &&
+      !eventsLab.isLoading &&
+      !eventsLab.isError ? (
         <p className="text-xs text-muted-foreground" role="status">
           {t("sessions.eventFiltersNeedLab")}
         </p>
       ) : null}
-      {urlHasSlowFilter && !eventsLabEnabled && !eventsLab.isLoading ? (
+      {urlHasSlowFilter &&
+      !eventsLabEnabled &&
+      !eventsLab.isLoading &&
+      !eventsLab.isError ? (
         <p className="text-xs text-muted-foreground" role="status">
           {t("sessions.speedFilterNeedsLab")}
+        </p>
+      ) : null}
+      {eventsLabEnabled && speedError && !speed ? (
+        <p
+          className="flex items-center gap-2 text-xs text-muted-foreground"
+          role="status"
+        >
+          {t("sessions.speedUnavailable")}
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => void refetchSpeed()}
+            disabled={speedFetching}
+          >
+            <IconRefresh className={cn(speedFetching && "animate-spin")} />
+            {t("sidebar.retry")}
+          </Button>
         </p>
       ) : null}
       <Card>

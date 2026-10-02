@@ -1394,6 +1394,8 @@ export default {
     slowRequestCount: "{{count}} 個緩慢請求",
     slowRequestCountSingular: "{{count}} 個緩慢請求",
     speedIncomplete: "速度資料不完整",
+    labStateUnavailable: "無法載入你的 Lab 設定，因此未套用此連結的篩選條件。",
+    speedUnavailable: "無法載入速度資料。",
     markerPageVitals: "頁面 Web Vitals",
     markerSlowRequest: "緩慢請求",
     perfRoute: "頁面路由",

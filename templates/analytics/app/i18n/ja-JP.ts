@@ -1380,6 +1380,9 @@ export default {
     slowRequestCount: "遅いリクエスト {{count}} 件",
     slowRequestCountSingular: "遅いリクエスト {{count}} 件",
     speedIncomplete: "速度データが不完全です",
+    labStateUnavailable:
+      "Lab の設定を読み込めなかったため、このリンクのフィルターは適用されていません。",
+    speedUnavailable: "速度データを読み込めませんでした。",
     markerPageVitals: "ページの Web Vitals",
     markerSlowRequest: "遅いリクエスト",
     perfRoute: "ページルート",

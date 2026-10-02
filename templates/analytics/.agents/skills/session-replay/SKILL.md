@@ -165,10 +165,14 @@ agent answers about browser recordings in the Analytics template.
   on; `view-screen` then passes `includePerformance` so the agent reads the
   same rows as the page.
 - Lab state never holds up the base list. The page waits for it only when the
-  URL carries Lab-only conditions (`slow`, did/didn't events), and loads row
-  speed hints beside the list through `list-session-performance`, keyed on
-  the visible recording ids. `view-screen` reads Lab state in its own `try`
-  and reports a failure as `labStateError` beside the base list.
+  URL carries Lab-only conditions (`slow`, did/didn't events), and for at
+  most 5 s; a failed or hung read lists sessions without them and says so,
+  with a retry, rather than telling the user to turn on a Lab that may be on.
+  Row speed hints load beside the list through `list-session-performance`,
+  keyed on the visible recording ids; when they fail the page says speed data
+  could not load instead of showing no hints. `view-screen` reads Lab state
+  in its own `try` and reports a failure as `labStateError` beside the
+  base list.
 
 ## Agent Diagnostics Surface
 
@@ -239,7 +243,7 @@ agent answers about browser recordings in the Analytics template.
   widths >= 3,000px. The 2026-07 "ultra-wide replay" bugs (stages rendered
   3,000–9,500px wide, frozen/teleporting cursors, giant icons) were caused
   entirely by demo mode's fetch interceptor: its number redactor faked any
-  integer >= 1000 inside raw replay JSON at *view* time, corrupting Meta /
+  integer >= 1000 inside raw replay JSON at _view_ time, corrupting Meta /
   ViewportResize widths, pointer x/y coordinates, and numeric values inside
   `_cssText` and SVG attributes before rrweb ever saw the payload (heights
   below 1000 stayed real, which is why the symptom looked like a viewport

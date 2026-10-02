@@ -1358,6 +1358,9 @@ export default {
     slowRequestCount: "느린 요청 {{count}}개",
     slowRequestCountSingular: "느린 요청 {{count}}개",
     speedIncomplete: "속도 데이터가 불완전함",
+    labStateUnavailable:
+      "Lab 설정을 불러오지 못해 이 링크의 필터가 적용되지 않았습니다.",
+    speedUnavailable: "속도 데이터를 불러오지 못했습니다.",
     markerPageVitals: "페이지 Web Vitals",
     markerSlowRequest: "느린 요청",
     perfRoute: "페이지 경로",
