@@ -220,6 +220,14 @@ jobs:
           pnpm exec playwright install --only-shell --force chromium
           pnpm --filter @agent-native/creative-context exec playwright install --only-shell --force chromium
 
+      - name: Allow the downloaded Chromium sandbox
+        run: |
+          if [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" == "1" ]]; then
+            browser_path="$HOME/.cache/ms-playwright/**/chrome-headless-shell"
+            printf 'abi <abi/4.0>,\ninclude <tunables/global>\n\nprofile design-playwright-chromium %s flags=(unconfined) {\n  userns,\n}\n' "$browser_path" | sudo tee /etc/apparmor.d/design-playwright-chromium >/dev/null
+            sudo apparmor_parser -r /etc/apparmor.d/design-playwright-chromium
+          fi
+
       - name: Run core fast-test shard
         if: matrix.coreShard != ''
         run: >-
@@ -312,6 +320,14 @@ jobs:
         run: |
           pnpm exec playwright install --only-shell --force chromium
           pnpm --filter @agent-native/creative-context exec playwright install --only-shell --force chromium
+
+      - name: Allow the downloaded Chromium sandbox
+        run: |
+          if [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" == "1" ]]; then
+            browser_path="$HOME/.cache/ms-playwright/**/chrome-headless-shell"
+            printf 'abi <abi/4.0>,\ninclude <tunables/global>\n\nprofile design-playwright-chromium %s flags=(unconfined) {\n  userns,\n}\n' "$browser_path" | sudo tee /etc/apparmor.d/design-playwright-chromium >/dev/null
+            sudo apparmor_parser -r /etc/apparmor.d/design-playwright-chromium
+          fi
 
       - name: Run core fast-test shard
         if: matrix.coreShard != ''
@@ -580,6 +596,9 @@ jobs:
         with:
           restore-dist-cache: "true"
 
+      - name: Create isolated Content row-mutation database
+        run: psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d content_migration_test -c "CREATE DATABASE content_row_mutation_test"
+
       - name: Run Content DB tests
         run: pnpm test:content-db
 
@@ -603,7 +622,7 @@ jobs:
           pnpm --filter content exec vitest --run actions/upsert-database-item-by-key.db.test.ts --config vitest.config.ts
         env:
           CONTENT_MIGRATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
-          CONTENT_ROW_MUTATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
+          CONTENT_ROW_MUTATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_row_mutation_test
 
   core-integration-tests:
     name: Core integration tests
