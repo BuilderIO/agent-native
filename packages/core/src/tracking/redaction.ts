@@ -9,11 +9,10 @@ const SQL_PARAMS_RE = /^([\s\S]*?)(\r?\n[ \t]*params:\s*)[\s\S]*$/i;
 const SQL_QUERY_FAILURE_RE = /\b(?:failed query|query failed):\s*/i;
 const SQL_STATEMENT_RE =
   /^(?:select|insert|update|delete|merge|values|explain|call|execute|copy|declare)\b/i;
-const SQL_CTE_HEADER_RE =
-  /^(?:"(?:[^"]|"")+"|[a-z_][\w$]*)(?:\s*\([^)]*\))?\s+as\s+(?:(?:not\s+)?materialized\s+)?\(/i;
 const SQL_CTE_QUERY_RE =
   /^(?:select|insert|update|delete|merge|values|with|table)\b/i;
 const SQL_CTE_IDENTIFIER = String.raw`(?:"(?:[^"]|"")+"|[a-z_][\w$]*)`;
+const SQL_CTE_IDENTIFIER_RE = new RegExp(`^${SQL_CTE_IDENTIFIER}`, "i");
 const SQL_CTE_IDENTIFIER_LIST = `${SQL_CTE_IDENTIFIER}(?:\\s*,\\s*${SQL_CTE_IDENTIFIER})*`;
 const SQL_CTE_SEARCH_CLAUSE_RE = new RegExp(
   String.raw`^search\s+(?:breadth|depth)\s+first\s+by\s+${SQL_CTE_IDENTIFIER_LIST}\s+set\s+${SQL_CTE_IDENTIFIER}(?=$|[\s,])`,
@@ -126,6 +125,42 @@ function afterSqlParenthesizedBody(value: string): string | undefined {
   return undefined;
 }
 
+function afterSqlCteHeader(value: string): string | undefined {
+  let statement = afterLeadingSqlComments(value);
+  const name = SQL_CTE_IDENTIFIER_RE.exec(statement);
+  if (!name) return undefined;
+
+  statement = afterLeadingSqlComments(statement.slice(name[0].length));
+  if (statement.startsWith("(")) {
+    const afterColumns = afterSqlParenthesizedBody(statement);
+    if (afterColumns === undefined) return undefined;
+    statement = afterLeadingSqlComments(afterColumns);
+  }
+
+  const as = /^as\b/i.exec(statement);
+  if (!as) return undefined;
+  statement = afterLeadingSqlComments(statement.slice(as[0].length));
+
+  const not = /^not\b/i.exec(statement);
+  if (not) {
+    statement = afterLeadingSqlComments(statement.slice(not[0].length));
+    const materialized = /^materialized\b/i.exec(statement);
+    if (!materialized) return undefined;
+    statement = afterLeadingSqlComments(
+      statement.slice(materialized[0].length),
+    );
+  } else {
+    const materialized = /^materialized\b/i.exec(statement);
+    if (materialized) {
+      statement = afterLeadingSqlComments(
+        statement.slice(materialized[0].length),
+      );
+    }
+  }
+
+  return statement.startsWith("(") ? statement : undefined;
+}
+
 function isSqlCteStatement(value: string): boolean {
   let statement = afterLeadingSqlComments(value);
   const withPrefix = /^with\b/i.exec(statement);
@@ -140,12 +175,10 @@ function isSqlCteStatement(value: string): boolean {
   }
 
   while (true) {
-    const header = SQL_CTE_HEADER_RE.exec(statement);
+    const header = afterSqlCteHeader(statement);
     if (!header) return false;
 
-    const afterBody = afterSqlParenthesizedBody(
-      statement.slice(header[0].length - 1),
-    );
+    const afterBody = afterSqlParenthesizedBody(header);
     if (afterBody === undefined) return false;
 
     let remainder = afterLeadingSqlComments(afterBody);
