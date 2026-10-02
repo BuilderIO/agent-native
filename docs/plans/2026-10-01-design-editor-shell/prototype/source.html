@@ -364,6 +364,12 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .resp-handle { display: none; }
 .frame-selected > .resp-handle { display: flex; }
 .frame-selected > .page { outline: 1.5px solid var(--accent); }
+.inp.tokfield { padding-right: 0; }
+.tok-chip { display: inline-flex; align-items: center; gap: 4px; height: 18px; margin-right: auto; padding: 0 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font: 500 11px/18px var(--font); }
+.tok-chip svg.i { width: 12px; height: 12px; }
+.segt { display: flex; padding: 2px; border-radius: 6px; background: var(--muted); }
+.segt button { flex: 1; height: 20px; border-radius: 4px; font-size: 12px; color: var(--muted-fg); }
+.segt button[aria-pressed="true"] { background: var(--bg); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / 10%); }
 .frame-label .fl-name { font: inherit; color: inherit; padding: 0 2px; border-radius: 3px; }
 .frame-label .fl-name:hover, .frame-label .fl-name[aria-pressed="true"] { color: var(--accent); }
 .frame-selected > .resp-handle { position: absolute; top: 0; bottom: 0; right: -10px; width: 20px; cursor: ew-resize; display: flex; align-items: center; justify-content: center; z-index: 5; }
@@ -1031,14 +1037,15 @@ function renderResponsiveFrame() {
   Object.assign(p.style, { width: w + "px", position: "absolute", left: "0", top: "0", transformOrigin: "top left", transform: `scale(${s})` });
   const fit = () => { wrap.style.width = w * s + "px"; wrap.style.height = p.offsetHeight * s + "px"; };
   fit(); requestAnimationFrame(fit);
-  const tok = S.mode === "interact" ? nearestToken(w) : frameToken(), name = S.route === "/docs" ? "Screen 2" : "Screen 1";
+  const name = screenName();
   $("#frame-label").innerHTML = S.mode === "interact" ? `${name} <span>${w}</span>`
-    : `<button class="fl-name" data-select-screen aria-pressed="${S.screenSel}">${name}</button><button class="fl-w" id="resp-w" aria-haspopup="menu" title="Frame width">${w}${tok ? ` · ${tok[0]}` : ""}${ic("chevron-down", "s12")}</button>`;
+    : `<button class="fl-name" data-select-screen aria-pressed="${S.screenSel}">${name}</button>`;
   const h = document.createElement("div"); h.className = "resp-handle"; h.title = "Drag to resize the frame"; wrap.append(h);
   wrap.classList.toggle("frame-selected", S.screenSel && S.mode === "design" && !H.active);
 }
-function setFrameWidth(w, live) {
+function setFrameWidth(w, live, tok = null) {
   RESP.w = Math.round(Math.min(1920, Math.max(320, w)));
+  if (!live) RESP.tok = tok;
   if (live) { const p = $("#page"), s = S.zoom / 100; p.style.width = RESP.w + "px"; p.parentElement.style.width = RESP.w * s + "px"; p.parentElement.style.height = p.offsetHeight * s + "px"; requestAnimationFrame(renderPins); return; }
   renderPage(); renderInspector();
 }
@@ -1054,22 +1061,33 @@ document.addEventListener("pointerdown", e => {
     const snap = snaps.find(px => Math.abs(px - w) <= 8); if (snap && !ev.altKey) w = snap;
     setFrameWidth(w, true); const tok = nearestToken(RESP.w); read.textContent = `${RESP.w}${tok ? ` · ${tok[0]}` : ""}`;
   };
-  const up = () => { document.removeEventListener("pointermove", move); h.classList.remove("drag"); read.remove(); renderPage(); renderInspector(); };
+  const up = () => { document.removeEventListener("pointermove", move); h.classList.remove("drag"); read.remove(); setFrameWidth(RESP.w); };
   document.addEventListener("pointermove", move); document.addEventListener("pointerup", up, { once: true });
 });
 // A width can match a Container and a Breakpoint token (1280 is 7xl and xl); only the one the label names is checked.
-// The token named for the frame: the one picked from the menu while the width still matches it, else Breakpoint before Container.
-const frameToken = () => RESP.tok && RESP.tok[1] === RESP.w ? RESP.tok : nearestToken(RESP.w);
+// A width picked from the menu binds its token, shown as a token in W; typing, dragging, or Detach sets a raw width.
+const boundToken = () => RESP.tok && RESP.tok[1] === RESP.w ? RESP.tok : null;
+const frameToken = () => boundToken() || nearestToken(RESP.w);
 const widthMenu = (cur, run) => { const [name, , kind] = (cur === RESP.w ? frameToken() : nearestToken(cur)) || []; return [{ label: "Container" }, ...widthTokens("container").map(([n, px]) => ({ t: n, k: String(px), radio: true, on: kind === "container" && name === n, run: () => run(px, [n, px, "container"]) })), "-", { label: "Breakpoint" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: n, k: String(px), radio: true, on: kind === "breakpoint" && name === n, run: () => run(px, [n, px, "breakpoint"]) }))]; };
 const whenMenu = (r) => [{ label: "Container (this layer's parent)" }, ...widthTokens("container").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), radio: true, on: r.scale === "container" && r.token === n, run: () => { r.scale = "container"; r.token = n; renderPage(); renderInspector(); } })), "-", { label: "Breakpoint (the frame)" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), radio: true, on: r.scale === "breakpoint" && r.token === n, run: () => { r.scale = "breakpoint"; r.token = n; renderPage(); renderInspector(); } }))];
-// The selected screen: its frame width (with the width presets) and height, like the code's Screen section.
+// The selected screen's frame, in the code's order: Screen, Position (X/Y, size with device presets),
+// Layout grids, Appearance, Fill, Stroke, Effects, Export.
 function renderScreenInspector(el) {
-  const name = S.route === "/docs" ? "Screen 2" : "Screen 1", tok = frameToken(), hpx = Math.round($("#page").offsetHeight);
-  el.innerHTML = `<div class="sel-head"><div class="g"><span class="nm">${ic("device-desktop", "s14")}<span>${name}</span></span><span class="muted" style="font-size:12px">${S.route}</span></div></div>
-    <div class="insp-scroll">${sec("frame", "Frame", "", `
-      <div class="g5">${field("Width", `<label class="inp"><span class="pre">W</span><input id="screen-w" value="${RESP.w}" aria-label="Frame width" inputmode="numeric"><button class="post" id="screen-w-menu" aria-haspopup="menu" title="Width presets">${ic("chevron-down", "s12")}</button></label>`)}${field("Height", inp("H", "Hug"), "c3")}</div>
-      ${tok ? `<p class="muted" style="margin:4px 16px 0;font-size:11px">${tok[2] === "breakpoint" ? "Breakpoint" : "Container"} ${tok[0]}</p>` : ""}`)}
+  const tok = boundToken();
+  const wField = tok
+    ? `<label class="inp tokfield"><span class="pre">W</span><button class="tok-chip" data-w-menu title="${tok[2] === "breakpoint" ? "Breakpoint" : "Container"} ${tok[0]} · ${tok[1]}px">${ic("assembly", "s12")}${tok[0]}</button><button class="post" data-w-menu aria-haspopup="menu" title="Width tokens">${ic("chevron-down", "s12")}</button></label>`
+    : `<label class="inp"><span class="pre">W</span><input id="screen-w" value="${RESP.w}" aria-label="Frame width" inputmode="numeric"><button class="post" data-w-menu aria-haspopup="menu" title="Width tokens">${ic("chevron-down", "s12")}</button></label>`;
+  el.innerHTML = `<div class="sel-head"><div class="g"><span class="nm">${ic("frame", "s14")}<span>${screenName()}</span></span><span class="muted" style="font-size:12px">${S.route}</span></div></div>
+    <div class="insp-scroll">
+    ${sec("screen", "Screen", "", `<div class="g5">${field("Source", `<div class="segt"><button aria-pressed="true">Static</button><button aria-pressed="false" data-toast="Screens can render a URL (a local app or a live page)">URL</button></div>`, "c13")}</div>`)}
+    ${sec("position", "Position", act("device-desktop", "Device sizes"), `
+      <div class="g5">${field("Position", inp("X", "0px"))}${field("&nbsp;", inp("Y", "0px"), "c3")}</div>
+      <div class="g5">${field("Size", wField)}${field("&nbsp;", inp("H", "Hug"), "c3")}</div>`)}
+    ${sec("grids", "Layout grids", act("plus", "Add layout grid"), "", { empty: true })}
+    ${sec("appearance", "Appearance", act("eye", "Visible"), `<div class="g5">${field("Opacity", inp(ic("grid-dots", "s12"), "100%"))}${field("Corner radius", inp(ic("border-radius", "s12"), "0"), "c3")}</div>`)}
     ${sec("fill", "Fill", act("plus", "Add fill"), `<div class="fillrow"><button class="inp"><span class="swatch" style="background:#ffffff"></span><span class="hex">FFFFFF</span><span class="pct">100%</span></button></div>`)}
+    ${sec("stroke", "Stroke", act("plus", "Add stroke"), "", { empty: true })}
+    ${sec("effects", "Effects", act("plus", "Add effect"), "", { empty: true })}
     ${sec("export", "Export", act("plus", "Add export setting"), `<div class="export-row">${dd("1x")}${dd("PNG")}<label class="inp"><input placeholder="Suffix" aria-label="Suffix" style="padding-left:6px"></label></div>`)}</div>`;
 }
 function responsiveSection(id) {
@@ -1082,8 +1100,8 @@ function responsiveSection(id) {
 document.addEventListener("click", e => {
   const t = e.target;
   if (t.closest?.("[data-select-screen]")) { S.screenSel = true; S.multi = []; renderTree(); renderPage(); renderInspector(); return; }
-  if (t.closest?.("#screen-w-menu")) return openMenu(t.closest("#screen-w-menu"), widthMenu(RESP.w, (px, tok) => { RESP.tok = tok; setFrameWidth(px); }), { align: "right" });
-  if (t.closest?.("#resp-w")) return openMenu(t.closest("#resp-w"), widthMenu(RESP.w, (px, tok) => { RESP.tok = tok; setFrameWidth(px); }));
+  const wm = t.closest?.("[data-w-menu]");
+  if (wm) return openMenu(wm.closest(".inp") || wm, [...widthMenu(RESP.w, (px, tok) => setFrameWidth(px, false, tok)), ...(boundToken() ? ["-", { t: "Detach token", run: () => setFrameWidth(RESP.w) }] : [])]);
   if (t.closest?.("[data-resp-add]")) { const root = !FLAT[S.selected]?.parent; RESP.rules.push({ id: RESP.nextId++, node: S.selected, scale: root ? "breakpoint" : "container", token: root ? "md" : "md", change: respChoices(S.selected)[0] }); renderPage(); renderInspector(); return; }
   const wh = t.closest?.("[data-resp-when]"); if (wh) return openMenu(wh, whenMenu(RESP.rules.find(r => r.id === +wh.dataset.respWhen)));
   const ch = t.closest?.("[data-resp-change]"); if (ch) { const r = RESP.rules.find(x => x.id === +ch.dataset.respChange); return openMenu(ch, respChoices(r.node).map(c => ({ t: RESP_CHANGES[c].t, radio: true, on: r.change === c, run: () => { r.change = c; renderPage(); renderInspector(); } }))); }
@@ -1091,6 +1109,7 @@ document.addEventListener("click", e => {
 });
 
 /* ───────── tree (Screens + Layers) ───────── */
+const screenName = () => S.route === "/docs" ? "Screen 2" : "Screen 1";
 function rowHTML({ depth = 0, disc = null, icon, label, id, selected, cls = "", trail = true }) {
   const indent = depth ? `<span class="indent">${"<i></i>".repeat(depth)}</span>` : "";
   const d = disc === null ? `<span class="slot" aria-hidden="true"></span>`
@@ -1119,7 +1138,10 @@ function renderTree() {
       if (n.children && open) walk(n.children, depth + 1);
     });
     const root = S.route === "/docs" ? DOCS_LAYERS : LAYERS;
-    walk(root, 0);
+    // The screen's root frame heads the tree; selecting it selects the screen (proposed: today single-screen Layers starts at the body's children).
+    const rootOpen = lq ? true : !S.collapsed.has("screen-frame");
+    h += rowHTML({ depth: 0, disc: rootOpen, icon: ic("frame"), label: screenName(), id: "screen-frame", selected: S.screenSel && S.mode === "design", trail: false });
+    if (rootOpen) walk(root, 1);
     if (lq && !root.some(hit)) h += `<div class="tk-empty">No layers match “${LY.q}”.</div>`;
     h += `</div>`;
   }
@@ -1725,8 +1747,8 @@ document.addEventListener("click", e => {
   const tg = t.closest("[data-toggle]"); if (tg) { e.stopPropagation(); const id = tg.dataset.toggle; S.collapsed.has(id) ? S.collapsed.delete(id) : S.collapsed.add(id); renderTree(); return; }
   const sc = t.closest("[data-sec]"); if (sc) { S[sc.dataset.sec] = !S[sc.dataset.sec]; renderTree(); return; }
   const ps = t.closest("[data-psec]"); if (ps) { const id = ps.dataset.psec; S.sections.has(id) ? S.sections.delete(id) : S.sections.add(id); renderInspector(); return; }
-  const row = t.closest(".row[data-id]"); if (row) { if (S.mode === "interact") { S.mode = "design"; } S.selected = row.dataset.id; S.screenSel = false; render(); return; }
-  const scr = t.closest(".row[data-screen]"); if (scr) { if (scr.dataset.screen === "all") toast("All screens shows every screen side by side on the canvas"); else { S.screenSel = S.mode === "design"; go(scr.dataset.screen); } return; }
+  const row = t.closest(".row[data-id]"); if (row) { if (S.mode === "interact") { S.mode = "design"; } if (row.dataset.id === "screen-frame") { S.screenSel = true; S.multi = []; } else { S.selected = row.dataset.id; S.screenSel = false; } render(); return; }
+  const scr = t.closest(".row[data-screen]"); if (scr) { if (scr.dataset.screen === "all") toast("All screens shows every screen side by side on the canvas"); else { S.screenSel = false; go(scr.dataset.screen); } return; }
   const tool = t.closest("[data-tool]"); if (tool) { const def = TOOLS[S.mode].find(x => x.id === tool.dataset.tool); if (def.agent) { setPanel("agents"); $("#ask")?.focus(); return; } S.tool = def.id; renderDock(); app.classList.toggle("comment-tool", S.tool === "comment"); return; }
   const more = t.closest("[data-more]"); if (more) { const def = TOOLS[S.mode].find(x => x.id === more.dataset.more); if (def.agent) openSkillsMenu(more, { aboveOf: $("#dock") }); else openToolMenu(more, def); return; }
   const tk = t.closest("[data-toast]"); if (tk) { toast(tk.dataset.toast); return; }

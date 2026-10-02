@@ -308,6 +308,10 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
 - **LAYER-02** · decided
   - Today: The left panel defaults to 280px and clamps to 220–420px.
   - Change: It resizes from its right edge in 8px steps: 240px default, 232px minimum (the first 8pt width at or above Figma's 227px), 416px maximum. Double-click resets to 240px; arrow keys nudge 8px (Shift 40px).
+- **LAYER-03** · proposed
+  - Today: Single-screen Layers drops `html` and `body` and starts at the body's children (`compactCodeLayerTreeNodes`); only the overview shows a row per screen file.
+  - Change: The screen's root frame is the top Layers row (frame icon, the screen's name) with its layers nested under it, and selecting it selects the screen, like its label on the canvas. The Screens list keeps switching screens.
+  - Prototype: “Screen 1” heads the Layers tree.
 
 ## Inspector (INSP, step 10)
 
@@ -376,12 +380,13 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
 - **RESP-03** · context
   - Today: Tailwind check (2026-10-02): inline designs run `@tailwindcss/browser` ^4.3.3 (bundled by `local-runtime.ts`), and exports load `@tailwindcss/browser@4`. Container queries are built in: in headless Chrome against the bundled 4.3.3, `@md:` / `@max-md:` flip at a 448px container and a named `@container/card` with `@[480px]/card:` works. Code-backed apps bring their own Tailwind: v4 has container queries built in, v3 needs `@tailwindcss/container-queries`, and plain CSS `@container` works in every current browser.
 - **RESP-04** · decided
-  - Today: Selecting a screen shows its frame W/H in the inspector's Screen section (`handleScreenGeometryChange`), next to the breakpoint chips: two width concepts side by side.
-  - Change: A frame is a frame. Select the screen (its name above the frame, or its row in Screens) and its W sets the width it renders at; dragging the selected frame's right edge resizes it with the layout reflowing live, snapping to width tokens (Alt skips the snap). There's no active-breakpoint mode and no edit scope.
-  - Prototype: Click “Screen 1” above the frame, then drag the handle on its right edge or type in W.
+  - Today: Clicking a frame's label selects the screen (`handleFrameClick`). The inspector shows the Screen section (source, URL, then the breakpoint chips), Position with the screen's W/H and a device-size picker (`ScreenSizePresetPicker`), Layout grids, then the body's Appearance, Fill, Stroke, Effects, and Export: two width concepts side by side.
+  - Change: A frame is a frame. Select it from its label above the frame or its row at the top of Layers (LAYER-03), and the inspector shows the full frame inspector in the code's order, minus the breakpoint chips. W sets the width the frame renders at; dragging the selected frame's right edge resizes it with the layout reflowing live, snapping to width tokens (Alt skips the snap). There's no active-breakpoint mode and no edit scope.
+  - Prototype: Click “Screen 1” above the frame or at the top of Layers, then drag the handle on the frame's right edge or set W.
 - **RESP-05** · decided
-  - Change: Width presets: the frame's width menu lists Container (3xs 256 … 7xl 1280) and Breakpoint (sm 640 … 2xl 1536) widths, from the design system's `--container-*` and `--breakpoint-*` tokens when it has them and Tailwind v4's defaults otherwise. It's one choice: picking a width closes the menu, and the check sits on a single token. A width that matches both scales (1280 is Container 7xl and Breakpoint xl) shows the one you picked, else the Breakpoint name.
-  - Prototype: With the screen selected, open W's chevron, or the width beside the screen name.
+  - Today: Nothing in the inspector binds a value to a token: W/H take numbers, and the device-size picker sets both from `FRAME_SIZE_PRESET_CATEGORIES`.
+  - Change: W's chevron, in the inspector only, lists Container (3xs 256 … 7xl 1280) and Breakpoint (sm 640 … 2xl 1536) widths, from the design system's `--container-*` and `--breakpoint-*` tokens when it has them and Tailwind v4's defaults otherwise. Picking one binds it: W shows the token (2xl) instead of the number, the menu checks it, and Detach token, typing a number, or dragging the frame sets a raw width again. It's one choice, and the menu closes on pick. The device-size picker (width and height together) stays beside Position.
+  - Prototype: Select the screen, then open W's chevron.
 - **RESP-06** · decided
   - Change: Responsive rules live on the layer: the inspector's Responsive section lists rules as “Below {token}” plus a change (Stack, Wrap, One column, Collapse to menu, Hide, Text size, Padding), each showing its Tailwind class. A Container token queries the layer's parent (`@container` on the parent, `@max-3xl:grid-cols-1` on the layer); a Breakpoint token queries the frame (`max-md:hidden`). Rules travel with a component into code.
   - Prototype: Select a layer (the feature grid, the nav links, the headline) and use + in Responsive.
