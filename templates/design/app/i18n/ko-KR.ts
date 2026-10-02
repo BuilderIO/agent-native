@@ -1358,6 +1358,14 @@ export default {
         "읽기 전용 미리보기에서는 PNG 캡처를 사용할 수 없음",
       pngSaveError: "PNG를 저장할 수 없음",
       pngExportError: "PNG를 내보낼 수 없음",
+      exportTooLarge:
+        "내보내기 크기가 너무 큽니다. 요청 한도는 5MB입니다. 포함된 리소스나 래스터 크기를 줄이고 다시 시도하세요.",
+      exportResourcesUnavailable:
+        "하나 이상의 이미지, 글꼴 또는 스타일시트를 사용할 수 없어 정확히 렌더링하지 못했습니다. 해당 리소스를 확인하고 다시 시도하세요.",
+      exportTimedOut:
+        "내보내기 시간이 초과되었습니다. 다시 시도하거나 디자인 크기를 줄이세요.",
+      exportChromiumUnavailable:
+        "렌더러를 시작할 수 없어 내보내기를 사용할 수 없습니다. 나중에 다시 시도하세요.",
       pdfExportError: "PDF를 내보낼 수 없습니다.",
       pdfDownloaded: "PDF 다운로드됨",
       pdfAllScreensDownloaded: "PDF 다운로드됨 (모든 화면)",

@@ -1,12 +1,26 @@
 name: Design E2E (browser)
 
 on:
+  pull_request:
+    paths:
+      - ".github/actions/setup-pnpm/**"
+      - ".github/workflows/design-e2e.yml"
+      - "package.json"
+      - "packages/agentkit/**"
+      - "packages/core/**"
+      - "packages/creative-context/**"
+      - "packages/recap-cli/**"
+      - "packages/toolkit/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "scripts/prebuild-workspace-packages.ts"
+      - "templates/design/**"
   schedule:
     - cron: "37 9 * * *"
   workflow_dispatch: {}
 
 concurrency:
-  group: design-e2e
+  group: design-e2e-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -14,14 +28,14 @@ permissions:
 
 jobs:
   e2e:
-    name: Shard ${{ matrix.shard }}/8
+    name: ${{ github.event_name == 'pull_request' && 'Export pixel fidelity' || format('Shard {0}/8', matrix.shard) }}
     runs-on: ubuntu-latest
     # Reserve time after the shard timeout for setup and report upload.
     timeout-minutes: 55
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+        shard: ${{ github.event_name == 'pull_request' && fromJSON('[1]') || fromJSON('[1, 2, 3, 4, 5, 6, 7, 8]') }}
     services:
       postgres:
         image: postgres:17-alpine
@@ -83,7 +97,11 @@ jobs:
           E2E_DATABASE_URL: postgres://postgres@127.0.0.1:5432/design_e2e
         run: |
           mkdir -p .react-router/types
-          pnpm exec playwright test --shard=${{ matrix.shard }}/8
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            pnpm exec playwright test e2e/url-export-font-fidelity.spec.ts
+          else
+            pnpm exec playwright test --shard=${{ matrix.shard }}/8
+          fi
 
       - name: Upload report on failure
         if: ${{ !cancelled() && steps.run-shard.outcome != 'success' }}

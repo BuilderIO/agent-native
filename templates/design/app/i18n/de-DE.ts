@@ -1385,6 +1385,14 @@ export default {
         "PNG-Aufnahmen sind in schreibgeschützten Vorschauen nicht verfügbar",
       pngSaveError: "PNG konnte nicht gespeichert werden",
       pngExportError: "PNG konnte nicht exportiert werden",
+      exportTooLarge:
+        "Der Export ist zu groß. Anfragen sind auf 5 MB begrenzt. Verkleinern Sie eingebettete Ressourcen oder Rasterabmessungen und versuchen Sie es erneut.",
+      exportResourcesUnavailable:
+        "Der Export konnte nicht exakt gerendert werden, weil Bilder, Schriftarten oder Stylesheets nicht verfügbar sind. Prüfen Sie diese Ressourcen und versuchen Sie es erneut.",
+      exportTimedOut:
+        "Der Export hat das Zeitlimit überschritten. Versuchen Sie es erneut oder verkleinern Sie das Design.",
+      exportChromiumUnavailable:
+        "Der Export ist nicht verfügbar, weil der Renderer nicht gestartet werden konnte. Versuchen Sie es später erneut.",
       pdfExportError: "PDF konnte nicht exportiert werden",
       pdfDownloaded: "PDF heruntergeladen",
       pdfAllScreensDownloaded: "PDF heruntergeladen (Alle Screens)",

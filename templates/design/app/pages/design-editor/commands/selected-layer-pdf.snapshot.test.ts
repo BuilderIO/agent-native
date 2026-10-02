@@ -13,7 +13,6 @@ const mocks = vi.hoisted(() => ({
   resolveSelectedExportElements: vi.fn(),
 }));
 
-vi.mock("html2canvas", () => ({ default: vi.fn() }));
 vi.mock("@/pages/design-editor/export-capture", async (importOriginal) => {
   const actual =
     await importOriginal<

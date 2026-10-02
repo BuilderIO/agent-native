@@ -1377,6 +1377,14 @@ export default {
         "La captura PNG no está disponible en vistas previas de solo lectura",
       pngSaveError: "No se pudo guardar PNG",
       pngExportError: "No se pudo exportar PNG",
+      exportTooLarge:
+        "La exportación es demasiado grande. Las solicitudes tienen un límite de 5 MB; reduce los recursos incrustados o las dimensiones de rasterización e inténtalo de nuevo.",
+      exportResourcesUnavailable:
+        "No se pudo renderizar correctamente la exportación porque faltan una o más imágenes, fuentes u hojas de estilo. Revisa esos recursos e inténtalo de nuevo.",
+      exportTimedOut:
+        "La exportación agotó el tiempo de espera. Vuelve a intentarlo o reduce el tamaño del diseño.",
+      exportChromiumUnavailable:
+        "La exportación no está disponible porque no se pudo iniciar el renderizador. Inténtalo de nuevo más tarde.",
       pdfExportError: "No se pudo exportar PDF",
       pdfDownloaded: "PDF descargado",
       pdfAllScreensDownloaded: "PDF descargado (todas las pantallas)",

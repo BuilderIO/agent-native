@@ -1386,6 +1386,14 @@ export default {
         "La capture PNG n’est pas disponible dans les aperçus en lecture seule",
       pngSaveError: "Impossible d’enregistrer PNG",
       pngExportError: "Impossible d’exporter PNG",
+      exportTooLarge:
+        "L’export est trop volumineux. Les requêtes sont limitées à 5 Mo ; réduisez les ressources intégrées ou les dimensions de rastérisation, puis réessayez.",
+      exportResourcesUnavailable:
+        "L’export n’a pas pu être rendu fidèlement, car une ou plusieurs images, polices ou feuilles de style sont indisponibles. Vérifiez ces ressources, puis réessayez.",
+      exportTimedOut:
+        "Le délai d’export a expiré. Réessayez ou réduisez la taille du design.",
+      exportChromiumUnavailable:
+        "L’export est indisponible, car le moteur de rendu n’a pas pu démarrer. Réessayez plus tard.",
       pdfExportError: "Impossible d’exporter le PDF",
       pdfDownloaded: "PDF téléchargé",
       pdfAllScreensDownloaded: "PDF téléchargé (tous les écrans)",

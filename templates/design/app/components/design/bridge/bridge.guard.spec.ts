@@ -10801,6 +10801,83 @@ it(
 );
 
 it(
+  "runtime export snapshots preserve live form state and reject uncapturable surfaces",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage();
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.setContent(`<!doctype html>
+<html><body>
+  <input id="weight" type="range" min="100" max="900" value="400">
+  <textarea id="tester">Initial text</textarea>
+  <input id="enabled" type="checkbox" checked>
+  <select id="style"><option value="display">Display</option><option value="text" selected>Text</option></select>
+  <input id="password" type="password" value="initial">
+  <canvas id="chart" width="20" height="20"></canvas>
+  <iframe srcdoc="<p>Embedded document</p>" title="Preview"></iframe>
+</body></html>`);
+      await page.evaluate(() => {
+        (document.querySelector("#weight") as HTMLInputElement).value = "620";
+        (document.querySelector("#tester") as HTMLTextAreaElement).value =
+          "Live specimen text";
+        (document.querySelector("#enabled") as HTMLInputElement).checked =
+          false;
+        (document.querySelector("#style") as HTMLSelectElement).value =
+          "display";
+        (document.querySelector("#password") as HTMLInputElement).value =
+          "private text";
+      });
+      await collectBridgeMessages(page);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(true),
+      });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "agent-native:runtime-layer-snapshot",
+        ),
+      );
+
+      const snapshot = await page.evaluate(() => {
+        const html = ((window as any).__bridgeMessages ?? []).find(
+          (message: any) =>
+            message.type === "agent-native:runtime-layer-snapshot",
+        )?.payload?.html as string;
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        return {
+          rangeValue: doc.querySelector("#weight")?.getAttribute("value"),
+          textareaValue: doc.querySelector("#tester")?.textContent,
+          checkboxChecked: doc
+            .querySelector("#enabled")
+            ?.hasAttribute("checked"),
+          selectedOption: doc
+            .querySelector("#style option[selected]")
+            ?.getAttribute("value"),
+          passwordValue: doc.querySelector("#password")?.getAttribute("value"),
+          failures: doc.documentElement.getAttribute(
+            "data-agent-native-export-resource-failures",
+          ),
+        };
+      });
+      expect(snapshot).toEqual({
+        rangeValue: "620",
+        textareaValue: "Live specimen text",
+        checkboxChecked: false,
+        selectedOption: "display",
+        passwordValue: "xxxxxxxxxxxx",
+        failures: "canvas-unavailable,embedded-document-unavailable",
+      });
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "runtime Layers ignores animation churn but refreshes semantic layout and tree mutations",
   { timeout: 30_000 },
   async () => {

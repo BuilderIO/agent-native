@@ -6045,9 +6045,6 @@ importers:
       h3:
         specifier: 'catalog:'
         version: 2.0.1-rc.22(crossws@0.4.6(srvx@0.11.17))
-      html2canvas:
-        specifier: ^1.4.1
-        version: 1.4.1
       isbot:
         specifier: ^5
         version: 5.1.44

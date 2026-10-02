@@ -1037,6 +1037,7 @@ import {
   type MotionTimelineQueryResult,
   motionTimelineFingerprint,
 } from "./design-editor/motion-state";
+import { NativeExportRenderError } from "./design-editor/native-export-render";
 import {
   clampOverviewDisplayZoom,
   clampZoom,
@@ -19619,10 +19620,13 @@ function DesignEditor() {
   );
   const markScreenForExport = useCallback(
     (screenId: string) => {
-      if (activeRuntimeLayerReadinessScreenIdRef.current !== screenId) {
+      if (exportPreviewScreenIdRef.current !== screenId) {
         runtimeLayerSnapshotReadinessByIdRef.current[screenId] = {
           status: "loading",
         };
+        if (activeRuntimeLayerReadinessScreenIdRef.current === screenId) {
+          setRuntimeLayerSnapshotRequest(Date.now() + Math.random());
+        }
       }
       exportPreviewScreenIdRef.current = screenId;
       setExportPreviewScreenId(screenId);
@@ -19636,9 +19640,9 @@ function DesignEditor() {
       );
       const sourceType =
         normalizeDesignSourceType(screen?.sourceType) ?? activeCanvasSourceType;
-      if (sourceType === "inline") return;
+      if (sourceType === "inline") return null;
       markScreenForExport(screenId);
-      await resolveSnapshotExportSource(screenId);
+      return await resolveSnapshotExportSource(screenId);
     },
     [
       activeCanvasSourceType,
@@ -19653,7 +19657,7 @@ function DesignEditor() {
   }, [setExportPreviewScreenId]);
 
   const resolvePngCaptureTarget = useCallback(
-    (scope: PngCaptureScope, requestedScreenId?: string) => {
+    async (scope: PngCaptureScope, requestedScreenId?: string) => {
       let iframe = canvasIframeRef.current;
       let cropSelection: ElementInfo | readonly ElementInfo[] | null =
         viewMode === "single" || scope === "element"
@@ -19709,34 +19713,18 @@ function DesignEditor() {
             selectedElement?.sourceLayerIdentity?.screenId ??
             (selectedScreenIds.length === 1 ? selectedScreenIds[0] : null) ??
             activeFile?.id;
-          const snapshot = screenId
-            ? runtimeLayerSnapshotsByIdRef.current[screenId]
-            : undefined;
+          const snapshotSource = screenId
+            ? await prepareSelectedScreenForExport(screenId)
+            : null;
           const screen = screenId
             ? overviewScreens.find((candidate) => candidate.id === screenId)
             : undefined;
-          const baseUrl = screenId
-            ? (liveScreenSnapshotsById[screenId]?.url ??
-              previewUrlAtLiveRoute(
-                screen?.url ?? screen?.previewUrl,
-                liveRoutePathsByScreenIdRef.current[screenId],
-              ))
-            : undefined;
-          if (
-            snapshot?.html &&
-            baseUrl &&
-            isCurrentRuntimeLayerSnapshot(
-              snapshot,
-              screenId
-                ? runtimeLayerSnapshotReadinessByIdRef.current[screenId]
-                : undefined,
-            )
-          ) {
+          if (snapshotSource) {
             return {
               cropSelection,
               doc: null,
               iframe,
-              snapshotSource: { html: snapshot.html, baseUrl },
+              snapshotSource,
               snapshotWidth: screen?.width ?? iframe.clientWidth,
               snapshotHeight: screen?.height ?? iframe.clientHeight,
             };
@@ -19757,8 +19745,8 @@ function DesignEditor() {
       canvasIframeRef,
       activeFile?.id,
       boardFileId,
-      liveScreenSnapshotsById,
       overviewScreens,
+      prepareSelectedScreenForExport,
       pngSelectedElements,
       selectedElement,
       selectedScreenIds,
@@ -19808,7 +19796,6 @@ function DesignEditor() {
           canEditDesign,
           canvasFrameGeometryById: exportCanvasFrameGeometryById,
           overviewScreens,
-          prepareScreenForExport: prepareSelectedScreenForExport,
           releaseScreenFromExport,
           resolvePngCaptureTarget,
           selectedScreenIds,
@@ -19832,6 +19819,7 @@ function DesignEditor() {
   const showRasterCaptureError = useCallback(
     (error: unknown, format: "png" | "pdf" = "png") => {
       if (error instanceof PngCaptureError) {
+        console.error(`${format.toUpperCase()} capture failed:`, error);
         if (format === "pdf") {
           toast.error(t("designEditor.toasts.pdfExportError"));
           return;
@@ -19858,15 +19846,23 @@ function DesignEditor() {
         return;
       }
       console.error(`${format.toUpperCase()} capture failed:`, error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t(
-              format === "pdf"
-                ? "designEditor.toasts.pdfExportError"
-                : "designEditor.toasts.pngExportError",
-            ),
-      );
+      const exportErrorToastKeys = {
+        export_too_large: "designEditor.toasts.exportTooLarge",
+        export_resources_unavailable:
+          "designEditor.toasts.exportResourcesUnavailable",
+        export_render_timeout: "designEditor.toasts.exportTimedOut",
+        export_chromium_unavailable:
+          "designEditor.toasts.exportChromiumUnavailable",
+      } as const;
+      const errorCode =
+        error instanceof NativeExportRenderError ? error.code : undefined;
+      const errorKey =
+        errorCode && errorCode in exportErrorToastKeys
+          ? exportErrorToastKeys[errorCode as keyof typeof exportErrorToastKeys]
+          : format === "pdf"
+            ? "designEditor.toasts.pdfExportError"
+            : "designEditor.toasts.pngExportError";
+      toast.error(t(errorKey));
     },
     [t],
   );
@@ -19916,6 +19912,7 @@ function DesignEditor() {
           renderPngBlob,
           resolveSelectedScreensBounds,
           resolvePngCaptureTarget,
+          releaseScreenFromExport,
           setPngExporting,
           showRasterCaptureError,
           t,
@@ -19929,6 +19926,7 @@ function DesignEditor() {
       renderPngBlob,
       resolveSelectedScreensBounds,
       resolvePngCaptureTarget,
+      releaseScreenFromExport,
       t,
       triggerBlobDownload,
     ],

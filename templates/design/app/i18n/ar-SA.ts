@@ -1348,6 +1348,13 @@ export default {
         "التقاط PNG غير متاح في المعاينات المخصصة للقراءة فقط",
       pngSaveError: "تعذر حفظ PNG",
       pngExportError: "تعذر تصدير PNG",
+      exportTooLarge:
+        "حجم التصدير كبير جدًا. الحد الأقصى للطلب 5 MB؛ قلّل الأصول المضمّنة أو أبعاد الصورة ثم حاول مرة أخرى.",
+      exportResourcesUnavailable:
+        "تعذر عرض التصدير بدقة لأن صورة أو خطًا أو ورقة أنماط واحدة أو أكثر غير متاحة. تحقّق من هذه الموارد ثم حاول مرة أخرى.",
+      exportTimedOut: "انتهت مهلة التصدير. حاول مرة أخرى أو قلّل حجم التصميم.",
+      exportChromiumUnavailable:
+        "التصدير غير متاح لتعذر بدء أداة العرض. حاول مرة أخرى لاحقًا.",
       pdfExportError: "تعذر تصدير PDF",
       pdfDownloaded: "تم تنزيل PDF",
       pdfAllScreensDownloaded: "تم تنزيل PDF (كل الشاشات)",

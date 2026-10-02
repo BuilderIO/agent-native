@@ -2082,6 +2082,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var runtimeLayerSnapshotReservationDirty = false;
   var runtimeLayerSnapshotReservationReadinessRequestId: number | null = null;
   var runtimeLayerSnapshotPendingReadinessRequestId: number | null = null;
+  var runtimeLayerSnapshotPostGeneration = 0;
+  var runtimeLayerSnapshotPendingPostReadinessRequestId: number | null = null;
   var lastRuntimeLayerSnapshotHtml = "";
   var lastRuntimeLayerSnapshotReservationToken = "";
   var runtimeDocumentId =
@@ -2168,91 +2170,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     | { ok: true; html: string; nodeCount: number; documentId: string }
     | { ok: false; reason: "snapshot-unavailable" | "snapshot-too-large" } {
     if (!document.body) return { ok: false, reason: "snapshot-unavailable" };
-    var snapshotComputedProperties = [
-      "box-sizing",
-      "display",
-      "position",
-      "inset",
-      "top",
-      "right",
-      "bottom",
-      "left",
-      "width",
-      "height",
-      "min-width",
-      "min-height",
-      "max-width",
-      "max-height",
-      "margin",
-      "padding",
-      "flex",
-      "flex-flow",
-      "flex-grow",
-      "flex-shrink",
-      "flex-basis",
-      "align-items",
-      "align-self",
-      "align-content",
-      "justify-content",
-      "justify-items",
-      "justify-self",
-      "gap",
-      "grid-template-columns",
-      "grid-template-rows",
-      "grid-column",
-      "grid-row",
-      "order",
-      "overflow",
-      "overflow-x",
-      "overflow-y",
-      "background-color",
-      "background-image",
-      "background-position",
-      "background-size",
-      "background-repeat",
-      "border",
-      "border-top",
-      "border-right",
-      "border-bottom",
-      "border-left",
-      "border-radius",
-      "box-shadow",
-      "opacity",
-      "transform",
-      "transform-origin",
-      "color",
-      "font-family",
-      "font-size",
-      "font-style",
-      "font-weight",
-      "line-height",
-      "letter-spacing",
-      "text-align",
-      "text-decoration",
-      "text-transform",
-      "white-space",
-      "object-fit",
-      "object-position",
-      "clip-path",
-      "visibility",
-    ];
-    function inlineSnapshotComputedStyle(
-      sourceNode: Element,
-      cloneNode: Element,
-    ): void {
-      var computed = getComputedStyle(sourceNode);
-      var parts: string[] = [];
-      for (
-        var propertyIndex = 0;
-        propertyIndex < snapshotComputedProperties.length;
-        propertyIndex += 1
-      ) {
-        var property = snapshotComputedProperties[propertyIndex];
-        var value = computed.getPropertyValue(property);
-        if (value) parts.push(property + ":" + value);
-      }
-      cloneNode.setAttribute("style", parts.join(";"));
-    }
+    var snapshotFailures: string[] = [];
     var sourceNodes = Array.prototype.slice.call(
       document.body.querySelectorAll("*"),
     ) as Element[];
@@ -2268,16 +2186,77 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       var sourceNode = sourceNodes[index];
       var cloneNode = cloneNodes[index];
+      var sourceIsStylesheet =
+        sourceNode instanceof HTMLStyleElement ||
+        (sourceNode instanceof HTMLLinkElement &&
+          sourceNode.relList.contains("stylesheet"));
       if (
         excludedRoot?.contains(sourceNode) ||
-        !isRuntimeLayerVisualNode(sourceNode)
+        (!isRuntimeLayerVisualNode(sourceNode) && !sourceIsStylesheet)
       ) {
         cloneNode.setAttribute("data-an-runtime-layer-remove", "true");
         continue;
       }
+      if (!isRuntimeLayerVisualNode(sourceNode)) continue;
       var runtimeNodeId = ensureRuntimeLayerNodeId(sourceNode);
       cloneNode.setAttribute("data-agent-native-node-id", runtimeNodeId);
-      inlineSnapshotComputedStyle(sourceNode, cloneNode);
+      cloneNode.removeAttribute("data-agent-native-runtime-locked");
+      if (
+        sourceNode instanceof HTMLInputElement &&
+        cloneNode instanceof HTMLInputElement
+      ) {
+        if (sourceNode.type === "file") {
+          if (sourceNode.files?.length) {
+            snapshotFailures.push("form-state-unavailable");
+          }
+        } else if (sourceNode.type !== "hidden") {
+          var inputValue =
+            sourceNode.type === "password"
+              ? "x".repeat(sourceNode.value.length)
+              : sourceNode.value;
+          cloneNode.setAttribute("value", inputValue);
+          if (sourceNode.checked) cloneNode.setAttribute("checked", "");
+          else cloneNode.removeAttribute("checked");
+          if (sourceNode.indeterminate) {
+            snapshotFailures.push("form-state-unavailable");
+          }
+        }
+      } else if (
+        sourceNode instanceof HTMLTextAreaElement &&
+        cloneNode instanceof HTMLTextAreaElement
+      ) {
+        cloneNode.textContent = sourceNode.value;
+      } else if (
+        sourceNode instanceof HTMLOptionElement &&
+        cloneNode instanceof HTMLOptionElement
+      ) {
+        if (sourceNode.selected) cloneNode.setAttribute("selected", "");
+        else cloneNode.removeAttribute("selected");
+      }
+      if (
+        sourceNode instanceof HTMLVideoElement ||
+        (sourceNode instanceof HTMLAudioElement && sourceNode.controls)
+      ) {
+        snapshotFailures.push("visual-media");
+      }
+      if (sourceNode instanceof HTMLCanvasElement) {
+        snapshotFailures.push("canvas-unavailable");
+      }
+      if (sourceNode instanceof HTMLIFrameElement) {
+        snapshotFailures.push("embedded-document-unavailable");
+      }
+      if (sourceNode.localName === "foreignobject") {
+        snapshotFailures.push("foreign-object-unavailable");
+      }
+      if (
+        sourceNode instanceof HTMLImageElement &&
+        cloneNode instanceof HTMLImageElement
+      ) {
+        if (sourceNode.currentSrc) {
+          cloneNode.setAttribute("src", sourceNode.currentSrc);
+        }
+        cloneNode.removeAttribute("srcset");
+      }
       var provenance = elementDebugProvenance(sourceNode);
       if (provenance.sourceFile) {
         if (provenance.framework) {
@@ -2362,7 +2341,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       });
     cloneBody
       .querySelectorAll(
-        "script,style,template,noscript,link,meta,title,iframe,object,embed,base,foreignObject,video,audio,source,track,animate,set",
+        "script,template,noscript,meta,title,iframe,object,embed,base,foreignObject,video,audio,source,track,animate,set,link:not([rel~='stylesheet'])",
       )
       .forEach(function (node) {
         node.remove();
@@ -2395,9 +2374,51 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       "data-agent-native-node-id",
       ensureRuntimeLayerNodeId(document.body),
     );
-    inlineSnapshotComputedStyle(document.body, cloneBody);
     cloneBody.setAttribute("data-an-runtime-layer-snapshot", "true");
-    var html = "<!doctype html><html>" + cloneBody.outerHTML + "</html>"; // i18n-ignore serialized runtime-layer HTML payload, not visible UI copy
+    var cloneHtml = document.documentElement.cloneNode(false) as HTMLElement;
+    var cloneHead = document.createElement("head");
+    Array.from(document.head?.children ?? []).forEach(function (node) {
+      if (
+        node instanceof HTMLStyleElement &&
+        (node.hasAttribute("data-agent-native-editor-chrome-style") ||
+          node.hasAttribute("data-agent-native-runtime-state-previews") ||
+          node.hasAttribute("data-agent-native-editing-safety-style"))
+      ) {
+        return;
+      }
+      if (
+        node instanceof HTMLStyleElement ||
+        (node instanceof HTMLLinkElement && node.relList.contains("stylesheet"))
+      ) {
+        if (
+          (node instanceof HTMLStyleElement && node.sheet?.disabled) ||
+          (node instanceof HTMLLinkElement && node.disabled)
+        ) {
+          return;
+        }
+        cloneHead.appendChild(node.cloneNode(true));
+      }
+    });
+    Array.from(document.adoptedStyleSheets ?? []).forEach(function (sheet) {
+      try {
+        var adoptedStyle = document.createElement("style");
+        adoptedStyle.textContent = Array.from(sheet.cssRules, function (rule) {
+          return rule.cssText;
+        }).join("\n");
+        cloneHead.appendChild(adoptedStyle);
+      } catch {
+        snapshotFailures.push("adopted-stylesheet-unavailable");
+      }
+    });
+    if (snapshotFailures.length > 0) {
+      cloneHtml.setAttribute(
+        "data-agent-native-export-resource-failures",
+        snapshotFailures.join(","),
+      );
+    }
+    cloneHtml.appendChild(cloneHead);
+    cloneHtml.appendChild(cloneBody);
+    var html = "<!doctype html>" + cloneHtml.outerHTML; // i18n-ignore serialized runtime-layer HTML payload, not visible UI copy
     if (html.length > 2_000_000)
       return { ok: false, reason: "snapshot-too-large" };
     return {
@@ -2405,6 +2426,331 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       html: html,
       nodeCount: nodeCount,
       documentId: runtimeDocumentId,
+    };
+  }
+
+  async function inlineRuntimeSnapshotResources(
+    html: string,
+    maxSerializedRequestBytes?: number,
+  ): Promise<{
+    html: string;
+    complete: boolean;
+    errorCode?: "export_too_large" | "export_resources_unavailable";
+  }> {
+    var parsed = new DOMParser().parseFromString(html, "text/html");
+    var resourceData = new Map<string, string>();
+    var totalBytes = 0;
+    var complete = true;
+    var failures = (
+      parsed.documentElement.getAttribute(
+        "data-agent-native-export-resource-failures",
+      ) || ""
+    )
+      .split(",")
+      .filter(Boolean);
+
+    function markFailure(reason: string): void {
+      complete = false;
+      failures.push(reason);
+    }
+
+    async function resourceDataUrl(
+      rawUrl: string,
+      baseUrl: string,
+    ): Promise<string | null> {
+      var url: URL;
+      try {
+        url = new URL(rawUrl, baseUrl);
+      } catch {
+        markFailure("resource-url-invalid");
+        return null;
+      }
+      if (url.protocol === "data:" || rawUrl.startsWith("#")) return rawUrl;
+      if (
+        url.protocol !== "http:" &&
+        url.protocol !== "https:" &&
+        url.protocol !== "blob:"
+      ) {
+        markFailure("resource-protocol-unsupported");
+        return null;
+      }
+      var resourceKind = /\.(?:woff2?|ttf|otf)(?:$|\?)/i.test(url.pathname)
+        ? "font"
+        : /\.(?:png|jpe?g|gif|webp|avif|svg)(?:$|\?)/i.test(url.pathname)
+          ? "image"
+          : /\.css(?:$|\?)/i.test(url.pathname)
+            ? "stylesheet"
+            : "other";
+      var fragment = url.hash;
+      url.hash = "";
+      var key = url.href;
+      var cached = resourceData.get(key);
+      if (cached) return cached + fragment;
+      try {
+        var response = await fetch(key, { credentials: "same-origin" });
+        if (!response.ok) throw new Error("resource unavailable");
+        var blob = await response.blob();
+        if (blob.size > 4_000_000 || totalBytes + blob.size > 8_000_000) {
+          markFailure("export-resource-size-limit");
+          return null;
+        }
+        totalBytes += blob.size;
+        var dataUrl: string = await new Promise(function (resolve, reject) {
+          var reader = new FileReader();
+          reader.onload = function () {
+            resolve(typeof reader.result === "string" ? reader.result : "");
+          };
+          reader.onerror = function () {
+            reject(reader.error || new Error("resource encoding failed"));
+          };
+          reader.readAsDataURL(blob);
+        });
+        if (!dataUrl) throw new Error("resource encoding failed");
+        resourceData.set(key, dataUrl);
+        return dataUrl + fragment;
+      } catch {
+        markFailure("resource-fetch-" + resourceKind);
+        return null;
+      }
+    }
+
+    async function inlineCssUrls(
+      css: string,
+      baseUrl: string,
+    ): Promise<string> {
+      var expression =
+        /url\(\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|((?:\\.|[^)])*))\s*\)/gi;
+      var matches = Array.from(css.matchAll(expression));
+      var replacements = await Promise.all(
+        matches.map(async function (match) {
+          var rawUrl = String(match[1] ?? match[2] ?? match[3] ?? "").trim();
+          if (!rawUrl || /^(?:data|about):/i.test(rawUrl)) return null;
+          var dataUrl = await resourceDataUrl(rawUrl, baseUrl);
+          return dataUrl ? { rawUrl: match[0], dataUrl: dataUrl } : null;
+        }),
+      );
+      var result = css;
+      for (var index = 0; index < matches.length; index += 1) {
+        var replacement = replacements[index];
+        if (replacement) {
+          result = result.replace(
+            replacement.rawUrl,
+            'url("' + replacement.dataUrl + '")',
+          );
+        }
+      }
+      return result;
+    }
+
+    async function inlineStylesheet(
+      css: string,
+      baseUrl: string,
+      importedFrom: string[],
+      depth: number,
+    ): Promise<string> {
+      if (depth > 8) {
+        markFailure("stylesheet-import-depth");
+        return css;
+      }
+      var importExpression =
+        /@import\s+(?:url\(\s*)?(['"]?)([^'")\s]+)\1\s*\)?\s*([^;]*);/gi;
+      var imports = Array.from(css.matchAll(importExpression));
+      if (imports.length === 0) return inlineCssUrls(css, baseUrl);
+
+      var result = "";
+      var cursor = 0;
+      for (
+        var importIndex = 0;
+        importIndex < imports.length;
+        importIndex += 1
+      ) {
+        var importMatch = imports[importIndex]!;
+        var start = importMatch.index ?? cursor;
+        result += css.slice(cursor, start);
+        var rawUrl = String(importMatch[2] || "").trim();
+        if (!rawUrl || /^(?:data|about):/i.test(rawUrl)) {
+          result += importMatch[0];
+          cursor = start + importMatch[0].length;
+          continue;
+        }
+        try {
+          var importedUrl = new URL(rawUrl, baseUrl);
+          importedUrl.hash = "";
+          if (importedFrom.indexOf(importedUrl.href) !== -1) {
+            throw new Error("cyclic stylesheet import");
+          }
+          var importedResponse = await fetch(importedUrl.href, {
+            credentials: "same-origin",
+          });
+          if (!importedResponse.ok) throw new Error("stylesheet unavailable");
+          var importedBlob = await importedResponse.blob();
+          if (
+            importedBlob.size > 4_000_000 ||
+            totalBytes + importedBlob.size > 8_000_000
+          ) {
+            markFailure("export-resource-size-limit");
+            result += importMatch[0];
+            cursor = start + importMatch[0].length;
+            continue;
+          }
+          totalBytes += importedBlob.size;
+          var importedCss = await inlineStylesheet(
+            await importedBlob.text(),
+            importedUrl.href,
+            importedFrom.concat(importedUrl.href),
+            depth + 1,
+          );
+          var importedDataUrl: string = await new Promise(
+            function (resolve, reject) {
+              var reader = new FileReader();
+              reader.onload = function () {
+                resolve(typeof reader.result === "string" ? reader.result : "");
+              };
+              reader.onerror = function () {
+                reject(reader.error || new Error("stylesheet encoding failed"));
+              };
+              reader.readAsDataURL(
+                new Blob([importedCss], { type: "text/css;charset=utf-8" }),
+              );
+            },
+          );
+          if (!importedDataUrl) throw new Error("stylesheet encoding failed");
+          result +=
+            '@import url("' +
+            importedDataUrl +
+            '")' +
+            String(importMatch[3] || "") +
+            ";";
+        } catch {
+          markFailure("stylesheet-import");
+          result += importMatch[0];
+        }
+        cursor = start + importMatch[0].length;
+      }
+      result += css.slice(cursor);
+      return inlineCssUrls(result, baseUrl);
+    }
+
+    var externalStylesheets = Array.from(
+      parsed.querySelectorAll<HTMLLinkElement>("link[rel~='stylesheet']"),
+    );
+    for (
+      var sheetIndex = 0;
+      sheetIndex < externalStylesheets.length;
+      sheetIndex += 1
+    ) {
+      var link = externalStylesheets[sheetIndex]!;
+      var replacementStyle = parsed.createElement("style");
+      if (link.media) replacementStyle.media = link.media;
+      if (link.title) replacementStyle.title = link.title;
+      try {
+        var sheetUrl = new URL(
+          link.getAttribute("href") || "",
+          document.baseURI,
+        );
+        var sheetResponse = await fetch(sheetUrl.href, {
+          credentials: "same-origin",
+        });
+        if (!sheetResponse.ok) throw new Error("stylesheet unavailable");
+        var sheetBlob = await sheetResponse.blob();
+        if (
+          sheetBlob.size > 4_000_000 ||
+          totalBytes + sheetBlob.size > 8_000_000
+        ) {
+          throw new Error("stylesheet exceeds export size limit");
+        }
+        totalBytes += sheetBlob.size;
+        replacementStyle.textContent = await inlineStylesheet(
+          await sheetBlob.text(),
+          sheetUrl.href,
+          [sheetUrl.href],
+          0,
+        );
+      } catch {
+        markFailure("stylesheet-link");
+      }
+      link.replaceWith(replacementStyle);
+    }
+
+    var styledNodes = Array.from(
+      parsed.querySelectorAll<HTMLElement>("[style], style"),
+    );
+    for (var styleIndex = 0; styleIndex < styledNodes.length; styleIndex += 1) {
+      var styledNode = styledNodes[styleIndex]!;
+      if (styledNode.localName === "style") {
+        styledNode.textContent = await inlineStylesheet(
+          styledNode.textContent || "",
+          document.baseURI,
+          [],
+          0,
+        );
+      } else {
+        styledNode.setAttribute(
+          "style",
+          await inlineCssUrls(
+            styledNode.getAttribute("style") || "",
+            document.baseURI,
+          ),
+        );
+      }
+    }
+
+    var imageNodes = Array.from(
+      parsed.querySelectorAll<HTMLElement>(
+        "img[src], image[href], image[xlink\\:href]",
+      ),
+    );
+    for (var imageIndex = 0; imageIndex < imageNodes.length; imageIndex += 1) {
+      var image = imageNodes[imageIndex]!;
+      var attribute = image.hasAttribute("src")
+        ? "src"
+        : image.hasAttribute("href")
+          ? "href"
+          : "xlink:href";
+      var source = image.getAttribute(attribute);
+      if (!source || /^(?:data|about):/i.test(source)) continue;
+      var dataSource = await resourceDataUrl(source, document.baseURI);
+      if (dataSource) image.setAttribute(attribute, dataSource);
+      else markFailure("image-fetch");
+      if (image.localName === "img") image.removeAttribute("srcset");
+    }
+
+    var tooLarge = failures.includes("export-resource-size-limit");
+    var outputHtml = "<!doctype html>" + parsed.documentElement.outerHTML;
+    if (maxSerializedRequestBytes !== undefined) {
+      var requestBody = JSON.stringify({
+        html: outputHtml,
+        width: Number.MAX_SAFE_INTEGER,
+        height: Number.MAX_SAFE_INTEGER,
+        scale: 4,
+      });
+      tooLarge =
+        tooLarge ||
+        new TextEncoder().encode(requestBody).byteLength >
+          maxSerializedRequestBytes;
+      if (tooLarge && !failures.includes("export-request-size-limit")) {
+        failures.push("export-request-size-limit");
+        complete = false;
+      }
+    }
+
+    if (!complete) {
+      parsed.documentElement.setAttribute(
+        "data-agent-native-export-resource-failures",
+        failures.join(","),
+      );
+      outputHtml = "<!doctype html>" + parsed.documentElement.outerHTML;
+    }
+    return {
+      html: outputHtml,
+      complete: complete,
+      ...(!complete
+        ? {
+            errorCode: tooLarge
+              ? ("export_too_large" as const)
+              : ("export_resources_unavailable" as const),
+          }
+        : {}),
     };
   }
 
@@ -2421,6 +2767,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     runtimeLayerSnapshotTimer = null;
     runtimeLayerSnapshotMaxTimer = null;
+    var postGeneration = ++runtimeLayerSnapshotPostGeneration;
+    if (Number.isSafeInteger(readinessRequestId)) {
+      runtimeLayerSnapshotPendingPostReadinessRequestId =
+        readinessRequestId as number;
+    }
+    var postReadinessRequestId =
+      runtimeLayerSnapshotPendingPostReadinessRequestId ?? undefined;
+    function clearPendingPostReadiness(): void {
+      if (
+        postReadinessRequestId !== undefined &&
+        runtimeLayerSnapshotPendingPostReadinessRequestId ===
+          postReadinessRequestId
+      ) {
+        runtimeLayerSnapshotPendingPostReadinessRequestId = null;
+      }
+    }
     var snapshot = serializeRuntimeLayerSnapshot();
     if (!snapshot.ok) {
       (window.parent as Window).postMessage(
@@ -2430,52 +2792,101 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             ...snapshot,
             requestId,
             documentId: runtimeDocumentId,
-            ...(Number.isSafeInteger(readinessRequestId)
-              ? { readinessRequestId }
+            ...(Number.isSafeInteger(postReadinessRequestId)
+              ? { readinessRequestId: postReadinessRequestId }
               : {}),
             ...(reservationToken ? { reservationToken } : {}),
           },
         },
         "*",
       );
+      clearPendingPostReadiness();
       return;
     }
-    var snapshotReservationToken = reservationToken || "";
-    if (
-      snapshot.html === lastRuntimeLayerSnapshotHtml &&
-      snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken &&
-      !Number.isSafeInteger(readinessRequestId)
-    ) {
-      (window.parent as Window).postMessage(
-        {
-          type: "agent-native:runtime-layer-snapshot-unchanged",
-          payload: {
-            requestId,
-            documentId: snapshot.documentId,
-            ...(Number.isSafeInteger(readinessRequestId)
-              ? { readinessRequestId }
-              : {}),
-            ...(reservationToken ? { reservationToken } : {}),
+    void inlineRuntimeSnapshotResources(snapshot.html)
+      .then(function (inlined) {
+        if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
+        snapshot.html = inlined.html;
+        if (snapshot.html.length > 14_000_000) {
+          (window.parent as Window).postMessage(
+            {
+              type: "agent-native:runtime-layer-snapshot-error",
+              payload: {
+                ok: false,
+                reason: "snapshot-too-large",
+                requestId,
+                documentId: runtimeDocumentId,
+                ...(Number.isSafeInteger(postReadinessRequestId)
+                  ? { readinessRequestId: postReadinessRequestId }
+                  : {}),
+                ...(reservationToken ? { reservationToken } : {}),
+              },
+            },
+            "*",
+          );
+          clearPendingPostReadiness();
+          return;
+        }
+        var snapshotReservationToken = reservationToken || "";
+        if (
+          snapshot.html === lastRuntimeLayerSnapshotHtml &&
+          snapshotReservationToken ===
+            lastRuntimeLayerSnapshotReservationToken &&
+          !Number.isSafeInteger(postReadinessRequestId)
+        ) {
+          (window.parent as Window).postMessage(
+            {
+              type: "agent-native:runtime-layer-snapshot-unchanged",
+              payload: {
+                requestId,
+                documentId: snapshot.documentId,
+                ...(Number.isSafeInteger(postReadinessRequestId)
+                  ? { readinessRequestId: postReadinessRequestId }
+                  : {}),
+                ...(reservationToken ? { reservationToken } : {}),
+              },
+            },
+            "*",
+          );
+          clearPendingPostReadiness();
+          return;
+        }
+        lastRuntimeLayerSnapshotHtml = snapshot.html;
+        lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
+        if (requestId !== undefined) snapshot.requestId = requestId;
+        if (Number.isSafeInteger(postReadinessRequestId)) {
+          snapshot.readinessRequestId = postReadinessRequestId;
+        }
+        if (reservationToken) snapshot.reservationToken = reservationToken;
+        (window.parent as Window).postMessage(
+          {
+            type: "agent-native:runtime-layer-snapshot",
+            payload: snapshot,
           },
-        },
-        "*",
-      );
-      return;
-    }
-    lastRuntimeLayerSnapshotHtml = snapshot.html;
-    lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
-    if (requestId !== undefined) snapshot.requestId = requestId;
-    if (Number.isSafeInteger(readinessRequestId)) {
-      snapshot.readinessRequestId = readinessRequestId;
-    }
-    if (reservationToken) snapshot.reservationToken = reservationToken;
-    (window.parent as Window).postMessage(
-      {
-        type: "agent-native:runtime-layer-snapshot",
-        payload: snapshot,
-      },
-      "*",
-    );
+          "*",
+        );
+        clearPendingPostReadiness();
+      })
+      .catch(function () {
+        if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
+        (window.parent as Window).postMessage(
+          {
+            type: "agent-native:runtime-layer-snapshot-error",
+            payload: {
+              ok: false,
+              reason: "snapshot-unavailable",
+              requestId,
+              documentId: runtimeDocumentId,
+              ...(Number.isSafeInteger(postReadinessRequestId)
+                ? { readinessRequestId: postReadinessRequestId }
+                : {}),
+              ...(reservationToken ? { reservationToken } : {}),
+            },
+          },
+          "*",
+        );
+        clearPendingPostReadiness();
+      });
   }
 
   function requestRuntimeLayerSnapshot(readinessRequestId?: number): void {
@@ -27928,6 +28339,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     repair: function () {
       observeEditorChromeHost();
       repairEditorChromeHost();
+    },
+    inlineExportResources: function (html: string) {
+      return inlineRuntimeSnapshotResources(html, 5_000_000);
     },
     updateConfig: function (next) {
       if (!next || typeof next !== "object") return;

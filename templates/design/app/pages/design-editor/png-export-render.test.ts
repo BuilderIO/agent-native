@@ -5,22 +5,11 @@ import type { ElementInfo } from "@/components/design/types";
 
 import {
   isolateSelectedExportElements,
-  normalizeHtml2CanvasImage,
   resolveExportCropRect,
   resolveExportCropTarget,
   resolveSelectedExportElements,
   PngCaptureError,
 } from "./png-export-render";
-
-it("normalizes sRGB gradient stops without changing sibling color spaces or images", () => {
-  const sibling = "linear-gradient(color(srgb 1 0 0), color(srgb 0 0 1))";
-  const image = 'url("https://example.test/image.png")';
-  const gradient =
-    "linear-gradient(90deg in srgb, color(srgb 1 0 0 / 0.2) 0%, color(srgb 0 0 1 / 0) 100%)";
-  expect(normalizeHtml2CanvasImage(`${gradient}, ${sibling}, ${image}`)).toBe(
-    `linear-gradient(90deg, rgba(255, 0, 0, 0.2) 0%, rgba(0, 0, 255, 0) 100%), ${sibling}, ${image}`,
-  );
-});
 
 it("isolates selected exports from overlapping siblings and ancestor paint", () => {
   const source = document.implementation.createHTMLDocument();
@@ -61,8 +50,6 @@ it("isolates selected exports from overlapping siblings and ancestor paint", () 
   expect(selectedElements).toEqual([frame]);
 
   const cloned = source.cloneNode(true) as Document;
-  const html2canvasPseudo = cloned.createElement("html2canvaspseudoelement");
-  cloned.body.insertBefore(html2canvasPseudo, cloned.body.firstChild);
   isolateSelectedExportElements(source, cloned, selectedElements);
 
   expect(

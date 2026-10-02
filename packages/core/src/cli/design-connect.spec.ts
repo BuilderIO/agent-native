@@ -2166,7 +2166,7 @@ describe("design connect bridge endpoints", () => {
       }
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(
-        `<!doctype html><html><head><title>CSR</title><style>@import './inline.css'; .hero{background:url('/assets/inline.png')}</style></head><body><div id="root">Loading</div><img src="/assets/cover.png"><img src="/assets/stale.png?previewToken=old&mode=dark"><img src="https://cdn.example.com/anonymous.png"><video controls src="/assets/preview.mp4"></video><script type="module" src="/src/main.ts"></script><script type="module">import "/@id/__x00__virtual:react-router/browser-manifest"; import "/@id/__x00__virtual:react-router/inject-hmr-runtime";</script></body></html>`,
+        `<!doctype html><html><head><title>CSR</title><style>@import './inline.css'; .hero{background:url('/assets/inline.png')} .pattern{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect filter='url(%23n)'/%3E%3C/svg%3E")}</style></head><body><div id="root">Loading</div><img src="/assets/cover.png"><img src="/assets/stale.png?previewToken=old&mode=dark"><img src="https://cdn.example.com/anonymous.png"><video controls src="/assets/preview.mp4"></video><script type="module" src="/src/main.ts"></script><script type="module">import "/@id/__x00__virtual:react-router/browser-manifest"; import "/@id/__x00__virtual:react-router/inject-hmr-runtime";</script></body></html>`,
       );
     });
     await new Promise<void>((resolve, reject) => {
@@ -2241,6 +2241,8 @@ describe("design connect bridge endpoints", () => {
       expect(html.body).toContain(
         `./inline.css?previewToken=${bridge.previewToken}`,
       );
+      expect(html.body).toContain("filter='url(%23n)'");
+      expect(html.body).not.toContain("url(%23n?previewToken=");
       expect(html.body).toContain(
         `/assets/stale.png?mode=dark&previewToken=${bridge.previewToken}`,
       );
@@ -2310,6 +2312,14 @@ describe("design connect bridge endpoints", () => {
       };
       nodePrototype.appendChild(externalIframe);
       expect(iframeUrls).toHaveLength(1);
+      const inlineSvgStyle = {
+        nodeType: 1,
+        tagName: "STYLE",
+        textContent: `.pattern{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Crect filter='url(%23n)'/%3E%3C/svg%3E")}`,
+      };
+      const originalInlineSvgStyle = inlineSvgStyle.textContent;
+      nodePrototype.appendChild(inlineSvgStyle);
+      expect(inlineSvgStyle.textContent).toBe(originalInlineSvgStyle);
       new (windowObject.WebSocket as unknown as new (url: string) => unknown)(
         `ws://${new URL(base).host}/hmr`,
       );

@@ -25,9 +25,16 @@ export interface DownloadPdfArgs {
     format?: "png" | "jpg" | "webp";
   }) => Promise<Blob>;
   resolveSelectedScreensBounds: () => ExportCropRect | null;
-  resolvePngCaptureTarget: (scope: PngCaptureScope) => ExportCaptureTarget & {
-    cropSelection: ElementInfo | readonly ElementInfo[] | null;
-  };
+  resolvePngCaptureTarget: (scope: PngCaptureScope) =>
+    | (ExportCaptureTarget & {
+        cropSelection: ElementInfo | readonly ElementInfo[] | null;
+      })
+    | Promise<
+        ExportCaptureTarget & {
+          cropSelection: ElementInfo | readonly ElementInfo[] | null;
+        }
+      >;
+  releaseScreenFromExport?: () => void;
   setPngExporting: Dispatch<SetStateAction<boolean>>;
   showRasterCaptureError: (error: unknown, format?: "png" | "pdf") => void;
   t: (key: string, options?: Record<string, unknown>) => string;
@@ -41,6 +48,7 @@ export async function runDownloadPdf(
     renderPngBlob,
     resolveSelectedScreensBounds,
     resolvePngCaptureTarget,
+    releaseScreenFromExport,
     setPngExporting,
     showRasterCaptureError,
     t,
@@ -61,7 +69,7 @@ export async function runDownloadPdf(
       pageWidth = Math.max(1, selectedScreensBounds.width);
       pageHeight = Math.max(1, selectedScreensBounds.height);
     } else {
-      const target = resolvePngCaptureTarget(scope);
+      const target = await resolvePngCaptureTarget(scope);
       const prepared = await prepareExportCaptureTarget(target);
       try {
         const crop = resolveExportCropRect(prepared.doc, target.cropSelection);
@@ -116,6 +124,7 @@ export async function runDownloadPdf(
   } catch (error) {
     showRasterCaptureError(error, "pdf");
   } finally {
+    releaseScreenFromExport?.();
     pngExportingRef.current = false;
     setPngExporting(false);
   }

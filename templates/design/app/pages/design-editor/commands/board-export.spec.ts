@@ -3,11 +3,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  bitmapSizes: new WeakMap<Blob, { width: number; height: number }>(),
   createSinglePageRasterPdf: vi.fn(),
-  html2canvas: vi.fn(),
+  outputCanvasSizes: [] as Array<{ width: number; height: number }>,
+  renderNativeExportPng: vi.fn(),
 }));
 
-vi.mock("html2canvas", () => ({ default: mocks.html2canvas }));
+vi.mock("../native-export-render", () => ({
+  renderNativeExportPng: mocks.renderNativeExportPng,
+}));
 vi.mock("@/pages/design-editor/export-capture", async (importOriginal) => {
   const actual =
     await importOriginal<
@@ -16,16 +20,6 @@ vi.mock("@/pages/design-editor/export-capture", async (importOriginal) => {
   return {
     ...actual,
     createSinglePageRasterPdf: mocks.createSinglePageRasterPdf,
-  };
-});
-vi.mock("../export-font-mirror", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../export-font-mirror")>();
-  return {
-    ...actual,
-    mirrorPreviewWebFonts: vi.fn().mockResolvedValue({
-      dispose: vi.fn(),
-      unreadableStylesheets: [],
-    }),
   };
 });
 vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
@@ -113,18 +107,34 @@ function renderArgs(fixture: ReturnType<typeof createReportedBoardFixture>) {
 describe("board document exports", () => {
   beforeEach(() => {
     document.body.replaceChildren();
-    mocks.html2canvas.mockReset();
-    mocks.html2canvas.mockImplementation(
-      async (
-        _target: Element,
-        options: { width: number; height: number; scale: number },
-      ) =>
-        ({
-          width: Math.ceil(options.width * options.scale),
-          height: Math.ceil(options.height * options.scale),
-          toBlob: (callback: BlobCallback, type?: string) =>
-            callback(new Blob(["image"], { type })),
-        }) as HTMLCanvasElement,
+    mocks.bitmapSizes = new WeakMap();
+    mocks.outputCanvasSizes.length = 0;
+    mocks.renderNativeExportPng.mockReset();
+    mocks.renderNativeExportPng.mockImplementation(
+      async (args: { width: number; height: number; scale: number }) => {
+        const blob = new Blob(["png"], { type: "image/png" });
+        mocks.bitmapSizes.set(blob, {
+          width: Math.ceil(args.width * args.scale),
+          height: Math.ceil(args.height * args.scale),
+        });
+        return blob;
+      },
+    );
+    vi.stubGlobal("createImageBitmap", async (blob: Blob) => ({
+      ...mocks.bitmapSizes.get(blob),
+      close: vi.fn(),
+    }));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(
+      function (this: HTMLCanvasElement, callback, type) {
+        mocks.outputCanvasSizes.push({
+          width: this.width,
+          height: this.height,
+        });
+        callback(new Blob(["image"], { type }));
+      },
     );
     mocks.createSinglePageRasterPdf.mockReset();
     mocks.createSinglePageRasterPdf.mockResolvedValue(
@@ -134,6 +144,8 @@ describe("board document exports", () => {
 
   afterEach(() => {
     document.body.replaceChildren();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     for (const { descriptor, key, target } of originalDimensionDescriptors) {
       if (descriptor) Object.defineProperty(target, key, descriptor);
       else Reflect.deleteProperty(target, key);
@@ -150,17 +162,15 @@ describe("board document exports", () => {
     });
 
     expect(png.type).toBe("image/png");
-    expect(mocks.html2canvas).toHaveBeenLastCalledWith(
-      fixture.doc.documentElement,
+    expect(mocks.renderNativeExportPng).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        x: 4080,
-        y: 4030,
-        width: 709,
-        height: 236,
-        windowWidth: 8192,
-        windowHeight: 8191,
+        width: 8192,
+        height: 8191,
         scale: 1,
       }),
+    );
+    expect(mocks.outputCanvasSizes[mocks.outputCanvasSizes.length - 1]).toEqual(
+      { width: 709, height: 236 },
     );
 
     await runDownloadPdf(
@@ -216,10 +226,6 @@ describe("board document exports", () => {
         overviewScreens: [
           { id: "screen-1", width: 320, height: 200 },
         ] as never[],
-        prepareScreenForExport: vi.fn(async () => {
-          await Promise.resolve();
-          events.push("ready:screen-1");
-        }),
         releaseScreenFromExport: vi.fn(() => events.push("release")),
         selectedScreenIds: ["screen-1"],
       };
@@ -258,10 +264,9 @@ describe("board document exports", () => {
         "screen-1",
       );
       expect(resolvePngCaptureTarget).toHaveBeenCalledWith("screens");
-      expect(args.prepareScreenForExport).toHaveBeenCalledWith("screen-1");
       expect(args.releaseScreenFromExport).toHaveBeenCalledOnce();
-      expect(events).toEqual(["ready:screen-1", "target:screen-1", "release"]);
-      expect(mocks.html2canvas).toHaveBeenCalled();
+      expect(events).toEqual(["target:screen-1", "release"]);
+      expect(mocks.renderNativeExportPng).toHaveBeenCalledOnce();
       expect(mocks.createSinglePageRasterPdf).toHaveBeenCalledWith(
         expect.objectContaining({ width: 320, height: 200 }),
       );
@@ -376,7 +381,7 @@ describe("board document exports", () => {
         "screens",
         "screen-b",
       );
-      expect(mocks.html2canvas).toHaveBeenCalledTimes(2);
+      expect(mocks.renderNativeExportPng).toHaveBeenCalledTimes(2);
       expect(mocks.createSinglePageRasterPdf).toHaveBeenCalledWith(
         expect.objectContaining({ width: 800, height: 240 }),
       );
@@ -392,63 +397,33 @@ describe("board document exports", () => {
 
     await runRenderPngBlob(renderArgs(fixture), { scope: "document" });
 
-    expect(mocks.html2canvas).toHaveBeenLastCalledWith(
-      fixture.doc.documentElement,
-      expect.not.objectContaining({ x: 4080, y: 4030 }),
+    expect(mocks.renderNativeExportPng).toHaveBeenLastCalledWith(
+      expect.objectContaining({ width: 8192, height: 8191 }),
     );
+    expect(
+      mocks.outputCanvasSizes[mocks.outputCanvasSizes.length - 1]!.width,
+    ).toBeGreaterThan(8000);
+    expect(
+      mocks.outputCanvasSizes[mocks.outputCanvasSizes.length - 1]!.height,
+    ).toBeGreaterThan(8000);
   });
 
-  it("copies placeholder text styles into the rasterized preview clone", async () => {
+  it("keeps source placeholder rules in the native renderer snapshot", async () => {
     const fixture = createReportedBoardFixture();
+    const style = fixture.doc.createElement("style");
+    style.textContent =
+      'input::placeholder { color: rgb(148, 163, 184); font-family: "PlaceholderFont"; font-size: 14px; font-style: italic; font-weight: 600; line-height: 20px; }';
     const input = fixture.doc.createElement("input");
     input.placeholder = "Search movies";
-    input.style.fontFamily = "TinyFont";
-    input.style.fontSize = "1px";
+    fixture.doc.head.append(style);
     fixture.doc.body.append(input);
 
-    const placeholderProperties: Record<string, string> = {
-      color: "rgb(148, 163, 184)",
-      "font-family": '"PlaceholderFont"',
-      "font-size": "14px",
-      "font-style": "italic",
-      "font-weight": "600",
-      "line-height": "20px",
-    };
-    const placeholderStyle = {
-      getPropertyValue: (property: string) =>
-        placeholderProperties[property] ?? "",
-    } as CSSStyleDeclaration;
-    const view = fixture.doc.defaultView!;
-    const getComputedStyle = view.getComputedStyle.bind(view);
-    const getComputedStyleSpy = vi
-      .spyOn(view, "getComputedStyle")
-      .mockImplementation(((element, pseudoElement) => {
-        if (element === input && pseudoElement === "::placeholder") {
-          return placeholderStyle;
-        }
-        return getComputedStyle(element, pseudoElement);
-      }) as typeof view.getComputedStyle);
+    await runRenderPngBlob(renderArgs(fixture), { scope: "document" });
 
-    try {
-      await runRenderPngBlob(renderArgs(fixture), { scope: "document" });
-      const lastCall =
-        mocks.html2canvas.mock.calls[mocks.html2canvas.mock.calls.length - 1];
-      const options = lastCall?.[1] as unknown as {
-        onclone: (clonedDocument: Document) => void;
-      };
-      const clonedDocument = document.implementation.createHTMLDocument();
-      clonedDocument.documentElement.innerHTML =
-        fixture.doc.documentElement.innerHTML;
-
-      options.onclone(clonedDocument);
-
-      const clonedInput = clonedDocument.querySelector("input")!;
-      expect(clonedInput.style.fontFamily).toBe("PlaceholderFont");
-      expect(clonedInput.style.fontSize).toBe("14px");
-      expect(clonedInput.style.color).toBe("rgb(148, 163, 184)");
-      expect(clonedInput.style.lineHeight).toBe("20px");
-    } finally {
-      getComputedStyleSpy.mockRestore();
-    }
+    const calls = mocks.renderNativeExportPng.mock.calls;
+    const html = calls[calls.length - 1]?.[0].html;
+    expect(html).toContain("input::placeholder");
+    expect(html).toContain('font-family: "PlaceholderFont"');
+    expect(html).toContain("font-size: 14px");
   });
 });

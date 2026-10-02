@@ -24,14 +24,19 @@ export interface RenderPngBlobArgs {
   canEditDesign: boolean;
   canvasFrameGeometryById: CanvasFrameGeometryById;
   overviewScreens: OverviewScreen[];
-  prepareScreenForExport?: (screenId: string) => void | Promise<void>;
   releaseScreenFromExport?: () => void;
   resolvePngCaptureTarget: (
     scope: PngCaptureScope,
     screenId?: string,
-  ) => ExportCaptureTarget & {
-    cropSelection: ElementInfo | readonly ElementInfo[] | null;
-  };
+  ) =>
+    | (ExportCaptureTarget & {
+        cropSelection: ElementInfo | readonly ElementInfo[] | null;
+      })
+    | Promise<
+        ExportCaptureTarget & {
+          cropSelection: ElementInfo | readonly ElementInfo[] | null;
+        }
+      >;
   selectedScreenIds: string[];
   viewMode: "single" | "overview";
 }
@@ -95,9 +100,9 @@ export function resolveSelectedScreensExportBounds(args: {
 
 export async function runRenderPngBlob(
   {
+    activeCanvasSourceType,
     canvasFrameGeometryById,
     overviewScreens,
-    prepareScreenForExport,
     releaseScreenFromExport,
     resolvePngCaptureTarget,
     selectedScreenIds,
@@ -113,7 +118,6 @@ export async function runRenderPngBlob(
     format?: "png" | "jpg" | "webp";
   },
 ): Promise<Blob> {
-  const html2canvas = (await import("html2canvas")).default;
   const requestedExportScale =
     settings?.scale ?? Math.max(2, window.devicePixelRatio || 1);
   let outputCanvas: HTMLCanvasElement;
@@ -132,8 +136,7 @@ export async function runRenderPngBlob(
       > = [];
       for (const screenId of selectedScreenIds) {
         try {
-          await prepareScreenForExport?.(screenId);
-          const target = resolvePngCaptureTarget(scope, screenId);
+          const target = await resolvePngCaptureTarget(scope, screenId);
           const prepared = await prepareExportCaptureTarget(target);
           preparedTargets.push(prepared);
           captureSources.push({ screenId, ...prepared });
@@ -179,7 +182,6 @@ export async function runRenderPngBlob(
           doc: capture.doc,
           iframe: capture.iframe,
           exportScale,
-          render: html2canvas,
         });
         const view = capture.doc.defaultView;
         const viewportCanvas = cropCanvasToRect(
@@ -212,9 +214,12 @@ export async function runRenderPngBlob(
       for (const target of preparedTargets) target.dispose();
     }
   } else {
-    const target = resolvePngCaptureTarget(scope);
-    const prepared = await prepareExportCaptureTarget(target);
+    let prepared: Awaited<
+      ReturnType<typeof prepareExportCaptureTarget>
+    > | null = null;
     try {
+      const target = await resolvePngCaptureTarget(scope);
+      prepared = await prepareExportCaptureTarget(target);
       const { cropSelection, doc, iframe } = {
         ...target,
         doc: prepared.doc,
@@ -235,7 +240,9 @@ export async function runRenderPngBlob(
       const selectionCropRect =
         cropTarget.kind === "rect" ? cropTarget.rect : null;
       const boardCropRect =
-        scope === "document" && !selectionCropRect
+        scope === "document" &&
+        activeCanvasSourceType === "inline" &&
+        !selectionCropRect
           ? resolveBoardExportCropRect(doc, iframe)
           : null;
       const rendered = await renderExportDocumentCanvas({
@@ -243,7 +250,6 @@ export async function runRenderPngBlob(
         iframe,
         exportScale: requestedExportScale,
         cropRect: boardCropRect,
-        render: html2canvas,
         isolateSelectedElements: selectionCropRect
           ? resolveSelectedExportElements(doc, cropSelection)
           : [],
@@ -256,7 +262,8 @@ export async function runRenderPngBlob(
       }
       outputCanvas = cropped ?? rendered.canvas;
     } finally {
-      prepared.dispose();
+      prepared?.dispose();
+      releaseScreenFromExport?.();
     }
   }
   const mimeType =

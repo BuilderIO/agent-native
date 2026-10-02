@@ -1,4 +1,3 @@
-import { splitCssLayers } from "@/components/design/edit-panel/fill-gradient-helpers";
 import type { ElementInfo } from "@/components/design/types";
 import { isDesignHotkeyEditableTarget } from "@/hooks/useDesignHotkeys";
 
@@ -11,46 +10,10 @@ import {
 } from "./export-capture";
 import type { ExportCropRect } from "./export-capture";
 import {
-  getHtml2CanvasPlaceholderStyle,
-  mirrorPreviewWebFonts,
-} from "./export-font-mirror";
-import { composeIndividualTransforms } from "./export-individual-transforms";
+  NativeExportRenderError,
+  renderNativeExportPng,
+} from "./native-export-render";
 import { isScreenRootElementInfo } from "./selection-state";
-
-const UNSUPPORTED_HTML2CANVAS_COLOR_RE =
-  /\b(?:color|color-mix|oklch|oklab|lab|lch)\(/i;
-const HTML2CANVAS_COLOR_PROPERTIES = [
-  "color",
-  "background-color",
-  "border-top-color",
-  "border-right-color",
-  "border-bottom-color",
-  "border-left-color",
-  "outline-color",
-  "text-decoration-color",
-  "fill",
-  "stroke",
-] as const;
-const HTML2CANVAS_SHADOW_PROPERTIES = ["box-shadow", "text-shadow"] as const;
-const HTML2CANVAS_UNSUPPORTED_VALUE_PROPERTIES = [
-  "background-image",
-  "border-image-source",
-  "list-style-image",
-] as const;
-const HTML2CANVAS_PLACEHOLDER_TEXT_PROPERTIES = [
-  "color",
-  "font-family",
-  "font-size",
-  "font-style",
-  "font-variant",
-  "font-weight",
-  "letter-spacing",
-  "line-height",
-  "text-align",
-  "text-indent",
-  "text-transform",
-  "word-spacing",
-] as const;
 
 export function blurActiveDesignEditableTarget() {
   if (typeof document === "undefined") return;
@@ -58,89 +21,6 @@ export function blurActiveDesignEditableTarget() {
   if (active instanceof HTMLElement && isDesignHotkeyEditableTarget(active)) {
     active.blur();
   }
-}
-
-let html2CanvasColorContext: CanvasRenderingContext2D | null | undefined;
-
-function getHtml2CanvasColorContext(): CanvasRenderingContext2D | null {
-  if (html2CanvasColorContext !== undefined) return html2CanvasColorContext;
-  if (typeof document === "undefined") {
-    html2CanvasColorContext = null;
-    return html2CanvasColorContext;
-  }
-  html2CanvasColorContext = document.createElement("canvas").getContext("2d");
-  return html2CanvasColorContext;
-}
-
-function parseColorFunctionComponent(component: string): number {
-  const trimmed = component.trim();
-  if (trimmed.endsWith("%")) {
-    return (Number(trimmed.slice(0, -1)) / 100) * 255;
-  }
-  const value = Number(trimmed);
-  if (!Number.isFinite(value)) return 0;
-  return Math.abs(value) <= 1 ? value * 255 : value;
-}
-
-function parseColorFunctionAlpha(alpha: string | undefined): number {
-  if (!alpha) return 1;
-  const trimmed = alpha.trim();
-  if (trimmed.endsWith("%")) return Number(trimmed.slice(0, -1)) / 100;
-  const value = Number(trimmed);
-  return Number.isFinite(value) ? value : 1;
-}
-
-function parseRgbLikeColorFunction(value: string): string | null {
-  const match = value.match(/color\(\s*[\w-]+\s+([^)]+)\)/i);
-  if (!match) return null;
-  const [componentsPart, alphaPart] = match[1].split("/");
-  const channels = componentsPart.trim().split(/\s+/).slice(0, 3);
-  if (channels.length < 3) return null;
-  const [red, green, blue] = channels
-    .map(parseColorFunctionComponent)
-    .map((channel) => Math.round(Math.max(0, Math.min(255, channel))));
-  const alpha = Math.max(0, Math.min(1, parseColorFunctionAlpha(alphaPart)));
-  return alpha < 1
-    ? `rgba(${red}, ${green}, ${blue}, ${alpha})`
-    : `rgb(${red}, ${green}, ${blue})`;
-}
-
-function normalizeHtml2CanvasColor(value: string): string {
-  if (!UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(value)) return value;
-  const context = getHtml2CanvasColorContext();
-  if (context) {
-    try {
-      context.fillStyle = "#000";
-      context.fillStyle = value;
-      const normalized = String(context.fillStyle);
-      if (normalized && !UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(normalized)) {
-        return normalized;
-      }
-    } catch {
-      // Fall back to small parser below.
-    }
-  }
-  return parseRgbLikeColorFunction(value) ?? "rgb(0, 0, 0)";
-}
-
-export function normalizeHtml2CanvasImage(value: string): string {
-  if (!/\bin srgb\b/.test(value)) return value;
-  return splitCssLayers(value)
-    .map((layer) => {
-      if (
-        !/^(?:linear|radial)-gradient\(/.test(layer) ||
-        !/\bin srgb\b/.test(layer)
-      )
-        return layer;
-      return layer
-        .replace(
-          /\bcolor\(\s*srgb\s+[^)]+\)/gi,
-          (color) => parseRgbLikeColorFunction(color) ?? color,
-        )
-        .replace(/(\(\s*)in srgb\s*,\s*/g, "$1")
-        .replace(/\s+in srgb(?=\s*,)/g, "");
-    })
-    .join(", ");
 }
 
 function elementInlineStyle(
@@ -171,7 +51,7 @@ function resolveClonedElement(
     if (matchingId) return matchingId;
   }
 
-  const path: number[] = [];
+  const path: Array<{ tagName: string; sameTagIndex: number }> = [];
   for (
     let element: Element | null = sourceElement;
     element && element !== sourceDocument.documentElement;
@@ -179,9 +59,11 @@ function resolveClonedElement(
   ) {
     const parent = element.parentElement;
     if (!parent) return null;
-    const index = Array.from(parent.children).indexOf(element);
-    if (index < 0) return null;
-    path.push(index);
+    const sameTagIndex = Array.from(parent.children)
+      .filter((sibling) => sibling.localName === element!.localName)
+      .indexOf(element);
+    if (sameTagIndex < 0) return null;
+    path.push({ tagName: element.localName, sameTagIndex });
   }
   if (path.length === 0)
     return sourceElement === sourceDocument.documentElement
@@ -190,11 +72,11 @@ function resolveClonedElement(
 
   let clonedElement: Element = clonedDocument.documentElement;
   for (let index = path.length - 1; index >= 0; index -= 1) {
-    const sourceIndex = path[index]!;
+    const { tagName, sameTagIndex } = path[index]!;
     const children = Array.from(clonedElement.children).filter(
-      (child) => child.localName !== "html2canvaspseudoelement",
+      (child) => child.localName === tagName,
     );
-    const child = children[sourceIndex];
+    const child = children[sameTagIndex];
     if (!child) return null;
     clonedElement = child;
   }
@@ -267,123 +149,6 @@ export function isolateSelectedExportElements(
     style.setProperty("outline-color", "transparent", "important");
     style.setProperty("box-shadow", "none", "important");
   }
-}
-
-async function bakeFilteredImages(
-  doc: Document,
-): Promise<Map<Element, string>> {
-  const baked = new Map<Element, string>();
-  const view = doc.defaultView;
-  if (!view) return baked;
-  for (const image of Array.from(doc.querySelectorAll("img"))) {
-    const filter = view.getComputedStyle(image).filter;
-    if (!filter || filter === "none" || !image.naturalWidth) continue;
-    const draw = (source: HTMLImageElement) => {
-      const canvas = doc.createElement("canvas");
-      canvas.width = source.naturalWidth;
-      canvas.height = source.naturalHeight;
-      const context = canvas.getContext("2d");
-      if (!context) throw new Error("2D canvas unavailable");
-      context.filter = filter;
-      context.drawImage(source, 0, 0);
-      return canvas.toDataURL("image/png");
-    };
-    try {
-      baked.set(image, draw(image));
-      continue;
-      // coercion-ok: a cross-origin image taints the canvas; retried with CORS below
-    } catch {}
-    try {
-      const corsImage = new view.Image();
-      corsImage.crossOrigin = "anonymous";
-      corsImage.src = image.currentSrc || image.src;
-      await corsImage.decode();
-      baked.set(image, draw(corsImage));
-      // coercion-ok: without CORS headers the image exports unfiltered, and says so
-    } catch (error) {
-      console.warn("PNG export could not apply an image filter:", error);
-    }
-  }
-  return baked;
-}
-
-function sanitizeHtml2CanvasClone(
-  sourceDocument: Document,
-  clonedDocument: Document,
-  bakedImages: ReadonlyMap<Element, string>,
-) {
-  const sourceView = sourceDocument.defaultView;
-  if (!sourceView) return;
-  const sourceElements = [
-    sourceDocument.documentElement,
-    ...Array.from(sourceDocument.documentElement.querySelectorAll("*")),
-  ];
-  const clonedElements = [
-    clonedDocument.documentElement,
-    ...Array.from(clonedDocument.documentElement.querySelectorAll("*")),
-  ];
-  sourceElements.forEach((sourceElement, index) => {
-    const clonedStyle = elementInlineStyle(clonedElements[index]);
-    if (!clonedStyle) return;
-    const computed = sourceView.getComputedStyle(sourceElement);
-    const bakedSource = bakedImages.get(sourceElement);
-    if (bakedSource) {
-      clonedElements[index]!.setAttribute("src", bakedSource);
-      clonedElements[index]!.removeAttribute("srcset");
-      clonedStyle.setProperty("filter", "none", "important");
-    }
-    const composedTransform = composeIndividualTransforms({
-      transform: computed.getPropertyValue("transform"),
-      translate: computed.getPropertyValue("translate"),
-      rotate: computed.getPropertyValue("rotate"),
-      scale: computed.getPropertyValue("scale"),
-    });
-    if (composedTransform) {
-      clonedStyle.setProperty("transform", composedTransform, "important");
-      clonedStyle.setProperty("translate", "none", "important");
-      clonedStyle.setProperty("rotate", "none", "important");
-      clonedStyle.setProperty("scale", "none", "important");
-    }
-    for (const property of HTML2CANVAS_COLOR_PROPERTIES) {
-      const value = computed.getPropertyValue(property);
-      if (!value || !UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(value)) continue;
-      clonedStyle.setProperty(
-        property,
-        normalizeHtml2CanvasColor(value),
-        "important",
-      );
-    }
-    for (const property of HTML2CANVAS_SHADOW_PROPERTIES) {
-      const value = computed.getPropertyValue(property);
-      if (!value || !UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(value)) continue;
-      clonedStyle.setProperty(property, "none", "important");
-    }
-    for (const property of HTML2CANVAS_UNSUPPORTED_VALUE_PROPERTIES) {
-      const value = computed.getPropertyValue(property);
-      if (!value || !UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(value)) continue;
-      clonedStyle.setProperty(
-        property,
-        normalizeHtml2CanvasImage(value),
-        "important",
-      );
-    }
-
-    const placeholderStyle = getHtml2CanvasPlaceholderStyle(
-      sourceElement,
-      sourceView,
-    );
-    if (placeholderStyle) {
-      for (const property of HTML2CANVAS_PLACEHOLDER_TEXT_PROPERTIES) {
-        const value = placeholderStyle.getPropertyValue(property);
-        if (!value) continue;
-        clonedStyle.setProperty(
-          property,
-          property === "color" ? normalizeHtml2CanvasColor(value) : value,
-          "important",
-        );
-      }
-    }
-  });
 }
 
 export function removeEditorChromeOverlays(root: ParentNode): void {
@@ -601,25 +366,15 @@ export async function renderExportDocumentCanvas({
   iframe,
   exportScale,
   cropRect,
-  render,
   isolateSelectedElements = [],
 }: {
   doc: Document;
   iframe: HTMLIFrameElement;
   exportScale: number;
   cropRect?: ExportCropRect | null;
-  render: (typeof import("html2canvas"))["default"];
   isolateSelectedElements?: readonly Element[];
 }): Promise<{ canvas: HTMLCanvasElement; scale: number }> {
   await waitForExportReady(doc);
-  const mirroredFonts = await mirrorPreviewWebFonts(doc, iframe.ownerDocument);
-  const bakedImages = await bakeFilteredImages(doc);
-  if (mirroredFonts.unreadableStylesheets.length > 0) {
-    console.warn(
-      "Export font mirroring skipped unreadable stylesheets; text metrics may drift:",
-      mirroredFonts.unreadableStylesheets,
-    );
-  }
   const width = Math.max(
     doc.documentElement.scrollWidth,
     doc.body?.scrollWidth ?? 0,
@@ -637,55 +392,54 @@ export async function renderExportDocumentCanvas({
     height: renderHeight,
     requestedScale: exportScale,
   });
-  const options = {
-    ...(cropRect ? { x: cropRect.x, y: cropRect.y } : {}),
-    width: renderWidth,
-    height: renderHeight,
-    windowWidth: width,
-    windowHeight: height,
-    scale: effectiveScale,
-    useCORS: true,
-    backgroundColor: null,
-    onclone: (clonedDocument: Document) => {
-      sanitizeHtml2CanvasClone(doc, clonedDocument, bakedImages);
-      isolateSelectedExportElements(
-        doc,
-        clonedDocument,
-        isolateSelectedElements,
-      );
-      removeEditorChromeOverlays(clonedDocument);
-    },
-  };
-  try {
-    try {
-      const canvas = await render(doc.documentElement, {
-        ...options,
-        foreignObjectRendering: false,
-      });
-      return { canvas, scale: effectiveScale };
-    } catch (primaryError) {
-      if (primaryError instanceof PngCaptureError) throw primaryError;
-      console.warn(
-        "PNG canvas capture failed; retrying foreignObject renderer:",
-        primaryError,
-      );
-      const canvas = await render(doc.documentElement, {
-        ...options,
-        foreignObjectRendering: true,
-        onclone: (clonedDocument: Document) => {
-          isolateSelectedExportElements(
-            doc,
-            clonedDocument,
-            isolateSelectedElements,
-          );
-          removeEditorChromeOverlays(clonedDocument);
-        },
-      });
-      return { canvas, scale: effectiveScale };
-    }
-  } finally {
-    mirroredFonts.dispose();
+  const clonedDocument = doc.cloneNode(true) as Document;
+  isolateSelectedExportElements(doc, clonedDocument, isolateSelectedElements);
+  removeEditorChromeOverlays(clonedDocument);
+  const serializedHtml = `<!doctype html>${clonedDocument.documentElement.outerHTML}`;
+  const exportBridge = (
+    doc.defaultView as
+      | (Window & {
+          __anEditorChromeBridgeInstance?: {
+            inlineExportResources?: (html: string) => Promise<{
+              html: string;
+              complete: boolean;
+              errorCode?: "export_too_large" | "export_resources_unavailable";
+            }>;
+          };
+        })
+      | null
+  )?.__anEditorChromeBridgeInstance;
+  const inlinedSnapshot =
+    await exportBridge?.inlineExportResources?.(serializedHtml);
+  if (inlinedSnapshot && !inlinedSnapshot.complete) {
+    throw new NativeExportRenderError(
+      "The export snapshot is too large or has unavailable resources.",
+      inlinedSnapshot.errorCode ?? "export_resources_unavailable",
+    );
   }
+  const png = await renderNativeExportPng({
+    html: inlinedSnapshot?.html ?? serializedHtml,
+    width,
+    height: Math.max(1, iframe.clientHeight),
+    scale: effectiveScale,
+  });
+  const bitmap = await createImageBitmap(png);
+  const canvas = document.createElement("canvas");
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    bitmap.close();
+    throw new PngCaptureError("blob-failed");
+  }
+  context.drawImage(bitmap, 0, 0);
+  bitmap.close();
+  return {
+    canvas: cropRect
+      ? (cropCanvasToRect(canvas, cropRect, effectiveScale) ?? canvas)
+      : canvas,
+    scale: effectiveScale,
+  };
 }
 
 export type PngCaptureScope = "document" | "screens" | "element";
@@ -700,8 +454,8 @@ export type PngCaptureErrorCode =
 export class PngCaptureError extends Error {
   readonly code: PngCaptureErrorCode;
 
-  constructor(code: PngCaptureErrorCode) {
-    super(`PNG capture ${code}`);
+  constructor(code: PngCaptureErrorCode, detail?: string) {
+    super(detail ? `PNG capture ${code}: ${detail}` : `PNG capture ${code}`);
     this.name = "PngCaptureError";
     this.code = code;
   }

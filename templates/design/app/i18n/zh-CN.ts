@@ -1326,6 +1326,13 @@ export default {
       pngReadOnlyUnavailable: "只读预览不支持 PNG 捕获",
       pngSaveError: "无法保存 PNG",
       pngExportError: "无法导出 PNG",
+      exportTooLarge:
+        "导出内容过大。请求上限为 5 MB；请减少嵌入资源或栅格尺寸后重试。",
+      exportResourcesUnavailable:
+        "由于一个或多个图像、字体或样式表不可用，无法准确渲染导出内容。请检查这些资源后重试。",
+      exportTimedOut: "导出超时。请重试，或缩小设计尺寸。",
+      exportChromiumUnavailable:
+        "由于渲染器无法启动，导出暂不可用。请稍后重试。",
       pdfExportError: "无法导出 PDF",
       pdfDownloaded: "PDF 已下载",
       pdfAllScreensDownloaded: "PDF 下载（所有屏幕）",

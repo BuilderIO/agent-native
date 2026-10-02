@@ -211,7 +211,6 @@ export async function runDownloadAllScreensPdf({
   setPngExporting(true);
   let requestedScreenId: string | null = null;
   try {
-    const html2canvas = (await import("html2canvas")).default;
     const pages: RasterPdfPage[] = [];
     for (const screen of overviewScreens) {
       requestedScreenId = screen.id;
@@ -297,7 +296,6 @@ export async function runDownloadAllScreensPdf({
           doc,
           iframe,
           exportScale: PDF_MIN_PRINT_RASTER_SCALE,
-          render: html2canvas,
         });
         const view = doc.defaultView;
         const viewportCanvas = cropCanvasToRect(
@@ -328,12 +326,7 @@ export async function runDownloadAllScreensPdf({
     toast.success(t("designEditor.toasts.pdfAllScreensDownloaded"));
   } catch (error) {
     console.error("All-screens PDF export failed:", error);
-    showRasterCaptureError(
-      error instanceof PngCaptureError
-        ? error
-        : new PngCaptureError("blob-failed"),
-      "pdf",
-    );
+    showRasterCaptureError(error, "pdf");
   } finally {
     if (requestedScreenId !== null) releaseScreenFromExport();
     pngExportingRef.current = false;

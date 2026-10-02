@@ -1299,6 +1299,13 @@ export default {
       pngReadOnlyUnavailable: "唯讀預覽不支援 PNG 擷取",
       pngSaveError: "無法儲存 PNG",
       pngExportError: "無法匯出 PNG",
+      exportTooLarge:
+        "匯出內容過大。請求上限為 5 MB；請減少內嵌資源或點陣尺寸後再試一次。",
+      exportResourcesUnavailable:
+        "由於一個或多個圖片、字型或樣式表無法使用，因此無法準確轉譯匯出內容。請檢查這些資源後再試一次。",
+      exportTimedOut: "匯出逾時。請重試，或縮小設計尺寸。",
+      exportChromiumUnavailable:
+        "由於轉譯器無法啟動，匯出暫時無法使用。請稍後再試一次。",
       pdfExportError: "無法匯出 PDF",
       pdfDownloaded: "PDF 已下載",
       pdfAllScreensDownloaded: "PDF 已下載（所有畫面）",

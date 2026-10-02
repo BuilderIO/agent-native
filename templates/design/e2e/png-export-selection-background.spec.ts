@@ -101,7 +101,7 @@ async function enterFocusedEditMode(page: Page) {
   const home = sidebar.locator('button[title="index.html"]');
   await home.click();
   await expect(home).toHaveAttribute("aria-current", "page");
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(1);
   await page.getByRole("button", { name: "Edit", exact: true }).press("Enter");
   await expect(
     page
@@ -233,7 +233,7 @@ test("selected Frame exports isolate ancestor backgrounds while Screen export pr
     .first()
     .locator('button[title="index.html"]');
   await home.click();
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(0);
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(1);
   await expect(
     page.getByRole("button", { name: "Exit responsive preview" }),
   ).toBeVisible();

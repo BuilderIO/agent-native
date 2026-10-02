@@ -1376,6 +1376,14 @@ export default {
         "読み取り専用プレビューでは PNG キャプチャを利用できません",
       pngSaveError: "PNG を保存できませんでした",
       pngExportError: "PNG をエクスポートできませんでした",
+      exportTooLarge:
+        "エクスポートが大きすぎます。リクエストの上限は 5 MB です。埋め込みリソースかラスター寸法を小さくして、もう一度お試しください。",
+      exportResourcesUnavailable:
+        "画像、フォント、スタイルシートのいずれかを利用できないため、正確にレンダリングできませんでした。リソースを確認して、もう一度お試しください。",
+      exportTimedOut:
+        "エクスポートがタイムアウトしました。もう一度試すか、デザインのサイズを小さくしてください。",
+      exportChromiumUnavailable:
+        "レンダラーを起動できないため、エクスポートを利用できません。しばらくしてからもう一度お試しください。",
       pdfExportError: "PDF をエクスポートできませんでした",
       pdfDownloaded: "PDF をダウンロードしました",
       pdfAllScreensDownloaded: "PDFがダウンロードされました（すべての画面）",
