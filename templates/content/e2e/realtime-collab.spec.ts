@@ -47,7 +47,7 @@ async function registerUser(
   return page;
 }
 
-async function openEditor(page: Page, documentId: string, editable = true) {
+async function gotoDocument(page: Page, documentId: string, editable = true) {
   await page.goto(`/page/${documentId}`, { waitUntil: "domcontentloaded" });
   // Typing before the editor binds to the collaborative doc is dropped.
   await expect(page.locator(".ProseMirror")).toHaveAttribute(
@@ -88,7 +88,8 @@ test.describe("real-time collaboration between two signed-in users", () => {
     baseURL,
   }) => {
     test.setTimeout(240_000);
-    const root = baseURL ?? "http://127.0.0.1:8090";
+    if (!baseURL) throw new Error("playwright baseURL is not configured");
+    const root = baseURL;
     const stamp = Date.now();
     const editorEmail = `realtime-editor+autoz-${stamp}@content.test`;
     const viewerEmail = `realtime-viewer+autoz-${stamp}@content.test`;
@@ -119,9 +120,9 @@ test.describe("real-time collaboration between two signed-in users", () => {
       }
 
       await Promise.all([
-        openEditor(owner, documentId),
-        openEditor(editor, documentId),
-        openEditor(viewer, documentId, false),
+        gotoDocument(owner, documentId),
+        gotoDocument(editor, documentId),
+        gotoDocument(viewer, documentId, false),
       ]);
 
       // Concurrent typing in different paragraphs converges for everyone.
