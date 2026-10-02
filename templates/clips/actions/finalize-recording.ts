@@ -55,6 +55,10 @@ import {
 } from "../server/lib/seekable-media-state.js";
 import { isStreamingUploadDisabled } from "../server/lib/streaming-upload-mode.js";
 import {
+  uploadLeaseExpiry,
+  waitingStorageLeaseExpiry,
+} from "../server/lib/upload-lease.js";
+import {
   probeHasAudioStream,
   remuxWebmToSeekable,
 } from "../server/lib/video-remux.js";
@@ -1323,7 +1327,11 @@ export default defineAction({
       if (generationId !== null && existing.status === "uploading") {
         const claimed = await db
           .update(schema.recordings)
-          .set({ status: "processing", updatedAt: new Date().toISOString() })
+          .set({
+            status: "processing",
+            uploadLeaseExpiresAt: uploadLeaseExpiry(),
+            updatedAt: new Date().toISOString(),
+          })
           .where(
             and(
               eq(schema.recordings.id, id),
@@ -2148,9 +2156,7 @@ export default defineAction({
           .set({
             status: "uploading",
             failureReason: STORAGE_SETUP_REQUIRED_REASON,
-            // Waiting for storage is not a live upload: with no lease the
-            // reaper never times it out while it waits for setup.
-            uploadLeaseExpiresAt: null,
+            uploadLeaseExpiresAt: waitingStorageLeaseExpiry(),
             durationMs: finalDurationMs,
             width: finalWidth,
             height: finalHeight,

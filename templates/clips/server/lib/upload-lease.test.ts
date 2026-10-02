@@ -58,6 +58,9 @@ const {
   renewUploadLease,
   UPLOAD_LEASE_EXPIRED_REASON,
   uploadLeaseExpiry,
+  WAITING_STORAGE_EXPIRED_REASON,
+  WAITING_STORAGE_LEASE_MS,
+  waitingStorageLeaseExpiry,
 } = await import("./upload-lease.js");
 
 const NOW = Date.parse("2026-07-25T12:00:00.000Z");
@@ -239,6 +242,35 @@ describe("upload lease", () => {
       "recording-chunks-live-000000",
       "recording-chunks-live-000001",
     ]);
+  });
+
+  it("keeps a row parked for storage until its long lease, then fails it as setup-required and reclaims its scratch", async () => {
+    await insertRecording({
+      id: "parked",
+      status: "uploading",
+      lease: waitingStorageLeaseExpiry(NOW),
+    });
+    await execute(client, {
+      sql: `UPDATE recordings SET failure_reason = ? WHERE id = ?`,
+      args: ["Connect storage to finish saving.", "parked"],
+    });
+    await insertChunk("parked", 0);
+
+    const beforeTtl = await reapExpiredUploads({ now: NOW + 6 * 86_400_000 });
+    expect(beforeTtl.failed).toBe(0);
+    expect((await statusOf("parked")).status).toBe("uploading");
+    expect(await chunkKeys()).toEqual(["recording-chunks-parked-000000"]);
+
+    const afterTtl = await reapExpiredUploads({
+      now: NOW + WAITING_STORAGE_LEASE_MS + 1_000,
+    });
+    expect(afterTtl.failed).toBe(1);
+    expect(await statusOf("parked")).toEqual({
+      status: "failed",
+      failure_reason: WAITING_STORAGE_EXPIRED_REASON,
+      failure_code: "storage_setup_required",
+    });
+    expect(await chunkKeys()).toEqual([]);
   });
 
   it("fails an upload whose lease expired and reclaims its scratch", async () => {

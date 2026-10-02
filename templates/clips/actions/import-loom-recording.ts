@@ -23,7 +23,10 @@ import {
   requireOrganizationAccess,
   stringifySpaceIds,
 } from "../server/lib/recordings.js";
-import { uploadLeaseExpiry } from "../server/lib/upload-lease.js";
+import {
+  uploadLeaseExpiry,
+  waitingStorageLeaseExpiry,
+} from "../server/lib/upload-lease.js";
 import { hasRequestVideoStorage } from "../server/lib/video-storage.js";
 import {
   downloadDirectVideo,
@@ -299,9 +302,7 @@ export default defineAction({
             status: "uploading",
             videoUrl: null,
             failureReason: storageSetupReason,
-            // Parked until storage is connected; the upload reaper only
-            // times out rows that hold a live lease.
-            uploadLeaseExpiresAt: null,
+            uploadLeaseExpiresAt: waitingStorageLeaseExpiry(),
             loomImportClaimId: null,
             loomImportClaimedAt: null,
           })
@@ -313,6 +314,7 @@ export default defineAction({
           videoUrl: null,
           status: "uploading",
           failureReason: storageSetupReason,
+          uploadLeaseExpiresAt: waitingStorageLeaseExpiry(),
           ownerEmail,
           createdAt,
         });

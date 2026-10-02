@@ -238,6 +238,10 @@ vi.mock("./lib/ensure-seekable-video.js", () => ({
   markRecordingSeekable: vi.fn(),
 }));
 
+import {
+  UPLOAD_LEASE_MS,
+  WAITING_STORAGE_LEASE_MS,
+} from "../server/lib/upload-lease.js";
 import finalizeRecording from "./finalize-recording";
 
 describe("finalize-recording chunk completeness", () => {
@@ -279,6 +283,29 @@ describe("finalize-recording chunk completeness", () => {
     ).rejects.toThrow("Upload changed before finalization could claim it");
 
     expect(mockUploadFile).not.toHaveBeenCalled();
+  });
+
+  it("gives the claimed re-finalize a live upload lease", async () => {
+    mockState.existingRecording = {
+      ...mockState.existingRecording,
+      status: "uploading",
+      uploadGenerationId: "generation-a",
+    };
+    mockUpdateReturning.mockResolvedValueOnce([]);
+    const before = Date.now();
+
+    await expect(
+      finalizeRecording.run({
+        id: "rec_1",
+        uploadGenerationId: "generation-a",
+      }),
+    ).rejects.toThrow("Upload changed before finalization could claim it");
+
+    const claim = mockUpdateSet.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(claim).toMatchObject({ status: "processing" });
+    const leaseMs = Date.parse(String(claim.uploadLeaseExpiresAt)) - before;
+    expect(leaseMs).toBeGreaterThanOrEqual(UPLOAD_LEASE_MS);
+    expect(leaseMs).toBeLessThan(WAITING_STORAGE_LEASE_MS);
   });
 
   it("rejects an unfenced finalizer after reset installs a generation", async () => {
@@ -1300,9 +1327,10 @@ describe("finalize-recording media serve verification", () => {
     }
   });
 
-  it("parks a recording waiting for storage without an upload lease", async () => {
+  it("parks a recording waiting for storage on a days-long lease", async () => {
     seedBufferedRecording();
     mockUploadFile.mockResolvedValue(null);
+    const before = Date.now();
 
     const result = await finalizeRecording.run({
       id: "rec_1",
@@ -1312,13 +1340,13 @@ describe("finalize-recording media serve verification", () => {
     expect(result).toEqual(
       expect.objectContaining({ id: "rec_1", status: "waiting_storage" }),
     );
-    expect(mockUpdateSet).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: "uploading",
-        failureReason: "Storage required",
-        uploadLeaseExpiresAt: null,
-      }),
-    );
+    const parked = mockUpdateSet.mock.calls
+      .map(([values]) => values as Record<string, unknown>)
+      .find((values) => values.failureReason === "Storage required");
+    expect(parked).toMatchObject({ status: "uploading" });
+    expect(
+      Date.parse(String(parked?.uploadLeaseExpiresAt)) - before,
+    ).toBeGreaterThanOrEqual(WAITING_STORAGE_LEASE_MS);
   });
 
   it("claims a due durable verification before promoting the recording", async () => {
