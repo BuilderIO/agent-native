@@ -3580,6 +3580,181 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
+  it("keeps external action links external for desktop clients", async () => {
+    const projectUrl =
+      "https://beta.builder.io/app/projects/test-project/test-app?spaceId=test-space";
+    const externalLinkConfig = {
+      ...config,
+      actions: {
+        ...config.actions,
+        "echo-thing": {
+          ...config.actions["echo-thing"],
+          link: () => ({
+            label: "Open project",
+            view: "project",
+            url: projectUrl,
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 32,
+        method: "tools/call",
+        params: { name: "echo-thing", arguments: { value: "hello" } },
+      },
+      {
+        headers: {
+          "x-agent-native-mcp-full-catalog": "1",
+          "x-agent-native-open-target": "desktop",
+        },
+        config: externalLinkConfig,
+      },
+    );
+
+    expect(out.result.content[1].text).toBe(
+      `\n\n[Open project →](${projectUrl})`,
+    );
+    expect(out.result._meta["agent-native/openLink"]).toMatchObject({
+      webUrl: projectUrl,
+      desktopUrl: projectUrl,
+    });
+  });
+
+  it("keeps foreign open-route URLs external for desktop clients", async () => {
+    const externalUrl =
+      "https://outside.example/_agent-native/open?view=project&id=test";
+    const externalLinkConfig = {
+      ...config,
+      actions: {
+        ...config.actions,
+        "echo-thing": {
+          ...config.actions["echo-thing"],
+          link: () => ({ label: "Open project", url: externalUrl }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 33,
+        method: "tools/call",
+        params: { name: "echo-thing", arguments: { value: "hello" } },
+      },
+      {
+        headers: {
+          "x-agent-native-mcp-full-catalog": "1",
+          "x-agent-native-open-target": "desktop",
+        },
+        config: externalLinkConfig,
+      },
+    );
+
+    expect(out.result.content[1].text).toBe(
+      `\n\n[Open project →](${externalUrl})`,
+    );
+    expect(out.result._meta["agent-native/openLink"]).toMatchObject({
+      webUrl: externalUrl,
+      desktopUrl: externalUrl,
+    });
+  });
+
+  it("resolves protocol-relative external open routes for desktop clients", async () => {
+    const externalUrl =
+      "https://outside.example/_agent-native/open?view=project&id=test";
+    const externalLinkConfig = {
+      ...config,
+      actions: {
+        ...config.actions,
+        "echo-thing": {
+          ...config.actions["echo-thing"],
+          link: () => ({
+            label: "Open project",
+            url: "//outside.example/_agent-native/open?view=project&id=test",
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 37,
+        method: "tools/call",
+        params: { name: "echo-thing", arguments: { value: "hello" } },
+      },
+      {
+        headers: {
+          "x-agent-native-mcp-full-catalog": "1",
+          "x-agent-native-open-target": "desktop",
+        },
+        config: externalLinkConfig,
+      },
+    );
+
+    expect(out.result.content[1].text).toBe(
+      `\n\n[Open project →](${externalUrl})`,
+    );
+    expect(out.result._meta["agent-native/openLink"]).toMatchObject({
+      webUrl: externalUrl,
+      desktopUrl: externalUrl,
+    });
+  });
+
+  it("recognizes open routes under a configured framework prefix", async () => {
+    const originalPrefix =
+      process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+      "/_platform";
+    try {
+      const customPrefixConfig = {
+        ...config,
+        actions: {
+          ...config.actions,
+          "echo-thing": {
+            ...config.actions["echo-thing"],
+            link: () => ({
+              label: "Open project",
+              url: "/_platform/open?view=project&id=test",
+            }),
+          },
+        },
+      };
+      const out = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 35,
+          method: "tools/call",
+          params: { name: "echo-thing", arguments: { value: "hello" } },
+        },
+        {
+          headers: {
+            "x-agent-native-mcp-full-catalog": "1",
+            "x-agent-native-open-target": "desktop",
+          },
+          config: customPrefixConfig,
+        },
+      );
+
+      expect(out.result._meta["agent-native/openLink"]).toMatchObject({
+        webUrl:
+          "https://mail.agent-native.com/_platform/open?view=project&id=test&agentSidebar=closed",
+        desktopUrl:
+          "agentnative://open?view=project&id=test&agentSidebar=closed",
+      });
+    } finally {
+      if (originalPrefix === undefined) {
+        delete process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+      } else {
+        process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+          originalPrefix;
+      }
+    }
+  });
+
   it("serializes bounded action images as MCP image content without exposing base64 in text or structured content", async () => {
     const png = "aGVsbG8=";
     const imageConfig = {
@@ -4115,6 +4290,54 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(JSON.stringify(out.result.structuredContent)).not.toContain(
       "test-ticket",
     );
+  });
+
+  it("resolves protocol-relative foreign open routes in MCP App metadata", async () => {
+    const externalUrl =
+      "https://outside.example/_agent-native/open?view=project&id=test";
+    const externalNetworkPath =
+      "//outside.example/_agent-native/open?view=project&id=test";
+    const embedConfig = {
+      ...config,
+      actions: {
+        "open-app-embed": {
+          tool: { description: "Open a project" },
+          run: async () => ({
+            app: "mail",
+            url: "/_agent-native/embed/start?ticket=test-ticket",
+            embedStartUrl: "/_agent-native/embed/start?ticket=test-ticket",
+            deepLinkUrl: externalNetworkPath,
+            embed: true,
+          }),
+          readOnly: true,
+          mcpApp: {
+            resource: {
+              title: "Open app",
+              description: "Open the app inline.",
+              html: "<!doctype html><html><body>Open app</body></html>",
+            },
+          },
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 36,
+        method: "tools/call",
+        params: { name: "open-app-embed", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: embedConfig,
+      },
+    );
+
+    expect(out.result._meta["agent-native/openLink"]).toMatchObject({
+      webUrl: externalUrl,
+      desktopUrl: externalUrl,
+    });
   });
 
   it("mints hidden embed-session metadata for same-origin MCP App path results", async () => {
