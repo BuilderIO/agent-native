@@ -72,6 +72,7 @@ const IDLE_POLL_BACKOFF = [1, 2, 5] as const;
 const SSE_LEADER_LOCK_PREFIX = "agent-native-sync:";
 const COLLAB_POLL_INTERVAL_MS = 2_500;
 const COLLAB_BOOST_IDLE_CEILING_MS = 3 * 60_000;
+const COLLAB_ACTIVITY_WINDOW_MS = 60_000;
 
 // Collab poll boost: a page that knows another person is on the same resource
 // holds a lease, and every transport with no live stream (serverless refuses
@@ -79,6 +80,33 @@ const COLLAB_BOOST_IDLE_CEILING_MS = 3 * 60_000;
 // cadence. Module-level because the lease is about the tab, not one transport.
 let collabBoostLeases = 0;
 let collabBoostActivityAt = 0;
+// Presence only covers people on the same collab doc, and a design or deck has
+// one doc per screen or slide: two people editing different ones never see each
+// other. A resource-scoped action event that another tab or an agent caused
+// proves someone is editing the resource right now, so it boosts on its own.
+let collabActivityUntil = 0;
+
+function collabBoostWanted(): boolean {
+  return (
+    (collabBoostLeases > 0 && collabBoostFresh()) ||
+    Date.now() < collabActivityUntil
+  );
+}
+
+function noteCollaboratorActivity(events: SyncEvent[]): void {
+  const ownSource = getBrowserTabId();
+  if (
+    events.some(
+      (event) =>
+        event.source === "action" &&
+        typeof event.resourceType === "string" &&
+        event.resourceType !== "" &&
+        event.requestSource !== ownSource,
+    )
+  ) {
+    collabActivityUntil = Date.now() + COLLAB_ACTIVITY_WINDOW_MS;
+  }
+}
 
 function collabBoostFresh(): boolean {
   return Date.now() - collabBoostActivityAt <= COLLAB_BOOST_IDLE_CEILING_MS;
@@ -394,6 +422,8 @@ interface TransportSubscription {
 class SyncTransport {
   private subscribers = new Map<symbol, TransportSubscription>();
   private cursorRef: SyncCursor = { ...INITIAL_SYNC_CURSOR };
+  // The first batch replays history, which says nothing about who is here now.
+  private deliveredFirstBatch = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private refreshRequested = false;
   private removeVisibilityListener?: () => void;
@@ -592,7 +622,7 @@ class SyncTransport {
   // the hosted gateway) already delivers within a second, and a hosted
   // transport that is mid-reconnect has its own jittered retry.
   private collabBoostInterval(): number | undefined {
-    if (collabBoostLeases === 0 || !collabBoostFresh()) return undefined;
+    if (!collabBoostWanted()) return undefined;
     if (this.mode !== "local" || this.sseConnected) return undefined;
     return COLLAB_POLL_INTERVAL_MS;
   }
@@ -641,7 +671,11 @@ class SyncTransport {
         }
       }
     }
-    if (events.length) touchCollabBoost();
+    if (events.length) {
+      touchCollabBoost();
+      if (this.deliveredFirstBatch) noteCollaboratorActivity(events);
+    }
+    this.deliveredFirstBatch = true;
     for (const sub of this.subscribers.values()) {
       sub.onEvents(events, version, cursor);
     }
@@ -1250,6 +1284,7 @@ export function _resetSyncTransportRegistryForTests(): void {
   transportRegistry.clear();
   collabBoostLeases = 0;
   collabBoostActivityAt = 0;
+  collabActivityUntil = 0;
 }
 
 export interface SubscribeSyncEventsOptions {

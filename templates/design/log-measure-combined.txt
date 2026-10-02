@@ -1,0 +1,12 @@
+[combined] loaded; warming 25000ms so presence/boost can settle
+--- a1 restyle fill (A UI -> B iframe)
+/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/agent-a4b4f232527f58a5a/templates/design/e2e/helpers.ts:267
+    throw new Error(
+          ^
+
+Error: no exact selectable node found for "Alpha Button"
+    at selectableNodeByText (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/agent-a4b4f232527f58a5a/templates/design/e2e/helpers.ts:267:11)
+    at async selectByText (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/agent-a4b4f232527f58a5a/templates/design/e2e/helpers.ts:528:18)
+    at async <anonymous> (/Users/steve/Projects/builder/agent-native/framework/.claude/worktrees/agent-a4b4f232527f58a5a/.tmp/collab-verify/design/measure.ts:101:3)
+
+Node.js v24.14.0

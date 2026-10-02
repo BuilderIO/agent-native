@@ -7,6 +7,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getBrowserTabId } from "./browser-tab-id";
 import {
   _resetSyncTransportRegistryForTests,
   acquireCollabPollBoost,
@@ -132,5 +133,69 @@ describe("collab poll boost", () => {
     expect(polls - before).toBeGreaterThanOrEqual(11);
     release();
     unsub();
+  });
+  describe("collaborators on different docs of one resource", () => {
+    const action = (
+      requestSource?: string,
+      resourceType: string | null = "design",
+    ) => ({
+      source: "action",
+      type: "change",
+      key: "update-design",
+      ...(resourceType ? { resourceType, resourceId: "d1" } : {}),
+      ...(requestSource ? { requestSource } : {}),
+    });
+
+    async function pollsAfterFirstEvent(event: Record<string, unknown>) {
+      const unsub = await subscribeRefused();
+      // The idle poll that carries the event; no lease is ever held.
+      nextEvents = [{ ...event, version: 1 }];
+      await advance(70_000);
+      const before = polls;
+      await advance(30_000);
+      const boosted = polls - before;
+      unsub();
+      return boosted;
+    }
+
+    it("polls every 2.5 s once another tab's resource action event arrives, without any lease", async () => {
+      expect(
+        await pollsAfterFirstEvent(action("other-tab")),
+      ).toBeGreaterThanOrEqual(11);
+    });
+
+    it("counts an agent's resource action event (no request source) as collaborator activity", async () => {
+      expect(await pollsAfterFirstEvent(action())).toBeGreaterThanOrEqual(11);
+    });
+
+    it("stays idle for this tab's own action events and for events naming no resource", async () => {
+      expect(
+        await pollsAfterFirstEvent(action(getBrowserTabId())),
+      ).toBeLessThanOrEqual(1);
+      expect(
+        await pollsAfterFirstEvent(action("other-tab", null)),
+      ).toBeLessThanOrEqual(1);
+    });
+
+    it("does not treat the history replayed by the first poll as collaborator activity", async () => {
+      nextEvents = [{ ...action("other-tab"), version: 1 }];
+      const unsub = await subscribeRefused();
+      await advance(1_000);
+      const before = polls;
+      await advance(30_000);
+      expect(polls - before).toBeLessThanOrEqual(1);
+      unsub();
+    });
+
+    it("returns to the idle cadence a minute after the last collaborator event", async () => {
+      const unsub = await subscribeRefused();
+      nextEvents = [{ ...action("other-tab"), version: 1 }];
+      await advance(70_000);
+      await advance(70_000);
+      const lapsedAt = polls;
+      await advance(30_000);
+      expect(polls - lapsedAt).toBeLessThanOrEqual(1);
+      unsub();
+    });
   });
 });
