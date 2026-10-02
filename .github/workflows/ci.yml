@@ -142,7 +142,7 @@ jobs:
           done < <(git diff --name-only -z "$CI_BASE_SHA...$CI_HEAD_SHA")
 
           if ((${#format_files[@]} > 0)); then
-            pnpm exec oxfmt --check "${format_files[@]}"
+            pnpm exec oxfmt --check --no-error-on-unmatched-pattern "${format_files[@]}"
           fi
           if ((${#lint_files[@]} > 0)); then
             pnpm exec oxlint --config .oxlintrc.json --no-error-on-unmatched-pattern "${lint_files[@]}"

@@ -949,62 +949,15 @@ function CommentComposer({
   if (!canComment && isSignedIn) return null;
 
   if (!isSignedIn && onUnauthenticated) {
-    if (isInlinePresentation) {
-      return (
-        <button
-          type="button"
-          onClick={() => onUnauthenticated("comment")}
-          className="flex h-[117px] w-full flex-col items-start overflow-hidden px-2.5 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <span className="flex min-h-0 flex-1 w-full flex-col overflow-hidden rounded-xl border border-transparent bg-background shadow-[var(--comment-input-shadow)]">
-            <span className="flex min-h-0 flex-1 items-start px-4 pt-[11px] text-sm leading-5 text-muted-foreground">
-              <span className="truncate">
-                {t("commentsPanel.signInToComment")}
-              </span>
-            </span>
-            <span className="h-px w-full bg-border" />
-            <span className="flex h-[38px] w-full items-center justify-end px-[7px]">
-              <span className="flex size-[22px] items-center justify-center rounded-full bg-muted text-muted-foreground">
-                <IconArrowUp className="size-3" />
-              </span>
-            </span>
-          </span>
-        </button>
-      );
-    }
     return (
-      <button
+      <Button
         type="button"
+        variant="outline"
+        className="w-full justify-start text-muted-foreground"
         onClick={() => onUnauthenticated("comment")}
-        className={cn(
-          "flex w-full gap-2 text-left text-sm text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          isInlinePresentation ? "items-center" : "items-start",
-          !isInlinePresentation &&
-            "rounded-xl bg-muted/60 p-2 transition-colors duration-150 hover:bg-muted",
-        )}
       >
-        <Avatar
-          className={cn("size-7 shrink-0", !isInlinePresentation && "mt-1")}
-        >
-          <AvatarFallback className="bg-muted text-xs text-muted-foreground">
-            A
-          </AvatarFallback>
-        </Avatar>
-        {isInlinePresentation ? (
-          <span className="flex min-h-10 min-w-0 flex-1 items-center rounded-[20px] bg-muted/60 px-3 transition-colors duration-150 hover:bg-muted">
-            <span className="min-w-0 flex-1 truncate">
-              {t("commentsPanel.leaveComment")}
-            </span>
-          </span>
-        ) : (
-          <>
-            <span className="min-w-0 flex-1 truncate">
-              {t("commentsPanel.leaveComment")}
-            </span>
-            <IconMoodSmile className="size-4 shrink-0" />
-          </>
-        )}
-      </button>
+        {t("commentsPanel.signInToComment")}
+      </Button>
     );
   }
 
