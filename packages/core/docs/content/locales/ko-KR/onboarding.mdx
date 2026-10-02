@@ -234,13 +234,13 @@ isComplete: async () => {
 
 ### 메소드 종류
 
-| 종류               | 페이로드                                              | 사용                                          |
-| ------------------ | ----------------------------------------------------- | --------------------------------------------- |
-| `link`             | `{ url, external? }`                                  | 사용자를 OAuth 흐름 또는 문서 페이지로 보내기 |
-| `form`             | `{ fields, writeScope? }`                             | 환경 변수(키, 비밀, URL) 수집                 |
-| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Builder.io를 사용하세요 (unlocks shared infra)        |
-| `agent-task`       | `{ prompt }`                                          | 처리할 상담원 채팅에 메시지를 보냅니다.       |
-| `file-storage`     | -                                                     | 공유 S3 호환 스토리지 양식을 표시합니다       |
+| 종류               | 페이로드                                              | 사용                                           |
+| ------------------ | ----------------------------------------------------- | ---------------------------------------------- |
+| `link`             | `{ url, external? }`                                  | 사용자를 OAuth 흐름 또는 문서 페이지로 보내기  |
+| `form`             | `{ fields, writeScope? }`                             | 환경 변수(키, 비밀, URL) 수집                  |
+| `builder-cli-auth` | `{ scope: "llm" \| "browser" \| "image-generation" }` | Builder.io를 사용하세요 (unlocks shared infra) |
+| `agent-task`       | `{ prompt }`                                          | 처리할 상담원 채팅에 메시지를 보냅니다.        |
+| `file-storage`     | -                                                     | 공유 S3 호환 스토리지 양식을 표시합니다        |
 
 `primary: true` 플래그는 메서드를 해당 단계의 큰 CTA로 표시합니다.
 설정 경로가 표시되어야 하는 경우 `badge: "soon"`와 `disabled: true`를 사용하세요.

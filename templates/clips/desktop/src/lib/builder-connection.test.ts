@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { useBuilderForVoiceCleanup } from "./builder-connection";
+import { connectBuilderForVoiceCleanup } from "./builder-connection";
 
-describe("useBuilderForVoiceCleanup", () => {
+describe("connectBuilderForVoiceCleanup", () => {
   it("activates directly with the signed token and skips browser OAuth", async () => {
     const connectUrl =
       "https://app.example/_agent-native/builder/connect?_an_connect=signed-connect";
@@ -26,7 +26,7 @@ describe("useBuilderForVoiceCleanup", () => {
     const openExternal = vi.fn(async () => {});
 
     await expect(
-      useBuilderForVoiceCleanup("https://app.example", {
+      connectBuilderForVoiceCleanup("https://app.example", {
         fetchImpl,
         openExternal,
       }),
@@ -66,7 +66,7 @@ describe("useBuilderForVoiceCleanup", () => {
     const openExternal = vi.fn(async () => {});
 
     await expect(
-      useBuilderForVoiceCleanup("https://app.example", {
+      connectBuilderForVoiceCleanup("https://app.example", {
         fetchImpl,
         openExternal,
       }),
@@ -86,7 +86,7 @@ describe("useBuilderForVoiceCleanup", () => {
     const openExternal = vi.fn(async () => {});
 
     await expect(
-      useBuilderForVoiceCleanup("https://app.example", {
+      connectBuilderForVoiceCleanup("https://app.example", {
         fetchImpl,
         openExternal,
       }),

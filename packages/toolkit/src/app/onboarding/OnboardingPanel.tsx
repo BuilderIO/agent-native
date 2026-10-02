@@ -45,7 +45,6 @@ export function OnboardingPanel({
   className,
   title = "Setup",
 }: OnboardingPanelProps) {
-  const t = useT();
   const previewMode = useOnboardingPreviewMode();
   const onboarding = useOnboarding({ preview: previewMode });
   const { isDevMode } = useDevMode();

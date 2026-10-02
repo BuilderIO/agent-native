@@ -111,7 +111,7 @@ import {
   startBubbleWebrtc,
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
-import { useBuilderForVoiceCleanup } from "./lib/builder-connection";
+import { connectBuilderForVoiceCleanup } from "./lib/builder-connection";
 import {
   captureSetupForCamera,
   captureSetupForMode,
@@ -6971,7 +6971,9 @@ function Setup({
     setBuilderConnecting(true);
     setBuilderConnectMessage(null);
     try {
-      const result = await useBuilderForVoiceCleanup(base, { openExternal });
+      const result = await connectBuilderForVoiceCleanup(base, {
+        openExternal,
+      });
       if (result === "activated") {
         setProviderStatus((previous) =>
           previous

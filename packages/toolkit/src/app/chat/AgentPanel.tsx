@@ -75,7 +75,6 @@ import {
   getAgentChatViewTransitionStyle,
 } from "@agent-native/core/client/agent-chat";
 import { useDevMode } from "@agent-native/core/client/agent-chat";
-import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { getFramePostMessageTargetOrigin } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";

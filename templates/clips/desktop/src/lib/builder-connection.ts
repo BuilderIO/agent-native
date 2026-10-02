@@ -4,7 +4,7 @@ type BuilderConnectionStatus = {
   connectUrl?: string;
 };
 
-export async function useBuilderForVoiceCleanup(
+export async function connectBuilderForVoiceCleanup(
   base: string,
   dependencies: {
     fetchImpl?: typeof fetch;
