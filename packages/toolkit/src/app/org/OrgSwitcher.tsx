@@ -12,6 +12,10 @@ import {
 } from "@agent-native/core/client/org";
 import { signOut } from "@agent-native/core/client/sign-out";
 import { workspacePrivateIconUrl } from "@agent-native/core/client/uploads";
+import {
+  CHAT_MODEL_SELECTION_CHANGED_EVENT,
+  chatModelSelectionStorageKey,
+} from "@agent-native/core/client/use-chat-models";
 import { setBrowserDemoModeEnabled } from "@agent-native/core/demo/browser-state";
 import { buildSettingsRoute } from "@agent-native/core/navigation";
 import { shouldOfferWorkspace } from "@agent-native/core/org/workspace-url";
@@ -130,6 +134,37 @@ export interface OrgSwitcherProps {
 export type AccountMenuProps = OrgSwitcherProps;
 export type AccountMenuUtilityLink = OrgSwitcherUtilityLink;
 
+/**
+ * The engine picked in the default chat composer, read the way the composer
+ * reads it (an unreadable choice is no choice there either), so the credit
+ * notice asks about the engine the chat will actually send.
+ */
+function readChatEngineChoice(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const raw = window.localStorage.getItem(chatModelSelectionStorageKey());
+    const engine = raw ? (JSON.parse(raw) as { engine?: unknown }).engine : "";
+    return typeof engine === "string" && engine ? engine : undefined;
+  } catch {
+    // coercion-ok: the composer treats an unreadable selection as none, so the chat sends no engine either.
+    return undefined;
+  }
+}
+
+function useChatEngineChoice(): string | undefined {
+  const [engine, setEngine] = useState(readChatEngineChoice);
+  useEffect(() => {
+    const sync = () => setEngine(readChatEngineChoice());
+    window.addEventListener(CHAT_MODEL_SELECTION_CHANGED_EVENT, sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener(CHAT_MODEL_SELECTION_CHANGED_EVENT, sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
+  return engine;
+}
+
 export function BuilderCreditNotice({
   compact = false,
   showAtLimitOnly = false,
@@ -140,8 +175,15 @@ export function BuilderCreditNotice({
   className?: string;
 }) {
   const { data: org } = useOrg();
+  const chatEngine = useChatEngineChoice();
   const builderCreditStatus = useActionQuery<{
-    exhausted: boolean;
+    /**
+     * Decided against the engine the chat runs on. Never re-derive "used up"
+     * from `quota.remaining`: a spent Builder quota does not stop a chat that
+     * runs on another credential. `unknown` means that engine could not be
+     * resolved; its spent quota is still worth showing.
+     */
+    state: { kind: string; quotaSpent?: boolean };
     period?: "daily" | "monthly";
     balance?: number;
     quota?: {
@@ -152,11 +194,16 @@ export function BuilderCreditNotice({
     };
   } | null>(
     "get-builder-credit-status",
-    { orgId: org?.orgId ?? null },
+    {
+      orgId: org?.orgId ?? null,
+      ...(chatEngine ? { engine: chatEngine } : {}),
+    },
     {
       enabled: Boolean(org?.email),
       staleTime: 30_000,
       refetchInterval: 60_000,
+      // The 60s poll is the retry; retrying a Builder outage multiplies it.
+      retry: false,
     },
   );
   const t = useT();
@@ -173,7 +220,9 @@ export function BuilderCreditNotice({
     Number.isFinite(quota.remaining)
       ? { balance: status.balance, quota }
       : null;
-  const exhausted = status?.exhausted === true;
+  const exhausted =
+    status?.state?.kind === "exhausted" ||
+    (status?.state?.kind === "unknown" && status.state.quotaSpent === true);
   const nearLimit =
     exhausted ||
     Boolean(usage && usage.quota.remaining <= usage.quota.limit * 0.2);

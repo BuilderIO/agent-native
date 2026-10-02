@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
@@ -61,9 +61,10 @@ export default defineAction({
   },
   run: async (args) => {
     if (!isLocalPlanRuntime()) {
-      throw new Error(
-        "Local plan comments are only available in local Plan runtime.",
-      );
+      fail("Local plan comments are only available in local Plan runtime.", {
+        errorCode: "local_plan_runtime_required",
+        statusCode: 412,
+      });
     }
 
     const local = await readPlanLocalFolder({

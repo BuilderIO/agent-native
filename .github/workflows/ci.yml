@@ -38,7 +38,10 @@ jobs:
       neon_query_budget: ${{ steps.scope.outputs.neon_query_budget }}
       query_budget_matrix: ${{ steps.scope.outputs.query_budget_matrix }}
       neon_connection_budget: ${{ steps.scope.outputs.neon_connection_budget }}
+      design_canvas_interaction_e2e: ${{ steps.scope.outputs.design_canvas_interaction_e2e }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
+      slides_chat_e2e: ${{ steps.scope.outputs.slides_chat_e2e }}
+      slides_authoring_e2e: ${{ steps.scope.outputs.slides_authoring_e2e }}
       changeset: ${{ steps.scope.outputs.changeset }}
       script_tests: ${{ steps.scope.outputs.script_tests }}
       lanes_matrix: ${{ steps.lanes.outputs.matrix }}
@@ -142,7 +145,7 @@ jobs:
           done < <(git diff --name-only -z "$CI_BASE_SHA...$CI_HEAD_SHA")
 
           if ((${#format_files[@]} > 0)); then
-            pnpm exec oxfmt --check "${format_files[@]}"
+            pnpm exec oxfmt --check --no-error-on-unmatched-pattern "${format_files[@]}"
           fi
           if ((${#lint_files[@]} > 0)); then
             pnpm exec oxlint --config .oxlintrc.json --no-error-on-unmatched-pattern "${lint_files[@]}"
@@ -334,9 +337,55 @@ jobs:
           --exclude "**/*.perf.test.ts"
           --exclude "**/create-e2e.spec.ts"
 
+  design-canvas-interaction-acceptance:
+    name: Design canvas interaction acceptance
+    needs: change-scope
+    if: needs.change-scope.outputs.design_canvas_interaction_e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/free-disk
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell --with-deps chromium
+
+      - name: Run focused Design canvas interaction cases
+        working-directory: templates/design
+        env:
+          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          pnpm exec playwright test \
+            e2e/drag-and-drop.reparenting-rules.spec.ts \
+            e2e/drag-and-drop.auto-layout-parity.spec.ts \
+            e2e/cross-screen-auto-layout-parity.spec.ts \
+            e2e/corner-radius-handle-drag.spec.ts \
+            e2e/parity-vector-endpoints.spec.ts \
+            --grep "physical|reparenting rules|canvas corner-radius handle follows the drag and persists the radius|vector endpoint controls|endpoint marker references unique" \
+            --workers=1
+
   fast-tests:
     name: Fast tests
-    needs: [change-scope, docs, test-rest, test-targeted]
+    needs:
+      [
+        change-scope,
+        docs,
+        test-rest,
+        test-targeted,
+        design-canvas-interaction-acceptance,
+      ]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -351,6 +400,8 @@ jobs:
           DOCS_RESULT: ${{ needs.docs.result }}
           TEST_REST_RESULT: ${{ needs.test-rest.result }}
           TEST_TARGETED_RESULT: ${{ needs.test-targeted.result }}
+          DESIGN_CANVAS_E2E: ${{ needs.change-scope.outputs.design_canvas_interaction_e2e }}
+          DESIGN_CANVAS_RESULT: ${{ needs.design-canvas-interaction-acceptance.result }}
         run: |
           if [ "$CHANGE_SCOPE_RESULT" != "success" ]; then
             echo "::error::change-scope did not succeed ($CHANGE_SCOPE_RESULT)"
@@ -363,6 +414,15 @@ jobs:
             fi
             echo "Docs-only change: full fast-test lanes are not required."
             exit 0
+          fi
+          if [ "$DESIGN_CANVAS_E2E" = "true" ]; then
+            if [ "$DESIGN_CANVAS_RESULT" != "success" ]; then
+              echo "::error::Design canvas interaction acceptance did not succeed ($DESIGN_CANVAS_RESULT)"
+              exit 1
+            fi
+          elif [ "$DESIGN_CANVAS_RESULT" != "skipped" ] && [ "$DESIGN_CANVAS_RESULT" != "success" ]; then
+            echo "::error::Design canvas interaction acceptance ran outside its selected path ($DESIGN_CANVAS_RESULT)"
+            exit 1
           fi
           if [ "$CI_FULL" = "true" ]; then
             if [ "$HAS_TESTS" != "true" ] || [ "$TEST_REST_RESULT" != "success" ]; then
@@ -534,20 +594,9 @@ jobs:
   slides-chat-e2e:
     name: Slides chat caret in Chromium
     needs: change-scope
-    # Off on purpose. #6485 disabled this job and #6496 switched it back on as a
-    # side effect of a Slides change; it then failed on every PR that reached it.
-    # Turning it back on is an explicit decision, not something to restore while
-    # editing this block.
-    if: >-
-      false && (
-      needs.change-scope.outputs.full == 'true' ||
-      contains(needs.change-scope.outputs.workspace_filters, '{templates/slides}') ||
-      contains(needs.change-scope.outputs.workspace_filters, '{packages/core}') ||
-      contains(needs.change-scope.outputs.workspace_filters, '{packages/toolkit}') ||
-      contains(needs.change-scope.outputs.workspace_filters, '{packages/creative-context}')
-      )
+    if: ${{ needs.change-scope.outputs.slides_chat_e2e == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -565,18 +614,44 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell --with-deps chromium
 
-      - name: Install Playwright WebKit
-        run: pnpm exec playwright install --with-deps webkit
-
       - name: Check selection direction and chat typing while slide text editing remains active
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
+
+      - name: Check line-edge caret navigation in slide text
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa
+
+  slides-authoring-e2e:
+    name: Slides rich-text authoring
+    needs: change-scope
+    if: needs.change-scope.outputs.slides_authoring_e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium and WebKit
+        run: |
+          pnpm exec playwright install --only-shell --with-deps chromium
+          pnpm exec playwright install --with-deps webkit
 
       - name: Check IME Escape preserves inline slide text editing
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
 
-      - name: Check typing fidelity across Slides text surfaces
+      - name: Check typing fidelity across Slides text surfaces in Chromium
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
 
@@ -945,6 +1020,12 @@ jobs:
 
       - name: Test AgentKit stream ownership guard
         run: pnpm test:agentkit-stream-ownership
+
+      - name: Test untracked-imports guard
+        run: pnpm test:no-untracked-imports
+
+      - name: Test mobile build path guard
+        run: pnpm test:mobile-build-paths
 
       - name: Test Neon transfer alert and offline backtest
         run: pnpm test:neon-transfer-alert

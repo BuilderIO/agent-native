@@ -319,6 +319,64 @@ describe("capture sanitization", () => {
     expect(result.content).not.toContain("No company-relevant content");
   });
 
+  it("lets Jev judge a routine message that contains an HR keyword", async () => {
+    const content =
+      "We're investigating the checkout outage from this morning.";
+    mocks.classifyWithJev.mockResolvedValueOnce({
+      configured: true,
+      authSource: "stored-key",
+      decision: jevSensitivityDecision(
+        Object.fromEntries(
+          BRAIN_SENSITIVITY_CATEGORIES.map((category) => [category, 0.1]),
+        ),
+        {
+          judgedContent: content,
+          capturedAt: baseInput.capturedAt,
+          truncated: false,
+        },
+      ),
+    });
+
+    const result = await sanitizeCaptureForStorage({
+      ...baseInput,
+      kind: "message",
+      title: "#eng",
+      source: { ...baseInput.source, title: "Slack", provider: "slack" },
+      content,
+    });
+
+    expect(mocks.classifyWithJev).toHaveBeenCalledOnce();
+    expect(result.decision).toMatchObject({
+      classifier: "jev",
+      disposition: "allowed",
+    });
+    expect(result.content).toBe(content);
+  });
+
+  it("still suppresses credentials before Jev sees the capture", async () => {
+    const result = await sanitizeCaptureForStorage({
+      ...baseInput,
+      content: "Deploy notes. password: not-a-real-secret",
+    });
+
+    expect(mocks.classifyWithJev).not.toHaveBeenCalled();
+    expect(result.decision?.disposition).toBe("suppressed");
+    expect(result.decision?.categories).toEqual(["secret-credential"]);
+    expect(result.content).not.toContain("not-a-real-secret");
+  });
+
+  it("keeps the full keyword screen when the model classifier is selected", async () => {
+    const result = await sanitizeCaptureForStorage({
+      ...baseInput,
+      settings: { ...DEFAULT_BRAIN_SETTINGS, privacyClassifier: "model" },
+      content: "We're investigating the checkout outage from this morning.",
+    });
+
+    expect(mocks.classifyWithJev).not.toHaveBeenCalled();
+    expect(result.decision?.disposition).toBe("suppressed");
+    expect(result.decision?.categories).toEqual(["investigation"]);
+  });
+
   it.each([
     "Decision: raise the API request limit for the launch.",
     "Decision: ship the bonus feature in the next product release.",

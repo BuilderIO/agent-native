@@ -37,14 +37,72 @@ the requests over sixteen source addresses: measured 1704s to 437s. Cross-host
 comparisons live in a separate `fleet` lane, because inside a shard they would
 compare a set of one host and pass having checked nothing.
 
+### How a run is laid out
+
+The lanes are independent, so they overlap instead of queueing. `discover` and
+`gate` start together. `gate` typechecks the suite and runs every
+`e2e/beta/lib/*.spec.ts` helper test once, instead of once per job. The public
+shards (at most 8 at a time), `fleet`, and `advisory` start as soon as
+`discover` is done; the authenticated shards start when `gate` passes (at most
+5 at a time). The authenticated lane is one job per slot, 12 in all, so a hang
+or failure in one place is isolated and named:
+
+| Slot                                       | Project                | Tests                                                                   | Job limit / `globalTimeout` |
+| ------------------------------------------ | ---------------------- | ----------------------------------------------------------------------- | --------------------------- |
+| `chat-slides`                              | `chat` (slides)        | chat, A2A, realtime (10 idle minutes), reliability                      | 30 / 27 min                 |
+| `chat-analytics`, `chat-chat`              | `chat` (that app)      | chat, reliability (5 scenarios, ~8 turns)                               | 30 / 25 min                 |
+| `chat-content`, `chat-dispatch`            | `chat` (that app)      | chat, reliability (1 scenario)                                          | 20 / 15 min                 |
+| `journeys-session-1`, `journeys-session-2` | `journeys-session`     | `[journey] [session]`, 13 tests split by `--shard=1/2`, `2/2`           | 30 / 25 min                 |
+| `journeys-credentials`                     | `journeys-credentials` | `[credentials]` (12) and `[settings-keys]` (3)                          | 30 / 25 min                 |
+| `journeys-flows`                           | `journeys-flows`       | `[slides-import]`, `[forms]`, `[design-systems]`, `[dispatch-apps]` (7) | 30 / 25 min                 |
+| `journeys-core`                            | `journeys-core`        | the original 38 journeys                                                | 20 / 15 min                 |
+| `design`                                   | `design`               | editor interactions and culling                                         | 15 / 11 min                 |
+| `registry`                                 | `registry`             | per-app registry checks                                                 | 10 / 7 min                  |
+
+The journeys used to be one slot of ~75 serial tests with a 15 minute limit. A
+spec file belongs to exactly one project (`journeys-core` takes every file under
+`specs/apps` that no other journeys project claims, so a new spec lands in a
+slot by default), and `lib/suite-partition.spec.ts`, which the `gate` job runs,
+lists what every slot selects and fails unless the slots cover each project's
+tests exactly once. `pnpm guard:beta-e2e-suite` fails on a project no slot runs,
+a duplicated slot, or a shard set that is not exactly `1/m` through `m/m`.
+
+Only the `chat-*` slots write the e2e account's user-scoped OpenAI key, each on
+its own host, so no host's key is written twice at once (hosts that share a
+database can still see two identical writes in the same minute; the value is the
+same). The `journeys-credentials` checks assume the chat lane has installed that
+key on `chat`, `slides`, `analytics`, `content` and `dispatch` at least once; it
+persists between runs, but a brand-new account fails them with a message that
+says so. Quiet-pool wall time is about 30 minutes; it was one to three and a
+half hours when everything ran in a chain.
+
+A narrowed dispatch (an `apps` list or a `grep`) can leave a slot with nothing
+to run. That slot says so and skips its credentialed setup; a full-fleet run
+with an empty slot fails instead, because it means the partition broke.
+
+Every job has a `timeout-minutes` sized from observed runtimes. Inside it,
+Playwright gets a `globalTimeout` a few minutes shorter
+(`BETA_E2E_GLOBAL_TIMEOUT_MINUTES`), so a hung run ends with a reported failure
+and a `results.json` instead of a job killed by its timeout, which GitHub
+reports as "cancelled" with no test output. Global setup bounds each host at 150
+seconds, bounds the in-page OpenAI key install with abort signals, logs a
+`[beta-e2e]` line before every host's session bootstrap and key install (so a
+hang names its host and step), and stops after three hung hosts. CI also stops a
+slot after 8 failing tests (`maxFailures`), so a broad regression ends in
+minutes. Concurrency is per kind of run: the production pre-flight (`public`)
+and the signup canary no longer queue behind a scheduled authenticated run.
+
+Each slot uploads one artifact named `beta-e2e-<lane>-<slot>-<run id>`
+(`beta-e2e-public-slides-…`, `beta-e2e-authed-chat-slides-…`,
+`beta-e2e-fleet-…`) holding `playwright-report/<slot>/` (the HTML report and
+`results.json`) and `test-results/<slot>/` (failure screenshots and
+`error-context.md` page snapshots).
+
 The same suite also runs automatically from **Beta E2E (scheduled)** every six
 hours (`0 */6 * * *`) with the public, authenticated, journey, and advisory
-lanes. A failed or cancelled run creates the exact-title issue
-`[beta-e2e] Scheduled beta health check failing`, or comments on the existing
-open issue instead of creating a duplicate. The first successful run comments
-with its recovery link and closes that issue. The scheduled workflow also has
-a manual dispatch entrypoint for checking the reporter without waiting for the
-next cadence.
+lanes. The scheduled workflow also has a manual dispatch entrypoint for checking
+the reporter without waiting for the next cadence. What it reports, and where,
+is under [Reading a failure report](#reading-a-failure-report).
 
 The assertions come from what people actually reported breaking in
 `#product-agent-native-feedback`: Google sign-in failures, sign-in loops, apps
@@ -54,29 +112,48 @@ Analytics.
 
 ## Lanes
 
-| Lane       | Gates a promotion | Credentials          | Model spend                                         |
-| ---------- | ----------------- | -------------------- | --------------------------------------------------- |
-| `public`   | yes               | none                 | none                                                |
-| `registry` | yes               | session              | none                                                |
-| `chat`     | yes               | session + OpenAI key | ~1 luna turn per chat app; Slides adds one A2A turn |
-| `journeys` | yes               | session              | none                                                |
-| `design`   | yes               | session              | none                                                |
-| `advisory` | no                | none                 | none                                                |
+| Lane                                                                          | Gates a promotion | Credentials          | Model spend                                                                                                          |
+| ----------------------------------------------------------------------------- | ----------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `public`                                                                      | yes               | none                 | none                                                                                                                 |
+| `registry`                                                                    | yes               | session              | none                                                                                                                 |
+| `chat`                                                                        | yes               | session + OpenAI key | ~19 luna turns per full run (chat and Analytics take 8 each, the others 1), plus a Slides A2A turn and realtime edit |
+| `journeys-core`, `journeys-session`, `journeys-credentials`, `journeys-flows` | yes               | session              | none                                                                                                                 |
+| `design`                                                                      | yes               | session              | none                                                                                                                 |
+| `advisory`                                                                    | no                | none                 | none                                                                                                                 |
 
 `public` is the one that always runs and needs nothing set up. It already
 covers the most-reported failures, because most of them are visible before a
 user finishes signing in.
 
-The workflow's `authed` lane runs the four authenticated projects above as
-separate serialized jobs, so a provider failure cannot hide a registry,
+The workflow's `authed` lane runs the authenticated projects above as separate
+jobs (chat is one job per app), so a provider failure cannot hide a registry,
 journey, or Design editor regression. The `design` project drives the real
 beta editor and covers layered fill ordering plus multi-selected text style,
 undo, and reload persistence.
 
-The `journeys` project includes `specs/apps/settings-navigation.spec.ts`: in
+The `journeys-core` project includes `specs/apps/settings-navigation.spec.ts`: in
 Analytics, Brain, Clips, Design, Dispatch, and Slides it opens Settings from
 the account menu, with ⌘, and with ⌘K › Settings, and follows three legacy
-Settings links, each of which must land on its new page.
+Settings links, each of which must land on its new page. The other journeys
+projects carry the `[journey]` tests named after what users reported: signing in
+and staying signed in (`[session]`), a credits or connect-AI state that
+contradicts the account (`[credentials]`, `[settings-keys]`), a Slides PDF that
+will not upload or import (`[slides-import]`), a form that cannot be published
+and answered (`[forms]`), a design system stuck indexing (`[design-systems]`),
+and a workspace app that 404s or changes lane when Dispatch opens it
+(`[dispatch-apps]`).
+
+The `chat-reliability` tests (`[chat-reliability]`) cover a run that does not
+finish: a reload mid-run, a second message while one is running, Stop, a thread
+that does not survive a reload, and an agent that claims a tool call it did not
+make. `a second message during a run gets no error and both are answered` is
+the regression guard for the 409 "Run already in progress" report; red with that
+message is the finding, not a flake. The slides realtime test does not retry: its
+idle window is 10 minutes. The Stop test asks for 100 lines so there is time to
+see the control; it fails with a distinct message when the answer finished
+before Stop could be pressed, and when a run was working for three seconds with
+no Stop control in the composer (the Chat app's full-page composer renders
+none, so a user there has no way to stop a run).
 
 `advisory` reports real findings that do not stop a user — beta being
 indexable, third-party pixels that reject beta hosts, beta sharing a database
@@ -147,9 +224,79 @@ change the default for everyone in the org.
 | `BETA_E2E_SESSION_TOKEN_CRM`  | Optional beta CRM override when its isolated database needs a fresh session                            |
 | `BETA_E2E_SESSION_TOKEN_CHAT` | Optional beta Chat override when its isolated database needs a fresh session                           |
 | `BETA_E2E_OPENAI_API_KEY`     | Dedicated, separately-limited key for agent turns. Omit only if you dispatch with `key_source=shared`. |
+| `QA_SLACK_BOT_TOKEN`          | Slack bot token (`chat:write`) the scheduled reporter posts to `#qa-agent-native` with. See below.     |
 
 The CRM and Chat overrides take precedence over their entries in the map, so
 refreshing an isolated host does not require replacing the other live sessions.
+
+## Reading a failure report
+
+Every scheduled run ends in a `report` job that turns the run into three
+things, using `scripts/beta-e2e-digest.ts` (Node only, no install step; its
+tests are `scripts/beta-e2e-digest.test.ts`):
+
+- **One GitHub issue**, `[beta-e2e] Scheduled beta health check failing`
+  (labels `beta-e2e` and `qa`). Its body is rewritten in place on every run with
+  the current state, so it is always the answer to "what is red now". A comment
+  is added only when the set of failures changes, and a green run comments with
+  the recovery, rewrites the body, and closes the issue.
+- **A Slack message** in `#qa-agent-native`, at most twelve lines: counts, the
+  top five failures, new versus persistent, and links to the run, the issue,
+  the failed jobs, and the artifacts. It posts on green to red, when new
+  failures appear, on recovery, and as a reminder at most once every 24 hours
+  while still red. An identical red run stays quiet.
+- **A hidden state marker** (an HTML comment in the issue body) that the next
+  run reads, which is how NEW, STILL FAILING since run N, and FIXED are worked
+  out, and how consecutive red runs and the last green run are counted.
+
+Reading the issue, top to bottom: the status line gives the counts and the
+transitions; **Failed jobs** links each failed job with the step it failed at;
+**Failing tests** has one row per test with its class, app, lane and project,
+`file:line`, title, first error line, and the screenshot and artifact to open;
+**Jobs and setup without usable test results** is where a job that was killed or
+failed before writing a report is stated as a fact, with the last `[beta-e2e]`
+line it logged, which is how a hung host is named; **Not run this time**,
+**Error details**, **Fixed**, and **Flaky** follow, and **How to investigate** ends with the exact
+commands to download the artifact and to reproduce a test on CI
+(`gh workflow run beta-e2e.yml --ref main -f apps=<app> -f lane=authed -f grep='<title>'`)
+or locally
+(`BETA_E2E_APPS=<app> pnpm e2e:beta --project=<project> --grep '<title>'`).
+
+Each failure carries a class: `[product]` an assertion failed, `[env]` a
+credential or session problem (an expired token, the wrong identity, a rejected
+OpenAI key), and `[infra-timeout]` a timeout, cancellation, or network failure
+before the product could be judged. Flaky tests (green on retry) are listed but
+never fail the run or page anyone, and the advisory lane is reported without
+gating. A failure from the last red run is **FIXED** only when that test
+executed and passed in this run. One that did not run (its slot stopped at
+`maxFailures` or the global timeout, produced no results, skipped it, or no
+longer has that title) is **NOT RUN**: listed under "Not run this time", kept in
+the state so it does not come back as NEW, and never counted fixed. NOT RUN
+entries do not make a run red, page anyone, or trigger a comment on their own;
+a slot that stopped early is red because of its own timeout or failure entries.
+A green run closes any open issue, including one that predates the state marker,
+and says how many tests it could not verify. A test that skips itself because
+the e2e account is not set up for it (its skip reason starts `[env]`) is
+reported as **NOT TESTED** with that reason, in the issue and in Slack; it never
+fails a run. A test parked with a `test.fixme` or `test.skip` description that
+starts `QUARANTINED` is reported as **QUARANTINED** with that text, in the issue
+and in Slack, so who parked it and until when stays in front of the reader.
+
+### Slack setup (one time)
+
+The reporter uses the `QA_SLACK_BOT_TOKEN` repository secret with
+`slackapi/slack-github-action` (`chat.postMessage`, channel `C0C4U4XRT6X`).
+
+1. Add `QA_SLACK_BOT_TOKEN`, a bot token with `chat:write`, as a repository
+   secret.
+2. Run `/invite @<the bot>` in `#qa-agent-native` once. Without it Slack answers
+   `not_in_channel`.
+
+Until both are done nothing is posted, and that is said, not skipped: the report
+job emits a `::warning::`, writes a line in its summary, and puts "Slack
+notification not configured" in the issue body. A failed post (`not_in_channel`,
+an invalid token) is reported the same way with Slack's error code, and never
+stops the issue from being updated.
 
 ## Things that behave the way they do on purpose
 
@@ -167,6 +314,18 @@ before any spec runs. An authenticated assertion evaluated against a
 signed-out page is not a weaker test, it is a false one — and this repo has
 that exact bug in two template global-setups today, which warn and continue as
 a guest.
+
+**An account-setup gap skips, says so, and shows up in the report.** A
+feature the e2e account was never given is not a product regression and must
+not read as one, but it must not pass silently either. Today that is private
+file storage: when Slides' `/api/uploads/status` says `referenceStorageReady`
+is false, the three `[slides-import]` tests skip with
+`[env] e2e account has no private storage; connect Builder storage to the e2e
+account`. The report lists every skip whose reason starts `[env]` as **NOT
+TESTED** (a line in the issue and in Slack, and a table in the issue), so the
+gap stays visible until someone connects storage to the account. A status that
+cannot be read, or one that says ready while the upload is then refused, still
+fails.
 
 If `BETA_E2E_EMAIL` is not the dedicated `+autoz` identity, keep the run
 failed. The existing recovery command for the fleet run is:
@@ -186,6 +345,23 @@ localStorage is a wish until something checks it. Every agent-chat POST is
 inspected and the run fails if anything other than luna was billed, including
 a request that carried no model field at all and therefore fell back to the
 app's default.
+
+**A turn that names no engine fails the spend guard.** Hosts send
+`engine: ai-sdk:openai` with the turn, which is what proves the dedicated
+user-scoped key is billed. A request that names no engine leaves the server to
+choose one from the account, which may be the Builder gateway's shared credits,
+and nothing readable from outside says which it chose, so it fails like a turn
+that names the wrong engine or a non-luna model. The Chat app host's composer
+puts the engine in the request's `metadata`, which the server ignores, so turns
+from `beta.chat` carry the luna model but no engine and cannot be proven to
+bill the dedicated key. The `chat` host's specs that bill a model turn (the two
+in `chat.spec.ts` and the five `[chat-reliability]` tests) are therefore
+quarantined for that host with a `test.fixme` whose description starts
+`QUARANTINED steve until 2026-10-15`, and the report lists them under
+**QUARANTINED** with that text. They stay quarantined until the Chat app sends
+the engine on the wire; then delete `e2e/beta/lib/quarantine.ts` and its calls.
+The other chat hosts run unchanged, and while the `chat` host is quarantined it
+bills no turns, so the per-run spend in the lanes table is lower by its share.
 
 **Certificate errors stay visible.** `ignoreHTTPSErrors` is never set, because
 "the connection isn't private" was a real report and only a browser that still
@@ -213,11 +389,17 @@ exist yet, so the day it changes is visible.
 
 ### What this run leaves behind
 
-The specs create no persistent app fixtures — no decks, documents, or forms.
-The Design lane creates one run-marked temporary design and deletes it in
-`finally`; a failed cleanup remains under the dedicated QA account. An
-authenticated run is not read-only, and most of what it writes lands in a
-production database:
+The specs create no lasting app fixtures. The Design lane creates one run-marked
+temporary design and deletes it in `finally`; the Slides PDF import, forms,
+Analytics dashboard, and chat tool-call tests each create run-marked data (a
+deck, a published public form and its response, a SQL dashboard
+`beta-e2e-cr-<nonce>`, a personal resource `e2e-cr-<nonce>.md`) and delete it in
+`finally`, and a failed cleanup remains under the dedicated QA account. Two
+things cannot be deleted by the suite: a ~1 KB PDF the composer upload test sends
+to the account's file storage (no delete route exists), and the chat threads of
+a failed `[chat-reliability]` test, which are kept on purpose so the thread id in
+the failure message can be opened. An authenticated run is not read-only, and
+most of what it writes lands in a production database:
 
 - **A session row per app**, when a captured token is exchanged for that host's
   cookie. Expires with the 30-day session.
@@ -237,7 +419,10 @@ lane exists.
 registry, which stores one production URL per app with no beta-aware branch.
 `beta.slides` delegating to "analytics" reaches **production** Analytics. The
 A2A spec is named for that, and a green result there does not clear beta
-Analytics.
+Analytics. The reachability test reads the peer's card through
+`/_agent-native/agents/probe?url=…`, which for a first-party peer verifies that
+it answers and advertises signed (`jwtBearer`) calls but does not verify
+authorization; the delegation test is what proves a signed call is accepted.
 
 ## Adding a host or an app
 
@@ -250,4 +435,7 @@ someone makes.
 `pnpm guard:beta-e2e-suite` enforces the parts the suite cannot check itself:
 the fleet stays derived rather than duplicated, non-beta hosts stay refused,
 the budget model stays luna, the promotion workflow stays manually invokable,
-and the scheduled wrapper keeps its six-hour issue lifecycle.
+the matrices stay capped and every job and slot keeps a timeout with a smaller
+Playwright `globalTimeout`, global setup stays bounded and keeps throwing, and
+the scheduled wrapper keeps its six-hour issue lifecycle, pinned Slack action,
+and minimal permissions. Its test is `scripts/guard-beta-e2e-suite.test.ts`.

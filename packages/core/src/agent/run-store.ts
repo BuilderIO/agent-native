@@ -11,6 +11,7 @@ import { getDbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { captureError } from "../server/capture-error.js";
+import { isRequestedStopAbortReason } from "./abort-reasons.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
@@ -1029,6 +1030,37 @@ function assertTurnInitiatorMatches(
   }
 }
 
+/** The live run that keeps `tryClaimRunSlot` from claiming the thread. */
+async function selectSlotHoldingRunId(
+  executor: Pick<ReturnType<typeof getDbExec>, "execute">,
+  threadId: string,
+  now: number,
+  maxStaleMs?: number,
+): Promise<string | undefined> {
+  const explicitCutoff = typeof maxStaleMs === "number";
+  const active = await executor.execute({
+    sql: `SELECT id FROM agent_runs
+          WHERE thread_id = ?
+            AND status = 'running'
+            AND ${terminalRunEventExclusionSql()}
+            AND ${livenessBasisSql()} >= ${explicitCutoff ? "?" : backgroundAwareStaleCutoffSql()}
+          ORDER BY started_at DESC LIMIT 1`,
+    args: [threadId, explicitCutoff ? now - maxStaleMs : now],
+  });
+  return (active.rows[0] as { id?: string } | undefined)?.id;
+}
+
+/**
+ * The run currently holding the thread's run slot, read without claiming it,
+ * so a request can refuse before work it would only repeat after a 409.
+ */
+export async function getSlotHoldingRunId(
+  threadId: string,
+): Promise<string | undefined> {
+  await ensureRunTables();
+  return selectSlotHoldingRunId(getDbExec(), threadId, Date.now());
+}
+
 export async function tryClaimRunSlot(
   threadId: string,
   runId: string,
@@ -1078,17 +1110,12 @@ export async function tryClaimRunSlot(
         options.turnInitiator,
       );
     }
-    const explicitCutoff = typeof maxStaleMs === "number";
-    const active = await tx.execute({
-      sql: `SELECT id FROM agent_runs
-            WHERE thread_id = ?
-              AND status = 'running'
-              AND ${terminalRunEventExclusionSql()}
-              AND ${livenessBasisSql()} >= ${explicitCutoff ? "?" : backgroundAwareStaleCutoffSql()}
-            ORDER BY started_at DESC LIMIT 1`,
-      args: [threadId, explicitCutoff ? now - maxStaleMs : now],
-    });
-    const activeRunId = (active.rows[0] as { id?: string } | undefined)?.id;
+    const activeRunId = await selectSlotHoldingRunId(
+      tx,
+      threadId,
+      now,
+      maxStaleMs,
+    );
     if (activeRunId) return { claimed: false, activeRunId };
 
     if (replayCompletedTurn) {
@@ -1923,9 +1950,6 @@ export async function getRunStatus(runId: string): Promise<string | null> {
   return String((rows[0] as { status: string }).status);
 }
 
-const TURN_ENDING_ABORT_REASONS = new Set(["user", "displaced"]);
-const USER_INITIATED_ABORT_REASONS = new Set(["user", "abort"]);
-
 const RECOVERABLE_ABORT_REASONS = new Set(["background_worker_died"]);
 
 export function terminalEventForAbortReason(
@@ -1938,11 +1962,7 @@ export function terminalEventForAbortReason(
       reason: normalized as ContinuationReason,
     };
   }
-  if (
-    TURN_ENDING_ABORT_REASONS.has(normalized) ||
-    USER_INITIATED_ABORT_REASONS.has(normalized) ||
-    normalized.startsWith("user_")
-  ) {
+  if (isRequestedStopAbortReason(normalized)) {
     return {
       type: "done",
       ...(normalized !== "displaced" ? { reason: "user" } : {}),

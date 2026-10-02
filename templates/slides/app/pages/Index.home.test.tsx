@@ -9,7 +9,12 @@ import {
   within,
   waitFor,
 } from "@testing-library/react";
-import { type ComponentProps, type ReactElement, type ReactNode } from "react";
+import {
+  type ComponentProps,
+  type ReactElement,
+  type ReactNode,
+  useImperativeHandle,
+} from "react";
 import { createPortal } from "react-dom";
 import { renderToString } from "react-dom/server";
 import { Link, MemoryRouter, useMatch } from "react-router";
@@ -29,6 +34,11 @@ const suggestionQuery = vi.hoisted(() => ({
 const inactiveHomeQueries = vi.hoisted(() => ({
   workspaceDefaultsEnabled: true,
   templateLibraryEnabled: true,
+}));
+const defaultDesignSystems = vi.hoisted(() => ({
+  systems: [] as Array<{ id: string; title: string }>,
+  personal: null as { id: string } | null,
+  workspace: null as { id: string; status: string } | null,
 }));
 const toastError = vi.hoisted(() => vi.fn());
 const homeImport = vi.hoisted(() => ({ current: null as unknown }));
@@ -79,6 +89,7 @@ const {
   useDecks,
   reloadDecks,
   createDeck,
+  updateDeck,
   promptProps,
   referenceProps,
   signedIn,
@@ -93,13 +104,18 @@ const {
   headerActions,
   pageTitle,
   homeSuggestions,
+  submitDraft,
+  getDraftSnapshot,
 } = vi.hoisted(() => ({
+  submitDraft: vi.fn(async () => true),
+  getDraftSnapshot: vi.fn(),
   useDecks: vi.fn(),
   reloadDecks: vi.fn(),
   createDeck: vi.fn(),
+  updateDeck: vi.fn(),
   promptProps: vi.fn(),
   referenceProps: vi.fn(),
-  signedIn: { value: true },
+  signedIn: { value: true, unreachable: false },
   agentEngine: { state: "configured", missing: false },
   fetchAgentEngineConfiguredState: vi.fn(),
   agentSubmit: vi.fn(),
@@ -218,7 +234,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
         data:
           options?.enabled === false
             ? undefined
-            : { suggestions: homeSuggestions.value },
+            : { status: "ready", suggestions: homeSuggestions.value },
         isLoading: false,
         isError: false,
       };
@@ -229,6 +245,11 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   deleteClientAppState: vi.fn().mockResolvedValue(undefined),
   useSession: () => ({
     session: signedIn.value ? { user: { email: "home@example.test" } } : null,
+    status: signedIn.unreachable
+      ? "unavailable"
+      : signedIn.value
+        ? "authenticated"
+        : "unauthenticated",
   }),
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({ useT: () => translate }));
@@ -288,7 +309,8 @@ vi.mock("@/hooks/use-design-systems", () => ({
   useDesignSystems: (enabled: boolean) => (
     systemFlag.query(enabled),
     {
-      designSystems: [],
+      designSystems: defaultDesignSystems.systems,
+      defaultSystem: defaultDesignSystems.personal,
       error: null,
       isFetching: false,
       isLoading: false,
@@ -300,7 +322,7 @@ vi.mock("@/hooks/use-design-systems", () => ({
 vi.mock("@/hooks/use-workspace-defaults", () => ({
   useWorkspaceDefaults: (enabled = true) => {
     inactiveHomeQueries.workspaceDefaultsEnabled = enabled;
-    return { refetch: vi.fn() };
+    return { designSystem: defaultDesignSystems.workspace, refetch: vi.fn() };
   },
 }));
 vi.mock("@/components/editor/SlidesComposerContext", () => ({
@@ -365,8 +387,15 @@ vi.mock("@/components/editor/NewDeckReferenceStep", () => ({
   },
 }));
 vi.mock("@/components/editor/PromptDialog", () => ({
-  default: (props: ComponentProps<typeof PromptPopover>) => {
+  default: function PromptDialogMock(
+    props: ComponentProps<typeof PromptPopover>,
+  ) {
     promptProps(props);
+    useImperativeHandle(props.controllerRef, () => ({
+      submitSource: vi.fn(async () => true),
+      submitDraft,
+      getDraftSnapshot,
+    }));
     if (!props.open) return null;
     return (
       <textarea
@@ -415,6 +444,7 @@ function renderHome(
     deckListRefreshing: false,
     reloadDecks,
     createDeck,
+    updateDeck,
     catchUpStaleDeckList: vi.fn(),
     ...overrides,
   });
@@ -444,9 +474,14 @@ beforeEach(() => {
   suggestionQuery.enabled = undefined;
   inactiveHomeQueries.workspaceDefaultsEnabled = true;
   inactiveHomeQueries.templateLibraryEnabled = true;
+  defaultDesignSystems.systems = [];
+  defaultDesignSystems.personal = null;
+  defaultDesignSystems.workspace = null;
   homeImport.current = null;
   createDeck.mockReset();
+  updateDeck.mockReset();
   signedIn.value = true;
+  signedIn.unreachable = false;
   agentEngine.state = "configured";
   agentEngine.missing = false;
   fetchAgentEngineConfiguredState.mockImplementation(async () =>
@@ -528,6 +563,22 @@ describe("Slides prompt-led home", () => {
     expect(
       screen.queryByRole("dialog", { name: "Existing system setup" }),
     ).toBeNull();
+  });
+
+  it("does not silently add personal or workspace defaults to a new prompt", () => {
+    defaultDesignSystems.systems = [
+      { id: "builder-official", title: "Builder Official" },
+    ];
+    defaultDesignSystems.personal = { id: "builder-official" };
+    defaultDesignSystems.workspace = {
+      id: "builder-official",
+      status: "available",
+    };
+
+    renderHome();
+
+    expect(contextOptions.mock.lastCall![0].defaultDesignSystemId).toBeNull();
+    expect(referenceProps.mock.lastCall![0].defaultDesignSystemId).toBeNull();
   });
   it("waits for a ready design-system flag before treating references as empty", () => {
     systemFlag.enabled = false;
@@ -646,22 +697,43 @@ describe("Slides prompt-led home", () => {
 
     await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
     expect(referenceProps.mock.lastCall![0].open).toBe(false);
-    expect(callAction).toHaveBeenCalledWith(
-      "patch-deck",
+    expect(updateDeck).toHaveBeenCalledWith(
+      "new-deck",
       expect.objectContaining({
-        operations: [
-          expect.objectContaining({
-            fields: {
-              generationContext: expect.objectContaining({
-                designSystemId: null,
-                referenceDeckId: null,
-              }),
-            },
-          }),
-        ],
+        generationContext: expect.objectContaining({
+          designSystemId: null,
+          referenceDeckId: null,
+        }),
       }),
     );
     expect(attachments.commit).toHaveBeenCalledOnce();
+  });
+
+  it("explains an unreadable attachment instead of showing the raw send-failure code", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    agentSubmit.mockResolvedValueOnce({
+      delivered: false,
+      reason: "attachment-unreadable",
+    });
+    renderHome({
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      promptProps.mock.lastCall![0].onSubmit("Summarize my notes", [], {
+        commit: vi.fn(),
+        discard: vi.fn(),
+        attachments: [],
+      });
+    });
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    const description = toastError.mock.lastCall?.[1]?.description;
+    expect(description).not.toBe("attachment-unreadable");
+    // The test catalog may echo the key; either way it is the attachment copy.
+    expect(description).toMatch(/uploadAttachedFailed|attached file/i);
   });
 
   it("sends the direct-start payload through existing persisted deck generation and chat", async () => {
@@ -723,21 +795,14 @@ describe("Slides prompt-led home", () => {
       model: "test-model",
       effort: "high",
     });
-    expect(callAction).toHaveBeenCalledWith(
-      "patch-deck",
+    expect(updateDeck).toHaveBeenCalledWith(
+      "new-deck",
       expect.objectContaining({
-        operations: [
-          expect.objectContaining({
-            fields: {
-              generationContext: expect.objectContaining({
-                additionalContext:
-                  "Private meeting notes from the source picker",
-                composerContext,
-                contextItems,
-              }),
-            },
-          }),
-        ],
+        generationContext: expect.objectContaining({
+          additionalContext: "Private meeting notes from the source picker",
+          composerContext,
+          contextItems,
+        }),
       }),
     );
     expect(commit).toHaveBeenCalledOnce();
@@ -819,19 +884,13 @@ describe("Slides prompt-led home", () => {
     expect(agentSubmit.mock.calls[0][1]).not.toContain(
       "A restrained visual style",
     );
-    expect(callAction).toHaveBeenCalledWith(
-      "patch-deck",
+    expect(updateDeck).toHaveBeenCalledWith(
+      "new-deck",
       expect.objectContaining({
-        operations: [
-          expect.objectContaining({
-            fields: {
-              generationContext: expect.objectContaining({
-                composerContext: updatedComposerContext,
-                contextItems: updatedContextItems,
-              }),
-            },
-          }),
-        ],
+        generationContext: expect.objectContaining({
+          composerContext: updatedComposerContext,
+          contextItems: updatedContextItems,
+        }),
       }),
     );
   });
@@ -909,20 +968,14 @@ describe("Slides prompt-led home", () => {
       engine: modelSelection.engine,
       effort: modelSelection.effort,
     });
-    expect(callAction).toHaveBeenCalledWith(
-      "patch-deck",
+    expect(updateDeck).toHaveBeenCalledWith(
+      "new-deck",
       expect.objectContaining({
-        operations: [
-          expect.objectContaining({
-            fields: {
-              generationContext: expect.objectContaining({
-                referenceDeckId: "own",
-                composerContext,
-                contextItems,
-              }),
-            },
-          }),
-        ],
+        generationContext: expect.objectContaining({
+          referenceDeckId: "own",
+          composerContext,
+          contextItems,
+        }),
       }),
     );
     expect(attachments.commit).toHaveBeenCalledOnce();
@@ -1003,21 +1056,15 @@ describe("Slides prompt-led home", () => {
       { id: "own" },
       expect.anything(),
     );
-    expect(callAction).toHaveBeenCalledWith(
-      "patch-deck",
+    expect(updateDeck).toHaveBeenCalledWith(
+      "new-deck",
       expect.objectContaining({
-        operations: [
-          expect.objectContaining({
-            fields: {
-              generationContext: expect.objectContaining({
-                designSystemId: "ds-explicit",
-                referenceDeckId: "own",
-                composerContext,
-                contextItems,
-              }),
-            },
-          }),
-        ],
+        generationContext: expect.objectContaining({
+          designSystemId: "ds-explicit",
+          referenceDeckId: "own",
+          composerContext,
+          contextItems,
+        }),
       }),
     );
     expect(attachments.commit).toHaveBeenCalledOnce();
@@ -1065,20 +1112,14 @@ describe("Slides prompt-led home", () => {
       expect.anything(),
       expect.anything(),
     );
-    expect(callAction).toHaveBeenCalledWith(
-      "patch-deck",
+    expect(updateDeck).toHaveBeenCalledWith(
+      "new-deck",
       expect.objectContaining({
-        operations: [
-          expect.objectContaining({
-            fields: {
-              generationContext: expect.objectContaining({
-                referenceDeckId: null,
-                composerContext,
-                contextItems,
-              }),
-            },
-          }),
-        ],
+        generationContext: expect.objectContaining({
+          referenceDeckId: null,
+          composerContext,
+          contextItems,
+        }),
       }),
     );
   });
@@ -1173,6 +1214,95 @@ describe("Slides prompt-led home", () => {
         modelStatusChecksEnabled: true,
       }),
     );
+  });
+
+  const submittedDraft = {
+    text: "Make a pitch deck",
+    referenceKeys: [],
+    attachmentIds: ["file-1"],
+  };
+
+  it("sends the held-back draft once after AI setup becomes ready", async () => {
+    agentEngine.state = "missing";
+    agentEngine.missing = true;
+    submitDraft.mockClear();
+    getDraftSnapshot.mockReturnValue({ ...submittedDraft });
+    const home = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    let canSubmit: unknown;
+    await act(async () => {
+      canSubmit =
+        await promptProps.mock.lastCall![0].onBeforeSubmit!(submittedDraft);
+    });
+    expect(canSubmit).toBe(false);
+    expect(submitDraft).not.toHaveBeenCalled();
+
+    agentEngine.state = "configured";
+    agentEngine.missing = false;
+    await act(async () => home.rerenderHome());
+    await act(async () => home.rerenderHome());
+
+    expect(submitDraft).toHaveBeenCalledOnce();
+    expect(createDeck).not.toHaveBeenCalled();
+  });
+
+  it("leaves a draft edited while connecting in the composer instead of sending it", async () => {
+    agentEngine.state = "missing";
+    agentEngine.missing = true;
+    submitDraft.mockClear();
+    getDraftSnapshot.mockReturnValue({
+      ...submittedDraft,
+      text: "Make a pitch deck for investors, and also a roadmap",
+    });
+    const home = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onBeforeSubmit!(submittedDraft);
+    });
+
+    agentEngine.state = "configured";
+    agentEngine.missing = false;
+    await act(async () => home.rerenderHome());
+    await act(async () => home.rerenderHome());
+
+    expect(submitDraft).not.toHaveBeenCalled();
+  });
+
+  it("leaves a draft whose attachments changed while connecting in the composer", async () => {
+    agentEngine.state = "missing";
+    agentEngine.missing = true;
+    submitDraft.mockClear();
+    getDraftSnapshot.mockReturnValue({
+      ...submittedDraft,
+      attachmentIds: ["file-1", "file-2"],
+    });
+    const home = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onBeforeSubmit!(submittedDraft);
+    });
+
+    agentEngine.state = "configured";
+    agentEngine.missing = false;
+    await act(async () => home.rerenderHome());
+    await act(async () => home.rerenderHome());
+
+    expect(submitDraft).not.toHaveBeenCalled();
+  });
+
+  it("does not send a draft nobody tried to send when setup becomes ready", async () => {
+    agentEngine.state = "missing";
+    agentEngine.missing = true;
+    submitDraft.mockClear();
+    const home = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    agentEngine.state = "configured";
+    agentEngine.missing = false;
+    await act(async () => home.rerenderHome());
+
+    expect(submitDraft).not.toHaveBeenCalled();
   });
 
   it("keeps the composer interactive while checking and offers retry if status is unavailable", async () => {
@@ -1985,6 +2115,25 @@ describe("Slides prompt-led home", () => {
     );
   });
 
+  it("does not treat an unreachable session check as signed out", async () => {
+    signedIn.value = false;
+    signedIn.unreachable = true;
+    const home = renderHome({
+      decks: [ownDeck],
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    act(() => {
+      const props = promptProps.mock.lastCall![0] as ComponentProps<
+        typeof PromptPopover
+      >;
+      expect(props.onBeforeUpload?.("My outline", [], "", [])).toBe(true);
+    });
+    expect(sessionStorage.getItem("slides:pending-deck-prompt")).toBeNull();
+    home.unmount();
+  });
+
   it("restores composer references through the sign-in draft", async () => {
     signedIn.value = false;
     createDeck.mockReturnValue({ id: "new-deck" });
@@ -2270,19 +2419,13 @@ describe("Slides prompt-led home", () => {
     await waitFor(() => expect(agentSubmit).toHaveBeenCalledOnce());
     expect(referenceProps.mock.lastCall![0].open).toBe(false);
     expect(createDeck).toHaveBeenCalledOnce();
-    expect(callAction).toHaveBeenCalledWith(
-      "patch-deck",
+    expect(updateDeck).toHaveBeenCalledWith(
+      "new-deck",
       expect.objectContaining({
-        operations: [
-          expect.objectContaining({
-            fields: {
-              generationContext: expect.objectContaining({
-                composerContext,
-                contextItems,
-              }),
-            },
-          }),
-        ],
+        generationContext: expect.objectContaining({
+          composerContext,
+          contextItems,
+        }),
       }),
     );
   });

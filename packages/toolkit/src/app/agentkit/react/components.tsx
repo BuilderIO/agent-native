@@ -87,6 +87,7 @@ import {
 } from "./composer-submission.js";
 export type { AgentKitComposerSubmission } from "./composer-submission.js";
 
+import { splitAgentKitMessageContext } from "@agent-native/agentkit";
 import type { AgentThreadState } from "@agent-native/agentkit/client";
 import {
   AgentKitCapabilityError,
@@ -1031,6 +1032,68 @@ export function AgentActivityGroup({
   );
   const firstSequence = new Map<string, number>();
   const latestEventOrder = new Map<string, number>();
+  const isInternalActivity = (activity: AgentActivity) =>
+    activity.id.startsWith("agentkit:internal:") ||
+    activity.id === "activity:Starting agent" ||
+    activity.id === "activity:Contacting model";
+  const delegatedActivityIds = new Set<string>();
+  const delegatedToolIds = new Set<string>();
+  if (excludeAgentActivities) {
+    for (const event of runEvents) {
+      if (
+        event.type === "activity.started" ||
+        event.type === "activity.updated" ||
+        event.type === "activity.completed"
+      ) {
+        const activity = thread.activities[event.activity.id] ?? event.activity;
+        if (event.activity.agentId || activity.agentId) {
+          delegatedActivityIds.add(event.activity.id);
+        }
+      }
+      if (event.type === "tool.started" || event.type === "tool.updated") {
+        const tool = thread.tools[event.toolCall.id] ?? event.toolCall;
+        if (event.toolCall.agentId || tool.agentId) {
+          delegatedToolIds.add(event.toolCall.id);
+        }
+      }
+      if (
+        event.type === "tool.delta" &&
+        thread.tools[event.toolCallId]?.agentId
+      ) {
+        delegatedToolIds.add(event.toolCallId);
+      }
+    }
+  }
+  let latestUsefulActivity:
+    | { activity: AgentActivity; sequence: number; eventOrder: number }
+    | undefined;
+  const usefulActivities = new Map<
+    string,
+    { activity: AgentActivity; sequence: number; eventOrder: number }
+  >();
+  const rememberUsefulActivity = (
+    activity: AgentActivity,
+    sequence: number,
+    eventOrder: number,
+  ) => {
+    if (
+      isInternalActivity(activity) ||
+      activity.label.trim().toLowerCase() ===
+        labels.reasoning.trim().toLowerCase()
+    ) {
+      return;
+    }
+    const candidate = { activity, sequence, eventOrder };
+    usefulActivities.set(activity.id, candidate);
+    if (
+      !latestUsefulActivity ||
+      (runId === undefined
+        ? latestUsefulActivity.eventOrder <= eventOrder
+        : latestUsefulActivity.sequence <= sequence)
+    ) {
+      latestUsefulActivity = candidate;
+    }
+  };
   const itemOrder: string[] = [];
   const seenItems = new Set<string>();
   const remember = (id: string, sequence: number) => {
@@ -1053,39 +1116,57 @@ export function AgentActivityGroup({
     ) {
       const id = `reasoning:${message.id}`;
       reasoningMap.set(id, message);
-      activityMap.set(id, {
+      const activity: AgentActivity = {
         id,
         kind: "reasoning",
         label: labels.reasoning,
         status: message.status === "streaming" ? "running" : "completed",
-      });
+      };
+      activityMap.set(id, activity);
       remember(id, event.sequence);
       latestEventOrder.set(id, eventOrder);
+      rememberUsefulActivity(activity, event.sequence, eventOrder);
     }
     if (
       event.type === "activity.started" ||
       event.type === "activity.updated" ||
       event.type === "activity.completed"
     ) {
-      if (excludeAgentActivities && event.activity.agentId) continue;
-      activityMap.set(
-        event.activity.id,
-        thread.activities[event.activity.id] ?? event.activity,
-      );
+      const activity = thread.activities[event.activity.id] ?? event.activity;
+      if (
+        excludeAgentActivities &&
+        delegatedActivityIds.has(event.activity.id)
+      ) {
+        continue;
+      }
+      activityMap.set(event.activity.id, activity);
       remember(event.activity.id, event.sequence);
       latestEventOrder.set(event.activity.id, eventOrder);
+      rememberUsefulActivity(activity, event.sequence, eventOrder);
     }
     if (event.type === "tool.started" || event.type === "tool.updated") {
-      toolMap.set(
-        event.toolCall.id,
-        thread.tools[event.toolCall.id] ?? event.toolCall,
-      );
+      const tool = thread.tools[event.toolCall.id] ?? event.toolCall;
+      if (excludeAgentActivities && delegatedToolIds.has(event.toolCall.id)) {
+        continue;
+      }
+      toolMap.set(event.toolCall.id, tool);
       remember(event.toolCall.id, event.sequence);
       latestEventOrder.set(event.toolCall.id, eventOrder);
+      rememberUsefulActivity(toolToActivity(tool), event.sequence, eventOrder);
     }
     if (event.type === "tool.delta") {
+      if (excludeAgentActivities && delegatedToolIds.has(event.toolCallId)) {
+        continue;
+      }
       const tool = thread.tools[event.toolCallId];
-      if (tool) toolMap.set(tool.id, tool);
+      if (tool) {
+        toolMap.set(tool.id, tool);
+        rememberUsefulActivity(
+          toolToActivity(tool),
+          event.sequence,
+          eventOrder,
+        );
+      }
       remember(event.toolCallId, event.sequence);
       latestEventOrder.set(event.toolCallId, eventOrder);
     }
@@ -1117,27 +1198,23 @@ export function AgentActivityGroup({
   const durableToolResultIds = new Set(
     durableToolResults.map(({ tool }) => tool.id),
   );
-  const isInternalActivity = (activity: AgentActivity) =>
-    activity.id.startsWith("agentkit:internal:") ||
-    activity.id === "activity:Starting agent" ||
-    activity.id === "activity:Contacting model";
   const activityItems = items.filter(
     (activity) =>
       !durableToolResultIds.has(activity.id) && !isInternalActivity(activity),
   );
-  const latestRunningActivity = items.reduce<AgentActivity | undefined>(
-    (current, activity) => {
-      if (activity.status !== "running" || isInternalActivity(activity)) {
-        return current;
-      }
-      if (!current) return activity;
-      return (latestEventOrder.get(activity.id) ?? -1) >=
-        (latestEventOrder.get(current.id) ?? -1)
-        ? activity
-        : current;
-    },
-    undefined,
-  );
+  const hasUsefulActivity =
+    activityItems.length > 0 || durableToolResults.length > 0;
+  const latestRunningUsefulActivity = [...usefulActivities.values()].reduce<
+    typeof latestUsefulActivity | undefined
+  >((current, candidate) => {
+    if (candidate.activity.status !== "running") return current;
+    return !current ||
+      (runId === undefined
+        ? candidate.eventOrder > current.eventOrder
+        : candidate.sequence > current.sequence)
+      ? candidate
+      : current;
+  }, undefined);
   const running = items.some((item) => item.status === "running");
   const run = runId ? thread.runs[runId] : undefined;
   const segmentStartedEvent = firstWorkEvents(runEvents).find(
@@ -1175,6 +1252,7 @@ export function AgentActivityGroup({
     isCurrentSegment &&
     (run ? run.status === "running" : running && !hasTerminalRunEvent);
   const completedRunSummary =
+    hasUsefulActivity &&
     !activelyWorking &&
     (throughSequence !== undefined ||
       (items.length > 0 && !running) ||
@@ -1182,9 +1260,16 @@ export function AgentActivityGroup({
       (afterSequence === undefined &&
         run !== undefined &&
         ["completed", "failed", "cancelled"].includes(run.status)));
-  if (items.length === 0 && !activelyWorking) return null;
+  if (
+    activityItems.length === 0 &&
+    durableToolResults.length === 0 &&
+    !activelyWorking
+  ) {
+    return null;
+  }
   const currentActivity = activelyWorking
-    ? (latestRunningActivity ?? {
+    ? (latestRunningUsefulActivity?.activity ??
+      latestUsefulActivity?.activity ?? {
         id: `thinking:${runId ?? thread.id}`,
         kind: "model",
         label: labels.reasoning,
@@ -1230,13 +1315,17 @@ export function AgentActivityGroup({
       minute: labels.durationMinuteShort,
       second: labels.durationSecondShort,
     });
-  const summaryLabel = activelyWorking
-    ? ""
-    : completedRunSummary
-      ? durationMs !== undefined && durationMs >= 1_000
-        ? labels.workedFor.replace("{{duration}}", formatDuration(durationMs))
-        : labels.worked
-      : labels.activities;
+  const summaryLabel =
+    activelyWorking ||
+    (activityItems.length === 0 && durableToolResults.length > 0)
+      ? ""
+      : completedRunSummary
+        ? durationMs !== undefined && durationMs >= 1_000
+          ? labels.workedFor.replace("{{duration}}", formatDuration(durationMs))
+          : labels.worked
+        : hasUsefulActivity
+          ? labels.activities
+          : "";
   const visiblyRunning = activelyWorking;
   return (
     <>
@@ -1282,7 +1371,7 @@ export function AgentActivityGroup({
               const reasoningMessage = reasoningMap.get(activity.id);
               if (reasoningMessage) {
                 return (
-                  <li key={activity.id} className="agentkit-activity-row">
+                  <li key={activity.id}>
                     <AgentReasoningParts
                       message={reasoningMessage}
                       threadId={threadId}
@@ -1295,10 +1384,7 @@ export function AgentActivityGroup({
               }
               if (activities.length > 1) {
                 return (
-                  <li
-                    key={`cluster:${activity.id}`}
-                    className="agentkit-activity-row"
-                  >
+                  <li key={`cluster:${activity.id}`}>
                     <RepeatedActivityCluster
                       activities={activities}
                       threadId={threadId}
@@ -1312,7 +1398,7 @@ export function AgentActivityGroup({
                 : undefined;
               if (sourceTool && ToolRenderer) {
                 return (
-                  <li key={sourceTool.id} className="agentkit-activity-row">
+                  <li key={sourceTool.id}>
                     <ToolRenderer value={sourceTool} threadId={threadId} />
                   </li>
                 );
@@ -1322,7 +1408,7 @@ export function AgentActivityGroup({
                 slots.activity ??
                 AgentActivityItem;
               return (
-                <li key={activity.id} className="agentkit-activity-row">
+                <li key={activity.id}>
                   <Renderer value={activity} threadId={threadId} />
                 </li>
               );
@@ -1466,6 +1552,19 @@ export function AgentCollaborationFeed({
     | { type: "interaction"; value: AgentInteraction }
     | { type: "activity"; value: AgentActivity }
   >();
+  const delegatedAgentIds = new Map<string, string>();
+  for (const event of thread.events) {
+    if (runId && event.runId !== runId) continue;
+    if (
+      event.type === "activity.started" ||
+      event.type === "activity.updated" ||
+      event.type === "activity.completed"
+    ) {
+      const activity = thread.activities[event.activity.id] ?? event.activity;
+      const agentId = event.activity.agentId ?? activity.agentId;
+      if (agentId) delegatedAgentIds.set(event.activity.id, agentId);
+    }
+  }
   const firstSequence = new Map<string, number>();
   const order: string[] = [];
   const remember = (
@@ -1490,14 +1589,16 @@ export function AgentCollaborationFeed({
       });
     }
     if (
-      (event.type === "activity.started" ||
-        event.type === "activity.updated" ||
-        event.type === "activity.completed") &&
-      event.activity.agentId
+      event.type === "activity.started" ||
+      event.type === "activity.updated" ||
+      event.type === "activity.completed"
     ) {
+      const agentId = delegatedAgentIds.get(event.activity.id);
+      if (!agentId) continue;
+      const activity = thread.activities[event.activity.id] ?? event.activity;
       remember(`activity:${event.activity.id}`, event.sequence, {
         type: "activity",
-        value: event.activity,
+        value: { ...activity, agentId },
       });
     }
   }
@@ -2092,7 +2193,10 @@ function AgentUserMessageText({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
   const [expandable, setExpandable] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
-  const content = useMemo(() => renderUserMessageText(text), [text]);
+  const content = useMemo(
+    () => renderUserMessageText(splitAgentKitMessageContext(text).message),
+    [text],
+  );
 
   useLayoutEffect(() => {
     const element = contentRef.current;
@@ -2178,11 +2282,15 @@ export function AgentMessagePartView({
 }: AgentMessagePartViewProps) {
   const { labels, slots, registry } = useAgentKit();
   if (part.type === "reasoning" && part.visibility === "hidden") return null;
+  const displayPart =
+    part.type === "text"
+      ? { ...part, text: splitAgentKitMessageContext(part.text).message }
+      : part;
   const RegisteredRenderer = registry.messageParts?.[part.type];
   if (RegisteredRenderer) {
     return (
       <RegisteredRenderer
-        value={part}
+        value={displayPart}
         threadId={threadId}
         active={active}
         resetKey={resetKey}
@@ -2191,19 +2299,23 @@ export function AgentMessagePartView({
   }
   switch (part.type) {
     case "text": {
+      const textPart = displayPart as Extract<
+        AgentMessagePart,
+        { type: "text" }
+      >;
       const Renderer = userMessage ? undefined : slots.text;
       return Renderer ? (
         <Renderer
-          value={part}
+          value={textPart}
           threadId={threadId}
           active={active}
           resetKey={resetKey}
         />
       ) : userMessage ? (
-        <AgentUserMessageText text={part.text} />
-      ) : part.format === "markdown" ? (
+        <AgentUserMessageText text={textPart.text} />
+      ) : textPart.format === "markdown" ? (
         <AgentStreamingText
-          text={part.text}
+          text={textPart.text}
           active={active}
           resetKey={resetKey}
         >
@@ -2212,7 +2324,7 @@ export function AgentMessagePartView({
       ) : (
         <p data-format="plain">
           <AgentStreamingText
-            text={part.text}
+            text={textPart.text}
             active={active}
             resetKey={resetKey}
           />
@@ -2509,7 +2621,7 @@ export function AgentMessageActions({
   const forkingCapability = useAgentCapability("threadForking");
   const control = useAgentKitControl(threadId);
   const editContext = useContext(AgentMessageEditContext);
-  const text = messageText(message);
+  const text = splitAgentKitMessageContext(messageText(message)).message;
   const previousUserMessage =
     message.role === "assistant"
       ? findPreviousUserMessage(thread.messages, message.id)
@@ -2837,7 +2949,7 @@ export function AgentMessageActions({
             ) : null}
             {slots.messageActionsTrailing ? (
               <slots.messageActionsTrailing
-                value={message}
+                value={stripAgentMessageContext(message)}
                 threadId={threadId}
               />
             ) : null}
@@ -2964,6 +3076,7 @@ export function AgentMessageView({
 }: AgentKitRenderProps<AgentMessage>) {
   const { labels, slots } = useAgentKit();
   const thread = useAgentThread(threadId);
+  const visibleMessage = stripAgentMessageContext(message);
   const Supplement = slots.messageSupplement;
   const Actions = slots.messageActions ?? AgentMessageActions;
   const embeddedWidgetIds = new Set(
@@ -2992,7 +3105,7 @@ export function AgentMessageView({
     !attachedAnnotations.length
   ) {
     return Supplement ? (
-      <Supplement value={message} threadId={threadId} />
+      <Supplement value={visibleMessage} threadId={threadId} />
     ) : null;
   }
   return (
@@ -3004,7 +3117,7 @@ export function AgentMessageView({
       aria-busy={message.status === "streaming"}
     >
       <div className="agentkit-message-content">
-        {message.parts.map((part, index) => (
+        {visibleMessage.parts.map((part, index) => (
           <AgentMessagePartView
             key={`${message.id}-${index}`}
             value={part}
@@ -3032,11 +3145,38 @@ export function AgentMessageView({
             ))}
           </div>
         ) : null}
-        {Supplement ? <Supplement value={message} threadId={threadId} /> : null}
+        {Supplement ? (
+          <Supplement value={visibleMessage} threadId={threadId} />
+        ) : null}
       </div>
-      <Actions value={message} threadId={threadId} />
+      <Actions
+        value={slots.messageActions ? visibleMessage : message}
+        threadId={threadId}
+      />
     </article>
   );
+}
+
+function stripAgentMessageContext(message: AgentMessage): AgentMessage {
+  const metadata = stripAgentContextMetadata(message.metadata);
+  return {
+    ...message,
+    ...(metadata ? { metadata } : {}),
+    parts: message.parts.map((part) =>
+      part.type === "text"
+        ? { ...part, text: splitAgentKitMessageContext(part.text).message }
+        : part,
+    ),
+  };
+}
+
+function stripAgentContextMetadata(
+  metadata?: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (!metadata) return metadata;
+  const visibleMetadata = { ...metadata };
+  delete visibleMetadata.contextItems;
+  return visibleMetadata;
 }
 
 export function AgentRunFailure({
@@ -3324,7 +3464,7 @@ export function AgentKitComposer({
   const executionMode = mode ?? uncontrolledMode;
   const active = hasActiveRuns(thread);
   const composerInitialText = editingMessage
-    ? messageText(editingMessage)
+    ? splitAgentKitMessageContext(messageText(editingMessage)).message
     : initialText;
   const composerInitialTextKey = editingMessage
     ? `edit:${editingMessage.id}`
@@ -3565,16 +3705,14 @@ export function AgentKitComposer({
       attachments: [...payload.attachments],
       options: payload.options,
       metadata: sendMetadata,
+      queueWhileRunning,
+      ...(options.steer ? { interruptActiveRun: true } : {}),
       onLocalSubmit,
     };
-    if (payload.intent === "queued") {
-      await control.queueMessage({
-        ...message,
-        queuedWhileRunActive: activeAtSubmit,
-      });
-    } else {
-      await control.sendMessage(message);
-    }
+    await control.sendMessage({
+      ...message,
+      queuedWhileRunActive: activeAtSubmit,
+    });
   };
   const prepareHostSubmit = async () => {
     if (disabled) {
@@ -3591,15 +3729,7 @@ export function AgentKitComposer({
           void command
             .execute(async () => {
               if (!(await prepareHostSubmit())) return;
-              if (onSubmitOverride) {
-                await submitMessage(item.text, [], [], {
-                  intent: "immediate",
-                  attachments: item.attachments,
-                });
-                await control.removeQueued(item.id);
-              } else {
-                await control.steerQueued(item.id);
-              }
+              await control.steerQueued(item.id, { interruptActiveRun: true });
             })
             .catch(() => undefined)
             .finally(focusComposer)
@@ -3655,7 +3785,14 @@ export function AgentKitComposer({
       {queueCapability.visible ? (
         Queue ? (
           <Queue
-            items={thread.queuedMessages}
+            items={thread.queuedMessages.map((message) => {
+              const metadata = stripAgentContextMetadata(message.metadata);
+              return {
+                ...message,
+                text: splitAgentKitMessageContext(message.text).message,
+                ...(metadata ? { metadata } : {}),
+              };
+            })}
             threadId={threadId}
             active={active}
             pending={command.pending || Boolean(disabled)}
@@ -3667,7 +3804,7 @@ export function AgentKitComposer({
             variant="recessed"
             items={thread.queuedMessages.map((message) => ({
               id: message.id,
-              text: message.text,
+              text: splitAgentKitMessageContext(message.text).message,
               images: (message.attachments ?? []).flatMap((attachment) => {
                 if (!attachment.mediaType?.startsWith("image/")) return [];
                 const src = safeAgentImageSrc(attachment.url);
@@ -3763,6 +3900,10 @@ export function AgentKitComposer({
         autoFocus={autoFocus}
         composerRef={composerRef}
         willQueue={active && queueWhileRunning && canQueue}
+        onEmptySubmit={() => {
+          const next = thread.queuedMessages[0];
+          if (next) steerQueued?.(next);
+        }}
         showModelSelector={showModelSelector && canSelectModel}
         availableModels={availableModels}
         modelListLoading={modelListLoading}
@@ -4451,13 +4592,16 @@ export function AgentKitChat({
         </AgentWorkDisclosure>,
       );
     }
+    const messageValue = messageRenderer
+      ? stripAgentMessageContext(displayMessage)
+      : displayMessage;
     transcriptItems.push(
       <AgentKitSurfaceBoundary
         key={`message:${threadId}:${message.id}`}
         surface="message"
         resetKey={`${message.id}:${thread.events.length}`}
       >
-        <Message value={displayMessage} threadId={threadId} />
+        <Message value={messageValue} threadId={threadId} />
       </AgentKitSurfaceBoundary>,
     );
     if (isAssistantBoundary && runId) {
@@ -4649,3 +4793,5 @@ export function AgentKitChat({
     </AgentMessageEditContext.Provider>
   );
 }
+
+export { useAgentKitStopButton } from "./stop-button.js";

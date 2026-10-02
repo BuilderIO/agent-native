@@ -660,8 +660,18 @@ describe("controlled composer context", () => {
         `[aria-label="Remove ${name}"]`,
       );
       expect(remove).toHaveLength(2);
+      if (type === "image/png") {
+        const preview = container.querySelector<HTMLButtonElement>(
+          `button[aria-label="Preview ${name}"]`,
+        );
+        expect(remove[0]).toBeInstanceOf(HTMLButtonElement);
+        expect(remove[0].parentElement).toBe(preview?.parentElement);
+      }
       await act(async () => remove[0].click());
       expect(files).toEqual([second]);
+      if (type === "image/png") {
+        expect(document.querySelector('[role="dialog"]')).toBeNull();
+      }
     },
   );
 

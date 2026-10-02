@@ -6,6 +6,7 @@ import {
 } from "../triggers/dispatcher.js";
 import {
   classifyJobResource,
+  parseJobResource,
   processRecurringJobs,
   runJobNow,
 } from "./scheduler.js";
@@ -151,6 +152,13 @@ const testEngine = {
   supportedModels: ["test-model"],
 } as any;
 
+/** The built-in user table holds accounts, just not this owner. */
+function mockOwnerMissing() {
+  dbExecuteMock.mockImplementation(async (query: { sql?: string }) => ({
+    rows: query.sql?.includes('FROM "user" LIMIT 1') ? [{ "1": 1 }] : [],
+  }));
+}
+
 describe("processRecurringJobs", () => {
   const originalEnv = { ...process.env };
 
@@ -289,6 +297,52 @@ Inspect the workspace.`,
     );
     expect(runAgentLoopMock).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { state: "completed", enabled: true, lastStatus: "success" },
+    { state: "failed", enabled: false, lastStatus: "error" },
+  ] as const)(
+    "reconciles a paused job's remote 'Run now' ($state) instead of leaving it running",
+    async ({ state, enabled, lastStatus }) => {
+      getRemoteAutomationStatusMock.mockResolvedValue({ state });
+      resourceListAllOwnersMock.mockResolvedValue([
+        {
+          id: "resource-paused-remote",
+          owner: "alice+jobs@agent-native.test",
+          path: "jobs/paused-remote.md",
+          content: `---
+schedule: "0 * * * *"
+enabled: false
+createdBy: alice+jobs@agent-native.test
+executionHostId: remote-device-laptop
+remoteCommandId: remote-command-1
+remoteAdvanceSchedule: false
+lastStatus: running
+lastRun: "${new Date().toISOString()}"
+lastErrorCode: "missing_tools"
+consecutiveFailures: 3
+pausedReason: "missing_tools"
+---
+
+Inspect the workspace.`,
+        },
+      ]);
+
+      await processRecurringJobs({
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+        engine: testEngine,
+      });
+
+      expect(getRemoteAutomationStatusMock).toHaveBeenCalledOnce();
+      const content: string = resourcePutMock.mock.calls.at(-1)![2];
+      const { meta } = parseJobResource(content);
+      expect(meta.lastStatus).toBe(lastStatus);
+      expect(meta.enabled).toBe(enabled);
+      // A manual run never moves the streak, whichever way it ends.
+      expect(meta.consecutiveFailures).toBe(enabled ? undefined : 3);
+    },
+  );
 
   it("does not manually overlap an active automation", async () => {
     const resource = {
@@ -870,11 +924,16 @@ Run job ${index}.`,
     });
 
     expect(runCount).toBe(1);
-    expect(
-      resourcePutMock.mock.calls.filter((call) =>
-        String(call[2]).includes("lastStatus: skipped"),
-      ),
-    ).toHaveLength(8);
+    // An owner who no longer exists is permanent: the job is disabled once,
+    // with the typed reason, instead of being re-checked every cooldown.
+    const disabled = resourcePutMock.mock.calls.filter((call) =>
+      String(call[2]).includes('pausedReason: "owner_missing"'),
+    );
+    expect(disabled).toHaveLength(8);
+    for (const call of disabled) {
+      expect(String(call[2])).toContain("enabled: false");
+      expect(String(call[2])).toContain("lastStatus: paused");
+    }
     expect(
       resourcePutMock.mock.calls.some(
         (call) =>
@@ -923,6 +982,8 @@ Run job ${index}.`,
         contentByKey.set(`${owner}:${path}`, content);
       },
     );
+    // The owner lookup itself fails (not "the owner is gone"), so these jobs
+    // stay enabled and are retried after the cooldown.
     dbExecuteMock.mockImplementation(
       async (query: { sql?: string; args?: unknown[] }) => {
         const email = query.args?.[0];
@@ -931,7 +992,7 @@ Run job ${index}.`,
           typeof email === "string" &&
           email.startsWith("blocked-")
         ) {
-          return { rows: [], rowsAffected: 0 };
+          throw new Error("connection terminated");
         }
         return { rows: [{ "1": 1 }], rowsAffected: 1 };
       },
@@ -1605,7 +1666,7 @@ Do some work.`,
   });
 
   it("does not record a lastRun for a tick that never ran the job", async () => {
-    dbExecuteMock.mockResolvedValue({ rows: [] });
+    mockOwnerMissing();
     resourceListAllOwnersMock.mockResolvedValueOnce([
       {
         id: "resource-blocked",
@@ -1630,16 +1691,20 @@ Do some work.`,
     });
 
     expect(runAgentLoopMock).not.toHaveBeenCalled();
+    expect(createThreadMock).not.toHaveBeenCalled();
     expect(resourcePutMock).toHaveBeenCalledOnce();
     const content: string = resourcePutMock.mock.calls[0][2];
-    expect(content).toContain("lastStatus: skipped");
+    expect(content).toContain("lastStatus: paused");
+    expect(content).toContain("enabled: false");
+    expect(content).toContain('pausedReason: "owner_missing"');
+    expect(content).toContain('lastErrorCode: "owner_missing"');
     expect(content).toContain("no longer exists");
     expect(content).toContain("lastCheck:");
     expect(content).not.toContain("lastRun:");
   });
 
   it("stops rewriting a blocked job once its recent failure state is recorded", async () => {
-    dbExecuteMock.mockResolvedValue({ rows: [] });
+    mockOwnerMissing();
     const blocked = {
       id: "resource-blocked",
       owner: "ghost@agent-native.test",
@@ -1676,7 +1741,7 @@ Do some work.`,
   ])(
     "persists a repeated identity failure with a $age lastCheck only when needed",
     async ({ offset, writes }) => {
-      dbExecuteMock.mockResolvedValue({ rows: [] });
+      mockOwnerMissing();
       const blocked = {
         id: "resource-blocked",
         owner: "ghost@agent-native.test",

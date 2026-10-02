@@ -37,6 +37,34 @@ export function shouldShowNewDeckGeneratingOverlay({
   );
 }
 
+/**
+ * A prompted deck whose generation recorded a failure, never started, or
+ * whose run ended without a single slide shows the failure with Try again,
+ * never an idle empty canvas that reads as "still working".
+ */
+export function isNewDeckGenerationFailed({
+  slideCount,
+  hasGenerationContext,
+  failureCode,
+  isNewDeckCreation,
+  phase,
+  generating,
+  waitingOnQuestions,
+}: {
+  slideCount: number;
+  hasGenerationContext: boolean;
+  failureCode: unknown;
+  isNewDeckCreation: boolean;
+  phase: NewDeckGenerationPhase;
+  generating: boolean;
+  waitingOnQuestions: boolean;
+}): boolean {
+  if (slideCount !== 0 || !hasGenerationContext) return false;
+  if (typeof failureCode === "string") return true;
+  if (isNewDeckCreation && phase === "abandoned") return true;
+  return phase === "started" && !generating && !waitingOnQuestions;
+}
+
 export function shouldShowNewDeckGeneratingProgress({
   generating,
   isNewDeckCreation,

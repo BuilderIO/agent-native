@@ -408,6 +408,8 @@ export function useNavigationState() {
 | `getNavigationState` — 將 URL 對應到語義狀態    | `navigation` 寫入，制表符範圍加上全域後備鍵    |
 | `getCommandPath` — 將 `navigate` 指令對應到路由 | 指令輪詢、讀後刪除、重複指令保護、請求來源標記 |
 
+以字串傳回的路徑一律屬於目前的應用程式，即使它以另一個工作區應用程式的掛載路徑開頭也一樣。若要刻意導覽至同層應用程式，請傳回包含完整掛載路徑的 `{ type: "workspace-app", path: "/seo-application/settings" }`。
+
 `useAgentRouteState` 假定為 React 路由器。當導覽不在 URL 中時（向導步驟、畫布選取、非路由器 shell），而是下拉到較低階別的 `useSemanticNavigationState`：您將現成的 `state` 值加上 `navigationKeys`/`commandKeys` 和 `onCommand` 回調，並且它與 React 路由器完全無關。
 
 ## 抖動預防 {#jitter-prevention}

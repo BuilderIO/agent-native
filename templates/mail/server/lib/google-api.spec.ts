@@ -2,11 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const quotaState = vi.hoisted(() => ({
   rows: new Map<string, any>(),
+  tokens: new Map<string, any>(),
   clearCalls: 0,
   failClear: false,
 }));
 
 vi.mock("./inbox-store.js", () => ({
+  saveGmailTokenAccount: async (tokenHash: string, account: any) => {
+    quotaState.tokens.set(tokenHash, account);
+  },
+  readGmailTokenAccount: async (tokenHash: string) =>
+    quotaState.tokens.get(tokenHash),
+  readGmailQuotaCooldowns: async () => new Map<string, number>(),
   reserveGmailQuota: async (
     ownerEmail: string,
     accountEmail: string,
@@ -163,6 +170,30 @@ describe("googleFetch quota handling", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(quotaState.rows.get("account@example.com")?.units).toBe(10);
     expect(quotaState.clearCalls).toBe(0);
+  });
+
+  it("types a Gmail 401 by status so sync can ask the user to reconnect", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(401, {
+          error: { message: "Request had invalid authentication credentials." },
+        }),
+      ),
+    );
+
+    const error = await googleFetch(
+      "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+      "gateway-token-a",
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(GmailQuotaCooldownError);
+    expect(error).toMatchObject({
+      status: 401,
+      message:
+        "Google API error (401): Request had invalid authentication credentials.",
+    });
   });
 
   it("does not replay state-changing requests after a gateway failure", async () => {

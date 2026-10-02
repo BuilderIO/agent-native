@@ -1,11 +1,25 @@
-import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
+import {
+  GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+} from "../agent/engine/credential-errors.js";
+import {
+  AMBIGUOUS_HTTP_CREDENTIAL_CODES,
+  credentialStateForErrorCode,
+  type CredentialErrorCode,
+  type CredentialState,
+} from "../agent/engine/credential-state.js";
 import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   isBuilderGatewayInternalErrorMessage,
   isContextOverflowMessage,
-  isCreditsLimitErrorCode,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "../agent/engine/error-detail.js";
+import {
+  RUN_FAILED_MESSAGE,
+  RUN_INTERRUPTED_MESSAGE,
+  RUN_SIGNED_OUT_MESSAGE,
+  RUN_UNVERIFIED_MESSAGE,
+} from "./chat/run-outcome.js";
 
 export { isCreditsLimitErrorCode } from "../agent/engine/error-detail.js";
 
@@ -35,6 +49,30 @@ export const PROVIDER_CREDENTIAL_REJECTED_MESSAGE =
   "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.";
 const PROVIDER_CREDENTIAL_REJECTED_FRAGMENT =
   "rejected the credential used for this request";
+/**
+ * Chat copy for each typed credential code. `null` keeps the server's text: it
+ * names the specific credential (a hosted agent's, a missing OAuth scope), and
+ * generic provider copy would send the reader to fix the wrong key.
+ */
+const CREDENTIAL_CHAT_MESSAGES: Record<CredentialErrorCode, string | null> = {
+  missing_credentials: LLM_MISSING_CREDENTIALS_MESSAGE,
+  missing_api_key: LLM_MISSING_CREDENTIALS_MESSAGE,
+  authentication_error: PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
+  invalid_api_key: PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
+  http_401: PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
+  http_403: PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
+  builder_auth_error: BUILDER_AUTHENTICATION_ERROR,
+  builder_oauth_reauthorization_required: null,
+  credential_missing: null,
+  credential_rejected: null,
+  gateway_not_enabled: null,
+  personal_provider_keys_restricted: null,
+};
+export const SERVER_AUTHORED_CREDENTIAL_CODES: ReadonlySet<string> = new Set(
+  Object.entries(CREDENTIAL_CHAT_MESSAGES)
+    .filter(([, message]) => message === null)
+    .map(([code]) => code),
+);
 const GATEWAY_INTERNAL_ERROR_MESSAGE =
   "The model gateway hit an internal error before the agent could answer. Retry in a moment, and quote the error id below if it keeps happening.";
 const PROVIDER_TRANSIENT_REJECTION_MESSAGE =
@@ -46,6 +84,8 @@ const MALFORMED_REQUEST_ATTACHMENT_MESSAGE =
   "The model rejected an attached file, so this message was never sent. Remove the attachment and retry — a PDF, a plain-text file, or a JPEG, PNG, GIF, or WebP image is read directly; other formats have to be uploaded and linked instead.";
 const MALFORMED_REQUEST_MESSAGE =
   "The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.";
+export const CHAT_REQUEST_TOO_LARGE_MESSAGE =
+  "This request exceeded the server's size limit (HTTP 413). Start a new chat or remove large attachments or references, then retry.";
 const MALFORMED_REQUEST_CODES = new Set([
   "invalid_request",
   "invalid_request_error",
@@ -119,6 +159,7 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
     ATTACHMENT_PASSWORD_PROTECTED_MESSAGE,
     "agentChat.errorMessages.attachmentPasswordProtected",
   ],
+  [CHAT_REQUEST_TOO_LARGE_MESSAGE, "agentChat.errorMessages.requestTooLarge"],
   [
     "No LLM provider is connected. Open this app's Manage agent > LLM, then connect Builder.io or add a provider key.",
     "agentChat.errorMessages.noProviderConnected",
@@ -196,6 +237,10 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
     "agentChat.errorMessages.malformedRequestAttachment",
   ],
   [MALFORMED_REQUEST_MESSAGE, "agentChat.errorMessages.malformedRequest"],
+  [RUN_INTERRUPTED_MESSAGE, "agentChat.errorMessages.runInterrupted"],
+  [RUN_FAILED_MESSAGE, "agentChat.errorMessages.runFailed"],
+  [RUN_UNVERIFIED_MESSAGE, "agentChat.errorMessages.runUnverified"],
+  [RUN_SIGNED_OUT_MESSAGE, "agentChat.errorMessages.runSignedOut"],
 ]);
 
 const KNOWN_CHAT_ERROR_ACTION_KEYS = new Map<string, string>([
@@ -295,12 +340,38 @@ export function isProviderAuthenticationError(
   text: string,
   errorCode?: string,
 ): boolean {
-  const code = normalizeErrorCode(errorCode);
+  const state = chatCredentialState(text, normalizeErrorCode(errorCode));
+  if (state) {
+    return state.kind === "rejected" && state.credential === "provider";
+  }
+  return legacyProviderRejectionFromText(text);
+}
+
+/**
+ * The credential state a chat failure's code proves. A bare HTTP 401/403 only
+ * proves one once its text says nothing else: a rate-limited or quota-spent
+ * upstream can answer 403 too.
+ */
+function chatCredentialState(
+  text: string,
+  code: string,
+): CredentialState | null {
+  const state = credentialStateForErrorCode(code);
+  return state &&
+    AMBIGUOUS_HTTP_CREDENTIAL_CODES.has(code) &&
+    isProviderRateLimit(text, code)
+    ? null
+    : state;
+}
+
+/**
+ * English matching for failures that reach the client without a credential
+ * code: rows persisted before codes existed, and free text relayed from other
+ * hosts. Never consult it when a typed code is present.
+ */
+function legacyProviderRejectionFromText(text: string): boolean {
   const lower = text.toLowerCase();
   return (
-    code === "authentication_error" ||
-    code === "http_401" ||
-    code === "http_403" ||
     /^401 status code(?:\s*\(no body\))?$/i.test(text) ||
     /^403 status code(?:\s*\(no body\))?$/i.test(text) ||
     /\b(?:http\s*)?401\b.*\b(?:status|unauthorized|authentication|auth|no body)\b/i.test(
@@ -342,8 +413,9 @@ export function normalizeChatError(
   const text = looksHtml ? htmlToText(raw) : raw.trim();
   const providerPayload = looksHtml ? null : parseProviderErrorPayload(text);
   const code = normalizeErrorCode(errorCode ?? providerPayload?.errorCode);
+  const credential = chatCredentialState(text, code);
 
-  if (isCreditsLimitErrorCode(code)) {
+  if (credential?.kind === "exhausted") {
     return { message: CREDITS_LIMIT_REACHED_MESSAGE };
   }
   if (isServerChosenVisitorMessage(text)) return { message: text };
@@ -375,11 +447,11 @@ export function normalizeChatError(
     return { message: ATTACHMENT_PASSWORD_PROTECTED_MESSAGE, details: text };
   }
 
-  if (code === "builder_auth_error") {
-    return {
-      message: BUILDER_AUTHENTICATION_ERROR,
-      details: text,
-    };
+  if (credential) {
+    const message = CREDENTIAL_CHAT_MESSAGES[code as CredentialErrorCode];
+    return message && message !== text
+      ? { message, details: text }
+      : { message: text };
   }
 
   if (code === "email_verification_required") {
@@ -414,7 +486,7 @@ export function normalizeChatError(
     };
   }
 
-  if (isProviderAuthenticationError(text, code)) {
+  if (legacyProviderRejectionFromText(text)) {
     return {
       message: PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
       details: text,

@@ -58,6 +58,7 @@ const messages = {
     commentsAndRepliesDescription:
       "When someone comments on or replies in your deck.",
     retry: "Retry",
+    reload: "Reload",
     mcpAbout:
       "Connect Slides to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in Slides for you: create decks, add slides, and export to PowerPoint. It sees only what you can see.",
     workspaceTitle: "Workspace",
@@ -760,6 +761,8 @@ const messages = {
     imageAdded: "Image added",
     imageUploadError: "Something went wrong uploading this image.",
     exportFailed: "Export failed",
+    agentRunFailed:
+      "The agent run failed before creating any slides. Check the chat for details, then try again.",
     deckHasNoSlides: "Deck has no slides.",
     pdfRenderFailed: "Could not render PDF.",
     buildingDeck: "Building deck",

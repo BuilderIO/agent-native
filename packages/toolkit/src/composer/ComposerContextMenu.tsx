@@ -624,7 +624,7 @@ export function ComposerContextMenu({
             maxHeight: placement.maxHeight,
             boxShadow: "none",
           }}
-          className="@container flex w-64 max-w-[calc(100vw-24px)] flex-col rounded-xl p-1 data-[state=open]:fade-in-100 data-[state=closed]:fade-out-100 [&_[role^=menuitem]]:min-h-10 [&_[role^=menuitem]]:px-3 [&_[role^=menuitem]]:rounded-lg"
+          className="@container flex w-64 max-w-[calc(100vw-24px)] flex-col p-1 data-[state=open]:fade-in-100 data-[state=closed]:fade-out-100"
           data-agent-native-composer-popover="true"
           onCloseAutoFocus={(event) => {
             if (pendingDialog.current) {

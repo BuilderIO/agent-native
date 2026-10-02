@@ -582,7 +582,7 @@ const messages: ToolkitAgentChatTranslation = {
   "error.chatgptPlanUsageLimit": "ChatGPT 요금제 사용 한도에 도달했습니다.",
   "error.chatgptPlanUsageUnavailable":
     "OpenAI에서 이 ChatGPT 요금제의 사용 한도를 확인하지 못했습니다. ChatGPT 사용량을 확인하거나 다른 모델을 사용해 보세요.",
-  "error.failed": "에이전트에서 오류가 발생했습니다",
+  "error.failed": "에이전트 실행이 완료되기 전에 실패했습니다.",
   "error.render": "이 콘텐츠를 표시할 수 없습니다.",
   "error.stopped": "에이전트가 완료 전에 중지되었습니다",
   "errorMessages.agentConnection":
@@ -605,6 +605,14 @@ const messages: ToolkitAgentChatTranslation = {
     "도구 스키마가 올바르지 않아 모델이 요청 시작 전에 거부했습니다. 올바르지 않은 도구를 건너뛰고 요청을 다시 시도할 수 있습니다.",
   "errorMessages.malformedRequest":
     "모델 제공업체가 이 요청을 잘못된 형식으로 거부하여 재시도하지 않았습니다. 다시 시도하거나 문제가 계속되면 새 채팅을 시작하세요.",
+  "errorMessages.requestTooLarge":
+    "이 요청은 서버 크기 제한을 초과했습니다(HTTP 413). 새 채팅을 시작하거나 큰 첨부 파일 또는 참조를 제거한 뒤 다시 시도하세요.",
+  "errorMessages.runInterrupted": "에이전트가 완료하기 전에 중지되었습니다.",
+  "errorMessages.runFailed": "에이전트 실행이 실패했습니다.",
+  "errorMessages.runUnverified":
+    "이 채팅에서 에이전트를 더 이상 추적할 수 없습니다. 에이전트가 아직 실행 중일 수 있습니다. 새로고침하여 진행 상황을 확인하세요.",
+  "errorMessages.runSignedOut":
+    "로그아웃되어 이 채팅에서 에이전트를 추적할 수 없습니다. 다시 로그인한 후 새로고침하세요.",
   "errorMessages.malformedRequestAttachment":
     "모델이 첨부 파일을 거부하여 이 메시지는 전송되지 않았습니다. 첨부를 제거하고 다시 시도하세요. PDF, 일반 텍스트 파일, JPEG·PNG·GIF·WebP 이미지는 직접 읽을 수 있지만 다른 형식은 업로드한 뒤 링크해야 합니다.",
   "errorMessages.noProviderConnected":

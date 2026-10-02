@@ -297,12 +297,14 @@ describe("authenticated recording route loading", () => {
     expect(trigger).toContain('intent="primary"');
     expect(trigger).toContain('emphasis="solid"');
 
-    const publicControlsStart = shareRoute.indexOf("<header");
-    expect(publicControlsStart).toBeGreaterThan(-1);
-    const publicControls = shareRoute.slice(publicControlsStart);
-    expect(shareRoute.indexOf("const shareControl")).toBeLessThan(
-      publicControlsStart,
+    const shareControlStart = shareRoute.indexOf("const shareControl");
+    expect(shareControlStart).toBeGreaterThan(-1);
+    const publicControlsStart = shareRoute.indexOf(
+      "<header",
+      shareControlStart,
     );
+    expect(publicControlsStart).toBeGreaterThan(shareControlStart);
+    const publicControls = shareRoute.slice(publicControlsStart);
     expect(publicControls.indexOf("{shareControl}")).toBeGreaterThan(-1);
     expect(publicControls.indexOf("{shareControl}")).toBeLessThan(
       publicControls.indexOf("<RecordingOptionsMenu"),

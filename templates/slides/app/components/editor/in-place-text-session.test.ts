@@ -644,6 +644,24 @@ describe("in-place text session: typing", () => {
     expect(onInput).toHaveBeenCalled();
   });
 
+  it("keeps leading whitespace while typing a list shortcut on a br line", () => {
+    const el = mount('<div id="t"><p>Previous</p><p><br> text</p></div>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "text"), 0);
+
+    expect(beforeInput(el, "insertText", { data: "-" }).defaultPrevented).toBe(
+      true,
+    );
+    type(el, " ");
+
+    expect(
+      el.querySelector('div[style*="display: flex"] > span:last-child')
+        ?.textContent,
+    ).toBe(" text");
+    expect(el.textContent).toContain("Previous");
+    expect(el.textContent).toContain("text");
+  });
+
   it("replaces a range selection itself, keeping the span it starts in", () => {
     const el = mount('<p id="t">ab<span style="color: red">cd</span>ef</p>');
     session = startInPlaceTextSession(el);
@@ -2250,14 +2268,42 @@ describe("in-place text session: commands", () => {
   });
 
   it("turns '- ' after Enter into a bullet on that line", () => {
-    const el = mount('<div id="t">First line</div>');
+    const el = mount('<p id="t">First line</p>');
     session = startInPlaceTextSession(el);
     caret(el.firstChild!, "First line".length);
     beforeInput(el, "insertParagraph");
-    type(el, "- ");
+    type(session.element, "- ");
 
-    expect(el.lastElementChild?.textContent).toContain("●");
-    expect(el.textContent).toBe("First line●");
+    expect(session.element.lastElementChild?.textContent).toContain("●");
+    const row = session.element.querySelector(
+      ':scope > div[style*="display: flex"]',
+    );
+    expect(
+      row?.lastElementChild?.contains(
+        window.getSelection()?.anchorNode ?? null,
+      ),
+    ).toBe(true);
+    type(session.element, "Tail");
+    expect(session.element.textContent).toBe("First line●Tail");
+  });
+
+  it("converts a bullet prefix typed into an inline span after Enter", () => {
+    const el = mount('<p id="t"><span style="color:red">First line</span></p>');
+    session = startInPlaceTextSession(el);
+    const firstLine = textOf(el, "First line");
+    caret(firstLine, firstLine.length);
+    beforeInput(el, "insertParagraph");
+    type(session.element, "- ");
+
+    const root = session.element;
+    expect(root.textContent).toBe("First line●");
+    expect(
+      root.querySelectorAll(':scope > div[style*="display: flex"]'),
+    ).toHaveLength(1);
+    const styledText = Array.from(
+      root.querySelectorAll<HTMLElement>("[style]"),
+    ).find((element) => element.style.color === "red");
+    expect(styledText?.textContent).toContain("First line");
   });
 
   it("turns '---' into a divider without requiring a trailing space", () => {
@@ -4478,6 +4524,81 @@ describe("in-place text session: Content authoring parity", () => {
     beforeInput(quote, "deleteContentBackward");
     expect(quote.children).toHaveLength(1);
     expect(quote.firstElementChild?.textContent).toBe("AboveQuoted");
+  });
+
+  it("keeps a paragraph when Backspace merges into a non-paragraph block", () => {
+    const el = mount(
+      '<div id="t"><div style="display:flex;color:red"><span>Previous</span></div><h2>Title</h2></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Title"), 0);
+
+    beforeInput(el, "deleteContentBackward");
+    beforeInput(el, "deleteContentBackward");
+
+    expect(el.textContent).toBe("PreviousTitle");
+    expect(el.children).toHaveLength(1);
+    expect(el.firstElementChild?.getAttribute("style")).toBe(
+      "display:flex;color:red",
+    );
+    expect(el.firstElementChild?.querySelector(":scope > p")?.textContent).toBe(
+      "Title",
+    );
+  });
+
+  it("flattens a merged paragraph when Backspace joins it to a heading", () => {
+    const el = mount(
+      '<div id="t"><h2>Title</h2><p><strong>Body</strong></p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Body"), 0);
+
+    beforeInput(el, "deleteContentBackward");
+
+    expect(el.innerHTML).toBe("<h2>Title<strong>Body</strong></h2>");
+  });
+
+  it("handles beforeinput before a child can stop it from bubbling", () => {
+    const el = mount('<div id="t"><h2>Title</h2></div>');
+    session = startInPlaceTextSession(el);
+    const heading = el.querySelector("h2")!;
+    caret(heading, 0);
+    heading.addEventListener("beforeinput", (event) => event.stopPropagation());
+
+    expect(beforeInput(heading, "deleteContentBackward").defaultPrevented).toBe(
+      true,
+    );
+    expect(el.firstElementChild?.tagName).toBe("P");
+  });
+
+  it("demotes a heading when the caret is at its element boundary", () => {
+    const el = mount('<div id="t"><p>Earlier</p><h2>Title</h2></div>');
+    session = startInPlaceTextSession(el);
+    const heading = el.querySelector("h2")!;
+    caret(heading, 0);
+
+    beforeInput(el, "deleteContentBackward");
+
+    expect(heading.isConnected).toBe(false);
+    expect(el.children[1]?.tagName).toBe("P");
+    beforeInput(el, "deleteContentBackward");
+    expect(el.innerHTML).toBe("<p>EarlierTitle</p>");
+  });
+
+  it("demotes a heading before handling its styled row edge", () => {
+    const el = mount(
+      '<div id="t" style="display: flex; flex-direction: column"><div data-slide-plain-row="true" style="display: flex; gap: 14px"><h2 style="margin: 0">Title</h2></div></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const heading = el.querySelector("h2")!;
+    caret(heading, 0);
+
+    beforeInput(el, "deleteContentBackward");
+
+    expect(heading.isConnected).toBe(false);
+    expect(el.querySelector("[data-slide-plain-row] > p")?.textContent).toBe(
+      "Title",
+    );
   });
 
   it("restores a root div when Backspace demotes a Markdown heading", () => {

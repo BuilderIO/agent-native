@@ -14,6 +14,7 @@ import {
   insertBulletAfterCaret,
   isBulletMarker,
   isBulletRow,
+  isMarkdownBulletPrefixInMarker,
   removeEmptyBulletAtCaret,
   rowTextRange,
   stripCopiedIdentity,
@@ -681,6 +682,20 @@ function graphemeAt(data: string, offset: number, backward: boolean) {
 }
 
 function retag(element: HTMLElement, tagName: string): HTMLElement {
+  const selection = window.getSelection();
+  const anchor = selection?.anchorNode;
+  const focus = selection?.focusNode;
+  const points =
+    selection?.rangeCount &&
+    anchor &&
+    focus &&
+    element.contains(anchor) &&
+    element.contains(focus)
+      ? ([
+          [anchor, selection.anchorOffset],
+          [focus, selection.focusOffset],
+        ] as const)
+      : null;
   const next = document.createElement(tagName);
   for (const attribute of Array.from(element.attributes)) {
     next.setAttribute(attribute.name, attribute.value);
@@ -692,6 +707,12 @@ function retag(element: HTMLElement, tagName: string): HTMLElement {
   }
   next.append(...Array.from(element.childNodes));
   element.replaceWith(next);
+  if (points && selection) {
+    const point = ([node, offset]: (typeof points)[number]) =>
+      node === element ? ([next, offset] as const) : ([node, offset] as const);
+    const [start, end] = points.map(point);
+    selection.setBaseAndExtent(start[0], start[1], end[0], end[1]);
+  }
   return next;
 }
 
@@ -1971,13 +1992,17 @@ export function startInPlaceTextSession(
         : into;
     const join = textOffset(target, target, target.childNodes.length);
     if (hasRenderedContent(from)) {
-      if (from.tagName === "P" && ["P", "LI"].includes(target.tagName)) {
+      if (
+        from.tagName === "P" &&
+        (["P", "LI"].includes(target.tagName) ||
+          /^H[1-6]$/.test(target.tagName))
+      ) {
         target.append(...Array.from(from.childNodes));
       } else {
         target.append(from);
       }
     }
-    from.remove();
+    if (from.parentNode !== target) from.remove();
     placeCaret(...textPoint(target, join, true));
   }
 
@@ -2060,6 +2085,14 @@ export function startInPlaceTextSession(
     const step = DELETE_STEPS[type];
     if (!step) return false;
     const [direction, granularity] = step;
+    const block = nearestBlock(range.startContainer, el);
+    if (
+      direction === "backward" &&
+      (/^H[1-6]$/.test(block.tagName) || block.closest("blockquote")) &&
+      deleteAtBlockEdge(range, direction)
+    ) {
+      return true;
+    }
     if (deleteAtListItemEdge(range, direction)) return true;
     if (deleteAtRowEdge(range, direction)) return true;
     if (deleteAtBlockEdge(range, direction)) return true;
@@ -2104,6 +2137,21 @@ export function startInPlaceTextSession(
 
   function isNativeInsert(range: Range) {
     const text = range.startContainer;
+    if (
+      range.collapsed &&
+      text instanceof Text &&
+      /\s/.test(text.data[range.startOffset] ?? "")
+    ) {
+      const prefix = linePrefix(commandBlock(text), range)
+        .toString()
+        .replaceAll(ZERO_WIDTH_SPACE, "")
+        .replaceAll("\u00a0", " ");
+      if (
+        /^(?:[-*+]|\d+\.?|#{1,4}|>|_{1,2}|\*{1,2}|~{1,2}|`{1,3})?$/.test(prefix)
+      ) {
+        return false;
+      }
+    }
     return (
       range.collapsed &&
       text instanceof Text &&
@@ -2988,7 +3036,7 @@ export function startInPlaceTextSession(
 
   function linePrefix(block: HTMLElement, caret: Range) {
     let start: [Node, number] = [block, 0];
-    if (isBulletRow(block)) {
+    if (isBulletRow(block) && !isMarkdownBulletPrefixInMarker(block, caret)) {
       const marker =
         block.firstElementChild instanceof HTMLElement &&
         isBulletMarker(block.firstElementChild)
@@ -3761,7 +3809,10 @@ export function startInPlaceTextSession(
           current = selectionRange();
           if (!current) return false;
         }
-        if (isBulletRow(target)) {
+        if (
+          isBulletRow(target) &&
+          !isMarkdownBulletPrefixInMarker(target, current)
+        ) {
           deleteRange(linePrefix(target, current));
           return true;
         }
@@ -4200,6 +4251,14 @@ export function startInPlaceTextSession(
     }
   }
 
+  function onBeforeInputCapture(event: InputEvent) {
+    if (event.inputType.startsWith("delete")) onBeforeInput(event);
+  }
+
+  function onBeforeInputBubble(event: InputEvent) {
+    if (!event.inputType.startsWith("delete")) onBeforeInput(event);
+  }
+
   function onInput(event: Event) {
     const input = event as InputEvent;
     if (
@@ -4447,12 +4506,13 @@ export function startInPlaceTextSession(
     }, 0);
   }
 
-  const listeners: [string, (event: never) => void][] = [
+  const listeners: [string, (event: never) => void, boolean?][] = [
     ["blur", onBlur],
     ["focus", onFocus],
     ["pointerdown", onPointerDown],
     ["pointerup", onPointerUp],
-    ["beforeinput", onBeforeInput],
+    ["beforeinput", onBeforeInputCapture, true],
+    ["beforeinput", onBeforeInputBubble],
     ["input", onInput],
     ["keydown", onKeyDown],
     ["paste", onPaste],
@@ -4464,14 +4524,14 @@ export function startInPlaceTextSession(
   ];
 
   function listen(target: HTMLElement) {
-    for (const [type, listener] of listeners) {
-      target.addEventListener(type, listener as EventListener);
+    for (const [type, listener, capture] of listeners) {
+      target.addEventListener(type, listener as EventListener, capture);
     }
   }
 
   function unlisten(target: HTMLElement) {
-    for (const [type, listener] of listeners) {
-      target.removeEventListener(type, listener as EventListener);
+    for (const [type, listener, capture] of listeners) {
+      target.removeEventListener(type, listener as EventListener, capture);
     }
   }
 

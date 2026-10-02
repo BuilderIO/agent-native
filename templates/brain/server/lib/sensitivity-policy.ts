@@ -141,6 +141,13 @@ const PERSONAL_PATTERN =
   /\b(home address|social security|ssn|birthday|spouse|husband|wife|children?)\b/i;
 const PROMPT_INJECTION_PATTERN =
   /\b(ignore (?:previous|all|privacy)|override (?:the |all )?(?:policy|rules)|reveal (?:the )?(?:secret|private)|persist every)\b/i;
+const CREDENTIAL_ONLY_PATTERNS = HARD_CATEGORY_PATTERNS.filter(
+  ([category]) => category === "secret-credential",
+);
+
+// "credentials" leaves HR and personal keywords to Jev, which judges context; "all" is for paths with no context-aware classifier.
+export type DeterministicScreenScope = "all" | "credentials";
+
 export interface DeterministicSensitivityScreen {
   categories: BrainSensitivityCategory[];
   sensitiveLines: string[];
@@ -149,21 +156,24 @@ export interface DeterministicSensitivityScreen {
 
 export function screenSensitivityDeterministically(
   content: string,
+  scope: DeterministicScreenScope = "all",
 ): DeterministicSensitivityScreen {
   const categories = new Set<BrainSensitivityCategory>();
   const sensitiveLines: string[] = [];
   const safeLines: string[] = [];
+  const patterns =
+    scope === "credentials" ? CREDENTIAL_ONLY_PATTERNS : HARD_CATEGORY_PATTERNS;
 
   for (const rawLine of content.split(/\r?\n/g)) {
     const line = rawLine.trim();
     if (!line) continue;
     let sensitive = false;
-    for (const [category, pattern] of HARD_CATEGORY_PATTERNS) {
+    for (const [category, pattern] of patterns) {
       if (!pattern.test(line)) continue;
       categories.add(category);
       sensitive = true;
     }
-    if (PERSONAL_PATTERN.test(line)) {
+    if (scope === "all" && PERSONAL_PATTERN.test(line)) {
       categories.add("personal");
       sensitive = true;
     }
@@ -177,8 +187,9 @@ export function screenSensitivityDeterministically(
 export function fallbackSensitivityDecision(
   content: string,
   capturedAt: string,
+  scope: DeterministicScreenScope = "all",
 ): BrainSensitivityDecision {
-  const screen = screenSensitivityDeterministically(content);
+  const screen = screenSensitivityDeterministically(content, scope);
   const safeContent = screen.safeLines
     .join("\n")
     .slice(0, MAX_CLASSIFIER_OUTPUT_CHARS);
@@ -206,8 +217,9 @@ export function fallbackSensitivityDecision(
 export function deterministicQuarantineDecision(
   content: string,
   capturedAt: string,
+  scope: DeterministicScreenScope = "all",
 ): BrainSensitivityDecision | null {
-  const screen = screenSensitivityDeterministically(content);
+  const screen = screenSensitivityDeterministically(content, scope);
   if (!screen.categories.length) return null;
   const safeContent = screen.safeLines
     .join("\n")

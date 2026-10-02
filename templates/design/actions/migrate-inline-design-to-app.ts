@@ -41,7 +41,7 @@
  * The caller should offer `connect-builder-app` to surface the CTA first.
  */
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   runBuilderAgent,
   resolveBuilderBranchProjectId,
@@ -168,7 +168,7 @@ export default defineAction({
   run: async ({ designId, brandKitSummary, branchName }) => {
     const access = await resolveAccess("design", designId);
     if (!access) {
-      throw new Error("Design not found");
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
     }
     const design = access.resource as typeof schema.designs.$inferSelect;
 

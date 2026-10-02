@@ -922,10 +922,17 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(JSON.stringify(events[0])).not.toContain("second-line-secret");
     expect(JSON.stringify(events[0])).not.toContain("not-a-real-private-key");
     expect(events[0]?.properties?.["$ai_output_state"]).toContain("withheld");
-    expect(
-      persistedSpans.find((span) => span.spanType === "tool_call")
-        ?.errorMessage,
-    ).toBeNull();
+    const withheldSpan = persistedSpans.find(
+      (span) => span.spanType === "tool_call",
+    );
+    expect(withheldSpan?.errorMessage).toContain("REDACTED");
+    expect(withheldSpan?.errorMessage).not.toContain("abcdef123456");
+    expect(withheldSpan?.errorMessage).not.toContain("compound-secret");
+    expect(withheldSpan?.errorMessage).not.toContain("second-line-secret");
+    expect(withheldSpan?.errorMessage).not.toContain("compound-cookie-secret");
+    expect(withheldSpan?.metadata).toMatchObject({
+      __tool_error_detail: "signature",
+    });
 
     events.length = 0;
     persistedSpans.length = 0;
@@ -1550,11 +1557,11 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
         (span) => span.runId === runId && span.spanType === "tool_call",
       );
       expect(toolSpan?.errorMessage).toBe(
-        captureToolResults ? "Tool call interrupted before completion" : null,
+        "Tool call interrupted before completion",
       );
       expect(toolSpan?.metadata).toEqual({
         input: { googleClientSecret: "[REDACTED]" },
-        ...(captureToolResults ? { __tool_error_capture_version: 1 } : {}),
+        __tool_error_detail: "full",
       });
     }
   });
@@ -1735,6 +1742,71 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       caller_app: "slides",
     });
   });
+
+  it.each([
+    {
+      code: "credential_rejected",
+      expected: { credential_state: "rejected", credential_subject: "agent" },
+    },
+    {
+      code: "credits-limit-daily",
+      expected: { credential_state: "exhausted", credential_period: "daily" },
+    },
+    { code: "provider_network_error", expected: undefined },
+  ])(
+    "tags a run that ended on $code with the credential state it reached",
+    async ({ code, expected }) => {
+      const events: TrackingEvent[] = [];
+      registerTrackingProvider({
+        name: `qa-credential-state-${code}`,
+        track(tracked) {
+          if (tracked.name === "$ai_trace") events.push(tracked);
+        },
+      });
+      const loopOpts: any = {
+        engine: { name: "builder" },
+        model: "gpt-test",
+        systemPrompt: "",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      };
+
+      await instrumentAgentLoop({
+        runAgentLoop: async ({ send, onOutcome }) => {
+          send({ type: "done" });
+          onOutcome?.({
+            state: "failed",
+            code,
+            retryable: false,
+            message: "The run could not authenticate.",
+          });
+          return {
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            usageReported: true,
+            model: "gpt-test",
+          };
+        },
+        loopOpts,
+        runId: `run-credential-${code}`,
+        threadId: "thread-credential",
+        userId: "user@example.com",
+        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(events).toHaveLength(1);
+      const properties = events[0]?.properties ?? {};
+      expect(properties.$ai_error_type).toBe(code);
+      if (expected) expect(properties).toMatchObject(expected);
+      else expect(properties).not.toHaveProperty("credential_state");
+    },
+  );
 
   it("omits usage/cost figures when the run ends for no-progress without throwing", async () => {
     const events: TrackingEvent[] = [];

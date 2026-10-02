@@ -7,7 +7,7 @@ import type {
   Tool,
 } from "@modelcontextprotocol/server";
 
-import { actionCallIsReadOnly } from "../action-call-classification.js";
+import { actionCallEmitsChange } from "../action-call-classification.js";
 import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
@@ -2353,7 +2353,7 @@ export async function createMCPServerForRequest(
           };
           if (
             response.isError !== true &&
-            !actionCallIsReadOnly(entry, args, false)
+            actionCallEmitsChange(entry, args, false)
           ) {
             try {
               await writeActionChangeMarker({
