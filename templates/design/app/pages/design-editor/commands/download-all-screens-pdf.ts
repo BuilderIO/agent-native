@@ -15,7 +15,6 @@ import { createExportSnapshotFrame } from "@/pages/design-editor/export-snapshot
 import type { ExportSnapshotSource } from "@/pages/design-editor/export-snapshot-frame";
 import {
   PngCaptureError,
-  cropCanvasToRect,
   renderExportDocumentCanvas,
 } from "@/pages/design-editor/png-export-render";
 
@@ -296,21 +295,14 @@ export async function runDownloadAllScreensPdf({
           doc,
           iframe,
           exportScale: PDF_MIN_PRINT_RASTER_SCALE,
-        });
-        const view = doc.defaultView;
-        const viewportCanvas = cropCanvasToRect(
-          rendered.canvas,
-          {
-            x: view?.scrollX ?? 0,
-            y: view?.scrollY ?? 0,
+          cropRect: {
+            x: doc.defaultView?.scrollX ?? 0,
+            y: doc.defaultView?.scrollY ?? 0,
             width: Math.max(1, iframe.clientWidth),
             height: Math.max(1, iframe.clientHeight),
           },
-          rendered.scale,
-        );
-        const dataUrl = (viewportCanvas ?? rendered.canvas).toDataURL(
-          "image/png",
-        );
+        });
+        const dataUrl = rendered.canvas.toDataURL("image/png");
         pages.push({ dataUrl, width: pageWidth, height: pageHeight });
       } finally {
         if (iframe && priorInlineHeight !== null) {

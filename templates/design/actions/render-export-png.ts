@@ -11,6 +11,8 @@ const MAX_RENDER_PIXELS = 64 * 1024 * 1024;
 const MAX_RENDER_REQUEST_BYTES = 5_000_000;
 const MAX_RENDER_RESPONSE_BYTES = 20_000_000;
 const MAX_RENDER_DURATION_MS = 45_000;
+// ponytail: process-wide cap; add per-account admission if measured throughput needs it.
+const MAX_CONCURRENT_RENDER_REQUESTS = 2;
 
 type Browser = import("@playwright/test").Browser;
 type BrowserContext = import("@playwright/test").BrowserContext;
@@ -40,6 +42,23 @@ interface SharedBrowserLease {
 }
 
 let sharedBrowser: SharedBrowserEntry | null = null;
+let activeRenderRequests = 0;
+
+function acquireRenderSlot(): () => void {
+  if (activeRenderRequests >= MAX_CONCURRENT_RENDER_REQUESTS) {
+    fail("PNG export renderer is busy.", {
+      errorCode: "export_render_busy",
+      statusCode: 503,
+    });
+  }
+  activeRenderRequests += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    activeRenderRequests -= 1;
+  };
+}
 
 function evictBrowser(entry: SharedBrowserEntry): void {
   if (sharedBrowser === entry) sharedBrowser = null;
@@ -145,15 +164,24 @@ export default defineAction({
     width: z.number().int().min(1).max(MAX_RENDER_SIDE),
     height: z.number().int().min(1).max(MAX_RENDER_SIDE),
     scale: z.number().min(0.1).max(4),
+    clip: z
+      .object({
+        x: z.number().min(0),
+        y: z.number().min(0),
+        width: z.number().min(1).max(MAX_RENDER_SIDE),
+        height: z.number().min(1).max(MAX_RENDER_SIDE),
+      })
+      .optional(),
   }),
   readOnly: true,
   uiOnly: true,
   agentTool: false,
   maxBodyBytes: MAX_RENDER_REQUEST_BYTES,
   http: { method: "POST" },
-  run: async ({ html, width, height, scale }) => {
-    assertRasterSize(width, height, scale);
+  run: async ({ html, width, height, scale, clip }) => {
+    assertRasterSize(clip?.width ?? width, clip?.height ?? height, scale);
 
+    const releaseRenderSlot = acquireRenderSlot();
     const lease = acquireBrowser();
     let context: BrowserContext | undefined;
     let contextClose: Promise<void> | undefined;
@@ -162,6 +190,9 @@ export default defineAction({
       if (!context) return Promise.resolve();
       contextClose ??= context.close();
       return contextClose;
+    };
+    const throwIfTimedOut = (): void => {
+      if (timedOut) throw new RenderDeadlineExceededError();
     };
 
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -178,7 +209,7 @@ export default defineAction({
       let operationFailed = false;
       try {
         const browser = await lease.promise;
-        if (timedOut) throw new RenderDeadlineExceededError();
+        throwIfTimedOut();
 
         context = await browser.newContext({
           viewport: { width, height },
@@ -202,9 +233,11 @@ export default defineAction({
           await route.abort("blockedbyclient");
         });
         await context.routeWebSocket("**/*", () => {});
+        throwIfTimedOut();
 
         const page = await context.newPage();
         await page.setContent(html, { waitUntil: "load" });
+        throwIfTimedOut();
         await page.evaluate(async () => {
           await Promise.race([
             document.fonts.ready,
@@ -216,6 +249,7 @@ export default defineAction({
             ),
           );
         });
+        throwIfTimedOut();
 
         const missingResources = await page.evaluate(() => {
           const root = document.documentElement;
@@ -266,11 +300,17 @@ export default defineAction({
             window.innerHeight,
           ),
         }));
-        assertRasterSize(documentSize.width, documentSize.height, scale);
+        assertRasterSize(
+          clip?.width ?? documentSize.width,
+          clip?.height ?? documentSize.height,
+          scale,
+        );
+        throwIfTimedOut();
 
         const png = await page.screenshot({
           type: "png",
-          fullPage: true,
+          fullPage: !clip,
+          ...(clip ? { clip } : {}),
           animations: "disabled",
           omitBackground: true,
         });
@@ -309,8 +349,9 @@ export default defineAction({
       }
     };
 
+    const renderPromise = render();
     try {
-      return await Promise.race([render(), deadline]);
+      return await Promise.race([renderPromise, deadline]);
     } catch (error) {
       if (error instanceof RenderDeadlineExceededError) {
         fail("PNG export rendering timed out after 45 seconds.", {
@@ -328,6 +369,11 @@ export default defineAction({
     } finally {
       if (timeoutId !== undefined) clearTimeout(timeoutId);
       lease.release(timedOut);
+      if (timedOut) {
+        void renderPromise.then(releaseRenderSlot, releaseRenderSlot);
+      } else {
+        releaseRenderSlot();
+      }
     }
   },
 });

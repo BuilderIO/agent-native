@@ -5,11 +5,68 @@ import type { ElementInfo } from "@/components/design/types";
 
 import {
   isolateSelectedExportElements,
+  preserveLiveStylesheets,
   resolveExportCropRect,
   resolveExportCropTarget,
   resolveSelectedExportElements,
   PngCaptureError,
 } from "./png-export-render";
+
+it("preserves live CSSOM rules in direct export clones", () => {
+  const source = document.implementation.createHTMLDocument();
+  const style = source.createElement("style");
+  style.textContent = ".runtime-rule { color: red; }";
+  source.head.appendChild(style);
+  const link = source.createElement("link");
+  link.rel = "stylesheet";
+  link.href = "https://example.test/css/runtime.css";
+  source.head.appendChild(link);
+  Object.defineProperty(source, "styleSheets", {
+    configurable: true,
+    value: [
+      {
+        disabled: false,
+        ownerNode: style,
+        cssRules: [
+          { cssText: ".runtime-rule { color: red; }" },
+          { cssText: ".runtime-rule { background: blue; }" },
+        ],
+        href: null,
+      },
+      {
+        disabled: false,
+        ownerNode: link,
+        cssRules: [
+          { cssText: ".runtime-image { background: url(icon.png); }" },
+        ],
+        href: "https://example.test/css/runtime.css",
+      },
+    ] as unknown as StyleSheetList,
+  });
+
+  const cloned = source.cloneNode(true) as Document;
+  expect(cloned.querySelector("style")?.textContent).not.toContain(
+    "background: blue",
+  );
+
+  preserveLiveStylesheets(source, cloned);
+
+  expect(cloned.querySelector("style")?.textContent).toContain(
+    "background: blue",
+  );
+  const linkedRules = cloned.querySelector<HTMLStyleElement>(
+    "style[data-agent-native-stylesheet-base]",
+  );
+  expect(linkedRules?.textContent).toContain("background: url(icon.png)");
+  expect(linkedRules?.getAttribute("data-agent-native-stylesheet-base")).toBe(
+    "https://example.test/css/runtime.css",
+  );
+  expect(
+    cloned.documentElement.hasAttribute(
+      "data-agent-native-export-resource-failures",
+    ),
+  ).toBe(false);
+});
 
 it("isolates selected exports from overlapping siblings and ancestor paint", () => {
   const source = document.implementation.createHTMLDocument();

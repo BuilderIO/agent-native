@@ -193,7 +193,10 @@ describe("runDownloadAllScreensPdf snapshot fallback", () => {
       height: 200,
     });
     expect(mocks.renderExportDocumentCanvas).toHaveBeenCalledWith(
-      expect.objectContaining({ doc: fixture.snapshotDoc }),
+      expect.objectContaining({
+        doc: fixture.snapshotDoc,
+        cropRect: { x: 0, y: 0, width: 320, height: 200 },
+      }),
     );
     expect(mocks.createMultiPageRasterPdf).toHaveBeenCalledWith([
       expect.objectContaining({ width: 320, height: 200 }),

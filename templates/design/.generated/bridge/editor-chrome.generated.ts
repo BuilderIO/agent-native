@@ -2370,6 +2370,37 @@ export const editorChromeBridgeScript: string = `"use strict";
     function serializeRuntimeLayerSnapshot(excludedRoot) {
       if (!document.body) return { ok: false, reason: "snapshot-unavailable" };
       var snapshotFailures = [];
+      function cloneRuntimeStylesheet(sourceNode2, cloneNode2) {
+        try {
+          if (!sourceNode2.sheet) throw new Error("stylesheet unavailable");
+          var cssText = Array.from(sourceNode2.sheet.cssRules, function(rule) {
+            return rule.cssText;
+          }).join("\\n");
+          if (sourceNode2 instanceof HTMLStyleElement) {
+            cloneNode2.textContent = cssText;
+            return cloneNode2;
+          }
+          var style = document.createElement("style");
+          Array.from(cloneNode2.attributes).forEach(function(attribute) {
+            if (!/^(?:href|rel|crossorigin|integrity|referrerpolicy|fetchpriority|as)$/i.test(
+              attribute.name
+            )) {
+              style.setAttribute(attribute.name, attribute.value);
+            }
+          });
+          style.setAttribute(
+            "data-agent-native-stylesheet-base",
+            sourceNode2.href
+          );
+          style.textContent = cssText;
+          return style;
+        } catch {
+          if (!snapshotFailures.includes("stylesheet-cssom-unavailable")) {
+            snapshotFailures.push("stylesheet-cssom-unavailable");
+          }
+          return cloneNode2;
+        }
+      }
       var sourceNodes = Array.prototype.slice.call(
         document.body.querySelectorAll("*")
       );
@@ -2386,7 +2417,14 @@ export const editorChromeBridgeScript: string = `"use strict";
           cloneNode.setAttribute("data-an-runtime-layer-remove", "true");
           continue;
         }
-        if (!isRuntimeLayerVisualNode(sourceNode)) continue;
+        if (!isRuntimeLayerVisualNode(sourceNode)) {
+          if (sourceNode instanceof HTMLStyleElement || sourceNode instanceof HTMLLinkElement) {
+            var clonedStylesheet = cloneRuntimeStylesheet(sourceNode, cloneNode);
+            if (clonedStylesheet !== cloneNode)
+              cloneNode.replaceWith(clonedStylesheet);
+          }
+          continue;
+        }
         var runtimeNodeId = ensureRuntimeLayerNodeId(sourceNode);
         cloneNode.setAttribute("data-agent-native-node-id", runtimeNodeId);
         cloneNode.removeAttribute("data-agent-native-runtime-locked");
@@ -2541,7 +2579,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (node instanceof HTMLStyleElement && node.sheet?.disabled || node instanceof HTMLLinkElement && node.disabled) {
             return;
           }
-          cloneHead.appendChild(node.cloneNode(true));
+          var cloneNode2 = node.cloneNode(true);
+          cloneHead.appendChild(cloneRuntimeStylesheet(node, cloneNode2));
         }
       });
       Array.from(document.adoptedStyleSheets ?? []).forEach(function(sheet) {
@@ -2574,6 +2613,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       };
     }
     async function inlineRuntimeSnapshotResources(html, maxSerializedRequestBytes) {
+      var resourceSignal = AbortSignal.timeout(15e3);
       var parsed = new DOMParser().parseFromString(html, "text/html");
       var resourceData = /* @__PURE__ */ new Map();
       var totalBytes = 0;
@@ -2605,7 +2645,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         var cached = resourceData.get(key);
         if (cached) return cached + fragment;
         try {
-          var response = await fetch(key, { credentials: "same-origin" });
+          var response = await fetch(key, {
+            credentials: "same-origin",
+            signal: resourceSignal
+          });
           if (!response.ok) throw new Error("resource unavailable");
           var blob = await response.blob();
           if (blob.size > 4e6 || totalBytes + blob.size > 8e6) {
@@ -2627,7 +2670,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           resourceData.set(key, dataUrl);
           return dataUrl + fragment;
         } catch {
-          markFailure("resource-fetch-" + resourceKind);
+          markFailure(
+            resourceSignal.aborted ? "resource-timeout" : "resource-fetch-" + resourceKind
+          );
           return null;
         }
       }
@@ -2681,7 +2726,8 @@ export const editorChromeBridgeScript: string = `"use strict";
               throw new Error("cyclic stylesheet import");
             }
             var importedResponse = await fetch(importedUrl.href, {
-              credentials: "same-origin"
+              credentials: "same-origin",
+              signal: resourceSignal
             });
             if (!importedResponse.ok) throw new Error("stylesheet unavailable");
             var importedBlob = await importedResponse.blob();
@@ -2715,7 +2761,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             if (!importedDataUrl) throw new Error("stylesheet encoding failed");
             result += '@import url("' + importedDataUrl + '")' + String(importMatch[3] || "") + ";";
           } catch {
-            markFailure("stylesheet-import");
+            markFailure(
+              resourceSignal.aborted ? "resource-timeout" : "stylesheet-import"
+            );
             result += importMatch[0];
           }
           cursor = start + importMatch[0].length;
@@ -2737,7 +2785,8 @@ export const editorChromeBridgeScript: string = `"use strict";
             document.baseURI
           );
           var sheetResponse = await fetch(sheetUrl.href, {
-            credentials: "same-origin"
+            credentials: "same-origin",
+            signal: resourceSignal
           });
           if (!sheetResponse.ok) throw new Error("stylesheet unavailable");
           var sheetBlob = await sheetResponse.blob();
@@ -2752,7 +2801,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             0
           );
         } catch {
-          markFailure("stylesheet-link");
+          markFailure(
+            resourceSignal.aborted ? "resource-timeout" : "stylesheet-link"
+          );
         }
         link.replaceWith(replacementStyle);
       }
@@ -2762,9 +2813,11 @@ export const editorChromeBridgeScript: string = `"use strict";
       for (var styleIndex = 0; styleIndex < styledNodes.length; styleIndex += 1) {
         var styledNode = styledNodes[styleIndex];
         if (styledNode.localName === "style") {
+          var stylesheetBaseUrl = styledNode.getAttribute("data-agent-native-stylesheet-base") || document.baseURI;
+          styledNode.removeAttribute("data-agent-native-stylesheet-base");
           styledNode.textContent = await inlineStylesheet(
             styledNode.textContent || "",
-            document.baseURI,
+            stylesheetBaseUrl,
             [],
             0
           );

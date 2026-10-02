@@ -1304,6 +1304,7 @@ export default {
       exportResourcesUnavailable:
         "由於一個或多個圖片、字型或樣式表無法使用，因此無法準確轉譯匯出內容。請檢查這些資源後再試一次。",
       exportTimedOut: "匯出逾時。請重試，或縮小設計尺寸。",
+      exportBusy: "另一個匯出正在轉譯。請稍候片刻再試一次。",
       exportChromiumUnavailable:
         "由於轉譯器無法啟動，匯出暫時無法使用。請稍後再試一次。",
       pdfExportError: "無法匯出 PDF",

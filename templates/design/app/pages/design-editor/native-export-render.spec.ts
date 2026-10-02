@@ -1,5 +1,9 @@
 import { afterEach, expect, it, vi } from "vitest";
 
+const actionClient = vi.hoisted(() => ({ callActionBlob: vi.fn() }));
+
+vi.mock("@agent-native/core/client/hooks", () => actionClient);
+
 import {
   NativeExportRenderError,
   renderNativeExportPng,
@@ -7,12 +11,10 @@ import {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.clearAllMocks();
 });
 
 it("rejects oversized UTF-8 snapshots before making a request", async () => {
-  const fetch = vi.fn();
-  vi.stubGlobal("fetch", fetch);
-
   await expect(
     renderNativeExportPng({
       html: "é".repeat(2_500_000),
@@ -25,7 +27,7 @@ it("rejects oversized UTF-8 snapshots before making a request", async () => {
     code: "export_too_large",
     message: expect.stringContaining("5 MB"),
   });
-  expect(fetch).not.toHaveBeenCalled();
+  expect(actionClient.callActionBlob).not.toHaveBeenCalled();
 });
 
 it.each([
@@ -36,16 +38,9 @@ it.each([
 ])(
   "preserves the action error code $errorCode",
   async ({ errorCode, status }) => {
-    const fetch = vi
-      .fn()
-      .mockResolvedValueOnce(new Response(null, { status: 200 }))
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ error: "Renderer failed.", errorCode }), {
-          status,
-          headers: { "Content-Type": "application/json" },
-        }),
-      );
-    vi.stubGlobal("fetch", fetch);
+    actionClient.callActionBlob.mockRejectedValueOnce(
+      Object.assign(new Error("Renderer failed."), { errorCode, status }),
+    );
 
     await expect(
       renderNativeExportPng({
@@ -62,16 +57,9 @@ it.each([
 );
 
 it("maps an untyped 413 response to the typed size error", async () => {
-  const fetch = vi
-    .fn()
-    .mockResolvedValueOnce(new Response(null, { status: 200 }))
-    .mockResolvedValueOnce(
-      new Response(JSON.stringify({ error: "Request body too large." }), {
-        status: 413,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-  vi.stubGlobal("fetch", fetch);
+  actionClient.callActionBlob.mockRejectedValueOnce(
+    Object.assign(new Error("Request body too large."), { status: 413 }),
+  );
 
   await expect(
     renderNativeExportPng({
@@ -81,4 +69,44 @@ it("maps an untyped 413 response to the typed size error", async () => {
       scale: 1,
     }),
   ).rejects.toMatchObject({ code: "export_too_large" });
+});
+
+it("maps a shared action timeout to the typed export timeout", async () => {
+  actionClient.callActionBlob.mockRejectedValueOnce(
+    Object.assign(new Error("Action render-export-png timed out."), {
+      timedOut: true,
+      status: 408,
+    }),
+  );
+
+  await expect(
+    renderNativeExportPng({
+      html: "<html></html>",
+      width: 800,
+      height: 600,
+      scale: 1,
+    }),
+  ).rejects.toMatchObject({ code: "export_render_timeout" });
+});
+
+it("sends an optional crop rectangle with the render request", async () => {
+  actionClient.callActionBlob.mockResolvedValueOnce(
+    new Blob(["png"], { type: "image/png" }),
+  );
+
+  await renderNativeExportPng({
+    html: "<html></html>",
+    width: 800,
+    height: 600,
+    scale: 2,
+    clip: { x: 20, y: 30, width: 100, height: 80 },
+  });
+
+  expect(actionClient.callActionBlob).toHaveBeenCalledWith(
+    "render-export-png",
+    expect.objectContaining({
+      clip: { x: 20, y: 30, width: 100, height: 80 },
+    }),
+    { timeoutMs: 45_000 },
+  );
 });

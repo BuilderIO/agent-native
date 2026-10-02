@@ -12,7 +12,6 @@ import type { ExportCaptureTarget } from "@/pages/design-editor/export-snapshot-
 import type { PngCaptureScope } from "@/pages/design-editor/png-export-render";
 import {
   PngCaptureError,
-  cropCanvasToRect,
   renderExportDocumentCanvas,
   resolveBoardExportCropRect,
   resolveExportCropTarget,
@@ -178,22 +177,19 @@ export async function runRenderPngBlob(
       if (!context) throw new PngCaptureError("blob-failed");
 
       for (const capture of captures) {
+        const view = capture.doc.defaultView;
+        const viewportCropRect = {
+          x: view?.scrollX ?? 0,
+          y: view?.scrollY ?? 0,
+          width: Math.max(1, capture.iframe.clientWidth),
+          height: Math.max(1, capture.iframe.clientHeight),
+        };
         const rendered = await renderExportDocumentCanvas({
           doc: capture.doc,
           iframe: capture.iframe,
           exportScale,
+          cropRect: viewportCropRect,
         });
-        const view = capture.doc.defaultView;
-        const viewportCanvas = cropCanvasToRect(
-          rendered.canvas,
-          {
-            x: view?.scrollX ?? 0,
-            y: view?.scrollY ?? 0,
-            width: Math.max(1, capture.iframe.clientWidth),
-            height: Math.max(1, capture.iframe.clientHeight),
-          },
-          rendered.scale,
-        );
         const frame = capture.frame;
         context.save();
         context.translate(
@@ -202,7 +198,7 @@ export async function runRenderPngBlob(
         );
         context.rotate(((frame.rotation ?? 0) * Math.PI) / 180);
         context.drawImage(
-          viewportCanvas ?? rendered.canvas,
+          rendered.canvas,
           (-frame.width / 2) * exportScale,
           (-frame.height / 2) * exportScale,
           frame.width * exportScale,
@@ -249,18 +245,12 @@ export async function runRenderPngBlob(
         doc,
         iframe,
         exportScale: requestedExportScale,
-        cropRect: boardCropRect,
+        cropRect: selectionCropRect ?? boardCropRect,
         isolateSelectedElements: selectionCropRect
           ? resolveSelectedExportElements(doc, cropSelection)
           : [],
       });
-      const cropped = selectionCropRect
-        ? cropCanvasToRect(rendered.canvas, selectionCropRect, rendered.scale)
-        : null;
-      if (scope === "element" && cropTarget.kind === "rect" && !cropped) {
-        throw new PngCaptureError("selection-unresolved");
-      }
-      outputCanvas = cropped ?? rendered.canvas;
+      outputCanvas = rendered.canvas;
     } finally {
       prepared?.dispose();
       releaseScreenFromExport?.();

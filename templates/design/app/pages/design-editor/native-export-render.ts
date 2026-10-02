@@ -1,4 +1,6 @@
-import { agentNativePath } from "@agent-native/core/client/api-path";
+import { callActionBlob } from "@agent-native/core/client/hooks";
+
+import type { ExportCropRect } from "./export-capture";
 
 const MAX_RENDER_REQUEST_BYTES = 5_000_000;
 const RENDER_ERROR_FALLBACK = "PNG export rendering failed."; // i18n-ignore: Logged only; the UI shows localized generic copy.
@@ -18,6 +20,7 @@ export async function renderNativeExportPng(args: {
   width: number;
   height: number;
   scale: number;
+  clip?: ExportCropRect;
 }): Promise<Blob> {
   const body = JSON.stringify(args);
   if (new TextEncoder().encode(body).byteLength > MAX_RENDER_REQUEST_BYTES) {
@@ -26,61 +29,45 @@ export async function renderNativeExportPng(args: {
       "export_too_large",
     );
   }
-  const capabilityUrl = agentNativePath("/_agent-native/ui-capability");
-  const actionUrl = agentNativePath("/_agent-native/actions/render-export-png");
-  const request = () =>
-    fetch(actionUrl, {
-      method: "POST",
-      credentials: "same-origin",
-      cache: "no-store",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Agent-Native-Frontend": "1",
-      },
-      body,
+  let png: Blob;
+  try {
+    png = await callActionBlob("render-export-png", args, {
+      timeoutMs: 45_000,
     });
-
-  const capability = await fetch(capabilityUrl, {
-    credentials: "same-origin",
-    cache: "no-store",
-  });
-  if (!capability.ok) {
-    throw new Error("Could not authorize the export renderer.");
+  } catch (error) {
+    const serverErrorCode =
+      typeof error === "object" &&
+      error !== null &&
+      "errorCode" in error &&
+      typeof error.errorCode === "string"
+        ? error.errorCode
+        : undefined;
+    const timedOut =
+      typeof error === "object" &&
+      error !== null &&
+      "timedOut" in error &&
+      error.timedOut === true;
+    const status =
+      typeof error === "object" && error !== null && "status" in error
+        ? error.status
+        : undefined;
+    const errorCode =
+      serverErrorCode ??
+      (timedOut
+        ? "export_render_timeout"
+        : status === 413
+          ? "export_too_large"
+          : undefined);
+    if (errorCode) {
+      throw new NativeExportRenderError(
+        error instanceof Error ? error.message : RENDER_ERROR_FALLBACK,
+        errorCode,
+      );
+    }
+    throw error;
   }
-  const response = await request();
-
-  if (!response.ok) {
-    const failure = await response
-      .clone()
-      .json()
-      .then(
-        (body: {
-          error?: unknown;
-          errorCode?: unknown;
-          message?: unknown;
-        }) => ({
-          message:
-            typeof body.error === "string"
-              ? body.error
-              : typeof body.message === "string"
-                ? body.message
-                : RENDER_ERROR_FALLBACK,
-          errorCode:
-            typeof body.errorCode === "string" ? body.errorCode : undefined,
-        }),
-      )
-      .catch(() => ({
-        message: RENDER_ERROR_FALLBACK,
-        errorCode: undefined,
-      }));
-    throw new NativeExportRenderError(
-      failure.message,
-      failure.errorCode ??
-        (response.status === 413 ? "export_too_large" : "export_failed"),
-    );
-  }
-  if (!response.headers.get("Content-Type")?.startsWith("image/png")) {
+  if (!png.type.startsWith("image/png")) {
     throw new Error("PNG export renderer returned an invalid image.");
   }
-  return response.blob();
+  return png;
 }

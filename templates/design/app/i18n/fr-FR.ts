@@ -1392,6 +1392,8 @@ export default {
         "L’export n’a pas pu être rendu fidèlement, car une ou plusieurs images, polices ou feuilles de style sont indisponibles. Vérifiez ces ressources, puis réessayez.",
       exportTimedOut:
         "Le délai d’export a expiré. Réessayez ou réduisez la taille du design.",
+      exportBusy:
+        "Un autre export est en cours de rendu. Patientez un instant, puis réessayez.",
       exportChromiumUnavailable:
         "L’export est indisponible, car le moteur de rendu n’a pas pu démarrer. Réessayez plus tard.",
       pdfExportError: "Impossible d’exporter le PDF",

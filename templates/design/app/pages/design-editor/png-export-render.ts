@@ -83,6 +83,122 @@ function resolveClonedElement(
   return clonedElement;
 }
 
+function normalizeClonedResponsiveImages(
+  sourceDocument: Document,
+  clonedDocument: Document,
+): void {
+  for (const sourceImage of Array.from(
+    sourceDocument.querySelectorAll<HTMLImageElement>("img"),
+  )) {
+    const clonedImage = resolveClonedElement(
+      sourceDocument,
+      clonedDocument,
+      sourceImage,
+    ) as HTMLImageElement | null;
+    if (!clonedImage) continue;
+    if (sourceImage.currentSrc) {
+      clonedImage.setAttribute("src", sourceImage.currentSrc);
+    }
+    clonedImage.removeAttribute("srcset");
+    clonedImage
+      .closest("picture")
+      ?.querySelectorAll("source")
+      .forEach((source) => {
+        source.remove();
+      });
+  }
+}
+
+export function preserveLiveStylesheets(
+  sourceDocument: Document,
+  clonedDocument: Document,
+): void {
+  const failures = new Set(
+    (
+      clonedDocument.documentElement.getAttribute(
+        "data-agent-native-export-resource-failures",
+      ) || ""
+    )
+      .split(",")
+      .filter(Boolean),
+  );
+
+  for (const sheet of Array.from(sourceDocument.styleSheets)) {
+    if (sheet.disabled || !sheet.ownerNode || sheet.ownerNode.nodeType !== 1) {
+      continue;
+    }
+    const sourceNode = sheet.ownerNode as Element;
+    const clonedNode = resolveClonedElement(
+      sourceDocument,
+      clonedDocument,
+      sourceNode,
+    );
+    if (!clonedNode) {
+      failures.add("stylesheet-cssom-unavailable");
+      continue;
+    }
+
+    let cssText: string;
+    try {
+      cssText = Array.from(sheet.cssRules, (rule) => rule.cssText).join("\n");
+    } catch {
+      failures.add("stylesheet-cssom-unavailable");
+      continue;
+    }
+
+    if (sourceNode.localName === "style") {
+      clonedNode.textContent = cssText;
+    } else if (sourceNode.localName === "link") {
+      const replacement = clonedDocument.createElement("style");
+      if (sourceNode.getAttribute("media")) {
+        replacement.setAttribute("media", sourceNode.getAttribute("media")!);
+      }
+      if (sourceNode.getAttribute("title")) {
+        replacement.setAttribute("title", sourceNode.getAttribute("title")!);
+      }
+      const baseUrl = sheet.href || (sourceNode as HTMLLinkElement).href;
+      if (baseUrl) {
+        replacement.setAttribute("data-agent-native-stylesheet-base", baseUrl);
+      }
+      replacement.textContent = cssText;
+      clonedNode.replaceWith(replacement);
+    }
+  }
+
+  for (const sheet of sourceDocument.adoptedStyleSheets ?? []) {
+    try {
+      const style = clonedDocument.createElement("style");
+      style.textContent = Array.from(
+        sheet.cssRules,
+        (rule) => rule.cssText,
+      ).join("\n");
+      clonedDocument.head.appendChild(style);
+    } catch {
+      failures.add("stylesheet-cssom-unavailable");
+    }
+  }
+
+  if (failures.size > 0) {
+    clonedDocument.documentElement.setAttribute(
+      "data-agent-native-export-resource-failures",
+      Array.from(failures).join(","),
+    );
+  }
+}
+
+function intersectExportCropRect(
+  rect: ExportCropRect,
+  documentWidth: number,
+  documentHeight: number,
+): ExportCropRect | null {
+  const x = Math.max(0, rect.x);
+  const y = Math.max(0, rect.y);
+  const right = Math.min(documentWidth, rect.x + rect.width);
+  const bottom = Math.min(documentHeight, rect.y + rect.height);
+  if (right <= x || bottom <= y) return null;
+  return { x, y, width: right - x, height: bottom - y };
+}
+
 export function isolateSelectedExportElements(
   sourceDocument: Document,
   clonedDocument: Document,
@@ -385,14 +501,22 @@ export async function renderExportDocumentCanvas({
     doc.body?.scrollHeight ?? 0,
     iframe.clientHeight,
   );
-  const renderWidth = cropRect?.width ?? width;
-  const renderHeight = cropRect?.height ?? height;
+  const renderCropRect = cropRect
+    ? intersectExportCropRect(cropRect, width, height)
+    : null;
+  if (cropRect && !renderCropRect) {
+    throw new PngCaptureError("selection-unresolved");
+  }
+  const renderWidth = renderCropRect?.width ?? width;
+  const renderHeight = renderCropRect?.height ?? height;
   const effectiveScale = resolveRasterExportScale({
     width: renderWidth,
     height: renderHeight,
     requestedScale: exportScale,
   });
   const clonedDocument = doc.cloneNode(true) as Document;
+  preserveLiveStylesheets(doc, clonedDocument);
+  normalizeClonedResponsiveImages(doc, clonedDocument);
   isolateSelectedExportElements(doc, clonedDocument, isolateSelectedElements);
   removeEditorChromeOverlays(clonedDocument);
   const serializedHtml = `<!doctype html>${clonedDocument.documentElement.outerHTML}`;
@@ -422,6 +546,7 @@ export async function renderExportDocumentCanvas({
     width,
     height: Math.max(1, iframe.clientHeight),
     scale: effectiveScale,
+    clip: renderCropRect ?? undefined,
   });
   const bitmap = await createImageBitmap(png);
   const canvas = document.createElement("canvas");
@@ -435,9 +560,7 @@ export async function renderExportDocumentCanvas({
   context.drawImage(bitmap, 0, 0);
   bitmap.close();
   return {
-    canvas: cropRect
-      ? (cropCanvasToRect(canvas, cropRect, effectiveScale) ?? canvas)
-      : canvas,
+    canvas,
     scale: effectiveScale,
   };
 }

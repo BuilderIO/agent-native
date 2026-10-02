@@ -1380,6 +1380,8 @@ export default {
         "Não foi possível renderizar a exportação com precisão porque uma ou mais imagens, fontes ou folhas de estilo estão indisponíveis. Verifique esses recursos e tente novamente.",
       exportTimedOut:
         "A exportação atingiu o tempo limite. Tente novamente ou reduza o tamanho do design.",
+      exportBusy:
+        "Outra exportação está sendo renderizada. Aguarde um momento e tente novamente.",
       exportChromiumUnavailable:
         "A exportação está indisponível porque o renderizador não conseguiu iniciar. Tente novamente mais tarde.",
       pdfExportError: "Não foi possível exportar PDF",

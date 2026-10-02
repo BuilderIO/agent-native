@@ -2171,6 +2171,44 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     | { ok: false; reason: "snapshot-unavailable" | "snapshot-too-large" } {
     if (!document.body) return { ok: false, reason: "snapshot-unavailable" };
     var snapshotFailures: string[] = [];
+
+    function cloneRuntimeStylesheet(
+      sourceNode: HTMLStyleElement | HTMLLinkElement,
+      cloneNode: Element,
+    ): Element {
+      try {
+        if (!sourceNode.sheet) throw new Error("stylesheet unavailable");
+        var cssText = Array.from(sourceNode.sheet.cssRules, function (rule) {
+          return rule.cssText;
+        }).join("\n");
+        if (sourceNode instanceof HTMLStyleElement) {
+          (cloneNode as HTMLStyleElement).textContent = cssText;
+          return cloneNode;
+        }
+        var style = document.createElement("style");
+        Array.from(cloneNode.attributes).forEach(function (attribute) {
+          if (
+            !/^(?:href|rel|crossorigin|integrity|referrerpolicy|fetchpriority|as)$/i.test(
+              attribute.name,
+            )
+          ) {
+            style.setAttribute(attribute.name, attribute.value);
+          }
+        });
+        style.setAttribute(
+          "data-agent-native-stylesheet-base",
+          sourceNode.href,
+        );
+        style.textContent = cssText;
+        return style;
+      } catch {
+        if (!snapshotFailures.includes("stylesheet-cssom-unavailable")) {
+          snapshotFailures.push("stylesheet-cssom-unavailable");
+        }
+        return cloneNode;
+      }
+    }
+
     var sourceNodes = Array.prototype.slice.call(
       document.body.querySelectorAll("*"),
     ) as Element[];
@@ -2197,7 +2235,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         cloneNode.setAttribute("data-an-runtime-layer-remove", "true");
         continue;
       }
-      if (!isRuntimeLayerVisualNode(sourceNode)) continue;
+      if (!isRuntimeLayerVisualNode(sourceNode)) {
+        if (
+          sourceNode instanceof HTMLStyleElement ||
+          sourceNode instanceof HTMLLinkElement
+        ) {
+          var clonedStylesheet = cloneRuntimeStylesheet(sourceNode, cloneNode);
+          if (clonedStylesheet !== cloneNode)
+            cloneNode.replaceWith(clonedStylesheet);
+        }
+        continue;
+      }
       var runtimeNodeId = ensureRuntimeLayerNodeId(sourceNode);
       cloneNode.setAttribute("data-agent-native-node-id", runtimeNodeId);
       cloneNode.removeAttribute("data-agent-native-runtime-locked");
@@ -2396,7 +2444,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         ) {
           return;
         }
-        cloneHead.appendChild(node.cloneNode(true));
+        var cloneNode = node.cloneNode(true) as Element;
+        cloneHead.appendChild(cloneRuntimeStylesheet(node, cloneNode));
       }
     });
     Array.from(document.adoptedStyleSheets ?? []).forEach(function (sheet) {
@@ -2437,6 +2486,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     complete: boolean;
     errorCode?: "export_too_large" | "export_resources_unavailable";
   }> {
+    var resourceSignal = AbortSignal.timeout(15_000);
     var parsed = new DOMParser().parseFromString(html, "text/html");
     var resourceData = new Map<string, string>();
     var totalBytes = 0;
@@ -2487,7 +2537,10 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var cached = resourceData.get(key);
       if (cached) return cached + fragment;
       try {
-        var response = await fetch(key, { credentials: "same-origin" });
+        var response = await fetch(key, {
+          credentials: "same-origin",
+          signal: resourceSignal,
+        });
         if (!response.ok) throw new Error("resource unavailable");
         var blob = await response.blob();
         if (blob.size > 4_000_000 || totalBytes + blob.size > 8_000_000) {
@@ -2509,7 +2562,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         resourceData.set(key, dataUrl);
         return dataUrl + fragment;
       } catch {
-        markFailure("resource-fetch-" + resourceKind);
+        markFailure(
+          resourceSignal.aborted
+            ? "resource-timeout"
+            : "resource-fetch-" + resourceKind,
+        );
         return null;
       }
     }
@@ -2581,6 +2638,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           }
           var importedResponse = await fetch(importedUrl.href, {
             credentials: "same-origin",
+            signal: resourceSignal,
           });
           if (!importedResponse.ok) throw new Error("stylesheet unavailable");
           var importedBlob = await importedResponse.blob();
@@ -2622,7 +2680,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             String(importMatch[3] || "") +
             ";";
         } catch {
-          markFailure("stylesheet-import");
+          markFailure(
+            resourceSignal.aborted ? "resource-timeout" : "stylesheet-import",
+          );
           result += importMatch[0];
         }
         cursor = start + importMatch[0].length;
@@ -2650,6 +2710,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         );
         var sheetResponse = await fetch(sheetUrl.href, {
           credentials: "same-origin",
+          signal: resourceSignal,
         });
         if (!sheetResponse.ok) throw new Error("stylesheet unavailable");
         var sheetBlob = await sheetResponse.blob();
@@ -2667,7 +2728,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           0,
         );
       } catch {
-        markFailure("stylesheet-link");
+        markFailure(
+          resourceSignal.aborted ? "resource-timeout" : "stylesheet-link",
+        );
       }
       link.replaceWith(replacementStyle);
     }
@@ -2678,9 +2741,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     for (var styleIndex = 0; styleIndex < styledNodes.length; styleIndex += 1) {
       var styledNode = styledNodes[styleIndex]!;
       if (styledNode.localName === "style") {
+        var stylesheetBaseUrl =
+          styledNode.getAttribute("data-agent-native-stylesheet-base") ||
+          document.baseURI;
+        styledNode.removeAttribute("data-agent-native-stylesheet-base");
         styledNode.textContent = await inlineStylesheet(
           styledNode.textContent || "",
-          document.baseURI,
+          stylesheetBaseUrl,
           [],
           0,
         );

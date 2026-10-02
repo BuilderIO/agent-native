@@ -19851,6 +19851,7 @@ function DesignEditor() {
         export_resources_unavailable:
           "designEditor.toasts.exportResourcesUnavailable",
         export_render_timeout: "designEditor.toasts.exportTimedOut",
+        export_render_busy: "designEditor.toasts.exportBusy",
         export_chromium_unavailable:
           "designEditor.toasts.exportChromiumUnavailable",
       } as const;

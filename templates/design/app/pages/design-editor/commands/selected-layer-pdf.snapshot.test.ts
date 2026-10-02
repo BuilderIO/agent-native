@@ -168,6 +168,7 @@ describe("selected-layer PDF export from runtime snapshots", () => {
     expect(mocks.renderExportDocumentCanvas).toHaveBeenCalledWith(
       expect.objectContaining({
         doc: expect.any(Object),
+        cropRect: { x: 0, y: 0, width: 80, height: 40 },
         isolateSelectedElements: [expect.any(Object)],
       }),
     );

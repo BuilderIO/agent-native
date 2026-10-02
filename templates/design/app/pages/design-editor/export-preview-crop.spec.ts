@@ -5,7 +5,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ElementInfo } from "@/components/design/types";
 
 import { runRenderPngBlob } from "./commands/render-png-blob";
-import { PngCaptureError, resolveExportCropTarget } from "./png-export-render";
+import {
+  PngCaptureError,
+  renderExportDocumentCanvas,
+  resolveExportCropTarget,
+} from "./png-export-render";
 
 function fakeCanvas(tag: string): HTMLCanvasElement {
   return {
@@ -20,13 +24,12 @@ function fakeCanvas(tag: string): HTMLCanvasElement {
 const cropCanvasToRect = vi.fn<
   typeof import("./png-export-render").cropCanvasToRect
 >(() => fakeCanvas("cropped"));
-
 vi.mock("./png-export-render", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./png-export-render")>();
   return {
     ...actual,
-    renderExportDocumentCanvas: vi.fn(async () => ({
-      canvas: fakeCanvas("full"),
+    renderExportDocumentCanvas: vi.fn(async (args: { cropRect?: unknown }) => ({
+      canvas: fakeCanvas(args.cropRect ? "cropped" : "full"),
       scale: 1,
     })),
     cropCanvasToRect: (...args: Parameters<typeof actual.cropCanvasToRect>) =>
@@ -68,6 +71,7 @@ function renderArgs(
 
 afterEach(() => {
   cropCanvasToRect.mockClear();
+  vi.mocked(renderExportDocumentCanvas).mockClear();
   document.body.innerHTML = "";
 });
 
@@ -236,7 +240,12 @@ describe("runRenderPngBlob element scope", () => {
     );
 
     expect(await blob.text()).toBe("cropped");
-    expect(cropCanvasToRect).toHaveBeenCalledTimes(1);
+    expect(renderExportDocumentCanvas).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cropRect: { x: 10, y: 20, width: 100, height: 50 },
+      }),
+    );
+    expect(cropCanvasToRect).not.toHaveBeenCalled();
   });
 
   it("still fails when the selected element cannot be resolved", async () => {
@@ -248,19 +257,21 @@ describe("runRenderPngBlob element scope", () => {
     ).rejects.toBeInstanceOf(PngCaptureError);
   });
 
-  it("still fails when a resolvable selection crops to nothing", async () => {
+  it("propagates an unresolved crop from the native renderer", async () => {
     const node = document.createElement("div");
     node.id = "offscreen";
     node.getBoundingClientRect = () =>
       ({ left: 9000, top: 9000, width: 10, height: 10 }) as DOMRect;
     document.body.appendChild(node);
-    cropCanvasToRect.mockReturnValueOnce(null);
+    vi.mocked(renderExportDocumentCanvas).mockRejectedValueOnce(
+      new PngCaptureError("selection-unresolved"),
+    );
 
     await expect(
       runRenderPngBlob(renderArgs(elementInfo({ selector: "#offscreen" })), {
         scope: "element",
         settings: { scale: 1 },
       }),
-    ).rejects.toBeInstanceOf(PngCaptureError);
+    ).rejects.toMatchObject({ code: "selection-unresolved" });
   });
 });

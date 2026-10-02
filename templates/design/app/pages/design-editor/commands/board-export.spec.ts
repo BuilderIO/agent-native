@@ -111,11 +111,16 @@ describe("board document exports", () => {
     mocks.outputCanvasSizes.length = 0;
     mocks.renderNativeExportPng.mockReset();
     mocks.renderNativeExportPng.mockImplementation(
-      async (args: { width: number; height: number; scale: number }) => {
+      async (args: {
+        width: number;
+        height: number;
+        scale: number;
+        clip?: { width: number; height: number };
+      }) => {
         const blob = new Blob(["png"], { type: "image/png" });
         mocks.bitmapSizes.set(blob, {
-          width: Math.ceil(args.width * args.scale),
-          height: Math.ceil(args.height * args.scale),
+          width: Math.ceil((args.clip?.width ?? args.width) * args.scale),
+          height: Math.ceil((args.clip?.height ?? args.height) * args.scale),
         });
         return blob;
       },
@@ -167,6 +172,7 @@ describe("board document exports", () => {
         width: 8192,
         height: 8191,
         scale: 1,
+        clip: { x: 4080, y: 4030, width: 709, height: 236 },
       }),
     );
     expect(mocks.outputCanvasSizes[mocks.outputCanvasSizes.length - 1]).toEqual(
@@ -267,6 +273,11 @@ describe("board document exports", () => {
       expect(args.releaseScreenFromExport).toHaveBeenCalledOnce();
       expect(events).toEqual(["target:screen-1", "release"]);
       expect(mocks.renderNativeExportPng).toHaveBeenCalledOnce();
+      expect(mocks.renderNativeExportPng).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clip: { x: 0, y: 0, width: 320, height: 200 },
+        }),
+      );
       expect(mocks.createSinglePageRasterPdf).toHaveBeenCalledWith(
         expect.objectContaining({ width: 320, height: 200 }),
       );
@@ -425,5 +436,30 @@ describe("board document exports", () => {
     expect(html).toContain("input::placeholder");
     expect(html).toContain('font-family: "PlaceholderFont"');
     expect(html).toContain("font-size: 14px");
+  });
+
+  it("uses the live responsive image source without retaining picture srcsets", async () => {
+    const fixture = createReportedBoardFixture();
+    const picture = fixture.doc.createElement("picture");
+    const source = fixture.doc.createElement("source");
+    source.setAttribute("srcset", "https://images.example.test/large.webp");
+    const image = fixture.doc.createElement("img");
+    image.setAttribute("src", "https://images.example.test/fallback.png");
+    image.setAttribute("srcset", "https://images.example.test/other.png 2x");
+    Object.defineProperty(image, "currentSrc", {
+      configurable: true,
+      value: "https://images.example.test/chosen.webp",
+    });
+    picture.append(source, image);
+    fixture.doc.body.append(picture);
+
+    await runRenderPngBlob(renderArgs(fixture), { scope: "document" });
+
+    const calls = mocks.renderNativeExportPng.mock.calls;
+    const html = calls[calls.length - 1]?.[0].html;
+    expect(html).toContain('src="https://images.example.test/chosen.webp"');
+    expect(html).not.toContain("srcset");
+    expect(html).not.toContain("<source");
+    expect(html).not.toContain("fallback.png");
   });
 });

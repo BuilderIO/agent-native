@@ -1374,6 +1374,7 @@ export default {
         "The export could not be rendered accurately because one or more images, fonts, or stylesheets are unavailable. Check those resources and try again.",
       exportTimedOut:
         "Export timed out. Try again, or reduce the design's size.",
+      exportBusy: "Another export is rendering. Wait a moment and try again.",
       exportChromiumUnavailable:
         "Export is unavailable because the renderer could not start. Try again later.",
       pdfExportError: "Could not export PDF",

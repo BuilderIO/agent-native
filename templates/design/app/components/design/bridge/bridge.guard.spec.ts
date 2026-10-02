@@ -10801,6 +10801,169 @@ it(
 );
 
 it(
+  "runtime export snapshots preserve live stylesheet rules and responsive image sources",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(`<!doctype html>
+<html><head><style id="head-rules">#head-target { color: black; }</style></head>
+<body><div id="body-target">CSSOM</div>
+<picture><source media="(min-width: 1px)" srcset="data:image/svg+xml,%3Csvg%20id='chosen'%20xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E"><img id="responsive-image" src="data:image/svg+xml,%3Csvg%20id='fallback'%20xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E" srcset="data:image/svg+xml,%3Csvg%20id='retina'%20xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E 2x"></picture>
+</body></html>`);
+      await page.evaluate(() => {
+        (window as any).__resourceRequests = [];
+        window.fetch = (async (input: RequestInfo | URL) => {
+          (window as any).__resourceRequests.push(String(input));
+          return new Response(new Blob(["<svg/>"], { type: "image/svg+xml" }), {
+            status: 200,
+          });
+        }) as typeof fetch;
+        const linkedStylesheet = document.createElement("link");
+        linkedStylesheet.id = "link-rules";
+        linkedStylesheet.rel = "stylesheet";
+        linkedStylesheet.href = "https://export.test/assets/site.css";
+        const linkedSheet = new CSSStyleSheet();
+        linkedSheet.replaceSync(
+          "#link-target { background-image: url('pixel.svg'); }",
+        );
+        linkedSheet.insertRule("#link-target { font-weight: 700; }");
+        Object.defineProperty(linkedStylesheet, "sheet", {
+          configurable: true,
+          value: linkedSheet,
+        });
+        document.head.append(linkedStylesheet);
+        document
+          .querySelector<HTMLStyleElement>("#head-rules")!
+          .sheet!.insertRule("#head-target { font-weight: 700; }");
+        const bodyStyle = document.createElement("style");
+        bodyStyle.id = "body-rules";
+        document.body.append(bodyStyle);
+        bodyStyle.sheet!.insertRule("#body-target { letter-spacing: 3px; }");
+      });
+      await collectBridgeMessages(page);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(true),
+      });
+      await page.waitForFunction(() =>
+        ((window as any).__bridgeMessages ?? []).some(
+          (message: any) =>
+            message.type === "agent-native:runtime-layer-snapshot",
+        ),
+      );
+
+      const snapshot = await page.evaluate(() => {
+        const html = ((window as any).__bridgeMessages ?? []).find(
+          (message: any) =>
+            message.type === "agent-native:runtime-layer-snapshot",
+        )?.payload?.html as string;
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        return {
+          headRules: doc.querySelector("#head-rules")?.textContent,
+          linkRules: doc.querySelector("#link-rules")?.textContent,
+          baseMarker: doc
+            .querySelector("#link-rules")
+            ?.hasAttribute("data-agent-native-stylesheet-base"),
+          bodyRules: doc.querySelector("#body-rules")?.textContent,
+          imageSrc: doc
+            .querySelector<HTMLImageElement>("#responsive-image")
+            ?.getAttribute("src"),
+          imageSrcset: doc
+            .querySelector("#responsive-image")
+            ?.hasAttribute("srcset"),
+          pictureSources: doc.querySelectorAll("picture source").length,
+          resourceRequests: (window as any).__resourceRequests,
+        };
+      });
+
+      expect(snapshot.headRules).toContain("font-weight: 700");
+      expect(snapshot.linkRules).toContain("data:image/svg+xml;base64,");
+      expect(snapshot.baseMarker).toBe(false);
+      expect(snapshot.resourceRequests).toEqual([
+        "https://export.test/assets/pixel.svg",
+      ]);
+      expect(snapshot.bodyRules).toContain("letter-spacing: 3px");
+      expect(snapshot.imageSrc).toContain("id='chosen'");
+      expect(snapshot.imageSrcset).toBe(false);
+      expect(snapshot.pictureSources).toBe(0);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "runtime export resource inlining fails when its shared deadline aborts fetches",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+
+      const result = await page.evaluate(async () => {
+        const bridge = (window as any).__anEditorChromeBridgeInstance;
+        const originalTimeout = AbortSignal.timeout;
+        const originalFetch = window.fetch;
+        let timeoutMs = 0;
+        let receivedSignal: AbortSignal | undefined;
+        Object.defineProperty(AbortSignal, "timeout", {
+          configurable: true,
+          value: (milliseconds: number) => {
+            timeoutMs = milliseconds;
+            const controller = new AbortController();
+            window.setTimeout(() => controller.abort(), 0);
+            return controller.signal;
+          },
+        });
+        window.fetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
+          receivedSignal = init?.signal ?? undefined;
+          return Promise.resolve({
+            ok: true,
+            blob: () =>
+              new Promise<Blob>((_resolve, reject) => {
+                receivedSignal?.addEventListener(
+                  "abort",
+                  () => reject(new DOMException("Aborted", "AbortError")),
+                  { once: true },
+                );
+              }),
+          } as Response);
+        }) as typeof fetch;
+        try {
+          const exportResult = await bridge.inlineExportResources(
+            '<!doctype html><html><body><img src="https://export.test/slow.png"></body></html>',
+          );
+          return {
+            ...exportResult,
+            timeoutMs,
+            signalAborted: receivedSignal?.aborted,
+          };
+        } finally {
+          window.fetch = originalFetch;
+          Object.defineProperty(AbortSignal, "timeout", {
+            configurable: true,
+            value: originalTimeout,
+          });
+        }
+      });
+
+      expect(result.timeoutMs).toBe(15_000);
+      expect(result.signalAborted).toBe(true);
+      expect(result.complete).toBe(false);
+      expect(result.errorCode).toBe("export_resources_unavailable");
+      expect(result.html).toContain("resource-timeout");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "runtime export snapshots preserve live form state and reject uncapturable surfaces",
   { timeout: 30_000 },
   async () => {

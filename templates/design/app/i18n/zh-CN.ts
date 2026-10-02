@@ -1331,6 +1331,7 @@ export default {
       exportResourcesUnavailable:
         "由于一个或多个图像、字体或样式表不可用，无法准确渲染导出内容。请检查这些资源后重试。",
       exportTimedOut: "导出超时。请重试，或缩小设计尺寸。",
+      exportBusy: "另一个导出正在渲染。请稍等片刻后重试。",
       exportChromiumUnavailable:
         "由于渲染器无法启动，导出暂不可用。请稍后重试。",
       pdfExportError: "无法导出 PDF",

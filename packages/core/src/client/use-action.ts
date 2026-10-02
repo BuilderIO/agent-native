@@ -206,6 +206,7 @@ export interface ActionFetchOptions {
   timeoutMs?: number;
   keepalive?: boolean;
   serializedBody?: string;
+  responseType?: "blob";
   includeRequestSource?: boolean;
   headers?: Record<string, string>;
 }
@@ -342,6 +343,7 @@ async function performActionFetch<T>(
 
   let res: Response;
   let raw = "";
+  let blob: Blob | undefined;
   let readFailed = false;
   let readError: unknown;
   try {
@@ -379,10 +381,19 @@ async function performActionFetch<T>(
     }
 
     throwIfAborted(outerSignal);
-    if (res.status === 204) return null as T;
+    if (res.status === 204) {
+      if (options?.responseType === "blob") {
+        throw new Error(`Action ${name} did not return a binary response.`);
+      }
+      return null as T;
+    }
 
     try {
-      raw = await Promise.race([res.text(), timedOutSignal]);
+      if (res.ok && options?.responseType === "blob") {
+        blob = await Promise.race([res.blob(), timedOutSignal]);
+      } else {
+        raw = await Promise.race([res.text(), timedOutSignal]);
+      }
     } catch (err) {
       if (timedOut) throwTimeout();
       if (outerSignal?.aborted) throw err;
@@ -486,6 +497,14 @@ async function performActionFetch<T>(
     );
     (error as any).status = res.status;
     throw error;
+  }
+
+  if (options?.responseType === "blob") {
+    if (blob === undefined) {
+      throw new Error(`Action ${name} did not return a binary response.`);
+    }
+    throwIfAborted(outerSignal);
+    return blob as T;
   }
 
   if (parseFailed) {
@@ -735,6 +754,20 @@ export function callAction<
     timeoutMs: options.timeoutMs,
     includeRequestSource: false,
     headers: options.headers,
+  });
+}
+
+export function callActionBlob<TName extends ActionName = ActionName>(
+  actionName: TName,
+  params?: ActionParams<TName>,
+  options: ClientActionCallOptions = {},
+): Promise<Blob> {
+  return actionFetch<Blob>(actionName, options.method ?? "POST", params, {
+    signal: options.signal,
+    timeoutMs: options.timeoutMs,
+    includeRequestSource: false,
+    headers: options.headers,
+    responseType: "blob",
   });
 }
 
