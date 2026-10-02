@@ -1,5 +1,5 @@
 import { IconCornerDownRight, IconDots, IconTrash } from "@tabler/icons-react";
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 
 import { Button } from "../ui/button.js";
 import {
@@ -85,6 +85,9 @@ export function MessageQueueDrawer({
   const [openActionsItemId, setOpenActionsItemId] = useState<string | null>(
     null,
   );
+  useEffect(() => {
+    if (items.length <= 1) setOpenActionsItemId(null);
+  }, [items.length]);
   if (empty && !recessed) return null;
 
   const recessedStyle = recessed

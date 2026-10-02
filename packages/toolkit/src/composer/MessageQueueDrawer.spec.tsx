@@ -168,6 +168,67 @@ describe("MessageQueueDrawer", () => {
     expect(openMenus[0]?.textContent).toContain("Move third to top");
   });
 
+  it("does not reopen a queue-row menu after the queue shrinks and grows", async () => {
+    const getItemActions = (item: MessageQueueItem) => [
+      {
+        id: "move-to-top",
+        label: `Move ${item.id} to top`,
+        onSelect: () => undefined,
+      },
+    ];
+
+    act(() => {
+      root.render(
+        <MessageQueueDrawer
+          items={items}
+          labels={labels}
+          onRemove={() => undefined}
+          getItemActions={getItemActions}
+        />,
+      );
+    });
+
+    const firstMoreButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="More actions"]',
+    );
+    await act(async () => {
+      firstMoreButton?.dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          button: 0,
+          pointerType: "mouse",
+        }),
+      );
+      await Promise.resolve();
+    });
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+
+    act(() => {
+      root.render(
+        <MessageQueueDrawer
+          items={items.slice(0, 1)}
+          labels={labels}
+          onRemove={() => undefined}
+          getItemActions={getItemActions}
+        />,
+      );
+    });
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+
+    act(() => {
+      root.render(
+        <MessageQueueDrawer
+          items={items}
+          labels={labels}
+          onRemove={() => undefined}
+          getItemActions={getItemActions}
+        />,
+      );
+    });
+
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+  });
+
   it("collapses the recessed queue into the composer workflow", () => {
     act(() => {
       root.render(
