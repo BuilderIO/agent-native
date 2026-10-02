@@ -439,7 +439,10 @@ export function jevSensitivityDecision(
     truncated: boolean;
   },
 ): BrainSensitivityDecision {
-  const screen = screenSensitivityDeterministically(context.judgedContent);
+  const screen = screenSensitivityDeterministically(
+    context.judgedContent,
+    "credentials",
+  );
   // Not capped at MAX_CLASSIFIER_OUTPUT_CHARS: this is the content Jev
   // judged, and an allowed capture is stored from it, so a cap would silently
   // drop the tail of a long capture Jev cleared.
@@ -529,10 +532,16 @@ export async function runJevClassification(
   }
 
   const screenedTitle = sanitizeSensitiveText(
-    screenSensitivityDeterministically(input.title).safeLines.join(" "),
+    screenSensitivityDeterministically(
+      input.title,
+      "credentials",
+    ).safeLines.join(" "),
   ).slice(0, MAX_TITLE_CHARS);
   const fullBody = sanitizeSensitiveText(
-    screenSensitivityDeterministically(input.content).safeLines.join("\n"),
+    screenSensitivityDeterministically(
+      input.content,
+      "credentials",
+    ).safeLines.join("\n"),
   );
   const judgedLimit = JEV_MAX_INPUT_CHARS * JEV_MAX_WINDOWS;
   const judgedBody = fullBody.slice(0, judgedLimit);
