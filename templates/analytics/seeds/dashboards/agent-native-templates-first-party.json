@@ -594,7 +594,7 @@
           "seriesKey": "period",
           "valueKey": "rate"
         },
-        "colors": ["#10b981", "#8b5cf6"],
+        "colors": ["#10b981", "#f59e0b", "#64748b", "#8b5cf6"],
         "description": "Trailing 7-day cohorts returning on a later day with content created or a chat message, overall and 1-7d split by signup channel: paid (cpc/ppc/paid, an ad click id, or vector_source) vs untagged. A point appears once its return window has fully elapsed (7 days for 1-7d, 14 days for 7-14d), so the newest days are blank rather than zero."
       }
     },

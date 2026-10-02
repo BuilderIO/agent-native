@@ -1944,7 +1944,7 @@ const ENTRIES: FirstPartyMetric[] = [
         seriesKey: "period",
         valueKey: "rate",
       },
-      colors: ["#10b981", "#8b5cf6"],
+      colors: ["#10b981", "#f59e0b", "#64748b", "#8b5cf6"],
       description: RETENTION_OVER_TIME_DESCRIPTION,
     },
   },
