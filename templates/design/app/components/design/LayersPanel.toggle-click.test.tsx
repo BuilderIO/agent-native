@@ -1,10 +1,14 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, createRef } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
-import { layerRowIndentCount, LayersPanel } from "./LayersPanel";
+import {
+  layerRowIndentCount,
+  LayersPanel,
+  type LayersPanelHandle,
+} from "./LayersPanel";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -140,11 +144,12 @@ describe("LayersPanel lock/hide toggles", () => {
 });
 
 describe("LayersPanel selection scrolling", () => {
-  it("scrolls a deeply nested selected layer name into view", async () => {
+  it("uses the layer icon for selection and rename scrolling", async () => {
     let scrollTarget: HTMLElement | null = null;
     const scrollIntoView = vi.fn(function (this: HTMLElement) {
       scrollTarget = this;
     });
+    const ref = createRef<LayersPanelHandle>();
     const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
       configurable: true,
@@ -158,6 +163,7 @@ describe("LayersPanel selection scrolling", () => {
       await act(async () => {
         root.render(
           <LayersPanel
+            ref={ref}
             layers={[
               {
                 id: "root",
@@ -181,6 +187,7 @@ describe("LayersPanel selection scrolling", () => {
             onSearchQueryChange={() => {}}
             onExpandedIdsChange={() => {}}
             onSelectionChange={() => {}}
+            onRename={() => {}}
           />,
         );
       });
@@ -188,7 +195,24 @@ describe("LayersPanel selection scrolling", () => {
       await vi.waitFor(() => {
         expect(scrollTarget).toBe(
           host.querySelector(
-            '[data-layer-node-id="leaf"] [data-layer-row-name]',
+            '[data-layer-node-id="leaf"] [data-layer-row-icon]',
+          ),
+        );
+        expect(scrollIntoView).toHaveBeenCalledWith({
+          block: "nearest",
+          inline: "nearest",
+        });
+      });
+
+      scrollTarget = null;
+      scrollIntoView.mockClear();
+      await act(async () => {
+        expect(ref.current?.beginRename("leaf")).toBe(true);
+      });
+      await vi.waitFor(() => {
+        expect(scrollTarget).toBe(
+          host.querySelector(
+            '[data-layer-node-id="leaf"] [data-layer-row-icon]',
           ),
         );
         expect(scrollIntoView).toHaveBeenCalledWith({

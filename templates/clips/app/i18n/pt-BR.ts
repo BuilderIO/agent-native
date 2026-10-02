@@ -4,6 +4,7 @@ const messages = {
   },
   agentChat: {
     setup: {
+      connectBuilder: "Conectar o Builder.io",
       providerStatusUnavailable:
         "Não foi possível confirmar se a IA está pronta.",
     },
@@ -814,6 +815,11 @@ const messages = {
     agentTitle: "Gerenciar agente",
     pageTitle: "Configurações · Clips",
     labs: "Labs",
+    labResilientRecording: "Gravação resiliente",
+    labResilientRecordingDescription:
+      "Experimente uploads de gravações mais rápidos e uma recuperação melhor após interrupções.",
+    labResilientRecordingMixedDescription:
+      "As configurações anteriores de gravação ainda estão ativas. Escolha Ativar ou Desativar para usar uma configuração.",
     labsIntro:
       "Estes recursos são novos e instáveis e podem apresentar bugs. Valorizamos seu feedback.",
     labVideoEditing: "Edição de vídeo",
@@ -1232,14 +1238,14 @@ const messages = {
     elapsed: "Tempo decorrido",
     cancel: "Descartar gravação",
     cancelShortcut: "Descartar (⌥⇧C)",
-    discardConfirmTitle: "Descartar esta gravação?",
+    discardConfirmTitle: "Excluir esta gravação?",
     discardConfirmDescription:
       "Essa ação não pode ser desfeita. Sua gravação até agora será excluída permanentemente.",
     resume: "Retomar",
     discardRecording: "Descartar gravação",
     restart: "Reiniciar gravação",
     restartShortcut: "Reiniciar (⌥⇧R)",
-    restartQuestion: "Iniciar uma nova gravação?",
+    restartQuestion: "Excluir esta gravação e começar de novo?",
     restartConfirm: "Reiniciar",
   },
   countdownOverlay: {
@@ -1477,16 +1483,11 @@ const messages = {
       "Não houve resposta do Builder em 5 minutos. Verifique o pop-up e tente novamente.",
     builderConnected: "Builder.io conectado",
     waitingForBuilder: "Aguardando Builder...",
-    connectBuilder: "Usar Builder.io",
+    description:
+      "Armazene os vídeos gravados com o Builder.io ou com um armazenamento compatível com S3. O Builder.io inclui hospedagem gratuita e créditos de IA.",
     createBuilderAccount: "Criar conta do Builder.io",
     signInWithBuilderAccount: "Entrar com uma conta do Builder.io",
-    builderConsentPrefix:
-      "Ao criar uma conta Builder.io, você concorda com nossos",
-    builderTerms: "Termos de Serviço",
-    builderConsentAnd: "e",
-    builderPrivacy: "Política de Privacidade",
     free: "Grátis",
-    configureS3: "configurar armazenamento compatível com S3",
     whyPrompt: "Por que estou vendo isso?",
     whyDescription:
       "Clips é 100% gratuito e open source, então você precisa conectar uma forma de armazenar seus clipes. Conecte armazenamento com Builder.io para armazenamento e IA no plano gratuito, ou use armazenamento compatível com S3 e suas próprias chaves LLM.",
@@ -1822,10 +1823,64 @@ const messages = {
       "Conecte armazenamento na próxima tela: Builder.io (armazenamento + IA no plano gratuito) ou armazenamento compatível com S3. Clips terminará de salvar.",
     connectStorageToRetryLoom:
       "Conecte armazenamento na próxima tela: Builder.io (armazenamento + IA no plano gratuito) ou armazenamento compatível com S3. Clips tentará importar novamente.",
-    leaveConfirmTitle: "Sair e descartar esta gravação?",
+    leaveConfirmTitle: "Sair desta gravação?",
     leaveConfirmDescription:
-      "Sua gravação em andamento ainda não terminou de ser salva. Se você sair desta página agora, ela será descartada.",
+      "Esta gravação está só nesta aba. Sair a exclui, a menos que você baixe uma cópia antes.",
     leaveAndDiscard: "Sair e descartar",
+    recordingWithoutSound:
+      "Gravando sem som. Ative um microfone para obter uma transcrição.",
+    pendingStorageTitle: "Conecte um armazenamento para salvar sua gravação",
+    pendingStorageDescription:
+      "Conecte um armazenamento e o Clips a envia na hora.",
+    storageConnectedUploading:
+      "Armazenamento conectado. Enviando sua gravação…",
+    downloadCopy: "Baixar uma cópia",
+    localRecordingOpenElsewhere:
+      "Essa gravação ainda está aberta em outra aba do Clips.",
+    uploadWaitingForConnection:
+      "Envio pausado. O Clips tenta de novo automaticamente.",
+    uploadDidNotFinish: "O envio não terminou.",
+    unfinishedRecording: "Uma gravação ainda não terminou de ser enviada",
+    finishUpload: "Concluir envio",
+    leaveKeepDescription:
+      'O Clips a mantém neste navegador e oferece concluir o envio quando você voltar. "Sair e descartar" a exclui para sempre.',
+    leaveAndKeep: "Sair e manter",
+    copySafeInBrowser: "Sua gravação está segura neste navegador.",
+    copyOnlyInThisTab:
+      "Esta gravação está só nesta aba. Mantenha-a aberta ou baixe uma cópia.",
+    localCopyFull:
+      "Este navegador está sem espaço, então o Clips não consegue manter uma cópia de segurança. Mantenha esta aba aberta até o envio terminar ou baixe uma cópia.",
+    localCopyFailed:
+      "O Clips não conseguiu manter uma cópia de segurança neste navegador. Mantenha esta aba aberta até o envio terminar ou baixe uma cópia.",
+    localCopyUnreadable:
+      "Não foi possível ler a cópia da gravação neste navegador.",
+    recordingOwnedByAnotherAccount:
+      "Esta gravação pertence a outra conta. Entre nessa conta neste navegador para enviá-la.",
+    unclaimedRecording:
+      "Uma gravação neste navegador não está vinculada a nenhuma conta",
+    reviewRecording: "Revisar",
+    claimRecordingPrompt:
+      "Esta gravação ainda não está vinculada a nenhuma conta. Enviar para {{email}}?",
+    claimRecording: "Enviar para minha conta",
+    lowBrowserStorage:
+      "Este navegador está com pouco espaço, então uma gravação longa pode não caber na cópia de segurança. Mantenha esta aba aberta até o envio terminar.",
+    recordingEndMissing:
+      "O final desta gravação não foi salvo. O Clips envia o que tem e mantém sua cópia.",
+    uploadedPartialCopyKept:
+      "Enviamos o que este navegador salvou. O final pode estar faltando, então o Clips manteve sua cópia aqui.",
+    uploadUnverifiedCopyKept:
+      "O Clips não conseguiu confirmar que a gravação inteira foi enviada, então manteve sua cópia aqui.",
+    copyKeptAfterUpload:
+      "Esta gravação foi enviada, mas o Clips não conseguiu confirmar que está completa, então manteve sua cópia aqui.",
+    localCopyLockUnavailable:
+      "O Clips não consegue confirmar que nenhuma outra aba está usando esta gravação, então não vai enviá-la nem excluí-la daqui. Baixe uma cópia.",
+    uploadAgain: "Enviar de novo",
+    keptCopyWaiting: "O Clips manteve a cópia de uma gravação neste navegador",
+    savedRecordingsUnreadable:
+      "O Clips não conseguiu ler as gravações salvas neste navegador.",
+    remindTomorrow: "Lembrar amanhã",
+    stillProcessingCopyKept:
+      "Esta gravação ainda está sendo processada, então o Clips manteve sua cópia aqui. Aguarde ou envie de novo.",
   },
   importRoute: {
     pageTitle: "Importar Loom — Clips",
@@ -1968,6 +2023,8 @@ const messages = {
     retry: "Tentar novamente",
     retrying: "Tentando novamente…",
     retryFailed: "Não foi possível repetir este envio.",
+    retryCheckFailed:
+      "Não foi possível verificar se este upload pode ser repetido. Atualize a página para tentar novamente.",
     retryUnavailableHere:
       "Tentar novamente só está disponível no dispositivo ou navegador em que isso foi gravado.",
     viewsCount: "{{count}} visualizações",

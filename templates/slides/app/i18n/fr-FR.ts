@@ -46,7 +46,7 @@ const messages = {
     designSystems: "Systèmes de design",
   },
   settings: {
-    agentObservability: "Observabilité de l’agent",
+    agentObservability: "Observabilité",
     title: "Paramètres",
     labs: "Labs",
     labsIntro:
@@ -59,6 +59,7 @@ const messages = {
     commentsAndRepliesDescription:
       "Quand quelqu’un commente votre deck ou y répond.",
     retry: "Réessayer",
+    reload: "Recharger",
     mcpAbout:
       "Connectez Slides à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans Slides pour vous : créer des decks, ajouter des diapositives et exporter vers PowerPoint. Elle ne voit que ce que vous pouvez voir.",
     workspaceTitle: "Espace de travail",
@@ -312,6 +313,21 @@ const messages = {
     importing: "Importation...",
     importFile: "Importer un fichier",
     downloadBackup: "Télécharger la sauvegarde",
+    conflictStatus: "Conflit de texte",
+    conflictStatusDescription:
+      "Vérifiez le texte en conflit avant d’enregistrer d’autres modifications.",
+    reviewConflict: "Examiner le conflit",
+    conflictTitle: "Conflit de texte sur la diapositive {{number}}",
+    conflictDescription:
+      "Une autre version a modifié cette diapositive pendant la modification du texte.",
+    conflictChoicesDescription:
+      "Conserver votre texte l’enregistre sur la version la plus récente. Utiliser le texte enregistré remplace uniquement le brouillon local de cette diapositive.",
+    conflictBackupDescription:
+      "Ce brouillon de présentation complète ne peut pas être résolu diapositive par diapositive. Téléchargez une sauvegarde pour le conserver.",
+    conflictResolveFailed:
+      "Impossible de résoudre le conflit. Votre brouillon est toujours disponible sur cet appareil.",
+    conflictKeepMine: "Conserver mon texte",
+    conflictUseLatest: "Utiliser le texte enregistré",
     importBackup: "Importer la sauvegarde",
     backupDownloaded: "Sauvegarde téléchargée",
     backupDownloadFailed: "Impossible de télécharger la sauvegarde",
@@ -412,6 +428,8 @@ const messages = {
     orderedList: "Liste ordonnée",
     quote: "Citation",
     blockquote: "Bloc de citation",
+    divider: "Séparateur",
+    horizontalRule: "Ligne horizontale",
   },
   comments: {
     deleteComment: "Supprimer le commentaire",
@@ -445,6 +463,7 @@ const messages = {
     retry: "Réessayer",
     clickToAddComment: "Cliquez pour ajouter un commentaire",
     selectSlideToAdd: "Sélectionnez une diapositive pour en ajouter un",
+    filters: "Filtres des commentaires",
     scope: "Portée des commentaires",
     thisSlide: "Cette diapositive",
     allComments: "Toutes les diapositives",
@@ -763,6 +782,8 @@ const messages = {
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
+    agentRunFailed:
+      "L’exécution de l’agent a échoué avant la création des diapositives. Consultez les détails dans le chat, puis réessayez.",
     deckHasNoSlides: "Cette présentation ne contient aucune diapositive.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",

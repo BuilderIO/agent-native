@@ -1,5 +1,5 @@
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
-import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
+import { AppShellSkeleton } from "@agent-native/toolkit/app/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
 import messages from "@/i18n/en-US";
@@ -35,11 +35,7 @@ export function meta() {
 }
 
 export function HydrateFallback() {
-  return (
-    <div className="flex h-screen w-full items-center justify-center bg-background">
-      <DefaultSpinner />
-    </div>
-  );
+  return <AppShellSkeleton layout="assistant" />;
 }
 
 export default function HomeRoute() {

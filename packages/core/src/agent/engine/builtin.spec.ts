@@ -4,9 +4,11 @@ async function load() {
   vi.resetModules();
   const appConfig = await import("../../app-config/index.js");
   appConfig.resetAppConfigForTests();
+  const labs = await import("../../labs/registry.js");
+  labs._resetLabRegistryForTests();
   const builtin = await import("./builtin.js");
   const registry = await import("./registry.js");
-  return { ...appConfig, ...builtin, ...registry };
+  return { ...appConfig, ...builtin, ...registry, ...labs };
 }
 
 describe("registerBuiltinEngines selection", () => {
@@ -26,9 +28,25 @@ describe("registerBuiltinEngines selection", () => {
     ]);
   });
 
+  it("registers ChatGPT plan access as an off-by-default lab", async () => {
+    const { registerBuiltinEngines, listLabs } = await load();
+
+    registerBuiltinEngines();
+
+    const chatGPTLab = listLabs().find(
+      (lab) => lab.key === "chatgpt-subscription",
+    );
+    expect(chatGPTLab).toBeDefined();
+    expect(chatGPTLab?.defaultEnabled).toBeUndefined();
+  });
+
   it("registers only the selected built-ins", async () => {
-    const { defineAppConfig, registerBuiltinEngines, listAgentEngines } =
-      await load();
+    const {
+      defineAppConfig,
+      registerBuiltinEngines,
+      listAgentEngines,
+      listLabs,
+    } = await load();
     defineAppConfig({ agent: { builtInEngines: ["ai-sdk:openai"] } });
 
     registerBuiltinEngines();
@@ -36,6 +54,9 @@ describe("registerBuiltinEngines selection", () => {
     expect(listAgentEngines().map((entry) => entry.name)).toEqual([
       "ai-sdk:openai",
     ]);
+    expect(listLabs().map((lab) => lab.key)).not.toContain(
+      "chatgpt-subscription",
+    );
   });
 
   it("skips the rest, so an unselected engine is not resolvable by name", async () => {

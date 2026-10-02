@@ -113,6 +113,32 @@ export const resized = (a: Rect | null, b: Rect | null) =>
   (Math.abs(a.width - b.width) >= GEOMETRY_TOLERANCE ||
     Math.abs(a.height - b.height) >= GEOMETRY_TOLERANCE);
 
+/** Event Timing omits entries below its configured duration threshold. */
+export function p95IndexFromThresholdedSamples(
+  totalCount: number,
+  observedCount: number,
+  threshold: number,
+):
+  | { kind: "observed"; index: number }
+  | { kind: "below-threshold"; bound: number } {
+  if (
+    !Number.isSafeInteger(totalCount) ||
+    totalCount < 1 ||
+    !Number.isSafeInteger(observedCount) ||
+    observedCount < 0 ||
+    observedCount > totalCount ||
+    !Number.isFinite(threshold) ||
+    threshold < 0
+  ) {
+    throw new RangeError("invalid thresholded percentile sample counts");
+  }
+  const rank = Math.ceil(totalCount * 0.95) - 1;
+  const belowThresholdCount = totalCount - observedCount;
+  return rank < belowThresholdCount
+    ? { kind: "below-threshold", bound: threshold }
+    : { kind: "observed", index: rank - belowThresholdCount };
+}
+
 export interface StyleDelta {
   key: string;
   prop: string;
@@ -130,6 +156,39 @@ export interface StyleDiff {
   added: Array<{ key: string; inside: boolean }>;
 }
 
+export const followsCenteredFlexReflow = (
+  before: SnapRecord | undefined,
+  after: SnapRecord | undefined,
+  prop: string,
+  actualShift: number,
+) => {
+  const a = before?.flexCrossAlignment;
+  const b = after?.flexCrossAlignment;
+  if (
+    !a ||
+    !b ||
+    prop !== a.axis ||
+    a.axis !== b.axis ||
+    a.context !== b.context
+  )
+    return false;
+  const containerShift = b.containerPosition - a.containerPosition;
+  const containerSizeShift = b.containerSize - a.containerSize;
+  const editedItemSizeShift = b.editedItemSize - a.editedItemSize;
+  const expectedShift =
+    containerShift + (containerSizeShift - (b.itemSize - a.itemSize)) / 2;
+  // Only edit-caused line growth with a stationary parent and unchanged item-local offset is natural reflow.
+  const lineFollowsEdit =
+    Math.abs(containerSizeShift) <= 1 ||
+    (Math.sign(containerSizeShift) === Math.sign(editedItemSizeShift) &&
+      Math.abs(containerSizeShift) <= Math.abs(editedItemSizeShift) + 1);
+  return (
+    lineFollowsEdit &&
+    Math.abs(containerShift) <= 1 &&
+    Math.abs(actualShift - expectedShift) <= 1
+  );
+};
+
 function textOf(key: string): string | null {
   const m = key.match(/^text:(.*)#\d+$/);
   return m ? m[1].replace(/\s+/g, "") : null;
@@ -143,8 +202,25 @@ const baseOf = (key: string) => key.replace(/#\d+$/, "");
  * the end (append / enter3 change the edited run's own key).
  */
 export function diffSnapshots(a: Snapshot, b: Snapshot): StyleDiff {
-  const A = a.records;
-  const B = b.records;
+  const allA = a.records;
+  const allB = b.records;
+  const stableB = new Map(
+    allB.flatMap((record) =>
+      record.stableKey ? [[record.stableKey, record] as const] : [],
+    ),
+  );
+  const pairs: Array<[SnapRecord, SnapRecord]> = [];
+  const pairedB = new Set<SnapRecord>();
+  const A = allA.filter((record) => {
+    const other = record.stableKey ? stableB.get(record.stableKey) : undefined;
+    if (other) {
+      pairs.push([record, other]);
+      pairedB.add(other);
+      return false;
+    }
+    return true;
+  });
+  const B = allB.filter((record) => !pairedB.has(record));
   // An edit changes one contiguous stretch of the document, so the head and
   // tail pair by position. Per-text ordinals cannot: when the edited copy of a
   // repeated text changes, later copies renumber onto their neighbours. Never
@@ -160,7 +236,6 @@ export function diffSnapshots(a: Snapshot, b: Snapshot): StyleDiff {
   ) {
     tail++;
   }
-  const pairs: Array<[SnapRecord, SnapRecord]> = [];
   for (let i = 0; i < head; i++) pairs.push([A[i], B[i]]);
   for (let i = 1; i <= tail; i++)
     pairs.push([A[A.length - i], B[B.length - i]]);
@@ -197,6 +272,15 @@ export function diffSnapshots(a: Snapshot, b: Snapshot): StyleDiff {
   const geometry: StyleDelta[] = [];
   for (const [ra, rb] of pairs) {
     const inside = ra.inside || rb.inside;
+    // Computed values can change with intrinsic layout; authored attrs cannot.
+    for (const [prop, before, after] of [
+      ["class", ra.className, rb.className],
+      ["style", ra.inlineStyle, rb.inlineStyle],
+    ] as const) {
+      if (before !== undefined && after !== undefined && before !== after) {
+        deltas.push({ key: ra.key, prop, a: "changed", b: "changed", inside });
+      }
+    }
     for (const prop of Object.keys(ra.props)) {
       if (ra.props[prop] !== rb.props[prop]) {
         deltas.push({
@@ -226,6 +310,69 @@ export function diffSnapshots(a: Snapshot, b: Snapshot): StyleDiff {
     missing,
     added: leftB.map((r) => ({ key: r.key, inside: r.inside })),
   };
+}
+
+export function outsideChangesFor(before: Snapshot, after: Snapshot) {
+  const outside = diffSnapshots(before, after);
+  const targetResized =
+    before.editedRect !== null &&
+    after.editedRect !== null &&
+    (Math.abs(before.editedRect.width - after.editedRect.width) > 1 ||
+      Math.abs(before.editedRect.height - after.editedRect.height) > 1);
+  const naturalReflow =
+    targetResized && before.editedInFlow && after.editedInFlow;
+  const beforeRecords = new Map(
+    before.records.map((record) => [record.key, record]),
+  );
+  const afterRecordsByKey = new Map(
+    after.records.map((record) => [record.key, record]),
+  );
+  const afterRecordsByStableKey = new Map(
+    after.records.flatMap((record) =>
+      record.stableKey ? [[record.stableKey, record] as const] : [],
+    ),
+  );
+  const followsNaturalReflow = (change: StyleDelta) => {
+    const beforeRecord = beforeRecords.get(change.key);
+    const afterRecord = beforeRecord?.stableKey
+      ? (afterRecordsByStableKey.get(beforeRecord.stableKey) ??
+        afterRecordsByKey.get(change.key))
+      : afterRecordsByKey.get(change.key);
+    if (
+      !naturalReflow ||
+      (change.prop !== "x" && change.prop !== "y") ||
+      !beforeRecord?.downstreamFlow ||
+      !afterRecord?.downstreamFlow ||
+      !before.editedRect ||
+      !after.editedRect
+    ) {
+      return false;
+    }
+    const position = change.prop === "x" ? "x" : "y";
+    const extent = change.prop === "x" ? "width" : "height";
+    const expectedShift =
+      after.editedRect[position] +
+      after.editedRect[extent] -
+      before.editedRect[position] -
+      before.editedRect[extent];
+    const actualShift = Number(change.b) - Number(change.a);
+    return (
+      Math.abs(actualShift - expectedShift) <= 1 ||
+      followsCenteredFlexReflow(
+        beforeRecord,
+        afterRecord,
+        change.prop,
+        actualShift,
+      )
+    );
+  };
+  const changes = [
+    ...outside.deltas,
+    ...outside.geometry.filter((change) => !followsNaturalReflow(change)),
+    ...outside.missing,
+    ...outside.added,
+  ].filter((change) => !change.inside);
+  return { outside, changes };
 }
 
 // ---------------------------------------------------------------- writes ---
@@ -532,8 +679,15 @@ export function isSplicedOnce(
  * the run it continued, so it loses the run's color or weight. `diffSnapshots`
  * lists such records as added, which alone is no violation.
  */
-export function restyledAddedText(a: Snapshot, b: Snapshot): string[] {
+export function restyledAddedText(
+  a: Snapshot,
+  b: Snapshot,
+  startingBlockTag: string | null = null,
+): string[] {
   const added = new Set(diffSnapshots(a, b).added.map((r) => r.key));
+  const startsInConvertibleBlock =
+    /^h[1-6]$/i.test(startingBlockTag ?? "") ||
+    startingBlockTag?.toLowerCase() === "li";
   const known = new Set(
     a.records
       .filter((r) => r.kind === "text" && r.inside)
@@ -545,6 +699,11 @@ export function restyledAddedText(a: Snapshot, b: Snapshot): string[] {
         r.kind === "text" &&
         r.inside &&
         added.has(r.key) &&
+        !(
+          startsInConvertibleBlock &&
+          r.tag === "p" &&
+          !r.inlineStyle?.trim()
+        ) &&
         !known.has(JSON.stringify(r.props)),
     )
     .map((r) => r.key);

@@ -6,6 +6,7 @@ import {
   type AgentChatContextItem,
   type ComposerContextMenuItem,
   type ComposerContextSnapshot,
+  type ComposerDraftSnapshot,
   type PromptComposerProps,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
@@ -221,7 +222,9 @@ interface PromptPopoverProps {
     files: UploadedFile[],
     options: PromptComposerSubmitOptions,
   ) => void | Promise<void>;
-  onBeforeSubmit?: () => boolean | Promise<boolean>;
+  onBeforeSubmit?: (
+    draft?: ComposerDraftSnapshot,
+  ) => boolean | Promise<boolean>;
   loading?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;

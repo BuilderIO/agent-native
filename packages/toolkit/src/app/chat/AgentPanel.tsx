@@ -1,5 +1,11 @@
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
+import { buildSettingsRoute } from "@agent-native/core/navigation";
+import {
+  isSettingsSectionId,
+  SETTINGS_SECTION_ALIASES,
+} from "@agent-native/core/navigation";
 import type { AgentRun } from "@agent-native/core/progress";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
 import { Tooltip as DesignSystemTooltip } from "@agent-native/toolkit/design-system";
 import {
   DropdownMenu,
@@ -36,30 +42,23 @@ import React, {
   Suspense,
   startTransition,
 } from "react";
+import { useLocation, useNavigate } from "react-router";
 
 import { resolveFeedbackUrl } from "../feedback/FeedbackButton.js";
 import { ErrorReportActions, FeedbackButton } from "../feedback/index.js";
 import { RunsTrayMenuItem } from "../progress/index.js";
 import { ShareButton } from "../sharing/index.js";
-import { ThinkingDisplayProvider } from "./thinking-display.js";
-const loadMultiTabAssistantChat = () =>
-  import("./MultiTabAssistantChat.js").then((m) => ({
-    default: m.MultiTabAssistantChat,
-  }));
-const MultiTabAssistantChatLazy = lazy(loadMultiTabAssistantChat);
-import { buildSettingsRoute } from "@agent-native/core/navigation";
-import {
-  isSettingsSectionId,
-  SETTINGS_SECTION_ALIASES,
-} from "@agent-native/core/navigation";
-import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
-import { useLocation, useNavigate } from "react-router";
-
 import {
   AGENT_PANEL_OPEN_SETTINGS_EVENT,
   AGENT_PANEL_SET_MODE_EVENT,
 } from "./agent-sidebar-events.js";
 import type { AgentChatSurfaceKind } from "./chat/surface-types.js";
+import {
+  MultiTabAssistantChat,
+  type MultiTabAssistantChatHeaderProps,
+  type MultiTabAssistantChatProps,
+} from "./MultiTabAssistantChat.js";
+import { ThinkingDisplayProvider } from "./thinking-display.js";
 export {
   shouldHandleAgentPanelChatShortcut,
   shouldHandleAgentSidebarToggle,
@@ -99,11 +98,6 @@ import {
 } from "./agent-sidebar-url-sync.js";
 import type { AssistantChatProps } from "./chat/surface-types.js";
 import { assistantUiRecoverableRenderErrorKind } from "./composer/assistant-ui-recovery.js";
-import type {
-  MultiTabAssistantChatHeaderProps,
-  MultiTabAssistantChatProps,
-} from "./MultiTabAssistantChat.js";
-
 function parentFrameTargetOrigin(): string {
   return getFramePostMessageTargetOrigin() ?? window.location.origin;
 }
@@ -293,37 +287,27 @@ const AGENT_PANEL_CONTROL_STYLE = {
   lineHeight: 1,
 } satisfies React.CSSProperties;
 const ACTIVATE_KEYS = new Set(["Enter", " "]);
-type AgentPanelOverlayOpenTiming = "animation-frame" | "timeout";
 
 export function deferAgentPanelOverlayOpen(
   event: { preventDefault: () => void },
   closeMenu: () => void,
   openOverlay: () => void,
-  timing: AgentPanelOverlayOpenTiming = "animation-frame",
+  pendingOverlayRef: { current: (() => void) | null },
 ): void {
   event.preventDefault();
+  pendingOverlayRef.current = openOverlay;
   closeMenu();
-  if (timing === "timeout") {
-    setTimeout(openOverlay, 0);
-    return;
-  }
-  if (
-    typeof window !== "undefined" &&
-    typeof window.requestAnimationFrame === "function"
-  ) {
-    window.requestAnimationFrame(() => openOverlay());
-  } else {
-    setTimeout(openOverlay, 0);
-  }
 }
 
 export function consumeAgentPanelOverlayFocusRestore(
-  pendingOverlayRef: { current: boolean },
+  pendingOverlayRef: { current: (() => void) | null },
   event: { preventDefault: () => void },
 ): void {
-  if (!pendingOverlayRef.current) return;
-  pendingOverlayRef.current = false;
+  const openOverlay = pendingOverlayRef.current;
+  if (!openOverlay) return;
+  pendingOverlayRef.current = null;
   event.preventDefault();
+  openOverlay();
 }
 
 interface AvailableCli {
@@ -379,96 +363,6 @@ function IconTooltip({
   );
 }
 
-type ChatHeaderRenderer = (
-  props: MultiTabAssistantChatHeaderProps,
-) => React.ReactNode;
-
-function ChatLoadingSkeleton({
-  renderHeader,
-  centerComposerWhenEmpty = false,
-  composerSlot,
-  composerAreaClassName,
-  composerLayoutVariant = "default",
-}: {
-  renderHeader?: ChatHeaderRenderer;
-  centerComposerWhenEmpty?: boolean;
-  composerSlot?: React.ReactNode;
-  composerAreaClassName?: string;
-  composerLayoutVariant?: AssistantChatProps["composerLayoutVariant"];
-}) {
-  const t = useT();
-  const noop = useCallback(() => {}, []);
-  const noopStr = useCallback((_id: string) => {}, []);
-  const stubProps: MultiTabAssistantChatHeaderProps = {
-    tabs: [],
-    activeTabId: "",
-    activeTabMessageCount: 0,
-    setActiveTabId: noopStr,
-    addTab: noop,
-    closeTab: noopStr,
-    closeOtherTabs: noopStr,
-    closeAllTabs: noop,
-    clearActiveTab: noop,
-    showHistory: false,
-    tabCount: 0,
-    toggleHistory: noop,
-  };
-  if (centerComposerWhenEmpty) {
-    return (
-      <div className="flex flex-col flex-1 min-h-0">
-        {renderHeader ? renderHeader(stubProps) : null}
-        <div
-          data-agent-empty-state="centered"
-          className="relative flex flex-1 flex-col h-full min-h-0 text-foreground"
-        >
-          <div className="agent-chat-scroll flex-1 overflow-y-auto overflow-x-hidden min-h-0">
-            <div className="agent-empty-state sr-only" aria-busy="true">
-              {t("agentChat.empty.loadingChat")}
-            </div>
-          </div>
-          {composerSlot}
-          <div className="agent-composer-stack">
-            <div
-              className={cn(
-                "agent-composer-area shrink-0 px-3 py-2",
-                composerLayoutVariant !== "default" &&
-                  `agent-composer-area--${composerLayoutVariant}`,
-                composerAreaClassName,
-              )}
-            >
-              <div
-                className={cn(
-                  "agent-composer-root flex flex-col rounded-lg border border-input bg-muted/45 transition-colors",
-                  composerLayoutVariant !== "default" &&
-                    `agent-composer-root--${composerLayoutVariant}`,
-                )}
-              >
-                <div className="px-3 pt-3">
-                  <div className="h-5 w-3/5 rounded bg-muted animate-pulse motion-reduce:animate-none" />
-                </div>
-                <div className="mt-auto flex items-center gap-2 px-3 py-2">
-                  <div className="h-5 w-5 rounded bg-muted animate-pulse motion-reduce:animate-none" />
-                  <div className="ml-auto h-4 w-28 rounded bg-muted animate-pulse motion-reduce:animate-none" />
-                  <div className="h-7 w-7 rounded-md bg-muted animate-pulse motion-reduce:animate-none" />
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="flex flex-col flex-1 min-h-0">
-      {renderHeader ? renderHeader(stubProps) : null}
-      {/* Composer-shaped placeholder keeps layout stable during chunk load */}
-      <div className="mt-auto shrink-0 border-t border-border p-3">
-        <div className="h-16 rounded-xl bg-muted/40 animate-pulse motion-reduce:animate-none" />
-      </div>
-    </div>
-  );
-}
-
 export function getAgentPanelChatTabGroups(
   tabs: MultiTabAssistantChatHeaderProps["tabs"],
   activeTabId: string,
@@ -520,12 +414,18 @@ export function shouldShowAgentPanelPageHeader(
   tabs: MultiTabAssistantChatHeaderProps["tabs"],
   activeTabId: string,
   activeTabMessageCount: number,
+  showWhenEmpty = false,
 ) {
   if (!activeTabId) return false;
   if (activeTabMessageCount > 0) return true;
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
-  return activeTab?.status === "running" || activeTab?.status === "completed";
+  return Boolean(
+    activeTab &&
+    (showWhenEmpty ||
+      activeTab.status === "running" ||
+      activeTab.status === "completed"),
+  );
 }
 
 export function shouldShowAgentPanelCliTabBar(cliTabs: string[]) {
@@ -743,6 +643,7 @@ export interface AgentPanelProps extends Omit<
   showTabBar?: boolean;
   showPageNewChatButton?: boolean;
   showPageHeader?: boolean;
+  showPageHeaderWhenEmpty?: boolean;
   pageHeaderLeadingSlot?: React.ReactNode;
   pageToolbarSlot?: React.ReactNode;
   onPageHeaderVisibilityChange?: (visible: boolean) => void;
@@ -928,6 +829,7 @@ function AgentPanelInner({
   showTabBar = true,
   showPageNewChatButton = false,
   showPageHeader = false,
+  showPageHeaderWhenEmpty = false,
   pageHeaderLeadingSlot,
   pageToolbarSlot,
   onPageHeaderVisibilityChange,
@@ -1304,9 +1206,8 @@ function AgentPanelInner({
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [shareFromMenuOpen, setShareFromMenuOpen] = useState(false);
-  const preventHeaderMenuFocusRestoreRef = useRef(false);
+  const pendingHeaderOverlayRef = useRef<(() => void) | null>(null);
   const closeHeaderMenuForOverlay = useCallback(() => {
-    preventHeaderMenuFocusRestoreRef.current = true;
     setHeaderMenuOpen(false);
   }, []);
 
@@ -1497,7 +1398,7 @@ function AgentPanelInner({
             className="max-h-[var(--radix-dropdown-menu-content-available-height)] w-48 overflow-y-auto"
             onCloseAutoFocus={(event) => {
               consumeAgentPanelOverlayFocusRestore(
-                preventHeaderMenuFocusRestoreRef,
+                pendingHeaderOverlayRef,
                 event,
               );
             }}
@@ -1610,7 +1511,7 @@ function AgentPanelInner({
                         event,
                         closeHeaderMenuForOverlay,
                         () => setShareFromMenuOpen(true),
-                        "timeout",
+                        pendingHeaderOverlayRef,
                       )
                     }
                   >
@@ -1626,7 +1527,7 @@ function AgentPanelInner({
                     event,
                     closeHeaderMenuForOverlay,
                     toggleHistory,
-                    "timeout",
+                    pendingHeaderOverlayRef,
                   )
                 }
               >
@@ -1675,6 +1576,7 @@ function AgentPanelInner({
                     event,
                     closeHeaderMenuForOverlay,
                     () => setFeedbackOpen(true),
+                    pendingHeaderOverlayRef,
                   )
                 }
               >
@@ -1819,6 +1721,7 @@ function AgentPanelInner({
         tabs,
         activeTabId,
         activeTabMessageCount,
+        showPageHeaderWhenEmpty,
       );
       const canShareActiveTab =
         activeTab && (activeTabMessageCount > 0 || activeTab.status !== "idle");
@@ -1872,7 +1775,7 @@ function AgentPanelInner({
                       className="w-44"
                       onCloseAutoFocus={(event) => {
                         consumeAgentPanelOverlayFocusRestore(
-                          preventHeaderMenuFocusRestoreRef,
+                          pendingHeaderOverlayRef,
                           event,
                         );
                       }}
@@ -1884,7 +1787,7 @@ function AgentPanelInner({
                               event,
                               closeHeaderMenuForOverlay,
                               toggleHistory,
-                              "timeout",
+                              pendingHeaderOverlayRef,
                             )
                           }
                         >
@@ -1949,7 +1852,7 @@ function AgentPanelInner({
       onPageHeaderVisibilityChange,
       pageHeaderLeadingSlot,
       pageToolbarSlot,
-      preventHeaderMenuFocusRestoreRef,
+      pendingHeaderOverlayRef,
       setHeaderMenuOpen,
       showPageNewChatButton,
       t,
@@ -2544,13 +2447,9 @@ function AgentPanelInner({
           </Suspense>
         )}
 
-        {/* Chat view — always mounted to preserve state.
-          Header (with tabs + mode buttons) is always visible.
-          Chat content is hidden when CLI or resources mode is active.
-          The wrapper collapses (no flex-1) when another mode is active
-          so it only takes the height of its header.
-          The Suspense boundary renders the header chrome immediately while
-          the lazy assistant-ui chunk loads in the background. */}
+        {/* Chat view stays mounted to preserve state. MultiTabAssistantChat
+          owns its transcript loading state; mounting it here keeps the
+          interactive composer available while that data loads. */}
         <div
           className={cn(
             "flex flex-col min-h-0",
@@ -2558,58 +2457,40 @@ function AgentPanelInner({
           )}
         >
           {mounted && (
-            <Suspense
-              fallback={
-                <ChatLoadingSkeleton
-                  renderHeader={showHeader ? renderChatHeader : undefined}
-                  centerComposerWhenEmpty={
-                    assistantChatProps.centerComposerWhenEmpty
-                  }
-                  composerSlot={assistantChatProps.composerSlot}
-                  composerAreaClassName={
-                    assistantChatProps.composerAreaClassName
-                  }
-                  composerLayoutVariant={
-                    assistantChatProps.composerLayoutVariant
-                  }
-                />
+            <MultiTabAssistantChat
+              {...assistantChatProps}
+              threadContentSlot={assistantChatProps.threadContentSlot}
+              agentChatSurface={effectiveAgentChatSurface}
+              apiUrl={apiUrl}
+              showHeader={false}
+              renderHeader={showHeader ? renderChatHeader : undefined}
+              showTabBar={showTabBar}
+              renderOverlay={
+                showPageHeader && !showHeader
+                  ? renderPageChatOverlay
+                  : undefined
               }
-            >
-              <MultiTabAssistantChatLazy
-                {...assistantChatProps}
-                threadContentSlot={assistantChatProps.threadContentSlot}
-                agentChatSurface={effectiveAgentChatSurface}
-                apiUrl={apiUrl}
-                showHeader={false}
-                renderHeader={showHeader ? renderChatHeader : undefined}
-                showTabBar={showTabBar}
-                renderOverlay={
-                  showPageHeader && !showHeader
-                    ? renderPageChatOverlay
-                    : undefined
-                }
-                contentHidden={mode !== "chat"}
-                emptyStateText={emptyStateText}
-                emptyStateAddon={emptyStateAddon}
-                emptyStateFooter={emptyStateFooter}
-                onMessageCountChange={onMessageCountChange}
-                suggestions={suggestions}
-                dynamicSuggestions={dynamicSuggestions}
-                suggestionPlacement={
-                  assistantChatProps.suggestionPlacement ?? "context-chips"
-                }
-                onSwitchToCli={() => switchMode("cli")}
-                execMode={execMode}
-                onExecModeChange={switchExecMode}
-                storageKey={storageKey}
-                restoreActiveThread={restoreActiveThread}
-                scope={scope}
-                isolateHistoryByScope={isolateHistoryByScope}
-                showScopeBadge={showScopeBadge}
-                browserTabId={browserTabId}
-                threadUrlSync={threadUrlSync}
-              />
-            </Suspense>
+              contentHidden={mode !== "chat"}
+              emptyStateText={emptyStateText}
+              emptyStateAddon={emptyStateAddon}
+              emptyStateFooter={emptyStateFooter}
+              onMessageCountChange={onMessageCountChange}
+              suggestions={suggestions}
+              dynamicSuggestions={dynamicSuggestions}
+              suggestionPlacement={
+                assistantChatProps.suggestionPlacement ?? "context-chips"
+              }
+              onSwitchToCli={() => switchMode("cli")}
+              execMode={execMode}
+              onExecModeChange={switchExecMode}
+              storageKey={storageKey}
+              restoreActiveThread={restoreActiveThread}
+              scope={scope}
+              isolateHistoryByScope={isolateHistoryByScope}
+              showScopeBadge={showScopeBadge}
+              browserTabId={browserTabId}
+              threadUrlSync={threadUrlSync}
+            />
           )}
         </div>
 

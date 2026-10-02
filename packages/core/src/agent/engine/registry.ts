@@ -6,7 +6,6 @@ import {
   type CredentialProvenance,
 } from "../../credentials/index.js";
 import { isBlockedExtensionUrlWithDns } from "../../extensions/url-safety.js";
-import { getUserLabs } from "../../labs/store.js";
 import {
   BUILDER_OAUTH_SCOPE,
   hasBuilderOAuthSession,
@@ -36,11 +35,12 @@ import {
   secretKeyNames,
 } from "../../server/secret-key-aliases.js";
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
-import {
-  CHATGPT_SUBSCRIPTION_ENGINE_NAME,
-  CHATGPT_SUBSCRIPTION_LAB_KEY,
-} from "../chatgpt-subscription-contract.js";
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../chatgpt-subscription-contract.js";
 import { readDefaultAgentEngineSetting } from "../default-agent-engine.js";
+import {
+  BUILDER_CLAUDE_SONNET_MODEL_ID,
+  CLAUDE_SONNET_MODEL_ID,
+} from "../model-config.js";
 import { createProviderEndpointFetch } from "./ai-sdk-engine.js";
 import {
   OLLAMA_DEFAULT_BASE_URL,
@@ -289,12 +289,7 @@ export function normalizeModelForEngine(
   const candidate = typeof model === "string" ? model.trim() : "";
   if (!candidate) return engine.defaultModel;
 
-  if (
-    engine.preserveCustomModels ||
-    engine.acceptsCustomModels ||
-    options.preserveCustomModels ||
-    options.acceptsCustomModels
-  ) {
+  if (engine.preserveCustomModels || options.preserveCustomModels) {
     return candidate;
   }
 
@@ -304,10 +299,20 @@ export function normalizeModelForEngine(
     return candidate;
   }
 
-  return (
-    findLatestSupportedVersionMatch(candidate, engine.supportedModels) ??
-    engine.defaultModel
+  if (engine.acceptsCustomModels || options.acceptsCustomModels) {
+    return candidate === BUILDER_CLAUDE_SONNET_MODEL_ID &&
+      engine.supportedModels.includes(CLAUDE_SONNET_MODEL_ID)
+      ? CLAUDE_SONNET_MODEL_ID
+      : candidate;
+  }
+
+  const versionMatch = findLatestSupportedVersionMatch(
+    candidate,
+    engine.supportedModels,
   );
+  if (versionMatch) return versionMatch;
+
+  return engine.defaultModel;
 }
 
 type ModelResolvableEngine = Pick<
@@ -845,8 +850,6 @@ async function chatGPTSubscriptionUsableForRequest(
 ): Promise<boolean> {
   const email = identityUserEmail(identity);
   if (!email) return false;
-  const labs = await getUserLabs(email);
-  if (labs[CHATGPT_SUBSCRIPTION_LAB_KEY] !== true) return false;
   return hasChatGPTSubscriptionCredential(email);
 }
 
@@ -904,7 +907,7 @@ async function engineCreateConfigForEntry(
       !(await chatGPTSubscriptionUsableForRequest(credentialIdentity))
     ) {
       throw new Error(
-        "Enable the ChatGPT subscription lab and connect a ChatGPT subscription before using this engine.",
+        "Connect a ChatGPT account with direct model access before using this engine.",
       );
     }
     safeExtra.userEmail = email;

@@ -164,6 +164,11 @@ export default defineAction({
       height: 900,
     }),
   },
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async (args, ctx) => {
     const hasCreativeContextInput = Boolean(
       args.contextPackId ||

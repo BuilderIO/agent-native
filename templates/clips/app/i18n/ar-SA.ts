@@ -4,6 +4,7 @@ const messages = {
   },
   agentChat: {
     setup: {
+      connectBuilder: "الاتصال بـ Builder.io",
       providerStatusUnavailable: "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
     },
     common: { retry: "إعادة المحاولة" },
@@ -799,6 +800,11 @@ const messages = {
     agentTitle: "إدارة الوكيل",
     pageTitle: "الإعدادات · Clips",
     labs: "Labs",
+    labResilientRecording: "تسجيل مرن",
+    labResilientRecordingDescription:
+      "جرّب رفع التسجيلات بسرعة أكبر واستعادتها بصورة أفضل بعد الانقطاع.",
+    labResilientRecordingMixedDescription:
+      "لا تزال إعدادات التسجيل السابقة سارية. اختر تشغيل أو إيقاف لاستخدام إعداد واحد.",
     labsIntro:
       "هذه ميزات جديدة وغير مستقرة وقد تحتوي على أخطاء. نحن نقدر ملاحظاتك.",
     labVideoEditing: "تحرير الفيديو",
@@ -1216,14 +1222,14 @@ const messages = {
     elapsed: "الوقت المنقضي",
     cancel: "حذف التسجيل",
     cancelShortcut: "حذف (⌥⇧C)",
-    discardConfirmTitle: "هل تريد حذف هذا التسجيل؟",
+    discardConfirmTitle: "حذف هذا التسجيل؟",
     discardConfirmDescription:
       "لا يمكن التراجع عن هذا الإجراء. سيتم حذف تسجيلك حتى الآن نهائيًا.",
     resume: "استئناف",
     discardRecording: "حذف التسجيل",
     restart: "إعادة بدء التسجيل",
     restartShortcut: "إعادة البدء (⌥⇧R)",
-    restartQuestion: "هل تريد بدء تسجيل جديد؟",
+    restartQuestion: "حذف هذا التسجيل والبدء من جديد؟",
     restartConfirm: "إعادة البدء",
   },
   countdownOverlay: {
@@ -1453,15 +1459,11 @@ const messages = {
       "لم يصل رد من Builder خلال 5 دقائق. تحقق من النافذة المنبثقة وحاول مرة أخرى.",
     builderConnected: "Builder.io متصل",
     waitingForBuilder: "بانتظار Builder...",
-    connectBuilder: "استخدام Builder.io",
+    description:
+      "خزّن مقاطع الفيديو المسجّلة باستخدام Builder.io أو تخزين متوافق مع S3. يتضمّن Builder.io استضافة مجانية ورصيد ذكاء اصطناعي.",
     createBuilderAccount: "إنشاء حساب Builder.io",
     signInWithBuilderAccount: "تسجيل الدخول بحساب Builder.io",
-    builderConsentPrefix: "بإنشاء حساب Builder.io، فإنك توافق على",
-    builderTerms: "شروط الخدمة",
-    builderConsentAnd: "و",
-    builderPrivacy: "سياسة الخصوصية",
     free: "مجاني",
-    configureS3: "تكوين تخزين متوافق مع S3",
     whyPrompt: "لماذا أرى هذا؟",
     whyDescription:
       "Clips تطبيق مجاني ومفتوح المصدر 100%، لذلك تحتاج إلى توصيل طريقة لتخزين المقاطع. صِل التخزين عبر Builder.io لتخزين وذكاء اصطناعي ضمن الخطة المجانية، أو استخدم تخزين كائنات متوافقًا مع S3 ومفاتيح LLM الخاصة بك.",
@@ -1797,10 +1799,60 @@ const messages = {
       "صِل التخزين في الشاشة التالية: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3. سيكمل Clips الحفظ.",
     connectStorageToRetryLoom:
       "صِل التخزين في الشاشة التالية: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3. سيعيد Clips محاولة الاستيراد.",
-    leaveConfirmTitle: "مغادرة هذه الصفحة وحذف التسجيل؟",
+    leaveConfirmTitle: "مغادرة هذا التسجيل؟",
     leaveConfirmDescription:
-      "لم يكتمل حفظ التسجيل الجاري بعد. مغادرة هذه الصفحة الآن ستؤدي إلى حذفه.",
+      "هذا التسجيل موجود في علامة التبويب هذه فقط. ستحذفه المغادرة ما لم تنزّل نسخة منه أولًا.",
     leaveAndDiscard: "مغادرة وحذف",
+    recordingWithoutSound:
+      "يتم التسجيل بدون صوت. شغّل الميكروفون للحصول على نص مكتوب.",
+    pendingStorageTitle: "اربط التخزين لحفظ تسجيلك",
+    pendingStorageDescription: "اربط مساحة تخزين وسيرفعه Clips فورًا.",
+    storageConnectedUploading: "تم ربط التخزين. جارٍ رفع تسجيلك…",
+    downloadCopy: "تنزيل نسخة",
+    localRecordingOpenElsewhere:
+      "هذا التسجيل لا يزال مفتوحًا في علامة تبويب أخرى من Clips.",
+    uploadWaitingForConnection:
+      "الرفع متوقف مؤقتًا. يعيد Clips المحاولة تلقائيًا.",
+    uploadDidNotFinish: "لم يكتمل الرفع.",
+    unfinishedRecording: "هناك تسجيل لم يكتمل رفعه",
+    finishUpload: "إكمال الرفع",
+    leaveKeepDescription:
+      'يحتفظ Clips به في هذا المتصفح ويعرض عليك إكمال الرفع عند عودتك. خيار "مغادرة وحذف" يحذفه نهائيًا.',
+    leaveAndKeep: "المغادرة مع الاحتفاظ",
+    copySafeInBrowser: "تسجيلك محفوظ بأمان في هذا المتصفح.",
+    copyOnlyInThisTab:
+      "هذا التسجيل موجود في علامة التبويب هذه فقط. أبقها مفتوحة أو نزّل نسخة.",
+    localCopyFull:
+      "مساحة هذا المتصفح ممتلئة، لذا لا يستطيع Clips الاحتفاظ بنسخة احتياطية. أبقِ علامة التبويب مفتوحة حتى ينتهي الرفع، أو نزّل نسخة.",
+    localCopyFailed:
+      "تعذّر على Clips الاحتفاظ بنسخة احتياطية في هذا المتصفح. أبقِ علامة التبويب مفتوحة حتى ينتهي الرفع، أو نزّل نسخة.",
+    localCopyUnreadable: "تعذّرت قراءة نسخة التسجيل الموجودة في هذا المتصفح.",
+    recordingOwnedByAnotherAccount:
+      "هذا التسجيل يخص حسابًا آخر. سجّل الدخول إلى ذلك الحساب في هذا المتصفح لرفعه.",
+    unclaimedRecording: "يوجد تسجيل في هذا المتصفح غير مرتبط بأي حساب",
+    reviewRecording: "مراجعة",
+    claimRecordingPrompt:
+      "هذا التسجيل غير مرتبط بأي حساب بعد. هل تريد رفعه إلى {{email}}؟",
+    claimRecording: "الرفع إلى حسابي",
+    lowBrowserStorage:
+      "مساحة هذا المتصفح منخفضة، لذا قد لا يتسع التسجيل الطويل لنسخته الاحتياطية. أبقِ علامة التبويب مفتوحة حتى يُرفع.",
+    recordingEndMissing:
+      "لم تُحفظ نهاية هذا التسجيل. سيرفع Clips ما لديه ويحتفظ بنسختك.",
+    uploadedPartialCopyKept:
+      "رُفع ما حفظه هذا المتصفح. قد تكون النهاية مفقودة، لذا احتفظ Clips بنسختك هنا.",
+    uploadUnverifiedCopyKept:
+      "تعذّر على Clips التأكد من رفع التسجيل كاملًا، لذا احتفظ بنسختك هنا.",
+    copyKeptAfterUpload:
+      "رُفع هذا التسجيل، لكن تعذّر على Clips التأكد من اكتماله، لذا احتفظ بنسختك هنا.",
+    localCopyLockUnavailable:
+      "لا يستطيع Clips التأكد من أن علامة تبويب أخرى لا تستخدم هذا التسجيل، لذا لن يرفعه أو يحذفه من هنا. نزّل نسخة بدلًا من ذلك.",
+    uploadAgain: "الرفع مرة أخرى",
+    keptCopyWaiting: "احتفظ Clips بنسخة من تسجيل في هذا المتصفح",
+    savedRecordingsUnreadable:
+      "تعذّر على Clips قراءة التسجيلات المحفوظة في هذا المتصفح.",
+    remindTomorrow: "ذكّرني غدًا",
+    stillProcessingCopyKept:
+      "لا يزال هذا التسجيل قيد المعالجة، لذا احتفظ Clips بنسختك هنا. انتظر اكتمالها أو ارفعه مرة أخرى.",
   },
   importRoute: {
     pageTitle: "استيراد Loom — Clips",
@@ -1940,6 +1992,8 @@ const messages = {
     retry: "إعادة المحاولة",
     retrying: "جارٍ إعادة المحاولة…",
     retryFailed: "تعذّرت إعادة محاولة هذا الرفع.",
+    retryCheckFailed:
+      "تعذّر التحقق مما إذا كان يمكن إعادة محاولة هذا الرفع. حدّث الصفحة للمحاولة مجددًا.",
     retryUnavailableHere:
       "لا تتوفر إعادة المحاولة إلا على الجهاز أو المتصفح الذي تم التسجيل عليه.",
     viewsCount: "{{count}} مشاهدة",

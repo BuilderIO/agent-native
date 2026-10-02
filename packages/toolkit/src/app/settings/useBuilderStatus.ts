@@ -253,6 +253,8 @@ const POPUP_LOAD_TIMEOUT_MS = 20_000;
 const STATUS_FETCH_ABORT_MS = 10_000;
 const BUILDER_STATUS_UNAVAILABLE_MESSAGE =
   "Couldn't reach Builder to check your account. Retrying.";
+const BUILDER_CONNECT_START_FAILED_MESSAGE =
+  "Couldn't start Builder connect. Refresh this page and try again.";
 const CALLBACK_SUCCESS_STATUS_RETRY_MS = 500;
 const CALLBACK_SUCCESS_STATUS_RETRIES = 10;
 const BUILDER_CONNECT_PARAM = "_an_connect";
@@ -660,6 +662,67 @@ export function openBuilderConnectPopup({
   }
 }
 
+export type BuilderAccountActivationResult =
+  | { ok: true }
+  | {
+      ok: false;
+      /** The server's code, or `network_error` / `http_<status>` without one. */
+      code: string;
+      /** The server's message; null when it sent none. */
+      message: string | null;
+    };
+
+/**
+ * Create and connect a Builder.io account in one server request. Unlike
+ * signing in to an existing account, this needs no popup.
+ */
+export async function requestBuilderAccountActivation({
+  provisioningToken,
+  scope,
+  connectToken,
+  source,
+  flow,
+  signal,
+}: {
+  provisioningToken: string;
+  scope?: BuilderConnectionScope | null;
+  connectToken?: string | null;
+  source?: string;
+  flow?: string;
+  signal?: AbortSignal;
+}): Promise<BuilderAccountActivationResult> {
+  const origin = getCallbackOrigin() || window.location.origin;
+  const url = withBuilderConnectTrackingParams(
+    new URL(agentNativePath("/_agent-native/builder/provision"), origin).href,
+    { source, flow },
+  );
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        provisioningToken,
+        ...(scope ? { scope } : {}),
+        ...(connectToken ? { connectToken } : {}),
+      }),
+      signal,
+    });
+  } catch {
+    return { ok: false, code: "network_error", message: null };
+  }
+  const body = (await response.json().catch(
+    () => null, // coercion-ok: a non-JSON answer is reported below as http_<status>
+  )) as { ok?: unknown; code?: unknown; message?: unknown } | null;
+  if (response.ok && body?.ok === true) return { ok: true };
+  return {
+    ok: false,
+    code:
+      typeof body?.code === "string" ? body.code : `http_${response.status}`,
+    message: typeof body?.message === "string" ? body.message : null,
+  };
+}
+
 const BUILDER_CONNECTION_SCOPE_PARAM = "scope";
 
 interface BuilderConnectionsState {
@@ -761,6 +824,9 @@ export function useBuilderConnectFlow(
   const connectAttemptIdRef = useRef<string | null>(null);
   const cancelledConnectAttemptIdRef = useRef<string | null>(null);
   const activePopupRef = useRef<Window | null>(null);
+  const confirmConnectSuccessRef = useRef<(attemptId: string) => Promise<void>>(
+    async () => {},
+  );
   const popupClosedAtRef = useRef<number | null>(null);
   const callbackSuccessStartedAtRef = useRef<number | null>(null);
   const callbackSuccessInFlightAtRef = useRef<number | null>(null);
@@ -1097,6 +1163,122 @@ export function useBuilderConnectFlow(
       )
         ? statusConnectUrl
         : null;
+
+      if (provisionAccountForStart && agentNativeProvisioningEnabled) {
+        const trackedFlow =
+          cleanTrackingParam(clickTrackingFlow) ??
+          inferBuilderConnectTrackingFlow(clickTrackingSource);
+        trackEvent("builder_connect_clicked", {
+          feature: "builder",
+          stage: "client",
+          source: clickTrackingSource,
+          flow: trackedFlow,
+          connect_url_kind: "provision",
+        });
+        const connectToken = cachedFreshUrl
+          ? new URL(cachedFreshUrl, origin).searchParams.get(
+              BUILDER_CONNECT_PARAM,
+            )
+          : null;
+        const isCurrentAttempt = () =>
+          mountedRef.current &&
+          connectAttemptIdRef.current === connectAttemptId &&
+          cancelledConnectAttemptIdRef.current !== connectAttemptId;
+        const activate = async (credentials: {
+          provisioningToken: string | null;
+          connectToken: string | null;
+        }): Promise<BuilderAccountActivationResult> =>
+          credentials.provisioningToken
+            ? requestBuilderAccountActivation({
+                provisioningToken: credentials.provisioningToken,
+                scope: scopeForStart,
+                connectToken: credentials.connectToken,
+                source: clickTrackingSource,
+                flow: clickTrackingFlow,
+              })
+            : { ok: false, code: "provision_token_invalid", message: null };
+        // Provisioning and connect tokens expire; refresh both from one status read.
+        const freshProvisioningCredentials = async () => {
+          // coercion-ok: no fresh token is sent as none and refused as provision_token_invalid
+          const status = await fetchStatus();
+          const freshUrl = status?.connectUrl ?? null;
+          return {
+            provisioningToken: status?.agentNativeProvisioningToken ?? null,
+            connectToken: freshUrl
+              ? new URL(freshUrl, origin).searchParams.get(
+                  BUILDER_CONNECT_PARAM,
+                )
+              : null,
+          };
+        };
+        void (async () => {
+          // The provisioning token outlives the signed connect URL by a
+          // minute, so cached credentials count only when both are usable.
+          const cachedCredentials =
+            agentNativeProvisioningToken && connectToken
+              ? {
+                  provisioningToken: agentNativeProvisioningToken,
+                  connectToken,
+                }
+              : null;
+          let result = await activate(
+            cachedCredentials ?? (await freshProvisioningCredentials()),
+          );
+          if (
+            !result.ok &&
+            cachedCredentials &&
+            (result.code === "provision_token_invalid" ||
+              result.code === "cross_origin") &&
+            isCurrentAttempt()
+          ) {
+            result = await activate(await freshProvisioningCredentials());
+          }
+          if (!isCurrentAttempt()) {
+            notifyAgentEngineConfiguredChanged("builder-connect");
+            return;
+          }
+          if (result.ok) {
+            await confirmConnectSuccessRef.current(connectAttemptId);
+            return;
+          }
+          if (result.code === "network_error") {
+            // The server may have finished before the response was lost, so
+            // look once; only a status that shows no connection ends the
+            // attempt with a retryable error.
+            const status = await fetchStatus();
+            if (!isCurrentAttempt()) return;
+            if (
+              status &&
+              isBuilderConnectComplete(status, connectTargetRef.current)
+            ) {
+              await confirmConnectSuccessRef.current(connectAttemptId);
+              return;
+            }
+          }
+          connectStartedAtRef.current = null;
+          setConnecting(false);
+          if (result.code === "account_exists") {
+            setAccountExists(true);
+            return;
+          }
+          if (!result.message) {
+            trackEvent("builder_connect_failed", {
+              feature: "builder",
+              stage: "client",
+              reason: result.code,
+              source: clickTrackingSource,
+              flow: trackedFlow,
+            });
+          }
+          setError(
+            result.message && result.code !== "provision_token_invalid"
+              ? result.message
+              : BUILDER_CONNECT_START_FAILED_MESSAGE,
+          );
+        })();
+        return;
+      }
+
       // popupUrl props and statusConnectUrl are signed URLs minted before the
       // click. Top-level browsers use about:blank so the waiting document
       // cannot race the refreshed signed URL navigation. Embedded hosts use
@@ -1286,9 +1468,7 @@ export function useBuilderConnectFlow(
               }
               connectStartedAtRef.current = null;
               setConnecting(false);
-              setError(
-                "Couldn't start Builder connect. Refresh this page and try again.",
-              );
+              setError(BUILDER_CONNECT_START_FAILED_MESSAGE);
               return;
             }
             const popupLoaded = await popupReady;
@@ -1643,6 +1823,7 @@ export function useBuilderConnectFlow(
         // The caller's callback is a UI convenience; status is already set.
       }
     };
+    confirmConnectSuccessRef.current = handleSuccess;
 
     try {
       channel = new BroadcastChannel(`builder-connect:${window.location.host}`);

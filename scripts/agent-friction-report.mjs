@@ -670,6 +670,38 @@ const FEEDBACK_EYES_REGEX_CASES = [
   [false, "Fixed, add a checkmark."],
 ];
 
+const FEEDBACK_STATUS_REACTIONS_RE =
+  /(?=.*(?:\beyes?\b|👀))(?=.*(?:checkmark|check mark|✅))(?=.*(?:ticket(?: emoji)?|🎫))(?=.*(?:not fixed|don['’]?t fix|didn['’]?t fix|we didn['’]?t|unfixed|not addressed|opposite of (?:a )?checkmark))/is;
+const FEEDBACK_STATUS_REACTIONS_REGEX_CASES = [
+  [true, "Keep 👀; use ✅ when fixed and 🎫 when not fixed."],
+  [
+    true,
+    "When we put eyes on it, add a checkmark for fixes and a ticket emoji for unfixed issues.",
+  ],
+  [
+    true,
+    "Keep 👀. Some things we fixed and some things we didn't; add ✅ and 🎫.",
+  ],
+  [false, "Keep 👀 and ✅ on fixed reports; ask about anything unfixed."],
+  [false, "A ticket emoji is already on the issue."],
+];
+
+const POST_MERGE_FEEDBACK_FOLLOWUP_RE =
+  /(?=.*\b(?:Slack|reporter|thread)s?\b)(?=.*(?:\b(?:PR|fix|issue)\b[^.!?]{0,160}\b(?:merg(?:e|ed|es|ing)|land(?:s|ed|ing)?)\b|\b(?:merg(?:e|ed|es|ing)|land(?:s|ed|ing)?)\b[^.!?]{0,160}\b(?:PR|fix|issue)\b))(?=.*\b(?:go back|follow[ -]?up|reply|respond|tell|notify|update)\b)(?=.*\b(?:after|once|when|anytime|every time|please|make sure|remind|forgot|missed|didn['’]?t|haven['’]?t|merg(?:e|ed|es|ing)|land(?:s|ed|ing)?)\b)/is;
+const POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES = [
+  [
+    true,
+    "Anytime we fix something reported in Slack and the PR is merged, please go back to the threads and tell them.",
+  ],
+  [true, "You forgot to notify the Slack thread after the fix was merged."],
+  [true, "The PR merged, so reply in the Slack thread."],
+  [true, "The PR merges, so reply in the Slack thread."],
+  [true, "The fix lands, so update the feedback thread."],
+  [true, "After merging the PR, reply in the Slack thread."],
+  [false, "The PR merged and the fix should be live on beta soon."],
+  [false, "Please ask the Slack reporter for more information."],
+];
+
 const PR_REVIEW_HANDOFF_SUBJECTS = String.raw`(?:(?:your|our|this|my|the)\s+)?(?:handoff|recap|summary|report|output|review)`;
 const PR_REVIEW_HANDOFF_DETAILS = [
   String.raw`which\s+(?:PRs?|pull\s+requests?)\s+(?:were|are)\s+ready(?:\s+to\s+merge)?`,
@@ -2018,6 +2050,18 @@ if (process.argv.includes("--self-test")) {
     ),
   );
   failures.push(
+    ...FEEDBACK_STATUS_REACTIONS_REGEX_CASES.filter(
+      ([expected, message]) =>
+        FEEDBACK_STATUS_REACTIONS_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
+    ...POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.filter(
+      ([expected, message]) =>
+        POST_MERGE_FEEDBACK_FOLLOWUP_RE.test(message) !== expected,
+    ),
+  );
+  failures.push(
     ...PR_REVIEW_HANDOFF_REGEX_CASES.filter(
       ([expected, message]) =>
         PR_REVIEW_HANDOFF_MATCHER.test(message) !== expected,
@@ -2047,7 +2091,7 @@ if (process.argv.includes("--self-test")) {
     process.exitCode = 1;
   } else {
     console.log(
-      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length} cases).`,
+      `Friction regex self-test passed (${FEEDBACK_REGEX_CASES.length + RESOURCE_CLEANUP_REGEX_CASES.length + SHIPPING_CHURN_REGEX_CASES.length + UNAUTHORIZED_PR_PUSH_REGEX_CASES.length + BETA_PUBLISHER_RUN_INTERFERENCE_REGEX_CASES.length + BETA_OVERVERIFICATION_REGEX_CASES.length + BABYSIT_LEASE_BLOCKS_WORK_REGEX_CASES.length + STALE_PR_WATCHER_REGEX_CASES.length + SHIP_STOPPED_BEFORE_MERGE_REGEX_CASES.length + CREDENTIAL_REGEX_CASES.length + DESIGN_FEEDBACK_REGEX_CASES.length + FEEDBACK_EYES_REGEX_CASES.length + FEEDBACK_STATUS_REACTIONS_REGEX_CASES.length + POST_MERGE_FEEDBACK_FOLLOWUP_REGEX_CASES.length + PR_REVIEW_HANDOFF_REGEX_CASES.length + WORKTREE_BRANCH_PERMISSION_REGEX_CASES.length + BRANCH_WORKTREE_ASK_REGEX_CASES.length + BRANCH_CLASSIFICATION_REGEX_CASES.length} cases).`,
     );
   }
   process.exit(failures.length > 0 ? 1 : 0);
@@ -2265,6 +2309,19 @@ const PATTERNS = [
     fixedBy:
       ".agents/skills/review-latest-feedback + address-feedback-with-replies (active ownership lifecycle, 2026-09-23)",
     re: FEEDBACK_EYES_RE,
+  },
+  {
+    key: "feedback-status-reactions",
+    label:
+      "Had to ask for checkmark/ticket reactions matching feedback outcomes",
+    fixedBy: ".agents/skills/review-latest-feedback (2026-09-30)",
+    re: FEEDBACK_STATUS_REACTIONS_RE,
+  },
+  {
+    key: "post-merge-feedback-followup",
+    label: "Had to ask for Slack follow-up after a feedback fix merged",
+    fixedBy: ".agents/skills/review-latest-feedback (2026-09-30)",
+    re: POST_MERGE_FEEDBACK_FOLLOWUP_RE,
   },
   {
     key: "repeat-report-refix",

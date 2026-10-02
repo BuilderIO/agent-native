@@ -2,6 +2,7 @@ const messages = {
   meetingAsk: { resizeOrDismissAnswers: "जवाबों का आकार बदलें या बंद करें" },
   agentChat: {
     setup: {
+      connectBuilder: "Builder.io कनेक्ट करें",
       providerStatusUnavailable: "यह पुष्टि नहीं हो सकी कि AI तैयार है।",
     },
     common: { retry: "फिर से प्रयास करें" },
@@ -787,6 +788,11 @@ const messages = {
     agentTitle: "एजेंट प्रबंधित करें",
     pageTitle: "सेटिंग्स · Clips",
     labs: "Labs",
+    labResilientRecording: "भरोसेमंद रिकॉर्डिंग",
+    labResilientRecordingDescription:
+      "रिकॉर्डिंग तेज़ी से अपलोड करने और रुकावट के बाद बेहतर रिकवरी का अनुभव करें।",
+    labResilientRecordingMixedDescription:
+      "पिछली रिकॉर्डिंग सेटिंग अब भी लागू हैं। एक सेटिंग चुनने के लिए चालू या बंद चुनें।",
     labsIntro:
       "ये नई, अस्थिर सुविधाएँ हैं और इनमें बग हो सकते हैं। हम आपकी प्रतिक्रिया को महत्व देते हैं।",
     labVideoEditing: "वीडियो संपादन",
@@ -1190,14 +1196,14 @@ const messages = {
     elapsed: "बीता समय",
     cancel: "रिकॉर्डिंग हटाएं",
     cancelShortcut: "हटाएं (⌥⇧C)",
-    discardConfirmTitle: "क्या इस रिकॉर्डिंग को हटाना है?",
+    discardConfirmTitle: "यह रिकॉर्डिंग मिटाएँ?",
     discardConfirmDescription:
       "इसे पूर्ववत नहीं किया जा सकता। अब तक की आपकी रिकॉर्डिंग स्थायी रूप से हटा दी जाएगी।",
     resume: "फिर शुरू करें",
     discardRecording: "रिकॉर्डिंग हटाएं",
     restart: "रिकॉर्डिंग फिर से शुरू करें",
     restartShortcut: "फिर से शुरू करें (⌥⇧R)",
-    restartQuestion: "क्या नई रिकॉर्डिंग शुरू करें?",
+    restartQuestion: "यह रिकॉर्डिंग मिटाकर फिर से शुरू करें?",
     restartConfirm: "फिर से शुरू करें",
   },
   countdownOverlay: {
@@ -1427,15 +1433,11 @@ const messages = {
       "5 मिनट में Builder से जवाब नहीं मिला। पॉपअप जांचें और फिर कोशिश करें।",
     builderConnected: "Builder.io कनेक्ट है",
     waitingForBuilder: "Builder की प्रतीक्षा...",
-    connectBuilder: "Builder.io इस्तेमाल करें",
+    description:
+      "रिकॉर्ड किए गए वीडियो को Builder.io या S3-संगत स्टोरेज में सहेजें। Builder.io में मुफ़्त होस्टिंग और AI क्रेडिट शामिल हैं।",
     createBuilderAccount: "Builder.io खाता बनाएँ",
     signInWithBuilderAccount: "Builder.io खाते से साइन इन करें",
-    builderConsentPrefix: "Builder.io खाता बनाकर, आप हमारी",
-    builderTerms: "सेवा की शर्तों",
-    builderConsentAnd: "और",
-    builderPrivacy: "गोपनीयता नीति",
     free: "मुफ्त",
-    configureS3: "S3-संगत स्टोरेज कॉन्फ़िगर करें",
     whyPrompt: "मैं यह क्यों देख रहा हूं?",
     whyDescription:
       "Clips 100% मुफ्त और ओपन सोर्स ऐप है, इसलिए आपको क्लिप स्टोर करने का तरीका जोड़ना होगा। Builder.io से free-tier storage और AI वाला स्टोरेज कनेक्ट करें, या S3-संगत ऑब्जेक्ट स्टोरेज और अपनी LLM keys इस्तेमाल करें.",
@@ -1771,10 +1773,61 @@ const messages = {
       "अगली स्क्रीन पर स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज. Clips सेव पूरा करेगा.",
     connectStorageToRetryLoom:
       "अगली स्क्रीन पर स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज. Clips इंपोर्ट फिर से करेगा.",
-    leaveConfirmTitle: "इस रिकॉर्डिंग को छोड़कर हटाएं?",
+    leaveConfirmTitle: "इस रिकॉर्डिंग से बाहर जाएँ?",
     leaveConfirmDescription:
-      "आपकी चल रही रिकॉर्डिंग अभी पूरी तरह सेव नहीं हुई है. अभी इस पेज से बाहर जाने पर यह हट जाएगी.",
+      "यह रिकॉर्डिंग सिर्फ़ इस टैब में है। पहले कॉपी डाउनलोड न करने पर बाहर जाते ही यह मिट जाएगी।",
     leaveAndDiscard: "बाहर जाएं और हटाएं",
+    recordingWithoutSound:
+      "बिना आवाज़ के रिकॉर्ड हो रहा है। ट्रांसक्रिप्ट पाने के लिए माइक्रोफ़ोन चालू करें।",
+    pendingStorageTitle: "अपनी रिकॉर्डिंग सहेजने के लिए स्टोरेज कनेक्ट करें",
+    pendingStorageDescription: "स्टोरेज कनेक्ट करें, Clips इसे तुरंत अपलोड कर देगा।",
+    storageConnectedUploading:
+      "स्टोरेज कनेक्ट हो गया। आपकी रिकॉर्डिंग अपलोड हो रही है…",
+    downloadCopy: "एक कॉपी डाउनलोड करें",
+    localRecordingOpenElsewhere:
+      "वह रिकॉर्डिंग अभी भी किसी दूसरे Clips टैब में खुली है।",
+    uploadWaitingForConnection:
+      "अपलोड रुका हुआ है। Clips अपने-आप फिर से कोशिश करता है।",
+    uploadDidNotFinish: "अपलोड पूरा नहीं हुआ।",
+    unfinishedRecording: "एक रिकॉर्डिंग का अपलोड अभी पूरा नहीं हुआ है",
+    finishUpload: "अपलोड पूरा करें",
+    leaveKeepDescription:
+      'Clips इसे इस ब्राउज़र में रखता है और आपके लौटने पर अपलोड पूरा करने का विकल्प देगा। "बाहर जाएं और हटाएं" इसे हमेशा के लिए मिटा देता है।',
+    leaveAndKeep: "रखकर बाहर जाएँ",
+    copySafeInBrowser: "आपकी रिकॉर्डिंग इस ब्राउज़र में सुरक्षित है।",
+    copyOnlyInThisTab:
+      "यह रिकॉर्डिंग सिर्फ़ इस टैब में है। इसे खुला रखें या एक कॉपी डाउनलोड करें।",
+    localCopyFull:
+      "इस ब्राउज़र में जगह नहीं बची है, इसलिए Clips सुरक्षा कॉपी नहीं रख सकता। अपलोड पूरा होने तक यह टैब खुला रखें या एक कॉपी डाउनलोड करें।",
+    localCopyFailed:
+      "Clips इस ब्राउज़र में सुरक्षा कॉपी नहीं रख सका। अपलोड पूरा होने तक यह टैब खुला रखें या एक कॉपी डाउनलोड करें।",
+    localCopyUnreadable: "इस ब्राउज़र में रिकॉर्डिंग की कॉपी पढ़ी नहीं जा सकी।",
+    recordingOwnedByAnotherAccount:
+      "यह रिकॉर्डिंग किसी दूसरे खाते की है। इसे अपलोड करने के लिए इस ब्राउज़र में उस खाते से साइन इन करें।",
+    unclaimedRecording: "इस ब्राउज़र में एक रिकॉर्डिंग किसी खाते से जुड़ी नहीं है",
+    reviewRecording: "देखें",
+    claimRecordingPrompt:
+      "यह रिकॉर्डिंग अभी किसी खाते से जुड़ी नहीं है। इसे {{email}} में अपलोड करें?",
+    claimRecording: "मेरे खाते में अपलोड करें",
+    lowBrowserStorage:
+      "इस ब्राउज़र में जगह कम है, इसलिए लंबी रिकॉर्डिंग शायद सुरक्षा कॉपी में न समाए। अपलोड होने तक यह टैब खुला रखें।",
+    recordingEndMissing:
+      "इस रिकॉर्डिंग का आख़िरी हिस्सा सेव नहीं हुआ। Clips जितना है उतना अपलोड करता है और आपकी कॉपी रखता है।",
+    uploadedPartialCopyKept:
+      "इस ब्राउज़र में सेव हुआ हिस्सा अपलोड हो गया। आख़िरी हिस्सा छूट सकता है, इसलिए Clips ने आपकी कॉपी यहाँ रखी है।",
+    uploadUnverifiedCopyKept:
+      "Clips पुष्टि नहीं कर सका कि पूरी रिकॉर्डिंग अपलोड हुई, इसलिए उसने आपकी कॉपी यहाँ रखी है।",
+    copyKeptAfterUpload:
+      "यह रिकॉर्डिंग अपलोड हो गई, लेकिन Clips पुष्टि नहीं कर सका कि यह पूरी है, इसलिए उसने आपकी कॉपी यहाँ रखी है।",
+    localCopyLockUnavailable:
+      "Clips पुष्टि नहीं कर सकता कि कोई दूसरा टैब यह रिकॉर्डिंग इस्तेमाल नहीं कर रहा, इसलिए वह इसे यहाँ से न अपलोड करेगा न मिटाएगा। इसके बजाय एक कॉपी डाउनलोड करें।",
+    uploadAgain: "फिर से अपलोड करें",
+    keptCopyWaiting: "Clips ने इस ब्राउज़र में एक रिकॉर्डिंग की कॉपी रखी है",
+    savedRecordingsUnreadable:
+      "Clips इस ब्राउज़र में सेव की गई रिकॉर्डिंग नहीं पढ़ सका।",
+    remindTomorrow: "कल याद दिलाएँ",
+    stillProcessingCopyKept:
+      "यह रिकॉर्डिंग अभी प्रोसेस हो रही है, इसलिए Clips ने आपकी कॉपी यहाँ रखी है। इंतज़ार करें या इसे फिर से अपलोड करें।",
   },
   importRoute: {
     pageTitle: "Loom आयात करें — Clips",
@@ -1914,6 +1967,8 @@ const messages = {
     retry: "पुनः प्रयास करें",
     retrying: "पुनः प्रयास हो रहा है…",
     retryFailed: "इस अपलोड को पुनः प्रयास नहीं किया जा सका।",
+    retryCheckFailed:
+      "यह जाँच नहीं हो सकी कि इस अपलोड को फिर से आज़माया जा सकता है या नहीं। फिर से कोशिश करने के लिए पेज रीफ़्रेश करें।",
     retryUnavailableHere:
       "पुनः प्रयास केवल उसी डिवाइस या ब्राउज़र पर उपलब्ध है जहां इसे रिकॉर्ड किया गया था।",
     viewsCount: "{{count}} बार देखा गया",

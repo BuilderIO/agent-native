@@ -70,5 +70,89 @@
     "claude-skill",
     "chatgpt-mcp",
     "generic-mcp"
-  ]
+  ],
+  "chatgpt": {
+    "version": "1.0.0",
+    "interface": {
+      "displayName": "Agent-Native Design",
+      "shortDescription": "Interactive prototypes",
+      "longDescription": "Create interactive prototypes in your Agent-Native Design workspace. Browse saved designs, templates, design systems, and snapshots; start new designs, generate visual directions, and refine saved prototypes through chat. This connection works with designs in the connected Agent-Native workspace. It does not connect to local repositories, modify a running website, export files, or deploy an application.",
+      "developerName": "Builder.io",
+      "category": "Creativity",
+      "capabilities": [
+        "Create interactive prototypes",
+        "Explore design directions",
+        "Apply workspace design systems"
+      ],
+      "websiteURL": "https://agent-native.com/apps/design/",
+      "supportURL": "https://www.agent-native.com/contact/",
+      "privacyPolicyURL": "https://www.agent-native.com/privacy/",
+      "termsOfServiceURL": "https://www.agent-native.com/terms/",
+      "defaultPrompt": [
+        "Prototype an outdoor-gear checkout for a TrailLite 20L daypack ($89), with $6 shipping, guest checkout, and confirmation.",
+        "Design a bakery sales dashboard with sample data: $1,240 revenue today; 86 items sold; 24 sourdough loaves; staffing need: 3.",
+        "Create 3 landing concepts for $65 pottery wheel classes, Saturdays 10 a.m. and 2 p.m.; include schedule and booking CTA."
+      ],
+      "keywords": [
+        "prototyping",
+        "interactive design",
+        "landing pages",
+        "product design",
+        "wireframes"
+      ],
+      "logoPath": "public/chatgpt-plugin-icon.svg"
+    },
+    "review": {
+      "test_cases": {
+        "positive": [
+          {
+            "description": "Create a new interactive prototype",
+            "prompt": "Create a responsive landing page for Briar & Crumb, a fictional neighborhood bakery. Include a sample menu of croissants, sourdough, and coffee; hours Monday through Friday, 7 a.m. to 5 p.m., and Saturday and Sunday, 8 a.m. to 3 p.m.; and an 'Order online' call to action.",
+            "tools_triggered": "create-design, generate-design",
+            "expected_behavior": "Save a renderable prototype in the connected Design workspace and provide a way to review it."
+          },
+          {
+            "description": "Find reusable design templates",
+            "prompt": "Choose any available template in my Design workspace and create a separate product launch page for TrailSpring's ultralight hiking pack, launching in May for $189. Highlight its 2.1-pound weight and 35-liter capacity, include a waitlist call to action, and leave the source template unchanged.",
+            "tools_triggered": "list-design-templates, create-design-from-template, get-design-snapshot, edit-design",
+            "expected_behavior": "Find a template, create a separate copy, read the copied design snapshot, and adapt that copy with only supplied facts using edit-design; leave the source template unchanged."
+          },
+          {
+            "description": "List saved designs",
+            "prompt": "List my saved designs and confirm whether Product Launch Demo is available.",
+            "tools_triggered": "list-designs",
+            "expected_behavior": "List designs available to the connected account and confirm Product Launch Demo by name."
+          },
+          {
+            "description": "Apply a saved design system",
+            "prompt": "Use the Northstar Brand design system to guide a responsive contact page for Briar & Crumb, a fictional bakery open Monday through Friday, 7 a.m. to 5 p.m., and Saturday and Sunday, 8 a.m. to 3 p.m. Include the hours and a message form.",
+            "tools_triggered": "list-design-systems, get-design-system, create-design, generate-design",
+            "expected_behavior": "Use only design details saved in Northstar Brand, identify missing guidance without inventing values, and save a renderable contact-page prototype."
+          },
+          {
+            "description": "Refine an existing prototype",
+            "prompt": "In Product Launch Demo, add a visible footer note that reads 'Concept prototype'. Preserve all existing content and the current layout.",
+            "tools_triggered": "list-designs, get-design-snapshot, edit-design",
+            "expected_behavior": "Read the saved design, add that exact footer note to its main screen, save the edit, and preserve all other content and layout."
+          }
+        ],
+        "negative": [
+          {
+            "description": "Local repository editing",
+            "prompt": "Connect to my localhost app and change its checkout page code."
+          },
+          {
+            "description": "Production deployment",
+            "prompt": "Deploy this prototype to production and configure working authentication and payments."
+          },
+          {
+            "description": "Unsupported deletion",
+            "prompt": "Delete every saved design and start over."
+          }
+        ]
+      },
+      "commerce": false,
+      "iframeJustification": "The plugin renders saved Agent-Native Design prototypes inside ChatGPT. The widget and editor content are served from the Agent-Native Design origin and use ChatGPT's host API with the built-in MCP Apps bridge; no remote bridge script is loaded."
+    }
+  }
 }

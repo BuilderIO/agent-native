@@ -4,6 +4,7 @@ import type { SnapRecord, Snapshot } from "./in-page.ts";
 import {
   ceilingFor,
   diffSnapshots,
+  followsCenteredFlexReflow,
   findBaselineProblems,
   hardFailures,
   isDraftRevert,
@@ -11,6 +12,8 @@ import {
   keepaliveMismatches,
   lineDiff,
   orphanedBaselineKeys,
+  outsideChangesFor,
+  p95IndexFromThresholdedSamples,
   ratchetBaselineEntry,
   resized,
   restyledAddedText,
@@ -68,7 +71,89 @@ describe("resized", () => {
   });
 });
 
+describe("p95IndexFromThresholdedSamples", () => {
+  it("remaps the percentile to include unobserved sub-threshold events", () => {
+    expect(p95IndexFromThresholdedSamples(64, 20, 16)).toEqual({
+      kind: "observed",
+      index: 16,
+    });
+    expect(p95IndexFromThresholdedSamples(64, 4, 16)).toEqual({
+      kind: "observed",
+      index: 0,
+    });
+  });
+
+  it("reports a threshold bound when the p95 event was not observed", () => {
+    expect(p95IndexFromThresholdedSamples(64, 3, 16)).toEqual({
+      kind: "below-threshold",
+      bound: 16,
+    });
+  });
+
+  it("rejects counts that cannot describe a thresholded sample", () => {
+    expect(() => p95IndexFromThresholdedSamples(64, 65, 16)).toThrow(
+      RangeError,
+    );
+  });
+});
+
 describe("diffSnapshots", () => {
+  it("matches live nodes by identity when same-class blocks are inserted", () => {
+    const before = {
+      ...rec("box:div.card#0", { color: "red" }),
+      stableKey: "node-1:box",
+    };
+    const inserted = {
+      ...rec("box:div.card#0", { color: "blue" }, true),
+      stableKey: "node-2:box",
+    };
+    const after = {
+      ...rec("box:div.card#1", { color: "red" }),
+      stableKey: "node-1:box",
+    };
+
+    expect(
+      diffSnapshots(snap([before]), snap([inserted, after])),
+    ).toMatchObject({
+      deltas: [],
+      geometry: [],
+      missing: [],
+      added: [{ key: "box:div.card#0", inside: true }],
+    });
+  });
+
+  it("reports authored attribute changes on identity-matched nodes", () => {
+    const before = {
+      ...rec("box:div.card#0", {}),
+      stableKey: "node-1:box",
+      className: "card",
+      inlineStyle: "color: red",
+    };
+    const after = {
+      ...rec("box:div.card.active#0", {}),
+      stableKey: "node-1:box",
+      className: "card active",
+      inlineStyle: "color: blue",
+    };
+
+    expect(diffSnapshots(snap([before]), snap([after])).deltas).toEqual([
+      {
+        key: before.key,
+        prop: "class",
+        a: "changed",
+        b: "changed",
+        inside: false,
+      },
+      {
+        key: before.key,
+        prop: "style",
+        a: "changed",
+        b: "changed",
+        inside: false,
+      },
+    ]);
+  });
+
   it("reports a class style dying on an unchanged run", () => {
     const d = diffSnapshots(
       snap([rec("text:Q3 review#0", { "text-transform": "uppercase" })]),
@@ -128,6 +213,146 @@ describe("diffSnapshots", () => {
     expect(d.deltas).toEqual([]);
     expect(d.missing).toEqual([]);
     expect(d.added).toEqual([]);
+  });
+});
+
+describe("followsCenteredFlexReflow", () => {
+  const centered = (
+    context: string,
+    containerPosition: number,
+    containerSize: number,
+    itemSize = 20,
+    editedItemSize = 20,
+    axis: "x" | "y" = "y",
+  ) => ({
+    ...rec("box:div#0", {}),
+    flexCrossAlignment: {
+      context,
+      axis,
+      containerPosition,
+      containerSize,
+      itemSize,
+      editedItemSize,
+    },
+  });
+
+  it("allows a centered sibling to follow a flex line's cross-axis growth", () => {
+    expect(
+      followsCenteredFlexReflow(
+        centered("1.2", 0, 20),
+        centered("1.2", 0, 60, 20, 60),
+        "y",
+        20,
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects unrelated shifts, moved parents or a different flex parent", () => {
+    expect(
+      followsCenteredFlexReflow(
+        centered("1.2", 0, 20),
+        centered("1.2", 0, 60, 20, 60),
+        "y",
+        5,
+      ),
+    ).toBe(false);
+    expect(
+      followsCenteredFlexReflow(
+        centered("1.2", 0, 20),
+        centered("1.2", 5, 60, 20, 60),
+        "y",
+        25,
+      ),
+    ).toBe(false);
+    expect(
+      followsCenteredFlexReflow(
+        centered("1.2", 0, 20),
+        centered("1.3", 0, 60, 20, 60),
+        "y",
+        20,
+      ),
+    ).toBe(false);
+    expect(
+      followsCenteredFlexReflow(
+        centered("1.2", 0, 20),
+        centered("1.2", 0, 60, 20, 60),
+        "x",
+        20,
+      ),
+    ).toBe(false);
+    expect(
+      followsCenteredFlexReflow(
+        centered("1.2", 0, 20),
+        centered("1.2", 0, 60, 20, 20),
+        "y",
+        20,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("outsideChangesFor", () => {
+  const edited = (
+    records: SnapRecord[],
+    editedRect: NonNullable<Snapshot["editedRect"]>,
+    editedInFlow = true,
+  ): Snapshot => ({
+    ...snap(records),
+    editedRect,
+    editedInFlow,
+  });
+  const sibling = (x: number, y: number, width = 100): SnapRecord => ({
+    ...rec("box:div#0", {}),
+    downstreamFlow: true,
+    rect: { x, y, width, height: 20 },
+  });
+
+  it("allows measured movement that follows an in-flow edit's new edge", () => {
+    const before = edited([sibling(0, 20)], {
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 20,
+    });
+    const after = edited([sibling(0, 40)], {
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 40,
+    });
+
+    expect(outsideChangesFor(before, after).changes).toEqual([]);
+  });
+
+  it("keeps independent and unverified geometry changes as failures", () => {
+    const before = edited([sibling(0, 20)], {
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 20,
+    });
+    const moved = edited([sibling(30, 40)], {
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 40,
+    });
+    const detached = edited(
+      [sibling(0, 40)],
+      { x: 0, y: 0, width: 100, height: 40 },
+      false,
+    );
+
+    expect(
+      outsideChangesFor(before, moved).changes.some(
+        (change) => "prop" in change && change.prop === "x",
+      ),
+    ).toBe(true);
+    expect(
+      outsideChangesFor(before, detached).changes.some(
+        (change) => "prop" in change && change.prop === "y",
+      ),
+    ).toBe(true);
   });
 });
 
@@ -347,6 +572,53 @@ describe("restyledAddedText", () => {
       rec("text:new line#0", white, true),
     ]);
     expect(restyledAddedText(view, reload)).toEqual([]);
+  });
+
+  it.each([
+    ["heading", "h1"],
+    ["list item", "li"],
+  ])(
+    "allows an unstyled paragraph after a %s while still flagging styled text",
+    (_, tag) => {
+      const view = snap([{ ...rec("text:Title#0", white, true), tag }]);
+      const plainParagraph = {
+        ...rec("text:new line#0", { color: "rgb(255, 255, 255)" }, true),
+        tag: "p",
+        inlineStyle: "",
+      };
+      const reload = snap([...view.records, plainParagraph]);
+      expect(restyledAddedText(view, reload, tag)).toEqual([]);
+      expect(restyledAddedText(view, reload)).toEqual(["text:new line#0"]);
+      expect(
+        restyledAddedText(
+          view,
+          snap([
+            ...view.records,
+            { ...plainParagraph, inlineStyle: "font-size: 48px" },
+          ]),
+          tag,
+        ),
+      ).toEqual(["text:new line#0"]);
+    },
+  );
+
+  it("does not exempt a paragraph edit because a sibling is a list item", () => {
+    const view = snap([
+      { ...rec("text:List item#0", white, true), tag: "li" },
+      {
+        ...rec("text:Paragraph#0", { color: "rgb(0, 0, 255)" }, true),
+        tag: "p",
+      },
+    ]);
+    const plainParagraph = {
+      ...rec("text:new line#0", { color: "rgb(0, 0, 0)" }, true),
+      tag: "p",
+      inlineStyle: "",
+    };
+    const after = snap([...view.records, plainParagraph]);
+
+    expect(restyledAddedText(view, after, "p")).toEqual(["text:new line#0"]);
+    expect(restyledAddedText(view, after, "li")).toEqual([]);
   });
 });
 

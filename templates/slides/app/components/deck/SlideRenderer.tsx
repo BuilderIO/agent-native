@@ -271,9 +271,18 @@ function measureContentBounds(target: HTMLElement): {
   const descendants = Array.from(
     target.querySelectorAll<HTMLElement>("*"),
   ).filter((element) => element.tagName.toLowerCase() !== "style");
+  const freeformCache = new Map<HTMLElement, boolean>();
   const isFreeformElement = (element: HTMLElement) => {
     let current: HTMLElement | null = element;
+    const path: HTMLElement[] = [];
+    let isFreeform = false;
     while (current && current !== target) {
+      const cached = freeformCache.get(current);
+      if (cached !== undefined) {
+        isFreeform = cached;
+        break;
+      }
+      path.push(current);
       const position =
         current.style.position || window.getComputedStyle(current).position;
       if (
@@ -283,11 +292,13 @@ function measureContentBounds(target: HTMLElement): {
         position === "absolute" ||
         position === "fixed"
       ) {
-        return true;
+        isFreeform = true;
+        break;
       }
       current = current.parentElement;
     }
-    return false;
+    for (const ancestor of path) freeformCache.set(ancestor, isFreeform);
+    return isFreeform;
   };
   const targetRect = target.getBoundingClientRect();
   const cssWidth = target.clientWidth || target.scrollWidth || 0;
@@ -307,6 +318,12 @@ function measureContentBounds(target: HTMLElement): {
   let hasFlowContent = false;
 
   for (const el of descendants) {
+    const isFreeform = isFreeformElement(el);
+    const hasDirectText = Array.from(el.childNodes).some(
+      (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim(),
+    );
+    if (!isFreeform && el.children.length > 0 && !hasDirectText) continue;
+
     const rect = el.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) continue;
 
@@ -314,12 +331,6 @@ function measureContentBounds(target: HTMLElement): {
     const top = (rect.top - targetRect.top) * invScaleY;
     const right = (rect.right - targetRect.left) * invScaleX;
     const bottom = (rect.bottom - targetRect.top) * invScaleY;
-
-    const isFreeform = isFreeformElement(el);
-    const hasDirectText = Array.from(el.childNodes).some(
-      (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim(),
-    );
-    if (!isFreeform && el.children.length > 0 && !hasDirectText) continue;
 
     contentMinX = Math.min(contentMinX, left);
     contentMaxX = Math.max(contentMaxX, right);
@@ -383,7 +394,6 @@ function useSlideAutofit(
 
     let raf = 0;
     let disposed = false;
-    let editingMarkup: string | null = null;
     // Measuring costs a full-document reflow per slide (every descendant is
     // read with getBoundingClientRect, interleaved with style writes). A deck
     // with dozens of slides mounts that many renderers at once, so off-screen
@@ -413,16 +423,11 @@ function useSlideAutofit(
       target.removeAttribute("data-fmd-autofit-active");
     };
 
-    const measureNow = () => {
-      if (disposed) return;
+    const isEditing = () => !!root.querySelector('[contenteditable="true"]');
 
-      const isEditing = !!root.querySelector('[contenteditable="true"]');
-      const currentEditingMarkup = isEditing ? root.innerHTML : null;
-      const shouldMeasureEditedMarkup =
-        isEditing &&
-        editingMarkup !== null &&
-        currentEditingMarkup !== editingMarkup;
-      editingMarkup = currentEditingMarkup;
+    const measureNow = () => {
+      if (disposed || isEditing()) return;
+
       const rawTargets = ensureRawHtmlFitLayers(root);
       const targets =
         rawTargets.length > 0
@@ -434,11 +439,6 @@ function useSlideAutofit(
       let worstInfo: SlideOverflowInfo | null = null;
 
       for (const target of targets) {
-        if (isEditing && !shouldMeasureEditedMarkup) {
-          // Keep the transform on entry, then fit changed markup before exit.
-          continue;
-        }
-
         resetTarget(target);
         const bounds = measureContentBounds(target);
         const viewportWidth = target.clientWidth || canvasWidth;
@@ -479,23 +479,21 @@ function useSlideAutofit(
         }
       }
 
-      if (!isEditing) {
-        overflowCallbackRef.current?.(
-          worstInfo ?? {
-            verticalOverflow: 0,
-            horizontalOverflow: 0,
-            contentHeight: 0,
-            contentWidth: 0,
-            viewportHeight: 0,
-            viewportWidth: 0,
-          },
-        );
-        autofitSettledRef.current?.();
-      }
+      overflowCallbackRef.current?.(
+        worstInfo ?? {
+          verticalOverflow: 0,
+          horizontalOverflow: 0,
+          contentHeight: 0,
+          contentWidth: 0,
+          viewportHeight: 0,
+          viewportWidth: 0,
+        },
+      );
+      autofitSettledRef.current?.();
     };
 
     const scheduleMeasure = () => {
-      if (disposed) return;
+      if (disposed || isEditing()) return;
       if (!visible) {
         measurePending = true;
         return;
@@ -621,6 +619,7 @@ const VARIABLE_AXIS_GOOGLE_FONTS = [
   "DM Sans",
   "Epilogue",
   "Exo 2",
+  "Fraunces",
   "Geist",
   "Geist Mono",
   "Heebo",

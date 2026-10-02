@@ -3,7 +3,14 @@ import { readFileSync } from "node:fs";
 import { mergeDocumentBodyIntents } from "@shared/document-intent-merge";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
+import * as Y from "yjs";
 
+import { cn } from "@/lib/utils";
+
+import {
+  DOCUMENT_EDITOR_PAGE_TITLE_SIZE_CLASS_NAME,
+  DOCUMENT_EDITOR_TITLE_CLASS_NAME,
+} from "./document-editor-layout";
 import {
   databaseConversionRequest,
   databaseMembershipDatabaseTitle,
@@ -13,8 +20,12 @@ import {
   documentEditorDefaultIconKind,
   documentEditorDatabaseRegionClassName,
   materializedSuggestionForDraft,
+  visibleSavedSuggestionsDuringDraftMaterialization,
+  observeAcceptedCanonicalSettlement,
   documentEditorReservesInlineReviewSpace,
   documentEditorShowsInlineComments,
+  documentEditorShowsUtilityPanelSheet,
+  dismissDocumentCommentFocus,
   documentEditorLoadState,
   documentTitleWidthChanged,
   documentEditorTitleRegionClassName,
@@ -29,15 +40,20 @@ import {
   pageEditorSessionKey,
   positionAnchoredCommentCard,
   positionUnanchoredCommentCard,
+  preciseDraftSuggestionPresentations,
+  proposalDecisionPresentations,
   recordOwnContentSave,
   refreshUnchangedContentSaveWatermark,
+  replaceAcceptedSuggestionPresentations,
   sameAnchoredCommentPosition,
   suggestionPresentation,
   titleRenamedByAnotherWriter,
   suggestionPresentations,
   suggestionDecisionPreviewContent,
   sameSuggestionAnchorIds,
+  singleSuggestionDecisionLockAfterMismatch,
   suggestionAmendmentTargetIsResolved,
+  suggestionAmendmentResolutionConflicts,
   refreshUnchangedTitleSaveWatermark,
   resizeDocumentTitleTextarea,
   retainThenAdoptDisplacedWinner,
@@ -60,6 +76,94 @@ import {
 } from "./suggestions/markdown-operation";
 
 describe("document editor layout", () => {
+  it("waits for canonical Yjs state rather than an isolated suggestion draft", () => {
+    const ydoc = new Y.Doc();
+    const paragraph = new Y.XmlElement("paragraph");
+    const text = new Y.XmlText();
+    text.insert(0, "Before");
+    paragraph.insert(0, [text]);
+    ydoc.getXmlFragment("default").insert(0, [paragraph]);
+    const onRendered = vi.fn();
+    const onOutdated = vi.fn();
+    const stop = observeAcceptedCanonicalSettlement({
+      ydoc,
+      beforeContent: "Before",
+      readbackContent: " AddedBefore",
+      onRendered,
+      onOutdated,
+      onError: vi.fn(),
+    });
+    expect(onRendered).not.toHaveBeenCalled();
+    ydoc.transact(() => {
+      text.insert(0, " Added");
+      const peerParagraph = new Y.XmlElement("paragraph");
+      const peerText = new Y.XmlText();
+      peerText.insert(0, "Peer");
+      peerParagraph.insert(0, [peerText]);
+      ydoc.getXmlFragment("default").insert(1, [peerParagraph]);
+    });
+    expect(onRendered).not.toHaveBeenCalled();
+    expect(onOutdated).toHaveBeenCalledWith(" AddedBefore\nPeer");
+    stop();
+
+    const refreshed = vi.fn();
+    const stopRefreshed = observeAcceptedCanonicalSettlement({
+      ydoc,
+      beforeContent: "Before",
+      readbackContent: " AddedBefore\nPeer",
+      onRendered: refreshed,
+      onOutdated,
+      onError: vi.fn(),
+    });
+    expect(refreshed).toHaveBeenCalledTimes(1);
+    stopRefreshed();
+    ydoc.destroy();
+  });
+
+  it("settles an in-mode group only from canonical Yjs without treating intermediate content as failure", () => {
+    const canonical = new Y.Doc();
+    const draft = new Y.Doc();
+    const paragraph = new Y.XmlElement("paragraph");
+    const text = new Y.XmlText();
+    text.insert(0, "Before");
+    paragraph.insert(0, [text]);
+    canonical.getXmlFragment("default").insert(0, [paragraph]);
+    const draftParagraph = new Y.XmlElement("paragraph");
+    const draftText = new Y.XmlText();
+    draftText.insert(0, " AddedBefore");
+    draftParagraph.insert(0, [draftText]);
+    draft.getXmlFragment("default").insert(0, [draftParagraph]);
+    const onRendered = vi.fn();
+    const onOutdated = vi.fn();
+    const onError = vi.fn();
+    const stop = observeAcceptedCanonicalSettlement({
+      ydoc: canonical,
+      beforeContent: "Before",
+      readbackContent: " AddedBefore",
+      onRendered,
+      onOutdated,
+      onError,
+    });
+    try {
+      expect(draftText.toString()).toBe(" AddedBefore");
+      expect(onRendered).not.toHaveBeenCalled();
+      text.insert(6, " peer");
+      expect(onOutdated).toHaveBeenCalledWith("Before peer");
+      expect(onRendered).not.toHaveBeenCalled();
+      expect(onError).not.toHaveBeenCalled();
+      canonical.transact(() => {
+        text.delete(6, 5);
+        text.insert(0, " Added");
+      });
+      expect(onRendered).toHaveBeenCalledTimes(1);
+      expect(onError).not.toHaveBeenCalled();
+    } finally {
+      stop();
+      draft.destroy();
+      canonical.destroy();
+    }
+  });
+
   it("keeps an open comment when its portalled menus are clicked", () => {
     const source = readFileSync("app/components/editor/DocumentEditor.tsx", {
       encoding: "utf8",
@@ -180,12 +284,12 @@ describe("document editor layout", () => {
     ).toBe(false);
   });
   it("leaves room for title descenders", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
+    const title = cn(
+      DOCUMENT_EDITOR_TITLE_CLASS_NAME,
+      DOCUMENT_EDITOR_PAGE_TITLE_SIZE_CLASS_NAME,
     );
-    expect(source).toContain("font-bold leading-normal text-foreground");
-    expect(source).not.toContain("font-bold leading-tight text-foreground");
+    expect(title).not.toContain("leading-tight");
+    expect(title).toContain("md:pb-0.5");
   });
 
   it("keeps inline comments outside the independent reading column", () => {
@@ -233,6 +337,17 @@ describe("document editor layout", () => {
     ).toBe("Canonical");
   });
 
+  it("releases a decision lock when a non-accept request returns accepted", () => {
+    const locked = { inFlight: true, activeSuggestionId: "suggestion" };
+
+    expect(
+      singleSuggestionDecisionLockAfterMismatch(locked, "rejected", "accepted"),
+    ).toEqual({ inFlight: false, activeSuggestionId: null });
+    expect(
+      singleSuggestionDecisionLockAfterMismatch(locked, "accepted", "accepted"),
+    ).toBe(locked);
+  });
+
   it("keeps a one-operation decision flowing when persistence normalizes its key", () => {
     const suggestion = {
       id: "saved-suggestion",
@@ -259,6 +374,38 @@ describe("document editor layout", () => {
         draft,
       ),
     ).toBeNull();
+  });
+
+  it("hides only the saved copy of a draft while it materializes", () => {
+    const draft = {
+      operations: [{ ordinal: 0, kind: "insert_text", after: "W" }],
+    } as never;
+    const optimistic = {
+      id: "optimistic",
+      operations: [{ ordinal: 1, kind: "insert_text", after: "W" }],
+    } as never;
+    const unrelated = {
+      id: "unrelated",
+      operations: [{ ordinal: 1, kind: "insert_text", after: "W" }],
+    } as never;
+    const saved = [optimistic, unrelated];
+
+    expect(
+      visibleSavedSuggestionsDuringDraftMaterialization(
+        saved,
+        [draft],
+        true,
+        new Set(["optimistic"]),
+      ),
+    ).toEqual([unrelated]);
+    expect(
+      visibleSavedSuggestionsDuringDraftMaterialization(
+        saved,
+        [draft],
+        false,
+        new Set(["optimistic"]),
+      ),
+    ).toEqual(saved);
   });
 
   it("keeps review geometry stable after the final inline decision", () => {
@@ -388,8 +535,8 @@ describe("document editor layout", () => {
       source.indexOf("const position = resolveAnchorPoint", start),
     );
     expect(effect).toContain("new Set(specs.map((spec) => spec.suggestionId))");
-    expect(effect).toContain(
-      "const visibleSpecs = showCommentIndicators ? specs : []",
+    expect(effect).toMatch(
+      /const visibleSpecs = showCommentIndicators\s+\? specs\s+: specs\.filter\(\(spec\) => spec\.settling\)/,
     );
     expect(effect).toContain("specs: visibleSpecs");
     expect(effect).toMatch(
@@ -468,6 +615,57 @@ describe("document editor layout", () => {
     );
   });
 
+  it.each(["accepted", "rejected"] as const)(
+    "does not report an own %s single decision as an amendment conflict",
+    (decision) => {
+      expect(
+        suggestionAmendmentResolutionConflicts(
+          "amended",
+          [{ id: "amended", status: decision }],
+          [{ id: "amended", decision }],
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it.each(["accepted", "rejected"] as const)(
+    "does not report an own %s group member decision as an amendment conflict",
+    (decision) => {
+      expect(
+        suggestionAmendmentResolutionConflicts(
+          "amended",
+          [{ id: "amended", status: decision }],
+          [
+            { id: "another-member", decision },
+            { id: "amended", decision },
+          ],
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it("retains external, unrelated, stale and mismatched amendment conflicts", () => {
+    for (const status of ["accepted", "rejected", "stale"] as const) {
+      const suggestions = [{ id: "amended", status }];
+      expect(
+        suggestionAmendmentResolutionConflicts("amended", suggestions, []),
+      ).toBe(true);
+      expect(
+        suggestionAmendmentResolutionConflicts("amended", suggestions, [
+          { id: "unrelated", decision: "accepted" },
+        ]),
+      ).toBe(true);
+      expect(
+        suggestionAmendmentResolutionConflicts("amended", suggestions, [
+          {
+            id: "amended",
+            decision: status === "accepted" ? "rejected" : "accepted",
+          },
+        ]),
+      ).toBe(true);
+    }
+  });
+
   it("refreshes a remaining insertion anchor after accepting an earlier nearby replacement", () => {
     const before =
       "Alpha Beta Gamma. Added words.\nThe team will publish on Friday.";
@@ -508,6 +706,220 @@ describe("document editor layout", () => {
     expect(precise.map((part) => part.id)).toEqual(["existing", "existing"]);
     expect(precise.map((part) => part.beforeText)).toEqual([",", "good"]);
     expect(precise.map((part) => part.afterText)).toEqual(["", "excellent"]);
+  });
+  it("replaces every accepted span while preserving another proposal's precise spans", () => {
+    const before = "We shipped quickly, and the results were good.";
+    const after = "We shipped quickly and the results were excellent.";
+    const operation = markdownSuggestionOperation(before, after)!;
+    const acceptedSpans = suggestionPresentations(
+      { id: "accepted", status: "pending", operations: [operation] },
+      before,
+    );
+    const otherSpans = suggestionPresentations(
+      { id: "other", status: "pending", operations: [operation] },
+      before,
+    );
+    const overlays = acceptedSpans.map((span) => ({
+      ...span,
+      presentation: "settling" as const,
+    }));
+    const ordinary = [
+      acceptedSpans[0]!,
+      otherSpans[0]!,
+      acceptedSpans[1]!,
+      otherSpans[1]!,
+    ];
+
+    expect(acceptedSpans).toHaveLength(2);
+    expect(otherSpans).toHaveLength(2);
+    expect(replaceAcceptedSuggestionPresentations(ordinary, overlays)).toEqual([
+      otherSpans[0],
+      otherSpans[1],
+      ...overlays,
+    ]);
+    expect(replaceAcceptedSuggestionPresentations(ordinary, null)).toEqual(
+      ordinary,
+    );
+  });
+
+  it("keeps an unrelated suggestion visible between accepted replacement spans", () => {
+    const before = "We shipped quickly, and the results were good.";
+    const acceptedOperation = markdownSuggestionOperation(
+      before,
+      "We shipped quickly and the results were excellent.",
+    )!;
+    const unrelatedOperation = markdownSuggestionOperation(
+      before,
+      before.replace("results", "findings"),
+    )!;
+    const accepted = {
+      id: "accepted",
+      status: "pending" as const,
+      operations: [acceptedOperation],
+    };
+    const unrelated = {
+      id: "unrelated",
+      status: "pending" as const,
+      operations: [unrelatedOperation],
+    };
+    const acceptedSpans = suggestionPresentations(accepted, before);
+    const unrelatedSpan = suggestionPresentations(unrelated, before)[0]!;
+    const overlays = suggestionPresentations(accepted, before).map((span) => ({
+      ...span,
+      presentation: "settling" as const,
+    }));
+
+    const presented = replaceAcceptedSuggestionPresentations(
+      [...acceptedSpans, unrelatedSpan],
+      overlays,
+    );
+
+    expect(acceptedSpans).toHaveLength(2);
+    expect(presented).toEqual([unrelatedSpan, ...overlays]);
+    const unrelatedBefore = unrelatedSpan.beforePresentation!;
+    const unrelatedFrom = unrelatedBefore.from!;
+    const unrelatedTo = unrelatedBefore.to!;
+    for (const overlay of overlays) {
+      const overlayBefore = overlay.beforePresentation!;
+      const overlayFrom = overlayBefore.from!;
+      const overlayTo = overlayBefore.to!;
+      expect(overlayTo <= unrelatedFrom || unrelatedTo <= overlayFrom).toBe(
+        true,
+      );
+    }
+  });
+
+  it("replaces a single accepted span without changing unrelated presentations", () => {
+    const before = "Before";
+    const operation = markdownSuggestionOperation(before, " AddedBefore")!;
+    const acceptedSpans = suggestionPresentations(
+      { id: "accepted", status: "pending", operations: [operation] },
+      before,
+    );
+    const other = suggestionPresentations(
+      { id: "other", status: "pending", operations: [operation] },
+      before,
+    )[0]!;
+    const overlay = { ...acceptedSpans[0]!, presentation: "settling" as const };
+
+    expect(acceptedSpans).toHaveLength(1);
+    expect(
+      replaceAcceptedSuggestionPresentations(
+        [other, acceptedSpans[0]!],
+        overlay,
+      ),
+    ).toEqual([other, overlay]);
+  });
+  it("keeps accepted group spans projected while Suggesting continues", () => {
+    const before = "Before and After";
+    const members = [
+      {
+        id: "first",
+        status: "accepted",
+        operations: [
+          markdownSuggestionOperation(before, " AddedBefore and After")!,
+        ],
+      },
+      {
+        id: "second",
+        status: "accepted",
+        operations: [
+          markdownSuggestionOperation(before, "Before and Extra After")!,
+        ],
+      },
+    ];
+    const unrelated = {
+      id: "unrelated",
+      status: "pending",
+      operations: [markdownSuggestionOperation(before, `${before}!`)!],
+    };
+    const ordinary = [...members, unrelated].flatMap((member) =>
+      suggestionPresentations({ ...member, status: "pending" }, before),
+    );
+
+    const readback = " AddedBefore and Extra After";
+    const decision = {
+      generation: 1,
+      continueSuggesting: true,
+      accepted: true,
+      members: members as never,
+      beforeContent: before,
+      readbackContent: readback,
+    };
+    const presented = proposalDecisionPresentations(ordinary, decision);
+    expect(presented.map((part) => [part.id, part.presentation])).toEqual([
+      ["unrelated", "canonical"],
+      ["first", "settling"],
+      ["second", "settling"],
+    ]);
+    expect(presented[0]).toBe(ordinary[2]);
+    expect(
+      presented.slice(1).map((part) => part.settlementReadbackContent),
+    ).toEqual([readback, readback]);
+  });
+  it("maps multi-hunk draft previews through the parent anchor into the current draft", () => {
+    const before =
+      "Old red lanterns shine through the western pines. Nearby insects glow softly.";
+    const after =
+      "Bright red lanterns shine through the eastern pines. Nearby insects glow softly.";
+    const prefix = "Earlier draft. ";
+    const currentMarkdown = `${prefix}${after}`;
+    const operation = markdownSuggestionOperation(before, after)!;
+    const mappedFrom = currentMarkdown.indexOf(operation.after.changedText);
+    const presentations = preciseDraftSuggestionPresentations(
+      {
+        id: "editing",
+        operations: [operation],
+        anchor: {
+          from: mappedFrom,
+          to: mappedFrom + operation.after.changedText.length,
+          prefix: currentMarkdown.slice(
+            Math.max(0, mappedFrom - 32),
+            mappedFrom,
+          ),
+          suffix: currentMarkdown.slice(
+            mappedFrom + operation.after.changedText.length,
+            mappedFrom + operation.after.changedText.length + 32,
+          ),
+        },
+      } as never,
+      currentMarkdown,
+    );
+    const unrelated = suggestionPresentations(
+      {
+        id: "unrelated",
+        status: "pending",
+        operations: [
+          markdownSuggestionOperation(
+            currentMarkdown,
+            currentMarkdown.replace("lanterns", "beacon"),
+          )!,
+        ],
+      },
+      currentMarkdown,
+    )[0]!;
+
+    expect(
+      presentations?.map(({ beforeText, afterText }) => [
+        beforeText,
+        afterText,
+      ]),
+    ).toEqual([
+      ["Old", "Bright"],
+      ["western", "eastern"],
+    ]);
+    expect(
+      presentations?.map(({ anchor, afterText }) =>
+        currentMarkdown.slice(anchor.from, anchor.from + afterText.length),
+      ),
+    ).toEqual(["Bright", "eastern"]);
+    expect(
+      presentations?.every(
+        ({ anchor, afterText }) =>
+          anchor.from + afterText.length <= unrelated.anchor.from ||
+          unrelated.anchor.from + unrelated.beforeText.length <= anchor.from,
+      ),
+    ).toBe(true);
   });
   it("shifts a saved suggestion anchor past a new earlier draft insertion", () => {
     const before = "Alpha publish Friday";
@@ -586,6 +998,46 @@ describe("document editor layout", () => {
     expect(utilityPanelAfterCommentFocusDismissal(null)).toBeNull();
   });
 
+  it.each([
+    [959, true, true],
+    [960, true, false],
+    [1040, true, false],
+    [1087, true, false],
+    [1088, true, false],
+    [959, false, true],
+    [960, false, true],
+    [1040, false, true],
+    [1087, false, true],
+    [1088, false, false],
+  ] as const)(
+    "dismisses comment focus at width %i with history=%s without closing a desktop owner: closes=%s",
+    (width, commentsHistoryDrawerOpen, closesPanel) => {
+      const closeReply = vi.fn();
+      const clearFocus = vi.fn();
+      const closePanel = vi.fn();
+      dismissDocumentCommentFocus({
+        commentsHistoryDrawerOpen,
+        hasUtilityRailSpace: width >= 960,
+        hasInlineCommentSpace: width >= 1088,
+        closeReply,
+        clearFocus,
+        closePanel,
+      });
+      expect(closeReply).toHaveBeenCalledOnce();
+      expect(clearFocus).toHaveBeenCalledOnce();
+      expect(closePanel).toHaveBeenCalledTimes(closesPanel ? 1 : 0);
+      expect(
+        documentEditorShowsUtilityPanelSheet({
+          utilityPanel: "comments",
+          commentsHistoryDrawerOpen,
+          hasUtilityRailSpace: width >= 960,
+          hasInlineCommentSpace: width >= 1088,
+          selectedSuggestionId: "saved-suggestion",
+        }),
+      ).toBe(closesPanel);
+    },
+  );
+
   it("keeps the selected inline conversation visible after its last thread resolves", () => {
     expect(
       documentEditorShowsInlineComments({
@@ -613,6 +1065,66 @@ describe("document editor layout", () => {
       }),
     ).toBe(false);
   });
+
+  it("keeps desktop comments history as the sole surface when deciding a draft selects its saved suggestion", () => {
+    const state = {
+      utilityPanel: "comments" as const,
+      commentsHistoryDrawerOpen: true,
+      hasUtilityRailSpace: true,
+      hasInlineCommentSpace: false,
+      selectedSuggestionId: null,
+    };
+
+    expect(documentEditorShowsUtilityPanelSheet(state)).toBe(false);
+    expect(
+      documentEditorShowsUtilityPanelSheet({
+        ...state,
+        selectedSuggestionId: "materialized-suggestion",
+      }),
+    ).toBe(false);
+  });
+
+  it.each([
+    [940, true, null, true],
+    [940, true, "saved-suggestion", true],
+    [1040, true, "saved-suggestion", false],
+    [1120, true, "saved-suggestion", false],
+    [940, false, "saved-suggestion", true],
+    [1040, false, "saved-suggestion", true],
+    [1120, false, "saved-suggestion", false],
+    [1040, false, null, false],
+  ] as const)(
+    "chooses the comments Sheet at layout width %i with history=%s and selection=%s: %s",
+    (width, commentsHistoryDrawerOpen, selectedSuggestionId, expected) => {
+      expect(
+        documentEditorShowsUtilityPanelSheet({
+          utilityPanel: "comments",
+          commentsHistoryDrawerOpen,
+          hasUtilityRailSpace: width >= 960,
+          hasInlineCommentSpace: width >= 1088,
+          selectedSuggestionId,
+        }),
+      ).toBe(expected);
+    },
+  );
+
+  it.each([
+    [940, true],
+    [1040, false],
+  ] as const)(
+    "preserves the Info Sheet at layout width %i: %s",
+    (width, expected) => {
+      expect(
+        documentEditorShowsUtilityPanelSheet({
+          utilityPanel: "info",
+          commentsHistoryDrawerOpen: false,
+          hasUtilityRailSpace: width >= 960,
+          hasInlineCommentSpace: width >= 1088,
+          selectedSuggestionId: "saved-suggestion",
+        }),
+      ).toBe(expected);
+    },
+  );
 
   it("rejects a pending comment target when its exact rendered text disappears or changes", () => {
     expect(
@@ -1641,8 +2153,8 @@ describe("document editor layout", () => {
     expect(source).toContain("isFetchedAfterMount");
     expect(source).toContain("queriedDocument?.id === documentId");
     expect(source).toContain("documentEditorLoadState");
-    expect(source).toContain(
-      "return <DocumentEditorSkeleton title={optimisticTitle} />",
+    expect(source).toMatch(
+      /return \(\s*<DocumentEditorSkeleton\s+title=\{optimisticTitle\}\s+iconRow=\{readPageIconRowHint\(documentId\)\}/,
     );
   });
 
@@ -2010,7 +2522,7 @@ describe("document editor layout", () => {
     );
     expect(source).toContain('renderUtilityPanelContent("comments")');
     expect(source).toContain(
-      "showCommentsHistoryDrawer && !showDesktopCommentsHistory",
+      "commentsHistoryDrawerOpen: showCommentsHistoryDrawer",
     );
   });
 
@@ -2252,14 +2764,19 @@ describe("document editor layout", () => {
     expect(source).toContain("!!pendingSuggestionDecision");
     expect(decision).toContain("setPendingSuggestionDecision({");
     expect(decision).toContain("continueSuggesting,");
-    expect(decision).toContain(
-      "await refreshSuggestionDecisionDocument(continueSuggesting)",
-    );
+    expect(decision).toContain("await refreshSuggestionDecisionDocument(");
+    expect(decision).toContain('result.suggestion.status === "accepted"');
     expect(decision).toContain("if (suggestion.id === editingSuggestionId)");
     expect(source).toContain("setDecisionRefreshFailed(true)");
-    expect(source).toContain("if (decisionRefreshInFlightRef.current) return");
-    expect(source).toContain("decisionRefreshInFlightRef.current = true");
-    expect(source).toContain("decisionRefreshInFlightRef.current = false");
+    expect(source).toMatch(
+      /if \(decisionRefreshInFlightRef\.current === decisionGeneration\)\s+return \{ status: "in-flight" \}/,
+    );
+    expect(source).toContain(
+      "decisionRefreshInFlightRef.current = decisionGeneration",
+    );
+    expect(source).toContain(
+      "decisionGeneration !== suggestionDecisionGenerationRef.current",
+    );
     expect(source).toMatch(
       /decisionRefreshFailed &&\s+\(pendingSuggestionDecision \|\|\s+pendingProposalDecision\)/,
     );
@@ -2304,17 +2821,15 @@ describe("document editor layout", () => {
   });
 
   it("does not open the narrow suggestion Sheet merely because a draft changed", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const narrowPanelState = source.slice(
-      source.indexOf("const showUtilityPanelSheet"),
-      source.indexOf("if (utilityPanel) setLastUtilityPanel"),
-    );
-
-    expect(narrowPanelState).toContain("!!selectedSuggestionId");
-    expect(narrowPanelState).not.toContain("draftSuggestions.length");
+    expect(
+      documentEditorShowsUtilityPanelSheet({
+        utilityPanel: "comments",
+        commentsHistoryDrawerOpen: false,
+        hasUtilityRailSpace: false,
+        hasInlineCommentSpace: false,
+        selectedSuggestionId: null,
+      }),
+    ).toBe(false);
   });
 
   it("opens comments for deep links and conflicts without coupling mode exit to navigation", () => {

@@ -52,6 +52,11 @@
       "exportAs": "design-systems"
     },
     {
+      "path": ".agents/skills/slide-design",
+      "visibility": "both",
+      "exportAs": "slide-design"
+    },
+    {
       "path": ".agents/skills/creative-context",
       "visibility": "internal"
     }
@@ -64,5 +69,89 @@
     "claude-skill",
     "chatgpt-mcp",
     "generic-mcp"
-  ]
+  ],
+  "chatgpt": {
+    "version": "1.0.0",
+    "interface": {
+      "displayName": "Agent-Native Slides",
+      "shortDescription": "On-brand presentations",
+      "longDescription": "Create and revise on-brand presentations in your Agent-Native Slides workspace. Start from a brief, inspect decks and design systems, add slides, update existing slide content, and duplicate a deck for a new draft. This connection edits presentations in Agent-Native Slides; it does not directly change PowerPoint or Google Slides files. It can access only decks and design systems available to your connected account.",
+      "developerName": "Builder.io",
+      "category": "Productivity",
+      "capabilities": [
+        "Create presentations from a brief",
+        "Edit slides and decks",
+        "Apply workspace design systems"
+      ],
+      "websiteURL": "https://agent-native.com/apps/slides/",
+      "supportURL": "https://www.agent-native.com/contact/",
+      "privacyPolicyURL": "https://www.agent-native.com/privacy/",
+      "termsOfServiceURL": "https://www.agent-native.com/terms/",
+      "defaultPrompt": [
+        "Create a 5-slide bakery deck for its June second location, targeting morning commuters; use cream and espresso-brown colors.",
+        "Create a June second-location launch deck for a bakery targeting morning commuters; cap the first-month budget at $20k.",
+        "Create a bakery catering sales deck for office managers planning team breakfasts; include pastry, coffee, and ordering steps."
+      ],
+      "keywords": [
+        "presentations",
+        "pitch decks",
+        "slide decks",
+        "sales decks",
+        "business updates"
+      ],
+      "logoPath": "public/chatgpt-plugin-icon.svg"
+    },
+    "review": {
+      "test_cases": {
+        "positive": [
+          {
+            "description": "Create a new editable presentation",
+            "prompt": "Create a five-slide pitch deck for a neighborhood bakery opening a second location. Use cream backgrounds and espresso-brown headings. Cover the opportunity, target audience of morning commuters, launch plan, a first-month budget assumption capped at $20,000, and next steps.",
+            "tools_triggered": "create-deck",
+            "expected_behavior": "Create one editable five-slide deck in the connected Slides workspace, preserve the supplied facts and visual direction, and confirm its title and slides."
+          },
+          {
+            "description": "List saved presentations",
+            "prompt": "List the presentations in my Slides workspace and confirm whether Quarterly Planning Demo is available.",
+            "tools_triggered": "list-decks",
+            "expected_behavior": "List only decks the connected account can access and confirm Quarterly Planning Demo by name."
+          },
+          {
+            "description": "Inspect the seeded planning deck",
+            "prompt": "Inspect the Quarterly Planning Demo deck and list its slide titles, including the Priorities slide.",
+            "tools_triggered": "list-decks, get-deck",
+            "expected_behavior": "Return the slide titles from the named demo deck, including Priorities, without changing the deck."
+          },
+          {
+            "description": "Add a slide to an identified deck",
+            "prompt": "Add a closing slide titled 'Owners & Next Steps' to Quarterly Planning Demo. Use its Priorities slide for context; repeat only owners, dates, or commitments already present and use 'TBD' for missing details. Leave all existing slides unchanged.",
+            "tools_triggered": "list-decks, get-deck, add-slide",
+            "expected_behavior": "Add one closing slide using only saved owners, dates, or commitments, label missing details TBD, and preserve all existing slides."
+          },
+          {
+            "description": "Duplicate an existing deck",
+            "prompt": "Duplicate the Quarterly Planning Demo deck as Quarterly Planning Draft.",
+            "tools_triggered": "list-decks, duplicate-deck",
+            "expected_behavior": "Create a separate copy with the requested title and leave the source deck intact."
+          }
+        ],
+        "negative": [
+          {
+            "description": "Unsupported deck deletion",
+            "prompt": "Delete every presentation in my workspace."
+          },
+          {
+            "description": "Direct editing of Google Slides",
+            "prompt": "Update the source Google Slides presentation and share the changes with my team."
+          },
+          {
+            "description": "Restore an earlier deck version",
+            "prompt": "Replace my current presentation with yesterday's saved version."
+          }
+        ]
+      },
+      "commerce": false,
+      "iframeJustification": "The plugin renders saved Agent-Native Slides presentations inside ChatGPT. The widget and editor content are served from the Agent-Native Slides origin and use ChatGPT's host API with the built-in MCP Apps bridge; no remote bridge script is loaded."
+    }
+  }
 }

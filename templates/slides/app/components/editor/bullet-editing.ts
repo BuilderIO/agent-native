@@ -157,6 +157,23 @@ export function isBulletRow(el: HTMLElement): boolean {
   return !!first && isBulletMarker(first);
 }
 
+/** A typed `- ` prefix can look like a marker while it is still inside a span. */
+export function isMarkdownBulletPrefixInMarker(
+  el: HTMLElement,
+  caret: Range,
+): boolean {
+  const marker = el.firstElementChild;
+  if (!(marker instanceof HTMLElement) || !isBulletMarker(marker)) return false;
+  const prefix = el.ownerDocument.createRange();
+  prefix.selectNodeContents(el);
+  prefix.setEnd(caret.startContainer, caret.startOffset);
+  const typed = prefix
+    .toString()
+    .replaceAll(ZERO_WIDTH_SPACE, "")
+    .replaceAll("\u00a0", " ");
+  return /^[-*+] ?$/.test(typed) && marker.textContent === typed;
+}
+
 /** Count the styled bullet rows directly inside a container. */
 export function bulletRowCount(el: HTMLElement): number {
   return Array.from(el.children).filter((k) => isBulletRow(k as HTMLElement))
@@ -174,16 +191,21 @@ export function isBulletList(el: HTMLElement): boolean {
 }
 
 /** Regex for a markdown-style bullet prefix at the start of a line. */
-const MARKDOWN_BULLET_PREFIX = /^[-*] $/;
+const MARKDOWN_BULLET_PREFIX = /^[-*+] $/;
 
 function markdownBulletPrefixRange(
   el: HTMLElement,
 ): { range: Range; previousBreak: HTMLBRElement | null } | null {
-  if (isBulletRow(el) || isBulletList(el)) return null;
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return null;
   const caret = selection.getRangeAt(0);
   if (!caret.collapsed || !el.contains(caret.endContainer)) return null;
+  if (
+    (isBulletRow(el) && !isMarkdownBulletPrefixInMarker(el, caret)) ||
+    isBulletList(el)
+  ) {
+    return null;
+  }
 
   const range = el.ownerDocument.createRange();
   range.selectNodeContents(el);
@@ -197,12 +219,11 @@ function markdownBulletPrefixRange(
     }
   }
   if (previousBreak) range.setStartAfter(previousBreak);
-  const typed = range.toString().replaceAll(ZERO_WIDTH_SPACE, "");
+  const typed = range
+    .toString()
+    .replaceAll(ZERO_WIDTH_SPACE, "")
+    .replaceAll("\u00a0", " ");
   return MARKDOWN_BULLET_PREFIX.test(typed) ? { range, previousBreak } : null;
-}
-
-export function hasMarkdownBulletPrefixAtCaret(el: HTMLElement): boolean {
-  return markdownBulletPrefixRange(el) !== null;
 }
 
 /**

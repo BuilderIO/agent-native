@@ -1,9 +1,7 @@
 import { AppConfigurationError, getAppConfig } from "../../app-config/index.js";
-import {
-  CHATGPT_SUBSCRIPTION_DEFAULT_MODEL,
-  CHATGPT_SUBSCRIPTION_ENGINE_NAME,
-  CHATGPT_SUBSCRIPTION_MODELS,
-} from "../chatgpt-subscription-contract.js";
+import { CHATGPT_SUBSCRIPTION_LAB } from "../../labs/core-labs.js";
+import { registerLabs } from "../../labs/registry.js";
+import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../chatgpt-subscription-contract.js";
 import {
   createAISDKEngine,
   PROVIDER_CAPABILITIES,
@@ -59,7 +57,7 @@ const providerDescriptions: Record<AISDKProvider, string> = {
     "Claude models through the Vercel AI SDK. Supports thinking and caching via AI SDK providerOptions.",
   openai: "OpenAI GPT models via the Vercel AI SDK. Requires OPENAI_API_KEY.",
   openrouter:
-    "300+ models from Anthropic, OpenAI, Google, Z.ai, and more routed through a single endpoint. Use model IDs like 'anthropic/claude-sonnet-5', 'openai/gpt-5.6-sol', or 'z-ai/glm-5.2'. Requires OPENROUTER_API_KEY.",
+    "300+ models from Anthropic, OpenAI, Google, Z.ai, and more routed through a single endpoint. Use model IDs like 'anthropic/claude-sonnet-5.5', 'openai/gpt-6-sol', or 'z-ai/glm-5.2'. Requires OPENROUTER_API_KEY.",
   google:
     "Google Gemini models via the Vercel AI SDK. Requires GOOGLE_GENERATIVE_AI_API_KEY.",
   groq: "Groq LPU inference via the Vercel AI SDK. Requires GROQ_API_KEY.",
@@ -117,12 +115,11 @@ function builtinEngineEntries(): AgentEngineEntry[] {
     })),
     {
       name: CHATGPT_SUBSCRIPTION_ENGINE_NAME,
-      label: "ChatGPT subscription",
-      description:
-        "Experimental Codex access through a user's ChatGPT subscription. Enable the matching lab first.",
+      label: "ChatGPT plan access",
+      description: "Use eligible OpenAI models through a user's ChatGPT plan.",
       capabilities: PROVIDER_CAPABILITIES.openai,
-      defaultModel: CHATGPT_SUBSCRIPTION_DEFAULT_MODEL,
-      supportedModels: CHATGPT_SUBSCRIPTION_MODELS,
+      defaultModel: "",
+      supportedModels: [],
       acceptsCustomModels: false,
       requiredEnvVars: [],
       create: (config: Record<string, unknown>) =>
@@ -158,6 +155,9 @@ let _appliedSelection: string | undefined;
 
 export function registerBuiltinEngines(): void {
   const selected = resolveBuiltInEngineSelection();
+  if (selected.has(CHATGPT_SUBSCRIPTION_ENGINE_NAME)) {
+    registerLabs([CHATGPT_SUBSCRIPTION_LAB]);
+  }
   const signature = BUILT_IN_ENGINE_NAMES.filter((name) =>
     selected.has(name),
   ).join(",");

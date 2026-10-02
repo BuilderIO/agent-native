@@ -127,9 +127,20 @@ const GRID_DENSE_ORACLE_FIXTURE = `<!doctype html>
 
 function preview(page: Page) {
   return page
-    .locator("iframe[data-design-preview-iframe]")
+    .locator("iframe[data-design-preview-iframe][data-screen-iframe-id]")
     .first()
     .contentFrame();
+}
+
+function persistedGridChildren(html: string, gridId: string): string[] {
+  const contents = new RegExp(
+    `data-agent-native-node-id="${gridId}"[^>]*>([\\s\\S]*?)<\\/section>`,
+  ).exec(html)?.[1];
+  return contents
+    ? [...contents.matchAll(/data-agent-native-node-id="([^"]+)"/g)]
+        .map(([, id]) => id)
+        .filter((id) => !id.startsWith("an-"))
+    : [];
 }
 
 async function selectNode(page: Page, id: string): Promise<void> {
@@ -193,6 +204,43 @@ async function frameRectSnapshot(page: Page, id: string) {
         top: rect.top,
         width: rect.width,
         height: rect.height,
+      };
+    });
+}
+
+async function persistedNodeSnapshot(page: Page, html: string, id: string) {
+  return page.evaluate(
+    ({ html, id }) => {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const element = doc.querySelector<HTMLElement>(
+        `[data-agent-native-node-id="${CSS.escape(id)}"]`,
+      );
+      const parent = element?.parentElement;
+      return {
+        parentTag: parent?.tagName ?? null,
+        parentId: parent?.getAttribute("data-agent-native-node-id") ?? null,
+        index: parent ? Array.from(parent.children).indexOf(element!) : -1,
+        position: element?.style.position ?? "",
+        left: element?.style.left ?? "",
+        top: element?.style.top ?? "",
+      };
+    },
+    { html, id },
+  );
+}
+
+async function liveNodeSnapshot(page: Page, id: string) {
+  return preview(page)
+    .locator(`[data-agent-native-node-id="${id}"]`)
+    .evaluate((element) => {
+      const parent = element.parentElement;
+      return {
+        parentTag: parent?.tagName ?? null,
+        parentId: parent?.getAttribute("data-agent-native-node-id") ?? null,
+        index: parent ? Array.from(parent.children).indexOf(element) : -1,
+        position: element.style.position,
+        left: element.style.left,
+        top: element.style.top,
       };
     });
 }
@@ -354,7 +402,6 @@ test("G-1 held drop into an empty grid cell previews that exact cell", async ({
   try {
     await openEditor(page, designId);
     await selectNode(page, "grid-source");
-    const sourceBefore = await frameRectSnapshot(page, "grid-source");
     const g2 = (await node(page, "g2").boundingBox())!;
     const g3 = (await node(page, "g3").boundingBox())!;
     const target = {
@@ -369,8 +416,8 @@ test("G-1 held drop into an empty grid cell previews that exact cell", async ({
       expect(guide).toMatchObject({ display: "block" });
       expect(Math.abs(guide!.left - g2Frame.left)).toBeLessThan(3);
       expect(Math.abs(guide!.top - g3Frame.top)).toBeLessThan(3);
-      expect(Math.abs(guide!.width - sourceBefore.width)).toBeLessThan(3);
-      expect(Math.abs(guide!.height - sourceBefore.height)).toBeLessThan(3);
+      expect(Math.abs(guide!.width - g2Frame.width)).toBeLessThan(3);
+      expect(Math.abs(guide!.height - g3Frame.height)).toBeLessThan(3);
     } finally {
       await page.mouse.up();
     }
@@ -479,7 +526,6 @@ test("G-4 held column-flow drop maps the excluded source to the empty cell", asy
   try {
     await openEditor(page, designId);
     await selectNode(page, "column-source");
-    const sourceBefore = await frameRectSnapshot(page, "column-source");
     const c2 = (await node(page, "c2").boundingBox())!;
     const c3 = (await node(page, "c3").boundingBox())!;
     const c2Frame = await frameRectSnapshot(page, "c2");
@@ -493,8 +539,8 @@ test("G-4 held column-flow drop maps the excluded source to the empty cell", asy
       expect(guide).toMatchObject({ display: "block" });
       expect(Math.abs(guide!.left - c3Frame.left)).toBeLessThan(3);
       expect(Math.abs(guide!.top - c2Frame.top)).toBeLessThan(3);
-      expect(Math.abs(guide!.width - sourceBefore.width)).toBeLessThan(3);
-      expect(Math.abs(guide!.height - sourceBefore.height)).toBeLessThan(3);
+      expect(Math.abs(guide!.width - c3Frame.width)).toBeLessThan(3);
+      expect(Math.abs(guide!.height - c2Frame.height)).toBeLessThan(3);
     } finally {
       await page.mouse.up();
     }
@@ -523,8 +569,10 @@ test("G-5 held explicit-span grid drop uses a conservative line and preserves au
   const designId = await newDesign(page, GRID_EXPLICIT_ORACLE_FIXTURE);
   try {
     await openEditor(page, designId);
+    const originalPlacement = await liveNodeSnapshot(page, "explicit-source");
     await selectNode(page, "explicit-source");
     const e2 = (await node(page, "e2").boundingBox())!;
+    const e2FrameRect = await frameRectSnapshot(page, "e2");
     await dragToHeldPoint(page, "explicit-source", {
       x: e2.x + 4,
       y: e2.y + e2.height / 2,
@@ -532,20 +580,27 @@ test("G-5 held explicit-span grid drop uses a conservative line and preserves au
     try {
       const guide = await guideSnapshot(page);
       expect(guide).toMatchObject({ display: "block" });
-      expect(Math.min(guide!.width, guide!.height)).toBeLessThan(10);
+      expect(guide!.width).toBeGreaterThan(0.5);
+      expect(guide!.width).toBeLessThan(10);
+      expect(guide!.height).toBeGreaterThan(guide!.width);
+      expect(
+        Math.abs(guide!.left + guide!.width / 2 - e2FrameRect.left),
+      ).toBeLessThan(2);
+      expect(Math.abs(guide!.top - e2FrameRect.top)).toBeLessThan(2);
+      expect(Math.abs(guide!.height - e2FrameRect.height)).toBeLessThan(2);
     } finally {
       await page.mouse.up();
     }
-    await expect
-      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
-      .toContain("grid-column: 3 / 4");
     expect(
       (await childrenSnapshot(page, "explicit-grid")).map((child) => child.id),
     ).toEqual(["e1", "explicit-source", "e2", "e3"]);
     const persistedBefore = await indexHtml(page, designId);
-    expect(
-      persistedBefore.indexOf('data-agent-native-node-id="explicit-source"'),
-    ).toBeLessThan(persistedBefore.indexOf('data-agent-native-node-id="e2"'));
+    expect(persistedGridChildren(persistedBefore, "explicit-grid")).toEqual([
+      "e1",
+      "explicit-source",
+      "e2",
+      "e3",
+    ]);
     const state = await preview(page)
       .locator("body")
       .evaluate(() => {
@@ -566,6 +621,11 @@ test("G-5 held explicit-span grid drop uses a conservative line and preserves au
             '[data-agent-native-node-id="explicit-source"]',
           ).length,
           span: span?.style.gridColumn,
+          e2ColumnStart: (
+            document.querySelector(
+              '[data-agent-native-node-id="e2"]',
+            ) as HTMLElement | null
+          )?.style.gridColumnStart,
           gridContains: !!grid && !!source && grid.contains(source),
         };
       });
@@ -573,6 +633,7 @@ test("G-5 held explicit-span grid drop uses a conservative line and preserves au
       parent: "explicit-grid",
       sourceCount: 1,
       span: "1 / span 2",
+      e2ColumnStart: "3",
       gridContains: true,
     });
 
@@ -580,34 +641,47 @@ test("G-5 held explicit-span grid drop uses a conservative line and preserves au
     await page.keyboard.press("z");
     await page.keyboard.up(MOD);
     await expect
-      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
-      .not.toContain("grid-column: 3 / 4");
-    await expect
       .poll(() =>
-        preview(page)
-          .locator('[data-agent-native-node-id="explicit-source"]')
-          .evaluate((source) => source.parentElement?.tagName),
+        indexHtml(page, designId).then((html) =>
+          persistedGridChildren(html, "explicit-grid"),
+        ),
       )
-      .toBe("BODY");
+      .toEqual(["e1", "e2", "e3"]);
+    const undoneHtml = await indexHtml(page, designId);
+    expect(
+      await persistedNodeSnapshot(page, undoneHtml, "explicit-source"),
+    ).toEqual(originalPlacement);
+    expect(
+      undoneHtml.indexOf('data-agent-native-node-id="explicit-source"'),
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      undoneHtml.indexOf('data-agent-native-node-id="explicit-source"'),
+    ).toBeLessThan(
+      undoneHtml.indexOf('data-agent-native-node-id="explicit-grid"'),
+    );
 
     await page.keyboard.down(MOD);
     await page.keyboard.press("Shift+z");
     await page.keyboard.up(MOD);
     await expect
-      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
-      .toContain("grid-column: 3 / 4");
+      .poll(() =>
+        indexHtml(page, designId).then((html) =>
+          persistedGridChildren(html, "explicit-grid"),
+        ),
+      )
+      .toEqual(["e1", "explicit-source", "e2", "e3"]);
     await openEditor(page, designId);
     const redone = await preview(page)
       .locator('[data-agent-native-node-id="explicit-source"]')
-      .evaluate((source) => ({
-        parent: source.parentElement?.getAttribute("data-agent-native-node-id"),
-        column: (source as HTMLElement).style.gridColumn,
-        row: (source as HTMLElement).style.gridRow,
-      }));
+      .evaluate((source) => {
+        return {
+          parent: source.parentElement?.getAttribute(
+            "data-agent-native-node-id",
+          ),
+        };
+      });
     expect(redone).toEqual({
       parent: "explicit-grid",
-      column: "3 / 4",
-      row: "auto",
     });
   } finally {
     await deleteDesign(page, designId);
@@ -620,8 +694,10 @@ test("G-5 after-edge grid drop persists through undo, redo, and reload", async (
   const designId = await newDesign(page, GRID_EXPLICIT_ORACLE_FIXTURE);
   try {
     await openEditor(page, designId);
+    const originalPlacement = await liveNodeSnapshot(page, "explicit-source");
     await selectNode(page, "explicit-source");
     const e2 = (await node(page, "e2").boundingBox())!;
+    const e2FrameRect = await frameRectSnapshot(page, "e2");
     await dragToHeldPoint(page, "explicit-source", {
       x: e2.x + e2.width - 4,
       y: e2.y + e2.height / 2,
@@ -629,13 +705,20 @@ test("G-5 after-edge grid drop persists through undo, redo, and reload", async (
     try {
       const guide = await guideSnapshot(page);
       expect(guide).toMatchObject({ display: "block" });
-      expect(Math.min(guide!.width, guide!.height)).toBeLessThan(10);
+      expect(guide!.width).toBeGreaterThan(0.5);
+      expect(guide!.width).toBeLessThan(10);
+      expect(guide!.height).toBeGreaterThan(guide!.width);
+      expect(guide!.left + guide!.width / 2).toBeGreaterThanOrEqual(
+        e2FrameRect.left - 2,
+      );
+      expect(guide!.left + guide!.width / 2).toBeLessThanOrEqual(
+        e2FrameRect.left + e2FrameRect.width + 2,
+      );
+      expect(Math.abs(guide!.top - e2FrameRect.top)).toBeLessThan(2);
+      expect(Math.abs(guide!.height - e2FrameRect.height)).toBeLessThan(2);
     } finally {
       await page.mouse.up();
     }
-    await expect
-      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
-      .toContain("grid-column: 3 / 4");
     expect(
       (await childrenSnapshot(page, "explicit-grid")).map((child) => child.id),
     ).toEqual(["e1", "e2", "explicit-source", "e3"]);
@@ -645,20 +728,89 @@ test("G-5 after-edge grid drop persists through undo, redo, and reload", async (
     ).toBeLessThan(
       persistedAfter.indexOf('data-agent-native-node-id="explicit-source"'),
     );
+    expect(persistedGridChildren(persistedAfter, "explicit-grid")).toEqual([
+      "e1",
+      "e2",
+      "explicit-source",
+      "e3",
+    ]);
 
     await page.keyboard.down(MOD);
     await page.keyboard.press("z");
     await page.keyboard.up(MOD);
     await expect
-      .poll(() => indexHtml(page, designId), { timeout: 5_000 })
-      .not.toContain("grid-column: 3 / 4");
+      .poll(() =>
+        indexHtml(page, designId).then((html) =>
+          persistedGridChildren(html, "explicit-grid"),
+        ),
+      )
+      .toEqual(["e1", "e2", "e3"]);
+    const undoneHtml = await indexHtml(page, designId);
+    expect(
+      await persistedNodeSnapshot(page, undoneHtml, "explicit-source"),
+    ).toEqual(originalPlacement);
+
+    await page.keyboard.down(MOD);
+    await page.keyboard.press("Shift+z");
+    await page.keyboard.up(MOD);
     await expect
       .poll(() =>
-        preview(page)
-          .locator('[data-agent-native-node-id="explicit-source"]')
-          .evaluate((source) => source.parentElement?.tagName),
+        indexHtml(page, designId).then((html) =>
+          persistedGridChildren(html, "explicit-grid"),
+        ),
       )
-      .toBe("BODY");
+      .toEqual(["e1", "e2", "explicit-source", "e3"]);
+    const redoneHtml = await indexHtml(page, designId);
+    expect(persistedGridChildren(redoneHtml, "explicit-grid")).toEqual([
+      "e1",
+      "e2",
+      "explicit-source",
+      "e3",
+    ]);
+    await openEditor(page, designId);
+    const afterReload = await preview(page)
+      .locator('[data-agent-native-node-id="explicit-source"]')
+      .evaluate((source) => {
+        const doc = source.ownerDocument;
+        const e1 = doc.querySelector('[data-agent-native-node-id="e1"]');
+        const e2 = doc.querySelector('[data-agent-native-node-id="e2"]');
+        const grid = doc.querySelector(
+          '[data-agent-native-node-id="explicit-grid"]',
+        );
+        return {
+          parent: source.parentElement?.getAttribute(
+            "data-agent-native-node-id",
+          ),
+          position: getComputedStyle(source).position,
+          sourceLeft: source.getBoundingClientRect().left,
+          sourceTop: source.getBoundingClientRect().top,
+          e1Left: e1?.getBoundingClientRect().left,
+          e2Top: e2?.getBoundingClientRect().top,
+          e2Height: e2?.getBoundingClientRect().height,
+          rowGap: grid ? parseFloat(getComputedStyle(grid).rowGap) : NaN,
+        };
+      });
+    expect(afterReload).toMatchObject({
+      parent: "explicit-grid",
+      sourceLeft: expect.any(Number),
+      sourceTop: expect.any(Number),
+      e1Left: expect.any(Number),
+      e2Top: expect.any(Number),
+      e2Height: expect.any(Number),
+      rowGap: expect.any(Number),
+    });
+    expect(afterReload.position).not.toBe("absolute");
+    expect(Math.abs(afterReload.sourceLeft - afterReload.e1Left!)).toBeLessThan(
+      1,
+    );
+    expect(
+      Math.abs(
+        afterReload.sourceTop -
+          afterReload.e2Top! -
+          afterReload.e2Height! -
+          afterReload.rowGap!,
+      ),
+    ).toBeLessThan(1);
   } finally {
     await deleteDesign(page, designId);
   }

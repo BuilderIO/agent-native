@@ -95,6 +95,97 @@ describe("AgentKitChat interactions", () => {
     }
   });
 
+  it("announces async preflight when the transcript slot is custom", async () => {
+    const preflight = Promise.withResolvers<boolean>();
+    const client = new AgentKitClient({
+      transport: {
+        async startRun() {
+          return { runId: "run-preflight" };
+        },
+        async *subscribeToRun() {},
+        async cancelRun() {},
+      },
+    });
+    const composerRef = createRef<TiptapComposerHandle>();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+
+    try {
+      await act(async () => {
+        root.render(
+          <AgentKitProvider
+            controller={client}
+            threadId="thread-preflight"
+            slots={{
+              transcript: ({ children }) =>
+                createElement(
+                  "div",
+                  { "data-custom-transcript": true },
+                  children,
+                ),
+            }}
+          >
+            <AgentKitChat
+              composerProps={{
+                composerRef,
+                autoFocus: false,
+                modelStatusChecksEnabled: false,
+                onBeforeSubmit: () => preflight.promise,
+                voiceEnabled: false,
+              }}
+            />
+          </AgentKitProvider>,
+        );
+      });
+      await act(async () => composerRef.current!.setText("Check this message"));
+
+      const editor = container.querySelector<HTMLElement>(
+        '[contenteditable="true"]',
+      )!;
+      const send = container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      )!;
+      await act(async () => {
+        send.click();
+        await Promise.resolve();
+      });
+
+      expect(editor.textContent).toBe("");
+      expect(container.querySelector('[role="status"]')?.textContent).toBe(
+        "Thinking",
+      );
+      expect(send.disabled).toBe(true);
+      expect(send.getAttribute("aria-busy")).toBeNull();
+      expect(send.querySelector(".animate-spin")).toBeNull();
+
+      await act(async () => {
+        preflight.resolve(false);
+        await preflight.promise;
+      });
+
+      expect(editor.textContent).toBe("Check this message");
+      expect(send.disabled).toBe(false);
+      expect(container.querySelector('[role="status"]')).toBeNull();
+    } finally {
+      preflight.resolve(false);
+      await act(async () => root.unmount());
+      await client.shutdown();
+      container.remove();
+      localStorage.removeItem(getComposerDraftKey("agentkit:thread-preflight"));
+      if (previousActEnvironment === undefined) {
+        delete actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+      } else {
+        actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      }
+    }
+  });
+
   it.each(["default", "compact"] as const)(
     "clears the %s composer before startRun resolves and preserves the next draft",
     async (layoutVariant) => {
@@ -160,6 +251,8 @@ describe("AgentKitChat interactions", () => {
         ).toContain("First prompt");
         expect(client.getThread("thread-latency").activeRunIds).toEqual([]);
         expect(editor.textContent).toBe("");
+        expect(send.getAttribute("aria-busy")).toBeNull();
+        expect(send.querySelector(".animate-spin")).toBeNull();
 
         await act(async () => composerRef.current!.setText("Next draft"));
         await act(async () => started.resolve({ runId: "run-latency" }));
@@ -314,7 +407,12 @@ describe("AgentKitChat interactions", () => {
             {
               id: "user-edit",
               role: "user",
-              parts: [{ type: "text", text: "Original prompt" }],
+              parts: [
+                {
+                  type: "text",
+                  text: "Original prompt\n\n<context>private context</context>",
+                },
+              ],
             },
           ],
         };
@@ -382,9 +480,7 @@ describe("AgentKitChat interactions", () => {
           messages: expect.arrayContaining([
             expect.objectContaining({
               role: "user",
-              parts: expect.arrayContaining([
-                expect.objectContaining({ text: "Original prompt" }),
-              ]),
+              parts: [{ type: "text", text: "Original prompt" }],
             }),
           ]),
         }),
@@ -1030,7 +1126,12 @@ describe("AgentKitChat interactions", () => {
     const message = {
       id: "assistant-copy-fallback",
       role: "assistant" as const,
-      parts: [{ type: "text" as const, text: "Plain text answer" }],
+      parts: [
+        {
+          type: "text" as const,
+          text: "Plain text answer\n<context>private context</context>",
+        },
+      ],
     };
     const transport: AgentTransport = {
       async startRun() {
@@ -1116,12 +1217,12 @@ describe("AgentKitChat interactions", () => {
     }
   });
 
-  it("keeps queue steering available during a run and moves queued items durably", async () => {
+  it("steers queue items with the button or empty Enter and moves items durably", async () => {
     const queuedMessages = [
       {
         id: "queued-first",
         threadId: "thread-queue",
-        text: "First",
+        text: "First\n\n<context>private source context</context>",
         createdAt: "2026-09-26T00:00:00.000Z",
       },
       {
@@ -1138,7 +1239,18 @@ describe("AgentKitChat interactions", () => {
           },
         ],
       },
+      {
+        id: "queued-third",
+        threadId: "thread-queue",
+        text: "Third",
+        createdAt: "2026-09-26T00:00:02.000Z",
+      },
     ];
+    const previousUserAgent = navigator.userAgent;
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    });
     const moveQueuedMessageToTop = vi.fn(async () => undefined);
     const steerQueuedMessage = vi.fn(async () => undefined);
     const transport: AgentTransport = {
@@ -1162,7 +1274,19 @@ describe("AgentKitChat interactions", () => {
           id: threadId,
           createdAt: "2026-09-26T00:00:00.000Z",
           updatedAt: "2026-09-26T00:00:00.000Z",
-          messages: [],
+          messages: [
+            {
+              id: "user-context",
+              role: "user" as const,
+              status: "complete" as const,
+              parts: [
+                {
+                  type: "text" as const,
+                  text: "Visible request\n\n<context>private source context</context>",
+                },
+              ],
+            },
+          ],
           activeRunIds: ["run-active"],
           runs: [
             {
@@ -1196,6 +1320,19 @@ describe("AgentKitChat interactions", () => {
         );
         await Promise.resolve();
       });
+      expect(
+        container.querySelector(".agentkit-user-message-text-content")
+          ?.textContent,
+      ).toContain("Visible request");
+      expect(
+        container.querySelector(".agentkit-user-message-text-content")
+          ?.textContent,
+      ).not.toContain("private source context");
+      const queueText =
+        container.querySelector('section[data-agent-message-queue="true"]')
+          ?.textContent ?? "";
+      expect(queueText).toContain("First");
+      expect(queueText).not.toContain("private source context");
       expect(
         container
           .querySelector<HTMLImageElement>(
@@ -1268,7 +1405,7 @@ describe("AgentKitChat interactions", () => {
       );
       expect(
         client.getThread("thread-queue").queuedMessages.map(({ id }) => id),
-      ).toEqual(["queued-second", "queued-first"]);
+      ).toEqual(["queued-second", "queued-first", "queued-third"]);
 
       await act(async () => {
         Array.from(
@@ -1284,6 +1421,56 @@ describe("AgentKitChat interactions", () => {
         expect.objectContaining({
           threadId: "thread-queue",
           messageId: "queued-second",
+          interruptActiveRun: true,
+        }),
+        expect.anything(),
+      );
+
+      await act(async () => {
+        const composer = container.querySelector<HTMLElement>(
+          ".agent-composer-prosemirror",
+        );
+        expect(composer?.textContent?.trim()).toBe("");
+        composer?.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(steerQueuedMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          threadId: "thread-queue",
+          messageId: "queued-first",
+          interruptActiveRun: true,
+        }),
+        expect.anything(),
+      );
+
+      const emptyComposer = container.querySelector<HTMLElement>(
+        ".agent-composer-prosemirror",
+      );
+      await act(async () => {
+        emptyComposer?.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+            metaKey: true,
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(
+        steerQueuedMessage.mock.calls.map(([input]) => input.messageId),
+      ).toEqual(["queued-second", "queued-first", "queued-third"]);
+      expect(steerQueuedMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          threadId: "thread-queue",
+          messageId: "queued-third",
+          interruptActiveRun: true,
         }),
         expect.anything(),
       );
@@ -1299,6 +1486,10 @@ describe("AgentKitChat interactions", () => {
       } else {
         actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
       }
+      Object.defineProperty(navigator, "userAgent", {
+        configurable: true,
+        value: previousUserAgent,
+      });
     }
   });
 

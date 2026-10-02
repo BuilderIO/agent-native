@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { getAppConfig } from "../app-config/index.js";
 import { isAgentNativeDeploymentEnvironment } from "../config.js";
 
 function firstNonEmpty(
@@ -119,8 +120,18 @@ export function isExplicitLocalDeployEnvironment(): boolean {
 }
 
 export function resolveServerRelease(): string {
-  const explicit = process.env.AGENT_NATIVE_RELEASE;
-  if (explicit) return explicit;
+  try {
+    const { release, buildId } = getAppConfig().observability;
+    if (release) return release;
+    // The build bakes "development" in when no deploy id or commit exists;
+    // that names no release.
+    if (buildId && buildId !== "development") {
+      return `agent-native-server@${buildId}`;
+    }
+  } catch {
+    // coercion-ok: release is metadata on an error report; an invalid config
+    // must not stop the report, so fall back to the package version.
+  }
   try {
     const here = path.dirname(fileURLToPath(import.meta.url));
     const pkgPath = path.resolve(here, "../../package.json");

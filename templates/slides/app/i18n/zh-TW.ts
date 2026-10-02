@@ -46,7 +46,7 @@ const messages = {
     designSystems: "設計系統",
   },
   settings: {
-    agentObservability: "代理可觀測性",
+    agentObservability: "可觀測性",
     title: "設定",
     labs: "實驗室",
     labsIntro: "在正式發布前預覽實驗性功能。",
@@ -56,6 +56,7 @@ const messages = {
     commentsAndReplies: "留言和回覆",
     commentsAndRepliesDescription: "有人在你的簡報中留言或回覆時。",
     retry: "重試",
+    reload: "重新載入",
     mcpAbout:
       "將 Slides 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 Slides 中工作：建立簡報、新增投影片並匯出為 PowerPoint。它只能看到你有權看到的內容。",
     workspaceTitle: "工作區",
@@ -292,6 +293,18 @@ const messages = {
     importing: "正在匯入...",
     importFile: "匯入檔案",
     downloadBackup: "下載備份",
+    conflictStatus: "文字衝突",
+    conflictStatusDescription: "請先檢查衝突的文字，再儲存其他變更。",
+    reviewConflict: "檢視衝突",
+    conflictTitle: "第 {{number}} 張投影片有文字衝突",
+    conflictDescription: "編輯文字時，另一個版本變更了這張投影片。",
+    conflictChoicesDescription:
+      "保留我的文字會將它儲存到最新版本。使用已儲存的文字只會取代這張投影片的本機草稿。",
+    conflictBackupDescription:
+      "這份完整簡報草稿無法逐張投影片解決。請先下載備份以保留草稿。",
+    conflictResolveFailed: "無法解決衝突。此裝置上仍保留你的草稿。",
+    conflictKeepMine: "保留我的文字",
+    conflictUseLatest: "使用已儲存的文字",
     importBackup: "匯入備份",
     backupDownloaded: "備份已下載",
     backupDownloadFailed: "無法下載備份",
@@ -388,6 +401,8 @@ const messages = {
     orderedList: "有序清單",
     quote: "引用",
     blockquote: "塊引用",
+    divider: "分隔線",
+    horizontalRule: "水平線",
   },
   comments: {
     deleteComment: "刪除評論",
@@ -421,6 +436,7 @@ const messages = {
     retry: "重試",
     clickToAddComment: "點選新增評論",
     selectSlideToAdd: "選取幻燈片以新增評論",
+    filters: "評論篩選",
     scope: "評論範圍",
     thisSlide: "此幻燈片",
     allComments: "所有幻燈片",
@@ -720,6 +736,8 @@ const messages = {
     imageAdded: "圖片已新增",
     imageUploadError: "上傳此圖片時出了點問題。",
     exportFailed: "匯出失敗",
+    agentRunFailed:
+      "代理程式在建立任何投影片前執行失敗。請查看聊天中的詳細資訊，然後再試一次。",
     deckHasNoSlides: "幻燈片沒有頁面。",
     pdfRenderFailed: "無法渲染 PDF。",
     buildingDeck: "正在建置幻燈片",

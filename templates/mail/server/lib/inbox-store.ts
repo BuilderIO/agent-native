@@ -1,6 +1,17 @@
 import type { InboxThreadItem } from "@shared/inbox-threads.js";
 import type { EmailMessage, Label } from "@shared/types.js";
-import { and, desc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -969,6 +980,83 @@ export async function clearGmailQuotaCooldownAfterSuccess(
     );
 }
 
+/**
+ * Active cooldown deadline per account; accounts not cooling down are absent.
+ * Scope by account ids, or by owner for a single indexed read on a hot path.
+ */
+export async function readGmailQuotaCooldowns(
+  scope: { accountEmails: readonly string[] } | { ownerEmail: string },
+  now = Date.now(),
+): Promise<Map<string, number>> {
+  const budgets = schema.mailGmailQuotaBudgets;
+  let target;
+  if ("ownerEmail" in scope) {
+    target = eq(budgets.ownerEmail, scope.ownerEmail.toLowerCase());
+  } else {
+    const ids = [
+      ...new Set(scope.accountEmails.map((email) => email.toLowerCase())),
+    ];
+    if (ids.length === 0) return new Map();
+    target = inArray(budgets.id, ids);
+  }
+  const rows = await getDb()
+    .select({
+      accountEmail: budgets.accountEmail,
+      quotaCooldownUntil: budgets.quotaCooldownUntil,
+    })
+    .from(budgets)
+    .where(and(target, gt(budgets.quotaCooldownUntil, now)));
+  const cooldowns = new Map<string, number>();
+  for (const row of rows) {
+    if (row.quotaCooldownUntil != null) {
+      cooldowns.set(row.accountEmail.toLowerCase(), row.quotaCooldownUntil);
+    }
+  }
+  return cooldowns;
+}
+
+export type GmailTokenAccount = {
+  ownerEmail: string;
+  accountEmail: string;
+  expiresAt: number;
+};
+
+export async function saveGmailTokenAccount(
+  tokenHash: string,
+  account: GmailTokenAccount,
+  now = Date.now(),
+): Promise<void> {
+  const tokens = schema.mailGmailTokenAccounts;
+  const values = {
+    ownerEmail: account.ownerEmail.toLowerCase(),
+    accountEmail: account.accountEmail.toLowerCase(),
+    expiresAt: account.expiresAt,
+  };
+  await getDb()
+    .insert(tokens)
+    .values({ tokenHash, ...values, createdAt: now })
+    .onConflictDoUpdate({ target: tokens.tokenHash, set: values });
+  // Rows only matter while their token is live; prune here, where they grow.
+  await getDb().delete(tokens).where(lt(tokens.expiresAt, now));
+}
+
+export async function readGmailTokenAccount(
+  tokenHash: string,
+  now = Date.now(),
+): Promise<GmailTokenAccount | undefined> {
+  const tokens = schema.mailGmailTokenAccounts;
+  const rows = await getDb()
+    .select({
+      ownerEmail: tokens.ownerEmail,
+      accountEmail: tokens.accountEmail,
+      expiresAt: tokens.expiresAt,
+    })
+    .from(tokens)
+    .where(and(eq(tokens.tokenHash, tokenHash), gt(tokens.expiresAt, now)))
+    .limit(1);
+  return rows[0];
+}
+
 export class SyncClaimLostError extends Error {
   constructor(accountEmail: string) {
     super(`Sync claim for ${accountEmail} was lost to another worker`);
@@ -1026,6 +1114,25 @@ export async function claimSyncAccount(
     .returning();
   const row = rows[0];
   return row ? { claimId, row: toSyncAccountRow(row) } : null;
+}
+
+/** Reconnecting hands the account a fresh credential: let sync try again. */
+export async function clearSyncAccountReauth(
+  ownerEmail: string,
+  accountEmail: string,
+): Promise<void> {
+  await getDb()
+    .update(schema.mailSyncAccounts)
+    .set({ status: "idle", lastError: null, updatedAt: Date.now() })
+    .where(
+      and(
+        eq(schema.mailSyncAccounts.id, rowId(ownerEmail, accountEmail)),
+        or(
+          eq(schema.mailSyncAccounts.status, "needs_reauth"),
+          eq(schema.mailSyncAccounts.status, "error"),
+        ),
+      ),
+    );
 }
 
 export async function releaseSyncAccount(

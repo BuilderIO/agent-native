@@ -71,9 +71,11 @@ describe("useLabState / useLab / useLabs session gating", () => {
 
   it("fires get-labs once the session is authenticated", async () => {
     sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(jsonResponse({ "beta-editor": true }));
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        "beta-editor": { enabled: true, source: "choice", mixed: false },
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     let lab: boolean | undefined;
@@ -137,7 +139,11 @@ describe("useLabState / useLab / useLabs session gating", () => {
     sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(jsonResponse({ voice: false })),
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          voice: { enabled: false, source: "choice", mixed: false },
+        }),
+      ),
     );
 
     let lab: boolean | undefined;

@@ -21,9 +21,9 @@ do not silently detach or replace the system. Then apply the following layers:
 2. The explicitly selected, personal, or workspace design system.
 3. Approved Creative Context assets and a reference deck's composition patterns.
 4. Generic create-deck and slide-editing examples as fallback only.
-5. Impeccable-inspired guidance as a bounded review lens for hierarchy,
-   subtraction, contrast, density, and polish, never as a replacement palette
-   or component grammar.
+5. The `slide-design` skill as visual craft on top of these layers:
+   hierarchy, scale contrast, composition, subtraction, and polish, never as a
+   replacement palette, font, or component grammar.
 
 ## Data Model
 

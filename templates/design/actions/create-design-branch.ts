@@ -22,7 +22,7 @@
  * migration is preview-only until the user approves cutover.
  */
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   runBuilderAgent,
   resolveBuilderBranchProjectId,
@@ -109,7 +109,8 @@ export default defineAction({
 
     await assertAccess("design", designId, "editor");
     const access = await resolveAccess("design", designId);
-    if (!access) throw new Error("Design not found");
+    if (!access)
+      fail("Design not found", { errorCode: "not_found", statusCode: 404 });
 
     const resource = access.resource as {
       title?: string;

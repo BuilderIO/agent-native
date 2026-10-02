@@ -3,11 +3,44 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
-## 2026-09-30
+## 2026-10-01
 
 ### Improved
 
+- The observability settings tab is now labeled Observability.
+
+### Fixed
+
+- Importing a PDF or other file from chat no longer fails with an invalid uploaded file error, and a failed import now offers a retry instead of showing page text
+- Shift-clicking images selects them together on a slide
+- Slides keeps sidebar navigation beside the single home toolbar and shows credit usage only near the limit.
+
+## 2026-09-30
+
+### Added
+
+- Connect ChatGPT to create and revise presentations in Slides.
+
+### Improved
+
+- Anchored comments stay visible on the slide, filters stay tucked away, and edits on separate slides recover from simultaneous saves.
+- Asking the agent to make a deck beautiful now applies a designer's eye for type, layout, and color while keeping your design system and reference deck in charge, and slides using the Fraunces font now display it instead of falling back to Georgia.
+- Comments stay attached to highlighted text, and collaborators can edit the same deck without losing changes.
+- Typing stays responsive while slides fit longer text.
+- Add references through compact dropdown menus and find decks with the centered home search.
+- Rich text editing preserves imported slide layouts.
+- Slide text editing supports slash commands, Markdown shortcuts, formatting, links, and predictable lists while preserving slide styling
 - Slides remembers your home library tab, so returning users can open straight to Recent.
+
+### Fixed
+
+- Fixed list editing and slash commands on imported slide layouts.
+- New decks can be created in empty workspaces without a design system
+- The agent no longer adds decorative circles, dots, or rings to slides unless they carry meaning.
+- Empty Slides libraries show one clear next step without search and filter controls.
+- Slides retries honor deck links in edited prompts
+- Start presentation generation immediately after submitting a prompt.
+- Slides keeps your selected references when you retry generation or sign in
 
 ## 2026-09-29
 
@@ -20,6 +53,9 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Chat prompts clear immediately while the assistant thinks.
+- Chat stays ready for your next draft while a message is being sent.
+- Slides reports when saved history cannot load and lets you retry
 - Choosing the latest slide version preserves other pending slide edits.
 - Generation retries keep the original files and references.
 - List commands now change only the selected text rows, leaving other rows untouched.

@@ -47,6 +47,7 @@ describe("builderFileUploadProvider over Builder OAuth", () => {
 
     expect(resolveBuilderApiAuthorizationMock).toHaveBeenCalledWith(
       ASSETS_WRITE,
+      {},
     );
     const [, init] = fetchMock.mock.calls[0];
     expect(init.headers.Authorization).toBe(OAUTH_HEADER);

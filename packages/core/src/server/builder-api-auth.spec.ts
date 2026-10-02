@@ -105,8 +105,27 @@ describe("resolveBuilderApiAuthorization", () => {
       "user@example.com",
       null,
       ASSETS_WRITE,
+      { forceRefresh: undefined },
     );
     expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
+  });
+
+  it("forces an OAuth token refresh when the caller saw a 401", async () => {
+    hasBuilderOAuthSessionMock.mockResolvedValue(true);
+    getBuilderOAuthSessionMock.mockResolvedValue({
+      accessToken: "<FRESH_OAUTH_TOKEN_EXAMPLE>",
+      scopes: [ASSETS_WRITE],
+    });
+
+    await expect(
+      resolveBuilderApiAuthorization(ASSETS_WRITE, { forceRefresh: true }),
+    ).resolves.toBe("Bearer <FRESH_OAUTH_TOKEN_EXAMPLE>");
+    expect(getBuilderOAuthSessionMock).toHaveBeenCalledWith(
+      "user@example.com",
+      null,
+      ASSETS_WRITE,
+      { forceRefresh: true },
+    );
   });
 
   it("names the missing scope instead of falling back to a legacy key", async () => {
@@ -201,6 +220,7 @@ describe("resolveBuilderApiAuthorization", () => {
       "user@example.com",
       "org-recording",
       ASSETS_WRITE,
+      { forceRefresh: undefined },
     );
   });
 

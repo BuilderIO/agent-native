@@ -46,7 +46,7 @@ const messages = {
     designSystems: "डिज़ाइन सिस्टम",
   },
   settings: {
-    agentObservability: "एजेंट अवलोकन",
+    agentObservability: "अवलोकनक्षमता",
     title: "सेटिंग्स",
     labs: "लैब्स",
     labsIntro: "रिलीज़ से पहले प्रयोगात्मक सुविधाओं का पूर्वावलोकन करें।",
@@ -56,6 +56,7 @@ const messages = {
     commentsAndReplies: "टिप्पणियाँ और जवाब",
     commentsAndRepliesDescription: "जब कोई आपके डेक पर टिप्पणी करे या उसमें जवाब दे।",
     retry: "फिर कोशिश करें",
+    reload: "फिर से लोड करें",
     mcpAbout:
       "Slides को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए Slides में काम कर सकता है: डेक बनाना, स्लाइड जोड़ना और PowerPoint में एक्सपोर्ट करना। वह केवल वही देखता है जो आप देख सकते हैं।",
     workspaceTitle: "कार्यस्थान",
@@ -300,6 +301,21 @@ const messages = {
     importing: "आयात हो रहा है...",
     importFile: "फ़ाइल आयात करें",
     downloadBackup: "बैकअप डाउनलोड करें",
+    conflictStatus: "टेक्स्ट में विरोध",
+    conflictStatusDescription:
+      "अन्य बदलाव सहेजने से पहले विरोध वाले टेक्स्ट की समीक्षा करें।",
+    reviewConflict: "विरोध की समीक्षा करें",
+    conflictTitle: "स्लाइड {{number}} में टेक्स्ट का विरोध है",
+    conflictDescription:
+      "आपके टेक्स्ट संपादित करते समय किसी अन्य संस्करण ने इस स्लाइड को बदला।",
+    conflictChoicesDescription:
+      "अपना टेक्स्ट रखने पर वह नवीनतम संस्करण पर सहेजा जाएगा। सहेजा हुआ टेक्स्ट चुनने पर केवल इस स्लाइड का स्थानीय ड्राफ़्ट बदलेगा।",
+    conflictBackupDescription:
+      "पूरी प्रस्तुति के इस ड्राफ़्ट को स्लाइड-दर-स्लाइड हल नहीं किया जा सकता। इसे सुरक्षित रखने के लिए बैकअप डाउनलोड करें।",
+    conflictResolveFailed:
+      "विरोध हल नहीं हो सका। आपका ड्राफ़्ट इस डिवाइस पर उपलब्ध है।",
+    conflictKeepMine: "मेरा टेक्स्ट रखें",
+    conflictUseLatest: "सहेजा हुआ टेक्स्ट इस्तेमाल करें",
     importBackup: "बैकअप आयात करें",
     backupDownloaded: "बैकअप डाउनलोड हो गया",
     backupDownloadFailed: "बैकअप डाउनलोड नहीं हो सका",
@@ -396,6 +412,8 @@ const messages = {
     orderedList: "क्रमबद्ध सूची",
     quote: "उद्धरण",
     blockquote: "ब्लॉक उद्धरण",
+    divider: "विभाजक",
+    horizontalRule: "क्षैतिज रेखा",
   },
   comments: {
     deleteComment: "टिप्पणी हटाएं",
@@ -429,6 +447,7 @@ const messages = {
     retry: "फिर कोशिश करें",
     clickToAddComment: "टिप्पणी जोड़ने के लिए क्लिक करें",
     selectSlideToAdd: "एक टिप्पणी जोड़ने के लिए स्लाइड चुनें",
+    filters: "टिप्पणी फ़िल्टर",
     scope: "टिप्पणी का दायरा",
     thisSlide: "यह स्लाइड",
     allComments: "सभी स्लाइड",
@@ -736,6 +755,8 @@ const messages = {
     imageAdded: "चित्र जोड़ा गया",
     imageUploadError: "यह चित्र अपलोड करते समय कुछ गलत हुआ।",
     exportFailed: "निर्यात विफल",
+    agentRunFailed:
+      "स्लाइड बनाने से पहले एजेंट रन विफल हो गया। चैट में विवरण देखें और फिर कोशिश करें।",
     deckHasNoSlides: "डेक में कोई स्लाइड नहीं है।",
     pdfRenderFailed: "PDF रेंडर नहीं हो सका।",
     buildingDeck: "डेक बनाया जा रहा है",

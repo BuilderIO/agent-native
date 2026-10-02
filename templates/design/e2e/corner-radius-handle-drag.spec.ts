@@ -14,6 +14,7 @@ const SCREEN_HTML = `<!doctype html>
 <body style="margin:0;min-height:700px">
 <main data-agent-native-node-id="radius-root" data-agent-native-layer-name="Root" style="position:relative;width:320px;height:240px">
   <div id="radius-target" data-agent-native-node-id="radius-target" data-agent-native-layer-name="Radius target" data-an-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:110px;height:80px;background:#0f766e;color:#fff">Radius target</div>
+  <svg id="stroke-rectangle" data-agent-native-node-id="stroke-rectangle" data-agent-native-layer-name="Stroke rectangle" data-an-primitive="rectangle" viewBox="0 0 100 100" style="position:absolute;left:200px;top:125px;width:80px;height:80px"><path d="M 10 10 H 90 V 90 H 10 Z" fill="none" stroke="#111" stroke-width="4"></path></svg>
   <svg id="stroke-polygon" data-agent-native-node-id="stroke-polygon" data-agent-native-layer-name="Stroke polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[10,10,null,null,null,null,null],[90,10,null,null,null,null,null],[90,90,null,null,null,null,null],[10,90,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:190px;top:30px;width:80px;height:80px"><path d="M 10 10 L 90 10 L 90 90 L 10 90 Z" fill="none" stroke="#111" stroke-width="4"></path></svg>
   <svg id="stroke-path" data-agent-native-node-id="stroke-path" data-agent-native-layer-name="Stroke-only vector" data-an-primitive="path" data-an-pen-nodes='[1,[10,10,null,null,null,null,null],[90,10,null,null,null,null,null],[90,90,null,null,null,null,null],[10,90,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:190px;top:30px;width:80px;height:80px"><path d="M 10 10 L 90 10 L 90 90 L 10 90 Z" fill="none" stroke="#111" stroke-width="4"></path></svg>
   <svg id="filled-polygon" data-agent-native-node-id="filled-polygon" data-agent-native-layer-name="Filled polygon" data-an-primitive="polygon" data-an-pen-nodes='[1,[10,10,null,null,null,null,null],[90,10,null,null,null,null,null],[90,90,null,null,null,null,null],[10,90,null,null,null,null,null]]' viewBox="0 0 100 100" style="position:absolute;left:40px;top:140px;width:80px;height:80px"><path d="M 10 10 L 90 10 L 90 90 L 10 90 Z" fill="#0f766e"></path></svg>
@@ -268,18 +269,15 @@ test("canvas corner-radius handle follows the drag and persists the radius", asy
       strokeOpacity: "1",
       visibility: "visible",
     });
+    await expect(handles).toHaveCount(0);
+    await expect(
+      frame.locator('[data-agent-native-radius-handle="vertex-0"]'),
+    ).toHaveCount(0);
+
+    await selectLayerFromTree(page, "Stroke rectangle");
+    await expectSelectedLayer(page, "stroke-rectangle");
+    await expectSelectionOverlayToMatch(page, frame, "#stroke-rectangle");
     await expect(handles).toHaveCount(4);
-    const strokeVertex = frame.locator(
-      '[data-agent-native-radius-handle="vertex-0"]',
-    );
-    const strokeVertexBox = await strokeVertex.boundingBox();
-    if (!strokeVertexBox)
-      throw new Error("stroke-polygon radius handle is not laid out");
-    await page.mouse.move(
-      strokeVertexBox.x + strokeVertexBox.width / 2,
-      strokeVertexBox.y + strokeVertexBox.height / 2,
-    );
-    await expect(strokeVertex).toHaveCSS("visibility", "visible");
 
     await selectLayerFromTree(page, "Stroke-only vector");
     await expectSelectedLayer(page, "stroke-path");
@@ -365,6 +363,7 @@ test("canvas corner-radius handle follows the drag and persists the radius", asy
 
     await selectLayerFromTree(page, "Empty rectangle");
     await expectSelectionOverlayToMatch(page, frame, "#empty-rectangle");
+    await expect(handles).toHaveCount(0);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }

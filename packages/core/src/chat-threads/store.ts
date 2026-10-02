@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
 
+import type { AgentRunOptions } from "@agent-native/agentkit/protocol";
+
 import {
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
@@ -1312,7 +1314,9 @@ export interface UpdateThreadDataOptions {
   preserveExistingQueuedMessages?: boolean;
   preserveExistingTopLevelKeys?: boolean;
   preserveCurrentMetadata?: boolean;
-  transformThreadData?: (currentThreadData: string) => string;
+  transformThreadData?: (
+    currentThreadData: string,
+  ) => string | { threadData: string; preview?: string };
   maxAttempts?: number;
   ignoreConflicts?: boolean;
 }
@@ -1349,8 +1353,11 @@ export async function updateThreadData(
       const current = await getThread(id);
       if (!current) return;
 
+      const transformed = options.transformThreadData?.(current.threadData);
       const incomingThreadData =
-        options.transformThreadData?.(current.threadData) ?? threadData;
+        typeof transformed === "string"
+          ? transformed
+          : (transformed?.threadData ?? threadData);
       let nextThreadData = incomingThreadData;
       let nextMessageCount = messageCount;
       try {
@@ -1379,7 +1386,9 @@ export async function updateThreadData(
         : title || current.title;
       const nextPreview = options.preserveCurrentMetadata
         ? current.preview
-        : preview;
+        : typeof transformed === "object" && transformed.preview !== undefined
+          ? transformed.preview
+          : preview;
       const result = await client.execute({
         sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = COALESCE(?, message_count), updated_at = ? WHERE id = ? AND updated_at = ? AND LOWER(owner_email) = LOWER(?)`,
         args: [
@@ -1485,21 +1494,27 @@ export interface QueuedMessage {
   createdAt?: string;
   attachments?: unknown[];
   metadata?: Record<string, unknown>;
+  options?: AgentRunOptions;
+  promotionClaim?: { id: string; expiresAt: number };
 }
 
 export type ThreadQueuedMessageMutation =
   | { type: "append"; message: QueuedMessage }
   | { type: "remove"; messageId: string }
   | { type: "moveToTop"; messageId: string }
-  | { type: "claim"; messageId: string }
-  | { type: "restore"; message: QueuedMessage; index: number };
+  | { type: "claim"; messageId: string; claimId: string }
+  | { type: "release"; messageId: string; claimId: string };
 
 export interface ThreadQueuedMessageMutationResult {
   queuedMessages: QueuedMessage[];
   message?: QueuedMessage;
-  removedMessage?: QueuedMessage;
-  index?: number;
+  claimedMessage?: QueuedMessage;
+  claimBusy?: boolean;
+  promotionBusy?: boolean;
+  released?: boolean;
 }
+
+const QUEUED_MESSAGE_CLAIM_TTL_MS = 60_000;
 
 /** Applies a queue operation to the latest durable thread state on every CAS retry. */
 export async function mutateThreadQueuedMessages(
@@ -1549,9 +1564,12 @@ export async function mutateThreadQueuedMessages(
             const existing = current.find(
               (message) => message.id === mutation.message.id,
             );
+            const { promotionClaim: _claim, ...existingMessage } =
+              existing ?? {};
             if (
               existing &&
-              JSON.stringify(existing) !== JSON.stringify(mutation.message)
+              JSON.stringify(existingMessage) !==
+                JSON.stringify(mutation.message)
             ) {
               throw new Error(
                 `Queued message id already exists: ${mutation.message.id}`,
@@ -1561,23 +1579,42 @@ export async function mutateThreadQueuedMessages(
             response = { message: existing ?? mutation.message };
             break;
           }
-          case "remove":
+          case "remove": {
+            const index = current.findIndex(
+              (message) => message.id === mutation.messageId,
+            );
+            const message = current[index];
+            if (
+              message?.promotionClaim &&
+              message.promotionClaim.expiresAt > Date.now()
+            ) {
+              response = { promotionBusy: true };
+              break;
+            }
             queuedMessages = current.filter(
-              (message) => message.id !== mutation.messageId,
+              (candidate) => candidate.id !== mutation.messageId,
             );
             break;
+          }
           case "moveToTop": {
             const index = current.findIndex(
               (message) => message.id === mutation.messageId,
             );
             if (index > 0) {
               const selected = current[index]!;
-              queuedMessages = [
-                selected,
-                ...current.filter(
-                  (message) => message.id !== mutation.messageId,
-                ),
-              ];
+              if (
+                selected.promotionClaim &&
+                selected.promotionClaim.expiresAt > Date.now()
+              ) {
+                response = { promotionBusy: true };
+              } else {
+                queuedMessages = [
+                  selected,
+                  ...current.filter(
+                    (message) => message.id !== mutation.messageId,
+                  ),
+                ];
+              }
             }
             break;
           }
@@ -1588,25 +1625,43 @@ export async function mutateThreadQueuedMessages(
             if (index < 0) {
               throw new Error(`Unknown queued message: ${mutation.messageId}`);
             }
-            const removedMessage = current[index]!;
-            queuedMessages = current.filter(
-              (message) => message.id !== mutation.messageId,
-            );
-            response = { removedMessage, index };
+            const message = current[index]!;
+            const now = Date.now();
+            if (
+              message.promotionClaim &&
+              message.promotionClaim.id !== mutation.claimId &&
+              message.promotionClaim.expiresAt > now
+            ) {
+              response = { claimBusy: true };
+              break;
+            }
+            const claimedMessage = {
+              ...message,
+              promotionClaim: {
+                id: mutation.claimId,
+                expiresAt: now + QUEUED_MESSAGE_CLAIM_TTL_MS,
+              },
+            };
+            queuedMessages = [...current];
+            queuedMessages[index] = claimedMessage;
+            response = { claimedMessage };
             break;
           }
-          case "restore":
-            if (
-              !current.some((message) => message.id === mutation.message.id)
-            ) {
+          case "release": {
+            const index = current.findIndex(
+              (message) => message.id === mutation.messageId,
+            );
+            const message = current[index];
+            if (message?.promotionClaim?.id === mutation.claimId) {
+              const { promotionClaim: _claim, ...releasedMessage } = message;
               queuedMessages = [...current];
-              queuedMessages.splice(
-                Math.max(0, Math.min(mutation.index, queuedMessages.length)),
-                0,
-                mutation.message,
-              );
+              queuedMessages[index] = releasedMessage;
+              response = { released: true };
+            } else {
+              response = { released: false };
             }
             break;
+          }
         }
 
         result = { ...response, queuedMessages };

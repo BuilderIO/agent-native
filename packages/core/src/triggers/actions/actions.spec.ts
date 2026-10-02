@@ -147,6 +147,62 @@ describe("automation actions", () => {
     });
   });
 
+  it("reports a framework-paused automation as paused, not as its last failed run", async () => {
+    resourceListMock.mockResolvedValue([{ path: "jobs/digest.md" }]);
+    resourceGetByPathMock.mockResolvedValue({
+      id: "automation-1",
+      owner: "alice@example.com",
+      path: "jobs/digest.md",
+      content: automationContent
+        .replace("enabled: true", "enabled: false")
+        .replace(
+          "reasoningEffort: high",
+          [
+            "reasoningEffort: high",
+            "lastStatus: paused",
+            'lastError: "Paused after 3 consecutive missing_credentials failures: No LLM provider is connected."',
+            'lastErrorCode: "missing_credentials"',
+            "consecutiveFailures: 3",
+            'pausedReason: "missing_credentials"',
+            'pausedAt: "2026-10-01T12:00:00.000Z"',
+          ].join("\n"),
+        ),
+    });
+    // A newer failed run in the history must not hide the pause.
+    executeMock.mockResolvedValueOnce({
+      rows: [
+        {
+          id: "run-3",
+          owner: "alice@example.com",
+          automation: "digest",
+          path: "jobs/digest.md",
+          scope: "personal",
+          org_id: null,
+          app_id: null,
+          run_id: null,
+          thread_id: null,
+          status: "error",
+          started_at: Date.now() + 60_000,
+          finished_at: Date.now() + 61_000,
+          error: "No LLM provider is connected.",
+          error_code: "missing_credentials",
+        },
+      ],
+    });
+
+    const [automation] = await listAutomations.run({ scope: "personal" }, ctx);
+
+    expect(automation).toMatchObject({
+      enabled: false,
+      lastStatus: "paused",
+      lastErrorCode: "missing_credentials",
+      pausedReason: "missing_credentials",
+      pausedAt: "2026-10-01T12:00:00.000Z",
+      nextRun: null,
+    });
+    expect(automation?.lastError).toContain("Paused after 3 consecutive");
+  });
+
   it("keeps app-owned automations in their app list", async () => {
     resourceListMock.mockResolvedValue([
       { path: "jobs/mail-digest.md" },

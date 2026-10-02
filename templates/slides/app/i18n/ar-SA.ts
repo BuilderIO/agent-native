@@ -46,7 +46,7 @@ const messages = {
     designSystems: "أنظمة التصميم",
   },
   settings: {
-    agentObservability: "مراقبة الوكيل",
+    agentObservability: "قابلية المراقبة",
     title: "الإعدادات",
     labs: "المختبرات",
     labsIntro: "عاين الميزات التجريبية قبل إطلاقها.",
@@ -56,6 +56,7 @@ const messages = {
     commentsAndReplies: "التعليقات والردود",
     commentsAndRepliesDescription: "عندما يعلّق شخص على عرضك أو يرد فيه.",
     retry: "إعادة المحاولة",
+    reload: "إعادة تحميل",
     mcpAbout:
       "اربط Slides بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في Slides نيابةً عنك: إنشاء العروض التقديمية وإضافة الشرائح والتصدير إلى PowerPoint. ولا يرى إلا ما يمكنك رؤيته.",
     workspaceTitle: "مساحة العمل",
@@ -303,6 +304,19 @@ const messages = {
     importing: "جارٍ الاستيراد...",
     importFile: "استيراد ملف",
     downloadBackup: "تنزيل نسخة احتياطية",
+    conflictStatus: "تعارض في النص",
+    conflictStatusDescription: "راجع النص المتعارض قبل حفظ تغييرات أخرى.",
+    reviewConflict: "مراجعة التعارض",
+    conflictTitle: "تعارض نصي في الشريحة {{number}}",
+    conflictDescription: "غيّر إصدار آخر هذه الشريحة أثناء تحرير النص.",
+    conflictChoicesDescription:
+      "سيحفظ الاحتفاظ بنصك فوق أحدث إصدار. أما استخدام النص المحفوظ فيستبدل المسودة المحلية لهذه الشريحة فقط.",
+    conflictBackupDescription:
+      "لا يمكن حل مسودة العرض الكامل هذه شريحةً واحدةً في كل مرة. نزّل نسخة احتياطية للاحتفاظ بها.",
+    conflictResolveFailed:
+      "تعذّر حل التعارض. ما زالت مسودتك متاحة على هذا الجهاز.",
+    conflictKeepMine: "الاحتفاظ بنصي",
+    conflictUseLatest: "استخدام النص المحفوظ",
     importBackup: "استيراد نسخة احتياطية",
     backupDownloaded: "تم تنزيل النسخة الاحتياطية",
     backupDownloadFailed: "تعذر تنزيل النسخة الاحتياطية",
@@ -400,6 +414,8 @@ const messages = {
     orderedList: "قائمة مرتبة",
     quote: "اقتباس",
     blockquote: "اقتباس كتلي",
+    divider: "فاصل",
+    horizontalRule: "خط أفقي",
   },
   comments: {
     deleteComment: "حذف التعليق",
@@ -433,6 +449,7 @@ const messages = {
     retry: "إعادة المحاولة",
     clickToAddComment: "انقر لإضافة تعليق",
     selectSlideToAdd: "حدد شريحة لإضافة تعليق",
+    filters: "عوامل تصفية التعليقات",
     scope: "نطاق التعليقات",
     thisSlide: "هذه الشريحة",
     allComments: "كل الشرائح",
@@ -754,6 +771,8 @@ const messages = {
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
+    agentRunFailed:
+      "فشل تشغيل الوكيل قبل إنشاء أي شرائح. راجع التفاصيل في الدردشة، ثم حاول مرة أخرى.",
     deckHasNoSlides: "لا توجد شرائح في هذا العرض التقديمي.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",

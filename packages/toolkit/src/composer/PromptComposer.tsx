@@ -57,6 +57,7 @@ import {
   type ComposerTextSelection,
   type ComposerImageModelMenu,
   type ComposerSubmitIntent,
+  type ComposerDraftSnapshot,
   type TiptapComposerHandle,
   type TiptapComposerSubmitOptions,
 } from "./TiptapComposer.js";
@@ -79,6 +80,7 @@ export type PromptComposerFile = File;
 
 export interface PromptComposerSubmitOptions {
   intent?: ComposerSubmitIntent;
+  steer?: boolean;
   /** Clear the submitted draft once the host owns the message and its failure recovery. */
   onLocalSubmit?: () => void;
   model?: string;
@@ -104,8 +106,13 @@ export interface PromptComposerProps {
     references: Reference[],
     options: PromptComposerSubmitOptions,
   ) => void | Promise<void>;
+  /** Run the host's empty-composer action when Enter is pressed. */
+  onEmptySubmit?: () => void | Promise<void>;
   /** Return false to stop a submit before it reaches the host runtime. */
-  onBeforeSubmit?: () => boolean | Promise<boolean>;
+  onBeforeSubmit?: (
+    draft?: ComposerDraftSnapshot,
+  ) => boolean | Promise<boolean>;
+  onSubmissionPendingChange?: (pending: boolean) => void;
   /** Scope where a failed submission should be recovered after the host forks. */
   getSubmitFailureDraftScope?: () => string | null;
   /** Handle file paste/drop errors in the host chat surface. */
@@ -118,6 +125,8 @@ export interface PromptComposerProps {
   disabled?: boolean;
   /** Block all submission paths while allowing draft, file, and context staging. */
   submissionDisabled?: boolean;
+  /** Disable only the send control while the submission is being accepted. */
+  sendButtonDisabled?: boolean;
   /** Prevent submission while preserving editor focus and draft entry. */
   submitting?: boolean;
   /** Present the primary action as queueing instead of immediate send. */
@@ -502,34 +511,25 @@ function AttachmentChip({
   if (src) {
     return (
       <>
-        <button
-          type="button"
-          onClick={() => setPreviewOpen(true)}
-          aria-label={t("agentChat.composer.previewAttachment", {
-            name: attachment.name,
-            defaultValue: `Preview ${attachment.name}`,
-          })}
-          className="agent-composer-attachment-image group relative flex h-16 min-w-16 max-w-28 cursor-zoom-in items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-muted/50"
-        >
-          <img
-            src={src}
-            alt={attachment.name}
-            className="max-h-full max-w-full object-contain p-1"
-          />
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={(e) => {
-              e.stopPropagation();
-              onRemove(attachment.id);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                e.stopPropagation();
-                onRemove(attachment.id);
-              }
-            }}
+        <div className="relative inline-flex">
+          <button
+            type="button"
+            onClick={() => setPreviewOpen(true)}
+            aria-label={t("agentChat.composer.previewAttachment", {
+              name: attachment.name,
+              defaultValue: `Preview ${attachment.name}`,
+            })}
+            className="agent-composer-attachment-image group flex h-16 min-w-16 max-w-28 cursor-zoom-in items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-muted/50"
+          >
+            <img
+              src={src}
+              alt={attachment.name}
+              className="max-h-full max-w-full object-contain p-1"
+            />
+          </button>
+          <button
+            type="button"
+            onClick={() => onRemove(attachment.id)}
             aria-label={t("agentChat.composer.removeAttachment", {
               name: attachment.name,
               defaultValue: `Remove ${attachment.name}`,
@@ -537,8 +537,8 @@ function AttachmentChip({
             className="absolute end-1 top-1 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border/60 bg-background/90 text-muted-foreground hover:text-foreground"
           >
             <IconX className="h-3 w-3" />
-          </span>
-        </button>
+          </button>
+        </div>
         {previewOpen ? (
           <ImagePreviewLightbox
             src={src}
@@ -599,6 +599,7 @@ function PromptAttachmentStrip() {
 
 function PromptComposerInner({
   onSubmit,
+  onEmptySubmit,
   contextItems,
   onRemoveContextItem,
   onInspectContextItem,
@@ -608,6 +609,7 @@ function PromptComposerInner({
   ariaLabel,
   disabled,
   submissionDisabled,
+  sendButtonDisabled,
   submitting,
   willQueue = false,
   onDisabledClick,
@@ -680,6 +682,7 @@ function PromptComposerInner({
   imageModelMenu,
   composerRef,
   onBeforeSubmit,
+  onSubmissionPendingChange,
   getSubmitFailureDraftScope,
   onAttachmentError,
   interceptBuildRequestsForBuilder,
@@ -807,6 +810,7 @@ function PromptComposerInner({
       });
       await onSubmit(finalText, files, references, {
         intent: submitOptions?.intent ?? "immediate",
+        ...(submitOptions?.steer ? { steer: true } : {}),
         onLocalSubmit: submitOptions?.onLocalSubmit,
         model: composerModel,
         engine: composerEngine,
@@ -890,6 +894,7 @@ function PromptComposerInner({
           disabled={disabled}
           contextControlsDisabled={engineSubmissionBlocked}
           submissionDisabled={submissionDisabled || engineSubmissionBlocked}
+          sendButtonDisabled={sendButtonDisabled}
           submitting={submitting}
           willQueue={willQueue}
           maxDocumentAttachmentBytes={maxDocumentAttachmentBytes}
@@ -898,7 +903,9 @@ function PromptComposerInner({
           initialText={initialText}
           initialTextKey={initialTextKey}
           onSubmit={handleSubmit}
+          onEmptySubmit={onEmptySubmit}
           onBeforeSubmit={onBeforeSubmit}
+          onSubmissionPendingChange={onSubmissionPendingChange}
           getSubmitFailureDraftScope={getSubmitFailureDraftScope}
           onAttachmentError={onAttachmentError}
           interceptBuildRequestsForBuilder={interceptBuildRequestsForBuilder}

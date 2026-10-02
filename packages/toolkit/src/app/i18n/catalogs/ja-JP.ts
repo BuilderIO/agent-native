@@ -393,6 +393,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.auto": "自動",
   "composer.builderModelCredits": "Claude、OpenAI、Gemini の無料クレジット",
   "composer.chatGptSubscription": "ChatGPT サブスクリプション",
+  "composer.chatgptManageUsage": "使用状況を管理",
+  "composer.chatgptPlanUsing": "ChatGPTプランを使用中",
   "composer.closePreview": "プレビューを閉じる",
   "composer.configureProviderKeys":
     "Anthropic、OpenAI、または別のプロバイダーを設定",
@@ -596,7 +598,10 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "チャットを読み込み中...",
   "empty.prompt": "どのようにお手伝いできますか？",
   "error.afterDuration": "{{duration}} 後に{{headline}}",
-  "error.failed": "エージェントでエラーが発生しました",
+  "error.chatgptPlanUsageLimit": "ChatGPTプランの使用上限に達しました。",
+  "error.chatgptPlanUsageUnavailable":
+    "OpenAIはこのChatGPTプランの使用上限を確認できませんでした。ChatGPTの使用状況を確認するか、別のモデルをお試しください。",
+  "error.failed": "エージェントの実行は完了前に失敗しました。",
   "error.render": "このコンテンツを表示できませんでした。",
   "error.stopped": "エージェントは完了前に停止しました",
   "errorMessages.agentConnection":
@@ -619,6 +624,14 @@ const messages: ToolkitAgentChatTranslation = {
     "ツールのスキーマが無効だったため、モデルは開始前にリクエストを拒否しました。無効なツールをスキップして再試行できます。",
   "errorMessages.malformedRequest":
     "モデルプロバイダーがこのリクエストを不正な形式として拒否したため、再試行されませんでした。再試行するか、繰り返し発生する場合は新しいチャットを開始してください。",
+  "errorMessages.requestTooLarge":
+    "このリクエストはサーバーのサイズ上限を超えました（HTTP 413）。新しいチャットを開始するか、大きな添付ファイルや参照を削除して再試行してください。",
+  "errorMessages.runInterrupted": "エージェントは完了前に停止しました。",
+  "errorMessages.runFailed": "エージェントの実行に失敗しました。",
+  "errorMessages.runUnverified":
+    "このチャットはエージェントを追跡できなくなりました。エージェントはまだ実行中の可能性があります。再読み込みして進捗を確認してください。",
+  "errorMessages.runSignedOut":
+    "サインアウトしているため、このチャットはエージェントを追跡できません。もう一度サインインしてから再読み込みしてください。",
   "errorMessages.malformedRequestAttachment":
     "モデルが添付ファイルを拒否したため、このメッセージは送信されませんでした。添付を削除して再試行してください。PDF、プレーンテキスト、JPEG・PNG・GIF・WebP の画像は直接読み取れますが、その他の形式はアップロードしてリンクする必要があります。",
   "errorMessages.noProviderConnected":
@@ -1098,6 +1111,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Builder.io に接続中",
   "recovery.copyDebug": "デバッグ情報をコピー",
   "recovery.copyFailed": "コピーに失敗しました",
+  "recovery.retryAttachmentUnavailable":
+    "このリクエストには再試行できないファイルが含まれています。メッセージ入力欄でファイルを添付し直してから、もう一度お試しください。",
   "recovery.deferredSubmissionFailed":
     "このメッセージを送信できませんでした。接続またはチャットの設定を確認して、もう一度お試しください。",
   "recovery.credentialRejected":
@@ -1265,6 +1280,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}} に問い合わせ中...",
   "tool.elapsed": "{{duration}} 経過",
   "tool.askingAgentFailed": "{{agent}} への問い合わせ中にエラーが発生しました",
+  "tool.failedWithoutDetails": "エラーの詳細はありません。",
   "tool.input": "入力",
   "tool.inputWithLabel": "入力 - {{label}}",
   "tool.interrupted":
@@ -1546,6 +1562,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "あなたの推定費用",
   "settings.usage.yourCreditSpend": "あなたの Builder.io クレジット使用量",
   "settings.usage.calls": "呼び出し",
+  "settings.usage.chatgptPlanUsage": "ChatGPT プランの使用状況",
   "settings.usage.tokens": "トークン",
   "settings.usage.activePeople": "アクティブなメンバー",
   "settings.usage.history": "使用履歴",
@@ -2717,10 +2734,31 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.change": "変更",
   "settingsModel.chatgptConnected": "接続済み",
   "settingsModel.chatgptDescription":
-    "ChatGPT のプランで Codex エンジンを使えます。",
+    "ChatGPTプランで対象のOpenAIモデルを利用できます。",
   "settingsModel.chatgptPopupBlocked":
     "このサイトのポップアップを許可してから、もう一度お試しください。",
-  "settingsModel.chatgptTitle": "ChatGPT サブスクリプション",
+  "settingsModel.chatgptTitle": "ChatGPT プランへのアクセス",
+  "settingsModel.chatgptAddAccount": "別のアカウントを追加",
+  "settingsModel.chatgptConnecting": "接続中…",
+  "settingsModel.chatgptContinue": "ChatGPTで続行",
+  "settingsModel.chatgptDisconnect": "接続を解除",
+  "settingsModel.chatgptDisconnectTitle": "ChatGPT の接続を解除しますか？",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} はこのアプリからサインアウトされ、エージェントは ChatGPT プランを使用しなくなります。いつでもサインインし直せます。",
+  "settingsModel.chatgptDisconnecting": "接続を解除しています…",
+  "settingsModel.chatgptRemoveLegacySignIn": "古いサインインを削除",
+  "settingsModel.chatgptLegacySignInDetails":
+    "以前の ChatGPT サインインが保存されています。公式フローでは使用できません。",
+  "settingsModel.chatgptManageAccess": "ChatGPT で管理",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "ここでは接続を解除しました。ChatGPT ではアクセスが有効なままの場合があります。",
+  "settingsModel.chatgptLocalOnly":
+    "オープンソースアプリは、loopback callback を使ってローカルで実行すれば申請なしで利用できます。パートナー申請は不要です。*.agent-native.com 上のホスト型アプリには、運営者の承認とホスト型 callback が必要です。",
+  "settingsModel.chatgptNoDirectUse":
+    "このChatGPTアカウントを使用するには、再接続してモデルへの直接アクセスを許可してください。",
+  "settingsModel.chatgptReconnect": "再接続",
+  "settingsModel.chatgptSelectAccount": "ChatGPTアカウント",
+  "settingsModel.chatgptUsageLimit": "ChatGPTプランの使用上限に達しました。",
   "settingsModel.checkAgain": "もう一度確認",
   "settingsModel.checkedJustNow": "たった今確認しました。",
   "settingsModel.checkedOn": "{{date}} に確認しました。",

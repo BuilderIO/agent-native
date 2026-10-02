@@ -2,6 +2,7 @@ const messages = {
   meetingAsk: { resizeOrDismissAnswers: "調整答案區域大小或關閉" },
   agentChat: {
     setup: {
+      connectBuilder: "連線至 Builder.io",
       providerStatusUnavailable: "無法確認 AI 是否已就緒。",
     },
     common: { retry: "重試" },
@@ -762,6 +763,11 @@ const messages = {
     agentTitle: "管理代理",
     pageTitle: "設定 · Clips",
     labs: "Labs",
+    labResilientRecording: "彈性錄製",
+    labResilientRecordingDescription:
+      "試用更快的錄製上傳速度，以及中斷後更完善的復原功能。",
+    labResilientRecordingMixedDescription:
+      "先前的錄製設定仍然有效。請選擇開啟或關閉，以使用單一設定。",
     labsIntro: "這些是全新的不穩定功能，可能會有錯誤。我們重視你的意見回饋。",
     labVideoEditing: "影片編輯",
     labVideoEditingDescription: "試用新的影片編輯器。",
@@ -1155,14 +1161,14 @@ const messages = {
     elapsed: "已用時間",
     cancel: "捨棄錄製",
     cancelShortcut: "捨棄 (⌥⇧C)",
-    discardConfirmTitle: "要捨棄這段錄製嗎?",
+    discardConfirmTitle: "刪除這段錄影？",
     discardConfirmDescription:
       "此操作無法復原,目前為止的錄製內容將被永久刪除。",
     resume: "繼續",
     discardRecording: "捨棄錄製",
     restart: "重新錄製",
     restartShortcut: "重新開始 (⌥⇧R)",
-    restartQuestion: "要開始新的錄製嗎?",
+    restartQuestion: "刪除這段錄影並重新開始？",
     restartConfirm: "重新開始",
   },
   countdownOverlay: {
@@ -1383,15 +1389,11 @@ const messages = {
     builderTimeout: "5 分鐘內未收到 Builder 回應。請檢查快顯視窗並重試。",
     builderConnected: "Builder.io 已連線",
     waitingForBuilder: "正在等待 Builder...",
-    connectBuilder: "使用 Builder.io",
+    description:
+      "使用 Builder.io 或相容 S3 的儲存空間來保存錄製的影片。Builder.io 包含免費代管和 AI 額度。",
     createBuilderAccount: "建立 Builder.io 帳戶",
     signInWithBuilderAccount: "使用 Builder.io 帳戶登入",
-    builderConsentPrefix: "建立 Builder.io 帳戶即表示您同意我們的",
-    builderTerms: "服務條款",
-    builderConsentAnd: "和",
-    builderPrivacy: "隱私權政策",
     free: "免費",
-    configureS3: "設定 S3 相容儲存",
     whyPrompt: "為什麼我會看到這個？",
     whyDescription:
       "Clips 是 100% 免費且開放原始碼，因此您需要連線一種儲存 clips 的方式。使用 Builder.io 可取得免費方案儲存和 AI，或使用 S3 相容物件儲存和您自己的 LLM 金鑰。",
@@ -1712,10 +1714,54 @@ const messages = {
       "在下一個畫面連線儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存。Clips 將完成儲存。",
     connectStorageToRetryLoom:
       "在下一個畫面連線儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存。Clips 將重試匯入。",
-    leaveConfirmTitle: "離開並捨棄此錄製？",
+    leaveConfirmTitle: "離開這段錄影？",
     leaveConfirmDescription:
-      "進行中的錄製尚未儲存完成。現在離開此頁面將會捨棄它。",
+      "這段錄影只存在於此分頁中。除非先下載副本，否則離開後會被刪除。",
     leaveAndDiscard: "離開並捨棄",
+    recordingWithoutSound: "正在無聲錄製。開啟麥克風才能產生逐字稿。",
+    pendingStorageTitle: "連線儲存空間以保存你的錄製",
+    pendingStorageDescription: "連接儲存空間後，Clips 會立即上傳。",
+    storageConnectedUploading: "儲存空間已連線。正在上傳你的錄製…",
+    downloadCopy: "下載副本",
+    localRecordingOpenElsewhere: "此錄製仍在另一個 Clips 分頁中開啟。",
+    uploadWaitingForConnection: "上傳已暫停。Clips 會自動重試。",
+    uploadDidNotFinish: "上傳未完成。",
+    unfinishedRecording: "有一個錄製尚未上傳完成",
+    finishUpload: "完成上傳",
+    leaveKeepDescription:
+      "Clips 會將它保留在此瀏覽器中，並在你回來時提示完成上傳。選擇「離開並捨棄」會永久刪除它。",
+    leaveAndKeep: "離開並保留",
+    copySafeInBrowser: "你的錄影已安全保存在此瀏覽器中。",
+    copyOnlyInThisTab: "這段錄影只存在於此分頁中。請保持分頁開啟，或下載副本。",
+    localCopyFull:
+      "此瀏覽器的儲存空間已滿，Clips 無法保留安全副本。請保持此分頁開啟直到上傳完成，或下載副本。",
+    localCopyFailed:
+      "Clips 無法在此瀏覽器中保留安全副本。請保持此分頁開啟直到上傳完成，或下載副本。",
+    localCopyUnreadable: "無法讀取此瀏覽器中的錄影副本。",
+    recordingOwnedByAnotherAccount:
+      "這段錄影屬於另一個帳號。請在此瀏覽器登入該帳號後再上傳。",
+    unclaimedRecording: "此瀏覽器中有一段未連結任何帳號的錄影",
+    reviewRecording: "檢視",
+    claimRecordingPrompt: "這段錄影尚未連結任何帳號。要上傳到 {{email}} 嗎？",
+    claimRecording: "上傳到我的帳號",
+    lowBrowserStorage:
+      "此瀏覽器的儲存空間不足，較長的錄影可能放不進安全副本。請保持此分頁開啟直到上傳完成。",
+    recordingEndMissing:
+      "這段錄影的結尾沒有儲存。Clips 會上傳已有的部分並保留你的副本。",
+    uploadedPartialCopyKept:
+      "已上傳此瀏覽器儲存的內容。結尾可能遺失，因此 Clips 在這裡保留了你的副本。",
+    uploadUnverifiedCopyKept:
+      "Clips 無法確認整段錄影都已上傳，因此在這裡保留了你的副本。",
+    copyKeptAfterUpload:
+      "這段錄影已上傳，但 Clips 無法確認它是否完整，因此在這裡保留了你的副本。",
+    localCopyLockUnavailable:
+      "Clips 無法確認沒有其他分頁在使用這段錄影，因此不會從這裡上傳或刪除它。請改為下載副本。",
+    uploadAgain: "重新上傳",
+    keptCopyWaiting: "Clips 在此瀏覽器中保留了一段錄影的副本",
+    savedRecordingsUnreadable: "Clips 無法讀取此瀏覽器中儲存的錄影。",
+    remindTomorrow: "明天提醒我",
+    stillProcessingCopyKept:
+      "此錄製仍在處理中，因此 Clips 在這裡保留了你的副本。請等待處理完成，或重新上傳。",
   },
   importRoute: {
     pageTitle: "匯入 Loom — Clips",
@@ -1850,6 +1896,7 @@ const messages = {
     retry: "重試",
     retrying: "正在重試…",
     retryFailed: "無法重試此上傳。",
+    retryCheckFailed: "無法檢查是否能重試此上傳。請重新整理頁面後再試。",
     retryUnavailableHere: "重試僅在錄製此內容的裝置或瀏覽器上可用。",
     viewsCount: "{{count}} 次觀看",
     recordingMenu: "錄製選單",

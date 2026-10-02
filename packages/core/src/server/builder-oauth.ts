@@ -397,6 +397,7 @@ export async function getBuilderOAuthSession(
   ownerEmail: string,
   orgId?: string | null,
   requiredScope?: BuilderOAuthPermissionScope,
+  access: { forceRefresh?: boolean } = {},
 ): Promise<BuilderOAuthSession | null> {
   let missingRequiredScope = false;
   for (const options of await resolveBuilderOAuthOptions(ownerEmail, orgId, {
@@ -408,7 +409,10 @@ export async function getBuilderOAuthSession(
       `${options.scope}:${options.scopeId}`,
     );
     if (stored === null) continue;
-    const accessToken = await getMcpOAuthAccessToken(options);
+    const accessToken = await getMcpOAuthAccessToken({
+      ...options,
+      forceRefresh: access.forceRefresh,
+    });
     if (!accessToken) continue;
     const credentials = await readMcpOAuthCredentials(options);
     if (!credentials || !isBuilderCredential(credentials)) continue;

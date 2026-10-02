@@ -1,6 +1,7 @@
 import { withSsrHtmlContentType } from "@agent-native/core/shared";
-import { DefaultSpinner } from "@agent-native/toolkit/app/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
+
+import { Skeleton } from "@/components/ui/skeleton";
 
 const SEO_TITLE = "Clips - Open Source screen recorder";
 const SEO_DESCRIPTION =
@@ -38,8 +39,18 @@ export function clientLoader({ url }: LoaderFunctionArgs) {
 
 export function HydrateFallback() {
   return (
-    <div className="flex items-center justify-center h-screen w-full">
-      <DefaultSpinner />
+    <div aria-busy="true" className="space-y-5 p-6">
+      <Skeleton className="h-8 w-40" />
+      <div className="flex flex-wrap gap-3">
+        <Skeleton className="h-9 w-64 rounded-md" />
+        <Skeleton className="h-9 w-24 rounded-md" />
+        <Skeleton className="h-9 w-24 rounded-md" />
+      </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 6 }, (_, index) => (
+          <Skeleton key={index} className="aspect-video w-full rounded-xl" />
+        ))}
+      </div>
     </div>
   );
 }

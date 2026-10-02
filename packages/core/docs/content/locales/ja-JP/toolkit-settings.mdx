@@ -1,0 +1,203 @@
+---
+title: "Settings Kit"
+description: "すべてのアプリで共通のアカウント、接続、エージェント、組織グループと、アプリ固有の設定をまとめるグループを備えた、検索可能な設定ページです。"
+---
+
+# Settings Kit
+
+Settings Kit は、すべてのアプリに同じ構成の設定ページを1つ用意します。設定の場所を見れば、その影響範囲が分かります。**アカウント**、**接続**、**エージェント**、**組織**の各グループはどのアプリでも共通で、アプリ名のグループにはそのアプリだけに影響する設定をまとめます。モデルキーがアプリのページ、エージェントのサイドバー、プロバイダーのセットアップカードのどこにあるのか、ユーザーが迷うことはありません。
+
+設定は、サイドバー下部のアカウントメニュー（写真と名前）から開けます。また、アプリ内のどこからでも **⌘,**（Windows と Linux では **Ctrl+,**）で開けます。コマンドメニュー（⌘K）にも **設定**コマンドがあります。すべてのページは最初から検索でき、「言語」「S3」「API キー」などと入力すると、閲覧できるページ全体から該当する行に移動します。
+
+<WireframeBlock id="doc-block-toolkit-settings">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:520px;box-sizing:border-box;padding:26px;display:grid;grid-template-columns:200px 1fr;gap:18px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:3px'><div class='wf-muted' style='display:flex;align-items:center;gap:6px;margin-bottom:6px'><span data-icon='chevronLeft'></span> メールに戻る</div><div class='wf-box' style='display:flex;align-items:center;gap:8px;margin-bottom:6px'><span data-icon='search'></span><span class='wf-muted' style='flex:1'>検索</span><span class='wf-pill'>/</span></div><small class='wf-muted'>アカウント</small><div style='padding:4px 9px'>プロフィール</div><div style='padding:4px 9px'>設定</div><small class='wf-muted' style='margin-top:6px'>接続</small><div style='padding:4px 9px'>連携</div><div style='padding:4px 9px'>API キー</div><small class='wf-muted' style='margin-top:6px'>エージェント</small><div style='padding:4px 9px;border-radius:8px;background:var(--wf-accent-soft)'>モデル</div><div style='padding:4px 9px'>指示</div><div style='padding:4px 9px'>サブエージェント</div><small class='wf-muted' style='margin-top:6px'>組織</small><div style='padding:4px 9px'>メンバー</div><div style='padding:4px 9px'>使用状況</div><small class='wf-muted' style='margin-top:6px'>メール</small><div style='padding:4px 9px'>一般</div><div style='padding:4px 9px'>チャンネル</div><div style='flex:1'></div><div class='wf-muted' style='padding:4px 9px'>ラボ · 新着情報</div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><h2 style='margin:0'>モデル</h2><div style='display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>組織のプロバイダー</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>Builder.io</div><span class='wf-pill'>接続済み</span></div><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>Anthropic</div><button>管理</button></div></div><div style='display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>個人のプロバイダー</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><div style='flex:1'>OpenAI</div><button>追加</button></div></div><div style='display:flex;flex-direction:column;gap:6px'><small class='wf-muted'>デフォルトモデル</small><div class='wf-box' style='display:flex;align-items:center;gap:8px'><div style='flex:1'>Claude Sonnet</div><span data-icon='chevronDown'></span></div></div></main></div>"
+    }
+  />
+</WireframeBlock>
+
+## グループとページ {#groups-and-pages}
+
+ページ ID は安定した URL セグメント（`/settings/<page>` および `/settings/<page>/<sub>`）であり、検索対象であり、エージェントがページを参照するときの名前でもあります。
+
+| グループ     | ページ（id）                                                                                                                                                 | 表示対象         |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------- |
+| アカウント   | プロフィール (`profile`)、設定 (`preferences`)、セキュリティ (`security`)                                                                                    | 全員             |
+| 接続         | 連携 (`integrations`、Builder.io は `integrations/builder`)、API キー (`api-keys`)                                                                           | 全員             |
+| エージェント | モデル (`model`)、指示 (`instructions`)、メモリ (`memory`)、スキル (`skills`)、ファイル (`files`)、サブエージェント (`sub-agents`)                           | 全員             |
+| 組織         | 一般 (`org`)、メンバー (`members`)、使用状況 (`usage`)                                                                                                       | 全員             |
+| 組織         | 認証 (`auth`)、アプリ (`apps`)、インフラストラクチャ (`infra`)、監査ログ (`audit`)                                                                           | オーナーと管理者 |
+| アプリ名     | 一般 (`app`)、通知 (`notifications`)、自動化 (`automations`)、チャンネル (`channels`)、MCP サーバー (`mcp`)、クリエイティブコンテキスト (`creative-context`) | 全員             |
+| フッター     | ラボ (`labs`)、新着情報 (`whats-new`)                                                                                                                        | 全員             |
+
+アプリのグループには、そのアプリの名前とアイコンが使われます。通知はアプリから通知設定が渡された場合にだけ表示され、クリエイティブコンテキストは対応するラボが有効な間だけ表示されます。閲覧できないページを開こうとするとプロフィールが開き、リンクでページが指定されていない場合も設定はプロフィールから開きます。ページを隠すのは表示上の制御にすぎません。ページに対応するすべてのアクションは、サーバーで閲覧者のロールを検証します。
+
+## ページの契約 {#page-contract}
+
+各アプリは `/settings` とスプラットルート（設定ルートを再エクスポートする `settings.$.tsx`）を公開し、`/settings/<page>/<sub>` に対応します。このルートは `<SettingsTabsPage>` を表示します。アカウント、接続、エージェント、組織の各ページは core が管理し、アプリは独自のコンテンツだけを提供します。
+
+```tsx
+import {
+  SettingsTabsPage,
+  useAgentSettingsTabs,
+} from "@agent-native/toolkit/app/settings";
+
+export default function SettingsRoute() {
+  const agentSettingsTabs = useAgentSettingsTabs();
+
+  return (
+    <div className="h-dvh">
+      <SettingsTabsPage
+        extraTabs={agentSettingsTabs}
+        generalGroups={<RecordingDefaults />}
+        appAreas={[
+          { id: "meetings", label: "Meetings", content: <MeetingSettings /> },
+        ]}
+        notifications={<EmailNotificationSettings />}
+        mcpAbout="Record, search, and share clips from any MCP host."
+        whatsNewMarkdown={changelog}
+      />
+    </div>
+  );
+}
+```
+
+設定ページにはアプリへの戻るリンク、ナビゲーション、ページヘッダーが含まれるため、設定ルートではアプリのレイアウトがサイドバーとヘッダーを隠します（`isSettingsPathname(pathname)`）。
+
+| Prop                                          | 表示場所                                                                                                                                                  |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `generalGroups`                               | アプリ › 一般に表示する、アプリ独自の `SettingsGroup`。core のエージェント › デフォルトモデルと、このブラウザー › デモモードの間に表示されます。          |
+| `appAreas`                                    | アプリ › 一般のタブ。`/settings/app/<id>` にルーティングされます: `{ id, label, content, visible?, icon?, keywords?, searchEntries? }`。                  |
+| `notifications`, `notificationsSearchEntries` | アプリ › 通知。`notifications` が渡された場合にだけページが表示されます。                                                                                 |
+| `mcpAbout`                                    | アプリ › MCP サーバーに表示する説明文。MCP ホストでこのアプリ内でできることを示し、翻訳対象です。                                                         |
+| `labs`                                        | ラボページに表示するラボ定義。                                                                                                                            |
+| `whatsNewMarkdown` または `whatsNew`          | 新着情報。未読ドットはページを開くまで表示されます。                                                                                                      |
+| `appName`, `appIcon`, `appId`                 | アプリグループのラベルとアイコン。既定値はテンプレート自体のものです。                                                                                    |
+| `extraTabs`                                   | その他のアプリタブ。それぞれアプリグループ内の独立したページになります。`settingsPlacement: "app-area"` にすると、代わりにアプリ › 一般のタブになります。 |
+
+背後にあるラボが無効な間は、アプリ領域に `visible: false` を設定します。`useLab(ref)` と `useLabState(ref)` は、キーまたは `{ key, defaultEnabled? }` の `LabReference` を受け取ります。ラボの読み込み中にも `defaultEnabled` の値を使えるよう、単独のキーではなくラボ定義を渡してください。core がすでに表示するため、アプリのグループにデフォルトモデル、言語、デモモードの行を追加しないでください。
+
+### ページの登録 {#registering-a-page}
+
+通常、アプリのページは `extraTabs` の項目から始まり、アプリグループ内の独立したページになります。さらに細かく制御するには、モジュールスコープで `registerSettingsPages` を使って `SettingsPageDefinition`（`id`、`group`、`order`、`label`、`icon`、`component`、および省略可能な `visible`、`subpages`、`searchEntries`）を登録します。既存ページと同じ ID の定義を登録すると、そのページが置き換わります。これを利用して、アプリは core のページを独自の実装に差し替えられます。Dispatch はこの方法で Members にアプリロール列を表示します。
+
+```tsx
+import { OrgMembersPage } from "@agent-native/core/client/org";
+import {
+  CORE_SETTINGS_PAGES,
+  registerSettingsPages,
+} from "@agent-native/toolkit/app/settings";
+
+const coreMembersPage = CORE_SETTINGS_PAGES.find(
+  (page) => page.id === "members",
+)!;
+
+registerSettingsPages([
+  {
+    ...coreMembersPage,
+    component: () => <OrgMembersPage appRoles={dispatchAccessDescriptor} />,
+  },
+]);
+```
+
+ページコンポーネントは `{ pageId, sub, context, bridge }` を受け取ります。`context` には閲覧者のロール、ラボ、フラグが含まれます。ページ内で `useSettingsPageHeader({ title?, action?, badge? })` を使うと、サブページのパンくず、ヘッダーの主アクション、またはタイトル横のチップを設定できます。
+
+アプリは設定ルートの隣のモジュールスコープで `registerChannelSettingsExtensions([{ id, platform, component }])` を使い、チャンネルのページにセクションを追加できます。Clips と Mail は Slack グループにこの機能を使っています。
+
+## リンク {#links}
+
+`/settings/...` の文字列を直接書かないでください。ルートヘルパーでリンクを作成します:
+
+```ts
+import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+
+buildSettingsRoute("integrations", "builder"); // /settings/integrations/builder
+buildSettingsRoute("app", "recordings"); // /settings/app/recordings
+buildSettingsRoute("model", null, { anchor: "limits" }); // /settings/model#limits
+```
+
+以前のリンクも引き続き動作します。以前のタブ ID（`agent`、`keys`、`team`）、ネストした ID（`agent:resources:memory`）、セクションハッシュ（`#llm`、`#secrets:OPENAI_API_KEY`）、`agent-panel:open-settings` セクションはすべて、`packages/core/src/navigation/settings-redirects.ts` の1つのリダイレクトテーブルで解決されます。古いリンクの遷移先を変更するには、該当する行を更新し、`settings-redirects.spec.ts` にケースを追加します。
+
+`@agent-native/core/client/navigation` の `openSettingsPage(page?)` は、ルーターの外を含むどこからでも設定を開きます。`AppProviders` は `useSettingsShortcut()` を通じて ⌘, をすでに割り当てているため、アプリ側で再度割り当てる必要はありません。
+
+## 検索 {#search}
+
+検索では各ページの名前と、ページが宣言した `searchEntries` をインデックス化します。ページをレンダリングする必要はありません。検索結果には行ラベルと場所（「エージェント › モデル」）が表示されます。Enter キーで開くと、その行が一時的に強調表示されます。
+
+- ページ定義では、検索エントリの `anchor` に行の `SettingsRow` ID を指定します。
+- アプリ領域または `notificationsSearchEntries` では、エントリの `hash` に行の `SettingsRow` ID を指定します。
+- ラベルに含まれない類義語やプロバイダー名を `keywords` に追加します。たとえば、ファイルストレージには「S3」「R2」「バケット」を追加します。
+
+検索可能な各 `SettingsRow` または `SettingsGroup` に安定した `id` を付けてください。ID はリンクのアンカーにもなるため、変更しないでください。
+
+## エージェントとの同等性 {#agent-parity}
+
+これらのページにあるすべての項目は、アクションを通じてエージェントが読み取り、変更できます。また、エージェントはユーザーが開いているページを把握できます。
+
+- 設定シェルはブラウザータブのアプリケーション状態 `settings-view` に `{ page, sub, label }` を書き込みます。`<current-url>` には `settingsPage: integrations/builder (Connections › Integrations › Builder.io)` のように表示されます。
+- 組み込みの `open-settings-page` ツールは、任意のページを ID で開きます。`sub` と `anchor` は省略可能です。以前のタブ ID とセクション ID も使えます。
+
+| ページ               | アクション                                                                                                                                         |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| プロフィール         | `get-user-profile`, `update-user-profile`                                                                                                          |
+| 連携 › Builder.io    | `manage-builder-connection`                                                                                                                        |
+| API キー             | `list-api-keys`, `preview-secret-removal`, `delete-api-key`                                                                                        |
+| モデル               | `list-model-providers`, `check-provider-key`, `get-provider-models`, `manage-provider-models`, `manage-provider-key-policy`, `manage-agent-engine` |
+| 使用状況             | `get-usage-metrics`, `manage-usage-alert`                                                                                                          |
+| 認証                 | `list-sign-in-methods`                                                                                                                             |
+| アプリ               | `list-workspace-app-access`, `set-workspace-app-access`                                                                                            |
+| インフラストラクチャ | `get-infrastructure-status`, `get-file-storage`, `manage-file-storage`, `manage-service-providers`                                                 |
+| 監査ログ             | `list-audit-events`, `get-audit-event`, `export-audit-events`                                                                                      |
+| アプリ › 自動化      | `manage-automations`                                                                                                                               |
+| アプリ › チャンネル  | `list-messaging-channels`, `manage-messaging-channel`                                                                                              |
+
+アプリ独自の行も同じルールに従います。`generalGroups`、`appAreas`、`notifications` の各コントロールは、エージェントが呼び出せるアプリのアクションを通じて保存されます。
+
+## ロール {#roles}
+
+| 権限                                                                  | メンバー                 | 管理者                                      | オーナー                   |
+| --------------------------------------------------------------------- | ------------------------ | ------------------------------------------- | -------------------------- |
+| アカウントページ、自分用の連携接続                                    | はい                     | はい                                        | はい                       |
+| 個人プロバイダーと個人用 Builder.io 接続                              | 制限されていなければ可能 | 自分のキーを管理。Builder.io は組織用に接続 | 管理者と同じ               |
+| 組織のプロバイダー、デフォルトモデル、最大反復数、個人 API キーの制限 | 読み取り専用             | 可能                                        | 可能                       |
+| 組織の指示、メモリ、スキル、ファイル                                  | 読み取り専用             | 可能                                        | 可能                       |
+| メンバーを招待                                                        | 不可                     | メンバーを招待可能                          | メンバーと管理者を招待可能 |
+| メンバーのロールを変更                                                | 不可                     | 不可                                        | 可能                       |
+| 認証、アプリ、インフラストラクチャ、監査ログ                          | 非表示                   | 表示                                        | 表示                       |
+| 共有 A2A シークレット、組織の削除                                     | 不可                     | 不可                                        | 可能                       |
+
+## UX の基準 {#ux-standard}
+
+- 長期的に使う設定は設定ページに置きます。エージェントのサイドバーには設定を直接表示せず、該当ページへのリンクを置きます。
+- プロバイダーキーの追加、変更、削除は、どのページから開いても同じダイアログで行います。
+- 読み取り専用の行は値をロックとともに表示し、変更できる人をツールチップ（`ReadOnlySettingValue`）で示します。キーの削除、Builder.io の接続解除、個人キーの制限を行う場合は、使えなくなる機能を列挙した確認ダイアログを開きます。
+- 行はラベル、任意の説明、1つのコントロールで構成します。ページのサブタイトル、アイブロウ、件数表示は追加しません。
+- 意味のある行すべてに検索エントリを登録します。
+
+## オープンソースアプリでの Sign in with ChatGPT {#chatgpt-subscription-lab}
+
+Agent-Native は、条件を満たすオープンソース利用に OpenAI 公式の Sign in with ChatGPT トークン共有フローを使います。このフローにより、ログインしたユーザーの ChatGPT プランを使って、ローカルアプリから OpenAI の公開 Responses API に対象リクエストを送信できます。ユーザーの ChatGPT の会話や履歴にはアクセスできません。
+
+ChatGPT プランのラボはデフォルトでオフです。**設定 → Labs** で有効にしてください。
+
+ローカルで実行するオープンソースアプリでは、OpenAI のパートナー承認も、事前設定されたクライアント ID も必要ありません。初回サインイン時に OpenAI がクライアント ID を発行し、アプリはその ChatGPT アカウント用に再利用します。
+
+この実装では、OAuth コールバックをユーザーのマシン上のループバックアドレス `127.0.0.1` に設定する必要があります。`localhost` は代わりに使えません。このセルフサービスフローは、ホスト型の `*.agent-native.com` サイトでは利用できません。パートナー承認が必要なのは、ホスト型アプリの運営者です。運営者は OpenAI の[関心フォーム](https://openai.com/form/sign-in-with-chatgpt-interest)から申請できます。
+
+<Steps>
+
+### ChatGPT を接続する
+
+**設定 → エージェント → モデル**を開き、個人プロバイダー一覧で ChatGPT を接続します。使用するプランがある ChatGPT アカウントでログインし、要求されたアクセスを承認してください。接続後、チャットのモデル選択メニューから利用可能なモデルを選びます。同じ設定行から ChatGPT の接続を解除できます。OpenAI がリモートでの取り消しを確認できない場合も、ローカルトークンは消去されます。警告リンクを開き、ChatGPT の「設定 → 使用状況」でこのアプリのアクセスを管理してください。
+
+</Steps>
+
+推論には公開 Responses API のみを使用してください。ChatGPT の非公開バックエンドエンドポイントと会話データは、この認可の対象外です。OpenAI はトークン共有フローをプレビューとしているため、モデルの提供状況、上限、対応 API 機能は変更される可能性があります。OpenAI の[Sign in with ChatGPT の概要](https://developers.openai.com/siwc/token-sharing-open-source)、[登録とログイン](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)、[アカウントとセッション](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions)、[モデルと推論](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference)、[プレビューの制限](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)、[エラーからの復旧](https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery)、[UI/UX ガイドライン](https://developers.openai.com/siwc/ui-ux-guidelines)を確認してください。
+
+## 次のステップ
+
+- [**国際化**](/docs/internationalization) — アプリの設定文言をローカライズします。
+- [**オンボーディング**](/docs/onboarding) — 設定のディープリンクがユーザーを案内するセットアップ手順を登録します。
+- [**ワークスペース接続**](/docs/workspace-connections) — プロバイダーの利用準備を支える共通の接続モデルです。

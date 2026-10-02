@@ -31,8 +31,8 @@ const mocks = vi.hoisted(() => ({
   promptPopoverProps: undefined as Record<string, unknown> | undefined,
 }));
 
-vi.mock("@agent-native/core/client/feature-flags", () => ({
-  useFeatureFlag: () => false,
+vi.mock("@agent-native/core/client/labs", () => ({
+  useLab: () => false,
 }));
 
 vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({

@@ -35,6 +35,7 @@ export interface Rect {
 
 export interface TextTarget {
   index: number;
+  builderId: string | null;
   tag: string;
   className: string;
   text: string;
@@ -50,8 +51,22 @@ export interface TextTarget {
 
 export interface SnapRecord {
   key: string;
+  stableKey?: string;
   kind: "text" | "box";
   inside: boolean;
+  downstreamFlow?: boolean;
+  flexCrossAlignment?: {
+    context: string;
+    axis: "x" | "y";
+    containerPosition: number;
+    containerSize: number;
+    itemSize: number;
+    editedItemSize: number;
+  };
+  layoutPath?: string[];
+  tag?: string;
+  className?: string;
+  inlineStyle?: string;
   props: Record<string, string>;
   rect: Rect;
 }
@@ -70,8 +85,11 @@ export interface Snapshot {
   inventory: Inventory;
   text: string;
   editedRect: Rect | null;
+  /** The edited target moves siblings through normal document flow. */
+  editedInFlow?: boolean;
   /** Rendered lines of the element the edit is matched to, in full. */
   editedText: string | null;
+  editedLayoutPath?: string[];
 }
 
 export interface EditorState {
@@ -89,6 +107,7 @@ export interface EditorState {
    * the caret, -1 for the element itself; null with no caret in it.
    */
   caretBlock: number | null;
+  caretConvertibleTag: string | null;
   sourceTag: string | null;
   sourceText: string | null;
   sourceOccurrence: number;
@@ -105,9 +124,10 @@ export interface CanonicalPair {
 
 export interface InPageHelpers {
   listTargets(canvasSel: string): TextTarget[];
+  targetSourceHtml(canvasSel: string, targetIndex: number): string;
   snapshot(
     canvasSel: string,
-    edited: { targetIndex?: number; text?: string },
+    edited: { targetIndex?: number; text?: string; marker?: string },
   ): Snapshot;
   editorState(canvasSel: string): EditorState;
   /** Why the selection entering edit left is not at the gesture's point, or null. */
@@ -141,6 +161,17 @@ declare global {
 }
 
 export function installInPageHelpers(chromeSelector: string) {
+  const snapEpoch = crypto.randomUUID();
+  const snapIds = new WeakMap<Element, number>();
+  let nextSnapId = 0;
+  const snapId = (element: Element) => {
+    let id = snapIds.get(element);
+    if (id === undefined) {
+      id = ++nextSnapId;
+      snapIds.set(element, id);
+    }
+    return id;
+  };
   const TEXT_PROPS = [
     "font-family",
     "font-size",
@@ -166,6 +197,13 @@ export function installInPageHelpers(chromeSelector: string) {
     "display",
     "opacity",
     "visibility",
+    "position",
+    ...SIDES,
+    "transform",
+    "transform-origin",
+    "translate",
+    "rotate",
+    "scale",
     ...SIDES.map((s) => `margin-${s}`),
     ...SIDES.map((s) => `padding-${s}`),
     ...SIDES.flatMap((s) => [
@@ -208,6 +246,19 @@ export function installInPageHelpers(chromeSelector: string) {
     "sub",
     "sup",
     "u",
+  ]);
+  const TRANSIENT_ATTRS = new Set([
+    "data-src-i",
+    "data-builder-id",
+    "data-slide-text-block",
+    "data-editing-block",
+    "data-slide-content-scope",
+    "contenteditable",
+    "spellcheck",
+    "aria-expanded",
+    "aria-controls",
+    "aria-activedescendant",
+    "aria-haspopup",
   ]);
 
   const norm = (s: string | null | undefined) =>
@@ -281,9 +332,22 @@ export function installInPageHelpers(chromeSelector: string) {
   // moves whenever a flex sibling grows; the computed value stays `auto`.
   const boxProps = (el: Element, cs: CSSStyleDeclaration) => {
     const out = pick(cs, BOX_PROPS);
-    const map = el.computedStyleMap();
+    if (el.hasAttribute("data-fmd-autofit-content")) {
+      out["--fmd-fit-scale"] = cs.getPropertyValue("--fmd-fit-scale").trim();
+      out["--fmd-fit-x"] = cs.getPropertyValue("--fmd-fit-x").trim();
+      out["--fmd-fit-y"] = cs.getPropertyValue("--fmd-fit-y").trim();
+      out["data-fmd-autofit-active"] = String(
+        el.hasAttribute("data-fmd-autofit-active"),
+      );
+    }
+    const map =
+      typeof el.computedStyleMap === "function" ? el.computedStyleMap() : null;
+    const inline = (el as HTMLElement).style;
     for (const s of SIDES) {
-      if (String(map.get(`margin-${s}`)) === "auto")
+      if (
+        String(map?.get(`margin-${s}`)) === "auto" ||
+        (!map && inline?.getPropertyValue(`margin-${s}`) === "auto")
+      )
         out[`margin-${s}`] = "auto";
     }
     return out;
@@ -334,25 +398,48 @@ export function installInPageHelpers(chromeSelector: string) {
     return n;
   }
 
-  /** Deepest-first match for text an edit may have extended. */
+  /** Deepest match also covers a source split across sibling text targets. */
   function findByText(root: Element, text: string): Element | null {
     const want = strip(text);
     if (!want) return null;
     const prefix = want.slice(0, 40);
     let best: Element | null = null;
     let bestScore = Infinity;
-    for (const el of Array.from(root.querySelectorAll("*"))) {
-      if (el.tagName === "STYLE" || isChrome(el)) continue;
-      const have = strip(el.textContent);
-      if (!have.startsWith(prefix)) continue;
-      const score = Math.abs(have.length - want.length);
-      // Ties go to the outermost element, which is what the editor targets.
-      if (score < bestScore) {
-        best = el;
-        bestScore = score;
+    let bestDepth = -1;
+    let bestCount = 0;
+    const candidates = new Set<Element>();
+    for (const target of textTargets(root)) {
+      for (
+        let el: Element | null = target;
+        el && el !== root;
+        el = el.parentElement
+      ) {
+        candidates.add(el);
       }
     }
-    return best;
+    for (const el of candidates) {
+      if (!visible(el)) continue;
+      const have = strip(el.textContent);
+      if (!have.includes(prefix)) continue;
+      const score = Math.abs(have.length - want.length);
+      let depth = 0;
+      for (
+        let parent = el.parentElement;
+        parent && parent !== root;
+        parent = parent.parentElement
+      ) {
+        depth++;
+      }
+      if (score < bestScore || (score === bestScore && depth > bestDepth)) {
+        best = el;
+        bestScore = score;
+        bestDepth = depth;
+        bestCount = 1;
+      } else if (score === bestScore && depth === bestDepth) {
+        bestCount += 1;
+      }
+    }
+    return bestCount === 1 ? best : null;
   }
 
   /**
@@ -389,6 +476,7 @@ export function installInPageHelpers(chromeSelector: string) {
       const hit = document.elementFromPoint(point.x, point.y);
       return {
         index,
+        builderId: el.getAttribute("data-builder-id"),
         tag: el.tagName,
         className: el.getAttribute("class") ?? "",
         text: norm(el.textContent),
@@ -398,6 +486,14 @@ export function installInPageHelpers(chromeSelector: string) {
         covered: !hit || !(el === hit || el.contains(hit)),
       };
     });
+  }
+
+  function targetSourceHtml(canvasSel: string, targetIndex: number) {
+    const root = document.querySelector(canvasSel);
+    if (!root) throw new Error(`canvas not found: ${canvasSel}`);
+    const target = textTargets(root)[targetIndex];
+    if (!target) throw new Error(`text target not found: ${targetIndex}`);
+    return target.innerHTML;
   }
 
   /** The focused editor root, in place or floating; a fix may move it. */
@@ -492,6 +588,19 @@ export function installInPageHelpers(chromeSelector: string) {
       : Array.from(source.querySelectorAll("*")).indexOf(el);
   }
 
+  function caretConvertibleTag(editor: HTMLElement | null): string | null {
+    const focus = getSelection()?.focusNode;
+    if (!editor || !focus || !editor.contains(focus)) return null;
+    let el = focus instanceof Element ? focus : focus.parentElement;
+    while (el) {
+      const tag = el.tagName.toLowerCase();
+      if (/^h[1-6]$/.test(tag) || tag === "li") return tag;
+      if (el === editor) break;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
   /**
    * Top of the element's rendered text and line breaks. A range over the
    * whole element would also take in the border box of every child, so a
@@ -536,6 +645,7 @@ export function installInPageHelpers(chromeSelector: string) {
       contentTop: source ? contentTop(source, origin) : null,
       caretRect: caretRect(origin, source),
       caretBlock: caretBlock(source),
+      caretConvertibleTag: caretConvertibleTag(pm),
       sourceTag: source?.tagName ?? null,
       sourceText: source ? norm(source.textContent) : null,
       sourceOccurrence: source ? occurrenceOf(source, slideRoot) : 0,
@@ -734,7 +844,12 @@ export function installInPageHelpers(chromeSelector: string) {
 
   function snapshot(
     canvasSel: string,
-    edited: { targetIndex?: number; text?: string },
+    edited: {
+      targetIndex?: number;
+      text?: string;
+      marker?: string;
+      targetBuilderId?: string;
+    },
   ): Snapshot {
     const root = document.querySelector(canvasSel);
     if (!root) throw new Error(`canvas not found: ${canvasSel}`);
@@ -743,28 +858,220 @@ export function installInPageHelpers(chromeSelector: string) {
     const host = floatingHost(root, editor);
     const editingBlock = editedSource(root, editor);
     let editedEl: Element | null = null;
-    if (edited.targetIndex !== undefined) {
+    if (edited.marker) {
+      const marker = strip(edited.marker);
+      const matches = textTargets(root).filter((el) =>
+        strip(el.textContent).includes(marker),
+      );
+      editedEl = matches.length === 1 ? matches[0]! : null;
+    } else if (edited.targetIndex !== undefined) {
       editedEl = textTargets(root)[edited.targetIndex] ?? null;
     } else if (edited.text) {
       editedEl = findByText(root, edited.text);
     }
+    const stableEditedTarget = edited.targetBuilderId
+      ? (Array.from(
+          root.querySelectorAll<HTMLElement>("[data-builder-id]"),
+        ).find(
+          (el) => el.getAttribute("data-builder-id") === edited.targetBuilderId,
+        ) ?? null)
+      : null;
+    const editedOwner =
+      stableEditedTarget ??
+      (editedEl
+        ? (editedEl.closest("[data-slide-object-id]") ??
+          editedEl.closest("ul, ol") ??
+          editedEl)
+        : null);
+    const targetBlock = editingBlock ?? editedOwner;
+    const editedBox = editingBlock ?? targetBlock;
+    const isInNormalFlow = (el: Element | null) => {
+      if (!el) return false;
+      for (
+        let ancestor: Element | null = el;
+        ancestor && ancestor !== root;
+        ancestor = ancestor.parentElement
+      ) {
+        const style = getComputedStyle(ancestor);
+        if (
+          style.position === "absolute" ||
+          style.position === "fixed" ||
+          style.position === "sticky" ||
+          style.cssFloat !== "none" ||
+          style.transform !== "none" ||
+          (style.position === "relative" &&
+            [style.top, style.right, style.bottom, style.left].some(
+              (offset) => offset !== "auto" && Number.parseFloat(offset) !== 0,
+            ))
+        ) {
+          return false;
+        }
+      }
+      return true;
+    };
+    const followsEditedFlow = (el: Element) => {
+      if (
+        !editedBox ||
+        editedBox === el ||
+        editedBox.contains(el) ||
+        el.contains(editedBox)
+      ) {
+        return false;
+      }
+      let editedBranch: Element = editedBox;
+      while (
+        editedBranch.parentElement &&
+        !editedBranch.parentElement.contains(el)
+      ) {
+        editedBranch = editedBranch.parentElement;
+      }
+      let followingBranch: Element = el;
+      while (
+        followingBranch.parentElement &&
+        !followingBranch.parentElement.contains(editedBranch)
+      ) {
+        followingBranch = followingBranch.parentElement;
+      }
+      const parent = editedBranch.parentElement;
+      if (!parent || followingBranch.parentElement !== parent) return false;
+      const parentStyle = getComputedStyle(parent);
+      const flexDirection = parentStyle.flexDirection;
+      const isRow = flexDirection.startsWith("row");
+      const isColumn = flexDirection.startsWith("column");
+      const itemStyle = getComputedStyle(followingBranch);
+      const align =
+        itemStyle.alignSelf === "auto"
+          ? parentStyle.alignItems
+          : itemStyle.alignSelf;
+      if (
+        parentStyle.display.includes("flex") &&
+        parentStyle.flexWrap === "nowrap" &&
+        (isRow || isColumn) &&
+        align === "center"
+      ) {
+        const axis: "x" | "y" = isRow ? "y" : "x";
+        const parentRect = parent.getBoundingClientRect();
+        const itemRect = followingBranch.getBoundingClientRect();
+        const editedRect = editedBranch.getBoundingClientRect();
+        const editedItemStyle = getComputedStyle(editedBranch);
+        const isFlexItem = (style: CSSStyleDeclaration) =>
+          style.position !== "absolute" &&
+          style.position !== "fixed" &&
+          style.position !== "sticky" &&
+          style.cssFloat === "none";
+        if (!isFlexItem(editedItemStyle) || !isFlexItem(itemStyle)) {
+          return false;
+        }
+        const size = axis === "x" ? "width" : "height";
+        const path: number[] = [];
+        for (
+          let node: Element | null = parent;
+          node && node !== root && node.parentElement;
+          node = node.parentElement
+        ) {
+          path.unshift(
+            Array.prototype.indexOf.call(node.parentElement!.children, node),
+          );
+        }
+        return {
+          flexCrossAlignment: {
+            context: path.join(".") || "root",
+            axis,
+            containerPosition: parentRect[axis] - origin[axis],
+            containerSize: parentRect[size],
+            itemSize: itemRect[size],
+            editedItemSize: editedRect[size],
+          },
+        };
+      }
+      if (!isInNormalFlow(editedBox) || !isInNormalFlow(el)) return false;
+      const editedOrder = Number.parseInt(
+        getComputedStyle(editedBranch).order,
+        10,
+      );
+      const followingOrder = Number.parseInt(
+        getComputedStyle(followingBranch).order,
+        10,
+      );
+      if (
+        parentStyle.display.includes("flex") &&
+        Number.isFinite(editedOrder) &&
+        Number.isFinite(followingOrder) &&
+        followingOrder < editedOrder
+      ) {
+        return false;
+      }
+      if (
+        editedBranch.compareDocumentPosition(followingBranch) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+      ) {
+        return {};
+      }
+      return false;
+    };
     const insideEdited = (el: Element) =>
       (!!host && host.contains(el)) ||
-      (!!editingBlock && editingBlock.contains(el)) ||
-      (!!editedEl && editedEl.contains(el));
+      (!!targetBlock && (targetBlock === el || targetBlock.contains(el)));
 
     const records: SnapRecord[] = [];
     const seen = new Map<string, number>();
+    const layoutPathOf = (el: Element) => {
+      const path: string[] = [];
+      const editedObject = editedBox?.closest("[data-slide-object-id]");
+      for (
+        let node: Element | null = el;
+        node && node !== root;
+        node = node.parentElement
+      ) {
+        const style = getComputedStyle(node);
+        const rect = node.getBoundingClientRect();
+        const object = node.closest("[data-slide-object-id]");
+        path.push(
+          `${node.tagName.toLowerCase()}[sameObject=${Boolean(object && object === editedObject)};block=${node.hasAttribute("data-slide-text-block")};editing=${node.hasAttribute("data-editing-block")};${style.display};${style.position};${style.top},${style.right},${style.bottom},${style.left};${style.transform};${style.alignSelf};${style.alignItems};${style.alignContent};${style.flexDirection};${style.justifyContent};${style.gridTemplateRows};${style.gridTemplateColumns};${style.gridRowStart},${style.gridRowEnd};${rect.x},${rect.y},${rect.width},${rect.height}]`,
+        );
+      }
+      return path;
+    };
     const push = (
       base: string,
       kind: SnapRecord["kind"],
       inside: boolean,
       props: Record<string, string>,
       rect: Rect,
+      flow: ReturnType<typeof followsEditedFlow> = false,
+      textElement?: Pick<SnapRecord, "tag" | "inlineStyle">,
+      layoutPath?: string[],
+      element?: Element,
     ) => {
       const n = seen.get(base) ?? 0;
       seen.set(base, n + 1);
-      records.push({ key: `${base}#${n}`, kind, inside, props, rect });
+      const recordKind = base.endsWith("::before")
+        ? "before"
+        : base.endsWith("::after")
+          ? "after"
+          : kind;
+      records.push({
+        key: `${base}#${n}`,
+        ...(element
+          ? { stableKey: `${snapEpoch}:${snapId(element)}:${recordKind}` }
+          : {}),
+        kind,
+        inside,
+        downstreamFlow: !!flow,
+        ...(flow && flow.flexCrossAlignment
+          ? { flexCrossAlignment: flow.flexCrossAlignment }
+          : {}),
+        ...(layoutPath ? { layoutPath } : {}),
+        ...(element
+          ? {
+              className: element.getAttribute("class") ?? "",
+              inlineStyle: element.getAttribute("style") ?? "",
+            }
+          : {}),
+        props,
+        rect,
+        ...textElement,
+      });
     };
     const boxKey = (el: Element) => {
       const cls = (el.getAttribute("class") ?? "")
@@ -783,6 +1090,7 @@ export function installInPageHelpers(chromeSelector: string) {
       if (host && editingBlock && el === editingBlock) return;
       const cs = getComputedStyle(el);
       const inside = insideEdited(el);
+      const flow = followsEditedFlow(el);
       const text = norm(directText(el));
       if (text) {
         const range = document.createRange();
@@ -794,15 +1102,30 @@ export function installInPageHelpers(chromeSelector: string) {
           inside,
           { ...pick(cs, TEXT_PROPS), visible: String(visible(el)) },
           textRect,
+          flow,
+          {
+            tag: el.tagName.toLowerCase(),
+            inlineStyle: el.getAttribute("style") ?? "",
+          },
+          layoutPathOf(el),
+          el,
         );
       }
-      if (paints(el, cs)) {
+      if (
+        paints(el, cs) ||
+        cs.transform !== "none" ||
+        el.hasAttribute("data-fmd-autofit-content")
+      ) {
         push(
           boxKey(el),
           "box",
           inside,
           boxProps(el, cs),
           rectOf(el.getBoundingClientRect(), origin),
+          flow,
+          undefined,
+          layoutPathOf(el),
+          el,
         );
       }
       for (const pseudo of ["::before", "::after"]) {
@@ -816,6 +1139,10 @@ export function installInPageHelpers(chromeSelector: string) {
           inside,
           { ...pick(ps, BOX_PROPS), content: ps.content },
           { x: 0, y: 0, width: 0, height: 0 },
+          false,
+          undefined,
+          layoutPathOf(el),
+          el,
         );
       }
       if (el.tagName.toUpperCase() === "SVG") return;
@@ -841,13 +1168,14 @@ export function installInPageHelpers(chromeSelector: string) {
       img: root.querySelectorAll("img").length,
       style: root.querySelectorAll("style").length,
     };
-    const editedBox = editingBlock ?? editedEl;
     return {
       records,
       inventory,
       text: norm((root as HTMLElement).innerText),
       editedRect: editedBox ? rectOf(paintedRect(editedBox), origin) : null,
+      editedInFlow: isInNormalFlow(editedBox),
       editedText: editedEl ? lines(editedEl) : null,
+      editedLayoutPath: editedBox ? layoutPathOf(editedBox) : undefined,
     };
   }
 
@@ -892,8 +1220,15 @@ export function installInPageHelpers(chromeSelector: string) {
     }
     if (node.nodeType !== Node.ELEMENT_NODE) return;
     const el = node as Element;
+    if (el.hasAttribute("data-fmd-autofit-content")) {
+      for (const child of Array.from(el.childNodes)) {
+        canonicalNode(child, depth, out);
+      }
+      return;
+    }
     const tag = el.tagName.toLowerCase();
     const attrs = Array.from(el.attributes)
+      .filter((attribute) => !TRANSIENT_ATTRS.has(attribute.name))
       .map((a) => {
         if (a.name === "style") {
           const scratch = document.createElement("div").style;
@@ -1046,6 +1381,7 @@ export function installInPageHelpers(chromeSelector: string) {
 
   window.__editFidelity = {
     listTargets,
+    targetSourceHtml,
     takeWriteStacks,
     takeKeepaliveWrites,
     snapshot,

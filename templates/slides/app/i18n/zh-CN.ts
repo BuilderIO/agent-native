@@ -46,7 +46,7 @@ const messages = {
     designSystems: "设计系统",
   },
   settings: {
-    agentObservability: "代理可观测性",
+    agentObservability: "可观测性",
     title: "设置",
     labs: "实验室",
     labsIntro: "在正式发布前预览实验性功能。",
@@ -56,6 +56,7 @@ const messages = {
     commentsAndReplies: "评论和回复",
     commentsAndRepliesDescription: "有人在你的演示文稿中发表评论或回复时。",
     retry: "重试",
+    reload: "重新加载",
     mcpAbout:
       "将 Slides 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 Slides 中工作：创建演示文稿、添加幻灯片并导出为 PowerPoint。它只能看到你有权看到的内容。",
     workspaceTitle: "工作区",
@@ -296,6 +297,18 @@ const messages = {
     importing: "正在导入...",
     importFile: "导入文件",
     downloadBackup: "下载备份",
+    conflictStatus: "文本冲突",
+    conflictStatusDescription: "请先检查冲突的文本，再保存其他更改。",
+    reviewConflict: "查看冲突",
+    conflictTitle: "第 {{number}} 张幻灯片存在文本冲突",
+    conflictDescription: "编辑文本期间，另一版本更改了此幻灯片。",
+    conflictChoicesDescription:
+      "保留我的文本会将其保存到最新版本中。使用已保存的文本只会替换此幻灯片的本地草稿。",
+    conflictBackupDescription:
+      "此完整演示文稿草稿无法逐张幻灯片解决。请先下载备份以保留草稿。",
+    conflictResolveFailed: "无法解决冲突。此设备上仍保留着你的草稿。",
+    conflictKeepMine: "保留我的文本",
+    conflictUseLatest: "使用已保存的文本",
     importBackup: "导入备份",
     backupDownloaded: "备份已下载",
     backupDownloadFailed: "无法下载备份",
@@ -392,6 +405,8 @@ const messages = {
     orderedList: "有序列表",
     quote: "引用",
     blockquote: "块引用",
+    divider: "分隔线",
+    horizontalRule: "水平线",
   },
   comments: {
     deleteComment: "删除评论",
@@ -425,6 +440,7 @@ const messages = {
     retry: "重试",
     clickToAddComment: "点击添加评论",
     selectSlideToAdd: "选择幻灯片以添加评论",
+    filters: "评论筛选",
     scope: "评论范围",
     thisSlide: "此幻灯片",
     allComments: "所有幻灯片",
@@ -724,6 +740,8 @@ const messages = {
     imageAdded: "图片已添加",
     imageUploadError: "上传此图片时出了点问题。",
     exportFailed: "导出失败",
+    agentRunFailed:
+      "代理在创建任何幻灯片之前运行失败。请查看聊天中的详情，然后重试。",
     deckHasNoSlides: "幻灯片没有页面。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",

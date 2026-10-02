@@ -52,6 +52,65 @@ test("normalizes paths from git output", () => {
   );
 });
 
+test("selects Slides caret CI for exact package roots and Creative Context", () => {
+  const filtersFor = (path: string) =>
+    JSON.stringify(workspaceFiltersForPaths([path]));
+  const selectsRoot = (filters: string, root: string) =>
+    filters.includes(`{${root}}`);
+
+  assert.equal(
+    selectsRoot(filtersFor("packages/core/src/index.ts"), "packages/core"),
+    true,
+  );
+  assert.equal(
+    selectsRoot(
+      filtersFor("packages/core-corpus/src/index.ts"),
+      "packages/core",
+    ),
+    false,
+  );
+  assert.equal(
+    selectsRoot(
+      filtersFor("packages/creative-context/src/index.ts"),
+      "packages/creative-context",
+    ),
+    true,
+  );
+});
+
+test("selects Slides caret and authoring E2E for their dependency closure", () => {
+  for (const path of [
+    "templates/slides/app/components/editor/Editor.tsx",
+    "packages/core/src/index.ts",
+    "packages/toolkit/src/app/chat/AgentKitAssistantChat.tsx",
+    "packages/creative-context/src/index.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.slides_chat_e2e, true, path);
+    assert.equal(scope.checks.slides_authoring_e2e, true, path);
+  }
+
+  const agentkit = classifyChangedPaths([
+    "packages/agentkit/src/client/index.ts",
+  ]);
+  assert.equal(agentkit.checks.slides_chat_e2e, true);
+  assert.equal(agentkit.checks.slides_authoring_e2e, false);
+
+  for (const path of [
+    "templates/content/app/routes/index.tsx",
+    "templates/chat/app/routes/index.tsx",
+    "packages/core-corpus/src/index.ts",
+  ]) {
+    const scope = classifyChangedPaths([path]);
+    assert.equal(scope.checks.slides_chat_e2e, false, path);
+    assert.equal(scope.checks.slides_authoring_e2e, false, path);
+  }
+
+  const full = classifyChangedPaths(["pnpm-lock.yaml"]);
+  assert.equal(full.checks.slides_chat_e2e, true);
+  assert.equal(full.checks.slides_authoring_e2e, true);
+});
+
 test("fails closed for empty and unknown root change sets", () => {
   const empty = classifyChangedPaths([]);
   assert.equal(empty.docsOnly, false);
@@ -315,6 +374,75 @@ test("does not select Design dependencies for test or typecheck", () => {
     "...{templates/design}",
     "!./community-templates/**",
   ]);
+});
+
+test("selects focused Design canvas interaction acceptance for its runtime dependencies", () => {
+  for (const path of [
+    "templates/design/app/components/MultiScreenCanvas.tsx",
+    "templates/design/shared/canvas-math.ts",
+    "templates/design/shared/pen-path.ts",
+    "templates/design/shared/responsive-frame-layout.ts",
+    "templates/design/.generated/bridge/editor-chrome.generated.ts",
+    "templates/design/actions/update-file.ts",
+    "templates/design/server/handlers/design.ts",
+    "templates/design/agent-native.config.ts",
+    "templates/design/agent-native.json",
+    "templates/design/package.json",
+    "templates/design/react-router.config.ts",
+    "templates/design/vite.config.ts",
+    "templates/design/playwright.config.ts",
+    "templates/design/e2e/base-url.ts",
+    "templates/design/e2e/chrome-geometry.reference.ts",
+    "templates/design/e2e/global-setup.ts",
+    "templates/design/e2e/global-teardown.ts",
+    "templates/design/e2e/parity-vector-endpoints.spec.ts",
+    "templates/design/e2e/corner-radius-handle-drag.spec.ts",
+    "templates/design/e2e/helpers.ts",
+    "templates/design/e2e/drag-and-drop.shared.ts",
+    "templates/design/e2e/drag-and-drop.reparenting-rules.spec.ts",
+    "templates/design/e2e/drag-and-drop.auto-layout-parity.spec.ts",
+    "templates/design/e2e/cross-screen-auto-layout-parity.spec.ts",
+    "packages/core/src/index.ts",
+    "packages/toolkit/src/index.ts",
+    "packages/creative-context/src/index.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.design_canvas_interaction_e2e,
+      true,
+      path,
+    );
+  }
+
+  for (const path of [
+    "templates/slides/app/components/Canvas.tsx",
+    "templates/calendar/app/routes/index.tsx",
+    "packages/dispatch/src/index.ts",
+    "docs/guide.md",
+    "templates/design/README.md",
+    "templates/design/app/i18n/en-US.ts",
+    "templates/design/app/i18n/index.ts",
+    "templates/design/app/i18n-keyboard-shortcuts.ts",
+    "templates/design/app/assets/icon.ts",
+    "templates/design/public/favicon.svg",
+    "templates/design/e2e/overview-wheel-zoom.spec.ts",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.design_canvas_interaction_e2e,
+      false,
+      path,
+    );
+  }
+
+  assert.equal(
+    classifyChangedPaths([".github/workflows/ci.yml"]).checks
+      .design_canvas_interaction_e2e,
+    true,
+  );
+  assert.equal(
+    classifyChangedPaths(["docs/guide.md"]).checks
+      .design_canvas_interaction_e2e,
+    false,
+  );
 });
 
 test("runs shared coverage when core changes", () => {

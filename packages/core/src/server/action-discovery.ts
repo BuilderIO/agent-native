@@ -150,6 +150,16 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   }
   if (typeof entry.agentTool === "boolean") out.agentTool = entry.agentTool;
   if (typeof entry.mcpTool === "boolean") out.mcpTool = entry.mcpTool;
+  if (
+    entry.mcpAnnotations &&
+    typeof entry.mcpAnnotations === "object" &&
+    !Array.isArray(entry.mcpAnnotations) &&
+    typeof entry.mcpAnnotations.readOnlyHint === "boolean" &&
+    typeof entry.mcpAnnotations.destructiveHint === "boolean" &&
+    typeof entry.mcpAnnotations.openWorldHint === "boolean"
+  ) {
+    out.mcpAnnotations = entry.mcpAnnotations;
+  }
   if (typeof entry.deferLoading === "boolean") {
     out.deferLoading = entry.deferLoading;
   }
@@ -168,6 +178,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
     !Array.isArray(entry.planMode)
   ) {
     out.planMode = entry.planMode;
+  }
+  if (typeof entry.changeEvents === "boolean") {
+    out.changeEvents = entry.changeEvents;
   }
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
@@ -615,6 +628,7 @@ export async function mergeCoreSharingActions(
       () => import("../feature-flags/actions/set-feature-flag.js"),
     ],
     ["get-labs", () => import("../labs/actions/get-labs.js")],
+    ["get-lab-states", () => import("../labs/actions/get-lab-states.js")],
     ["set-lab", () => import("../labs/actions/set-lab.js")],
     [
       "get-chatgpt-subscription-status",
@@ -623,6 +637,14 @@ export async function mergeCoreSharingActions(
     [
       "disconnect-chatgpt-subscription",
       () => import("../agent/actions/disconnect-chatgpt-subscription.js"),
+    ],
+    [
+      "list-chatgpt-subscription-accounts",
+      () => import("../agent/actions/list-chatgpt-subscription-accounts.js"),
+    ],
+    [
+      "select-chatgpt-subscription-account",
+      () => import("../agent/actions/select-chatgpt-subscription-account.js"),
     ],
     [
       "preview-secret-removal",

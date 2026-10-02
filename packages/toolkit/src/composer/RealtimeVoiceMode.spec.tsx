@@ -340,7 +340,11 @@ describe("RealtimeVoiceMode", () => {
         .find((button) => button.textContent === "Connect Builder.io")
         ?.click(),
     );
-    expect(onConnectBuilder).toHaveBeenCalledOnce();
+    // No consent popover is wired here, so the click signs in instead of
+    // creating an account the user never saw the terms for.
+    expect(onConnectBuilder).toHaveBeenCalledExactlyOnceWith({
+      provisionAccount: false,
+    });
     expect(onUseOpenAiKey).not.toHaveBeenCalled();
   });
 

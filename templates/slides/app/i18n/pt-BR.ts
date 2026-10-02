@@ -46,7 +46,7 @@ const messages = {
     designSystems: "Sistemas de design",
   },
   settings: {
-    agentObservability: "Observabilidade do agente",
+    agentObservability: "Observabilidade",
     title: "Configurações",
     labs: "Labs",
     labsIntro: "Confira recursos experimentais antes do lançamento.",
@@ -58,6 +58,7 @@ const messages = {
     commentsAndRepliesDescription:
       "Quando alguém comenta ou responde na sua apresentação.",
     retry: "Tentar novamente",
+    reload: "Recarregar",
     mcpAbout:
       "Conecte o Slides ao Claude, ao ChatGPT, ao Cursor ou a qualquer app de IA compatível com MCP. Esse app poderá trabalhar no Slides por você: criar apresentações, adicionar slides e exportar para o PowerPoint. Ele só vê o que você pode ver.",
     workspaceTitle: "Espaço de trabalho",
@@ -304,6 +305,21 @@ const messages = {
     importing: "Importando...",
     importFile: "Importar arquivo",
     downloadBackup: "Baixar backup",
+    conflictStatus: "Conflito de texto",
+    conflictStatusDescription:
+      "Revise o texto em conflito antes de salvar outras alterações.",
+    reviewConflict: "Revisar conflito",
+    conflictTitle: "Conflito de texto no slide {{number}}",
+    conflictDescription:
+      "Outra versão alterou este slide enquanto você editava o texto.",
+    conflictChoicesDescription:
+      "Manter seu texto o salva sobre a versão mais recente. Usar o texto salvo substitui apenas o rascunho local deste slide.",
+    conflictBackupDescription:
+      "Este rascunho da apresentação inteira não pode ser resolvido slide por slide. Baixe um backup para guardá-lo.",
+    conflictResolveFailed:
+      "Não foi possível resolver o conflito. Seu rascunho continua disponível neste dispositivo.",
+    conflictKeepMine: "Manter meu texto",
+    conflictUseLatest: "Usar o texto salvo",
     importBackup: "Importar backup",
     backupDownloaded: "Backup baixado",
     backupDownloadFailed: "Não foi possível baixar o backup",
@@ -402,6 +418,8 @@ const messages = {
     orderedList: "Lista ordenada",
     quote: "Citação",
     blockquote: "Bloco de citação",
+    divider: "Separador",
+    horizontalRule: "Linha horizontal",
   },
   comments: {
     deleteComment: "Excluir comentário",
@@ -435,6 +453,7 @@ const messages = {
     retry: "Tentar novamente",
     clickToAddComment: "Clique para adicionar um comentário",
     selectSlideToAdd: "Selecione um slide para adicionar um",
+    filters: "Filtros de comentários",
     scope: "Escopo dos comentários",
     thisSlide: "Este slide",
     allComments: "Todos os slides",
@@ -752,6 +771,8 @@ const messages = {
     imageAdded: "Imagen añadida",
     imageUploadError: "Algo salió mal al subir esta imagen.",
     exportFailed: "Error al exportar",
+    agentRunFailed:
+      "A execução do agente falhou antes de criar qualquer slide. Confira os detalhes no chat e tente novamente.",
     deckHasNoSlides: "Esta apresentação não contém slides.",
     pdfRenderFailed: "No se pudo renderizar el PDF.",
     buildingDeck: "Construyendo deck",

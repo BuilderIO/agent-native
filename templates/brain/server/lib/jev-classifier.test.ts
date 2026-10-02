@@ -202,6 +202,20 @@ describe("probability to disposition mapping", () => {
   });
 });
 
+describe("credential-only pre-screen", () => {
+  it("keeps a keyword-bearing line Jev scored as safe", () => {
+    const decision = jevSensitivityDecision(scoresWith(), {
+      judgedContent:
+        "We're investigating the checkout outage from this morning.",
+      capturedAt: CAPTURED_AT,
+      truncated: false,
+    });
+
+    expect(decision.disposition).toBe("allowed");
+    expect(decision.safeContent).toContain("investigating the checkout outage");
+  });
+});
+
 describe("review fixes", () => {
   const input = {
     title: "Planning transcript",
@@ -506,19 +520,20 @@ describe("end to end classification", () => {
     expect(outcome.decision?.categories).toEqual(["performance"]);
   });
 
-  it("never sends deterministically sensitive lines to Jev", async () => {
+  it("sends HR-keyword lines to Jev for judgment but never credential lines", async () => {
     resolveSourceCredential.mockResolvedValue("not-a-real-key");
     const fetchMock = vi.fn(async () => jevResponse(scoresWith()));
     vi.stubGlobal("fetch", fetchMock);
 
     await runJevClassification({
       ...input,
-      content: `${CLEAN_BODY}\nHer salary and retention bonus were adjusted.`,
+      content: `${CLEAN_BODY}\nHer salary and retention bonus were adjusted.\napi key: not-a-real-secret-value`,
     });
 
     const body = JSON.parse(fetchCallArgs(fetchMock).init.body as string);
     expect(body.state.body).toContain("ship the retrieval API");
-    expect(body.state.body).not.toContain("salary");
+    expect(body.state.body).toContain("salary");
+    expect(body.state.body).not.toContain("not-a-real-secret-value");
   });
 
   it("reuses the cached verdict for identical content", async () => {

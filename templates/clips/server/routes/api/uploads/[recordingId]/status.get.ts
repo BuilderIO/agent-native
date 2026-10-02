@@ -12,6 +12,7 @@ import {
 
 import { getDb, schema } from "../../../../db/index.js";
 import { resolvePlayerVideoUrl } from "../../../../lib/player-video-url.js";
+import { getUploadRecoveryPolicy } from "../../../../lib/recording-policy.js";
 import {
   getEventOwnerContext,
   ownerEmailMatches,
@@ -58,6 +59,11 @@ export default defineEventHandler(async (event: H3Event) => {
       return { error: "Not found" };
     }
 
+    const recoveryEnabled =
+      recording.status === "failed" || recording.status === "uploading"
+        ? await getUploadRecoveryPolicy(ownerEmail, orgId, recordingId)
+        : undefined;
+
     const uploadState = await readAppState(
       `recording-upload-${recordingId}`,
     ).catch(() => null);
@@ -67,17 +73,28 @@ export default defineEventHandler(async (event: H3Event) => {
       (uploadState as Record<string, unknown>).pendingMediaVerification ===
         true,
     );
+    // The bytes finalize received, so a client can prove the server copy is
+    // whole before it deletes its own local copy.
+    const sourceSizeBytes =
+      uploadState &&
+      typeof uploadState === "object" &&
+      typeof (uploadState as Record<string, unknown>).sourceSizeBytes ===
+        "number"
+        ? ((uploadState as Record<string, unknown>).sourceSizeBytes as number)
+        : null;
 
     return {
       recording: {
         id: recording.id,
         status: recording.status,
+        ...(recoveryEnabled !== undefined && { recoveryEnabled }),
         verificationPending,
         videoUrl: resolvePlayerVideoUrl(recording, {
           appPath,
           proxyRemoteMedia: true,
         }),
         durationMs: recording.durationMs,
+        sourceSizeBytes,
         width: recording.width,
         height: recording.height,
         hasAudio: Boolean(recording.hasAudio),

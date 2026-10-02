@@ -45,8 +45,8 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
 
-vi.mock("@agent-native/core/feature-flags", () => ({
-  isFeatureFlagEnabled: (...args: unknown[]) =>
+vi.mock("../../../../lib/recording-policy.js", () => ({
+  getUploadRecoveryPolicy: (...args: unknown[]) =>
     mockIsFeatureFlagEnabled(...args),
 }));
 
@@ -110,7 +110,10 @@ vi.mock("../../../../lib/resumable-upload-cleanup.js", () => ({
     mockAbortResumableUploadSession(...args),
 }));
 
-vi.mock("../../../../lib/upload-lease.js", () => ({
+vi.mock("../../../../lib/upload-lease.js", async (importOriginal) => ({
+  isParkedForStorage: (
+    await importOriginal<typeof import("../../../../lib/upload-lease.js")>()
+  ).isParkedForStorage,
   UPLOAD_LEASE_MS: 60 * 60 * 1000,
   renewUploadLease: (...args: unknown[]) => mockRenewUploadLease(...args),
   uploadLeaseExpiry: () => "2099-01-01T00:00:00.000Z",
@@ -406,6 +409,35 @@ describe("/api/uploads/:recordingId/resume route", () => {
       });
       expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
       expect(mockDb.update).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("claims a row parked for storage even though its long lease looks live", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-21T12:00:00.000Z"));
+    try {
+      mockSelectRows.rows = [
+        {
+          id: "rec-1",
+          status: "uploading",
+          failureReason: "Connect storage to finish saving.",
+          uploadAttemptId: "earlier-attempt-0001",
+          uploadLeaseExpiresAt: "2026-08-28T12:00:00.000Z",
+        },
+      ];
+
+      const result = await handler({} as any);
+
+      expect(result).toMatchObject({ resumable: true });
+      expect(mockSetResponseStatus).not.toHaveBeenCalledWith({}, 409);
+      expect(mockUpdateSets[0]).toMatchObject({
+        status: "uploading",
+        failureReason: null,
+        uploadAttemptId: "client-attempt-0001",
+        uploadLeaseExpiresAt: "2099-01-01T00:00:00.000Z",
+      });
     } finally {
       vi.useRealTimers();
     }

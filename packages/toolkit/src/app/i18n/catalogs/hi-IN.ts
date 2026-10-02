@@ -376,6 +376,8 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.auto": "अपने-आप",
   "composer.builderModelCredits": "Claude, OpenAI और Gemini के लिए मुफ़्त क्रेडिट",
   "composer.chatGptSubscription": "ChatGPT सदस्यता",
+  "composer.chatgptManageUsage": "उपयोग प्रबंधित करें",
+  "composer.chatgptPlanUsing": "ChatGPT योजना का उपयोग हो रहा है",
   "composer.closePreview": "प्रीव्यू बंद करें",
   "composer.configureProviderKeys":
     "Anthropic, OpenAI या किसी अन्य प्रदाता को कॉन्फ़िगर करें",
@@ -574,7 +576,11 @@ const messages: ToolkitAgentChatTranslation = {
   "empty.loadingChat": "चैट लोड हो रही है...",
   "empty.prompt": "मैं आपकी कैसे मदद कर सकता हूँ?",
   "error.afterDuration": "{{duration}} के बाद {{headline}}",
-  "error.failed": "एजेंट को एक त्रुटि मिली",
+  "error.chatgptPlanUsageLimit":
+    "आपकी ChatGPT योजना की उपयोग सीमा पूरी हो गई है।",
+  "error.chatgptPlanUsageUnavailable":
+    "OpenAI इस ChatGPT योजना की उपयोग सीमा जाँच नहीं सका। अपना ChatGPT उपयोग देखें या कोई दूसरा मॉडल आज़माएँ।",
+  "error.failed": "एजेंट का काम पूरा होने से पहले रन विफल हो गया।",
   "error.render": "यह सामग्री दिखाई नहीं जा सकी।",
   "error.stopped": "एजेंट पूरा करने से पहले रुक गया",
   "errorMessages.agentConnection":
@@ -597,6 +603,14 @@ const messages: ToolkitAgentChatTranslation = {
     "एक टूल स्कीमा अमान्य था, इसलिए मॉडल ने अनुरोध शुरू होने से पहले ही अस्वीकार कर दिया। अमान्य टूल को छोड़कर अनुरोध दोबारा किया जा सकता है।",
   "errorMessages.malformedRequest":
     "मॉडल प्रदाता ने इस अनुरोध को त्रुटिपूर्ण मानकर अस्वीकार कर दिया, इसलिए इसे दोबारा नहीं भेजा गया। फिर से प्रयास करें, या बार-बार होने पर नई चैट शुरू करें।",
+  "errorMessages.requestTooLarge":
+    "यह अनुरोध सर्वर की आकार सीमा से बड़ा था (HTTP 413)। नई चैट शुरू करें या बड़े अटैचमेंट या संदर्भ हटाकर फिर कोशिश करें।",
+  "errorMessages.runInterrupted": "एजेंट काम पूरा करने से पहले रुक गया।",
+  "errorMessages.runFailed": "एजेंट का रन विफल हो गया।",
+  "errorMessages.runUnverified":
+    "यह चैट एजेंट को ट्रैक नहीं कर पा रही है, जो शायद अभी भी चल रहा हो। उसकी प्रगति देखने के लिए पेज रीलोड करें।",
+  "errorMessages.runSignedOut":
+    "आप साइन आउट हो चुके हैं, इसलिए यह चैट एजेंट को फ़ॉलो नहीं कर सकती। फिर से साइन इन करें, फिर रीलोड करें।",
   "errorMessages.malformedRequestAttachment":
     "मॉडल ने एक संलग्न फ़ाइल अस्वीकार कर दी, इसलिए यह संदेश कभी भेजा ही नहीं गया। अटैचमेंट हटाकर दोबारा प्रयास करें — PDF, सादा टेक्स्ट फ़ाइल, या JPEG, PNG, GIF या WebP छवि सीधे पढ़ी जाती है; अन्य फ़ॉर्मैट अपलोड करके लिंक करने होंगे।",
   "errorMessages.noProviderConnected":
@@ -1065,6 +1079,8 @@ const messages: ToolkitAgentChatTranslation = {
   "recovery.connectingBuilder": "Builder.io से कनेक्ट किया जा रहा है",
   "recovery.copyDebug": "डीबग जानकारी कॉपी करें",
   "recovery.copyFailed": "कॉपी नहीं हो सका",
+  "recovery.retryAttachmentUnavailable":
+    "इस अनुरोध में ऐसी फ़ाइल थी जिसे दोबारा नहीं भेजा जा सकता। उसे संदेश बॉक्स में फिर से जोड़ें, फिर कोशिश करें।",
   "recovery.deferredSubmissionFailed":
     "यह संदेश भेजा नहीं जा सका। अपना कनेक्शन या चैट सेटअप जाँचें, फिर दोबारा कोशिश करें।",
   "recovery.credentialRejected":
@@ -1229,6 +1245,7 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}} से पूछा जा रहा है...",
   "tool.elapsed": "{{duration}} बीत चुके",
   "tool.askingAgentFailed": "{{agent}} से पूछते समय त्रुटि हुई",
+  "tool.failedWithoutDetails": "त्रुटि का कोई विवरण उपलब्ध नहीं है।",
   "tool.input": "इनपुट",
   "tool.inputWithLabel": "इनपुट - {{label}}",
   "tool.interrupted":
@@ -1531,6 +1548,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.usage.yourEstimatedSpend": "आपका अनुमानित खर्च",
   "settings.usage.yourCreditSpend": "आपका Builder.io क्रेडिट खर्च",
   "settings.usage.calls": "कॉल",
+  "settings.usage.chatgptPlanUsage": "ChatGPT प्लान का उपयोग",
   "settings.usage.tokens": "टोकन",
   "settings.usage.activePeople": "सक्रिय लोग",
   "settings.usage.history": "उपयोग इतिहास",
@@ -2665,10 +2683,33 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.cancel": "रद्द करें",
   "settingsModel.change": "बदलें",
   "settingsModel.chatgptConnected": "कनेक्टेड",
-  "settingsModel.chatgptDescription": "अपने ChatGPT प्लान से Codex इंजन इस्तेमाल करें।",
+  "settingsModel.chatgptDescription":
+    "अपने ChatGPT प्लान के ज़रिए योग्य OpenAI मॉडल इस्तेमाल करें।",
   "settingsModel.chatgptPopupBlocked":
     "इस साइट के लिए पॉप-अप की अनुमति दें, फिर दोबारा कोशिश करें।",
-  "settingsModel.chatgptTitle": "ChatGPT सदस्यता",
+  "settingsModel.chatgptTitle": "ChatGPT प्लान ऐक्सेस",
+  "settingsModel.chatgptAddAccount": "एक और खाता जोड़ें",
+  "settingsModel.chatgptConnecting": "कनेक्ट हो रहा है…",
+  "settingsModel.chatgptContinue": "ChatGPT के साथ जारी रखें",
+  "settingsModel.chatgptDisconnect": "डिस्कनेक्ट करें",
+  "settingsModel.chatgptDisconnectTitle": "ChatGPT को डिस्कनेक्ट करें?",
+  "settingsModel.chatgptDisconnectDescription":
+    "{{account}} इस ऐप से साइन आउट हो जाएगा और एजेंट आपके ChatGPT प्लान का उपयोग करना बंद कर देगा। आप कभी भी फिर से साइन इन कर सकते हैं।",
+  "settingsModel.chatgptDisconnecting": "डिस्कनेक्ट हो रहा है…",
+  "settingsModel.chatgptRemoveLegacySignIn": "पुराना साइन-इन हटाएँ",
+  "settingsModel.chatgptLegacySignInDetails":
+    "यहाँ ChatGPT का पुराना साइन-इन सहेजा है। आधिकारिक फ़्लो इसका उपयोग नहीं कर सकता।",
+  "settingsModel.chatgptManageAccess": "ChatGPT में प्रबंधित करें",
+  "settingsModel.chatgptRemoteRevocationUnconfirmed":
+    "यहाँ डिस्कनेक्ट किया गया। ChatGPT में ऐक्सेस अब भी सक्रिय रह सकता है।",
+  "settingsModel.chatgptLocalOnly":
+    "ओपन-सोर्स ऐप्स को लोकल रूप से loopback callback के साथ चलाने पर बिना आवेदन के इस्तेमाल किया जा सकता है; पार्टनरशिप के लिए आवेदन की ज़रूरत नहीं है। *.agent-native.com पर होस्ट किए गए ऐप्स के लिए ऑपरेटर की मंज़ूरी और hosted callback ज़रूरी है।",
+  "settingsModel.chatgptNoDirectUse":
+    "इस ChatGPT खाते का उपयोग करने के लिए फिर से कनेक्ट करें और सीधे मॉडल ऐक्सेस की अनुमति दें।",
+  "settingsModel.chatgptReconnect": "फिर से कनेक्ट करें",
+  "settingsModel.chatgptSelectAccount": "ChatGPT खाता",
+  "settingsModel.chatgptUsageLimit":
+    "आपकी ChatGPT योजना की उपयोग सीमा पूरी हो गई है।",
   "settingsModel.checkAgain": "फिर से जाँचें",
   "settingsModel.checkedJustNow": "अभी जाँचा गया।",
   "settingsModel.checkedOn": "{{date}} को जाँचा गया।",

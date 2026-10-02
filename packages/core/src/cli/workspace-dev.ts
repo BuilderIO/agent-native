@@ -29,6 +29,7 @@ import {
   rewriteRedirectLocation,
   escapeHtml,
 } from "./gateway-helpers.js";
+import { openUrlInBrowser } from "./open-url.js";
 import { DEV_SERVER_SUPERVISOR_ENV } from "./process.js";
 import { captureSentryException } from "./sentry-telemetry.js";
 
@@ -155,6 +156,37 @@ export function shouldPrewarmWorkspaceApps(
     env.WORKSPACE_PREWARM === "1" ||
     env.WORKSPACE_PREWARM === "true"
   );
+}
+
+export function shouldOpenWorkspaceBrowser(
+  args: string[] = [],
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  if (args.includes("--no-open")) return false;
+  if (env.WORKSPACE_NO_OPEN === "1" || env.AGENT_NATIVE_NO_OPEN === "1") {
+    return false;
+  }
+  if (env.CI === "1" || env.CI === "true") return false;
+  if (
+    env.BUILDER_IO_DEV_SERVER ||
+    env.BUILDER_PROJECT_ID ||
+    env.CODESPACES ||
+    env.GITPOD_WORKSPACE_ID ||
+    env.REMOTE_CONTAINERS ||
+    env.DEVCONTAINER
+  ) {
+    return false;
+  }
+  if (
+    platform !== "darwin" &&
+    platform !== "win32" &&
+    !env.DISPLAY &&
+    !env.WAYLAND_DISPLAY
+  ) {
+    return false;
+  }
+  return true;
 }
 
 export function workspacePrewarmConcurrency(
@@ -1351,20 +1383,12 @@ export async function runWorkspaceDev(
   }
 
   function openBrowser(url: string): void {
-    if (options.openBrowser === false || env.WORKSPACE_NO_OPEN === "1") return;
-    const command =
-      process.platform === "darwin"
-        ? "open"
-        : process.platform === "win32"
-          ? "cmd"
-          : "xdg-open";
-    const openArgs =
-      process.platform === "win32" ? ["/c", "start", "", url] : [url];
-    const child = spawnProcess(command, openArgs, {
-      stdio: "ignore",
-      detached: true,
+    if (options.openBrowser === false) return;
+    if (!shouldOpenWorkspaceBrowser(args, env)) return;
+    openUrlInBrowser(url, {
+      spawnProcess,
+      warn: (message) => stderr.write("[workspace] " + message + "\n"),
     });
-    child.unref();
   }
 
   const server = http.createServer(async (req, res) => {

@@ -59,6 +59,19 @@ const NEST_FIXTURE = `<!doctype html>
   </section>
 </body></html>`;
 
+const OVERSIZED_HEIGHT_NEST_FIXTURE = `<!doctype html>
+<html><body style="margin:0;min-height:900px;background:#0f1115">
+  <div data-agent-native-node-id="nest-source" data-agent-native-layer-name="Nest Source"
+    style="position:absolute;left:60px;top:420px;width:80px;height:140px;background:#6366f1">Source</div>
+  <section data-agent-native-node-id="nest-row" data-agent-native-layer-name="Nest Row"
+    style="position:absolute;left:360px;top:80px;width:300px;padding:12px;display:flex;gap:12px;background:#1f2937">
+    <section data-agent-native-node-id="nested-frame" data-agent-native-layer-name="Nested Frame"
+      data-an-primitive="frame" style="position:relative;width:180px;height:100px;background:#374151"></section>
+    <section data-agent-native-node-id="nested-next" data-agent-native-layer-name="Nested Next"
+      data-an-primitive="frame" style="width:64px;height:72px;background:#4b5563"></section>
+  </section>
+</body></html>`;
+
 const META_FIXTURE = `<!doctype html>
 <html><body style="margin:0;min-height:900px;background:#0f1115">
   <section data-agent-native-node-id="meta-row" data-agent-native-layer-name="Meta Row"
@@ -542,6 +555,105 @@ test("physical drop into a nested frame in a regular flex row still nests", asyn
       position: "static",
     });
   } finally {
+    await deleteDesign(page, designId);
+  }
+});
+
+test("physical oversized-by-height layer stays outside a smaller nested frame", async ({
+  page,
+}) => {
+  const designId = await newDesign(page, OVERSIZED_HEIGHT_NEST_FIXTURE);
+  let mouseDown = false;
+  try {
+    await openEditor(page, designId);
+    await selectCanvasNode(page, "nest-source");
+    const source = (await node(page, "nest-source").boundingBox())!;
+    const frame = (await node(page, "nested-frame").boundingBox())!;
+    const nextRect = await node(page, "nested-next").evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { left: rect.left };
+    });
+    expect(source.width).toBeLessThan(frame.width);
+    expect(source.height).toBeGreaterThan(frame.height);
+    const originalParentId = await node(page, "nest-source").evaluate(
+      (element) => {
+        const parent = element.parentElement;
+        return (
+          parent?.getAttribute("data-agent-native-node-id") ??
+          (parent?.tagName === "BODY" ? "BODY" : null)
+        );
+      },
+    );
+
+    await page.mouse.move(
+      source.x + source.width / 2,
+      source.y + source.height / 2,
+    );
+    await page.mouse.down();
+    mouseDown = true;
+    await page.mouse.move(source.x + 12, source.y + 8, { steps: 5 });
+    await page.mouse.move(
+      frame.x + frame.width * 0.75,
+      frame.y + frame.height / 2,
+      { steps: 20 },
+    );
+    await expect
+      .poll(() => heldNestedDropState(page, "nest-source", "nested-frame"), {
+        timeout: 5_000,
+      })
+      .toMatchObject({
+        guide: { display: "block", kind: "line" },
+      });
+    const held = await heldNestedDropState(page, "nest-source", "nested-frame");
+    expect(held.sourceParentId).toBe(originalParentId);
+    if (!held.guide)
+      throw new Error("oversized drop insertion guide disappeared");
+    const guideCenterX = held.guide.left + held.guide.width / 2;
+    expect(
+      Math.abs(guideCenterX - (held.targetRect.left + held.targetRect.width)),
+    ).toBeLessThan(2);
+    expect(guideCenterX).toBeLessThan(nextRect.left);
+    await page.mouse.up();
+    mouseDown = false;
+
+    await expect
+      .poll(() =>
+        preview(page).evaluate(() => {
+          const source = document.querySelector(
+            '[data-agent-native-node-id="nest-source"]',
+          );
+          const parent = source?.parentElement;
+          return {
+            parentId: parent?.getAttribute("data-agent-native-node-id"),
+            order: Array.from(parent?.children ?? [])
+              .map((child) => child.getAttribute("data-agent-native-node-id"))
+              .filter(Boolean),
+          };
+        }),
+      )
+      .toEqual({
+        parentId: "nest-row",
+        order: ["nested-frame", "nest-source", "nested-next"],
+      });
+    await expect
+      .poll(async () => {
+        const html = await indexHtml(page, designId);
+        return preview(page).evaluate((_body, documentHtml: string) => {
+          const parsed = new DOMParser().parseFromString(
+            documentHtml,
+            "text/html",
+          );
+          const row = parsed.querySelector(
+            '[data-agent-native-node-id="nest-row"]',
+          );
+          return Array.from(row?.children ?? [])
+            .map((child) => child.getAttribute("data-agent-native-node-id"))
+            .filter(Boolean);
+        }, html);
+      })
+      .toEqual(["nested-frame", "nest-source", "nested-next"]);
+  } finally {
+    if (mouseDown) await page.mouse.up();
     await deleteDesign(page, designId);
   }
 });

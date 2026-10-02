@@ -1,5 +1,84 @@
 # @agent-native/toolkit
 
+## 0.199.0
+
+### Minor Changes
+
+- a80ad13: Add official Sign in with ChatGPT plan access for local open-source apps.
+
+### Patch Changes
+
+- 452757b: Show the Builder credit notice only after an organization reaches its credit limit.
+- 6f27cff: Keep visible assistant output from reintroducing a Thinking status row.
+- a1e74f5: Gate ChatGPT plan access behind an opt-in lab and simplify account management.
+- a1e74f5: Count a connected ChatGPT plan as a model provider in Settings, offer its models as the default, and simplify the ChatGPT account row with a disconnect confirmation.
+- ebface7: Harden the boundaries behind the most-reported breakage. A closed chat stream now asks the server for the run's real state before the UI shows an outcome, and a user message sent during an active run waits instead of erroring. Sign-in state is one shared fact with one navigator, so reloads no longer flash to sign-in. Credential state is one typed value, so the credits banner and chat errors agree and activation can no longer replace an organization's Builder connection. Attachments resolve through one typed reference. Background automations record their real failure cause and pause after repeated identical failures instead of re-failing every tick. Error capture classifies and aggregates floods, groups one error into one issue, and filters third-party noise at one boundary. Tool-call errors keep a redacted reason, and human-in-the-loop pauses are no longer counted as errors. Expected action failures are typed 4xx responses, action hooks back off and stop on terminal errors, and a guard rejects new bare `throw new Error(...)` in actions. The shared command menu opens from the focused agent composer.
+- Release all public npm packages with a patch version bump.
+- 5b643b7: Restore a saved collapsed sidebar before the first paint, so it no longer draws expanded for one frame.
+- c13429a: Preserve saved file references when retrying a failed chat request.
+- Updated dependencies
+  - @agent-native/agentkit@0.199.0
+
+## 0.198.8
+
+### Patch Changes
+
+- 4e85ccd: Keep the full-page chat history popover below its header.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.8
+
+## 0.198.7
+
+### Patch Changes
+
+- 48586af: Restore compact nested composer context menus while keeping chat actions at the top level.
+- Release all public npm packages with a patch version bump.
+- b147194: Keep the chat history popover open after selecting it from the chat menu.
+- 3ba09b7: Copy complete Visual Edit instructions by default and show Builder.io for Builder credit connections.
+- Updated dependencies
+- Updated dependencies [3ba09b7]
+  - @agent-native/agentkit@0.198.7
+
+## 0.198.6
+
+### Patch Changes
+
+- 0670eb1: Improve chat activity status, tool error disclosure, and composer feedback.
+- 77540af: Keep Sonner toast actions inside the toast when content and actions share a narrow viewport.
+- df12726: Wait for the chat menu to close before opening its history popover.
+- Release all public npm packages with a patch version bump.
+- 4dfe557: Keep homepage submissions in the active full-page chat and hide unavailable request ID actions.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.6
+
+## 0.198.5
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.198.5
+
+## 0.198.4
+
+### Patch Changes
+
+- 85a87e6: Split ChatFirst navigation from its pane bundle, preserve queued chat intent through provider preparation, and keep client-only SSR stubs constructible.
+- cefc33b: Align full-page chat headers to the pane edges and remove the extra gap below them.
+- 7a25922: Support Manual and Automatic Gong MCP OAuth registration.
+- df67544: Keep icon upload validation and transfer errors visible in the shared picker, with localized feedback for unsupported image formats and failed uploads.
+- 2fdd284: Chat history reports load failures and offers a retry instead of hiding undo controls.
+- c82ae28: Resolve migrated Labs choices against existing feature flag settings while preserving explicit Off and showing inherited mixed settings.
+- Release all public npm packages with a patch version bump.
+- c650ba5: Keep the Docs server bundle from loading the rich editor for file-storage setup.
+- 9fa81ab: Keep shared chat drafts editable while a message is being sent.
+- 20d3bb8: Restore typed workspace connection requests when chat resumes OAuth or a custom credential resolver finds no connection.
+- Updated dependencies [85a87e6]
+- Updated dependencies
+- Updated dependencies [20d3bb8]
+  - @agent-native/agentkit@0.198.4
+
 ## 0.198.3
 
 ### Patch Changes
@@ -939,41 +1018,5 @@
 
 - 03a043e: Make realtime voice the clear primary microphone action, remember the selected input mode, improve speech waveform responsiveness, and show a shine while the voice agent is working.
 - 03a043e: Prevent reasoning messages from losing their assistant UI provider, and add a progressively disclosed recent-chat rail for app sidebars.
-
-## 0.9.0
-
-### Minor Changes
-
-- 0341a7d: Add an ejectable dashboard presentation kit with cards, tables, date ranges, chart state rendering, and layout helpers.
-
-## 0.8.3
-
-### Patch Changes
-
-- 5c78d2d: Fix cramped calendar day grid under Tailwind v4 and make the date picker responsive: smaller cell size on mobile, 20% smaller on desktop, and a viewport-bounded popover width.
-
-## 0.8.2
-
-### Patch Changes
-
-- dcd0810: Add clear creation actions to empty resource views and improve collaboration usage feedback.
-
-## 0.8.1
-
-### Patch Changes
-
-- 6d96437: Add clear creation actions to empty resource views and improve collaboration usage feedback.
-
-## 0.8.0
-
-### Minor Changes
-
-- 8453025: Publish ejection units for every Toolkit entry point so apps can take ownership of individual presentation features while preserving protected runtime contracts.
-
-## 0.7.0
-
-### Minor Changes
-
-- e53a34e: Move the reusable ChatHistoryList and its stylesheet to the Toolkit chat-history entrypoint while preserving Core compatibility imports. Adopt it across first-party full-page chat sidebars, ship readable Toolkit source, and add generated-app guidance for selective app-owned UI customization.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
