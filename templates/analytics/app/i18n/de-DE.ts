@@ -1324,7 +1324,8 @@ export default {
     signalNotMeasured: "{{label}} nicht gemessen",
     issueLinksUnavailable: "Problem-Links nicht verfügbar",
     frictionCoverageSince: "Reibung wird für Sitzungen seit {{date}} gemessen.",
-    frictionCoverageNone: "Für noch keine Sitzung wurde Reibung gemessen.",
+    frictionCoverageIncomplete:
+      "Reibung ist noch nicht für alle Sitzungen in diesem Zeitraum gemessen.",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:
       "Dieser Link filtert oder sortiert nach Reibung. Aktivieren Sie das Lab „Sitzungen prüfen“ in den Einstellungen, um ihn anzuwenden.",

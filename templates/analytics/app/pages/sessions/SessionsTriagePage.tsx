@@ -104,7 +104,7 @@ type Page = {
   recordings: Recording[];
   total: number;
   appCounts: { app: string; count: number }[];
-  /** Present when a friction filter or sort applied; null: none measured. */
+  /** Present when a friction filter or sort applied; null: part uncovered. */
   frictionCoverageStartedAt?: string | null;
 };
 
@@ -407,7 +407,7 @@ export function SessionsTriagePage() {
     frictionCoverageStartedAt === undefined
       ? null
       : frictionCoverageStartedAt === null
-        ? t("sessions.frictionCoverageNone")
+        ? t("sessions.frictionCoverageIncomplete")
         : t("sessions.frictionCoverageSince", {
             date: new Date(frictionCoverageStartedAt).toLocaleDateString(),
           });

@@ -7,11 +7,14 @@ import {
   isAgentTroubleCause,
   normalizeAgentTroubleMessage,
 } from "@agent-native/core/shared/analytics-events";
+import { accessFilter } from "@agent-native/core/sharing";
 import {
   type AnyColumn,
   and,
   eq,
+  gte,
   inArray,
+  isNull,
   lt,
   lte,
   sql,
@@ -49,7 +52,6 @@ import {
   sessionEventTenantKey,
   sessionGapRows,
   sessionIdOf,
-  viewerTenantKeys,
 } from "./session-event-index.js";
 import {
   detectReplayFriction,
@@ -72,7 +74,9 @@ import {
  * measured only if it began after its tenant's friction coverage began, has
  * no earlier sibling recording, and has neither gap marker. Its thumbs-down
  * and cancelled runs are measured only once a pageview carried the
- * `agent_signals` marker: older clients sampled stops and sent no ratings.
+ * `agent_signals` marker and no unmarked pageview or sampled stop arrived:
+ * older clients sampled stops and sent no ratings, and one session id spans
+ * every tab, so an old tab can share a session with a new one.
  */
 
 const PAGEVIEW_EVENT = "pageview";
@@ -306,12 +310,15 @@ function replayCountsBySignal(
 function eventCountsBySignal(
   row: Record<(typeof EVENT_COLUMNS)[EventFrictionSignal], number | null> & {
     agentSignalsMeasured?: boolean | null;
+    agentSignalsMissing?: boolean | null;
   },
 ): Record<EventFrictionSignal, number | null> {
+  const agentSignalsMeasured =
+    row.agentSignalsMeasured === true && row.agentSignalsMissing === false;
   return Object.fromEntries(
     EVENT_FRICTION_SIGNALS.map((signal) => [
       signal,
-      isAgentReportedFrictionSignal(signal) && row.agentSignalsMeasured !== true
+      isAgentReportedFrictionSignal(signal) && !agentSignalsMeasured
         ? null
         : Number(row[EVENT_COLUMNS[signal]] ?? 0),
     ]),
@@ -394,6 +401,7 @@ export function aggregateSessionFrictionEvents(
         agentFailures: 0,
         quickBacks: 0,
         agentSignalsMeasured: false,
+        agentSignalsMissing: false,
         navState: null,
         firstAt: row.timestamp,
         lastAt: row.timestamp,
@@ -483,12 +491,15 @@ export function aggregateSessionFrictionEvents(
 
     if (row.eventName === RUN_OUTCOME_EVENT) {
       if (properties.outcome === "stopped") {
-        // Older clients sampled stops; a sampled one is not a count.
+        // Older clients sampled stops, so one event is not one stop, and the
+        // session's other stops went unreported.
         if (
           properties.sample_rate === undefined ||
           properties.sample_rate === 1
         ) {
           session.cancelledRuns = (session.cancelledRuns ?? 0) + 1;
+        } else {
+          session.agentSignalsMissing = true;
         }
         continue;
       }
@@ -528,6 +539,8 @@ export function aggregateSessionFrictionEvents(
       agentSignals >= AGENT_SIGNALS_VERSION
     ) {
       session.agentSignalsMeasured = true;
+    } else {
+      session.agentSignalsMissing = true;
     }
     const path = boundedText(stringProperty(properties.path), MAX_PATH_LENGTH);
     const at = Date.parse(row.timestamp);
@@ -562,7 +575,7 @@ export function aggregateSessionFrictionEvents(
 
 /**
  * The event score of a row after the upsert adds this batch's counts. An
- * agent-reported signal scores only once the session is measured for it.
+ * agent-reported signal scores only while the merged row is measured for it.
  */
 function mergedEventScoreSql(): SQL {
   const f = schema.analyticsSessionFriction;
@@ -571,7 +584,7 @@ function mergedEventScoreSql(): SQL {
       const column = f[EVENT_COLUMNS[signal]];
       const part = sql`${sql.raw(String(SESSION_FRICTION_WEIGHTS[signal]))} * least(${column} + ${sql.raw(`excluded.${column.name}`)}, ${sql.raw(String(SESSION_FRICTION_SIGNAL_CAP))})`;
       return isAgentReportedFrictionSignal(signal)
-        ? sql`(case when ${f.agentSignalsMeasured} or excluded.agent_signals_measured then ${part} else 0 end)`
+        ? sql`(case when (${f.agentSignalsMeasured} or excluded.agent_signals_measured) and not (${f.agentSignalsMissing} or excluded.agent_signals_missing) then ${part} else 0 end)`
         : part;
     }),
     sql` + `,
@@ -660,6 +673,7 @@ async function writeSessionEventFriction(
         agentFailures: merged(f.agentFailures),
         quickBacks: merged(f.quickBacks),
         agentSignalsMeasured: sql`${f.agentSignalsMeasured} or excluded.agent_signals_measured`,
+        agentSignalsMissing: sql`${f.agentSignalsMissing} or excluded.agent_signals_missing`,
         score: mergedEventScoreSql(),
         navState: sql`coalesce(excluded.nav_state, ${f.navState})`,
         firstAt: sql`least(${f.firstAt}, excluded.first_at)`,
@@ -744,7 +758,7 @@ function replayValueSql(column: AnyColumn): SQL {
 function eventValueSql(column: AnyColumn, agentReported = false): SQL {
   const r = schema.sessionRecordings;
   const f = schema.analyticsSessionFriction;
-  return sql`(case when ${eventFrictionCoveredSql()} then (select ${column} from ${f} where ${f.tenantKey} = ${recordingTenantSql(r)} and ${f.sessionId} = ${r.sessionId}${agentReported ? sql` and ${f.agentSignalsMeasured}` : sql``}) end)`;
+  return sql`(case when ${eventFrictionCoveredSql()} then (select ${column} from ${f} where ${f.tenantKey} = ${recordingTenantSql(r)} and ${f.sessionId} = ${r.sessionId}${agentReported ? sql` and ${f.agentSignalsMeasured} and not ${f.agentSignalsMissing}` : sql``}) end)`;
 }
 
 /** A signal's count for the outer recording, or null when unmeasured. */
@@ -781,25 +795,63 @@ export async function sessionFrictionFilterConditions(
 }
 
 /**
- * The latest friction coverage start among the viewer's tenants, or null when
- * nothing is measured yet (before the migration, or before any ingest after
- * it). Sessions that started earlier never match a friction filter.
+ * When friction coverage began for the viewer's own tenants (their org and
+ * personal recordings): the latest start among tenants with coverage, or null
+ * when nothing is measured yet or a tenant without coverage has recordings
+ * the viewer sees in the range. Sessions that started earlier never match a
+ * friction filter.
  */
 export async function getSessionFrictionCoverageStart(
   scope: SessionEventScope,
+  range: { from?: string; to?: string } = {},
 ): Promise<string | null> {
   const db = getDb() as any;
   if (!(await sessionFrictionReady(db))) return null;
   const coverage = schema.analyticsSessionFrictionCoverage;
-  const tenantKeys = viewerTenantKeys(scope);
-  const rows: Array<{ startedAt: string }> = await db
-    .select({ startedAt: coverage.startedAt })
+  const tenants = (scope.orgId ? [scope.orgId, null] : [null]).map((orgId) => ({
+    orgId,
+    tenantKey: sessionEventTenantKey(scope.userEmail, orgId),
+  }));
+  const rows: Array<{ tenantKey: string; startedAt: string }> = await db
+    .select({ tenantKey: coverage.tenantKey, startedAt: coverage.startedAt })
     .from(coverage)
-    .where(inArray(coverage.tenantKey, tenantKeys))
-    .limit(tenantKeys.length);
+    .where(
+      inArray(
+        coverage.tenantKey,
+        tenants.map((tenant) => tenant.tenantKey),
+      ),
+    )
+    .limit(tenants.length);
+  const starts = new Map(rows.map((row) => [row.tenantKey, row.startedAt]));
+  const r = schema.sessionRecordings;
+  const uncoveredWithRecordings = await Promise.all(
+    tenants
+      .filter((tenant) => !starts.has(tenant.tenantKey))
+      .map(async (tenant) => {
+        const [recording] = await db
+          .select({ id: r.id })
+          .from(r)
+          .where(
+            and(
+              accessFilter(r, schema.sessionRecordingShares, {
+                userEmail: scope.userEmail,
+                orgId: scope.orgId ?? undefined,
+              }),
+              tenant.orgId
+                ? eq(r.orgId, tenant.orgId)
+                : and(isNull(r.orgId), eq(r.ownerEmail, scope.userEmail)),
+              range.from ? gte(r.startedAt, range.from) : undefined,
+              range.to ? lte(r.startedAt, range.to) : undefined,
+            ),
+          )
+          .limit(1);
+        return recording !== undefined;
+      }),
+  );
+  if (uncoveredWithRecordings.includes(true)) return null;
   let latest: string | null = null;
-  for (const row of rows) {
-    if (latest === null || row.startedAt > latest) latest = row.startedAt;
+  for (const startedAt of starts.values()) {
+    if (latest === null || startedAt > latest) latest = startedAt;
   }
   return latest;
 }
@@ -878,6 +930,7 @@ export async function getSessionFrictionDetails(
         agentFailures: f.agentFailures,
         quickBacks: f.quickBacks,
         agentSignalsMeasured: f.agentSignalsMeasured,
+        agentSignalsMissing: f.agentSignalsMissing,
         score: f.score,
       })
       .from(r)

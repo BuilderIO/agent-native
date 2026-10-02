@@ -1307,7 +1307,8 @@ export default {
     signalNotMeasured: "{{label}}: não medido",
     issueLinksUnavailable: "Links de problemas indisponíveis",
     frictionCoverageSince: "O atrito cobre sessões desde {{date}}.",
-    frictionCoverageNone: "Nenhuma sessão tem atrito medido ainda.",
+    frictionCoverageIncomplete:
+      "O atrito ainda não é medido em todas as sessões deste período.",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:
       "Este link filtra ou ordena por atrito. Ative o Lab Triagem de sessões em Configurações para aplicá-lo.",

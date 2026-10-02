@@ -74,7 +74,7 @@ export function sessionEventTenantKey(
   return orgId ? `org:${orgId}` : `user:${ownerEmail}`;
 }
 
-export function viewerTenantKeys(scope: SessionEventScope): string[] {
+function viewerTenantKeys(scope: SessionEventScope): string[] {
   return scope.orgId
     ? [
         sessionEventTenantKey(scope.userEmail, scope.orgId),

@@ -1278,7 +1278,8 @@ export default {
     signalNotMeasured: "{{label}} 측정 안 됨",
     issueLinksUnavailable: "이슈 링크를 사용할 수 없음",
     frictionCoverageSince: "마찰은 {{date}} 이후 세션에 적용됩니다.",
-    frictionCoverageNone: "아직 마찰이 측정된 세션이 없습니다.",
+    frictionCoverageIncomplete:
+      "이 기간의 모든 세션에서 마찰이 아직 측정되지는 않았습니다.",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:
       "이 링크는 마찰 기준으로 필터링하거나 정렬합니다. 적용하려면 설정에서 세션 분류 Lab을 켜세요.",

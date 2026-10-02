@@ -1373,7 +1373,8 @@ export default {
     signalNotMeasured: "{{label}} not measured",
     issueLinksUnavailable: "Issue links unavailable",
     frictionCoverageSince: "Friction covers sessions since {{date}}.",
-    frictionCoverageNone: "No sessions have measured friction yet.",
+    frictionCoverageIncomplete:
+      "Friction isn't measured for every session in this range yet.",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:
       "This link filters or sorts by friction. Turn on the Sessions triage Lab in Settings to apply it.",

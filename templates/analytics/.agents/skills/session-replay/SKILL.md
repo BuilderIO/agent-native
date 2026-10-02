@@ -139,21 +139,29 @@ agent answers about browser recordings in the Analytics template.
   write stays. Only a failed friction gap insert fails the index savepoint.
 - Thumbs-down and cancelled runs are measured only for sessions whose
   pageviews carried `agent_signals` (`AGENT_SIGNALS_PAGEVIEW_PROPERTY` in
-  core): older clients sampled stops and sent no ratings.
-  `agent_signals_measured` records it; until then both counts read as null,
-  stay out of the score, never match a filter, and sort last. A stop counts
-  only when sent unsampled (`sample_rate` absent or 1).
+  core): older clients sampled stops and sent no ratings. One session id
+  spans every tab, so an old tab can share a session with a new one: any
+  unmarked pageview or sampled stop sets `agent_signals_missing`, and both
+  flags are OR-merged. Unless `agent_signals_measured` is set and
+  `agent_signals_missing` is not, both counts read as null, stay out of the
+  score, never match a filter, and sort last. A stop counts only when sent
+  unsampled (`sample_rate` absent or 1).
 - Reads must keep "unmeasured" (null) apart from "measured, no friction" (0).
   Until the migration creates `analytics_session_friction_coverage` (created
   last), ingest skips friction, filters match nothing, friction sorts fall
   back to newest, and details report every part as null. A friction filter or
-  sort always returns the paginated shape with `frictionCoverageStartedAt`
-  (null when nothing is measured yet), and `view-screen` passes it on, so an
-  empty match is read against coverage, never as zero.
+  sort always returns the paginated shape with `frictionCoverageStartedAt`,
+  and `view-screen` passes it on, so an empty match is read against coverage,
+  never as zero. It covers the viewer's own org and personal tenants: the
+  latest start among those with coverage, or null when one without coverage
+  has recordings the viewer sees in the range. Recordings shared from other
+  tenants read unmeasured on their own rows.
 - `errorIssues` links occurrences in `error_events`, which keeps only each
   issue's newest ones, then falls back to issues whose
   `last_session_recording_id` is the recording, with a null count. A
-  recording with errors and still no issue reads null (unknown), never [].
+  recording with errors and still no issue reads null (unknown), never [],
+  unless its owner scope has no issues at all: it does not capture errors as
+  issues, so [] is the truth there.
 - Agent failures group by a named cause from `AGENT_TROUBLE_CAUSES` in core
   (`no_model_connected`, `rate_limit`, `context_overflow`, `provider_error`),
   else by the normalized message. Failed actions group by action and status.

@@ -1585,6 +1585,7 @@ ALTER TABLE error_events ADD COLUMN IF NOT EXISTS test_identity BOOLEAN NOT NULL
       agent_failures INTEGER NOT NULL DEFAULT 0,
       quick_backs INTEGER NOT NULL DEFAULT 0,
       agent_signals_measured BOOLEAN NOT NULL DEFAULT false,
+      agent_signals_missing BOOLEAN NOT NULL DEFAULT false,
       score INTEGER NOT NULL DEFAULT 0,
       nav_state TEXT,
       first_at TEXT NOT NULL,

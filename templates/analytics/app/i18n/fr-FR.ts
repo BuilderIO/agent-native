@@ -1323,7 +1323,8 @@ export default {
     issueLinksUnavailable: "Liens vers les problèmes indisponibles",
     frictionCoverageSince:
       "La friction couvre les sessions depuis le {{date}}.",
-    frictionCoverageNone: "Aucune session n'a encore de friction mesurée.",
+    frictionCoverageIncomplete:
+      "La friction n'est pas encore mesurée pour toutes les sessions de cette période.",
     frictionSignalCount: "{{label}} : {{count}}",
     frictionFiltersNeedLab:
       "Ce lien filtre ou trie par friction. Activez le Lab Tri des sessions dans les paramètres pour l'appliquer.",

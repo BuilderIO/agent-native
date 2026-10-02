@@ -217,8 +217,9 @@ export interface SessionFriction {
   troubles: SessionTroubleGroup[];
   /**
    * Null when the issue links are unknown: the lookup did not run, its read
-   * was truncated, or the recording has errors no stored issue links to.
-   * An empty list means the recording has no issues.
+   * was truncated, or the recording has errors no stored issue links to
+   * while its owner has issues. An empty list means the recording has no
+   * issues, including when its owner has never captured one.
    */
   errorIssues: SessionErrorIssueLink[] | null;
 }

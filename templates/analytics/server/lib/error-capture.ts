@@ -1520,8 +1520,10 @@ const MAX_RECORDING_ISSUE_ROWS = 500;
  * id, within the recording's own owner scope. `error_events` keeps only each
  * issue's newest occurrences, so a recording with none left falls back to the
  * issues whose last recording it is, with no count. A recording still without
- * an issue maps to null when it has errors or the read was truncated, never
- * to "no issues".
+ * an issue maps to null when the read was truncated, or when it has errors
+ * and its owner scope has issues they could belong to; never to "no issues".
+ * An owner scope without a single issue does not capture errors as issues,
+ * so its recordings truly have none.
  */
 export async function listRecordingErrorIssues(
   scope: ErrorReadScope,
@@ -1633,6 +1635,7 @@ export async function listRecordingErrorIssues(
     : [];
   const lastRecordingTruncated =
     lastRecordingRows.length >= MAX_RECORDING_ISSUE_ROWS;
+  const erroringWithoutIssue: RecordingErrorIssueInput[] = [];
   for (const recording of recordings) {
     const issues = new Map<string, RecordingErrorIssue & { count: number }>();
     for (const row of rows) {
@@ -1673,9 +1676,44 @@ export async function listRecordingErrorIssues(
       result.set(recording.id, lastRecordingIssues);
       continue;
     }
+    if (truncated || lastRecordingTruncated) {
+      result.set(recording.id, null);
+    } else if (recording.errorCount > 0) {
+      erroringWithoutIssue.push(recording);
+    } else {
+      result.set(recording.id, []);
+    }
+  }
+  const scopes = new Map<string, RecordingErrorIssueInput>();
+  for (const recording of erroringWithoutIssue) {
+    scopes.set(
+      JSON.stringify([recording.ownerEmail, recording.orgId ?? null]),
+      recording,
+    );
+  }
+  const scopesWithIssues = new Set<string>();
+  await Promise.all(
+    [...scopes].map(async ([key, recording]) => {
+      const [issue] = await db
+        .select({ id: i.id })
+        .from(i)
+        .where(
+          and(
+            issuesAccessFilter(scope),
+            eq(i.ownerEmail, recording.ownerEmail),
+            recording.orgId ? eq(i.orgId, recording.orgId) : isNull(i.orgId),
+          ),
+        )
+        .limit(1);
+      if (issue) scopesWithIssues.add(key);
+    }),
+  );
+  for (const recording of erroringWithoutIssue) {
     result.set(
       recording.id,
-      truncated || lastRecordingTruncated || recording.errorCount > 0
+      scopesWithIssues.has(
+        JSON.stringify([recording.ownerEmail, recording.orgId ?? null]),
+      )
         ? null
         : [],
     );

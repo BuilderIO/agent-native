@@ -1277,7 +1277,7 @@ export default {
     signalNotMeasured: "{{label}}: لم يُقَس",
     issueLinksUnavailable: "روابط المشكلات غير متاحة",
     frictionCoverageSince: "يشمل قياس الاحتكاك الجلسات منذ {{date}}.",
-    frictionCoverageNone: "لا توجد جلسات بها احتكاك مُقاس بعد.",
+    frictionCoverageIncomplete: "لم يُقَس الاحتكاك بعد لكل الجلسات في هذا النطاق.",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:
       "يصفّي هذا الرابط أو يرتّب حسب الاحتكاك. فعّل Lab فرز الجلسات من الإعدادات لتطبيقه.",
