@@ -43,7 +43,7 @@
         {
           "id": "TOP-05",
           "status": "decided",
-          "change": "Zoom stays in the same spot in both modes and keeps its value. The route stays exactly centred from 1200px wide; below that it takes the leftover middle (120–264px) and presence avatars hide."
+          "change": "Zoom stays in the same spot in both modes and keeps its value; it's the true scale, so a 1280 frame fits at about 67% and Zoom to fit fits the frame's current width. The route stays exactly centred from 1200px wide; below that it takes the leftover middle (120–264px) and presence avatars hide."
         },
         {
           "id": "TOP-06",
@@ -1001,15 +1001,18 @@
         {
           "id": "RESP-04",
           "status": "decided",
-          "today": "A screen has a frame W/H and, separately, the breakpoint chips; two width concepts side by side.",
-          "change": "A frame is a frame: its W sets the width it renders at, and dragging its right edge resizes it with the layout reflowing live (snapping to width tokens; Alt skips the snap). There's no active-breakpoint mode and no edit scope.",
-          "prototype": "Scenario: Responsive (exploration). Drag the frame's right edge or click the width beside the screen name."
+          "today": "Selecting a screen shows its frame W/H in the inspector's Screen section (`handleScreenGeometryChange`), next to the breakpoint chips: two width concepts side by side.",
+          "change": "A frame is a frame. Select the screen (its name above the frame, or its row in Screens) and its W sets the width it renders at; dragging the selected frame's right edge resizes it with the layout reflowing live, snapping to width tokens (Alt skips the snap). There's no active-breakpoint mode and no edit scope.",
+          "prototype": "Click “Screen 1” above the frame, then drag the handle on its right edge or type in W.",
+          "refs": [
+            "templates/design/app/pages/DesignEditor.tsx#handleScreenGeometryChange"
+          ]
         },
         {
           "id": "RESP-05",
           "status": "decided",
           "change": "Width presets: the frame's width menu lists Container (3xs 256 … 7xl 1280) and Breakpoint (sm 640 … 2xl 1536) widths, from the design system's `--container-*` and `--breakpoint-*` tokens when it has them and Tailwind v4's defaults otherwise.",
-          "prototype": "Scenario: Responsive (exploration). Drag the frame's right edge or click the width beside the screen name."
+          "prototype": "With the screen selected, open W's chevron, or the width beside the screen name."
         },
         {
           "id": "RESP-06",
@@ -1031,7 +1034,8 @@
         {
           "id": "RESP-09",
           "status": "decided",
-          "change": "Fixed widths become viewports to check, not modes to design in: Interact's device picker previews breakpoint-token widths, and the agent screenshots each one when it verifies a change."
+          "change": "Fixed widths become viewports to check, not modes to design in: Interact's device picker previews breakpoint-token widths, and the agent screenshots each one when it verifies a change.",
+          "prototype": "In Interact, the device picker sets the frame width (iPhone 16 renders at 393)."
         },
         {
           "id": "RESP-10",

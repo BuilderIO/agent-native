@@ -361,7 +361,12 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .page.resp { container: page / inline-size; }
 .p-menu { display: none; width: 34px; height: 34px; border-radius: 17px; border: 1px solid #e5e5e5; align-items: center; justify-content: center; }
 .p-menu svg.i { width: 18px; height: 18px; }
-.resp-handle { position: absolute; top: 0; bottom: 0; right: -10px; width: 20px; cursor: ew-resize; display: flex; align-items: center; justify-content: center; z-index: 5; }
+.resp-handle { display: none; }
+.frame-selected > .resp-handle { display: flex; }
+.frame-selected > .page { outline: 1.5px solid var(--accent); }
+.frame-label .fl-name { font: inherit; color: inherit; padding: 0 2px; border-radius: 3px; }
+.frame-label .fl-name:hover, .frame-label .fl-name[aria-pressed="true"] { color: var(--accent); }
+.frame-selected > .resp-handle { position: absolute; top: 0; bottom: 0; right: -10px; width: 20px; cursor: ew-resize; display: flex; align-items: center; justify-content: center; z-index: 5; }
 .resp-handle::before { content: ""; width: 4px; height: 40px; border-radius: 2px; background: var(--accent); opacity: .5; }
 .resp-handle:hover::before, .resp-handle.drag::before { opacity: 1; }
 .resp-readout { position: absolute; top: -26px; right: -4px; transform: translateX(50%); height: 20px; padding: 0 6px; border-radius: 4px; background: var(--accent); color: #fff; font: 500 11px/20px var(--font); white-space: nowrap; pointer-events: none; }
@@ -860,7 +865,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
   <button class="chip" id="labs-btn" aria-pressed="false" title="Annotate mode moves behind a Labs flag">Labs: Annotate</button>
   <button class="chip" id="labs-tokens" aria-pressed="true" title="Tokens ships behind a Labs flag">Labs: Tokens</button>
   <label class="chip" title="Compare history as a mode (timeline in the inspector) or today's sheet">History <select id="hist-style"><option value="mode">Mode</option><option value="sheet">Sheet (today)</option></select></label>
-  <label class="chip" title="Show the controls that only appear in some states">Scenario <select id="scenario-sel"><option value="none">Default</option><option value="feedback">Feedback queued</option><option value="rewrite">Changes to review</option><option value="local">Local app screen</option><option value="responsive">Responsive (exploration)</option></select></label>
+  <label class="chip" title="Show the controls that only appear in some states">Scenario <select id="scenario-sel"><option value="none">Default</option><option value="feedback">Feedback queued</option><option value="rewrite">Changes to review</option><option value="local">Local app screen</option></select></label>
   <button class="chip" id="spec-grid-btn" aria-pressed="false" title="Show the indent spacers and the inspector's 88 / 8 / 88 / 8 / 32 grid">Spacing <span class="k">G</span></button>
   <button class="chip" id="theme-btn">Theme</button>
   <button class="chip" id="spec-btn" aria-pressed="false">Spec</button>
@@ -922,7 +927,7 @@ document.body.innerHTML = document.body.innerHTML.replace(/\{\{([a-z0-9-]+)(?:\|
 const $ = (s, r = document) => r.querySelector(s);
 const app = $("#app");
 const S = {
-  mode: "design", tool: "select", route: "/home", device: "MacBook Pro 13″", zoom: 100,
+  mode: "design", tool: "select", route: "/home", device: "MacBook Pro 13″", zoom: 67, screenSel: false,
   selected: "hero-title", tab: "inspector", screens: true, layers: true, panel: "file", labs: false, intInsp: "comments", chat: null, scenario: "none", labsTokens: true, scheme: "light", layoutGrids: false,
   collapsed: new Set(), sections: new Set(), history: ["/home"], hIndex: 0, spec: false, grid: false,
 };
@@ -986,8 +991,10 @@ function widthTokens(kind) {
   return own.length ? own.sort((a, b) => a[1] - b[1]) : kind === "container" ? TW_CONTAINER : TW_BREAKPOINT;
 }
 const RESP = { w: 1280, rules: [], nextId: 1 };
-const FRAME_SCALE = 863 / 1280;
-const respOn = () => S.scenario === "responsive" && S.route !== "*";
+const respOn = () => S.route !== "*";
+// Design renders the frame at its own width; Interact renders it at the device's width.
+const frameWidth = () => S.mode === "interact" ? DEVICES.find(d => d.name === S.device).w : RESP.w;
+const fitZoom = () => Math.max(10, Math.floor(($("#canvas").clientWidth - 96) / frameWidth() * 100));
 const RESP_CHANGES = {
   stack: { t: "Stack", css: "flex-direction: column; align-items: stretch", tw: "flex-col" },
   wrap: { t: "Wrap", css: "flex-wrap: wrap; justify-content: center", tw: "flex-wrap" },
@@ -1020,23 +1027,26 @@ function renderResponsiveFrame() {
   let style = $("#resp-css"); if (!style) { style = document.createElement("style"); style.id = "resp-css"; document.head.append(style); }
   style.textContent = on ? respCss() : "";
   if (!on) { Object.assign(p.style, { width: "", position: "", left: "", top: "", transformOrigin: "" }); Object.assign(wrap.style, { width: "", height: "" }); return; }
-  const s = FRAME_SCALE * S.zoom / 100;
-  Object.assign(p.style, { width: RESP.w + "px", position: "absolute", left: "0", top: "0", transformOrigin: "top left", transform: `scale(${s})` });
-  const fit = () => { wrap.style.width = RESP.w * s + "px"; wrap.style.height = p.offsetHeight * s + "px"; };
+  const s = S.zoom / 100, w = frameWidth();
+  Object.assign(p.style, { width: w + "px", position: "absolute", left: "0", top: "0", transformOrigin: "top left", transform: `scale(${s})` });
+  const fit = () => { wrap.style.width = w * s + "px"; wrap.style.height = p.offsetHeight * s + "px"; };
   fit(); requestAnimationFrame(fit);
-  const tok = nearestToken(RESP.w);
-  $("#frame-label").innerHTML = `${S.route === "/docs" ? "Screen 2" : "Screen 1"}<button class="fl-w" id="resp-w" aria-haspopup="menu" title="Frame width">${RESP.w}${tok ? ` · ${tok[0]}` : ""}${ic("chevron-down", "s12")}</button>`;
+  const tok = nearestToken(w), name = S.route === "/docs" ? "Screen 2" : "Screen 1";
+  $("#frame-label").innerHTML = S.mode === "interact" ? `${name} <span>${w}</span>`
+    : `<button class="fl-name" data-select-screen aria-pressed="${S.screenSel}">${name}</button><button class="fl-w" id="resp-w" aria-haspopup="menu" title="Frame width">${w}${tok ? ` · ${tok[0]}` : ""}${ic("chevron-down", "s12")}</button>`;
   const h = document.createElement("div"); h.className = "resp-handle"; h.title = "Drag to resize the frame"; wrap.append(h);
+  wrap.classList.toggle("frame-selected", S.screenSel && S.mode === "design" && !H.active);
 }
 function setFrameWidth(w, live) {
   RESP.w = Math.round(Math.min(1920, Math.max(320, w)));
-  if (live) { const p = $("#page"), s = FRAME_SCALE * S.zoom / 100; p.style.width = RESP.w + "px"; p.parentElement.style.width = RESP.w * s + "px"; p.parentElement.style.height = p.offsetHeight * s + "px"; requestAnimationFrame(renderPins); return; }
+  if (live) { const p = $("#page"), s = S.zoom / 100; p.style.width = RESP.w + "px"; p.parentElement.style.width = RESP.w * s + "px"; p.parentElement.style.height = p.offsetHeight * s + "px"; requestAnimationFrame(renderPins); return; }
   renderPage(); renderInspector();
 }
+document.addEventListener("keydown", e => { if (e.target.id === "screen-w" && e.key === "Enter") { e.preventDefault(); setFrameWidth(parseFloat(e.target.value) || RESP.w); } });
 document.addEventListener("pointerdown", e => {
   const h = e.target.closest?.(".resp-handle"); if (!h) return;
   e.preventDefault(); h.classList.add("drag");
-  const x0 = e.clientX, w0 = RESP.w, s = FRAME_SCALE * S.zoom / 100;
+  const x0 = e.clientX, w0 = RESP.w, s = S.zoom / 100;
   const snaps = [...widthTokens("breakpoint"), ...widthTokens("container")].map(t => t[1]);
   const read = document.createElement("div"); read.className = "resp-readout"; h.append(read);
   const move = ev => {
@@ -1049,6 +1059,16 @@ document.addEventListener("pointerdown", e => {
 });
 const widthMenu = (cur, run) => [{ label: "Container" }, ...widthTokens("container").map(([n, px]) => ({ t: n, k: String(px), toggle: true, on: cur === px, run: () => run(px) })), "-", { label: "Breakpoint" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: n, k: String(px), toggle: true, on: cur === px, run: () => run(px) }))];
 const whenMenu = (r) => [{ label: "Container (this layer's parent)" }, ...widthTokens("container").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), toggle: true, on: r.scale === "container" && r.token === n, run: () => { r.scale = "container"; r.token = n; renderPage(); renderInspector(); } })), "-", { label: "Breakpoint (the frame)" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), toggle: true, on: r.scale === "breakpoint" && r.token === n, run: () => { r.scale = "breakpoint"; r.token = n; renderPage(); renderInspector(); } }))];
+// The selected screen: its frame width (with the width presets) and height, like the code's Screen section.
+function renderScreenInspector(el) {
+  const name = S.route === "/docs" ? "Screen 2" : "Screen 1", tok = nearestToken(RESP.w), hpx = Math.round($("#page").offsetHeight);
+  el.innerHTML = `<div class="sel-head"><div class="g"><span class="nm">${ic("device-desktop", "s14")}<span>${name}</span></span><span class="muted" style="font-size:12px">${S.route}</span></div></div>
+    <div class="insp-scroll">${sec("frame", "Frame", "", `
+      <div class="g5">${field("Width", `<label class="inp"><span class="pre">W</span><input id="screen-w" value="${RESP.w}" aria-label="Frame width" inputmode="numeric"><button class="post" id="screen-w-menu" aria-haspopup="menu" title="Width presets">${ic("chevron-down", "s12")}</button></label>`)}${field("Height", inp("H", "Hug"), "c3")}</div>
+      ${tok ? `<p class="muted" style="margin:4px 16px 0;font-size:11px">${tok[2] === "breakpoint" ? "Breakpoint" : "Container"} ${tok[0]}</p>` : ""}`)}
+    ${sec("fill", "Fill", act("plus", "Add fill"), `<div class="fillrow"><button class="inp"><span class="swatch" style="background:#ffffff"></span><span class="hex">FFFFFF</span><span class="pct">100%</span></button></div>`)}
+    ${sec("export", "Export", act("plus", "Add export setting"), `<div class="export-row">${dd("1x")}${dd("PNG")}<label class="inp"><input placeholder="Suffix" aria-label="Suffix" style="padding-left:6px"></label></div>`)}</div>`;
+}
 function responsiveSection(id) {
   if (!respOn()) return "";
   const rules = RESP.rules.filter(r => r.node === id);
@@ -1058,6 +1078,8 @@ function responsiveSection(id) {
 }
 document.addEventListener("click", e => {
   const t = e.target;
+  if (t.closest?.("[data-select-screen]")) { S.screenSel = true; S.multi = []; renderTree(); renderPage(); renderInspector(); return; }
+  if (t.closest?.("#screen-w-menu")) return openMenu(t.closest("#screen-w-menu"), widthMenu(RESP.w, px => setFrameWidth(px)), { align: "right" });
   if (t.closest?.("#resp-w")) return openMenu(t.closest("#resp-w"), widthMenu(RESP.w, px => setFrameWidth(px)));
   if (t.closest?.("[data-resp-add]")) { const root = !FLAT[S.selected]?.parent; RESP.rules.push({ id: RESP.nextId++, node: S.selected, scale: root ? "breakpoint" : "container", token: root ? "md" : "md", change: respChoices(S.selected)[0] }); renderPage(); renderInspector(); return; }
   const wh = t.closest?.("[data-resp-when]"); if (wh) return openMenu(wh, whenMenu(RESP.rules.find(r => r.id === +wh.dataset.respWhen)));
@@ -1090,7 +1112,7 @@ function renderTree() {
     const hit = n => n.name.toLowerCase().includes(lq) || (n.children || []).some(hit);
     const walk = (list, depth) => list.filter(n => !lq || hit(n)).forEach(n => {
       const open = lq ? true : !S.collapsed.has(n.id);
-      h += rowHTML({ depth, disc: n.children ? open : null, icon: n.kind === "text" ? ic("letter-t") : ic("hash"), label: n.name, id: n.id, selected: (S.selected === n.id || (S.multi || []).includes(n.id)) && S.mode === "design", cls: n.kind === "text" ? "text" : "" });
+      h += rowHTML({ depth, disc: n.children ? open : null, icon: n.kind === "text" ? ic("letter-t") : ic("hash"), label: n.name, id: n.id, selected: !S.screenSel && (S.selected === n.id || (S.multi || []).includes(n.id)) && S.mode === "design", cls: n.kind === "text" ? "text" : "" });
       if (n.children && open) walk(n.children, depth + 1);
     });
     const root = S.route === "/docs" ? DOCS_LAYERS : LAYERS;
@@ -1239,7 +1261,7 @@ function navHTML() {
 function markSelection() {
   document.querySelectorAll(".page .sel").forEach(e => e.classList.remove("sel"));
   document.querySelectorAll(".page .sel-tag, .page .sel-size").forEach(e => e.remove());
-  if (S.mode !== "design" || H.active) return;
+  if (S.mode !== "design" || H.active || S.screenSel) return;
   (S.multi || []).forEach(id => document.querySelector(`.page [data-node="${id}"]`)?.classList.add("sel"));
   const el = document.querySelector(`.page [data-node="${S.selected}"]`);
   if (!el) return;
@@ -1269,6 +1291,7 @@ function renderInspector() {
   if (H.active) { app.classList.remove("no-inspector"); return renderTimeline(); }
   app.classList.toggle("no-inspector", S.mode !== "design");
   if (S.mode !== "design") { el.innerHTML = ""; return; }
+  if (S.screenSel) return renderScreenInspector(el);
   const id = S.selected, f = FLAT[id], p = propsFor(id);
   const body = `
     ${sec("position", "Position", act("layout-distribute-horizontal", "Auto layout", true), `
@@ -1610,7 +1633,7 @@ const GEN_TOKENS = [
 const SKILL_RUNS = {
   "Make responsive": { steps: ["Reading the screen at 1280", "Finding what breaks below 768", "Writing container and breakpoint rules", "Checking at 390, 768, and 1280"], result: `${MAKE_RESP.length} rules`,
     items: ["Nav: collapse the links to a menu below md (768)", "Headline: 44px below md, 36px below sm", "CTAs stack and the command wraps below sm (640)", "Feature cards: one column when the page container is below 3xl (768)", "Nav, hero, and card padding: 24px below sm", "Checked at 390, 768, and 1280: nothing overflows"],
-    apply: () => { if (S.scenario !== "responsive") { S.scenario = "responsive"; $("#scenario-sel").value = "responsive"; } RESP.rules = MAKE_RESP.map(([node, scale, token, change]) => ({ id: RESP.nextId++, node, scale, token, change })); renderPage(); renderInspector(); return `Added ${MAKE_RESP.length} responsive rules`; } },
+    apply: () => { RESP.rules = MAKE_RESP.map(([node, scale, token, change]) => ({ id: RESP.nextId++, node, scale, token, change })); renderPage(); renderInspector(); return `Added ${MAKE_RESP.length} responsive rules`; } },
   "Generate tokens": { steps: ["Reading 2 screens", "Grouping 14 colors into 5", "Naming tokens by role"], result: `${GEN_TOKENS.length} tokens`, items: ["Colors: foreground, muted, surface, border, accent (3 near-duplicate grays merged)", "Typography: sans, display and body sizes, body line height", "Spacing: a 4px scale from 4 to 64", "Radius: sm 8px, lg 24px"], apply: () => { const n = upsertTyped(GEN_TOKENS.map(([cssVar, value, type]) => ({ cssVar, value, type, name: friendly(cssVar) })), "Agent"); renderTokens(); return `Added ${n} tokens`; } },
   Polish: { steps: ["Reading the selection", "Checking type scale and spacing", "Comparing with the design system"], result: "3 changes", items: ["Headline 76px → 64px so it fits two lines on 13″", "Subtitle line height 1.35 → 1.45", "CTA gap 16px → 12px to match the 4px grid"], apply: () => { DESIGN = { ...DESIGN, headline: 64 }; PROPS["hero-title"].size = 64; PROPS["hero-title"].h = 133; renderPage(); saveVersion("Chat autosave", "chat"); } },
   Debug: { steps: ["Rendering /home at 393, 820, and 1280", "Checking overflow and hit targets"], result: "2 issues", items: ["Nav links overflow at 393px", "Copy button is 40px tall; 44px recommended on touch"], apply: () => {} },
@@ -1699,8 +1722,8 @@ document.addEventListener("click", e => {
   const tg = t.closest("[data-toggle]"); if (tg) { e.stopPropagation(); const id = tg.dataset.toggle; S.collapsed.has(id) ? S.collapsed.delete(id) : S.collapsed.add(id); renderTree(); return; }
   const sc = t.closest("[data-sec]"); if (sc) { S[sc.dataset.sec] = !S[sc.dataset.sec]; renderTree(); return; }
   const ps = t.closest("[data-psec]"); if (ps) { const id = ps.dataset.psec; S.sections.has(id) ? S.sections.delete(id) : S.sections.add(id); renderInspector(); return; }
-  const row = t.closest(".row[data-id]"); if (row) { if (S.mode === "interact") { S.mode = "design"; } S.selected = row.dataset.id; render(); return; }
-  const scr = t.closest(".row[data-screen]"); if (scr) { if (scr.dataset.screen === "all") toast("All screens shows every screen side by side on the canvas"); else go(scr.dataset.screen); return; }
+  const row = t.closest(".row[data-id]"); if (row) { if (S.mode === "interact") { S.mode = "design"; } S.selected = row.dataset.id; S.screenSel = false; render(); return; }
+  const scr = t.closest(".row[data-screen]"); if (scr) { if (scr.dataset.screen === "all") toast("All screens shows every screen side by side on the canvas"); else { S.screenSel = S.mode === "design"; go(scr.dataset.screen); } return; }
   const tool = t.closest("[data-tool]"); if (tool) { const def = TOOLS[S.mode].find(x => x.id === tool.dataset.tool); if (def.agent) { setPanel("agents"); $("#ask")?.focus(); return; } S.tool = def.id; renderDock(); app.classList.toggle("comment-tool", S.tool === "comment"); return; }
   const more = t.closest("[data-more]"); if (more) { const def = TOOLS[S.mode].find(x => x.id === more.dataset.more); if (def.agent) openSkillsMenu(more, { aboveOf: $("#dock") }); else openToolMenu(more, def); return; }
   const tk = t.closest("[data-toast]"); if (tk) { toast(tk.dataset.toast); return; }
@@ -1742,7 +1765,7 @@ document.addEventListener("click", e => {
     // Shift-click adds to or removes from the selection.
     if (e.shiftKey) { const m = new Set(S.multi && S.multi.length ? S.multi : [S.selected]); m.has(nid) && m.size > 1 ? m.delete(nid) : m.add(nid); S.multi = [...m]; S.selected = S.multi[S.multi.length - 1]; }
     else { S.multi = []; S.selected = nid; }
-    renderTree(); markSelection(); renderInspector();
+    S.screenSel = false; renderTree(); renderPage(); renderInspector();
     document.querySelector(`.row[data-id="${S.selected}"]`)?.scrollIntoView({ block: "nearest" });
     return;
   }
@@ -1752,7 +1775,7 @@ document.addEventListener("click", e => {
   const id = t.closest("button")?.id;
   if (id === "route-btn") return openMenu(t.closest("button"), [{ label: S.mode === "interact" ? "Go to" : "Screens" }, ...ROUTES.map(r => ({ icon: "circle-dashed", t: `${r.path}`, check: r.path === S.route, run: () => go(r.path) }))]);
   if (id === "device-btn") return openMenu(t.closest("button"), DEVICES.map(d => ({ icon: d.icon, t: `${d.name}  ·  ${d.w}`, check: d.name === S.device, run: () => { S.device = d.name; renderTopbar(); renderPage(); } })).concat(["-", { icon: "plus", t: "Custom size…" }]));
-  if (id === "zoom-btn") { const zt = z => () => { S.zoom = z; renderTopbar(); renderPage(); }; return openMenu(t.closest("button"), [{ field: S.zoom + "%" }, { t: "Zoom in", k: "⌘=", run: zt(Math.min(200, S.zoom + 25)) }, { t: "Zoom out", k: "⌘-", run: zt(Math.max(25, S.zoom - 25)) }, { t: "Zoom to fit", k: "⇧1", run: zt(75) }, { t: "Zoom to 50%", run: zt(50) }, { t: "Zoom to 100%", k: "⇧0", run: zt(100) }, { t: "Zoom to 200%", run: zt(200) }, "-", { t: "Pixel grid", toggle: true, on: true }, { t: "Snap to pixel grid", toggle: true, on: true }, { t: "Layout grids", k: "⌃G", toggle: true, on: S.layoutGrids, run: on => { S.layoutGrids = on; $("#page").classList.toggle("show-grids", on); } }, { t: "Rulers", toggle: true, on: false }, { t: "Multiplayer cursors", toggle: true, on: true }, "-", { t: "Comments", k: "⇧C", toggle: true, on: S.showPins !== false, run: on => { S.showPins = on; renderPins(); } }]); }
+  if (id === "zoom-btn") { const zt = z => () => { S.zoom = z; renderTopbar(); renderPage(); }; return openMenu(t.closest("button"), [{ field: S.zoom + "%" }, { t: "Zoom in", k: "⌘=", run: zt(Math.min(200, S.zoom + 25)) }, { t: "Zoom out", k: "⌘-", run: zt(Math.max(25, S.zoom - 25)) }, { t: "Zoom to fit", k: "⇧1", run: () => zt(fitZoom())() }, { t: "Zoom to 50%", run: zt(50) }, { t: "Zoom to 100%", k: "⇧0", run: zt(100) }, { t: "Zoom to 200%", run: zt(200) }, "-", { t: "Pixel grid", toggle: true, on: true }, { t: "Snap to pixel grid", toggle: true, on: true }, { t: "Layout grids", k: "⌃G", toggle: true, on: S.layoutGrids, run: on => { S.layoutGrids = on; $("#page").classList.toggle("show-grids", on); } }, { t: "Rulers", toggle: true, on: false }, { t: "Multiplayer cursors", toggle: true, on: true }, "-", { t: "Comments", k: "⇧C", toggle: true, on: S.showPins !== false, run: on => { S.showPins = on; renderPins(); } }]); }
   if (id === "app-menu-btn") return openMenu(t.closest("button"), APP_MENU());
   if (id === "tk-new") return openMenu(t.closest("button"), TOKEN_KINDS.map(k => k === "-" ? k : { icon: k[2], t: k[1], run: () => startTokenDraft(k[0]) }), { align: "right" });
   if (id === "tk-import") return openMenu(t.closest("button"), TOKEN_IMPORT_MENU(), { align: "right" });

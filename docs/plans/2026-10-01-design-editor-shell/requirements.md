@@ -18,7 +18,7 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
   - Today: Inline screen iframes are pinned to `colorScheme: "light"` in the editor (`DesignCanvas.tsx:7323`, `MultiScreenCanvas.tsx:12205`, `:12564`, `:13254`), so no design previews dark.
   - Change: Interact › Appearance (Light / Dark / System) beside the device picker sets that value instead. In Chromium an iframe's `color-scheme` drives `prefers-color-scheme` inside it, so designs with dark CSS follow with no changes. Design mode keeps the light pin.
 - **TOP-05** · decided
-  - Change: Zoom stays in the same spot in both modes and keeps its value. The route stays exactly centred from 1200px wide; below that it takes the leftover middle (120–264px) and presence avatars hide.
+  - Change: Zoom stays in the same spot in both modes and keeps its value; it's the true scale, so a 1280 frame fits at about 67% and Zoom to fit fits the frame's current width. The route stays exactly centred from 1200px wide; below that it takes the leftover middle (120–264px) and presence avatars hide.
 - **TOP-06** · decided
   - Today: The inspector's Screen section holds the breakpoint chips and edit scope.
   - Change: In Design, the Screens panel picks the screen and the frame's W sets its width (RESP-04); device sizes in Interact are preview viewports (RESP-09).
@@ -376,12 +376,12 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
 - **RESP-03** · context
   - Today: Tailwind check (2026-10-02): inline designs run `@tailwindcss/browser` ^4.3.3 (bundled by `local-runtime.ts`), and exports load `@tailwindcss/browser@4`. Container queries are built in: in headless Chrome against the bundled 4.3.3, `@md:` / `@max-md:` flip at a 448px container and a named `@container/card` with `@[480px]/card:` works. Code-backed apps bring their own Tailwind: v4 has container queries built in, v3 needs `@tailwindcss/container-queries`, and plain CSS `@container` works in every current browser.
 - **RESP-04** · decided
-  - Today: A screen has a frame W/H and, separately, the breakpoint chips; two width concepts side by side.
-  - Change: A frame is a frame: its W sets the width it renders at, and dragging its right edge resizes it with the layout reflowing live (snapping to width tokens; Alt skips the snap). There's no active-breakpoint mode and no edit scope.
-  - Prototype: Scenario: Responsive (exploration). Drag the frame's right edge or click the width beside the screen name.
+  - Today: Selecting a screen shows its frame W/H in the inspector's Screen section (`handleScreenGeometryChange`), next to the breakpoint chips: two width concepts side by side.
+  - Change: A frame is a frame. Select the screen (its name above the frame, or its row in Screens) and its W sets the width it renders at; dragging the selected frame's right edge resizes it with the layout reflowing live, snapping to width tokens (Alt skips the snap). There's no active-breakpoint mode and no edit scope.
+  - Prototype: Click “Screen 1” above the frame, then drag the handle on its right edge or type in W.
 - **RESP-05** · decided
   - Change: Width presets: the frame's width menu lists Container (3xs 256 … 7xl 1280) and Breakpoint (sm 640 … 2xl 1536) widths, from the design system's `--container-*` and `--breakpoint-*` tokens when it has them and Tailwind v4's defaults otherwise.
-  - Prototype: Scenario: Responsive (exploration). Drag the frame's right edge or click the width beside the screen name.
+  - Prototype: With the screen selected, open W's chevron, or the width beside the screen name.
 - **RESP-06** · decided
   - Change: Responsive rules live on the layer: the inspector's Responsive section lists rules as “Below {token}” plus a change (Stack, Wrap, One column, Collapse to menu, Hide, Text size, Padding), each showing its Tailwind class. A Container token queries the layer's parent (`@container` on the parent, `@max-3xl:grid-cols-1` on the layer); a Breakpoint token queries the frame (`max-md:hidden`). Rules travel with a component into code.
   - Prototype: Select a layer (the feature grid, the nav links, the headline) and use + in Responsive.
@@ -392,6 +392,7 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
   - Prototype: Edit with Agent › Make responsive, or /Make responsive in the Agents composer.
 - **RESP-09** · decided
   - Change: Fixed widths become viewports to check, not modes to design in: Interact's device picker previews breakpoint-token widths, and the agent screenshots each one when it verifies a change.
+  - Prototype: In Interact, the device picker sets the frame width (iPhone 16 renders at 393).
 - **RESP-10** · proposed
   - Change: Migration: existing `max-[…]` classes and managed media rules keep rendering and stay editable in Code. The UI stops creating them, `breakpointSet` becomes the list of preview viewports, and the agent offers to convert old overrides to token rules or container queries.
 - **RESP-11** · proposed
