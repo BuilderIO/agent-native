@@ -355,9 +355,11 @@ export async function startTranscriptionEngine(opts: {
 export async function stopTranscriptionEngine(
   engine: TranscriptionEngine,
 ): Promise<void> {
-  await invoke(
-    engine === "whisper" ? "audio_transcription_stop" : "native_speech_stop",
-  );
+  if (engine === "whisper") {
+    await invoke("audio_transcription_stop");
+    return;
+  }
+  await invoke("native_speech_stop", { owner: "meeting" });
 }
 
 export async function resetTranscriptionTimeline(
