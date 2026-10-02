@@ -1,4 +1,6 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { imageSize } from "image-size";
+import { parse as parseHtml } from "parse5";
 import { z } from "zod";
 
 import {
@@ -11,6 +13,9 @@ const MAX_RENDER_PIXELS = 64 * 1024 * 1024;
 const MAX_RENDER_REQUEST_BYTES = 5_000_000;
 const MAX_RENDER_RESPONSE_BYTES = 20_000_000;
 const MAX_RENDER_DURATION_MS = 45_000;
+const MAX_DATA_IMAGE_PIXELS = 32 * 1024 * 1024;
+const MAX_DATA_RESOURCES = 256;
+const MAX_DATA_RESOURCE_BYTES = 4_000_000;
 // ponytail: process-wide cap; add per-account admission if measured throughput needs it.
 const MAX_CONCURRENT_RENDER_REQUESTS = 2;
 
@@ -157,6 +162,206 @@ function readPngDimensions(png: Buffer): { width: number; height: number } {
   return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
 }
 
+type SnapshotHtmlNode = {
+  tagName?: string;
+  attrs?: Array<{ name: string; value: string }>;
+  childNodes?: SnapshotHtmlNode[];
+  content?: { childNodes?: SnapshotHtmlNode[] };
+  value?: string;
+};
+
+function addDataUrls(value: string, urls: Set<string>): void {
+  for (const match of value.matchAll(/data:[^\s"'()<>]+/gi)) {
+    urls.add(dataUrlKey(match[0]));
+    if (urls.size > MAX_DATA_RESOURCES) {
+      fail("PNG export contains too many embedded resources.", {
+        errorCode: "export_too_large",
+        statusCode: 413,
+      });
+    }
+  }
+}
+
+function findSnapshotDataUrls(html: string): string[] {
+  const urls = new Set<string>();
+  const add = (value: string) => addDataUrls(value, urls);
+  const stack = [parseHtml(html) as unknown as SnapshotHtmlNode];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    for (const attribute of node.attrs ?? []) {
+      add(attribute.value);
+    }
+    if (node.tagName?.toLowerCase() === "style") {
+      add((node.childNodes ?? []).map((child) => child.value ?? "").join(""));
+    }
+    stack.push(...(node.childNodes ?? []), ...(node.content?.childNodes ?? []));
+  }
+  return [...urls];
+}
+
+function dataUrlKey(url: string): string {
+  const fragment = url.indexOf("#");
+  const withoutFragment = fragment < 0 ? url : url.slice(0, fragment);
+  const comma = withoutFragment.indexOf(",");
+  if (comma < 0) return withoutFragment.toLowerCase();
+  return `${withoutFragment.slice(0, comma).toLowerCase()}${withoutFragment.slice(comma)}`;
+}
+
+function decodeDataUrl(url: string): {
+  mimeType: string;
+  bytes: Buffer;
+} | null {
+  const comma = url.indexOf(",");
+  if (!url.toLowerCase().startsWith("data:") || comma < 0) return null;
+  const [mimeType, ...parameters] = url.slice(5, comma).split(";");
+  const payload = url.slice(comma + 1);
+  const isBase64 = parameters.some(
+    (parameter) => parameter.toLowerCase() === "base64",
+  );
+  if (isBase64 && !/^[\da-z+/=_-]*$/i.test(payload)) return null;
+  const bytes = isBase64
+    ? Buffer.from(payload, "base64")
+    : decodePercentEncodedBytes(payload);
+  if (!bytes) return null;
+  return { mimeType: (mimeType || "text/plain").toLowerCase(), bytes };
+}
+
+function decodePercentEncodedBytes(value: string): Buffer | null {
+  const bytes = Buffer.allocUnsafe(Buffer.byteLength(value));
+  let offset = 0;
+  for (let index = 0; index < value.length; ) {
+    if (value[index] === "%") {
+      const byte = value.slice(index + 1, index + 3);
+      if (!/^[\da-f]{2}$/i.test(byte)) return null;
+      bytes[offset++] = Number.parseInt(byte, 16);
+      index += 3;
+      continue;
+    }
+    const codePoint = value.codePointAt(index)!;
+    offset += Buffer.from(String.fromCodePoint(codePoint)).copy(bytes, offset);
+    index += codePoint > 0xffff ? 2 : 1;
+  }
+  return bytes.subarray(0, offset);
+}
+
+function readImageDimensions(bytes: Buffer): {
+  type?: string;
+  width: number;
+  height: number;
+} | null {
+  try {
+    return imageSize(bytes);
+  } catch {
+    // coercion-ok: the caller turns missing dimensions into a typed export failure.
+    return null;
+  }
+}
+
+function validateEmbeddedDataResources(html: string): Set<string> {
+  const safeUrls = new Set<string>();
+  const pendingUrls = findSnapshotDataUrls(html);
+  const seenUrls = new Set<string>();
+  let totalImagePixels = 0;
+
+  while (pendingUrls.length > 0) {
+    const url = pendingUrls.pop()!;
+    const key = dataUrlKey(url);
+    if (seenUrls.has(key)) continue;
+    seenUrls.add(key);
+    if (seenUrls.size > MAX_DATA_RESOURCES) {
+      fail("PNG export contains too many embedded resources.", {
+        errorCode: "export_too_large",
+        statusCode: 413,
+      });
+    }
+
+    const resource = decodeDataUrl(key);
+    if (!resource) {
+      fail("PNG export snapshot contains an invalid embedded resource.", {
+        errorCode: "export_resources_unavailable",
+        statusCode: 424,
+      });
+    }
+    if (
+      resource.mimeType.startsWith("font/") ||
+      /^application\/(?:font-|x-font-|vnd\.ms-fontobject)/.test(
+        resource.mimeType,
+      )
+    ) {
+      if (resource.bytes.byteLength > MAX_DATA_RESOURCE_BYTES) {
+        fail("PNG export contains an embedded resource over the 4 MB limit.", {
+          errorCode: "export_too_large",
+          statusCode: 413,
+        });
+      }
+      safeUrls.add(key);
+      continue;
+    }
+    if (resource.mimeType === "text/css") {
+      if (resource.bytes.byteLength > MAX_DATA_RESOURCE_BYTES) {
+        fail("PNG export contains an embedded resource over the 4 MB limit.", {
+          errorCode: "export_too_large",
+          statusCode: 413,
+        });
+      }
+      safeUrls.add(key);
+      const nestedUrls = new Set<string>();
+      addDataUrls(resource.bytes.toString("utf8"), nestedUrls);
+      pendingUrls.push(...nestedUrls);
+      continue;
+    }
+    if (!resource.mimeType.startsWith("image/")) continue;
+
+    const dimensions = readImageDimensions(resource.bytes);
+    const expectedType =
+      resource.mimeType === "image/jpeg"
+        ? "jpg"
+        : resource.mimeType === "image/svg+xml"
+          ? "svg"
+          : resource.mimeType.slice("image/".length);
+    if (
+      !dimensions ||
+      dimensions.type !== expectedType ||
+      dimensions.width < 1 ||
+      dimensions.height < 1 ||
+      !Number.isSafeInteger(dimensions.width) ||
+      !Number.isSafeInteger(dimensions.height)
+    ) {
+      fail(
+        "PNG export snapshot contains an image format that cannot be safely checked.",
+        {
+          errorCode: "export_resources_unavailable",
+          statusCode: 424,
+        },
+      );
+    }
+    const imagePixels = dimensions.width * dimensions.height;
+    totalImagePixels += imagePixels;
+    if (
+      dimensions.width > MAX_RENDER_SIDE ||
+      dimensions.height > MAX_RENDER_SIDE ||
+      imagePixels > MAX_DATA_IMAGE_PIXELS ||
+      totalImagePixels > MAX_DATA_IMAGE_PIXELS
+    ) {
+      fail(
+        "PNG export contains embedded images over the 32 megapixel decode limit.",
+        {
+          errorCode: "export_too_large",
+          statusCode: 413,
+        },
+      );
+    }
+    safeUrls.add(key);
+    if (dimensions.type === "svg") {
+      pendingUrls.push(
+        ...findSnapshotDataUrls(resource.bytes.toString("utf8")),
+      );
+    }
+  }
+
+  return safeUrls;
+}
+
 export default defineAction({
   description: "Render a self-contained Design export snapshot as a PNG.",
   schema: z.object({
@@ -181,6 +386,7 @@ export default defineAction({
   run: async ({ html, width, height, scale, clip }) => {
     assertRasterSize(width, height, scale);
     if (clip) assertRasterSize(clip.width, clip.height, scale);
+    const safeDataResources = validateEmbeddedDataResources(html);
 
     const releaseRenderSlot = acquireRenderSlot();
     const lease = acquireBrowser();
@@ -224,9 +430,19 @@ export default defineAction({
         }
 
         const externalRequests: string[] = [];
+        let rejectedDataRequests = 0;
         await context.route("**/*", async (route) => {
           const url = route.request().url();
-          if (url.startsWith("data:") || url === "about:blank") {
+          if (url.toLowerCase().startsWith("data:")) {
+            if (!safeDataResources.has(dataUrlKey(url))) {
+              rejectedDataRequests += 1;
+              await route.abort("blockedbyclient");
+              return;
+            }
+            await route.continue();
+            return;
+          }
+          if (url === "about:blank") {
             await route.continue();
             return;
           }
@@ -274,7 +490,8 @@ export default defineAction({
           missingResources.marker ||
           missingResources.brokenImages.length > 0 ||
           missingResources.failedFonts.length > 0 ||
-          missingResources.loadingFonts.length > 0
+          missingResources.loadingFonts.length > 0 ||
+          rejectedDataRequests > 0
         ) {
           const failures = [
             `external=${externalRequests.length}`,
@@ -282,6 +499,7 @@ export default defineAction({
             `images=${missingResources.brokenImages.length}`,
             `fonts=${missingResources.failedFonts.length}`,
             `loadingFonts=${missingResources.loadingFonts.length}`,
+            `blockedDataResources=${rejectedDataRequests}`,
           ].join(",");
           fail(
             `PNG export snapshot has resources that could not be rendered exactly (${failures}).`,

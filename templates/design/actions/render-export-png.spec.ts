@@ -58,6 +58,10 @@ const completeResources = {
   failedFonts: [],
   loadingFonts: [],
 };
+const onePixelPng = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/0yoAAAAASUVORK5CYII=",
+  "base64",
+);
 
 function makeRenderer(evaluateResults: unknown[]) {
   const page = makePage(evaluateResults);
@@ -71,6 +75,7 @@ function makeRenderer(evaluateResults: unknown[]) {
 function runAction(
   overrides: Partial<{
     clip: { x: number; y: number; width: number; height: number };
+    html: string;
     height: number;
     scale: number;
     width: number;
@@ -98,6 +103,30 @@ describe("render-export-png action", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("rejects an oversized embedded image before launching Chromium", async () => {
+    const png = Buffer.from(onePixelPng);
+    png.writeUInt32BE(20_000, 16);
+    png.writeUInt32BE(2_000, 20);
+
+    await expect(
+      runAction({
+        html: `<div style="background-image:url(data:image/png;base64,${png.toString("base64")})"></div>`,
+      }),
+    ).rejects.toMatchObject({ errorCode: "export_too_large", statusCode: 413 });
+    expect(playwrightMocks.launchChromium).not.toHaveBeenCalled();
+  });
+
+  it("accepts bounded embedded PNG images", async () => {
+    makeRenderer([undefined, completeResources, { width: 800, height: 600 }]);
+
+    await expect(
+      runAction({
+        html: `<img src="data:image/png;base64,${onePixelPng.toString("base64")}">`,
+      }),
+    ).resolves.toMatchObject({ status: 200 });
+    expect(playwrightMocks.launchChromium).toHaveBeenCalledOnce();
   });
 
   it("rejects a full-page raster over the pixel cap even when the viewport fits", async () => {

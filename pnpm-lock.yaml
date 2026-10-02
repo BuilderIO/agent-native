@@ -6045,6 +6045,9 @@ importers:
       h3:
         specifier: 'catalog:'
         version: 2.0.1-rc.22(crossws@0.4.6(srvx@0.11.17))
+      image-size:
+        specifier: 2.0.4
+        version: 2.0.4
       isbot:
         specifier: ^5
         version: 5.1.44
@@ -19577,6 +19580,11 @@ packages:
   image-size@1.2.1:
     resolution: {integrity: sha512-rH+46sQJ2dlwfjfhCyNx5thzrv+dtmBIhPHk0zgRUukHzZ/kRueTJXoYYsclBaKcSMBWuGbOFXtioLpzTb5euw==}
     engines: {node: '>=16.x'}
+    hasBin: true
+
+  image-size@2.0.4:
+    resolution: {integrity: sha512-QRUkFFsRV/6fuESxb9Vkq+a0LkSrgKXuc2NEqfikiXxxN/G3tjWt5EVUlMaImRBZRZK/jRBEbYvpPYZL8t08Zw==}
+    engines: {node: '>=18'}
     hasBin: true
 
   immediate@3.0.6:
@@ -36928,6 +36936,8 @@ snapshots:
   image-size@1.2.1:
     dependencies:
       queue: 6.0.2
+
+  image-size@2.0.4: {}
 
   immediate@3.0.6: {}
 
