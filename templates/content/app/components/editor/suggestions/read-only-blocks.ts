@@ -1,5 +1,10 @@
+import { RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION } from "@agent-native/toolkit/editor";
 import { Extension } from "@tiptap/core";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import type {
+  Fragment,
+  Node as ProseMirrorNode,
+  Slice,
+} from "@tiptap/pm/model";
 import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 
@@ -35,24 +40,43 @@ function stepRange(
   return null;
 }
 
-// Replacing the whole document loads a draft or the canonical body; every
-// other change that reaches into an unsupported node edits it.
+function holdsUnsupportedNode(
+  content: Fragment,
+  from = 0,
+  to = content.size,
+): boolean {
+  let found = false;
+  content.nodesBetween(from, to, (node) => {
+    if (found) return false;
+    if (supportsSuggestionNode(node.type.name)) return true;
+    found = true;
+    return false;
+  });
+  return found;
+}
+
+// Loading a draft or the canonical body replaces the whole document outside
+// undo history. Select-all followed by typing also replaces the whole
+// document, so the history flag is what tells a load from an edit. A step
+// that inserts an unsupported node is refused too: once in the draft, the
+// node would be read-only and could not be removed again.
 export function editsUnsupportedSuggestionNode(
   transaction: Transaction,
 ): boolean {
+  if (transaction.getMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION)) return false;
+  const loadsBody = transaction.getMeta("addToHistory") === false;
   return transaction.steps.some((step, index) => {
     const doc = transaction.docs[index]!;
     const range = stepRange(step, doc);
     if (!range) return true;
-    if (range.from === 0 && range.to === doc.content.size) return false;
-    let touched = false;
-    doc.nodesBetween(range.from, range.to, (node) => {
-      if (touched) return false;
-      if (supportsSuggestionNode(node.type.name)) return true;
-      touched = true;
+    if (loadsBody && range.from === 0 && range.to === doc.content.size) {
       return false;
-    });
-    return touched;
+    }
+    const { slice } = step as { slice?: Slice };
+    return (
+      (slice !== undefined && holdsUnsupportedNode(slice.content)) ||
+      holdsUnsupportedNode(doc.content, range.from, range.to)
+    );
   });
 }
 

@@ -319,6 +319,7 @@ function unsupportedStructureKey(markdown: string): string {
 function validateSuggestionStructure(
   beforeMarkdown: string,
   afterMarkdown: string,
+  refusal: string,
 ) {
   const after = parseSuggestionMarkdown(afterMarkdown);
   const surround = unsupportedStructureKey(
@@ -330,10 +331,10 @@ function validateSuggestionStructure(
     JSON.stringify(unsupportedRawNotionSpanAttrs(beforeMarkdown)) !==
       JSON.stringify(unsupportedRawNotionSpanAttrs(afterMarkdown))
   ) {
-    fail(
-      "Suggestions cannot change tables, images, or other content that suggestions do not support yet. Suggest changes to the surrounding text instead.",
-      { statusCode: 422, errorCode: "suggestion_structure_unsupported" },
-    );
+    fail(refusal, {
+      statusCode: 422,
+      errorCode: "suggestion_structure_unsupported",
+    });
   }
   return after;
 }
@@ -573,7 +574,11 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
         errorCode: "suggestion_body_unavailable",
       });
     }
-    validateSuggestionStructure(before.markdown, after.markdown);
+    validateSuggestionStructure(
+      before.markdown,
+      after.markdown,
+      "Suggestions cannot change tables, images, or other content or formatting they do not support yet. Suggest changes to the surrounding text instead.",
+    );
     return operations;
   },
   async coordinateDecision(context, run) {
@@ -665,6 +670,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     const nextDocument = validateSuggestionStructure(
       currentContent,
       nextContent,
+      "This suggestion changes a table, image, or other content or formatting that suggestions do not support yet, so it cannot be accepted.",
     );
     if (currentContent.includes("<InlineDatabase")) {
       fail("Pages containing inline databases cannot accept suggestions yet.", {

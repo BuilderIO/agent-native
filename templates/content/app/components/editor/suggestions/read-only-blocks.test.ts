@@ -1,3 +1,4 @@
+import { RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION } from "@agent-native/toolkit/editor";
 import { createContentEditorStructuralSchema } from "@shared/content-editor-structural-schema";
 import { nfmToDoc } from "@shared/nfm";
 import { EditorState, type Transaction } from "@tiptap/pm/state";
@@ -103,15 +104,46 @@ describe("suggesting read-only blocks", () => {
     expect(applies(state, transaction)).toBe(true);
   });
 
-  it("allows replacing the whole document", () => {
+  it("allows loading a whole document outside undo history", () => {
     const state = stateFor(PAGE);
     const draft = schema.nodeFromJSON(nfmToDoc(`${PAGE}\n\nMore.`));
-    const transaction = state.tr.replaceWith(
-      0,
-      state.doc.content.size,
-      draft.content,
-    );
+    const transaction = state.tr
+      .replaceWith(0, state.doc.content.size, draft.content)
+      .setMeta("addToHistory", false);
     expect(applies(state, transaction)).toBe(true);
+  });
+
+  it("refuses pasting a table into a paragraph", () => {
+    const state = stateFor(PAGE);
+    const at = textPosition(state, "Closing");
+    const pasted = schema.nodeFromJSON(nfmToDoc(PAGE)).child(1);
+    expect(pasted.type.name).toBe("table");
+    expect(applies(state, state.tr.insert(at, pasted))).toBe(false);
+  });
+
+  it("allows a programmatic reconcile across the table", () => {
+    const state = stateFor(PAGE);
+    const { from, to } = tableRange(state);
+    const transaction = state.tr
+      .delete(from, to)
+      .setMeta("addToHistory", false)
+      .setMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION, true);
+    expect(applies(state, transaction)).toBe(true);
+  });
+
+  it("refuses a partial update across the table outside undo history", () => {
+    const state = stateFor(PAGE);
+    const { from, to } = tableRange(state);
+    const transaction = state.tr
+      .delete(from, to)
+      .setMeta("addToHistory", false);
+    expect(applies(state, transaction)).toBe(false);
+  });
+
+  it("refuses typing over a select-all", () => {
+    const state = stateFor(PAGE);
+    const transaction = state.tr.insertText("X", 0, state.doc.content.size);
+    expect(applies(state, transaction)).toBe(false);
   });
 
   it("leaves tables editable outside suggesting", () => {

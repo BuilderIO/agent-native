@@ -365,7 +365,11 @@ function dispatchLiteralPaste(view: EditorView, slice: Slice): void {
     .setMeta("paste", true)
     .setMeta("uiEvent", "paste");
   const expected = insertion.doc;
+  const before = view.state.doc;
   view.dispatch(insertion);
+  // A filter refused the paste (for example into a block that is read-only
+  // while suggesting); retrying it as a raw range would insert it anyway.
+  if (view.state.doc === before) return;
 
   if (!view.state.doc.eq(expected)) {
     view.dispatch(
@@ -4534,7 +4538,7 @@ export function VisualEditor({
         />
       ) : null}
       <LinkHoverPreview editor={editor} editable={editable} />
-      {editable ? <TableHoverControls editor={editor} /> : null}
+      {editable && !suggesting ? <TableHoverControls editor={editor} /> : null}
       {editable && isDraggingMedia ? (
         <div className="media-drop-overlay">
           <div className="media-drop-overlay__content">
