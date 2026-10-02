@@ -2,6 +2,7 @@ import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
 import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
 
 import type { ActionChatUIConfig } from "../../action-ui.js";
+import { AUTO_CONTINUE_OF_RUN_METADATA_KEY } from "../../agent/auto-continue.js";
 import type { AgentChatStructuredMessage } from "../../agent/types.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
@@ -2672,6 +2673,10 @@ export function createAgentNativeChatRuntime(
         turn.metadata,
         AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY,
       );
+      const autoContinueOfRunId = metadataString(
+        turn.metadata,
+        AUTO_CONTINUE_OF_RUN_METADATA_KEY,
+      );
       const continuationMessageState = continuationTurnId
         ? messageStates.get(continuationTurnId)
         : undefined;
@@ -2713,6 +2718,7 @@ export function createAgentNativeChatRuntime(
         true
           ? { internalContinuation: true }
           : {}),
+        ...(autoContinueOfRunId ? { autoContinueOfRunId } : {}),
         ...(turn.metadata?.agentNativeSkipPendingSelectionContext === true
           ? { skipPendingSelectionContext: true }
           : {}),
@@ -2768,6 +2774,12 @@ export function createAgentNativeChatRuntime(
       return mapped;
     },
     continueTurn: ({ session, continuation, previousTurn, startTurn }) => {
+      // Only the continuation that names a stopped run continues it; an approval
+      // or connection answered later is not another automatic continuation.
+      const {
+        [AUTO_CONTINUE_OF_RUN_METADATA_KEY]: _autoContinueOf,
+        ...previousMetadata
+      } = previousTurn?.metadata ?? {};
       const approval = continuation.approval;
       const connection = continuation.connection;
       const messageStateKey = continuation.turnId ?? session.id;
@@ -2788,7 +2800,7 @@ export function createAgentNativeChatRuntime(
             continuation.prompt ??
             `The ${connection.id} connection is now available. Continue the requested work.`,
           metadata: {
-            ...previousTurn?.metadata,
+            ...previousMetadata,
             ...continuation.metadata,
             [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]:
               continuation.turnId,
@@ -2809,7 +2821,7 @@ export function createAgentNativeChatRuntime(
           ...previousTurn,
           prompt: continuation.prompt,
           metadata: {
-            ...previousTurn?.metadata,
+            ...previousMetadata,
             ...continuation.metadata,
             [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]:
               continuation.turnId,
@@ -2834,7 +2846,7 @@ export function createAgentNativeChatRuntime(
           continuation.prompt ??
           "Approved. Go ahead and run the requested action.",
         metadata: {
-          ...previousTurn?.metadata,
+          ...previousMetadata,
           ...continuation.metadata,
           [AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY]: [approval.id],
           [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]: continuation.turnId,
