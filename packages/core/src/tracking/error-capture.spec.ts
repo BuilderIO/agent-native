@@ -187,6 +187,14 @@ describe("tracking captureException", () => {
       "Unicode CTE identifiers",
       "WITH café AS (SELECT id FROM users WHERE email = $1) SELECT * FROM café",
     ],
+    [
+      "Unicode-escaped CTE identifiers",
+      String.raw`WITH U&"caf\00E9" AS (SELECT id FROM users WHERE email = $1) SELECT * FROM U&"caf\00E9"`,
+    ],
+    [
+      "Unicode dollar-quote tags in CTE bodies",
+      "WITH data AS (SELECT $é$) ) $é$ AS value) SELECT value FROM data",
+    ],
   ])("redacts SQL bind parameters in CTEs with %s", (_case, query) => {
     const privateValue = "private customer value";
     const redacted = redact(`${query}\n\tparams: ${privateValue}`);

@@ -11,7 +11,7 @@ const SQL_STATEMENT_RE =
   /^(?:select|insert|update|delete|merge|values|explain|call|execute|copy|declare)\b/i;
 const SQL_CTE_QUERY_RE =
   /^(?:select|insert|update|delete|merge|values|with|table)\b/i;
-const SQL_CTE_IDENTIFIER = String.raw`(?:"(?:[^"]|"")+"|[_\p{ID_Start}][$\p{ID_Continue}]*)`;
+const SQL_CTE_IDENTIFIER = String.raw`(?:[uU]&"(?:[^"]|"")*"|"(?:[^"]|"")+"|[_\p{ID_Start}][$\p{ID_Continue}]*)`;
 const SQL_CTE_IDENTIFIER_RE = new RegExp(`^${SQL_CTE_IDENTIFIER}`, "iu");
 
 export const SECRET_KEY_RE =
@@ -99,7 +99,7 @@ function afterSqlParenthesizedBody(value: string): string | undefined {
       continue;
     }
     if (value[index] === "$") {
-      const delimiter = /^\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$/.exec(
+      const delimiter = /^\$(?:[_\p{ID_Start}][$\p{ID_Continue}]*)?\$/u.exec(
         value.slice(index),
       )?.[0];
       if (delimiter) {
