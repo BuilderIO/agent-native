@@ -183,6 +183,8 @@ const messages = {
       changeStatistics: "变更统计",
       untitledPlan: "未命名计划",
       saveFailed: "无法保存",
+      openFailed:
+        "이 계획을 편집용으로 열 수 없습니다. 페이지를 새로 고친 후 다시 시도하세요.",
     },
     imageViewer: {
       actualSize: "实际大小",

@@ -7,6 +7,7 @@ import {
   useCollaborativeDoc,
   type UseCollaborativeDocResult,
 } from "@agent-native/core/client/collab";
+import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOptionalBlockRegistry } from "@agent-native/toolkit/app/blocks";
 import {
@@ -29,6 +30,7 @@ import { blocksToProseJSON, proseJSONToBlocks } from "@shared/plan-doc";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { EditorView } from "@tiptap/pm/view";
 import type { Editor } from "@tiptap/react";
+import { prosemirrorToYDoc } from "@tiptap/y-tiptap";
 import {
   createContext,
   useCallback,
@@ -37,11 +39,18 @@ import {
   useMemo,
   useRef,
   useState,
+  type MutableRefObject,
 } from "react";
+import { toast } from "sonner";
+import { encodeStateAsUpdate } from "yjs";
 
 import { Button } from "@/components/ui/button";
 
 import { usePlanImageUpload } from "../../hooks/use-plan-image-upload";
+import type {
+  PlanBlocksRevision,
+  PlanDocumentSnapshot,
+} from "../../lib/plan-block-save";
 import { PlanBlockView } from "../plan/DocumentArea";
 import { PlanImageNode } from "../plan/PlanImageNode";
 import { PlanBlockNode, PlanBlockDataProvider } from "./PlanBlockNode";
@@ -679,6 +688,7 @@ export function PlanDocumentEditor({
   onBlocksChange,
   onVisualQuestionsSubmit,
   sharedCollabDoc,
+  blocksReaderRef,
 }: {
   content: PlanContent;
   contentUpdatedAt?: string | null;
@@ -687,6 +697,10 @@ export function PlanDocumentEditor({
   editable: boolean;
   onBlocksChange: (blocks: PlanBlock[]) => void | Promise<void>;
   onVisualQuestionsSubmit?: (summary: string) => void;
+  /** Filled with a reader of the document's current blocks while mounted. */
+  blocksReaderRef?: MutableRefObject<
+    (() => PlanDocumentSnapshot | null) | null
+  >;
   sharedCollabDoc?: Pick<
     UseCollaborativeDocResult,
     "ydoc" | "awareness" | "isSynced" | "initialization"
@@ -745,6 +759,9 @@ export function PlanDocumentEditor({
       return;
     }
     rememberEmitted(incoming);
+    // Keep the ref in step with the state: a save that reads it before the
+    // re-render must not see the old blocks next to the newer adopted revision.
+    blocksRef.current = content.blocks;
     setBlocks(content.blocks);
     // A genuine external/agent edit changed the baseline. We intentionally do
     // NOT wipe the user's undo/redo history here: the undo stack validates each
@@ -753,6 +770,23 @@ export function PlanDocumentEditor({
     // still target live blocks undoable. Blowing away the whole stack on every
     // agent patch used to strand the user's own in-progress edits.
   }, [content.blocks, rememberEmitted]);
+
+  // The saved revision this document's blocks were last brought up to. A save
+  // is a three-way merge against it, so it must follow what the document
+  // adopted, not whatever the query cache has fetched since.
+  const adoptedRevisionRef = useRef<PlanBlocksRevision | null>(
+    contentUpdatedAt
+      ? { updatedAt: contentUpdatedAt, blocks: content.blocks }
+      : null,
+  );
+  useEffect(() => {
+    if (!contentUpdatedAt) return;
+    if (adoptedRevisionRef.current?.updatedAt === contentUpdatedAt) return;
+    adoptedRevisionRef.current = {
+      updatedAt: contentUpdatedAt,
+      blocks: content.blocks,
+    };
+  }, [contentUpdatedAt, content.blocks]);
 
   const hasSeededRef = useRef(false);
 
@@ -922,6 +956,52 @@ export function PlanDocumentEditor({
 
   const value = useMemo(() => JSON.stringify(content.blocks), [content.blocks]);
 
+  // Two people opening a plan together would each seed the empty live document
+  // from its saved blocks, and the two copies merge into duplicated text. The
+  // server seeds it once and every editor adopts that copy.
+  const requestInitialSeed = useCallback(
+    async (seedEditor: Editor, serialized: string): Promise<Uint8Array> => {
+      if (!planId) throw new Error("A plan ID is required to seed the editor.");
+      const seedDoc = prosemirrorToYDoc(
+        seedEditor.schema.nodeFromJSON(
+          blocksToProseJSON(JSON.parse(serialized) as PlanBlock[]),
+        ),
+        "default",
+      );
+      try {
+        const update = encodeStateAsUpdate(seedDoc);
+        let binary = "";
+        for (const byte of update) binary += String.fromCharCode(byte);
+        const result = await callAction<{ stateBase64: string }>(
+          "seed-plan-collab",
+          { planId, seedUpdateBase64: btoa(binary) },
+        );
+        return Uint8Array.from(atob(result.stateBase64), (char) =>
+          char.charCodeAt(0),
+        );
+      } finally {
+        seedDoc.destroy();
+      }
+    },
+    [planId],
+  );
+  const hasBlocksToSeed = content.blocks.length > 0;
+  const shouldSeed = useCallback(
+    ({ fragmentLength }: { fragmentLength: number }) =>
+      fragmentLength === 0 && hasBlocksToSeed,
+    [hasBlocksToSeed],
+  );
+  const seedErrorShownRef = useRef(false);
+  const onInitialSeedError = useCallback(
+    (error: unknown) => {
+      console.error("Failed to open the plan for live editing:", error);
+      if (seedErrorShownRef.current) return;
+      seedErrorShownRef.current = true;
+      toast.error(t("raw.content.openFailed"));
+    },
+    [t],
+  );
+
   const getMarkdown = useMemo(
     () => (editor: Editor) =>
       JSON.stringify(proseJSONToBlocks(editor.getJSON(), blocksRef.current)),
@@ -1055,13 +1135,29 @@ export function PlanDocumentEditor({
       document.removeEventListener("keydown", onKeyDown, { capture: true });
   }, [collabEnabled]);
 
-  const handleChange = (serialized: string) => {
+  const blocksFromSerialized = (serialized: string): PlanBlock[] | null => {
     let next: PlanBlock[];
     try {
       next = JSON.parse(serialized) as PlanBlock[];
-    } catch {
-      return;
+    } catch (error) {
+      console.error("The plan editor produced unreadable blocks:", error);
+      return null;
     }
+    // Structured block data lives in `blocks`, not the document. `serialized`
+    // was built from the blocks as they were when the document last changed, and
+    // this runs later: a collaborator's edit adopted since then must not be
+    // written back over.
+    const currentById = new Map(
+      blocksRef.current.map((block) => [block.id, block]),
+    );
+    next = next.map((block) => {
+      const current = currentById.get(block.id);
+      return current &&
+        current.type === block.type &&
+        block.type !== "rich-text"
+        ? ({ ...block, data: (current as { data: unknown }).data } as PlanBlock)
+        : block;
+    });
     // Hard data-loss guard: the editor mounts EMPTY (custom `setContent` seeds it
     // from `content.blocks` a tick later), so it can serialize an empty doc both
     // before the seed AND in a transient post-seed normalization/extension
@@ -1073,13 +1169,13 @@ export function PlanDocumentEditor({
     // (`hasSeededRef` alone is insufficient: the seed sets it true, then the
     // transient empty arrives "seeded" and slipped through, wiping the plan.)
     const prevCount = blocksRef.current.length;
-    if (next.length === 0 && prevCount > 0 && !isEditorFocused()) return;
+    if (next.length === 0 && prevCount > 0 && !isEditorFocused()) return null;
     if (
       !hasSeededRef.current &&
       prevCount >= 3 &&
       next.length < prevCount * 0.2
     ) {
-      return;
+      return null;
     }
     if (next.length > 0) hasSeededRef.current = true;
     const prevIds = new Set(blocksRef.current.map((block) => block.id));
@@ -1103,8 +1199,37 @@ export function PlanDocumentEditor({
       const seeded = spec?.empty?.();
       return seeded ? ({ ...block, data: seeded } as PlanBlock) : block;
     });
-    commit(next);
+    return next;
   };
+
+  const handleChange = (serialized: string) => {
+    const next = blocksFromSerialized(serialized);
+    if (next) commit(next);
+  };
+
+  // A collaborator's text reaches this document through Yjs without going
+  // through `handleChange`, so blocks captured at the last local keystroke can
+  // be older than the document. Saving reads the document itself.
+  const readCurrentBlocks = (): PlanDocumentSnapshot | null => {
+    const editor = editorRef.current;
+    if (!editor || editor.isDestroyed || !getMountedEditorView(editor)) {
+      return null;
+    }
+    const next = blocksFromSerialized(
+      JSON.stringify(proseJSONToBlocks(editor.getJSON(), blocksRef.current)),
+    );
+    if (!next) return null;
+    rememberEmitted(JSON.stringify(next));
+    setBlocks(next);
+    return { blocks: next, base: adoptedRevisionRef.current };
+  };
+  if (blocksReaderRef) blocksReaderRef.current = readCurrentBlocks;
+  useEffect(
+    () => () => {
+      if (blocksReaderRef) blocksReaderRef.current = null;
+    },
+    [blocksReaderRef],
+  );
 
   const legacyCtxRef = useRef({ contentUpdatedAt, planId, collabUser });
   legacyCtxRef.current = { contentUpdatedAt, planId, collabUser };
@@ -1203,6 +1328,11 @@ export function PlanDocumentEditor({
           setContent={setContent}
           parseValue={false}
           normalizeValue={normalizeValue}
+          shouldSeed={shouldSeed}
+          requestInitialSeed={
+            ydoc && editable && planId ? requestInitialSeed : undefined
+          }
+          onInitialSeedError={onInitialSeedError}
           initialAppliedUpdatedAt={null}
           wrapperClassName={WRAPPER_CLASS}
           className="plan-document-editor-surface"

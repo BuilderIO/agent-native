@@ -35,6 +35,11 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { usePlanPresence } from "@/hooks/use-plan-presence";
+import {
+  PlanBlocksOverlapError,
+  type PlanBlocksRevision,
+  type PlanDocumentSnapshot,
+} from "@/lib/plan-block-save";
 import { cn } from "@/lib/utils";
 
 import {
@@ -73,7 +78,10 @@ type PlanContentRendererProps = {
   fallbackTitle: string;
   fallbackBrief: string;
   onContentChange?: (content: PlanContent) => Promise<void> | void;
-  onContentPatch?: (patch: PlanContentPatch) => Promise<void> | void;
+  onContentPatch?: (
+    patch: PlanContentPatch,
+    options?: { base?: PlanBlocksRevision | null },
+  ) => Promise<void> | void;
   onOptimisticBlocks?: (blocks: PlanBlock[]) => void;
   onMetadataChange?: (patch: {
     title?: string;
@@ -306,14 +314,24 @@ export function PlanContentRenderer({
   const savingRef = useRef(false);
   const saveTimerRef = useRef<number | null>(null);
   const consecutiveFailuresRef = useRef(0);
+  // An overlapping edit by someone else is not fixed by trying again later.
+  const awaitingManualRetryRef = useRef(false);
   const [autosaveFailed, setAutosaveFailed] = useState(false);
 
+  const editorBlocksRef = useRef<(() => PlanDocumentSnapshot | null) | null>(
+    null,
+  );
+  const flushCollabUpdatesRef = useRef(collabDoc.flushUpdates);
+  flushCollabUpdatesRef.current = collabDoc.flushUpdates;
   const persistBlocksRef = useRef<
-    (blocks: PlanBlock[]) => void | Promise<void>
+    (
+      blocks: PlanBlock[],
+      base: PlanBlocksRevision | null,
+    ) => void | Promise<void>
   >(() => {});
-  persistBlocksRef.current = (nextBlocks: PlanBlock[]) =>
+  persistBlocksRef.current = (nextBlocks: PlanBlock[], base) =>
     onContentPatch
-      ? onContentPatch({ op: "replace-blocks", blocks: nextBlocks })
+      ? onContentPatch({ op: "replace-blocks", blocks: nextBlocks }, { base })
       : onContentChange?.({ ...content, blocks: nextBlocks });
   const scheduleSaveRef = useRef<(delayMs?: number) => void>(() => {});
   scheduleSaveRef.current = (delayMs = AUTOSAVE_DEBOUNCE_MS) => {
@@ -332,10 +350,27 @@ export function PlanContentRenderer({
     pendingBlocksRef.current = null;
     savingRef.current = true;
     let failed = false;
-    void Promise.resolve(persistBlocksRef.current(next))
+    // Collaborators' editors must receive these edits through the live document
+    // before the saved copy reaches them, or they insert the text twice. The
+    // document, not the snapshot taken at the last local keystroke, is also what
+    // a collaborator's concurrent typing has been merged into.
+    void flushCollabUpdatesRef
+      .current()
+      .then((delivered) => {
+        if (!delivered) {
+          throw new Error("Live edits have not reached the server yet.");
+        }
+        const snapshot = editorBlocksRef.current?.() ?? null;
+        return persistBlocksRef.current(
+          snapshot?.blocks ?? next,
+          snapshot?.base ?? null,
+        );
+      })
       .catch((error) => {
         failed = true;
         consecutiveFailuresRef.current += 1;
+        awaitingManualRetryRef.current =
+          error instanceof PlanBlocksOverlapError;
         if (pendingBlocksRef.current === null) {
           pendingBlocksRef.current = next;
         }
@@ -351,7 +386,10 @@ export function PlanContentRenderer({
         }
         if (pendingBlocksRef.current !== null) {
           if (failed) {
-            if (consecutiveFailuresRef.current < AUTOSAVE_MAX_RETRIES) {
+            if (
+              !awaitingManualRetryRef.current &&
+              consecutiveFailuresRef.current < AUTOSAVE_MAX_RETRIES
+            ) {
               const backoffMs = Math.min(
                 1_000 * 2 ** (consecutiveFailuresRef.current - 1),
                 AUTOSAVE_MAX_BACKOFF_MS,
@@ -367,9 +405,20 @@ export function PlanContentRenderer({
 
   const retryAutosave = () => {
     consecutiveFailuresRef.current = 0;
+    awaitingManualRetryRef.current = false;
     setAutosaveFailed(false);
     flushSaveRef.current();
   };
+  const retryAutosaveRef = useRef(retryAutosave);
+  retryAutosaveRef.current = retryAutosave;
+  // Backoff gives up after a few attempts, which a long offline stretch
+  // outlasts; the edits are still pending, so save them as soon as we are back.
+  useEffect(() => {
+    if (!autosaveFailed) return;
+    const onOnline = () => retryAutosaveRef.current();
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [autosaveFailed]);
   const replaceBlocks = async (nextBlocks: PlanBlock[]) => {
     if (
       onOptimisticBlocks &&
@@ -803,6 +852,7 @@ export function PlanContentRenderer({
                           collabUser={collabUser}
                           editable
                           onBlocksChange={replaceBlocks}
+                          blocksReaderRef={editorBlocksRef}
                           onVisualQuestionsSubmit={onVisualQuestionsSubmit}
                           sharedCollabDoc={collabDoc}
                         />

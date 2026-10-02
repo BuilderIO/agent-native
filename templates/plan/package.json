@@ -27,6 +27,7 @@
     "@tiptap/core": "catalog:",
     "@tiptap/pm": "catalog:",
     "@tiptap/react": "catalog:",
+    "@tiptap/y-tiptap": "catalog:",
     "diff": "9.0.0",
     "drizzle-orm": "^0.45.2",
     "gray-matter": "^4.0.3",
@@ -48,6 +49,7 @@
     "shiki": "^4.0.2",
     "unified": "^11.0.5",
     "unist-util-visit": "^5.1.0",
+    "yjs": "catalog:",
     "zod": "^4.4.3"
   },
   "devDependencies": {

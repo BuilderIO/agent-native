@@ -13,6 +13,7 @@ import {
 import { appPath, agentNativePath } from "@agent-native/core/client/api-path";
 import { emailToColor, emailToName } from "@agent-native/core/client/collab";
 import {
+  callAction,
   useActionQuery,
   useAvatarUrl,
   useSession,
@@ -227,6 +228,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   planBundleQueryKey,
+  planBundleQueryParams,
   localPlanBundleQueryKey,
   localPlanBundleQueryParams,
   ALL_PLANS_QUERY_ARGS,
@@ -241,6 +243,7 @@ import {
   usePublishVisualPlan,
   useReportVisualPlan,
   useRestorePlanVersion,
+  useSavePlanBlocks,
   useUpdatePlan,
   useUpdateLocalPlan,
   useUpdateLocalPlanComments,
@@ -281,6 +284,10 @@ import {
   type RuntimeAnnotationComment,
   type RuntimeAnnotationParticipant,
 } from "@/lib/plan-annotation-runtime";
+import {
+  saveBlocksMergingConflicts,
+  type PlanBlocksRevision,
+} from "@/lib/plan-block-save";
 import {
   appendMessageToEditor,
   canSubmitInlineCommentDraft,
@@ -2575,11 +2582,7 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     });
   }, [runtimeCommentThreads]);
   const updatePlan = useUpdatePlan();
-  const blockSaveRevisionRef = useRef<{
-    planId: string;
-    sourceRevision: string;
-    latestRevision: string;
-  } | null>(null);
+  const savePlanBlocks = useSavePlanBlocks();
   const updateLocalPlan = useUpdateLocalPlan();
   const promoteLocalPlan = usePromoteLocalPlan();
   const updatePlanMutateRef = useRef(updatePlan.mutate);
@@ -4044,59 +4047,83 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
     });
   };
 
-  const patchStructuredContent = async (patch: PlanContentPatch) => {
-    if (!bundle) return;
-    const silentError = patch.op === "replace-blocks";
-    const previousBlockSave = blockSaveRevisionRef.current;
-    const followsBlockSave =
-      patch.op === "replace-blocks" &&
-      previousBlockSave?.planId === bundle.plan.id &&
-      (bundle.plan.updatedAt === previousBlockSave.sourceRevision ||
-        bundle.plan.updatedAt === previousBlockSave.latestRevision);
-    const expectedUpdatedAt = followsBlockSave
-      ? previousBlockSave.latestRevision
-      : bundle.plan.updatedAt;
-    try {
-      if (localPlanMode) {
-        if (!localPlanSlug || localPlanBridgeUrl) return;
-        await updateLocalPlan.mutateAsync(
-          {
-            slug: localPlanSlug,
-            ...(localPlanRepoPath ? { path: localPlanRepoPath } : {}),
-            contentPatches: [patch],
-            note:
-              patch.op === "update-rich-text"
-                ? `Edited local markdown block ${patch.blockId}.`
-                : "Patched local structured visual plan content.",
-          },
-          silentError ? { onError: () => {} } : undefined,
-        );
-        return;
+  // `base` is the saved revision the open document's edits were made on top
+  // of; without a document (no live editor) the plan as loaded stands in.
+  const saveBlocks = async (
+    plan: PlanBundleWithHtml["plan"],
+    blocks: PlanBlock[],
+    base: PlanBlocksRevision | null | undefined,
+  ) => {
+    const planId = plan.id;
+    const toRevision = (saved: PlanBundleWithHtml): PlanBlocksRevision => {
+      if (!saved.plan?.content) {
+        throw new Error("The saved plan has no structured content.");
       }
-      const updated = await updatePlan.mutateAsync(
+      return {
+        updatedAt: saved.plan.updatedAt,
+        blocks: saved.plan.content.blocks,
+      };
+    };
+    return saveBlocksMergingConflicts({
+      base:
+        base ??
+        (plan.content
+          ? { updatedAt: plan.updatedAt, blocks: plan.content.blocks }
+          : null),
+      blocks,
+      save: async (nextBlocks, expectedUpdatedAt) =>
+        toRevision(
+          await savePlanBlocks.mutateAsync({
+            planId,
+            expectedUpdatedAt,
+            contentPatches: [{ op: "replace-blocks", blocks: nextBlocks }],
+            note: "Patched structured visual plan content.",
+          }),
+        ),
+      readLatest: async () =>
+        toRevision(
+          await callAction<PlanBundleWithHtml>(
+            "get-visual-plan",
+            planBundleQueryParams(planId),
+            { method: "GET" },
+          ),
+        ),
+    });
+  };
+
+  const patchStructuredContent = async (
+    patch: PlanContentPatch,
+    options?: { base?: PlanBlocksRevision | null },
+  ) => {
+    if (!bundle) return;
+    if (localPlanMode) {
+      if (!localPlanSlug || localPlanBridgeUrl) return;
+      await updateLocalPlan.mutateAsync(
         {
-          planId: bundle.plan.id,
-          ...(patch.op === "replace-blocks" ? { expectedUpdatedAt } : {}),
+          slug: localPlanSlug,
+          ...(localPlanRepoPath ? { path: localPlanRepoPath } : {}),
           contentPatches: [patch],
           note:
             patch.op === "update-rich-text"
-              ? `Edited markdown block ${patch.blockId}.`
-              : "Patched structured visual plan content.",
+              ? `Edited local markdown block ${patch.blockId}.`
+              : "Patched local structured visual plan content.",
         },
-        silentError ? { onError: () => {} } : undefined,
+        patch.op === "replace-blocks" ? { onError: () => {} } : undefined,
       );
-      if (patch.op === "replace-blocks" && updated.plan?.updatedAt) {
-        blockSaveRevisionRef.current = {
-          planId: bundle.plan.id,
-          sourceRevision: followsBlockSave
-            ? previousBlockSave.sourceRevision
-            : bundle.plan.updatedAt,
-          latestRevision: updated.plan.updatedAt,
-        };
-      }
-    } catch (error) {
-      throw error;
+      return;
     }
+    if (patch.op === "replace-blocks") {
+      await saveBlocks(bundle.plan, patch.blocks, options?.base);
+      return;
+    }
+    await updatePlan.mutateAsync({
+      planId: bundle.plan.id,
+      contentPatches: [patch],
+      note:
+        patch.op === "update-rich-text"
+          ? `Edited markdown block ${patch.blockId}.`
+          : "Patched structured visual plan content.",
+    });
   };
 
   const updatePlanMetadata = async (patch: {

@@ -183,6 +183,8 @@ const messages = {
       changeStatistics: "बदलाव के आंकड़े",
       untitledPlan: "बिना शीर्षक वाली योजना",
       saveFailed: "सहेजा नहीं जा सका",
+      openFailed:
+        "इस योजना को संपादन के लिए नहीं खोला जा सका। फिर से प्रयास करने के लिए पृष्ठ को रीलोड करें।",
     },
     imageViewer: {
       actualSize: "वास्तविक आकार",
