@@ -1,6 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
   PromptComposer,
+  type ComposerDraftSnapshot,
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
   useEagerFileUploads,
@@ -152,6 +153,8 @@ export interface PromptPopoverHandle {
   ): Promise<boolean>;
   /** Send the current draft, with its attachments, as if send were pressed. */
   submitDraft(): Promise<boolean>;
+  /** The draft a send would take right now, to compare with one that was held back. */
+  getDraftSnapshot(): ComposerDraftSnapshot | null;
 }
 
 interface PromptPopoverProps {
@@ -168,7 +171,9 @@ interface PromptPopoverProps {
     attachments: PromptAttachmentActions,
     options?: SlidesPromptSubmitOptions,
   ) => void | PromptSubmitResult | Promise<PromptSubmitResult | void>;
-  onBeforeSubmit?: () => boolean | Promise<boolean>;
+  onBeforeSubmit?: (
+    draft?: ComposerDraftSnapshot,
+  ) => boolean | Promise<boolean>;
   loading?: boolean;
   disabled?: boolean;
   submissionDisabled?: boolean;
@@ -612,6 +617,9 @@ export default function PromptPopover({
         )
           return false;
         return composerRef.current.submit();
+      },
+      getDraftSnapshot() {
+        return composerRef.current?.getDraftSnapshot?.() ?? null;
       },
     }),
     [open, disabled, submissionDisabled, loading, uploading, promptText],

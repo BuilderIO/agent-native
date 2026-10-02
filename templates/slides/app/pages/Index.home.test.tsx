@@ -105,8 +105,10 @@ const {
   pageTitle,
   homeSuggestions,
   submitDraft,
+  getDraftSnapshot,
 } = vi.hoisted(() => ({
   submitDraft: vi.fn(async () => true),
+  getDraftSnapshot: vi.fn(),
   useDecks: vi.fn(),
   reloadDecks: vi.fn(),
   createDeck: vi.fn(),
@@ -392,6 +394,7 @@ vi.mock("@/components/editor/PromptDialog", () => ({
     useImperativeHandle(props.controllerRef, () => ({
       submitSource: vi.fn(async () => true),
       submitDraft,
+      getDraftSnapshot,
     }));
     if (!props.open) return null;
     return (
@@ -1213,16 +1216,24 @@ describe("Slides prompt-led home", () => {
     );
   });
 
+  const submittedDraft = {
+    text: "Make a pitch deck",
+    referenceKeys: [],
+    attachmentIds: ["file-1"],
+  };
+
   it("sends the held-back draft once after AI setup becomes ready", async () => {
     agentEngine.state = "missing";
     agentEngine.missing = true;
     submitDraft.mockClear();
+    getDraftSnapshot.mockReturnValue({ ...submittedDraft });
     const home = renderHome();
     await screen.findByRole("textbox", { name: "Presentation prompt" });
 
     let canSubmit: unknown;
     await act(async () => {
-      canSubmit = await promptProps.mock.lastCall![0].onBeforeSubmit();
+      canSubmit =
+        await promptProps.mock.lastCall![0].onBeforeSubmit!(submittedDraft);
     });
     expect(canSubmit).toBe(false);
     expect(submitDraft).not.toHaveBeenCalled();
@@ -1234,6 +1245,50 @@ describe("Slides prompt-led home", () => {
 
     expect(submitDraft).toHaveBeenCalledOnce();
     expect(createDeck).not.toHaveBeenCalled();
+  });
+
+  it("leaves a draft edited while connecting in the composer instead of sending it", async () => {
+    agentEngine.state = "missing";
+    agentEngine.missing = true;
+    submitDraft.mockClear();
+    getDraftSnapshot.mockReturnValue({
+      ...submittedDraft,
+      text: "Make a pitch deck for investors, and also a roadmap",
+    });
+    const home = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onBeforeSubmit!(submittedDraft);
+    });
+
+    agentEngine.state = "configured";
+    agentEngine.missing = false;
+    await act(async () => home.rerenderHome());
+    await act(async () => home.rerenderHome());
+
+    expect(submitDraft).not.toHaveBeenCalled();
+  });
+
+  it("leaves a draft whose attachments changed while connecting in the composer", async () => {
+    agentEngine.state = "missing";
+    agentEngine.missing = true;
+    submitDraft.mockClear();
+    getDraftSnapshot.mockReturnValue({
+      ...submittedDraft,
+      attachmentIds: ["file-1", "file-2"],
+    });
+    const home = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onBeforeSubmit!(submittedDraft);
+    });
+
+    agentEngine.state = "configured";
+    agentEngine.missing = false;
+    await act(async () => home.rerenderHome());
+    await act(async () => home.rerenderHome());
+
+    expect(submitDraft).not.toHaveBeenCalled();
   });
 
   it("does not send a draft nobody tried to send when setup becomes ready", async () => {

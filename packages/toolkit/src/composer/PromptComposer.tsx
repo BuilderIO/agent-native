@@ -57,6 +57,7 @@ import {
   type ComposerTextSelection,
   type ComposerImageModelMenu,
   type ComposerSubmitIntent,
+  type ComposerDraftSnapshot,
   type TiptapComposerHandle,
   type TiptapComposerSubmitOptions,
 } from "./TiptapComposer.js";
@@ -105,7 +106,9 @@ export interface PromptComposerProps {
     options: PromptComposerSubmitOptions,
   ) => void | Promise<void>;
   /** Return false to stop a submit before it reaches the host runtime. */
-  onBeforeSubmit?: () => boolean | Promise<boolean>;
+  onBeforeSubmit?: (
+    draft?: ComposerDraftSnapshot,
+  ) => boolean | Promise<boolean>;
   onSubmissionPendingChange?: (pending: boolean) => void;
   /** Scope where a failed submission should be recovered after the host forks. */
   getSubmitFailureDraftScope?: () => string | null;

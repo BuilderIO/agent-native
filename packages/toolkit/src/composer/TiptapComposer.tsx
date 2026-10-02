@@ -98,6 +98,43 @@ import { useSkills } from "./use-skills.js";
 import { RealtimeVoiceModeBoundary } from "./useRealtimeVoiceMode.js";
 import { useVoiceDictation } from "./useVoiceDictation.js";
 import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
+/**
+ * What a send would take from the composer at one moment, so a host that held
+ * a send back can tell the draft it held from one the person kept editing.
+ */
+export interface ComposerDraftSnapshot {
+  text: string;
+  referenceKeys: string[];
+  attachmentIds: string[];
+}
+
+export function composerDraftSnapshot(
+  text: string,
+  references: readonly Reference[],
+  attachments: readonly { id?: string; name?: string }[],
+): ComposerDraftSnapshot {
+  return {
+    text,
+    referenceKeys: references.map(
+      (ref) => `${ref.type}:${ref.path}:${ref.refId ?? ""}:${ref.name}`,
+    ),
+    attachmentIds: attachments.map(
+      (attachment) => attachment.id ?? attachment.name ?? "",
+    ),
+  };
+}
+
+export function sameComposerDraft(
+  a: ComposerDraftSnapshot,
+  b: ComposerDraftSnapshot,
+): boolean {
+  return (
+    a.text === b.text &&
+    JSON.stringify(a.referenceKeys) === JSON.stringify(b.referenceKeys) &&
+    JSON.stringify(a.attachmentIds) === JSON.stringify(b.attachmentIds)
+  );
+}
+
 export interface TiptapComposerHandle {
   focus(): void;
   /** Add a file through the same attachment pipeline as paste and drop. */
@@ -114,6 +151,8 @@ export interface TiptapComposerHandle {
   submitWithText(text: string): Promise<boolean>;
   /** Submit the current draft as if the person pressed send. */
   submit?(): Promise<boolean>;
+  /** The draft as a send would take it right now. */
+  getDraftSnapshot?(): ComposerDraftSnapshot;
   insertReference(ref: AgentComposerReference): void;
   replaceReference(refType: string, ref: AgentComposerReference | null): void;
   getSelection(): ComposerTextSelection | null;
@@ -919,7 +958,9 @@ export interface TiptapComposerProps {
     options?: TiptapComposerSubmitOptions,
   ) => void | Promise<void>;
   /** Return false to stop a submit before it enters the chat runtime. */
-  onBeforeSubmit?: () => boolean | Promise<boolean>;
+  onBeforeSubmit?: (
+    draft?: ComposerDraftSnapshot,
+  ) => boolean | Promise<boolean>;
   onSubmissionPendingChange?: (pending: boolean) => void;
   /** Scope where a failed submission should be recovered after the host forks. */
   getSubmitFailureDraftScope?: () => string | null;
@@ -3554,6 +3595,14 @@ export function TiptapComposer({
     },
     submitWithText: (text: string) => submitComposer("immediate", text),
     submit: () => submitComposer("immediate"),
+    getDraftSnapshot: () => {
+      const { text, references } = extractComposerPayload();
+      return composerDraftSnapshot(
+        text,
+        references,
+        composerRuntime.getState().attachments,
+      );
+    },
     insertReference,
     replaceReference(refType, ref) {
       if (!isComposerEditorUsable(editor)) return;
@@ -4342,7 +4391,9 @@ export function TiptapComposer({
         submitInFlightRef.current = true;
         onSubmissionPendingChange?.(true);
         try {
-          const shouldSubmit = await onBeforeSubmit();
+          const shouldSubmit = await onBeforeSubmit(
+            composerDraftSnapshot(text, references, attachments),
+          );
           if (!shouldSubmit) {
             restoreSubmittedDraft(true);
             return false;
