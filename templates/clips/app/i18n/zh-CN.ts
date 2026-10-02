@@ -1160,14 +1160,14 @@ const messages = {
     elapsed: "已用时间",
     cancel: "丢弃录制",
     cancelShortcut: "丢弃 (⌥⇧C)",
-    discardConfirmTitle: "要丢弃此录制吗?",
+    discardConfirmTitle: "删除此录制？",
     discardConfirmDescription:
       "此操作无法撤销,到目前为止的录制内容将被永久删除。",
     resume: "继续",
     discardRecording: "丢弃录制",
     restart: "重新录制",
     restartShortcut: "重新开始 (⌥⇧R)",
-    restartQuestion: "要开始新的录制吗？",
+    restartQuestion: "删除此录制并重新开始？",
     restartConfirm: "重新开始",
   },
   countdownOverlay: {
@@ -1727,10 +1727,55 @@ const messages = {
       "在下一屏连接存储：Builder.io（免费套餐存储 + AI）或 S3 兼容存储。Clips 将完成保存。",
     connectStorageToRetryLoom:
       "在下一屏连接存储：Builder.io（免费套餐存储 + AI）或 S3 兼容存储。Clips 将重试导入。",
-    leaveConfirmTitle: "离开并丢弃此录制？",
+    leaveConfirmTitle: "离开此录制？",
     leaveConfirmDescription:
-      "正在进行的录制尚未保存完成。现在离开此页面将丢弃它。",
+      "此录制只存在于这个标签页中。除非先下载副本，否则离开后会被删除。",
     leaveAndDiscard: "离开并丢弃",
+    recordingWithoutSound: "正在无声录制。打开麦克风才能生成转录。",
+    pendingStorageTitle: "连接存储以保存你的录制",
+    pendingStorageDescription: "连接存储后，Clips 会立即上传。",
+    storageConnectedUploading: "存储已连接。正在上传你的录制…",
+    downloadCopy: "下载副本",
+    localRecordingOpenElsewhere: "该录制仍在另一个 Clips 标签页中打开。",
+    uploadWaitingForConnection: "上传已暂停。Clips 会自动重试。",
+    uploadDidNotFinish: "上传未完成。",
+    unfinishedRecording: "有一个录制尚未上传完成",
+    finishUpload: "完成上传",
+    leaveKeepDescription:
+      "Clips 会把它保留在此浏览器中，并在你回来时提示完成上传。选择“离开并丢弃”会永久删除它。",
+    leaveAndKeep: "离开并保留",
+    copySafeInBrowser: "你的录制已安全保存在此浏览器中。",
+    copyOnlyInThisTab:
+      "此录制只存在于这个标签页中。请保持其打开，或下载一份副本。",
+    localCopyFull:
+      "此浏览器存储空间已满，Clips 无法保留安全副本。请保持此标签页打开直到上传完成，或下载一份副本。",
+    localCopyFailed:
+      "Clips 无法在此浏览器中保留安全副本。请保持此标签页打开直到上传完成，或下载一份副本。",
+    localCopyUnreadable: "无法读取此浏览器中的录制副本。",
+    recordingOwnedByAnotherAccount:
+      "此录制属于另一个账号。请在此浏览器中登录该账号后再上传。",
+    unclaimedRecording: "此浏览器中有一个未关联任何账号的录制",
+    reviewRecording: "查看",
+    claimRecordingPrompt: "此录制尚未关联任何账号。要上传到 {{email}} 吗？",
+    claimRecording: "上传到我的账号",
+    lowBrowserStorage:
+      "此浏览器存储空间不足，较长的录制可能放不进安全副本。请保持此标签页打开直到上传完成。",
+    recordingEndMissing:
+      "此录制的结尾没有保存。Clips 会上传已有的部分并保留你的副本。",
+    uploadedPartialCopyKept:
+      "已上传此浏览器保存的内容。结尾可能缺失，因此 Clips 在这里保留了你的副本。",
+    uploadUnverifiedCopyKept:
+      "Clips 无法确认整个录制都已上传，因此在这里保留了你的副本。",
+    copyKeptAfterUpload:
+      "此录制已上传，但 Clips 无法确认它是否完整，因此在这里保留了你的副本。",
+    localCopyLockUnavailable:
+      "Clips 无法确认没有其他标签页在使用此录制，因此不会从这里上传或删除它。请改为下载一份副本。",
+    uploadAgain: "重新上传",
+    keptCopyWaiting: "Clips 在此浏览器中保留了一份录制副本",
+    savedRecordingsUnreadable: "Clips 无法读取此浏览器中保存的录制。",
+    remindTomorrow: "明天提醒我",
+    stillProcessingCopyKept:
+      "此录制仍在处理中，因此 Clips 在这里保留了你的副本。请等待处理完成，或重新上传。",
   },
   importRoute: {
     pageTitle: "导入 Loom — Clips",

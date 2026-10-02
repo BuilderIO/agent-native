@@ -56,7 +56,10 @@ import {
   useVideoStorageStatus,
 } from "@/hooks/use-video-storage-status";
 import { OPEN_CREATE_FOLDER_EVENT } from "@/lib/command-events";
-import { retryRecordingUploadFromBackup } from "@/lib/recording-retry";
+import {
+  LocalCopyInUseError,
+  retryRecordingUploadFromBackup,
+} from "@/lib/recording-retry";
 import { cn } from "@/lib/utils";
 import { resolveVideoMimeType } from "@/lib/video-metadata";
 
@@ -514,7 +517,11 @@ export function LibraryGrid({
     try {
       await retryRecordingUploadFromBackup(rec.id);
     } catch (err: any) {
-      toast.error(err?.message ?? t("clipsFinalRaw.retryFailed"));
+      toast.error(
+        err instanceof LocalCopyInUseError
+          ? t("recordRoute.localRecordingOpenElsewhere")
+          : (err?.message ?? t("clipsFinalRaw.retryFailed")),
+      );
     } finally {
       void refetch();
     }

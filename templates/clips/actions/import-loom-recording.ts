@@ -23,7 +23,11 @@ import {
   requireOrganizationAccess,
   stringifySpaceIds,
 } from "../server/lib/recordings.js";
-import { uploadLeaseExpiry } from "../server/lib/upload-lease.js";
+import {
+  uploadLeaseExpiry,
+  WAITING_STORAGE_EXPIRED_REASON,
+  waitingStorageLeaseExpiry,
+} from "../server/lib/upload-lease.js";
 import { hasRequestVideoStorage } from "../server/lib/video-storage.js";
 import {
   downloadDirectVideo,
@@ -193,11 +197,16 @@ export default defineAction({
           "Only a matching waiting import can be retried this way.",
         );
       }
+      // Still parked, or failed by the reaper once its waiting lease ran out:
+      // the source URL is kept, so either retries in place.
       const isWaitingStorageRetry =
-        existingRecording.status === "uploading" &&
         !existingRecording.videoUrl &&
-        existingRecording.failureReason === storageSetupReason &&
-        existingRecording.sourceWindowTitle === sourceUrl;
+        existingRecording.sourceWindowTitle === sourceUrl &&
+        ((existingRecording.status === "uploading" &&
+          existingRecording.failureReason === storageSetupReason) ||
+          (existingRecording.status === "failed" &&
+            existingRecording.failureReason ===
+              WAITING_STORAGE_EXPIRED_REASON));
       const isRetryableLoomImport =
         isLoom &&
         !existingRecording.videoUrl &&
@@ -299,6 +308,7 @@ export default defineAction({
             status: "uploading",
             videoUrl: null,
             failureReason: storageSetupReason,
+            uploadLeaseExpiresAt: waitingStorageLeaseExpiry(),
             loomImportClaimId: null,
             loomImportClaimedAt: null,
           })
@@ -310,6 +320,7 @@ export default defineAction({
           videoUrl: null,
           status: "uploading",
           failureReason: storageSetupReason,
+          uploadLeaseExpiresAt: waitingStorageLeaseExpiry(),
           ownerEmail,
           createdAt,
         });

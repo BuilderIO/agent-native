@@ -442,6 +442,19 @@ function durableRunFailures(messages: AgentMessage[]): Map<string, AgentError> {
   );
 }
 
+/** A durable reply's terminal run plus every continuation run folded into it. */
+function durableRunIds(message: AgentMessage): string[] {
+  const metadata = asRecord(message.metadata);
+  const folded = asRecord(metadata?.custom)?.foldedRunIds;
+  return [
+    ...new Set(
+      [metadata?.runId, ...(Array.isArray(folded) ? folded : [])].filter(
+        (id): id is string => typeof id === "string",
+      ),
+    ),
+  ];
+}
+
 const REFUSED_TURN_CUSTOM_KEYS = [
   RUN_NOT_STARTED_METADATA_KEY,
   "submittedRunId",
@@ -573,6 +586,16 @@ function reconcileDurableMessages(
     if (typeof runId !== "string") continue;
     durableByRun.set(runId, durableByRun.has(runId) ? null : message);
   }
+  const durableByFoldedRun = new Map<string, AgentMessage | null>();
+  for (const message of durable) {
+    if (message.role !== "assistant") continue;
+    for (const runId of durableRunIds(message)) {
+      durableByFoldedRun.set(
+        runId,
+        durableByFoldedRun.has(runId) ? null : message,
+      );
+    }
+  }
 
   const representedSubmittedUserIds = new Set<string>();
   const storedUserBySnapshotId = new Map<string, AgentMessage>();
@@ -583,6 +606,7 @@ function reconcileDurableMessages(
     ),
   );
   const representedAssistantRunIds = new Set<string>();
+  const snapshotAssistantRunIds = new Set<string>();
   for (const message of messages) {
     if (
       message.role === "user" &&
@@ -613,6 +637,7 @@ function reconcileDurableMessages(
           : runByAssistantId.get(message.id);
       const stored = runId ? durableByRun.get(runId) : undefined;
       if (runId && stored) representedAssistantRunIds.add(runId);
+      if (runId) snapshotAssistantRunIds.add(runId);
     }
   }
   const matchedSnapshotUserIds = new Set<string>();
@@ -699,6 +724,15 @@ function reconcileDurableMessages(
       continue;
     }
     if (representedAssistantRunIds.has(runId)) continue;
+    // The snapshot holds an earlier run of this folded reply; the final pass
+    // completes that message instead of adding a second copy.
+    if (
+      durableRunIds(message).some(
+        (id) => id !== runId && snapshotAssistantRunIds.has(id),
+      )
+    ) {
+      continue;
+    }
     missingMessages.push(message);
     representedAssistantIds.add(message.id);
   }
@@ -729,19 +763,41 @@ function reconcileDurableMessages(
     })
     .map(({ message }) => message);
 
+  const snapshotRunId = (message: AgentMessage) => {
+    const metadataRunId = asRecord(message.metadata)?.runId;
+    return (
+      runByAssistantId.get(message.id) ??
+      (typeof metadataRunId === "string" ? metadataRunId : undefined)
+    );
+  };
+  const textOf = (parts: AgentMessage["parts"]) =>
+    parts
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("");
+
   return projectedMessages.map((message) => {
     if (message.role === "user") {
       const stored = storedUserBySnapshotId.get(message.id);
       return stored ? withRefusedTurnMetadata(message, stored) : message;
     }
     if (message.role !== "assistant") return message;
-    const metadataRunId = asRecord(message.metadata)?.runId;
-    const runId =
-      runByAssistantId.get(message.id) ??
-      (typeof metadataRunId === "string" ? metadataRunId : undefined);
-    const stored =
+    const runId = snapshotRunId(message);
+    const matched =
       durableById.get(message.id) ??
       (runId ? durableByRun.get(runId) : undefined);
+    // An earlier run of a folded reply is completed with the continuation text
+    // the page never saw, unless the page saved that continuation as its own
+    // message (folding it in would show it twice).
+    const folded =
+      matched || !runId ? undefined : durableByFoldedRun.get(runId);
+    const foldedTerminalRunId = asRecord(folded?.metadata)?.runId;
+    const stored =
+      matched ??
+      (typeof foldedTerminalRunId === "string" &&
+      snapshotAssistantRunIds.has(foldedTerminalRunId)
+        ? undefined
+        : folded);
     if (stored?.role !== "assistant") return message;
     const messageMetadata = asRecord(message.metadata);
     const storedMetadata = asRecord(stored.metadata);
@@ -756,23 +812,32 @@ function reconcileDurableMessages(
             : {}),
         }
       : message.metadata;
-    const reconciled = {
-      ...message,
-      ...(stored.status === "complete" || stored.status === "error"
-        ? { status: stored.status }
-        : {}),
-      ...(metadata ? { metadata } : {}),
-    };
+    const reconciled =
+      stored === matched
+        ? {
+            ...message,
+            ...(stored.status === "complete" || stored.status === "error"
+              ? { status: stored.status }
+              : {}),
+            ...(metadata ? { metadata } : {}),
+          }
+        : message;
     const lastPart = reconciled.parts.at(-1);
-    if (lastPart && lastPart.type !== "text") return reconciled;
-    const currentText = reconciled.parts
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("");
-    const storedText = stored.parts
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("");
+    const foldedRunIds = durableRunIds(stored);
+    const spansRuns = foldedRunIds.length > 1;
+    if (lastPart && lastPart.type !== "text" && !spansRuns) return reconciled;
+    // Only the last message the page saved for a folded reply takes the
+    // continuation, and it is measured against everything the page saved.
+    const foldedGroup = spansRuns
+      ? projectedMessages.filter(
+          (candidate) =>
+            candidate.role === "assistant" &&
+            foldedRunIds.includes(snapshotRunId(candidate) ?? ""),
+        )
+      : [reconciled];
+    if (spansRuns && foldedGroup.at(-1) !== message) return reconciled;
+    const currentText = textOf(foldedGroup.flatMap((entry) => entry.parts));
+    const storedText = textOf(stored.parts);
     if (
       !storedText.startsWith(currentText) ||
       storedText.length <= currentText.length
@@ -781,10 +846,10 @@ function reconcileDurableMessages(
     }
     const suffix = storedText.slice(currentText.length);
     const parts = [...reconciled.parts];
-    if (!lastPart) {
-      parts.push({ type: "text", text: suffix });
-    } else {
+    if (lastPart?.type === "text") {
       parts[parts.length - 1] = { ...lastPart, text: lastPart.text + suffix };
+    } else {
+      parts.push({ type: "text", text: suffix });
     }
     return { ...reconciled, parts };
   });

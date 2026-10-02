@@ -1250,14 +1250,14 @@ const messages = {
     elapsed: "Verstrichene Zeit",
     cancel: "Aufnahme verwerfen",
     cancelShortcut: "Verwerfen (⌥⇧C)",
-    discardConfirmTitle: "Diese Aufnahme verwerfen?",
+    discardConfirmTitle: "Diese Aufnahme löschen?",
     discardConfirmDescription:
       "Dies kann nicht rückgängig gemacht werden. Deine bisherige Aufnahme wird endgültig gelöscht.",
     resume: "Fortsetzen",
     discardRecording: "Aufnahme verwerfen",
     restart: "Aufnahme neu starten",
     restartShortcut: "Neu starten (⌥⇧R)",
-    restartQuestion: "Eine neue Aufnahme starten?",
+    restartQuestion: "Diese Aufnahme löschen und neu beginnen?",
     restartConfirm: "Neu starten",
   },
   countdownOverlay: {
@@ -1842,10 +1842,65 @@ const messages = {
       "Verbinde Speicher im nächsten Bildschirm: Builder.io (Speicher + KI im kostenlosen Tarif) oder S3-kompatibler Speicher. Clips schließt das Speichern ab.",
     connectStorageToRetryLoom:
       "Verbinde Speicher im nächsten Bildschirm: Builder.io (Speicher + KI im kostenlosen Tarif) oder S3-kompatibler Speicher. Clips versucht den Import erneut.",
-    leaveConfirmTitle: "Diese Aufnahme verlassen und verwerfen?",
+    leaveConfirmTitle: "Diese Aufnahme verlassen?",
     leaveConfirmDescription:
-      "Deine laufende Aufnahme wurde noch nicht vollständig gespeichert. Wenn du diese Seite jetzt verlässt, wird sie verworfen.",
+      "Diese Aufnahme gibt es nur in diesem Tab. Wenn du die Seite verlässt, wird sie gelöscht, außer du lädst vorher eine Kopie herunter.",
     leaveAndDiscard: "Verlassen und verwerfen",
+    recordingWithoutSound:
+      "Aufnahme ohne Ton. Schalte ein Mikrofon ein, um ein Transkript zu erhalten.",
+    pendingStorageTitle: "Verbinde Speicher, um deine Aufnahme zu sichern",
+    pendingStorageDescription:
+      "Verbinde Speicher, und Clips lädt sie sofort hoch.",
+    storageConnectedUploading:
+      "Speicher verbunden. Deine Aufnahme wird hochgeladen…",
+    downloadCopy: "Kopie herunterladen",
+    localRecordingOpenElsewhere:
+      "Diese Aufnahme ist noch in einem anderen Clips-Tab geöffnet.",
+    uploadWaitingForConnection:
+      "Upload pausiert. Clips versucht es automatisch erneut.",
+    uploadDidNotFinish: "Der Upload wurde nicht abgeschlossen.",
+    unfinishedRecording: "Eine Aufnahme ist noch nicht vollständig hochgeladen",
+    finishUpload: "Upload abschließen",
+    leaveKeepDescription:
+      "Clips behält sie in diesem Browser und bietet dir beim nächsten Mal an, den Upload abzuschließen. „Verlassen und verwerfen“ löscht sie endgültig.",
+    leaveAndKeep: "Verlassen und behalten",
+    copySafeInBrowser: "Deine Aufnahme ist in diesem Browser sicher.",
+    copyOnlyInThisTab:
+      "Diese Aufnahme gibt es nur in diesem Tab. Lass ihn geöffnet oder lade eine Kopie herunter.",
+    localCopyFull:
+      "Der Speicher dieses Browsers ist voll, daher kann Clips keine Sicherungskopie anlegen. Lass diesen Tab geöffnet, bis der Upload fertig ist, oder lade eine Kopie herunter.",
+    localCopyFailed:
+      "Clips konnte in diesem Browser keine Sicherungskopie anlegen. Lass diesen Tab geöffnet, bis der Upload fertig ist, oder lade eine Kopie herunter.",
+    localCopyUnreadable:
+      "Die Kopie der Aufnahme in diesem Browser konnte nicht gelesen werden.",
+    recordingOwnedByAnotherAccount:
+      "Diese Aufnahme gehört zu einem anderen Konto. Melde dich in diesem Browser bei diesem Konto an, um sie hochzuladen.",
+    unclaimedRecording:
+      "Eine Aufnahme in diesem Browser ist mit keinem Konto verknüpft",
+    reviewRecording: "Ansehen",
+    claimRecordingPrompt:
+      "Diese Aufnahme ist noch mit keinem Konto verknüpft. In {{email}} hochladen?",
+    claimRecording: "In mein Konto hochladen",
+    lowBrowserStorage:
+      "Dieser Browser hat wenig Speicher frei, daher passt eine lange Aufnahme womöglich nicht in die Sicherungskopie. Lass diesen Tab geöffnet, bis sie hochgeladen ist.",
+    recordingEndMissing:
+      "Das Ende dieser Aufnahme wurde nicht gespeichert. Clips lädt hoch, was vorhanden ist, und behält deine Kopie.",
+    uploadedPartialCopyKept:
+      "Hochgeladen, was dieser Browser gespeichert hat. Das Ende fehlt womöglich, daher hat Clips deine Kopie hier behalten.",
+    uploadUnverifiedCopyKept:
+      "Clips konnte nicht bestätigen, dass die ganze Aufnahme hochgeladen wurde, und hat deine Kopie hier behalten.",
+    copyKeptAfterUpload:
+      "Diese Aufnahme wurde hochgeladen, aber Clips konnte nicht bestätigen, dass sie vollständig ist, und hat deine Kopie hier behalten.",
+    localCopyLockUnavailable:
+      "Clips kann nicht bestätigen, dass kein anderer Tab diese Aufnahme verwendet, und lädt sie deshalb von hier weder hoch noch löscht sie. Lade stattdessen eine Kopie herunter.",
+    uploadAgain: "Erneut hochladen",
+    keptCopyWaiting:
+      "Clips hat eine Kopie einer Aufnahme in diesem Browser behalten",
+    savedRecordingsUnreadable:
+      "Clips konnte die in diesem Browser gespeicherten Aufnahmen nicht lesen.",
+    remindTomorrow: "Morgen erinnern",
+    stillProcessingCopyKept:
+      "Diese Aufnahme wird noch verarbeitet, daher hat Clips deine Kopie hier behalten. Warte darauf oder lade sie erneut hoch.",
   },
   importRoute: {
     pageTitle: "Loom importieren — Clips",

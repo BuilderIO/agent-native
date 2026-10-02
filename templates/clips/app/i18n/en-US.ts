@@ -1145,14 +1145,14 @@ const messages = {
     elapsed: "Elapsed time",
     cancel: "Discard recording",
     cancelShortcut: "Discard (⌥⇧C)",
-    discardConfirmTitle: "Discard this recording?",
+    discardConfirmTitle: "Delete this recording?",
     discardConfirmDescription:
       "This can't be undone. Your recording so far will be permanently deleted.",
     resume: "Resume",
     discardRecording: "Discard recording",
     restart: "Restart recording",
     restartShortcut: "Restart (⌥⇧R)",
-    restartQuestion: "Start a new recording?",
+    restartQuestion: "Delete this recording and start over?",
     restartConfirm: "Restart",
   },
   countdownOverlay: {
@@ -1783,10 +1783,62 @@ const messages = {
       "Connect storage on the next screen: Builder.io (free tier storage + AI) or S3-compatible storage. Clips will finish saving it.",
     connectStorageToRetryLoom:
       "Connect storage on the next screen: Builder.io (free tier storage + AI) or S3-compatible storage. Clips will retry the import.",
-    leaveConfirmTitle: "Leave and discard this recording?",
+    leaveConfirmTitle: "Leave this recording?",
     leaveConfirmDescription:
-      "Your in-progress recording hasn't finished saving. Leaving this page now will discard it.",
+      "This recording is only in this tab. Leaving deletes it unless you download a copy first.",
     leaveAndDiscard: "Leave and discard",
+    recordingWithoutSound:
+      "Recording without sound. Turn on a microphone to get a transcript.",
+    pendingStorageTitle: "Connect storage to save your recording",
+    pendingStorageDescription:
+      "Connect storage and Clips uploads it right away.",
+    storageConnectedUploading: "Storage connected. Uploading your recording…",
+    downloadCopy: "Download a copy",
+    localRecordingOpenElsewhere:
+      "That recording is still open in another Clips tab.",
+    uploadWaitingForConnection: "Upload paused. Clips retries automatically.",
+    uploadDidNotFinish: "The upload didn't finish.",
+    unfinishedRecording: "A recording hasn't finished uploading",
+    finishUpload: "Finish upload",
+    leaveKeepDescription:
+      "Clips keeps it in this browser and offers to finish the upload when you're back. Leave and discard deletes it permanently.",
+    leaveAndKeep: "Leave and keep",
+    copySafeInBrowser: "Your recording is safe in this browser.",
+    copyOnlyInThisTab:
+      "This recording is only in this tab. Keep it open, or download a copy.",
+    localCopyFull:
+      "This browser is out of storage, so Clips can't keep a safety copy. Keep this tab open until the upload finishes, or download a copy.",
+    localCopyFailed:
+      "Clips couldn't keep a safety copy in this browser. Keep this tab open until the upload finishes, or download a copy.",
+    localCopyUnreadable:
+      "This browser's copy of the recording couldn't be read.",
+    recordingOwnedByAnotherAccount:
+      "This recording belongs to another account. Sign in to that account in this browser to upload it.",
+    unclaimedRecording:
+      "A recording in this browser isn't linked to an account",
+    reviewRecording: "Review",
+    claimRecordingPrompt:
+      "This recording isn't linked to an account yet. Upload it to {{email}}?",
+    claimRecording: "Upload to my account",
+    lowBrowserStorage:
+      "This browser is low on storage, so a long recording may not fit in its safety copy. Keep this tab open until it uploads.",
+    recordingEndMissing:
+      "The end of this recording didn't save. Clips uploads what it has and keeps your copy.",
+    uploadedPartialCopyKept:
+      "Uploaded what this browser saved. The end may be missing, so Clips kept your copy here.",
+    uploadUnverifiedCopyKept:
+      "Clips couldn't confirm the whole recording uploaded, so it kept your copy here.",
+    copyKeptAfterUpload:
+      "This recording uploaded, but Clips couldn't confirm it's complete, so it kept your copy here.",
+    localCopyLockUnavailable:
+      "Clips can't confirm that no other tab is using this recording, so it won't upload or delete it from here. Download a copy instead.",
+    uploadAgain: "Upload again",
+    keptCopyWaiting: "Clips kept a copy of a recording in this browser",
+    savedRecordingsUnreadable:
+      "Clips couldn't read the recordings saved in this browser.",
+    remindTomorrow: "Remind me tomorrow",
+    stillProcessingCopyKept:
+      "This recording is still processing, so Clips kept your copy here. Wait for it, or upload it again.",
   },
   importRoute: {
     pageTitle: "Import Loom — Clips",

@@ -102,6 +102,73 @@ test("passes the canonical endpoint through the browser evaluation boundary", as
   ]);
 });
 
+test("retries the install on the page that finished navigating", async () => {
+  let evaluations = 0;
+  let settled = 0;
+  const page = {
+    async goto() {},
+    async waitForLoadState() {
+      settled += 1;
+    },
+    async evaluate() {
+      evaluations += 1;
+      if (evaluations === 1) {
+        throw new Error(
+          "page.evaluate: Execution context was destroyed, most likely because of a navigation.",
+        );
+      }
+      return {
+        status: 200,
+        body: '{"ok":true,"key":"OPENAI_API_KEY","baseUrlKey":"OPENAI_BASE_URL","scope":"user"}',
+        runtimeStatus: {
+          status: 200,
+          body: '{"configured":true,"engine":"ai-sdk:openai"}',
+        },
+      };
+    },
+    async close() {},
+  };
+  const context = {
+    async newPage() {
+      return page;
+    },
+  } as unknown as BrowserContext;
+
+  const result = await installOpenAiKey(
+    context,
+    "https://beta.example.test",
+    "sk-example-dedicated",
+  );
+
+  assert.equal(result.installed, true);
+  assert.equal(evaluations, 2);
+  assert.equal(settled, 1);
+});
+
+test("surfaces any other evaluation failure without retrying", async () => {
+  let evaluations = 0;
+  const page = {
+    async goto() {},
+    async waitForLoadState() {},
+    async evaluate() {
+      evaluations += 1;
+      throw new Error("net::ERR_CONNECTION_RESET");
+    },
+    async close() {},
+  };
+  const context = {
+    async newPage() {
+      return page;
+    },
+  } as unknown as BrowserContext;
+
+  await assert.rejects(
+    installOpenAiKey(context, "https://beta.example.test", "sk-example"),
+    /ERR_CONNECTION_RESET/,
+  );
+  assert.equal(evaluations, 1);
+});
+
 test("a host that never answers the in-page install fails instead of hanging", async () => {
   const page = {
     async goto() {},

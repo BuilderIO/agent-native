@@ -1226,14 +1226,14 @@ const messages = {
     elapsed: "経過時間",
     cancel: "録画を破棄",
     cancelShortcut: "破棄 (⌥⇧C)",
-    discardConfirmTitle: "この録画を破棄しますか?",
+    discardConfirmTitle: "この録画を削除しますか？",
     discardConfirmDescription:
       "この操作は元に戻せません。これまでの録画内容は完全に削除されます。",
     resume: "再開",
     discardRecording: "録画を破棄",
     restart: "録画をやり直す",
     restartShortcut: "やり直す (⌥⇧R)",
-    restartQuestion: "新しい録画を開始しますか?",
+    restartQuestion: "この録画を削除してやり直しますか？",
     restartConfirm: "やり直す",
   },
   countdownOverlay: {
@@ -1817,10 +1817,64 @@ const messages = {
       "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips が保存を完了します。",
     connectStorageToRetryLoom:
       "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips がインポートを再試行します。",
-    leaveConfirmTitle: "このページを離れて録画を破棄しますか?",
+    leaveConfirmTitle: "この録画から離れますか？",
     leaveConfirmDescription:
-      "録画中のデータはまだ保存が完了していません。今このページを離れると破棄されます。",
+      "この録画はこのタブにしかありません。先にコピーをダウンロードしない限り、離れると削除されます。",
     leaveAndDiscard: "離れて破棄する",
+    recordingWithoutSound:
+      "音声なしで録画しています。文字起こしを作成するにはマイクをオンにしてください。",
+    pendingStorageTitle: "録画を保存するにはストレージを接続してください",
+    pendingStorageDescription:
+      "ストレージを接続すると、Clips がすぐにアップロードします。",
+    storageConnectedUploading:
+      "ストレージを接続しました。録画をアップロードしています…",
+    downloadCopy: "コピーをダウンロード",
+    localRecordingOpenElsewhere:
+      "その録画は別の Clips タブでまだ開いています。",
+    uploadWaitingForConnection:
+      "アップロードを一時停止しました。Clips が自動で再試行します。",
+    uploadDidNotFinish: "アップロードが完了しませんでした。",
+    unfinishedRecording: "アップロードが完了していない録画があります",
+    finishUpload: "アップロードを完了",
+    leaveKeepDescription:
+      "Clips はこのブラウザに保存し、次に戻ったときにアップロードの完了を案内します。「離れて破棄する」を選ぶと完全に削除されます。",
+    leaveAndKeep: "保存して離れる",
+    copySafeInBrowser: "録画はこのブラウザに安全に保存されています。",
+    copyOnlyInThisTab:
+      "この録画はこのタブにしかありません。タブを開いたままにするか、コピーをダウンロードしてください。",
+    localCopyFull:
+      "このブラウザの空き容量が不足しているため、Clips は予備コピーを保存できません。アップロードが終わるまでこのタブを開いたままにするか、コピーをダウンロードしてください。",
+    localCopyFailed:
+      "Clips はこのブラウザに予備コピーを保存できませんでした。アップロードが終わるまでこのタブを開いたままにするか、コピーをダウンロードしてください。",
+    localCopyUnreadable:
+      "このブラウザにある録画のコピーを読み取れませんでした。",
+    recordingOwnedByAnotherAccount:
+      "この録画は別のアカウントのものです。アップロードするには、このブラウザでそのアカウントにログインしてください。",
+    unclaimedRecording:
+      "このブラウザに、どのアカウントにも紐づいていない録画があります",
+    reviewRecording: "確認",
+    claimRecordingPrompt:
+      "この録画はまだどのアカウントにも紐づいていません。{{email}} にアップロードしますか？",
+    claimRecording: "自分のアカウントにアップロード",
+    lowBrowserStorage:
+      "このブラウザの空き容量が少ないため、長い録画は予備コピーに収まらない可能性があります。アップロードが終わるまでこのタブを開いたままにしてください。",
+    recordingEndMissing:
+      "この録画の最後が保存されませんでした。Clips は保存できた分をアップロードし、コピーを残します。",
+    uploadedPartialCopyKept:
+      "このブラウザに保存された分をアップロードしました。最後が欠けている可能性があるため、Clips はコピーをここに残しました。",
+    uploadUnverifiedCopyKept:
+      "録画全体がアップロードされたことを Clips が確認できなかったため、コピーをここに残しました。",
+    copyKeptAfterUpload:
+      "この録画はアップロードされましたが、完全かどうかを Clips が確認できなかったため、コピーをここに残しました。",
+    localCopyLockUnavailable:
+      "ほかのタブがこの録画を使っていないことを Clips が確認できないため、ここからアップロードも削除もしません。代わりにコピーをダウンロードしてください。",
+    uploadAgain: "もう一度アップロード",
+    keptCopyWaiting: "Clips がこのブラウザに録画のコピーを残しています",
+    savedRecordingsUnreadable:
+      "このブラウザに保存された録画を Clips が読み取れませんでした。",
+    remindTomorrow: "明日もう一度通知",
+    stillProcessingCopyKept:
+      "この録画はまだ処理中のため、Clips はコピーをここに残しました。完了を待つか、もう一度アップロードしてください。",
   },
   importRoute: {
     pageTitle: "Loom をインポート — Clips",

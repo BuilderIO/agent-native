@@ -1,4 +1,4 @@
-import type { BrowserContext } from "@playwright/test";
+import type { BrowserContext, Page } from "@playwright/test";
 
 import { raceWithTimeout } from "./deadline";
 
@@ -169,6 +169,27 @@ export async function validateOpenAiKey(apiKey: string): Promise<void> {
   );
 }
 
+// The Chat app can hard-navigate right after DOMContentLoaded, which destroys
+// the evaluation context mid-request. The install is an idempotent upsert, so
+// it is safe to settle the navigation and run it again on the page that loaded.
+async function withNavigationRetry<T>(
+  page: Pick<Page, "waitForLoadState">,
+  run: () => Promise<T>,
+  attempts = 3,
+): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await run();
+    } catch (error) {
+      const destroyed =
+        error instanceof Error &&
+        error.message.includes("Execution context was destroyed");
+      if (!destroyed || attempt >= attempts) throw error;
+      await page.waitForLoadState("domcontentloaded");
+    }
+  }
+}
+
 export async function installOpenAiKey(
   context: BrowserContext,
   origin: string,
@@ -181,47 +202,48 @@ export async function installOpenAiKey(
       waitUntil: "domcontentloaded",
       timeout: 45_000,
     });
-    const evaluation = page.evaluate(
-      async ([route, statusRoute, key, baseUrl, timeoutMs]) => {
-        const response = await fetch(route, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            provider: "openai",
-            value: key,
-            baseUrl,
-            scope: "user",
-          }),
-          signal: AbortSignal.timeout(timeoutMs),
-        });
-        const install = {
-          status: response.status,
-          body: (await response.text()).slice(0, 400),
-        };
-        const runtime = await fetch(statusRoute, {
-          cache: "no-store",
-          signal: AbortSignal.timeout(timeoutMs),
-        });
-        return {
-          ...install,
-          runtimeStatus: {
-            status: runtime.status,
-            body: (await runtime.text()).slice(0, 400),
-          },
-        };
-      },
-      [
-        KEY_ROUTE,
-        ENGINE_STATUS_ROUTE,
-        apiKey,
-        OPENAI_DEFAULT_BASE_URL,
-        IN_PAGE_FETCH_TIMEOUT_MS,
-      ] as const,
-    );
+    const attemptInstall = () =>
+      page.evaluate(
+        async ([route, statusRoute, key, baseUrl, timeoutMs]) => {
+          const response = await fetch(route, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              provider: "openai",
+              value: key,
+              baseUrl,
+              scope: "user",
+            }),
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+          const install = {
+            status: response.status,
+            body: (await response.text()).slice(0, 400),
+          };
+          const runtime = await fetch(statusRoute, {
+            cache: "no-store",
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+          return {
+            ...install,
+            runtimeStatus: {
+              status: runtime.status,
+              body: (await runtime.text()).slice(0, 400),
+            },
+          };
+        },
+        [
+          KEY_ROUTE,
+          ENGINE_STATUS_ROUTE,
+          apiKey,
+          OPENAI_DEFAULT_BASE_URL,
+          IN_PAGE_FETCH_TIMEOUT_MS,
+        ] as const,
+      );
     const result = await raceWithTimeout(
       `Installing the OpenAI key on ${origin}`,
       evaluateTimeoutMs,
-      evaluation,
+      withNavigationRetry(page, attemptInstall),
     );
     return {
       installed:
