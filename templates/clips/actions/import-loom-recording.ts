@@ -229,11 +229,6 @@ export default defineAction({
     const { organizationId } = await requireOrganizationAccess(
       existingRecording?.organizationId ?? args.organizationId,
     );
-    const defaultVisibility = await getDefaultRecordingVisibility(
-      organizationId,
-      actionContext?.userEmail ?? ownerEmail,
-    );
-
     const now = new Date().toISOString();
     const id = existingRecording?.id ?? nanoid();
     const createdAt = existingRecording?.createdAt ?? now;
@@ -259,7 +254,12 @@ export default defineAction({
     const height = boundedDimension(oembed?.height ?? oembed?.thumbnail_height);
     const folderId = args.folderId ?? existingRecording?.folderId ?? null;
     const visibility =
-      args.visibility ?? existingRecording?.visibility ?? defaultVisibility;
+      args.visibility ??
+      existingRecording?.visibility ??
+      (await getDefaultRecordingVisibility(
+        organizationId,
+        actionContext?.userEmail ?? ownerEmail,
+      ));
     const titleSource = args.title
       ? "manual"
       : (existingRecording?.titleSource ?? "upload");

@@ -114,9 +114,10 @@ export default defineAction({
     const { organizationId } = await requireOrganizationAccess(
       args.organizationId,
     );
-    const defaultVisibility = await getDefaultRecordingVisibility(
+    const visibility = await getDefaultRecordingVisibility(
       organizationId,
       actionContext?.userEmail ?? ownerEmail,
+      args.visibility,
     );
 
     const spaceIds = await validateRecordingScope(db, {
@@ -144,7 +145,7 @@ export default defineAction({
       uploadLeaseExpiresAt: uploadLeaseExpiry(),
       hasAudio: args.hasAudio ?? true,
       hasCamera: args.hasCamera ?? false,
-      visibility: args.visibility ?? defaultVisibility,
+      visibility,
       width: args.width ?? 0,
       height: args.height ?? 0,
       ownerEmail,
