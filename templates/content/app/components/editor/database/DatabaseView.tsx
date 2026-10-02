@@ -3358,7 +3358,13 @@ function DatabaseTable({
         );
       })}
 
-      {activeView.type === "form" ? (
+      {database.itemsFailed ? (
+        <QueryErrorState
+          compact
+          onRetry={() => void database.retryItems()}
+          retrying={database.itemsRetrying}
+        />
+      ) : activeView.type === "form" ? (
         <DatabaseFormView
           databaseId={databaseId}
           databaseDocumentId={document.id}
@@ -3366,12 +3372,6 @@ function DatabaseTable({
           view={activeView}
           properties={orderedProperties}
           canEdit={effectiveCanEdit}
-        />
-      ) : database.itemsFailed ? (
-        <QueryErrorState
-          compact
-          onRetry={() => void database.retryItems()}
-          retrying={database.itemsRetrying}
         />
       ) : activeView.type === "board" ? (
         <DatabaseBoardView
