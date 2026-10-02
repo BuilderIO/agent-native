@@ -538,6 +538,9 @@ jobs:
         with:
           restore-dist-cache: "true"
 
+      - name: Create isolated Content row-mutation database
+        run: psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d content_migration_test -c "CREATE DATABASE content_row_mutation_test"
+
       - name: Run Content DB tests
         run: pnpm test:content-db
 
@@ -561,7 +564,7 @@ jobs:
           pnpm --filter content exec vitest --run actions/upsert-database-item-by-key.db.test.ts --config vitest.config.ts
         env:
           CONTENT_MIGRATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
-          CONTENT_ROW_MUTATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
+          CONTENT_ROW_MUTATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_row_mutation_test
 
   core-integration-tests:
     name: Core integration tests
