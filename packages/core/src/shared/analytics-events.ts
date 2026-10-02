@@ -323,3 +323,82 @@ export function legacyLifecycleEvent(
 
   return null;
 }
+
+/**
+ * The named reasons an agent run fails, recorded as `cause` on the browser's
+ * `agent_run_outcome` event. Analytics groups agent trouble by these and by
+ * normalized message for everything else, so a new name here is a product
+ * decision, not a refactor.
+ */
+export const AGENT_TROUBLE_CAUSES = [
+  "no_model_connected",
+  "rate_limit",
+  "context_overflow",
+  "provider_error",
+] as const;
+
+export type AgentTroubleCause = (typeof AGENT_TROUBLE_CAUSES)[number];
+
+export function isAgentTroubleCause(
+  value: unknown,
+): value is AgentTroubleCause {
+  return (
+    typeof value === "string" &&
+    (AGENT_TROUBLE_CAUSES as readonly string[]).includes(value)
+  );
+}
+
+/** The named cause of a run error code, or null when no name fits it. */
+export function agentTroubleCauseForCode(
+  code: string | null | undefined,
+): AgentTroubleCause | null {
+  const normalized = code?.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "missing_credentials" || normalized === "missing_api_key")
+    return "no_model_connected";
+  if (normalized === "http_429" || normalized.includes("rate_limit"))
+    return "rate_limit";
+  if (
+    normalized.includes("context_length") ||
+    normalized.includes("input_too_long")
+  )
+    return "context_overflow";
+  if (
+    normalized.startsWith("provider_") ||
+    normalized.startsWith("builder_gateway_") ||
+    normalized === "overloaded_error" ||
+    normalized === "authentication_error" ||
+    /^http_5\d\d$/.test(normalized)
+  )
+    return "provider_error";
+  return null;
+}
+
+const MAX_AGENT_TROUBLE_MESSAGE_INPUT = 1_000;
+export const MAX_AGENT_TROUBLE_MESSAGE_LENGTH = 120;
+
+/**
+ * An error message reduced to its shape, so the same failure groups together
+ * and no user text, address, link, or id leaves the page with it.
+ */
+export function normalizeAgentTroubleMessage(
+  message: string | null | undefined,
+): string {
+  if (!message) return "";
+  const normalized = message
+    .slice(0, MAX_AGENT_TROUBLE_MESSAGE_INPUT)
+    .replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, "<url>")
+    .replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, "<email>")
+    .replace(
+      /"[^"\n]{0,300}"|`[^`\n]{0,300}`|(?<!\w)'[^'\n]{0,300}'(?!\w)/g,
+      "<text>",
+    )
+    .replace(/[\w-]*\d[\w-]*/g, "<n>")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_AGENT_TROUBLE_MESSAGE_LENGTH)
+    .trim();
+  return /[\uD800-\uDBFF]$/.test(normalized)
+    ? normalized.slice(0, -1)
+    : normalized;
+}
