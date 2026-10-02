@@ -454,6 +454,13 @@ export async function saveCredential(
   });
 }
 
+/**
+ * Remove every row of `key` the named owner holds: the caller's own (user
+ * secret, legacy user setting, `solo:` workspace secret) or, with
+ * `scope: "org"`, the organization's (org secret, legacy workspace secret,
+ * legacy org setting). Callers check that the caller may change the
+ * organization's credentials; `deleteResolvedCredential` does it for them.
+ */
 export async function deleteCredential(
   key: string,
   ctx: CredentialContext & { scope?: "user" | "org" },
@@ -467,10 +474,18 @@ export async function deleteCredential(
     if (!ctx.orgId) {
       throw new Error("deleteCredential scope='org' requires orgId");
     }
+    await deleteAppSecret({ key, scope: "org", scopeId: ctx.orgId });
+    await deleteAppSecret({ key, scope: "workspace", scopeId: ctx.orgId });
     await deleteSetting(orgCredentialSettingKey(ctx.orgId, key));
     return;
   }
+  await deleteAppSecret({ key, scope: "user", scopeId: ctx.userEmail });
   await deleteSetting(userCredentialSettingKey(ctx.userEmail, key));
+  await deleteAppSecret({
+    key,
+    scope: "workspace",
+    scopeId: `solo:${ctx.userEmail}`,
+  });
 }
 
 export class CredentialDeleteForbiddenError extends Error {
@@ -485,11 +500,11 @@ export class CredentialDeleteForbiddenError extends Error {
 
 /**
  * Remove the credential `resolveCredentialDetailed` answers with, so a
- * disconnect takes effect. Every row of that owner goes: the caller's own
- * (user secret, legacy user setting, `solo:` workspace secret), or the
- * organization's (org secret, legacy workspace secret, legacy org setting),
- * which only an owner or admin may remove. Deleting just the answering row
- * would let the next row of the same owner answer instead.
+ * disconnect takes effect: every row of the owner that answers (see
+ * `deleteCredential`), since deleting just the answering row would let the
+ * next row of that owner answer instead. Only an owner or admin may remove
+ * the organization's. A save that clears a value knows its scope and calls
+ * `deleteCredential` with it instead, which never follows the read order.
  */
 export async function deleteResolvedCredential(
   key: string,
@@ -498,19 +513,11 @@ export async function deleteResolvedCredential(
   const held = await resolveCredentialDetailed(key, ctx);
   if (!held) return;
   if (isPersonalCredentialScope(held)) {
-    await deleteAppSecret({ key, scope: "user", scopeId: ctx.userEmail });
-    await deleteSetting(userCredentialSettingKey(ctx.userEmail, key));
-    await deleteAppSecret({
-      key,
-      scope: "workspace",
-      scopeId: `solo:${ctx.userEmail}`,
-    });
+    await deleteCredential(key, { ...ctx, scope: "user" });
     return;
   }
   if (!canManageOrg(await readOrgMemberRole(held.scopeId, ctx.userEmail))) {
     throw new CredentialDeleteForbiddenError();
   }
-  await deleteAppSecret({ key, scope: "org", scopeId: held.scopeId });
-  await deleteAppSecret({ key, scope: "workspace", scopeId: held.scopeId });
-  await deleteSetting(orgCredentialSettingKey(held.scopeId, key));
+  await deleteCredential(key, { ...ctx, orgId: held.scopeId, scope: "org" });
 }

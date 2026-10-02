@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  deleteCredential: vi.fn(),
   deleteResolvedCredential: vi.fn(),
   getScopedSettingRecord: vi.fn(),
   hasCredential: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock("@agent-native/core/tracking", () => ({
 }));
 
 vi.mock("../server/lib/credentials", () => ({
+  deleteCredential: mocks.deleteCredential,
   deleteResolvedCredential: mocks.deleteResolvedCredential,
   hasCredential: mocks.hasCredential,
   saveCredential: mocks.saveCredential,
@@ -52,6 +54,7 @@ const { default: updateDataSourceCredentials } =
 
 describe("data source credential actions", () => {
   beforeEach(() => {
+    mocks.deleteCredential.mockReset();
     mocks.deleteResolvedCredential.mockReset();
     mocks.getScopedSettingRecord.mockReset();
     mocks.hasCredential.mockReset();
@@ -245,6 +248,40 @@ describe("data source credential actions", () => {
         "role read failed",
       );
       expect(mocks.saveCredential).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("clearing an optional key on save", () => {
+    const vars = [
+      { key: "BIGQUERY_PROJECT_ID", value: "example-project" },
+      { key: "ANALYTICS_BIGQUERY_EVENTS_TABLE", value: "" },
+    ];
+
+    it("clears an owner's Personal value, never the organization's", async () => {
+      mocks.resolveOrgRole.mockResolvedValue("owner");
+      await updateDataSourceCredentials.run({ vars, scope: "user" });
+      expect(mocks.deleteCredential).toHaveBeenCalledWith(
+        "ANALYTICS_BIGQUERY_EVENTS_TABLE",
+        { userEmail: "ada@example.com", orgId: "org-1", scope: "user" },
+      );
+      expect(mocks.deleteResolvedCredential).not.toHaveBeenCalled();
+    });
+
+    it("clears the organization's value when an admin saves for it", async () => {
+      mocks.resolveOrgRole.mockResolvedValue("admin");
+      await updateDataSourceCredentials.run({ vars });
+      expect(mocks.deleteCredential).toHaveBeenCalledWith(
+        "ANALYTICS_BIGQUERY_EVENTS_TABLE",
+        { userEmail: "ada@example.com", orgId: "org-1", scope: "org" },
+      );
+    });
+
+    it("refuses a member's organization clear and deletes nothing", async () => {
+      await expect(
+        updateDataSourceCredentials.run({ vars, scope: "org" }),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(mocks.deleteCredential).not.toHaveBeenCalled();
+      expect(mocks.deleteResolvedCredential).not.toHaveBeenCalled();
     });
   });
 

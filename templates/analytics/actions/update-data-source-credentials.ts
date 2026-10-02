@@ -11,7 +11,7 @@ import {
 } from "../server/lib/credential-keys";
 import { resolveCredentialSaveScope } from "../server/lib/credential-save-scope";
 import {
-  deleteResolvedCredential,
+  deleteCredential,
   hasCredential,
   saveCredential,
   type CredentialContext,
@@ -136,7 +136,7 @@ export default defineAction({
       await saveCredential(key, value, { ...ctx, scope: saveScope });
     }
     for (const key of toDelete) {
-      await deleteResolvedCredential(key, ctx);
+      await deleteCredential(key, { ...ctx, scope: saveScope });
     }
 
     const savedKeys = new Set(toSave.map((v) => v.key));

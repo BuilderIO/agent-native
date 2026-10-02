@@ -711,6 +711,25 @@ describe("deleteResolvedCredential", () => {
     );
   });
 
+  it("clears only the chosen owner's rows when told which", async () => {
+    appSecrets.set("user:member@example.test:STRIPE_KEY", "personal-value");
+    appSecrets.set("workspace:solo:member@example.test:STRIPE_KEY", "solo");
+    appSecrets.set("org:org-1:STRIPE_KEY", "org-value");
+    appSecrets.set("workspace:org-1:STRIPE_KEY", "workspace-value");
+    store.set("o:org-1:credential:STRIPE_KEY", { value: "org-setting-value" });
+    const { deleteCredential } = await import("./index.js");
+
+    await deleteCredential("STRIPE_KEY", { ...member, scope: "user" });
+    expect([...appSecrets.keys()].sort()).toEqual([
+      "org:org-1:STRIPE_KEY",
+      "workspace:org-1:STRIPE_KEY",
+    ]);
+
+    await deleteCredential("STRIPE_KEY", { ...member, scope: "org" });
+    expect(appSecrets.size).toBe(0);
+    expect(store.has("o:org-1:credential:STRIPE_KEY")).toBe(false);
+  });
+
   it("does not guess a role it cannot read", async () => {
     appSecrets.set("org:org-1:STRIPE_KEY", "org-value");
     readOrgMemberRole.mockRejectedValue(new Error("db query timed out"));

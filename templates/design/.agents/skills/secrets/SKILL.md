@@ -291,7 +291,11 @@ Disconnect with `deleteResolvedCredential(key, ctx)` from
 `@agent-native/core/credentials`. It removes every row of whichever owner
 answers (the caller's own, or the organization's, including a legacy
 `workspace` row) and refuses a member's removal of the organization's with a
-403. Deleting only the caller's `user` row leaves a shared one answering.
+403. Deleting only the caller's `user` row leaves a shared one answering. A
+save that clears a value already knows its scope: clear with
+`deleteCredential(key, { ...ctx, scope })`, which removes that owner's rows
+only. The resolved owner can be the organization even when an owner chose
+Personal.
 
 ## Reading a secret from an action
 

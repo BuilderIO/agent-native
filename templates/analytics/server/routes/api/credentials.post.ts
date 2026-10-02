@@ -8,7 +8,7 @@ import {
 } from "../../lib/credential-keys";
 import { resolveCredentialSaveScope } from "../../lib/credential-save-scope";
 import {
-  deleteResolvedCredential,
+  deleteCredential,
   saveCredential,
   getCredentialContextFromEvent,
 } from "../../lib/credentials";
@@ -111,7 +111,7 @@ export default defineEventHandler(async (event) => {
     await saveCredential(key, value, { ...ctx, scope: saveScope });
   }
   for (const key of toDelete) {
-    await deleteResolvedCredential(key, ctx);
+    await deleteCredential(key, { ...ctx, scope: saveScope });
   }
 
   const savedKeys = new Set(toSave.map((v) => v.key));
