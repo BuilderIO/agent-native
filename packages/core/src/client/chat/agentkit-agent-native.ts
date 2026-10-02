@@ -694,12 +694,22 @@ function reconcileDurableMessages(
     })
     .map(({ message }) => message);
 
+  const snapshotRunId = (message: AgentMessage) => {
+    const metadataRunId = asRecord(message.metadata)?.runId;
+    return (
+      runByAssistantId.get(message.id) ??
+      (typeof metadataRunId === "string" ? metadataRunId : undefined)
+    );
+  };
+  const textOf = (parts: AgentMessage["parts"]) =>
+    parts
+      .filter((part) => part.type === "text")
+      .map((part) => part.text)
+      .join("");
+
   return projectedMessages.map((message) => {
     if (message.role !== "assistant") return message;
-    const metadataRunId = asRecord(message.metadata)?.runId;
-    const runId =
-      runByAssistantId.get(message.id) ??
-      (typeof metadataRunId === "string" ? metadataRunId : undefined);
+    const runId = snapshotRunId(message);
     const matched =
       durableById.get(message.id) ??
       (runId ? durableByRun.get(runId) : undefined);
@@ -744,14 +754,18 @@ function reconcileDurableMessages(
     if (lastPart && lastPart.type !== "text" && !completesFoldedRun) {
       return reconciled;
     }
-    const currentText = reconciled.parts
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("");
-    const storedText = stored.parts
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("");
+    // Only the last message the page saved for a folded reply takes the
+    // continuation, and it is measured against everything the page saved.
+    const foldedGroup = completesFoldedRun
+      ? projectedMessages.filter(
+          (candidate) =>
+            candidate.role === "assistant" &&
+            durableRunIds(stored).includes(snapshotRunId(candidate) ?? ""),
+        )
+      : [reconciled];
+    if (completesFoldedRun && foldedGroup.at(-1) !== message) return message;
+    const currentText = textOf(foldedGroup.flatMap((entry) => entry.parts));
+    const storedText = textOf(stored.parts);
     if (
       !storedText.startsWith(currentText) ||
       storedText.length <= currentText.length

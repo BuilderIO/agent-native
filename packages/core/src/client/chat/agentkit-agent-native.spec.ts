@@ -1432,6 +1432,48 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("adds only the missing continuation when the page saw some but not all folded runs", async () => {
+    const thread = foldedContinuationThread({ snapshotSawContinuation: true });
+    const data = JSON.parse(thread.threadData);
+    data.messages[1].message.content = [
+      { type: "text", text: "First half. Second half. Third half." },
+    ];
+    data.messages[1].message.metadata = {
+      runId: "run-3",
+      custom: { foldedRunIds: ["run-1", "run-2", "run-3"] },
+    };
+    data.agentKit.runs.push({
+      id: "run-3",
+      threadId: "thread-folded",
+      status: "completed",
+      startedAt: "2026-10-01T23:54:00.000Z",
+      lastSequence: 0,
+    });
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({ active: false, status: "complete" })
+          : json({ ...thread, threadData: JSON.stringify(data) }),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-folded",
+    });
+
+    expect(
+      snapshot?.messages.map((message) => [
+        message.id,
+        message.parts.map((part) => (part.type === "text" ? part.text : "")),
+      ]),
+    ).toEqual([
+      ["user-1", ["Write forty lines"]],
+      ["message-1", ["First half."]],
+      ["message-2", [" Second half. Third half."]],
+    ]);
+    await transport.dispose();
+  });
+
   it("keeps separate messages for continuation runs the page did watch", async () => {
     const transport = createAgentNativeAgentKitTransport({
       fetch: vi.fn(async (input: string | URL | Request) =>
