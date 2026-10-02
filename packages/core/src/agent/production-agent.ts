@@ -9969,6 +9969,11 @@ export function createProductionAgentHandler(
         const resumed = threadDataToEngineMessages(priorThreadData, {
           includeToolCalls: true,
         });
+        // A continuation always follows a stopped run, so a missing or empty
+        // thread means its history was lost, not that there was none.
+        if (autoContinueOfRunId && resumed.length === 0) {
+          throw new Error(`thread ${effectiveThreadId} has no history`);
+        }
         if (resumed.length > 0) {
           const actionPreparationTool =
             typeof backgroundRunMarker?.actionPreparationTool === "string" &&

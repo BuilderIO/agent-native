@@ -239,7 +239,7 @@ describe("an automatic continuation request", () => {
 
   it.each([
     [
-      "thread",
+      "thread cannot be read",
       () => {
         turnLedger.mockResolvedValue(FINISHED_DELEGATION);
         vi.mocked(getThread).mockRejectedValueOnce(
@@ -248,11 +248,29 @@ describe("an automatic continuation request", () => {
       },
     ],
     [
-      "run journal",
+      "run journal cannot be read",
       () => turnLedger.mockRejectedValue(new Error("Connection terminated")),
     ],
+    // A continuation always follows a stopped run, so its thread must exist.
+    [
+      "thread is missing",
+      () => {
+        turnLedger.mockResolvedValue(FINISHED_DELEGATION);
+        vi.mocked(getThread).mockResolvedValueOnce(null);
+      },
+    ],
+    [
+      "thread has no messages",
+      () => {
+        turnLedger.mockResolvedValue(FINISHED_DELEGATION);
+        vi.mocked(getThread).mockResolvedValueOnce({
+          id: "thread-auto",
+          threadData: JSON.stringify({ messages: [] }),
+        } as Awaited<ReturnType<typeof getThread>>);
+      },
+    ],
   ])(
-    "fails retryably and runs nothing when the stopped turn's %s cannot be read",
+    "fails retryably and runs nothing when the stopped turn's %s",
     async (_, breakRead) => {
       claimRunSlot.mockReset();
       claimRunSlot.mockResolvedValue({ claimed: true, activeRunId: null });
@@ -296,55 +314,70 @@ describe("an automatic continuation request", () => {
     },
   );
 
-  it("still resumes a server successor from the request when the thread cannot be read", async () => {
-    vi.mocked(getThread).mockRejectedValueOnce(
-      new Error("Connection terminated"),
-    );
-    const seen: EngineMessage[][] = [];
-    const handler = createProductionAgentHandler({
-      systemPrompt: "Test",
-      engine: {
-        ...repeatingDelegationEngine([]),
-        async *stream(options): AsyncIterable<EngineEvent> {
-          seen.push(structuredClone(options.messages));
-          yield {
-            type: "assistant-content",
-            parts: [{ type: "text", text: "Summarized." }],
-          };
-          yield { type: "stop", reason: "end_turn" };
+  it.each([
+    [
+      "cannot be read",
+      "unreadable",
+      () =>
+        vi
+          .mocked(getThread)
+          .mockRejectedValueOnce(new Error("Connection terminated")),
+    ],
+    [
+      "is missing",
+      "missing",
+      () => vi.mocked(getThread).mockResolvedValueOnce(null),
+    ],
+  ])(
+    "still resumes a server successor from the request when the thread %s",
+    async (_, id, breakRead) => {
+      breakRead();
+      const seen: EngineMessage[][] = [];
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine: {
+          ...repeatingDelegationEngine([]),
+          async *stream(options): AsyncIterable<EngineEvent> {
+            seen.push(structuredClone(options.messages));
+            yield {
+              type: "assistant-content",
+              parts: [{ type: "text", text: "Summarized." }],
+            };
+            yield { type: "stop", reason: "end_turn" };
+          },
         },
-      },
-      actions: {},
-      // A successor's chunk budget; without one it goes straight to the next.
-      runSoftTimeoutMs: 60_000,
-    });
-    const event = mockEvent(
-      new Request("http://app.example.com/_agent-native/agent-chat", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: "{}",
-      }),
-    );
-    event.context.__agentChatBackgroundBody = {
-      message: "Summarize the signups.",
-      threadId: "thread-chained",
-      turnId: "turn-chained",
-      __backgroundRun: {
-        runId: "run-chained-2",
-        turnId: "turn-chained",
-        continuationCount: 1,
-      },
-    };
+        actions: {},
+        // A successor's chunk budget; without one it goes straight to the next.
+        runSoftTimeoutMs: 60_000,
+      });
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        }),
+      );
+      event.context.__agentChatBackgroundBody = {
+        message: "Summarize the signups.",
+        threadId: `thread-chained-${id}`,
+        turnId: `turn-chained-${id}`,
+        __backgroundRun: {
+          runId: `run-chained-${id}`,
+          turnId: `turn-chained-${id}`,
+          continuationCount: 1,
+        },
+      };
 
-    const response = await runWithRequestContext(
-      { userEmail: "alice@example.com", orgId: "acme", run: {} },
-      () => handler(event),
-    );
-    if (response instanceof ReadableStream) {
-      await new Response(response).text();
-    }
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "acme", run: {} },
+        () => handler(event),
+      );
+      if (response instanceof ReadableStream) {
+        await new Response(response).text();
+      }
 
-    await vi.waitFor(() => expect(seen[0]).toBeDefined());
-    expect(textOf(seen[0]!.at(-1))).toMatch(/^Summarize the signups\./);
-  });
+      await vi.waitFor(() => expect(seen[0]).toBeDefined());
+      expect(textOf(seen[0]!.at(-1))).toMatch(/^Summarize the signups\./);
+    },
+  );
 });
