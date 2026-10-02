@@ -176,8 +176,20 @@ describe("tracking captureException", () => {
       "WITH RECURSIVE tree(id) AS (SELECT id FROM nodes UNION ALL SELECT id FROM tree WHERE id = $1) SEARCH DEPTH FIRST BY id SET ordercol CYCLE id SET is_cycle TO true DEFAULT false USING path, all_nodes AS (SELECT id FROM tree) SELECT id FROM all_nodes WHERE id = $2",
     ],
     [
-      "comments between CTE header tokens",
+      "comments inside SEARCH",
+      "WITH RECURSIVE tree(id) AS (SELECT id FROM nodes UNION ALL SELECT id FROM tree WHERE id = $1) SEARCH /* traversal */ DEPTH /* order */ FIRST /* columns */ BY id /* output */ SET ordercol SELECT id FROM tree WHERE id = $2",
+    ],
+    [
+      "comments inside CYCLE",
+      "WITH RECURSIVE tree(id) AS (SELECT id FROM nodes UNION ALL SELECT id FROM tree WHERE id = $1) CYCLE /* marker */ id SET /* flag */ is_cycle TO true DEFAULT false /* path */ USING /* path column */ path SELECT id FROM tree WHERE id = $2",
+    ],
+    [
+      "comments before the CTE name",
       "WITH /* note */ RECURSIVE /* recursive */ tree(id) AS (SELECT id FROM nodes WHERE id = $1) SELECT id FROM tree",
+    ],
+    [
+      "comments around the CTE name and AS",
+      "WITH customer /* name */ (id) /* before AS */ AS /* body */ (SELECT id FROM customers WHERE id = $1) SELECT id FROM customer",
     ],
   ])("redacts SQL bind parameters in CTEs with %s", (_case, query) => {
     const privateValue = "private customer value";

@@ -9,19 +9,10 @@ const SQL_PARAMS_RE = /^([\s\S]*?)(\r?\n[ \t]*params:\s*)[\s\S]*$/i;
 const SQL_QUERY_FAILURE_RE = /\b(?:failed query|query failed):\s*/i;
 const SQL_STATEMENT_RE =
   /^(?:select|insert|update|delete|merge|values|explain|call|execute|copy|declare)\b/i;
-const SQL_CTE_NAME_RE = /^(?:"(?:[^"]|"")+"|[a-z_][\w$]*)/i;
 const SQL_CTE_QUERY_RE =
   /^(?:select|insert|update|delete|merge|values|with|table)\b/i;
 const SQL_CTE_IDENTIFIER = String.raw`(?:"(?:[^"]|"")+"|[a-z_][\w$]*)`;
-const SQL_CTE_IDENTIFIER_LIST = `${SQL_CTE_IDENTIFIER}(?:\\s*,\\s*${SQL_CTE_IDENTIFIER})*`;
-const SQL_CTE_SEARCH_CLAUSE_RE = new RegExp(
-  String.raw`^search\s+(?:breadth|depth)\s+first\s+by\s+${SQL_CTE_IDENTIFIER_LIST}\s+set\s+${SQL_CTE_IDENTIFIER}(?=$|[\s,])`,
-  "i",
-);
-const SQL_CTE_CYCLE_CLAUSE_RE = new RegExp(
-  String.raw`^cycle\s+${SQL_CTE_IDENTIFIER_LIST}\s+set\s+${SQL_CTE_IDENTIFIER}[\s\S]*?\s+using\s+${SQL_CTE_IDENTIFIER}(?=$|[\s,])`,
-  "i",
-);
+const SQL_CTE_IDENTIFIER_RE = new RegExp(`^${SQL_CTE_IDENTIFIER}`, "i");
 
 export const SECRET_KEY_RE =
   /(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|credential)/i;
@@ -125,6 +116,97 @@ function afterSqlParenthesizedBody(value: string): string | undefined {
   return undefined;
 }
 
+function afterSqlCteHeader(value: string): string | undefined {
+  let statement = afterLeadingSqlComments(value);
+  const name = SQL_CTE_IDENTIFIER_RE.exec(statement);
+  if (!name) return undefined;
+
+  statement = afterLeadingSqlComments(statement.slice(name[0].length));
+  if (statement.startsWith("(")) {
+    const afterColumns = afterSqlParenthesizedBody(statement);
+    if (afterColumns === undefined) return undefined;
+    statement = afterLeadingSqlComments(afterColumns);
+  }
+
+  const as = /^as\b/i.exec(statement);
+  if (!as) return undefined;
+  statement = afterLeadingSqlComments(statement.slice(as[0].length));
+
+  const not = /^not\b/i.exec(statement);
+  if (not) {
+    statement = afterLeadingSqlComments(statement.slice(not[0].length));
+    const materialized = /^materialized\b/i.exec(statement);
+    if (!materialized) return undefined;
+    statement = afterLeadingSqlComments(
+      statement.slice(materialized[0].length),
+    );
+  } else {
+    const materialized = /^materialized\b/i.exec(statement);
+    if (materialized) {
+      statement = afterLeadingSqlComments(
+        statement.slice(materialized[0].length),
+      );
+    }
+  }
+
+  return statement.startsWith("(") ? statement : undefined;
+}
+
+function afterSqlToken(value: string, token: RegExp): string | undefined {
+  const statement = afterLeadingSqlComments(value);
+  const match = token.exec(statement);
+  return match ? statement.slice(match[0].length) : undefined;
+}
+
+function afterSqlIdentifierList(value: string): string | undefined {
+  let statement = afterSqlToken(value, SQL_CTE_IDENTIFIER_RE);
+  if (statement === undefined) return undefined;
+
+  while (true) {
+    const remainder = afterLeadingSqlComments(statement);
+    if (!remainder.startsWith(",")) return remainder;
+    statement = afterSqlToken(remainder.slice(1), SQL_CTE_IDENTIFIER_RE);
+    if (statement === undefined) return undefined;
+  }
+}
+
+function afterSqlCteSearchClause(value: string): string | undefined {
+  let statement = afterSqlToken(value, /^search\b/i);
+  if (statement === undefined) return undefined;
+  statement = afterSqlToken(statement, /^(?:breadth|depth)\b/i);
+  if (statement === undefined) return undefined;
+  statement = afterSqlToken(statement, /^first\b/i);
+  if (statement === undefined) return undefined;
+  statement = afterSqlToken(statement, /^by\b/i);
+  if (statement === undefined) return undefined;
+  statement = afterSqlIdentifierList(statement);
+  if (statement === undefined) return undefined;
+  statement = afterSqlToken(statement, /^set\b/i);
+  if (statement === undefined) return undefined;
+  return afterSqlToken(statement, SQL_CTE_IDENTIFIER_RE);
+}
+
+function afterSqlCteCycleClause(value: string): string | undefined {
+  let statement = afterSqlToken(value, /^cycle\b/i);
+  if (statement === undefined) return undefined;
+  statement = afterSqlIdentifierList(statement);
+  if (statement === undefined) return undefined;
+  statement = afterSqlToken(statement, /^set\b/i);
+  if (statement === undefined) return undefined;
+  statement = afterSqlToken(statement, SQL_CTE_IDENTIFIER_RE);
+  if (statement === undefined) return undefined;
+
+  const using = /\busing\b/gi;
+  let match: RegExpExecArray | null;
+  while ((match = using.exec(statement))) {
+    const afterUsing = afterSqlToken(statement.slice(match.index), /^using\b/i);
+    if (afterUsing !== undefined) {
+      return afterSqlToken(afterUsing, SQL_CTE_IDENTIFIER_RE);
+    }
+  }
+  return undefined;
+}
+
 function isSqlCteStatement(value: string): boolean {
   let statement = afterLeadingSqlComments(value);
   const withPrefix = /^with\b/i.exec(statement);
@@ -139,39 +221,8 @@ function isSqlCteStatement(value: string): boolean {
   }
 
   while (true) {
-    const name = SQL_CTE_NAME_RE.exec(statement);
-    if (!name) return false;
-
-    let header = afterLeadingSqlComments(statement.slice(name[0].length));
-    if (header.startsWith("(")) {
-      const afterColumns = afterSqlParenthesizedBody(header);
-      if (afterColumns === undefined) return false;
-      header = afterLeadingSqlComments(afterColumns);
-    }
-
-    const asPrefix = /^as\b/i.exec(header);
-    if (!asPrefix) return false;
-    header = afterLeadingSqlComments(header.slice(asPrefix[0].length));
-
-    const notPrefix = /^not\b/i.exec(header);
-    if (notPrefix) {
-      header = afterLeadingSqlComments(header.slice(notPrefix[0].length));
-      const requiredMaterialized = /^materialized\b/i.exec(header);
-      if (!requiredMaterialized) return false;
-      header = afterLeadingSqlComments(
-        header.slice(requiredMaterialized[0].length),
-      );
-    } else {
-      const materializedPrefix = /^materialized\b/i.exec(header);
-      if (materializedPrefix) {
-        header = afterLeadingSqlComments(
-          header.slice(materializedPrefix[0].length),
-        );
-      }
-    }
-
-    if (!header.startsWith("(")) return false;
-
+    const header = afterSqlCteHeader(statement);
+    if (!header) return false;
     const afterBody = afterSqlParenthesizedBody(header);
     if (afterBody === undefined) return false;
 
@@ -180,18 +231,18 @@ function isSqlCteStatement(value: string): boolean {
     let cycleClauseSeen = false;
     while (true) {
       const searchClause = searchClauseSeen
-        ? null
-        : SQL_CTE_SEARCH_CLAUSE_RE.exec(remainder);
+        ? undefined
+        : afterSqlCteSearchClause(remainder);
       const cycleClause =
-        searchClause || cycleClauseSeen
-          ? null
-          : SQL_CTE_CYCLE_CLAUSE_RE.exec(remainder);
+        searchClause !== undefined || cycleClauseSeen
+          ? undefined
+          : afterSqlCteCycleClause(remainder);
       const clause = searchClause ?? cycleClause;
-      if (!clause) break;
+      if (clause === undefined) break;
 
-      if (searchClause) searchClauseSeen = true;
+      if (searchClause !== undefined) searchClauseSeen = true;
       else cycleClauseSeen = true;
-      remainder = afterLeadingSqlComments(remainder.slice(clause[0].length));
+      remainder = afterLeadingSqlComments(clause);
     }
     if (remainder.startsWith(",")) {
       statement = afterLeadingSqlComments(remainder.slice(1));
