@@ -710,8 +710,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const boardCrossScreenDropTransactionSeqRef = useRef(
     new Map<string, number>(),
   );
-  const boardCrossScreenDropTimeoutTransactionRef = useRef<string | null>(null);
-  const boardCrossScreenDropTimeoutRef = useRef<number | null>(null);
+  const boardCrossScreenDropTimeoutsRef = useRef(new Map<string, number>());
   const onBoardRuntimeStructureInsertRejectedRef = useRef(
     onBoardRuntimeStructureInsertRejected,
   );
@@ -740,15 +739,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         boardCrossScreenDropTransactionSeqRef.current.clear();
       }
 
-      const ownsTimeout = transactionId
-        ? boardCrossScreenDropTimeoutTransactionRef.current === transactionId
-        : dropSeq === undefined;
-      if (ownsTimeout && boardCrossScreenDropTimeoutRef.current !== null) {
-        window.clearTimeout(boardCrossScreenDropTimeoutRef.current);
-        boardCrossScreenDropTimeoutRef.current = null;
-      }
-      if (ownsTimeout) {
-        boardCrossScreenDropTimeoutTransactionRef.current = null;
+      if (transactionId) {
+        const timeoutId =
+          boardCrossScreenDropTimeoutsRef.current.get(transactionId);
+        if (timeoutId !== undefined) {
+          window.clearTimeout(timeoutId);
+          boardCrossScreenDropTimeoutsRef.current.delete(transactionId);
+        }
+      } else if (dropSeq === undefined) {
+        for (const timeoutId of boardCrossScreenDropTimeoutsRef.current.values()) {
+          window.clearTimeout(timeoutId);
+        }
+        boardCrossScreenDropTimeoutsRef.current.clear();
       }
       if (
         !options?.preserveTransaction &&
@@ -781,9 +783,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   }, [boardRuntimeStructureInsertRequest]);
   useEffect(
     () => () => {
-      if (boardCrossScreenDropTimeoutRef.current !== null) {
-        window.clearTimeout(boardCrossScreenDropTimeoutRef.current);
+      for (const timeoutId of boardCrossScreenDropTimeoutsRef.current.values()) {
+        window.clearTimeout(timeoutId);
       }
+      boardCrossScreenDropTimeoutsRef.current.clear();
     },
     [],
   );
@@ -2642,9 +2645,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       crossScreenModifierProbesRef.current.clear();
       crossScreenCommittedDropSeqsRef.current.clear();
       crossScreenReleasedDropsRef.current.clear();
-      if (boardCrossScreenDropTimeoutRef.current !== null) {
-        window.clearTimeout(boardCrossScreenDropTimeoutRef.current);
+      for (const timeoutId of boardCrossScreenDropTimeoutsRef.current.values()) {
+        window.clearTimeout(timeoutId);
       }
+      boardCrossScreenDropTimeoutsRef.current.clear();
     };
   }, []);
 
@@ -3411,22 +3415,24 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 transactionAfterDrop,
                 dropSeq,
               );
-              boardCrossScreenDropTimeoutTransactionRef.current =
-                transactionAfterDrop;
-              if (boardCrossScreenDropTimeoutRef.current !== null) {
-                window.clearTimeout(boardCrossScreenDropTimeoutRef.current);
+              const existingTimeoutId =
+                boardCrossScreenDropTimeoutsRef.current.get(
+                  transactionAfterDrop,
+                );
+              if (existingTimeoutId !== undefined) {
+                window.clearTimeout(existingTimeoutId);
               }
-              boardCrossScreenDropTimeoutRef.current = window.setTimeout(() => {
+              const timeoutId = window.setTimeout(() => {
                 if (
-                  boardCrossScreenDropTransactionRef.current !==
-                    transactionAfterDrop ||
-                  boardCrossScreenDropTimeoutTransactionRef.current !==
-                    transactionAfterDrop
+                  boardCrossScreenDropTimeoutsRef.current.get(
+                    transactionAfterDrop,
+                  ) !== timeoutId
                 ) {
                   return;
                 }
-                boardCrossScreenDropTimeoutRef.current = null;
-                boardCrossScreenDropTimeoutTransactionRef.current = null;
+                boardCrossScreenDropTimeoutsRef.current.delete(
+                  transactionAfterDrop,
+                );
                 const rollbackScheduled =
                   onBoardRuntimeStructureInsertRejectedRef.current?.(
                     "board-drop-timeout",
@@ -3439,6 +3445,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   });
                 }
               }, CROSS_SCREEN_INSERT_ACK_TIMEOUT_MS);
+              boardCrossScreenDropTimeoutsRef.current.set(
+                transactionAfterDrop,
+                timeoutId,
+              );
             } else {
               finishBoardCrossScreenDrop({
                 dropSeq,

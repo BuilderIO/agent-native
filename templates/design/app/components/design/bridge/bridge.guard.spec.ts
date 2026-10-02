@@ -685,6 +685,9 @@ it(
           Record<string, unknown>
         >;
         messages.length = 0;
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "s", bubbles: true }),
+        );
         ids.forEach((snapshotId, index) =>
           window.dispatchEvent(
             new MessageEvent("message", {

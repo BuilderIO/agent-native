@@ -51,6 +51,7 @@ describe("cross-screen drag identity provenance", () => {
 
   afterEach(async () => {
     await act(async () => root.unmount());
+    vi.useRealTimers();
     __clearLinkedScreenPreviewHandlersForTests();
     rectSpy.mockRestore();
     container.remove();
@@ -435,6 +436,7 @@ describe("cross-screen drag identity provenance", () => {
   });
 
   it("settles overlapping board drops by transaction without leaking pending state", async () => {
+    vi.useFakeTimers();
     const runtimeTransactionRef = { current: null as string | null };
     let dropIndex = 0;
     const onCrossScreenElementDrop = vi.fn(() => {
@@ -442,6 +444,7 @@ describe("cross-screen drag identity provenance", () => {
       runtimeTransactionRef.current = `${dropIndex === 1 ? "first" : "second"}-transaction`;
     });
     const onBoardRuntimeStructureInsertApplied = vi.fn();
+    const onBoardRuntimeStructureInsertRejected = vi.fn(() => false);
     await act(async () => {
       root.render(
         <MultiScreenCanvas
@@ -469,6 +472,9 @@ describe("cross-screen drag identity provenance", () => {
           onCrossScreenElementDrop={onCrossScreenElementDrop}
           onBoardRuntimeStructureInsertApplied={
             onBoardRuntimeStructureInsertApplied
+          }
+          onBoardRuntimeStructureInsertRejected={
+            onBoardRuntimeStructureInsertRejected
           }
         />,
       );
@@ -589,6 +595,9 @@ describe("cross-screen drag identity provenance", () => {
     });
     expect(onCrossScreenElementDrop).toHaveBeenCalledTimes(1);
     expect(runtimeTransactionRef.current).toBe("first-transaction");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_100);
+    });
 
     await act(async () => {
       startBoardDrop("second-request", "second-node");
@@ -618,6 +627,18 @@ describe("cross-screen drag identity provenance", () => {
     ).toBe(boardIframe);
     expect(onCrossScreenElementDrop).toHaveBeenCalledTimes(2);
     expect(runtimeTransactionRef.current).toBe("second-transaction");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_100);
+    });
+    expect(onBoardRuntimeStructureInsertRejected).toHaveBeenCalledWith(
+      "board-drop-timeout",
+      "first-transaction",
+    );
+    expect(
+      container.querySelector(
+        "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+      ),
+    ).toBe(boardIframe);
 
     await act(async () => {
       window.dispatchEvent(
@@ -641,6 +662,11 @@ describe("cross-screen drag identity provenance", () => {
         applied: false,
       }),
     );
+    expect(
+      container.querySelector(
+        "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+      ),
+    ).toBe(boardIframe);
 
     await act(async () => {
       window.dispatchEvent(
