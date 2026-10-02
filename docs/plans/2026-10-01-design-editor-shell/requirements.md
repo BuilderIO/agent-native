@@ -337,7 +337,7 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
   - Prototype: Scenario: Local app screen, then select the screen.
 - **INSP-08** · decided
   - Today: Position's device icon (`ScreenSizePresetPicker`) opens its own preset popover that sets W and H, separate from the Frame tool's panel.
-  - Change: The device icon opens the Frame tool's grouped list (INSP-06) as a menu, one submenu per group, each preset showing W × H. Picking one sets W and a fixed H, and the frame shows that viewport; typing a number into H fixes the height, and anything else (Hug) goes back to hugging the content.
+  - Change: The device-size icon (Tabler `devices`, a phone in front of a screen, in place of the monitor) opens the Frame tool's grouped list (INSP-06) as a menu, one submenu per group, each preset showing W × H. Picking one sets W and a fixed H, and the frame shows that viewport; typing a number into H fixes the height, and anything else (Hug) goes back to hugging the content. Submenus open beside their row and flip to the left near the window's right edge (shadcn's DropdownMenu handles this collision in code).
   - Prototype: Select the screen, then the device icon on Position.
 
 ## Outside agents (AGT, step 17)

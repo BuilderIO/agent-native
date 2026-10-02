@@ -879,7 +879,7 @@
           "id": "INSP-08",
           "status": "decided",
           "today": "Position's device icon (`ScreenSizePresetPicker`) opens its own preset popover that sets W and H, separate from the Frame tool's panel.",
-          "change": "The device icon opens the Frame tool's grouped list (INSP-06) as a menu, one submenu per group, each preset showing W × H. Picking one sets W and a fixed H, and the frame shows that viewport; typing a number into H fixes the height, and anything else (Hug) goes back to hugging the content.",
+          "change": "The device-size icon (Tabler `devices`, a phone in front of a screen, in place of the monitor) opens the Frame tool's grouped list (INSP-06) as a menu, one submenu per group, each preset showing W × H. Picking one sets W and a fixed H, and the frame shows that viewport; typing a number into H fixes the height, and anything else (Hug) goes back to hugging the content. Submenus open beside their row and flip to the left near the window's right edge (shadcn's DropdownMenu handles this collision in code).",
           "refs": [
             "templates/design/app/components/design/EditPanel.tsx#ScreenSizePresetPicker"
           ],
