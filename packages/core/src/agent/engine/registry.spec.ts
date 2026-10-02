@@ -700,6 +700,21 @@ describe("AgentEngine registry", () => {
       expect(normalizeModelForEngine(engine, "claude-next-preview")).toBe(
         "claude-next-preview",
       );
+      expect(normalizeModelForEngine(engine, "claude-sonnet-5-6")).toBe(
+        "claude-sonnet-5-6",
+      );
+    });
+
+    it("preserves unknown versioned IDs for OpenAI BYOK", async () => {
+      const { normalizeModelForEngine } = await import("./registry.js");
+      const engine = {
+        name: "ai-sdk:openai",
+        defaultModel: "gpt-6-luna",
+        supportedModels: ["gpt-6-luna"],
+        acceptsCustomModels: true,
+      } as any;
+
+      expect(normalizeModelForEngine(engine, "gpt-7-luna")).toBe("gpt-7-luna");
     });
 
     it("preserves arbitrary Ollama model ids", async () => {

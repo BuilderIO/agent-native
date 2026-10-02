@@ -37,6 +37,10 @@ import {
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
 import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../chatgpt-subscription-contract.js";
 import { readDefaultAgentEngineSetting } from "../default-agent-engine.js";
+import {
+  BUILDER_CLAUDE_SONNET_MODEL_ID,
+  CLAUDE_SONNET_MODEL_ID,
+} from "../model-config.js";
 import { createProviderEndpointFetch } from "./ai-sdk-engine.js";
 import {
   OLLAMA_DEFAULT_BASE_URL,
@@ -295,15 +299,18 @@ export function normalizeModelForEngine(
     return candidate;
   }
 
+  if (engine.acceptsCustomModels || options.acceptsCustomModels) {
+    return candidate === BUILDER_CLAUDE_SONNET_MODEL_ID &&
+      engine.supportedModels.includes(CLAUDE_SONNET_MODEL_ID)
+      ? CLAUDE_SONNET_MODEL_ID
+      : candidate;
+  }
+
   const versionMatch = findLatestSupportedVersionMatch(
     candidate,
     engine.supportedModels,
   );
   if (versionMatch) return versionMatch;
-
-  if (engine.acceptsCustomModels || options.acceptsCustomModels) {
-    return candidate;
-  }
 
   return engine.defaultModel;
 }
