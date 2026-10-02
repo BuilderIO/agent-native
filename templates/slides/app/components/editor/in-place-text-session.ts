@@ -2081,6 +2081,14 @@ export function startInPlaceTextSession(
     const step = DELETE_STEPS[type];
     if (!step) return false;
     const [direction, granularity] = step;
+    const block = nearestBlock(range.startContainer, el);
+    if (
+      direction === "backward" &&
+      (/^H[1-6]$/.test(block.tagName) || block.closest("blockquote")) &&
+      deleteAtBlockEdge(range, direction)
+    ) {
+      return true;
+    }
     if (deleteAtListItemEdge(range, direction)) return true;
     if (deleteAtRowEdge(range, direction)) return true;
     if (deleteAtBlockEdge(range, direction)) return true;
@@ -4239,6 +4247,14 @@ export function startInPlaceTextSession(
     }
   }
 
+  function onBeforeInputCapture(event: InputEvent) {
+    if (event.inputType.startsWith("delete")) onBeforeInput(event);
+  }
+
+  function onBeforeInputBubble(event: InputEvent) {
+    if (!event.inputType.startsWith("delete")) onBeforeInput(event);
+  }
+
   function onInput(event: Event) {
     const input = event as InputEvent;
     if (
@@ -4486,12 +4502,13 @@ export function startInPlaceTextSession(
     }, 0);
   }
 
-  const listeners: [string, (event: never) => void][] = [
+  const listeners: [string, (event: never) => void, boolean?][] = [
     ["blur", onBlur],
     ["focus", onFocus],
     ["pointerdown", onPointerDown],
     ["pointerup", onPointerUp],
-    ["beforeinput", onBeforeInput],
+    ["beforeinput", onBeforeInputCapture, true],
+    ["beforeinput", onBeforeInputBubble],
     ["input", onInput],
     ["keydown", onKeyDown],
     ["paste", onPaste],
@@ -4503,14 +4520,14 @@ export function startInPlaceTextSession(
   ];
 
   function listen(target: HTMLElement) {
-    for (const [type, listener] of listeners) {
-      target.addEventListener(type, listener as EventListener);
+    for (const [type, listener, capture] of listeners) {
+      target.addEventListener(type, listener as EventListener, capture);
     }
   }
 
   function unlisten(target: HTMLElement) {
-    for (const [type, listener] of listeners) {
-      target.removeEventListener(type, listener as EventListener);
+    for (const [type, listener, capture] of listeners) {
+      target.removeEventListener(type, listener as EventListener, capture);
     }
   }
 

@@ -4526,6 +4526,49 @@ describe("in-place text session: Content authoring parity", () => {
     expect(quote.firstElementChild?.textContent).toBe("AboveQuoted");
   });
 
+  it("handles beforeinput before a child can stop it from bubbling", () => {
+    const el = mount('<div id="t"><h2>Title</h2></div>');
+    session = startInPlaceTextSession(el);
+    const heading = el.querySelector("h2")!;
+    caret(heading, 0);
+    heading.addEventListener("beforeinput", (event) => event.stopPropagation());
+
+    expect(beforeInput(heading, "deleteContentBackward").defaultPrevented).toBe(
+      true,
+    );
+    expect(el.firstElementChild?.tagName).toBe("P");
+  });
+
+  it("demotes a heading when the caret is at its element boundary", () => {
+    const el = mount('<div id="t"><p>Earlier</p><h2>Title</h2></div>');
+    session = startInPlaceTextSession(el);
+    const heading = el.querySelector("h2")!;
+    caret(heading, 0);
+
+    beforeInput(el, "deleteContentBackward");
+
+    expect(heading.isConnected).toBe(false);
+    expect(el.children[1]?.tagName).toBe("P");
+    beforeInput(el, "deleteContentBackward");
+    expect(el.innerHTML).toBe("<p>EarlierTitle</p>");
+  });
+
+  it("demotes a heading before handling its styled row edge", () => {
+    const el = mount(
+      '<div id="t" style="display: flex; flex-direction: column"><div data-slide-plain-row="true" style="display: flex; gap: 14px"><h2 style="margin: 0">Title</h2></div></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const heading = el.querySelector("h2")!;
+    caret(heading, 0);
+
+    beforeInput(el, "deleteContentBackward");
+
+    expect(heading.isConnected).toBe(false);
+    expect(el.querySelector("[data-slide-plain-row] > p")?.textContent).toBe(
+      "Title",
+    );
+  });
+
   it("restores a root div when Backspace demotes a Markdown heading", () => {
     const el = mount('<div id="t">Alpha</div>');
     session = startInPlaceTextSession(el);
