@@ -131,6 +131,7 @@ function setupFetch(options?: {
   getDeckFailures?: { deckId: string; count: number };
   putFailures?: { deckId: string; count: number };
   patchStatus?: number;
+  patchHeaders?: Record<string, string>;
   patchResponse?: unknown | ((body: Record<string, unknown>) => unknown);
   putResponse?: unknown | ((body: Record<string, unknown>) => unknown);
 }) {
@@ -745,7 +746,10 @@ function setupFetch(options?: {
         accessibleDeck = applied.deck;
       }
       return Promise.resolve(
-        new Response(JSON.stringify(response), { status }),
+        new Response(JSON.stringify(response), {
+          status,
+          headers: options?.patchHeaders,
+        }),
       );
     }
 
@@ -1953,6 +1957,10 @@ describe("DeckContext deck creation persistence", () => {
     ).toBe("Local notes");
     expect(hasFailedDeckSave(deckId)).toBe(true);
     expect(hasUnsavedDeckChanges(deckId)).toBe(true);
+    expect(getDeckSaveError(deckId)).toMatchObject({
+      errorCode: "slide_field_conflict",
+      retryable: false,
+    });
 
     const requestsBeforeReplacement = fetchMock.mock.calls.length;
     act(() => {
@@ -2241,6 +2249,213 @@ describe("DeckContext deck creation persistence", () => {
 
     expect(getPatchAttempts(initial.id)).toBe(4);
     expect(getDeckSaveError(initial.id)).toBeUndefined();
+  });
+
+  describe("terminal 4xx saves versus merge and retry recovery", () => {
+    const deckId = "terminal-4xx-deck";
+    const slideHtml = (title: string, body: string) =>
+      `<div class="fmd-slide"><h1 data-slide-object-id="title">${title}</h1><p data-slide-object-id="body">${body}</p></div>`;
+    const initial: Deck = {
+      id: deckId,
+      title: "Terminal 4xx deck",
+      createdAt: "2026-05-12T00:00:00.000Z",
+      updatedAt: "2026-05-12T00:00:00.000Z",
+      slides: [
+        {
+          id: "slide-1",
+          content: slideHtml("Title", "Body"),
+          notes: "",
+          layout: "title",
+        },
+      ],
+    };
+
+    async function renderWithDeck(options: Parameters<typeof setupFetch>[0]) {
+      window.history.pushState({}, "", `/deck/${deckId}`);
+      const fetchHarness = setupFetch(options);
+      const hook = renderHook(() => useDecks(), { wrapper });
+      await waitFor(() => expect(hook.result.current.loading).toBe(false));
+      fetchHarness.setAccessibleDeck(initial);
+      await act(async () => hook.result.current.reloadDecks());
+      return { ...fetchHarness, ...hook };
+    }
+
+    it("merges and retries a stale-content 409 instead of failing it as a terminal 4xx", async () => {
+      const { result, setAccessibleDeck, getAccessibleDeck, getPatchAttempts } =
+        await renderWithDeck({ staleContentConflicts: true });
+      setAccessibleDeck({
+        ...initial,
+        updatedAt: "2026-05-12T00:01:00.000Z",
+        slides: [
+          {
+            ...initial.slides[0]!,
+            content: slideHtml("Title", "Body by remote"),
+          },
+        ],
+      });
+
+      act(() => {
+        result.current.updateSlide(deckId, "slide-1", {
+          content: slideHtml("Title by local", "Body"),
+        });
+      });
+      await act(async () => {
+        await result.current.flushDeckSave(deckId);
+      });
+
+      expect(getPatchAttempts(deckId)).toBe(2);
+      expect(getAccessibleDeck()?.slides[0]?.content).toBe(
+        slideHtml("Title by local", "Body by remote"),
+      );
+      expect(hasFailedDeckSave(deckId)).toBe(false);
+      expect(getDeckSaveError(deckId)).toBeUndefined();
+    });
+
+    it("retries a refreshed revision conflict instead of failing it as a terminal 4xx", async () => {
+      const { result, getPatchAttempts } = await renderWithDeck({
+        revisionConflicts: { deckId, count: 1 },
+        serverFaithfulClientWrites: true,
+      });
+
+      act(() => {
+        result.current.updateSlide(
+          deckId,
+          "slide-1",
+          { notes: "Changed" },
+          { persistence: "immediate" },
+        );
+      });
+      await act(async () => {
+        await result.current.flushDeckSave(deckId);
+      });
+
+      expect(getPatchAttempts(deckId)).toBe(2);
+      expect(getDeckSaveError(deckId)).toBeUndefined();
+    });
+
+    it.each([
+      [400, "slide_content_hash_required"],
+      [403, "forbidden"],
+      [404, "not_found"],
+      [409, "deck_write_conflict"],
+    ])(
+      "fails a %i %s save once with a non-retryable typed error",
+      async (status, errorCode) => {
+        const { result, getPatchAttempts } = await renderWithDeck({
+          patchStatus: status,
+          patchResponse: { error: "Rejected", errorCode },
+        });
+
+        vi.useFakeTimers();
+        act(() => {
+          result.current.updateSlide(
+            deckId,
+            "slide-1",
+            { notes: "Changed" },
+            { persistence: "immediate" },
+          );
+        });
+        await act(async () => {
+          await expect(
+            result.current.flushDeckSave(deckId),
+          ).rejects.toBeInstanceOf(DeckSaveError);
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2_000);
+        });
+
+        expect(getPatchAttempts(deckId)).toBe(1);
+        expect(getDeckSaveError(deckId)).toMatchObject({
+          status,
+          errorCode,
+          retryable: false,
+        });
+        expect(hasUnsavedDeckChanges(deckId)).toBe(true);
+      },
+    );
+
+    it.each([408, 429])(
+      "keeps retrying a transient %i save",
+      async (status) => {
+        const { result, getPatchAttempts } = await renderWithDeck({
+          patchStatus: status,
+          patchResponse: { error: "Try again" },
+        });
+
+        vi.useFakeTimers();
+        act(() => {
+          result.current.updateSlide(
+            deckId,
+            "slide-1",
+            { notes: "Changed" },
+            { persistence: "immediate" },
+          );
+        });
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2_000);
+        });
+
+        expect(getPatchAttempts(deckId)).toBe(3);
+        expect(getDeckSaveError(deckId)).toMatchObject({
+          status,
+          retryable: true,
+        });
+      },
+    );
+
+    it("fails a client build mismatch once, keeps the edit, and carries the reload target", async () => {
+      window.sessionStorage.removeItem(
+        "__agentNativeClientCompatibilityReload",
+      );
+      const { result, getPatchAttempts } = await renderWithDeck({
+        patchStatus: 409,
+        patchResponse: {
+          error: "Refresh required",
+          code: "client_build_mismatch",
+        },
+        patchHeaders: {
+          "X-Agent-Native-Client-Mismatch": "1",
+          "X-Agent-Native-Build-Id": "build-next",
+          "X-Agent-Native-Client-Compatibility": "slides-write-v1",
+        },
+      });
+
+      vi.useFakeTimers();
+      act(() => {
+        result.current.updateSlide(
+          deckId,
+          "slide-1",
+          { notes: "Unsaved note" },
+          { persistence: "immediate" },
+        );
+      });
+      await act(async () => {
+        await expect(
+          result.current.flushDeckSave(deckId),
+        ).rejects.toBeInstanceOf(DeckSaveError);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+
+      expect(getPatchAttempts(deckId)).toBe(1);
+      expect(getDeckSaveError(deckId)).toMatchObject({
+        status: 409,
+        errorCode: "client_build_mismatch",
+        serverBuildId: "build-next",
+        requiredCompatibility: "slides-write-v1",
+        retryable: false,
+      });
+      expect(
+        window.sessionStorage.getItem("__agentNativeClientCompatibilityReload"),
+      ).toBe("slides-write-v1:build-next");
+      expect(hasUnsavedDeckChanges(deckId)).toBe(true);
+      expect(
+        result.current.decks
+          .find((deck) => deck.id === deckId)
+          ?.slides.find((slide) => slide.id === "slide-1")?.notes,
+      ).toBe("Unsaved note");
+    });
   });
 
   it("hashes successive inline drafts from the last persisted draft", async () => {

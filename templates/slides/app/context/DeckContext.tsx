@@ -1199,7 +1199,13 @@ export function getDeckSaveError(deckId: string): DeckSaveError | undefined {
           { errorCode: "slide_content_conflict" },
           `Failed to save deck ${deckId}: unresolved slide content conflict; local draft retained`,
         )
-      : new DeckSaveError(deckId))
+      : staleSlideFieldDrafts.has(deckId)
+        ? new DeckSaveError(
+            deckId,
+            { errorCode: "slide_field_conflict" },
+            `Failed to save deck ${deckId}: unresolved slide field conflict; local draft retained`,
+          )
+        : new DeckSaveError(deckId))
   );
 }
 
@@ -2190,7 +2196,7 @@ function drainPendingDeckOps(
           } else {
             pendingPersistedResultHandlers.delete(deckId);
           }
-          failedSaveDecks.delete(deckId);
+          clearDeckSaveFailure(deckId);
           deckSaveRetryAttempts.delete(deckId);
           deckRevisionConflictRetryAttempts.delete(deckId);
           return;
@@ -2301,7 +2307,7 @@ function drainPendingDeckOps(
           } else {
             pendingPersistedResultHandlers.delete(deckId);
           }
-          failedSaveDecks.delete(deckId);
+          clearDeckSaveFailure(deckId);
           deckSaveRetryAttempts.delete(deckId);
           deckRevisionConflictRetryAttempts.delete(deckId);
           const timer = pendingSaves.get(deckId);
@@ -2574,7 +2580,9 @@ async function flushDeckSave(
         await drainPendingDeckOps(deckId);
         continue;
       }
-      throw new Error(
+      throw new DeckSaveError(
+        deckId,
+        { errorCode: "slide_field_conflict" },
         `Failed to save deck ${deckId}: unresolved slide field conflict; local draft retained`,
       );
     }
