@@ -5,6 +5,7 @@ const getSettingMock = vi.hoisted(() => vi.fn());
 const readDeployCredentialEnvMock = vi.hoisted(() => vi.fn());
 const canUseDeployCredentialFallbackForRequestMock = vi.hoisted(() => vi.fn());
 const getProviderCredentialAuthFailureMock = vi.hoisted(() => vi.fn());
+const readOrgMemberRoleMock = vi.hoisted(() => vi.fn());
 const requestContextState = vi.hoisted(() => ({
   synthetic: false,
   orgId: undefined as string | undefined,
@@ -33,6 +34,16 @@ vi.mock("../server/credential-provider.js", () => ({
   readDeployCredentialEnv: readDeployCredentialEnvMock,
 }));
 
+vi.mock(
+  "../server/personal-provider-key-policy.js",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../server/personal-provider-key-policy.js")
+    >()),
+    readOrgMemberRole: readOrgMemberRoleMock,
+  }),
+);
+
 import {
   getOwnerApiKey,
   resolveOwnerEngineApiKey,
@@ -53,6 +64,33 @@ beforeEach(() => {
   getProviderCredentialAuthFailureMock.mockResolvedValue(null);
   requestContextState.synthetic = false;
   requestContextState.orgId = undefined;
+  readOrgMemberRoleMock.mockResolvedValue("member");
+});
+
+describe("getOwnerApiKey scope order", () => {
+  it("runs an owner or admin on the org's key ahead of their own, and a member on theirs", async () => {
+    requestContextState.orgId = "org-1";
+    readAppSecretMock.mockImplementation(
+      async ({ key, scope }: { key: string; scope: string }) =>
+        key === "ANTHROPIC_API_KEY" && (scope === "user" || scope === "org")
+          ? { value: `sk-ant-${scope}`, last4: "-key", updatedAt: 1 }
+          : null,
+    );
+    for (const [role, expected] of [
+      ["owner", "sk-ant-org"],
+      ["admin", "sk-ant-org"],
+      ["member", "sk-ant-user"],
+    ] as const) {
+      readOrgMemberRoleMock.mockResolvedValue(role);
+      await expect(
+        getOwnerApiKey("anthropic", "owner@example.com"),
+      ).resolves.toBe(expected);
+    }
+    expect(readOrgMemberRoleMock).toHaveBeenCalledWith(
+      "org-1",
+      "owner@example.com",
+    );
+  });
 });
 
 describe("resolveOwnerEngineApiKey", () => {

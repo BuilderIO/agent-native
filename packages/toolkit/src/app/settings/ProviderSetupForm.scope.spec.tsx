@@ -118,6 +118,42 @@ describe("AgentProviderSetupForm save scope", () => {
     act(() => root.unmount());
   });
 
+  it("asks an owner or admin who can use the key, defaulting to the organization", async () => {
+    const fixture = fetchFixture(() => orgMe("admin"));
+    const root = await renderForm(fixture.fetchMock);
+
+    const radios = () =>
+      Array.from(document.querySelectorAll<HTMLElement>('[role="radio"]'));
+    expect(radios().map((radio) => radio.getAttribute("value"))).toEqual([
+      "user",
+      "org",
+    ]);
+    expect(
+      radios()
+        .find((radio) => radio.getAttribute("value") === "org")
+        ?.getAttribute("aria-checked"),
+    ).toBe("true");
+
+    await act(async () => {
+      radios()
+        .find((radio) => radio.getAttribute("value") === "user")!
+        .click();
+    });
+    await enterKeyAndSave("sk-ant-obviously-fake");
+
+    expect(fixture.saves).toEqual([
+      expect.objectContaining({ key: "ANTHROPIC_API_KEY", scope: "user" }),
+    ]);
+    act(() => root.unmount());
+  });
+
+  it("shows members no picker", async () => {
+    const fixture = fetchFixture(() => orgMe("member"));
+    const root = await renderForm(fixture.fetchMock);
+    expect(document.querySelector('[role="radiogroup"]')).toBeNull();
+    act(() => root.unmount());
+  });
+
   it("uses the scope the caller chose over the role default", async () => {
     const fixture = fetchFixture(() => orgMe("admin"));
     const root = await renderForm(fixture.fetchMock, { scope: "user" });

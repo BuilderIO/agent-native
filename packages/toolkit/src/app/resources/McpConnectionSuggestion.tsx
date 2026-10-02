@@ -359,7 +359,7 @@ export function McpConnectionSuggestion({
         initialIntegrationId={integration.id}
         quickConnectIntegrationId={quickConnectIntegrationId}
         presentation="modal"
-        defaultScope="user"
+        defaultScope="org"
         canCreateOrgMcp={canCreateOrgMcp}
         hasOrg={hasOrg}
         onCreateMcpServer={(args) => createMcpServer.mutateAsync(args)}

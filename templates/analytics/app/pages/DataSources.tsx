@@ -16,6 +16,10 @@ import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
 import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
 import { McpIntegrationLogo } from "@agent-native/toolkit/app/resources";
 import {
+  useCredentialSaveScope,
+  WhoField,
+} from "@agent-native/toolkit/app/settings";
+import {
   IconCheck,
   IconChevronDown,
   IconChevronUp,
@@ -36,7 +40,7 @@ import {
   IconPlugConnected,
 } from "@tabler/icons-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import {
@@ -186,8 +190,9 @@ function DataSourceLogo({ source }: { source: DataSource }) {
 
 async function saveEnvVars(
   vars: Array<{ key: string; value: string }>,
+  scope: "user" | "org",
 ): Promise<void> {
-  await callAction("update-data-source-credentials", { vars });
+  await callAction("update-data-source-credentials", { vars, scope });
 }
 
 async function testConnection(source: string): Promise<ConnectionTestResult> {
@@ -780,9 +785,12 @@ function ConnectedView({
     ok: boolean;
     error?: string;
   } | null>(null);
+  const saveScope = useCredentialSaveScope();
+  const whoId = useId();
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      if (!saveScope.scope) return;
       const vars: Array<{ key: string; value: string }> = [];
       for (const [key, value] of Object.entries(inputValues)) {
         const trimmed = value.trim();
@@ -792,7 +800,7 @@ function ConnectedView({
         if (!inputValues[key]?.trim()) vars.push({ key, value: "" });
       }
       if (vars.length === 0) return;
-      await saveEnvVars(vars);
+      await saveEnvVars(vars, saveScope.scope);
     },
     onSuccess: () => {
       setInputValues({});
@@ -989,11 +997,22 @@ function ConnectedView({
               </div>
             );
           })}
+        {saveScope.canChoose && saveScope.scope ? (
+          <WhoField
+            id={whoId}
+            choice
+            scope={saveScope.scope}
+            disabled={saveMutation.isPending}
+            onChange={saveScope.setScope}
+          />
+        ) : null}
         <div className="flex items-center gap-2 pt-2">
           <Button
             size="sm"
             onClick={() => saveMutation.mutate()}
-            disabled={saveMutation.isPending || !hasInputValues}
+            disabled={
+              saveMutation.isPending || !hasInputValues || !saveScope.scope
+            }
             className="text-xs"
           >
             {saveMutation.isPending ? (
@@ -1218,14 +1237,17 @@ function DataSourceCard({
   const [inputValues, setInputValues] = useState<Record<string, string>>({});
   const [showLocalCredentials, setShowLocalCredentials] = useState(false);
   const totalSteps = source.walkthroughSteps.length;
+  const saveScope = useCredentialSaveScope();
+  const whoId = useId();
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      if (!saveScope.scope) return;
       const vars = Object.entries(inputValues)
         .filter(([, v]) => v.trim())
         .map(([key, value]) => ({ key, value: value.trim() }));
       if (vars.length === 0) return;
-      await saveEnvVars(vars);
+      await saveEnvVars(vars, saveScope.scope);
     },
     onSuccess: () => {
       setInputValues({});
@@ -1506,6 +1528,17 @@ function DataSourceCard({
                 );
               })()}
 
+              {hasInputValues && saveScope.canChoose && saveScope.scope ? (
+                <div className="pb-3">
+                  <WhoField
+                    id={whoId}
+                    choice
+                    scope={saveScope.scope}
+                    disabled={saveMutation.isPending}
+                    onChange={saveScope.setScope}
+                  />
+                </div>
+              ) : null}
               <div className="flex items-center gap-2 pt-1">
                 {hasInputValues && (
                   <Button
@@ -1514,7 +1547,7 @@ function DataSourceCard({
                       e.stopPropagation();
                       saveMutation.mutate();
                     }}
-                    disabled={saveMutation.isPending}
+                    disabled={saveMutation.isPending || !saveScope.scope}
                     className="text-xs"
                   >
                     {saveMutation.isPending ? (

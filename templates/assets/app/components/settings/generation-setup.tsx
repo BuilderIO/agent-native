@@ -7,12 +7,16 @@ import {
   type OnboardingStepStatus,
 } from "@agent-native/core/client/onboarding";
 import {
+  useCredentialSaveScope,
+  WhoField,
+} from "@agent-native/toolkit/app/settings";
+import {
   useBuilderConnectFlow,
   useBuilderStatus,
 } from "@agent-native/toolkit/app/settings";
 import { IconLoader2 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -270,6 +274,10 @@ function CredentialForm({
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Owners and admins pick who can use the key (organization by default).
+  const saveScope = useCredentialSaveScope();
+  const chosenScope = saveScope.canChoose ? saveScope.scope : null;
+  const whoId = useId();
 
   const fields = method.payload.fields;
   const submitLabel =
@@ -297,7 +305,7 @@ function CredentialForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           vars,
-          scope: method.payload.writeScope ?? "workspace",
+          scope: chosenScope ?? method.payload.writeScope ?? "workspace",
         }),
       });
 
@@ -353,13 +361,38 @@ function CredentialForm({
         })}
       </div>
 
+      {chosenScope ? (
+        <WhoField
+          id={whoId}
+          choice
+          scope={chosenScope}
+          disabled={saving}
+          onChange={saveScope.setScope}
+        />
+      ) : null}
+
+      {saveScope.roleUnavailable ? (
+        <p role="alert" className="text-sm text-destructive">
+          {t("settings.scopeRoleUnavailable")}{" "}
+          <Button
+            type="button"
+            variant="link"
+            size="sm"
+            className="h-auto p-0"
+            onClick={saveScope.retry}
+          >
+            {t("settings.retry")}
+          </Button>
+        </p>
+      ) : null}
+
       {error ? (
         <p role="alert" className="text-sm text-destructive">
           {error}
         </p>
       ) : null}
 
-      <Button type="submit" size="sm" disabled={saving}>
+      <Button type="submit" size="sm" disabled={saving || !saveScope.scope}>
         {saving ? (
           <>
             <IconLoader2 className="size-3.5 animate-spin" />

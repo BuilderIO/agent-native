@@ -5,6 +5,7 @@ const mockReadAppSecretMeta = vi.fn();
 const mockGetRequestOrgId = vi.fn();
 const mockGetRequestUserEmail = vi.fn();
 const mockResolveCredentialForScope = vi.fn();
+const mockReadOrgMemberRole = vi.fn();
 
 vi.mock("./storage.js", () => ({
   readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
@@ -14,6 +15,11 @@ vi.mock("./storage.js", () => ({
 vi.mock("../server/request-context.js", () => ({
   getRequestOrgId: (...args: any[]) => mockGetRequestOrgId(...args),
   getRequestUserEmail: (...args: any[]) => mockGetRequestUserEmail(...args),
+  getRequestContext: () => undefined,
+}));
+
+vi.mock("../server/personal-provider-key-policy.js", () => ({
+  readOrgMemberRole: (...args: any[]) => mockReadOrgMemberRole(...args),
 }));
 
 vi.mock("../credentials/index.js", () => ({
@@ -47,6 +53,7 @@ describe("resolveKeyReferencesWithRequestScopes", () => {
     mockReadAppSecret.mockResolvedValue(null);
     mockReadAppSecretMeta.mockResolvedValue(null);
     mockResolveCredentialForScope.mockResolvedValue(undefined);
+    mockReadOrgMemberRole.mockResolvedValue("member");
   });
 
   it("falls back from user scope to active org scope", async () => {
@@ -131,6 +138,25 @@ describe("resolveKeyReferencesWithRequestScopes", () => {
     });
     // The legacy credential store is never reached when a scoped row resolves.
     expect(mockResolveCredentialForScope).not.toHaveBeenCalled();
+  });
+
+  it("returns the org value ahead of an owner's or admin's own", async () => {
+    mockReadAppSecret.mockImplementation(async ({ scope }) =>
+      scope === "user"
+        ? { value: "personal-token" }
+        : { value: "shared-token" },
+    );
+    for (const role of ["owner", "admin"]) {
+      mockReadOrgMemberRole.mockResolvedValue(role);
+      const result = await resolveKeyReferencesWithRequestScopes(
+        "Bearer ${keys.GITHUB_TOKEN}",
+        "alice@example.test",
+      );
+      expect(result.resolved).toBe("Bearer shared-token");
+      expect(result.resolvedKeys).toEqual([
+        { name: "GITHUB_TOKEN", scope: "org", scopeId: "org_123" },
+      ]);
+    }
   });
 
   it("falls back to a legacy user credential after scoped secrets miss", async () => {

@@ -24,10 +24,6 @@ import {
 import { Input } from "@agent-native/toolkit/ui/input";
 import { Label } from "@agent-native/toolkit/ui/label";
 import {
-  RadioGroup,
-  RadioGroupItem,
-} from "@agent-native/toolkit/ui/radio-group";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -47,6 +43,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { BrandLogo } from "../infra/logos.js";
+import { WhoField } from "../WhoField.js";
 import {
   addDialogChoices,
   explicitSelectionAt,
@@ -728,10 +725,14 @@ function ProviderDialogForm({
         {listing.hasOrganization ? (
           <WhoField
             id={ids.who}
-            mode={replaceTarget ? "manage" : mode}
+            hint={whoHint(
+              t,
+              replaceTarget ? "manage" : mode,
+              mode === "add" && whoChoice && !replaceTarget,
+              orgName,
+            )}
             choice={mode === "add" && whoChoice && !replaceTarget}
             scope={scope}
-            orgName={orgName}
             disabled={saving}
             onChange={setScope}
           />
@@ -1046,68 +1047,13 @@ function ModelsBox({
   );
 }
 
-function WhoField({
-  id,
-  mode,
-  choice,
-  scope,
-  orgName,
-  disabled,
-  onChange,
-}: {
-  id: string;
-  mode: ProviderDialogMode;
-  choice: boolean;
-  scope: AgentEngineKeyScope;
-  orgName: string;
-  disabled: boolean;
-  onChange: (scope: AgentEngineKeyScope) => void;
-}) {
-  const t = useT();
-  const hint =
-    mode === "add-from-service"
-      ? t(`${K}whoHintService`)
-      : choice
-        ? t(`${K}whoHintAdmin`, { org: orgName })
-        : mode === "add"
-          ? t(`${K}whoHintMember`)
-          : null;
-  return (
-    <div className="grid gap-2">
-      <span id={id} className="text-sm font-medium leading-none">
-        {t(`${K}who`)}
-      </span>
-      {choice ? (
-        <RadioGroup
-          aria-labelledby={id}
-          value={scope}
-          onValueChange={(value) => onChange(value as AgentEngineKeyScope)}
-          className="flex flex-wrap gap-5"
-          disabled={disabled}
-        >
-          {(["user", "org"] as const).map((value) => (
-            <div key={value} className="flex items-center gap-2">
-              <RadioGroupItem id={`${id}-${value}`} value={value} />
-              <Label htmlFor={`${id}-${value}`} className="font-normal">
-                {value === "org" ? t(`${K}organization`) : t(`${K}personal`)}
-              </Label>
-            </div>
-          ))}
-        </RadioGroup>
-      ) : (
-        <div
-          aria-labelledby={id}
-          className="flex h-9 items-center gap-2 rounded-md border border-input bg-muted/40 px-3 text-sm text-muted-foreground"
-        >
-          <IconLock className="size-4 shrink-0" aria-hidden />
-          <span>
-            {scope === "org" ? t(`${K}organization`) : t(`${K}personal`)}
-          </span>
-        </div>
-      )}
-      {hint ? (
-        <p className="text-xs leading-5 text-muted-foreground">{hint}</p>
-      ) : null}
-    </div>
-  );
+function whoHint(
+  t: ReturnType<typeof useT>,
+  mode: ProviderDialogMode,
+  choice: boolean,
+  orgName: string,
+): string | null {
+  if (mode === "add-from-service") return t(`${K}whoHintService`);
+  if (choice) return t(`${K}whoHintAdmin`, { org: orgName });
+  return mode === "add" ? t(`${K}whoHintMember`) : null;
 }

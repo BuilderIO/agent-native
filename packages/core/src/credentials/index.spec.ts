@@ -15,6 +15,16 @@ vi.mock("../settings/store.js", async (importOriginal) => ({
 }));
 
 let resolveOrgIdForEmail: (email: string) => Promise<string | null>;
+const readOrgMemberRole = vi.fn();
+vi.mock(
+  "../server/personal-provider-key-policy.js",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../server/personal-provider-key-policy.js")
+    >()),
+    readOrgMemberRole: (...args: unknown[]) => readOrgMemberRole(...args),
+  }),
+);
 vi.mock("../org/context.js", () => ({
   resolveOrgIdForEmail: (email: string) => resolveOrgIdForEmail(email),
 }));
@@ -25,6 +35,8 @@ beforeEach(() => {
   readAppSecret.mockReset();
   readAppSecret.mockResolvedValue(null);
   resolveOrgIdForEmail = async () => null;
+  readOrgMemberRole.mockReset();
+  readOrgMemberRole.mockResolvedValue("member");
 });
 
 describe("credentials encryption at rest", () => {
@@ -530,6 +542,41 @@ describe("credentials encryption at rest", () => {
       }),
     ).resolves.toBe("personal-legacy-token");
     expect(readAppSecret).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts the org's credential ahead of an owner's or admin's own, keeping theirs as the fallback", async () => {
+    const rows: Record<string, string> = {
+      "user:boss@example.test:STRIPE_KEY": "personal-token",
+      "org:org-1:STRIPE_KEY": "shared-org-token",
+    };
+    readAppSecret.mockImplementation(async (ref: any) => {
+      const value = rows[`${ref.scope}:${ref.scopeId}:${ref.key}`];
+      return value ? { value, last4: "oken", updatedAt: 1 } : null;
+    });
+    const { resolveCredentialDetailed } = await import("./index.js");
+    const ctx = { userEmail: "boss@example.test", orgId: "org-1" };
+
+    for (const role of ["owner", "admin"]) {
+      readOrgMemberRole.mockResolvedValue(role);
+      await expect(
+        resolveCredentialDetailed("STRIPE_KEY", ctx),
+      ).resolves.toMatchObject({ value: "shared-org-token", scope: "org" });
+    }
+    readOrgMemberRole.mockResolvedValue("member");
+    await expect(
+      resolveCredentialDetailed("STRIPE_KEY", ctx),
+    ).resolves.toMatchObject({ value: "personal-token", scope: "user" });
+
+    delete rows["org:org-1:STRIPE_KEY"];
+    readOrgMemberRole.mockResolvedValue("owner");
+    await expect(
+      resolveCredentialDetailed("STRIPE_KEY", ctx),
+    ).resolves.toMatchObject({ value: "personal-token", scope: "user" });
+
+    readOrgMemberRole.mockRejectedValue(new Error("db query timed out"));
+    await expect(resolveCredentialDetailed("STRIPE_KEY", ctx)).rejects.toThrow(
+      "db query timed out",
+    );
   });
 
   it("returns undefined when the encryption key rotated (cannot decrypt)", async () => {

@@ -63,7 +63,7 @@ function readString(
   return null;
 }
 
-async function resolveOrgRole(
+export async function resolveOrgRole(
   userEmail: string,
   orgId: string,
 ): Promise<string | null> {

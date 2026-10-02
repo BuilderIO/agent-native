@@ -1,10 +1,10 @@
 /**
- * Per-user credential helpers for the calendar CRM integrations
+ * Credential helpers for the calendar CRM integrations
  * (Apollo / HubSpot / Gong / Pylon).
  *
  * SECURITY: Raw third-party API keys are secrets. They MUST live in the
  * encrypted credentials vault (`saveCredential`/`resolveCredential`), scoped to
- * the requesting user — never in `application_state` (which is serialized back
+ * the requesting user or their organization — never in `application_state` (which is serialized back
  * to the browser by the framework's getState handler) and never returned to the
  * client. See `.agents/skills/security` and
  * `packages/core/src/credentials/index.ts`.
@@ -16,13 +16,15 @@
  */
 import {
   resolveCredential,
+  resolveCredentialDetailed,
   saveCredential,
   deleteCredential,
   type CredentialContext,
 } from "@agent-native/core/credentials";
 import { getOrgContext } from "@agent-native/core/org";
+import { canManageOrg } from "@agent-native/core/org/permissions";
 import { getSession } from "@agent-native/core/server";
-import { type H3Event } from "h3";
+import { createError, type H3Event } from "h3";
 
 export type IntegrationProvider = "apollo" | "hubspot" | "gong" | "pylon";
 
@@ -79,23 +81,73 @@ export async function getIntegrationKey(
   return undefined;
 }
 
+function orgKeyForbidden() {
+  return createError({
+    statusCode: 403,
+    statusMessage:
+      "Only organization owners and admins can change the organization's key",
+  });
+}
+
+// Read without a fallback: an unreadable role must fail the request, never
+// land an owner's or admin's key in their personal row.
+async function managedOrgId(event: H3Event): Promise<string | null> {
+  const org = await getOrgContext(event);
+  return org.orgId && canManageOrg(org.role) ? org.orgId : null;
+}
+
+/**
+ * Owners and admins save for the organization unless they ask for "user";
+ * members, and anyone without an organization, save personally.
+ */
 export async function saveIntegrationKey(
   event: H3Event,
   provider: IntegrationProvider,
   apiKey: string,
+  requestedScope?: unknown,
 ): Promise<boolean> {
+  if (
+    requestedScope !== undefined &&
+    requestedScope !== "user" &&
+    requestedScope !== "org"
+  ) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: 'scope must be "user" or "org"',
+    });
+  }
   const ctx = await getIntegrationContext(event);
   if (!ctx) return false;
-  await saveCredential(credentialKey(provider), apiKey, ctx);
+  const orgId = await managedOrgId(event);
+  const scope =
+    requestedScope === "user" || requestedScope === "org"
+      ? requestedScope
+      : orgId
+        ? "org"
+        : "user";
+  if (scope === "org" && !orgId) throw orgKeyForbidden();
+  await saveCredential(credentialKey(provider), apiKey, {
+    ...ctx,
+    orgId: orgId ?? ctx.orgId,
+    scope,
+  });
   return true;
 }
 
+/** Removes the row the status and lookups answer with. */
 export async function deleteIntegrationKey(
   event: H3Event,
   provider: IntegrationProvider,
 ): Promise<boolean> {
   const ctx = await getIntegrationContext(event);
   if (!ctx) return false;
-  await deleteCredential(credentialKey(provider), ctx);
+  const key = credentialKey(provider);
+  const held = await resolveCredentialDetailed(key, ctx);
+  if (held?.scope !== "org") {
+    await deleteCredential(key, ctx);
+    return true;
+  }
+  if ((await managedOrgId(event)) !== held.scopeId) throw orgKeyForbidden();
+  await deleteCredential(key, { ...ctx, orgId: held.scopeId, scope: "org" });
   return true;
 }

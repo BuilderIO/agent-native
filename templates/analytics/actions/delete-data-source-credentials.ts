@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { credentialKeys } from "../server/lib/credential-keys";
-import { deleteCredential } from "../server/lib/credentials";
+import { deleteResolvedCredential } from "../server/lib/credential-save-scope";
 import { tryRequestCredentialContext } from "../server/lib/credentials-context";
 
 const ALLOWED_KEYS = new Set(credentialKeys.map((k) => k.key));
@@ -24,7 +24,7 @@ export default defineAction({
     if (!ctx) throw new Error("Sign in to delete credentials");
 
     for (const key of filtered) {
-      await deleteCredential(key, ctx);
+      await deleteResolvedCredential(key, ctx);
     }
 
     return { deleted: filtered };
