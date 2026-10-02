@@ -508,7 +508,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     });
 
     expect(chatHandleMocks.prefillMessage).toHaveBeenCalledWith(
-      "Review this before sending\n\n<context>\nSelected rows: a, b\n</context>",
+      'Review this before sending\n\n<context data-agentkit-context-encoding="entities-v1">\nSelected rows: a, b\n</context>',
     );
     expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
   });
@@ -592,7 +592,7 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     });
 
     expect(chatHandleMocks.sendMessage).toHaveBeenCalledWith(
-      "Here are my answers.\n\n<context>\nContinue deck generation.\n</context>",
+      'Here are my answers.\n\n<context data-agentkit-context-encoding="entities-v1">\nContinue deck generation.\n</context>',
       undefined,
       { submitMessageId: "guided-answer-submit" },
     );

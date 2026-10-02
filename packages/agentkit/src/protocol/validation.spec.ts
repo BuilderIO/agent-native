@@ -15,6 +15,7 @@ import {
   parseAgentQueuedMessage,
   parseInvokeActionInput,
   parseQueueMessageInput,
+  parseSteerQueuedMessageResult,
   parseSubmitFeedbackInput,
   parseResumeRunInput,
   parseAgentThreadSnapshot,
@@ -59,6 +60,15 @@ describe("AgentKit protocol validation", () => {
     expect(() =>
       parseResumeRunInput({ threadId: "thread-1", runId: "run-1", resume: [] }),
     ).toThrow("resumeRun.resume");
+  });
+
+  it("validates an already-removed queued steer result", () => {
+    expect(parseSteerQueuedMessageResult({ alreadyRemoved: true })).toEqual({
+      alreadyRemoved: true,
+    });
+    expect(() =>
+      parseSteerQueuedMessageResult({ alreadyRemoved: true, runId: "run-1" }),
+    ).toThrow("alreadyRemoved");
   });
 
   it("keeps custom choice responses distinct from predefined option ids", () => {

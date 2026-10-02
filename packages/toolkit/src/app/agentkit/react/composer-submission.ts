@@ -1,8 +1,8 @@
+import { appendAgentChatContextToMessage } from "@agent-native/agentkit";
 import type {
   AgentRunOptions,
   FilePart,
 } from "@agent-native/agentkit/protocol";
-import { appendAgentChatContextToMessage } from "@agent-native/core/client/agent-chat";
 
 import {
   snapshotComposerContextItems,

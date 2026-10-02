@@ -59,7 +59,17 @@ describe("AgentKit queued steering", () => {
               queuedMessages = [];
               if (promoted) {
                 messages = [
-                  { id: messageId, role: "user", content: queued.text },
+                  {
+                    id: "server-user-run-promoted",
+                    role: "user",
+                    content: queued.text,
+                    metadata: {
+                      custom: {
+                        agentNativeQueuedMessageId: messageId,
+                        submittedRunId: "run-promoted",
+                      },
+                    },
+                  },
                 ];
               }
             }
@@ -75,11 +85,15 @@ describe("AgentKit queued steering", () => {
       });
 
       const steering = transport.steerQueuedMessage?.({ threadId, messageId });
-      if (promoted) await expect(steering).resolves.toBeUndefined();
+      if (promoted)
+        await expect(steering).resolves.toMatchObject({
+          runId: "run-promoted",
+          alreadySubmitted: true,
+        });
       else
-        await expect(steering).rejects.toThrow(
-          `Unknown queued message: ${messageId}`,
-        );
+        await expect(steering).resolves.toMatchObject({
+          alreadyRemoved: true,
+        });
 
       expect(startRunRequests).toBe(0);
       await transport.dispose();
@@ -98,7 +112,19 @@ describe("AgentKit queued steering", () => {
           createdAt: "2026-10-01T00:00:00.000Z",
           updatedAt: "2026-10-01T00:00:00.000Z",
           threadData: JSON.stringify({
-            messages: [{ id: messageId, role: "user", content: "Run once" }],
+            messages: [
+              {
+                id: "server-user-run-promoted",
+                role: "user",
+                content: "Run once",
+                metadata: {
+                  custom: {
+                    agentNativeQueuedMessageId: messageId,
+                    submittedRunId: "run-promoted",
+                  },
+                },
+              },
+            ],
             queuedMessages: [],
           }),
         });
@@ -112,7 +138,10 @@ describe("AgentKit queued steering", () => {
 
     await expect(
       transport.steerQueuedMessage?.({ threadId, messageId }),
-    ).resolves.toBeUndefined();
+    ).resolves.toMatchObject({
+      runId: "run-promoted",
+      alreadySubmitted: true,
+    });
     expect(fetcher).toHaveBeenCalledTimes(1);
 
     await transport.dispose();
@@ -382,6 +411,7 @@ describe("AgentKit queued steering", () => {
       });
       expect(queue).toHaveLength(0);
       expect(runNumber).toBe(2);
+      expect(activeReads).toContain(true);
       expect(activeReads.slice(-2)).toEqual([false, false]);
       expect(turns[1]).toMatchObject({
         queuePromotion: {

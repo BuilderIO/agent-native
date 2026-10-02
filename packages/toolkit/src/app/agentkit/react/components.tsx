@@ -3158,14 +3158,25 @@ export function AgentMessageView({
 }
 
 function stripAgentMessageContext(message: AgentMessage): AgentMessage {
+  const metadata = stripAgentContextMetadata(message.metadata);
   return {
     ...message,
+    ...(metadata ? { metadata } : {}),
     parts: message.parts.map((part) =>
       part.type === "text"
         ? { ...part, text: splitAgentKitMessageContext(part.text).message }
         : part,
     ),
   };
+}
+
+function stripAgentContextMetadata(
+  metadata?: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (!metadata) return metadata;
+  const visibleMetadata = { ...metadata };
+  delete visibleMetadata.contextItems;
+  return visibleMetadata;
 }
 
 export function AgentRunFailure({
@@ -3694,6 +3705,7 @@ export function AgentKitComposer({
       attachments: [...payload.attachments],
       options: payload.options,
       metadata: sendMetadata,
+      queueWhileRunning,
       ...(options.steer ? { interruptActiveRun: true } : {}),
       onLocalSubmit,
     };
@@ -3773,10 +3785,14 @@ export function AgentKitComposer({
       {queueCapability.visible ? (
         Queue ? (
           <Queue
-            items={thread.queuedMessages.map((message) => ({
-              ...message,
-              text: splitAgentKitMessageContext(message.text).message,
-            }))}
+            items={thread.queuedMessages.map((message) => {
+              const metadata = stripAgentContextMetadata(message.metadata);
+              return {
+                ...message,
+                text: splitAgentKitMessageContext(message.text).message,
+                ...(metadata ? { metadata } : {}),
+              };
+            })}
             threadId={threadId}
             active={active}
             pending={command.pending || Boolean(disabled)}

@@ -18,6 +18,10 @@ vi.mock("./emitter.js", () => ({
 }));
 
 import {
+  applySubmittedUserMessage,
+  buildUserMessage,
+} from "../agent/thread-data-builder.js";
+import {
   adoptThreadScopeIfUnscoped,
   createThreadShareLink,
   forkThread,
@@ -453,6 +457,53 @@ describe("chat thread store", () => {
     ]);
     expect(row!.preview).toBe("make this slide better");
     expect(row!.message_count).toBe(1);
+  });
+
+  it("rechecks a queue claim after a cross-process CAS conflict", async () => {
+    const queued = {
+      id: "queued-claim-cas",
+      text: "Run once",
+      promotionClaim: { id: "tab-1", expiresAt: Date.now() + 60_000 },
+    };
+    row!.thread_data = JSON.stringify({ queuedMessages: [queued] });
+    conflictOnce = () => {
+      row = {
+        ...row!,
+        thread_data: JSON.stringify({ queuedMessages: [] }),
+        updated_at: 2,
+      };
+    };
+    const userMessage = buildUserMessage({
+      text: queued.text,
+      runId: "run-queue-cas",
+      queuedMessageId: queued.id,
+    });
+    let failure: string | undefined;
+
+    await updateThreadData("thread-1", "{}", "", "", 0, {
+      transformThreadData: (threadData) => {
+        const result = applySubmittedUserMessage(
+          JSON.parse(threadData),
+          userMessage,
+          { id: queued.id, claimId: "tab-1" },
+        );
+        if (result.status === "claim_expired") {
+          failure = result.status;
+          return threadData;
+        }
+        if (result.status === "already_claimed") {
+          failure = result.status;
+          return threadData;
+        }
+        failure = undefined;
+        return JSON.stringify(result.repo);
+      },
+    });
+
+    const repo = JSON.parse(row!.thread_data);
+    expect(failure).toBe("claim_expired");
+    expect(repo.queuedMessages).toEqual([]);
+    expect(repo.messages ?? []).toEqual([]);
   });
 
   it("removes only the requested queue item after a concurrent append", async () => {

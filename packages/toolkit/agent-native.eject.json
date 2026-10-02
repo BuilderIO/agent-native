@@ -201,8 +201,7 @@
         "sonner",
         "tailwind-merge"
       ],
-      "verification": ["pnpm typecheck"],
-      "protectedImports": ["@agent-native/core/client/agent-chat"]
+      "verification": ["pnpm typecheck"]
     },
     {
       "id": "toolkit/app-chat",

@@ -118,14 +118,12 @@ import {
 import {
   buildAssistantMessage,
   buildUserMessage,
-  claimQueuedMessage,
+  applySubmittedUserMessage,
   extractThreadMeta,
   foldAssistantTurn,
   foldThreadRunSuggestions,
-  hasClaimedQueuedMessage,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
-  upsertUserMessage,
   type ThreadSuggestionRun,
 } from "../agent/thread-data-builder.js";
 import { appendThreadDebugHistory } from "../agent/thread-debug-history.js";
@@ -676,12 +674,6 @@ export function parseQueuedMessageForThread(
   }
   const { promotionClaim: _claim, ...message } = queued;
   return { ...message, threadId } as QueuedMessage;
-}
-
-function recordValue(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
 }
 
 export function createSerializedA2ATaskStatusWriter(
@@ -3786,79 +3778,77 @@ export function createAgentChatPlugin(
             };
           }
 
-          let repo = JSON.parse(thread.threadData || "{}");
-
-          if (details.queuedMessageId) {
-            const alreadySubmittedForRun = Array.isArray(repo.messages)
-              ? repo.messages.some((entry: unknown) => {
-                  const outer = recordValue(entry);
-                  const message = recordValue(outer?.message ?? outer);
-                  const custom = recordValue(
-                    recordValue(message?.metadata)?.custom,
-                  );
-                  return (
-                    custom?.agentNativeQueuedMessageId ===
-                      details.queuedMessageId &&
-                    custom?.submittedRunId === details.runId
-                  );
-                })
-              : false;
-            if (
-              hasClaimedQueuedMessage(repo, details.queuedMessageId) &&
-              !alreadySubmittedForRun
-            ) {
-              throw createError({
-                statusCode: 409,
-                statusMessage: "Queued message was already submitted",
-                data: { code: "queued_message_already_submitted" },
-              });
-            }
-            if (!alreadySubmittedForRun) {
-              const queued = Array.isArray(repo.queuedMessages)
-                ? repo.queuedMessages.find(
-                    (message: unknown) =>
-                      recordValue(message)?.id === details.queuedMessageId,
-                  )
-                : undefined;
-              const claim = recordValue(recordValue(queued)?.promotionClaim);
-              if (
-                !queued ||
-                typeof details.queuedMessageClaimId !== "string" ||
-                claim?.id !== details.queuedMessageClaimId ||
-                typeof claim.expiresAt !== "number" ||
-                claim.expiresAt <= Date.now()
-              ) {
-                throw createError({
-                  statusCode: 409,
-                  statusMessage: "Queued message promotion claim expired",
-                  data: { code: "run_slot_busy", retryable: true },
-                });
-              }
-              repo = claimQueuedMessage(repo, details.queuedMessageId);
-            }
-          }
-
-          repo = upsertUserMessage(
-            repo,
-            buildUserMessage({
-              text: details.message,
-              attachments: details.attachments,
-              runId: details.runId,
-              turnId: details.turnId,
-              queuedMessageId: details.queuedMessageId,
-            }),
-          );
-
-          const meta = extractThreadMeta(repo);
+          const userMessage = buildUserMessage({
+            text: details.message,
+            attachments: details.attachments,
+            runId: details.runId,
+            turnId: details.turnId,
+            queuedMessageId: details.queuedMessageId,
+          });
+          let submissionFailure:
+            | "already_claimed"
+            | "claim_expired"
+            | "invalid_thread_data"
+            | undefined;
           await updateThreadData(
             threadId,
-            JSON.stringify(repo),
-            thread.title,
-            meta.preview || thread.preview,
-            Array.isArray(repo.messages)
-              ? repo.messages.length
-              : thread.messageCount,
+            "{}",
+            "",
+            thread.preview,
+            thread.messageCount,
+            {
+              transformThreadData: (threadData) => {
+                submissionFailure = undefined;
+                let repo: unknown;
+                try {
+                  repo = JSON.parse(threadData || "{}");
+                } catch {
+                  submissionFailure = "invalid_thread_data";
+                  return threadData;
+                }
+                if (!repo || typeof repo !== "object" || Array.isArray(repo)) {
+                  submissionFailure = "invalid_thread_data";
+                  return threadData;
+                }
+                const result = applySubmittedUserMessage(
+                  repo,
+                  userMessage,
+                  details.queuedMessageId
+                    ? {
+                        id: details.queuedMessageId,
+                        claimId: details.queuedMessageClaimId,
+                      }
+                    : undefined,
+                );
+                if (!("repo" in result)) {
+                  submissionFailure = result.status;
+                  return threadData;
+                }
+                const meta = extractThreadMeta(result.repo);
+                return {
+                  threadData: JSON.stringify(result.repo),
+                  preview: meta.preview || thread.preview,
+                };
+              },
+            },
           );
+          if (submissionFailure === "already_claimed") {
+            throw createError({
+              statusCode: 409,
+              statusMessage: "Queued message was already submitted",
+              data: { code: "queued_message_already_submitted" },
+            });
+          }
+          if (submissionFailure === "claim_expired") {
+            throw createError({
+              statusCode: 409,
+              statusMessage: "Queued message promotion claim expired",
+              data: { code: "run_slot_busy", retryable: true },
+            });
+          }
+          if (submissionFailure === "invalid_thread_data") {
+            throw new TypeError("Agent chat thread data is not valid JSON.");
+          }
         });
       };
 

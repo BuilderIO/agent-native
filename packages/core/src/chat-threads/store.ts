@@ -1314,7 +1314,9 @@ export interface UpdateThreadDataOptions {
   preserveExistingQueuedMessages?: boolean;
   preserveExistingTopLevelKeys?: boolean;
   preserveCurrentMetadata?: boolean;
-  transformThreadData?: (currentThreadData: string) => string;
+  transformThreadData?: (
+    currentThreadData: string,
+  ) => string | { threadData: string; preview?: string };
   maxAttempts?: number;
   ignoreConflicts?: boolean;
 }
@@ -1351,8 +1353,11 @@ export async function updateThreadData(
       const current = await getThread(id);
       if (!current) return;
 
+      const transformed = options.transformThreadData?.(current.threadData);
       const incomingThreadData =
-        options.transformThreadData?.(current.threadData) ?? threadData;
+        typeof transformed === "string"
+          ? transformed
+          : (transformed?.threadData ?? threadData);
       let nextThreadData = incomingThreadData;
       let nextMessageCount = messageCount;
       try {
@@ -1381,7 +1386,9 @@ export async function updateThreadData(
         : title || current.title;
       const nextPreview = options.preserveCurrentMetadata
         ? current.preview
-        : preview;
+        : typeof transformed === "object" && transformed.preview !== undefined
+          ? transformed.preview
+          : preview;
       const result = await client.execute({
         sql: `UPDATE chat_threads SET thread_data = ?, title = ?, preview = ?, message_count = COALESCE(?, message_count), updated_at = ? WHERE id = ? AND updated_at = ? AND LOWER(owner_email) = LOWER(?)`,
         args: [

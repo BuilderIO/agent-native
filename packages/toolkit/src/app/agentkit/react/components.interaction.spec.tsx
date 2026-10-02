@@ -1239,7 +1239,18 @@ describe("AgentKitChat interactions", () => {
           },
         ],
       },
+      {
+        id: "queued-third",
+        threadId: "thread-queue",
+        text: "Third",
+        createdAt: "2026-09-26T00:00:02.000Z",
+      },
     ];
+    const previousUserAgent = navigator.userAgent;
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    });
     const moveQueuedMessageToTop = vi.fn(async () => undefined);
     const steerQueuedMessage = vi.fn(async () => undefined);
     const transport: AgentTransport = {
@@ -1394,7 +1405,7 @@ describe("AgentKitChat interactions", () => {
       );
       expect(
         client.getThread("thread-queue").queuedMessages.map(({ id }) => id),
-      ).toEqual(["queued-second", "queued-first"]);
+      ).toEqual(["queued-second", "queued-first", "queued-third"]);
 
       await act(async () => {
         Array.from(
@@ -1437,6 +1448,32 @@ describe("AgentKitChat interactions", () => {
         }),
         expect.anything(),
       );
+
+      const emptyComposer = container.querySelector<HTMLElement>(
+        ".agent-composer-prosemirror",
+      );
+      await act(async () => {
+        emptyComposer?.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+            metaKey: true,
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(
+        steerQueuedMessage.mock.calls.map(([input]) => input.messageId),
+      ).toEqual(["queued-second", "queued-first", "queued-third"]);
+      expect(steerQueuedMessage).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          threadId: "thread-queue",
+          messageId: "queued-third",
+          interruptActiveRun: true,
+        }),
+        expect.anything(),
+      );
     } finally {
       await act(async () => {
         root.unmount();
@@ -1449,6 +1486,10 @@ describe("AgentKitChat interactions", () => {
       } else {
         actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
       }
+      Object.defineProperty(navigator, "userAgent", {
+        configurable: true,
+        value: previousUserAgent,
+      });
     }
   });
 

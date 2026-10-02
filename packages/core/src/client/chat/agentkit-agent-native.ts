@@ -1445,16 +1445,22 @@ export function createAgentNativeAgentKitTransport(
     return thread.queuedMessages ? [...thread.queuedMessages] : [];
   }
 
-  function provesQueueMessageWasSubmitted(
+  function submittedQueueMessage(
     thread: AgentThreadSnapshot,
     messageId: string,
-  ): boolean {
+  ): AgentMessage | undefined {
+    const isSubmitted = (message: AgentMessage) =>
+      message.id === messageId ||
+      asRecord(message.metadata?.custom)?.agentNativeQueuedMessageId ===
+        messageId;
+    const messageEvent = thread.events?.find(
+      (event) => event.type === "message.created" && isSubmitted(event.message),
+    );
     return (
-      thread.messages.some((message) => message.id === messageId) ||
-      thread.events?.some(
-        (event) =>
-          event.type === "message.created" && event.message.id === messageId,
-      ) === true
+      thread.messages.find(isSubmitted) ??
+      (messageEvent?.type === "message.created"
+        ? messageEvent.message
+        : undefined)
     );
   }
 
@@ -1542,11 +1548,13 @@ export function createAgentNativeAgentKitTransport(
           (message) => message.id === messageId,
         );
         if (!queued) {
-          if (provesQueueMessageWasSubmitted(initial, messageId)) {
+          const submitted = submittedQueueMessage(initial, messageId);
+          const runId = asRecord(submitted?.metadata?.custom)?.submittedRunId;
+          if (submitted && typeof runId === "string") {
             clearPromotionClaimId(threadId, messageId);
-            return;
+            return { runId, alreadySubmitted: true };
           }
-          throw new Error(`Unknown queued message: ${messageId}`);
+          return { alreadyRemoved: true as const };
         }
         const claimId = promotionClaimId(threadId, messageId);
         let claim: Awaited<ReturnType<typeof persistQueueMutation>>;
@@ -1562,9 +1570,21 @@ export function createAgentNativeAgentKitTransport(
             error.message.includes(`Unknown queued message: ${messageId}`)
           ) {
             const latest = await snapshot(threadId);
-            if (latest && provesQueueMessageWasSubmitted(latest, messageId)) {
+            const submitted =
+              latest && submittedQueueMessage(latest, messageId);
+            const runId = asRecord(submitted?.metadata?.custom)?.submittedRunId;
+            if (submitted && typeof runId === "string") {
               clearPromotionClaimId(threadId, messageId);
-              return;
+              return { runId, alreadySubmitted: true };
+            }
+            if (
+              latest &&
+              !(latest.queuedMessages ?? []).some(
+                (message) => message.id === messageId,
+              )
+            ) {
+              clearPromotionClaimId(threadId, messageId);
+              return { alreadyRemoved: true as const };
             }
           }
           throw error;

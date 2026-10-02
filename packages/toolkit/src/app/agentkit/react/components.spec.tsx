@@ -861,6 +861,20 @@ describe("AgentKitChat", () => {
           updatedAt: "2026-08-29T00:00:00.000Z",
           messages: [
             {
+              id: "user-context",
+              role: "user",
+              status: "complete",
+              parts: [{ type: "text", text: "Authored request" }],
+              metadata: {
+                contextItems: [
+                  {
+                    title: "Internal source",
+                    context: "private message context",
+                  },
+                ],
+              },
+            },
+            {
               id: "assistant-1",
               role: "assistant",
               parts: [
@@ -1300,6 +1314,11 @@ describe("AgentKitChat", () => {
               threadId: "thread-slots",
               text: "Check the deployment\n<context>private context</context>",
               createdAt: "2026-08-29T00:00:00.000Z",
+              metadata: {
+                contextItems: [
+                  { title: "Internal source", context: "private slot context" },
+                ],
+              },
             },
           ],
           events: [
@@ -1352,15 +1371,26 @@ describe("AgentKitChat", () => {
             <div data-slot="transcript">{children}</div>
           ),
           footer: ({ children }) => <div data-slot="footer">{children}</div>,
-          queue: ({ items }) => <div data-slot="queue">{items[0]?.text}</div>,
+          queue: ({ items }) => (
+            <div data-slot="queue">
+              {items[0]?.text}
+              {JSON.stringify(items[0]?.metadata)}
+            </div>
+          ),
           suggestions: ({ suggestions }) => (
             <div data-slot="suggestions">{suggestions[0]?.label}</div>
           ),
           messageSupplement: ({ value }) => (
-            <div data-slot="message-supplement">{value.role}</div>
+            <div data-slot="message-supplement">
+              {value.role}
+              {JSON.stringify(value.metadata)}
+            </div>
           ),
-          messageActions: ({ threadId }) => (
-            <div data-slot="message-actions">{threadId}</div>
+          messageActions: ({ threadId, value }) => (
+            <div data-slot="message-actions">
+              {threadId}
+              {JSON.stringify(value.metadata)}
+            </div>
           ),
         }}
         registry={{
@@ -1388,6 +1418,8 @@ describe("AgentKitChat", () => {
     expect(html).toContain('aria-label="Release room"');
     expect(html).toContain("Check the deployment");
     expect(html).not.toContain("private context");
+    expect(html).not.toContain("private slot context");
+    expect(html).not.toContain("private message context");
     expect(html).toContain("Review the release");
     expect(html).toContain('data-registry="widget"');
     expect(html).toContain("Workspace health");

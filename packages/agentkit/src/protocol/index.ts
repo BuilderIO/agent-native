@@ -1026,7 +1026,10 @@ export interface QueueMessageResult {
   message: AgentQueuedMessage;
 }
 
-export type SteerQueuedMessageResult = StartRunResult | void;
+export type SteerQueuedMessageResult =
+  | (StartRunResult & { alreadySubmitted?: true })
+  | { alreadyRemoved: true }
+  | void;
 
 export interface AgentTransportThreadOperations {
   persistThreadSnapshot?(

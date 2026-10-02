@@ -7,6 +7,7 @@ import {
   buildAssistantMessage,
   buildRepositoryFromCodeAgentTranscript,
   buildUserMessage,
+  applySubmittedUserMessage,
   extractThreadMeta,
   foldAssistantTurn,
   mergeThreadDataForClientSave,
@@ -2396,6 +2397,42 @@ describe("buildRepositoryFromCodeAgentTranscript", () => {
 });
 
 describe("upsertUserMessage", () => {
+  it("reconciles an already persisted queue submission without duplicating it", () => {
+    const user = buildUserMessage({
+      text: "Run once",
+      runId: "run-1",
+      queuedMessageId: "queued-1",
+    });
+    const result = applySubmittedUserMessage(
+      {
+        messages: [
+          { message: user, parentId: null },
+          {
+            message: {
+              id: "later-user",
+              role: "user",
+              content: [{ type: "text", text: "Later message" }],
+            },
+            parentId: user.id,
+          },
+        ],
+        queuedMessages: [{ id: "queued-1", text: "Run once" }],
+      },
+      user,
+      { id: "queued-1", claimId: "tab-1" },
+    );
+
+    expect(result.status).toBe("already_submitted");
+    if (
+      result.status === "already_claimed" ||
+      result.status === "claim_expired"
+    ) {
+      throw new Error("Expected an already-submitted result.");
+    }
+    expect(result.repo.messages).toHaveLength(2);
+    expect(result.repo.queuedMessages).toEqual([]);
+  });
+
   it("persists the durable queue identity on a submitted user message", () => {
     const message = buildUserMessage({
       text: "Run the report",
