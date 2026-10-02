@@ -22,6 +22,22 @@ export interface RecordFirstFile extends LocalExportedFile {
   hasAudio: boolean;
   hasCamera: boolean;
   savedAt: string;
+  /**
+   * The server recording this file is being handed to, saved before that
+   * row exists, so a handoff cut off by a crash resumes instead of repeating.
+   */
+  stagedRecordingId?: string;
+}
+
+/**
+ * The files a stopped record-first capture leaves to upload: its composed
+ * file, or every file it wrote when there is none.
+ */
+export function recordFirstFilesToQueue<T extends { role: string }>(
+  files: readonly T[],
+): T[] {
+  const composed = files.find((file) => file.role === "composed");
+  return composed ? [composed] : [...files];
 }
 
 /**
@@ -37,15 +53,61 @@ export function recordFirstFilesKey(
 }
 
 /**
- * The saved file itself is gone, so retrying cannot help. Thrown only after
- * the file system confirms the path no longer exists, never inferred from an
- * error message (a server's "Not Found" is not a missing file).
+ * The saved file itself is gone, so retrying cannot help. Thrown only when
+ * the file system reports the file not found inside a folder it can still
+ * read, never inferred from a server error (a server's "Not Found").
  */
 export class RecordFirstFileMissingError extends Error {
-  constructor(fileName: string) {
-    super(`${fileName} is no longer in Movies/Clips.`);
+  constructor() {
+    super("It is no longer in Movies/Clips.");
     this.name = "RecordFirstFileMissingError";
   }
+}
+
+/** The file may still be there but cannot be read now; it stays queued. */
+export class RecordFirstFileUnreadableError extends Error {
+  constructor(cause: unknown) {
+    super(
+      `Clips can't read it right now (${cause instanceof Error ? cause.message : String(cause)}). It stays in the list; try again.`,
+    );
+    this.name = "RecordFirstFileUnreadableError";
+  }
+}
+
+/** A file system "not found", as Tauri reports it on macOS and Windows. */
+function isNotFoundError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /\(os error [23]\)|no such file or directory|cannot find the (file|path)/i.test(
+    message,
+  );
+}
+
+/**
+ * Why a saved file could not be opened. Only a file the file system reports
+ * as not found, in a folder it can still read, is missing; anything else
+ * (no permission, an unmounted volume) is unreadable and stays queued.
+ */
+export async function classifyRecordFirstOpenFailure(
+  path: string,
+  cause: unknown,
+  stat: (path: string) => Promise<unknown>,
+): Promise<Error> {
+  try {
+    await stat(path);
+  } catch (statError) {
+    if (!isNotFoundError(statError)) {
+      return new RecordFirstFileUnreadableError(statError);
+    }
+    const folder = path.replace(/[\\/][^\\/]*$/, "");
+    try {
+      await stat(folder);
+      return new RecordFirstFileMissingError();
+    } catch (folderError) {
+      return new RecordFirstFileUnreadableError(folderError);
+    }
+  }
+  // The file is there; opening it failed for another reason.
+  return new RecordFirstFileUnreadableError(cause);
 }
 
 /** Absent is an empty list; an unreadable list throws instead of hiding files. */
@@ -80,6 +142,27 @@ export function saveRecordFirstFiles(
   }
   if (files.length === 0) storage.removeItem(key);
   else storage.setItem(key, JSON.stringify(files));
+}
+
+/**
+ * Change a stored list in one synchronous read-modify-write and return what
+ * was saved. Storage, not UI state, is the source of truth, so a crash right
+ * after this call never loses or repeats an entry.
+ */
+export function changeRecordFirstFiles(
+  storage: Pick<Storage, "getItem" | "setItem" | "removeItem">,
+  key: string,
+  change: (files: RecordFirstFile[]) => RecordFirstFile[],
+): RecordFirstFile[] {
+  let files: RecordFirstFile[] = [];
+  try {
+    files = loadRecordFirstFiles(storage, key);
+  } catch {
+    // coercion-ok: saveRecordFirstFiles sets the unreadable value aside before writing.
+  }
+  const next = change(files);
+  saveRecordFirstFiles(storage, key, next);
+  return next;
 }
 
 export interface RecordFirstChunk {

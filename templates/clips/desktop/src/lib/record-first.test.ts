@@ -1,14 +1,17 @@
 import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const fs = vi.hoisted(() => ({ open: vi.fn(), exists: vi.fn() }));
+const fs = vi.hoisted(() => ({ open: vi.fn(), stat: vi.fn() }));
 vi.mock("@tauri-apps/plugin-fs", () => fs);
 
 import {
+  changeRecordFirstFiles,
   effectiveLocalRecordingMode,
   loadRecordFirstFiles,
   RecordFirstFileMissingError,
+  RecordFirstFileUnreadableError,
   recordFirstFilesKey,
+  recordFirstFilesToQueue,
   saveRecordFirstFiles,
   stageRecordFirstFile,
   type RecordFirstChunk,
@@ -94,6 +97,38 @@ describe("record-first file list", () => {
     const storage = memoryStorage();
     storage.setItem("k", "{not json");
     expect(() => loadRecordFirstFiles(storage, "k")).toThrow();
+  });
+
+  it("changes the stored list, not a stale copy of it", () => {
+    const storage = memoryStorage();
+    saveRecordFirstFiles(storage, "k", [file]);
+    const later = { ...file, path: "/later.webm", fileName: "later.webm" };
+
+    // Another change landed in storage after this caller read its state.
+    changeRecordFirstFiles(storage, "k", (files) => [...files, later]);
+    const next = changeRecordFirstFiles(storage, "k", (files) =>
+      files.map((f) =>
+        f.path === file.path ? { ...f, stagedRecordingId: "r1" } : f,
+      ),
+    );
+
+    expect(next.map((f) => [f.path, f.stagedRecordingId])).toEqual([
+      [file.path, "r1"],
+      ["/later.webm", undefined],
+    ]);
+    expect(loadRecordFirstFiles(storage, "k")).toEqual(next);
+  });
+
+  it("queues the composed file, or every file when a capture wrote none", () => {
+    const composed = { role: "composed", path: "/c.webm" };
+    const desktop = { role: "desktop", path: "/d.webm" };
+    const camera = { role: "camera", path: "/cam.webm" };
+
+    expect(recordFirstFilesToQueue([desktop, composed])).toEqual([composed]);
+    expect(recordFirstFilesToQueue([desktop, camera])).toEqual([
+      desktop,
+      camera,
+    ]);
   });
 
   it("sets an unreadable list aside instead of overwriting it", () => {
@@ -192,7 +227,10 @@ describe("queueRecordFirstUpload", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    vi.clearAllMocks();
+    vi.restoreAllMocks();
+    fs.open.mockReset();
+    fs.stat.mockReset();
+    fetchMock.mockReset();
   });
 
   function openFile(bytes: Uint8Array, read = fileReader(bytes)) {
@@ -205,11 +243,31 @@ describe("queueRecordFirstUpload", () => {
     return handle;
   }
 
+  function serverWith(status: Record<string, number | object>) {
+    fetchMock.mockImplementation(async (url: string) => {
+      const path = new URL(url).pathname;
+      if (path.endsWith("/create-recording")) {
+        return Response.json({
+          result: { id: "rec-9", uploadMode: "streaming" },
+        });
+      }
+      const match = path.match(/\/api\/uploads\/([^/]+)\/status$/);
+      if (match) {
+        const row = status[match[1]!];
+        return row === undefined
+          ? Response.json({ error: "Not found" }, { status: 404 })
+          : Response.json({ recording: row });
+      }
+      return new Response("{}", { status: 200 });
+    });
+  }
+
   it("creates the row and queues the saved file as a pending upload", async () => {
-    const handle = openFile(new Uint8Array(10).fill(7));
-    fetchMock.mockResolvedValue(
-      Response.json({ result: { id: "rec-9", uploadMode: "streaming" } }),
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(
+      "rec-9" as ReturnType<typeof crypto.randomUUID>,
     );
+    const handle = openFile(new Uint8Array(10).fill(7));
+    serverWith({});
 
     const upload = await queueRecordFirstUpload({
       serverUrl: "https://clips.example",
@@ -231,9 +289,15 @@ describe("queueRecordFirstUpload", () => {
     ]);
   });
 
-  it("creates nothing when the saved file cannot be read", async () => {
-    fs.open.mockRejectedValue(new Error("forbidden path"));
-    fs.exists.mockResolvedValue(true);
+  const notFound = new Error(
+    "failed to get metadata of path: /x with error: No such file or directory (os error 2)",
+  );
+
+  it("keeps a file it cannot read now, and creates nothing", async () => {
+    fs.open.mockRejectedValue(
+      new Error("Operation not permitted (os error 1)"),
+    );
+    fs.stat.mockResolvedValue({ size: 10 });
 
     const error = await queueRecordFirstUpload({
       serverUrl: "https://clips.example",
@@ -241,15 +305,17 @@ describe("queueRecordFirstUpload", () => {
       file,
     }).catch((e: unknown) => e);
 
-    expect(error).toMatchObject({ message: "forbidden path" });
-    expect(error).not.toBeInstanceOf(RecordFirstFileMissingError);
+    expect(error).toBeInstanceOf(RecordFirstFileUnreadableError);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(await listBrowserRecordingBackups()).toEqual([]);
   });
 
-  it("calls a file missing only when the file system says it is gone", async () => {
-    fs.open.mockRejectedValue(new Error("No such file or directory"));
-    fs.exists.mockResolvedValue(false);
+  it("calls a file missing only when it is gone from a folder that is still there", async () => {
+    fs.open.mockRejectedValue(notFound);
+    fs.stat.mockImplementation(async (path: string) => {
+      if (path === file.path) throw notFound;
+      return { size: 0, isDirectory: true };
+    });
 
     await expect(
       queueRecordFirstUpload({
@@ -260,7 +326,113 @@ describe("queueRecordFirstUpload", () => {
     ).rejects.toBeInstanceOf(RecordFirstFileMissingError);
   });
 
+  it("never calls a file missing when its folder cannot be read (an unmounted volume)", async () => {
+    fs.open.mockRejectedValue(notFound);
+    fs.stat.mockRejectedValue(notFound);
+
+    await expect(
+      queueRecordFirstUpload({
+        serverUrl: "https://clips.example",
+        ownerEmail: "me@example.com",
+        file,
+      }),
+    ).rejects.toBeInstanceOf(RecordFirstFileUnreadableError);
+  });
+
+  it("never calls a file missing when the file system refuses for another reason", async () => {
+    fs.open.mockRejectedValue(new Error("Permission denied (os error 13)"));
+    fs.stat.mockRejectedValue(new Error("Permission denied (os error 13)"));
+
+    await expect(
+      queueRecordFirstUpload({
+        serverUrl: "https://clips.example",
+        ownerEmail: "me@example.com",
+        file,
+      }),
+    ).rejects.toBeInstanceOf(RecordFirstFileUnreadableError);
+  });
+
+  it("reuses a copy a crash left staged instead of creating another clip", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(
+      "rec-9" as ReturnType<typeof crypto.randomUUID>,
+    );
+    openFile(new Uint8Array(10).fill(7));
+    serverWith({});
+    const first = await queueRecordFirstUpload({
+      serverUrl: "https://clips.example",
+      ownerEmail: "me@example.com",
+      file: { ...file, stagedRecordingId: "rec-9" },
+    });
+    fetchMock.mockClear();
+    fs.open.mockClear();
+
+    // The app quit before the list entry was removed; Upload now runs again.
+    const again = await queueRecordFirstUpload({
+      serverUrl: "https://clips.example",
+      ownerEmail: "me@example.com",
+      file: { ...file, stagedRecordingId: "rec-9" },
+    });
+
+    expect(again).toMatchObject({ recordingId: first!.recordingId });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fs.open).not.toHaveBeenCalled();
+    expect(await listBrowserRecordingBackups()).toHaveLength(1);
+  });
+
+  it("restages into the same row when a crash cut staging off", async () => {
+    openFile(new Uint8Array(10).fill(7));
+    serverWith({ "rec-7": { status: "uploading" } });
+
+    const upload = await queueRecordFirstUpload({
+      serverUrl: "https://clips.example",
+      ownerEmail: "me@example.com",
+      file: { ...file, stagedRecordingId: "rec-7" },
+    });
+
+    const urls = fetchMock.mock.calls.map(([url]) => String(url));
+    expect(urls.some((url) => url.endsWith("/create-recording"))).toBe(false);
+    expect(upload).toMatchObject({ recordingId: "rec-7", bytes: 10 });
+  });
+
+  it("hands off nothing when the staged copy already uploaded before a crash", async () => {
+    openFile(new Uint8Array(10).fill(7));
+    serverWith({ "rec-7": { status: "ready" } });
+
+    await expect(
+      queueRecordFirstUpload({
+        serverUrl: "https://clips.example",
+        ownerEmail: "me@example.com",
+        file: { ...file, stagedRecordingId: "rec-7" },
+      }),
+    ).resolves.toBeNull();
+    expect(await listBrowserRecordingBackups()).toEqual([]);
+  });
+
+  it("fails loudly and cleans up when the file changes while it is staged", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(
+      "rec-9" as ReturnType<typeof crypto.randomUUID>,
+    );
+    const handle = openFile(new Uint8Array(10).fill(7));
+    handle.stat.mockResolvedValue({ size: 12 });
+    serverWith({});
+
+    await expect(
+      queueRecordFirstUpload({
+        serverUrl: "https://clips.example",
+        ownerEmail: "me@example.com",
+        file,
+      }),
+    ).rejects.toThrow("changed while it was being queued");
+    expect(await listBrowserRecordingBackups()).toEqual([]);
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toContain(
+      "https://clips.example/api/uploads/rec-9/abort",
+    );
+  });
+
   it("never calls a file missing because the server said Not Found", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(
+      "rec-9" as ReturnType<typeof crypto.randomUUID>,
+    );
     openFile(new Uint8Array(10).fill(7));
     fetchMock.mockImplementation(async (url: string) =>
       String(url).endsWith("/create-recording")
@@ -279,6 +451,9 @@ describe("queueRecordFirstUpload", () => {
   });
 
   it("cleans up the new row and the partial copy when staging fails", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(
+      "rec-9" as ReturnType<typeof crypto.randomUUID>,
+    );
     const bytes = new Uint8Array(STREAM_CHUNK_BYTES + 10).fill(7);
     const reader = fileReader(bytes);
     let reads = 0;

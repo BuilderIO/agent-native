@@ -133,11 +133,12 @@ import {
 } from "./lib/permissions";
 import { isMacPlatform, isWindowsPlatform } from "./lib/platform";
 import {
+  changeRecordFirstFiles,
   effectiveLocalRecordingMode,
   loadRecordFirstFiles,
   RecordFirstFileMissingError,
   recordFirstFilesKey,
-  saveRecordFirstFiles,
+  recordFirstFilesToQueue,
   type RecordFirstFile,
   type VideoStorageStatus,
 } from "./lib/record-first";
@@ -2685,6 +2686,8 @@ export function App({
   const recordingCancelInFlightRef = useRef(false);
   const sessionRecordingIdRef = useRef<string | null>(null);
   const recordedWithoutStorageRef = useRef(false);
+  // The record-first list a capture belongs to, fixed when capture starts.
+  const recordFirstKeyAtStartRef = useRef<string | null>(null);
   const finishRecordingStopRef = useRef<
     (handle: RecorderHandle, recordingId?: string | null) => Promise<void>
   >(async () => {});
@@ -3046,38 +3049,42 @@ export function App({
       );
     }
   }, [recordFirstKey, unclaimedRecordFirstKey]);
-  const rememberRecordFirstFile = useCallback(
-    (file: RecordFirstFile) => {
-      // Signed out mid-recording: keep it as unclaimed rather than dropping it.
-      const key = recordFirstKey ?? unclaimedRecordFirstKey;
-      const setFiles = recordFirstKey
-        ? setRecordFirstFiles
-        : setUnclaimedRecordFirstFiles;
-      setFiles((files) => {
-        const next = [...files.filter((f) => f.path !== file.path), file];
-        saveRecordFirstFiles(localStorage, key, next);
-        return next;
-      });
+  // Every change is written to storage first; state only mirrors it, so a
+  // crash or quit right after a change neither loses nor repeats an entry.
+  const changeQueuedFiles = useCallback(
+    (key: string, change: (files: RecordFirstFile[]) => RecordFirstFile[]) => {
+      const next = changeRecordFirstFiles(localStorage, key, change);
+      if (key === recordFirstKey) setRecordFirstFiles(next);
+      else if (key === unclaimedRecordFirstKey) {
+        setUnclaimedRecordFirstFiles(next);
+      }
+      return next;
     },
     [recordFirstKey, unclaimedRecordFirstKey],
+  );
+  const rememberRecordFirstFile = useCallback(
+    (file: RecordFirstFile, key: string) => {
+      // `key` is the account signed in when capture started, never whoever
+      // is signed in at Stop, so a switch mid-recording cannot reassign it.
+      changeQueuedFiles(key, (files) => [
+        ...files.filter((f) => f.path !== file.path),
+        file,
+      ]);
+    },
+    [changeQueuedFiles],
   );
   const forgetRecordFirstFile = useCallback(
     (path: string) => {
       // Removes the list entry only; the file on disk is never touched.
-      for (const [key, setFiles] of [
-        [recordFirstKey, setRecordFirstFiles],
-        [unclaimedRecordFirstKey, setUnclaimedRecordFirstFiles],
-      ] as const) {
-        if (!key) continue;
-        setFiles((files) => {
-          const next = files.filter((f) => f.path !== path);
-          saveRecordFirstFiles(localStorage, key, next);
-          return next;
-        });
+      for (const key of [recordFirstKey, unclaimedRecordFirstKey]) {
+        if (key)
+          changeQueuedFiles(key, (files) =>
+            files.filter((f) => f.path !== path),
+          );
       }
       setRecordFirstFileErrors(({ [path]: _forgotten, ...rest }) => rest);
     },
-    [recordFirstKey, unclaimedRecordFirstKey],
+    [changeQueuedFiles, recordFirstKey, unclaimedRecordFirstKey],
   );
   const uploadRecordFirstFilesRef = useRef<
     (options?: { includeUnclaimed?: boolean }) => Promise<void>
@@ -3246,16 +3253,21 @@ export function App({
           folderPath: stopResult.localFolder,
           files: stopResult.localFiles ?? [],
         });
-        const composed =
-          stopResult.localFiles?.find((file) => file.role === "composed") ??
-          stopResult.localFiles?.[0];
-        if (recordedWithoutStorageRef.current && composed) {
-          rememberRecordFirstFile({
-            ...composed,
-            hasAudio: micOn || systemAudioOn,
-            hasCamera: mode !== "screen",
-            savedAt: new Date().toISOString(),
-          });
+        const queueKey = recordFirstKeyAtStartRef.current;
+        if (recordedWithoutStorageRef.current && queueKey) {
+          for (const file of recordFirstFilesToQueue(
+            stopResult.localFiles ?? [],
+          )) {
+            rememberRecordFirstFile(
+              {
+                ...file,
+                hasAudio: micOn || systemAudioOn,
+                hasCamera: mode !== "screen",
+                savedAt: new Date().toISOString(),
+              },
+              queueKey,
+            );
+          }
         }
         emit("clips:native-upload-finished", {
           recordingId: stopResult.recordingId,
@@ -3313,25 +3325,36 @@ export function App({
     }
     // Unclaimed files (saved while signed out) join this account only when
     // the user clicks Upload now, never automatically.
-    let files = recordFirstFiles;
+    let files = changeQueuedFiles(recordFirstKey, (own) => own);
     if (options.includeUnclaimed && unclaimedRecordFirstFiles.length > 0) {
-      files = [
-        ...recordFirstFiles,
-        ...unclaimedRecordFirstFiles.filter(
-          (f) => !recordFirstFiles.some((own) => own.path === f.path),
-        ),
-      ];
-      saveRecordFirstFiles(localStorage, recordFirstKey, files);
-      saveRecordFirstFiles(localStorage, unclaimedRecordFirstKey, []);
-      setRecordFirstFiles(files);
-      setUnclaimedRecordFirstFiles([]);
+      let unclaimed: RecordFirstFile[] = [];
+      changeQueuedFiles(unclaimedRecordFirstKey, (stored) => {
+        unclaimed = stored;
+        return [];
+      });
+      files = changeQueuedFiles(recordFirstKey, (own) => [
+        ...own,
+        ...unclaimed.filter((f) => !own.some((mine) => mine.path === f.path)),
+      ]);
     }
     setRecordFirstUploading(true);
     setRecordFirstError(null);
     try {
-      for (const file of files) {
+      for (const queued of files) {
         const authToken = loadDesktopAuthToken(serverUrl);
-        let upload: PendingDesktopUpload;
+        // The row's id is saved with the entry before the row exists, so a
+        // crash mid-handoff resumes it instead of creating a second clip.
+        const file = queued.stagedRecordingId
+          ? queued
+          : { ...queued, stagedRecordingId: crypto.randomUUID() };
+        const setEntry = (entry: RecordFirstFile | null) =>
+          changeQueuedFiles(recordFirstKey, (current) =>
+            current.flatMap((f) =>
+              f.path !== file.path ? [f] : entry ? [entry] : [],
+            ),
+          );
+        setEntry(file);
+        let upload: PendingDesktopUpload | null;
         try {
           upload = await queueRecordFirstUpload({
             serverUrl,
@@ -3340,7 +3363,9 @@ export function App({
             file,
           });
         } catch (err) {
-          // One bad file never blocks the rest of the queue.
+          // One bad file never blocks the rest of the queue. A failed
+          // handoff was cleaned up, so the next try starts a fresh one.
+          setEntry({ ...file, stagedRecordingId: undefined });
           const message = err instanceof Error ? err.message : String(err);
           setRecordFirstFileErrors((errors) => ({
             ...errors,
@@ -3352,15 +3377,11 @@ export function App({
           continue;
         }
         setRecordFirstFileErrors(({ [file.path]: _done, ...rest }) => rest);
-        setRecordFirstFiles((current) => {
-          const next = current.filter((f) => f.path !== file.path);
-          saveRecordFirstFiles(localStorage, recordFirstKey, next);
-          return next;
-        });
+        setEntry(null);
         await loadPendingUploads();
         // The queued copy now lives in the recovery list: a failed upload
         // stays there with Retry, and the file on disk is untouched.
-        await retryPendingUpload(upload);
+        if (upload) await retryPendingUpload(upload);
       }
     } finally {
       setRecordFirstUploading(false);
@@ -3628,6 +3649,10 @@ export function App({
     );
     const recordLocallyUntilStorage = recordingLocalMode !== localRecordingMode;
     recordedWithoutStorageRef.current = recordLocallyUntilStorage;
+    recordFirstKeyAtStartRef.current = recordFirstFilesKey(
+      originForServer(serverUrl),
+      signedInAs,
+    );
     setRecError(null);
     setLocalRecordingNotice(null);
     setShareLinkNotice(null);

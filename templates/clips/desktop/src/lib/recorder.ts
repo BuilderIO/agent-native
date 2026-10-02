@@ -32,7 +32,7 @@ import {
 } from "./pause-transition";
 import { reconcileProcessingBackup } from "./processing-backup-recovery";
 import {
-  RecordFirstFileMissingError,
+  classifyRecordFirstOpenFailure,
   stageRecordFirstFile,
   type RecordFirstFile,
 } from "./record-first";
@@ -840,12 +840,11 @@ async function markBrowserRecordingBackupError(
 const MEDIA_VERIFICATION_BACKUP_ERROR =
   "The server could not finish verifying this upload. The local copy is still saved; retry to continue.";
 
-async function flagBrowserBackupAfterProcessing(recordingId: string) {
-  await markBrowserRecordingBackupError(
-    recordingId,
-    MEDIA_VERIFICATION_BACKUP_ERROR,
-    false,
-  );
+async function flagBrowserBackupAfterProcessing(
+  recordingId: string,
+  reason = MEDIA_VERIFICATION_BACKUP_ERROR,
+) {
+  await markBrowserRecordingBackupError(recordingId, reason, false);
   await emit("clips:pending-uploads-changed").catch(() => {});
 }
 
@@ -870,8 +869,14 @@ function scheduleBrowserBackupCleanupAfterProcessing(args: {
         preferAuthenticated: true,
         timeoutMs: 12 * 60 * 1000,
       }),
+    // A ready row deletes the backup only when it received every byte.
+    local: async () => {
+      const meta = await getBrowserRecordingBackupMeta(args.recordingId);
+      return meta ? { bytes: meta.bytes, durationMs: meta.durationMs } : null;
+    },
     onReady: () => deleteBrowserRecordingBackup(args.recordingId),
-    onUnresolved: () => flagBrowserBackupAfterProcessing(args.recordingId),
+    onUnresolved: (reason) =>
+      flagBrowserBackupAfterProcessing(args.recordingId, reason),
     onPollError: (err) => {
       console.warn(
         "[clips-recorder] background backup cleanup check failed:",
@@ -1302,13 +1307,41 @@ async function replayBrowserBackupToResumableSession(
   );
 }
 
+/** The status of a recording on the server, or null when it does not exist. */
+async function fetchServerRecordingStatus(
+  serverUrl: string,
+  recordingId: string,
+  authToken?: string,
+): Promise<string | null> {
+  const res = await fetch(
+    `${serverUrl.replace(/\/+$/, "")}/api/uploads/${encodeURIComponent(recordingId)}/status`,
+    {
+      headers: buildRetryHeaders("application/json", authToken),
+      credentials: "include",
+    },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(`Could not check the earlier upload (${res.status}).`);
+  }
+  const body = (await res.json()) as { recording?: { status?: unknown } };
+  if (typeof body.recording?.status !== "string") {
+    throw new Error("The earlier upload's status is unreadable.");
+  }
+  return body.recording.status;
+}
+
 /**
  * Hand a recording saved to Movies/Clips before storage existed to the
  * pending-upload path: create its server row and copy the file, one slice at
  * a time, into the backup store, so `retryBrowserRecordingBackup` and the
- * recovery list upload it. The file on disk is never modified or removed. If
- * the copy cannot be staged, the partial copy and the new row are cleaned up
- * so a retry starts fresh instead of leaving a row stuck uploading.
+ * recovery list upload it. The file on disk is never modified or removed.
+ *
+ * The handoff is safe to repeat after a crash: the list entry carries the
+ * row's id (`stagedRecordingId`) from before the row exists, so a restart
+ * reuses a copy that was already staged, restages one that was cut off into
+ * the same row, and resolves null when that recording already uploaded. If
+ * staging fails, the partial copy and the row are cleaned up.
  */
 export async function queueRecordFirstUpload(input: {
   serverUrl: string;
@@ -1316,47 +1349,73 @@ export async function queueRecordFirstUpload(input: {
   /** The account the file belongs to; the server refuses any other. */
   ownerEmail: string;
   file: RecordFirstFile;
-}): Promise<PendingBrowserRecordingUpload> {
-  const { exists, open } = await import("@tauri-apps/plugin-fs");
+}): Promise<PendingBrowserRecordingUpload | null> {
+  const resumed = input.file.stagedRecordingId;
+  const recordingId = resumed ?? crypto.randomUUID();
+  if (resumed) {
+    const staged = await getBrowserRecordingBackupMeta(resumed);
+    if (staged) return { ...staged, kind: "browser" };
+  }
+  const { open, stat } = await import("@tauri-apps/plugin-fs");
   let handle: Awaited<ReturnType<typeof open>>;
   try {
     handle = await open(input.file.path, { read: true });
   } catch (err) {
-    // coercion-ok: if the check itself fails the file is treated as present, so it is never dropped from the list.
-    const present = await exists(input.file.path).catch(() => true);
-    if (!present) throw new RecordFirstFileMissingError(input.file.fileName);
-    throw err;
+    throw await classifyRecordFirstOpenFailure(input.file.path, err, stat);
   }
   try {
-    if ((await handle.stat()).size === 0) {
+    const { size } = await handle.stat();
+    if (size === 0) {
       throw new Error(`${input.file.fileName} is empty`);
     }
-    const created = await createServerRecording(
-      input.serverUrl,
-      input.file.hasCamera,
-      input.file.hasAudio,
-      undefined,
-      {
-        authToken: input.authToken,
-        mimeType: input.file.mimeType,
-        requestStreaming: true,
-        expectedOwnerEmail: input.ownerEmail,
-      },
-    );
+    const existing = resumed
+      ? await fetchServerRecordingStatus(
+          input.serverUrl,
+          recordingId,
+          input.authToken,
+        )
+      : null;
+    // Uploaded from its staged copy before the crash: nothing left to hand off.
+    if (existing === "ready" || existing === "processing") return null;
+    if (existing !== null && existing !== "uploading") {
+      throw new Error(`The earlier upload of this file is ${existing}.`);
+    }
+    if (existing === null) {
+      await createServerRecording(
+        input.serverUrl,
+        input.file.hasCamera,
+        input.file.hasAudio,
+        undefined,
+        {
+          id: recordingId,
+          authToken: input.authToken,
+          mimeType: input.file.mimeType,
+          requestStreaming: true,
+          expectedOwnerEmail: input.ownerEmail,
+        },
+      );
+    }
     try {
+      // A cut-off earlier staging may have left chunks without metadata.
+      if (resumed) await deleteBrowserRecordingBackup(recordingId);
       const meta = await stageRecordFirstFile({
-        recordingId: created.id,
+        recordingId,
         serverUrl: input.serverUrl,
         file: input.file,
         read: (buffer) => handle.read(buffer),
         putChunk: putBrowserRecordingBackupChunk,
         chunkBytes: STREAM_CHUNK_BYTES,
       });
+      if (meta.bytes !== size) {
+        throw new Error(
+          `${input.file.fileName} changed while it was being queued (${meta.bytes} of ${size} bytes).`,
+        );
+      }
       await putBrowserRecordingBackupMeta(meta);
       return { ...meta, kind: "browser" };
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      await deleteBrowserRecordingBackup(created.id).catch((cleanupErr) => {
+      await deleteBrowserRecordingBackup(recordingId).catch((cleanupErr) => {
         console.warn(
           "[clips-recorder] removing a partly staged copy failed:",
           cleanupErr,
@@ -1364,14 +1423,14 @@ export async function queueRecordFirstUpload(input: {
       });
       await abortRecordingUpload(
         input.serverUrl,
-        created.id,
+        recordingId,
         `Could not queue the saved recording: ${reason}`,
         "upload_aborted",
         undefined,
         undefined,
         input.authToken,
       );
-      await trashRecording(input.serverUrl, created.id, input.authToken);
+      await trashRecording(input.serverUrl, recordingId, input.authToken);
       throw err;
     }
   } finally {
