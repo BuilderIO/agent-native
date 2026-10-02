@@ -2096,6 +2096,7 @@ export function buildUserMessage(opts: {
   attachments?: AgentChatAttachment[];
   runId?: string;
   turnId?: string;
+  agentKitMessageId?: string;
   queuedMessageId?: string;
   createdAt?: Date;
 }): {
@@ -2117,6 +2118,9 @@ export function buildUserMessage(opts: {
       custom: {
         submittedRunId: opts.runId,
         ...(opts.turnId ? { submittedTurnId: opts.turnId } : {}),
+        ...(opts.agentKitMessageId
+          ? { agentKitMessageId: opts.agentKitMessageId }
+          : {}),
         ...(opts.queuedMessageId
           ? { agentNativeQueuedMessageId: opts.queuedMessageId }
           : {}),

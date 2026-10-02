@@ -3711,6 +3711,7 @@ export function createAgentChatPlugin(
         turnId: string;
         threadId: string | undefined;
         message: string;
+        agentKitMessageId?: string;
         attachments?: AgentChatAttachment[];
         queuedMessageId?: string;
         queuedMessageClaimId?: string;
@@ -3783,6 +3784,7 @@ export function createAgentChatPlugin(
             attachments: details.attachments,
             runId: details.runId,
             turnId: details.turnId,
+            agentKitMessageId: details.agentKitMessageId,
             queuedMessageId: details.queuedMessageId,
           });
           let submissionFailure:

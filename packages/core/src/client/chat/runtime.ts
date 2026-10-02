@@ -1290,24 +1290,34 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
   const explicitRetryable =
     data?.retryable ?? payload?.retryable ?? nestedError?.retryable;
   const activeRunId =
-    (typeof data?.activeRunId === "string" && data.activeRunId) ||
-    (typeof payload?.activeRunId === "string" && payload.activeRunId) ||
-    (typeof nestedError?.activeRunId === "string" && nestedError.activeRunId);
+    data && "activeRunId" in data
+      ? data.activeRunId
+      : payload && "activeRunId" in payload
+        ? payload.activeRunId
+        : nestedError?.activeRunId;
+  const hasActiveRunId =
+    (data !== null && "activeRunId" in data) ||
+    (payload !== undefined && "activeRunId" in payload) ||
+    (nestedError !== null && "activeRunId" in nestedError);
+  const activeRunIdValue =
+    typeof activeRunId === "string" && activeRunId.length > 0;
+  const explicitCode = typeof code === "string" ? code : undefined;
+  const runSlotBusy =
+    status === 409 &&
+    (explicitCode === "run_slot_busy" ||
+      (explicitCode === undefined && activeRunIdValue));
   const errorCode =
-    typeof code === "string"
-      ? code
-      : status === 409 && activeRunId
-        ? "run_slot_busy"
-        : fallbackCode;
-  const runSlotBusy = status === 409 && errorCode === "run_slot_busy";
+    explicitCode ?? (runSlotBusy ? "run_slot_busy" : fallbackCode);
   const error = runSlotBusy
     ? new AgentKitRunSlotBusyError(
-        typeof activeRunId === "string" ? activeRunId : undefined,
+        activeRunIdValue && typeof activeRunId === "string"
+          ? activeRunId
+          : undefined,
       )
     : new Error(runtimeErrorMessage(text, response.status));
   Object.assign(error, {
     code: runSlotBusy ? "run_slot_busy" : errorCode,
-    ...(activeRunId ? { activeRunId } : {}),
+    ...(hasActiveRunId ? { activeRunId } : {}),
     ...(data?.details === undefined &&
     payload?.details === undefined &&
     nestedError?.details === undefined
@@ -1315,11 +1325,11 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
       : {
           details: data?.details ?? payload?.details ?? nestedError?.details,
         }),
-    retryable: runSlotBusy
-      ? true
-      : typeof explicitRetryable === "boolean"
+    retryable:
+      runSlotBusy ||
+      (typeof explicitRetryable === "boolean"
         ? explicitRetryable
-        : status === 408 || status === 429 || status >= 500,
+        : status === 408 || status === 429 || status >= 500),
     status,
   });
   return error;
@@ -2645,12 +2655,13 @@ export function createAgentNativeChatRuntime(
       },
     },
     mapRequest: ({ session, turn, turnId }) => {
+      const latestUserMessage = [...(turn.messages ?? [])]
+        .reverse()
+        .find((message) => message.role === "user");
       const prompt =
         turn.prompt ??
-        [...(turn.messages ?? [])]
-          .reverse()
-          .find((message) => message.role === "user")
-          ?.content.map((part) => (part.type === "text" ? part.text : ""))
+        latestUserMessage?.content
+          .map((part) => (part.type === "text" ? part.text : ""))
           .join("\n") ??
         "";
       const approvedToolCalls = metadataStringList(
@@ -2674,6 +2685,9 @@ export function createAgentNativeChatRuntime(
           : [];
       return {
         message: prompt,
+        ...(latestUserMessage?.id
+          ? { agentKitMessageId: latestUserMessage.id }
+          : {}),
         displayMessage: prompt,
         history,
         ...(pendingApprovalHistory.length
@@ -2913,7 +2927,7 @@ export function createAgentNativeChatRuntime(
     };
   };
 
-  return {
+  const runtime: AgentChatRuntime<AgentChatRuntimeKnownEvent> = {
     ...nativeRuntime,
     readRunState,
     resume: async (input) => {
@@ -2949,6 +2963,16 @@ export function createAgentNativeChatRuntime(
       };
     },
   };
+  agentNativeChatRuntimes.add(runtime);
+  return runtime;
+}
+
+const agentNativeChatRuntimes = new WeakSet<object>();
+
+export function isAgentNativeChatRuntime(
+  runtime: AgentChatRuntime | undefined,
+): boolean {
+  return runtime !== undefined && agentNativeChatRuntimes.has(runtime);
 }
 
 const SERVER_RUN_STATUSES = [

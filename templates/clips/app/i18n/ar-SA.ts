@@ -4,6 +4,7 @@ const messages = {
   },
   agentChat: {
     setup: {
+      connectBuilder: "الاتصال بـ Builder.io",
       providerStatusUnavailable: "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
     },
     common: { retry: "إعادة المحاولة" },
@@ -1458,15 +1459,11 @@ const messages = {
       "لم يصل رد من Builder خلال 5 دقائق. تحقق من النافذة المنبثقة وحاول مرة أخرى.",
     builderConnected: "Builder.io متصل",
     waitingForBuilder: "بانتظار Builder...",
-    connectBuilder: "استخدام Builder.io",
+    description:
+      "خزّن مقاطع الفيديو المسجّلة باستخدام Builder.io أو تخزين متوافق مع S3. يتضمّن Builder.io استضافة مجانية ورصيد ذكاء اصطناعي.",
     createBuilderAccount: "إنشاء حساب Builder.io",
     signInWithBuilderAccount: "تسجيل الدخول بحساب Builder.io",
-    builderConsentPrefix: "بإنشاء حساب Builder.io، فإنك توافق على",
-    builderTerms: "شروط الخدمة",
-    builderConsentAnd: "و",
-    builderPrivacy: "سياسة الخصوصية",
     free: "مجاني",
-    configureS3: "تكوين تخزين متوافق مع S3",
     whyPrompt: "لماذا أرى هذا؟",
     whyDescription:
       "Clips تطبيق مجاني ومفتوح المصدر 100%، لذلك تحتاج إلى توصيل طريقة لتخزين المقاطع. صِل التخزين عبر Builder.io لتخزين وذكاء اصطناعي ضمن الخطة المجانية، أو استخدم تخزين كائنات متوافقًا مع S3 ومفاتيح LLM الخاصة بك.",

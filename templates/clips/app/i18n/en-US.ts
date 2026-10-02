@@ -2,6 +2,7 @@ const messages = {
   meetingAsk: { resizeOrDismissAnswers: "Resize or dismiss answers" },
   agentChat: {
     setup: {
+      connectBuilder: "Connect Builder.io",
       providerStatusUnavailable: "Couldn't confirm AI is ready.",
     },
     common: { retry: "Retry" },
@@ -1386,15 +1387,11 @@ const messages = {
       "Didn't hear back from Builder in 5 minutes. Check the popup and try again.",
     builderConnected: "Builder.io connected",
     waitingForBuilder: "Waiting for Builder...",
-    connectBuilder: "Use Builder.io",
+    description:
+      "Store recorded videos with Builder.io or S3-compatible storage. Builder.io includes free hosting and AI credits.",
     createBuilderAccount: "Create Builder.io account",
     signInWithBuilderAccount: "Sign in with Builder.io account",
-    builderConsentPrefix: "By creating a Builder.io account, you agree to our",
-    builderTerms: "Terms of Service",
-    builderConsentAnd: "and",
-    builderPrivacy: "Privacy Policy",
     free: "Free",
-    configureS3: "configure S3-compatible storage",
     whyPrompt: "Why am I seeing this?",
     whyDescription:
       "Clips is 100% free and open source, so you need to hook up a way to store clips. Connect storage with Builder.io for free-tier storage and AI, or use S3-compatible object storage and your own LLM keys.",

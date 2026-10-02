@@ -959,7 +959,7 @@ function CommentComposer({
           <span className="flex min-h-0 flex-1 w-full flex-col overflow-hidden rounded-xl border border-transparent bg-background shadow-[var(--comment-input-shadow)]">
             <span className="flex min-h-0 flex-1 items-start px-4 pt-[11px] text-sm leading-5 text-muted-foreground">
               <span className="truncate">
-                {t("commentsPanel.leaveComment")}
+                {t("commentsPanel.signInToComment")}
               </span>
             </span>
             <span className="h-px w-full bg-border" />
