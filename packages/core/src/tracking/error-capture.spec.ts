@@ -165,11 +165,11 @@ describe("tracking captureException", () => {
   it.each([
     [
       "SEARCH",
-      "WITH RECURSIVE tree(id) AS (SELECT id FROM nodes UNION ALL SELECT id FROM tree WHERE id = $1) SEARCH DEPTH FIRST BY id SET ordercol SELECT id FROM tree WHERE id = $2",
+      "WITH RECURSIVE tree(id) AS (SELECT id FROM nodes UNION ALL SELECT id FROM tree WHERE id = $1) SEARCH /* traversal */ DEPTH /* order */ FIRST BY /* keys */ id SET ordercol SELECT id FROM tree WHERE id = $2",
     ],
     [
       "CYCLE",
-      "WITH RECURSIVE tree(id) AS (SELECT id FROM nodes UNION ALL SELECT id FROM tree WHERE id = $1) CYCLE id SET is_cycle USING path SELECT id FROM tree WHERE id = $2",
+      "WITH RECURSIVE tree(id) AS (SELECT id FROM nodes UNION ALL SELECT id FROM tree WHERE id = $1) CYCLE /* keys */ id SET /* mark */ is_cycle USING /* path */ path SELECT id FROM tree WHERE id = $2",
     ],
     [
       "SEARCH and CYCLE before another CTE",
