@@ -1031,7 +1031,7 @@ function renderResponsiveFrame() {
   Object.assign(p.style, { width: w + "px", position: "absolute", left: "0", top: "0", transformOrigin: "top left", transform: `scale(${s})` });
   const fit = () => { wrap.style.width = w * s + "px"; wrap.style.height = p.offsetHeight * s + "px"; };
   fit(); requestAnimationFrame(fit);
-  const tok = nearestToken(w), name = S.route === "/docs" ? "Screen 2" : "Screen 1";
+  const tok = S.mode === "interact" ? nearestToken(w) : frameToken(), name = S.route === "/docs" ? "Screen 2" : "Screen 1";
   $("#frame-label").innerHTML = S.mode === "interact" ? `${name} <span>${w}</span>`
     : `<button class="fl-name" data-select-screen aria-pressed="${S.screenSel}">${name}</button><button class="fl-w" id="resp-w" aria-haspopup="menu" title="Frame width">${w}${tok ? ` · ${tok[0]}` : ""}${ic("chevron-down", "s12")}</button>`;
   const h = document.createElement("div"); h.className = "resp-handle"; h.title = "Drag to resize the frame"; wrap.append(h);
@@ -1057,11 +1057,14 @@ document.addEventListener("pointerdown", e => {
   const up = () => { document.removeEventListener("pointermove", move); h.classList.remove("drag"); read.remove(); renderPage(); renderInspector(); };
   document.addEventListener("pointermove", move); document.addEventListener("pointerup", up, { once: true });
 });
-const widthMenu = (cur, run) => [{ label: "Container" }, ...widthTokens("container").map(([n, px]) => ({ t: n, k: String(px), toggle: true, on: cur === px, run: () => run(px) })), "-", { label: "Breakpoint" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: n, k: String(px), toggle: true, on: cur === px, run: () => run(px) }))];
-const whenMenu = (r) => [{ label: "Container (this layer's parent)" }, ...widthTokens("container").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), toggle: true, on: r.scale === "container" && r.token === n, run: () => { r.scale = "container"; r.token = n; renderPage(); renderInspector(); } })), "-", { label: "Breakpoint (the frame)" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), toggle: true, on: r.scale === "breakpoint" && r.token === n, run: () => { r.scale = "breakpoint"; r.token = n; renderPage(); renderInspector(); } }))];
+// A width can match a Container and a Breakpoint token (1280 is 7xl and xl); only the one the label names is checked.
+// The token named for the frame: the one picked from the menu while the width still matches it, else Breakpoint before Container.
+const frameToken = () => RESP.tok && RESP.tok[1] === RESP.w ? RESP.tok : nearestToken(RESP.w);
+const widthMenu = (cur, run) => { const [name, , kind] = (cur === RESP.w ? frameToken() : nearestToken(cur)) || []; return [{ label: "Container" }, ...widthTokens("container").map(([n, px]) => ({ t: n, k: String(px), radio: true, on: kind === "container" && name === n, run: () => run(px, [n, px, "container"]) })), "-", { label: "Breakpoint" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: n, k: String(px), radio: true, on: kind === "breakpoint" && name === n, run: () => run(px, [n, px, "breakpoint"]) }))]; };
+const whenMenu = (r) => [{ label: "Container (this layer's parent)" }, ...widthTokens("container").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), radio: true, on: r.scale === "container" && r.token === n, run: () => { r.scale = "container"; r.token = n; renderPage(); renderInspector(); } })), "-", { label: "Breakpoint (the frame)" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), radio: true, on: r.scale === "breakpoint" && r.token === n, run: () => { r.scale = "breakpoint"; r.token = n; renderPage(); renderInspector(); } }))];
 // The selected screen: its frame width (with the width presets) and height, like the code's Screen section.
 function renderScreenInspector(el) {
-  const name = S.route === "/docs" ? "Screen 2" : "Screen 1", tok = nearestToken(RESP.w), hpx = Math.round($("#page").offsetHeight);
+  const name = S.route === "/docs" ? "Screen 2" : "Screen 1", tok = frameToken(), hpx = Math.round($("#page").offsetHeight);
   el.innerHTML = `<div class="sel-head"><div class="g"><span class="nm">${ic("device-desktop", "s14")}<span>${name}</span></span><span class="muted" style="font-size:12px">${S.route}</span></div></div>
     <div class="insp-scroll">${sec("frame", "Frame", "", `
       <div class="g5">${field("Width", `<label class="inp"><span class="pre">W</span><input id="screen-w" value="${RESP.w}" aria-label="Frame width" inputmode="numeric"><button class="post" id="screen-w-menu" aria-haspopup="menu" title="Width presets">${ic("chevron-down", "s12")}</button></label>`)}${field("Height", inp("H", "Hug"), "c3")}</div>
@@ -1079,11 +1082,11 @@ function responsiveSection(id) {
 document.addEventListener("click", e => {
   const t = e.target;
   if (t.closest?.("[data-select-screen]")) { S.screenSel = true; S.multi = []; renderTree(); renderPage(); renderInspector(); return; }
-  if (t.closest?.("#screen-w-menu")) return openMenu(t.closest("#screen-w-menu"), widthMenu(RESP.w, px => setFrameWidth(px)), { align: "right" });
-  if (t.closest?.("#resp-w")) return openMenu(t.closest("#resp-w"), widthMenu(RESP.w, px => setFrameWidth(px)));
+  if (t.closest?.("#screen-w-menu")) return openMenu(t.closest("#screen-w-menu"), widthMenu(RESP.w, (px, tok) => { RESP.tok = tok; setFrameWidth(px); }), { align: "right" });
+  if (t.closest?.("#resp-w")) return openMenu(t.closest("#resp-w"), widthMenu(RESP.w, (px, tok) => { RESP.tok = tok; setFrameWidth(px); }));
   if (t.closest?.("[data-resp-add]")) { const root = !FLAT[S.selected]?.parent; RESP.rules.push({ id: RESP.nextId++, node: S.selected, scale: root ? "breakpoint" : "container", token: root ? "md" : "md", change: respChoices(S.selected)[0] }); renderPage(); renderInspector(); return; }
   const wh = t.closest?.("[data-resp-when]"); if (wh) return openMenu(wh, whenMenu(RESP.rules.find(r => r.id === +wh.dataset.respWhen)));
-  const ch = t.closest?.("[data-resp-change]"); if (ch) { const r = RESP.rules.find(x => x.id === +ch.dataset.respChange); return openMenu(ch, respChoices(r.node).map(c => ({ t: RESP_CHANGES[c].t, toggle: true, on: r.change === c, run: () => { r.change = c; renderPage(); renderInspector(); } }))); }
+  const ch = t.closest?.("[data-resp-change]"); if (ch) { const r = RESP.rules.find(x => x.id === +ch.dataset.respChange); return openMenu(ch, respChoices(r.node).map(c => ({ t: RESP_CHANGES[c].t, radio: true, on: r.change === c, run: () => { r.change = c; renderPage(); renderInspector(); } }))); }
   const del = t.closest?.("[data-resp-del]"); if (del) { RESP.rules = RESP.rules.filter(r => r.id !== +del.dataset.respDel); renderPage(); renderInspector(); return; }
 });
 
@@ -1506,14 +1509,14 @@ function sendComment(card) {
 
 /* ───────── menus ───────── */
 let closeMenu = null;
-// items: "-" | {label} | {search} | {field} | {t, icon, k, run, toast, danger, disabled, toggle:bool, on:bool, sub:[items]}
+// items: "-" | {label} | {search} | {field} | {t, icon, k, run, toast, danger, disabled, toggle:bool (checkbox: stays open), radio:bool (one choice: closes), on:bool, sub:[items]}
 function menuEl(items, depth) {
   const m = document.createElement("div"); m.className = "menu"; m.setAttribute("role", "menu"); m.dataset.depth = depth;
-  const hasCk = items.some(it => it && it.toggle);
+  const hasCk = items.some(it => it && (it.toggle || it.radio));
   m.innerHTML = items.map((it, i) => it === "-" ? "<hr>" : it.label ? `<div class="lbl">${it.label}</div>`
     : it.search ? `<label class="search">${ic("search", "s14")}<input placeholder="${it.search}" aria-label="${it.search}"><span class="kbd" style="padding:0">${it.k || ""}</span></label>`
     : it.field ? `<div class="field-row"><input value="${it.field}" aria-label="Zoom level"></div>`
-    : `<button role="${it.toggle ? "menuitemcheckbox" : "menuitem"}" ${it.toggle ? `aria-checked="${!!it.on}"` : ""} class="${it.danger ? "danger" : ""} ${it.desc ? "two" : ""}" data-i="${i}" ${it.disabled ? "disabled" : ""} ${it.sub ? 'aria-haspopup="menu"' : ""}>${hasCk ? `<span class="ck">${it.on ? ic("check", "s14") : ""}</span>` : ""}${it.img ? `<img class="mi-img" src="${it.img}" alt="">` : it.icon ? ic(it.icon) : ""}${it.desc ? `<span class="tt"><span>${it.t}</span><small>${it.desc}</small></span>` : `<span>${it.t}</span>`}${it.sub ? `<span class="sub">${ic(it.subIcon || "chevron-right", "s14")}</span>` : it.k ? `<span class="kbd">${it.k}</span>` : ""}</button>`).join("");
+    : `<button role="${it.toggle ? "menuitemcheckbox" : it.radio ? "menuitemradio" : "menuitem"}" ${it.toggle || it.radio ? `aria-checked="${!!it.on}"` : ""} class="${it.danger ? "danger" : ""} ${it.desc ? "two" : ""}" data-i="${i}" ${it.disabled ? "disabled" : ""} ${it.sub ? 'aria-haspopup="menu"' : ""}>${hasCk ? `<span class="ck">${it.on ? ic("check", "s14") : ""}</span>` : ""}${it.img ? `<img class="mi-img" src="${it.img}" alt="">` : it.icon ? ic(it.icon) : ""}${it.desc ? `<span class="tt"><span>${it.t}</span><small>${it.desc}</small></span>` : `<span>${it.t}</span>`}${it.sub ? `<span class="sub">${ic(it.subIcon || "chevron-right", "s14")}</span>` : it.k ? `<span class="kbd">${it.k}</span>` : ""}</button>`).join("");
   return m;
 }
 function openMenu(anchor, items, { align = "left", above = false, aboveOf = null, offset = 4, minWidth = 0, at = null } = {}) {
@@ -1752,7 +1755,7 @@ document.addEventListener("click", e => {
     if (hid === "hist-restore") { restoreSelected(); return; }
     if (hid === "tl-save") { H.saving = true; renderTimeline(); return; }
     if (hid === "tl-cancel") { H.saving = false; renderTimeline(); return; }
-    if (hid === "tl-filter") return openMenu(t.closest("button"), [{ t: "All versions", toggle: true, on: !H.namedOnly, run: () => { H.namedOnly = false; closeMenu?.(); renderTimeline(); } }, { t: "Named versions only", toggle: true, on: H.namedOnly, run: () => { H.namedOnly = true; closeMenu?.(); renderTimeline(); } }], { align: "right" });
+    if (hid === "tl-filter") return openMenu(t.closest("button"), [{ t: "All versions", radio: true, on: !H.namedOnly, run: () => { H.namedOnly = false; closeMenu?.(); renderTimeline(); } }, { t: "Named versions only", radio: true, on: H.namedOnly, run: () => { H.namedOnly = true; closeMenu?.(); renderTimeline(); } }], { align: "right" });
     if (t.closest(".page") || t.closest(".row[data-id]")) return; // read-only canvas and layers
   }
   const node = t.closest(".page [data-node]");
@@ -1781,7 +1784,7 @@ document.addEventListener("click", e => {
   if (id === "tk-import") return openMenu(t.closest("button"), TOKEN_IMPORT_MENU(), { align: "right" });
   if (id === "tk-search") return openTokenSearch();
   if (id === "layer-search") return openLayerSearch();
-  if (id === "scheme-btn") return openMenu(t.closest("button"), ["light", "dark", "system"].map(k => ({ icon: SCHEME_ICON[k], t: SCHEME_LABEL[k], toggle: true, on: S.scheme === k, run: () => { S.scheme = k; closeMenu?.(); renderTopbar(); applyScheme(); } })));
+  if (id === "scheme-btn") return openMenu(t.closest("button"), ["light", "dark", "system"].map(k => ({ icon: SCHEME_ICON[k], t: SCHEME_LABEL[k], radio: true, on: S.scheme === k, run: () => { S.scheme = k; closeMenu?.(); renderTopbar(); applyScheme(); } })));
   if (id === "add-context") return openMenu(t.closest("button"), [{ search: "Search…" }, { icon: "file", t: "Upload file", toast: "Opens the file picker" }, { icon: "frame", t: "Attach Figma…", toast: "Paste a Figma link to attach it" }, { icon: "file", t: "Reference a design…", toast: "Pick another design to reference" }], { above: true, offset: 6 });
   if (id === "account-btn") return openAccountMenu(t.closest("button"));
   if (id === "chat-back") { S.chat = null; renderAgents(); return; }
@@ -1794,12 +1797,12 @@ document.addEventListener("click", e => {
   if (id === "cm-filter") { const set = (k, v) => () => { CM[k] = v; renderComments(); }; return openMenu(t.closest("button"), [{ label: "Filter comments" },
     { t: "Show resolved comments", toggle: true, on: CM.resolved, run: set("resolved", !CM.resolved) }, { t: "Only your threads", toggle: true, on: CM.mine, run: set("mine", !CM.mine) },
     { t: "Unread", toggle: true, on: CM.unread, run: set("unread", !CM.unread) }, { t: "Only current page", toggle: true, on: CM.page, run: set("page", !CM.page) },
-    "-", { label: "Sort" }, { t: "Sort by date", toggle: true, on: CM.sort === "date", run: set("sort", "date") }, { t: "Sort by unread", toggle: true, on: CM.sort === "unread", run: set("sort", "unread") },
+    "-", { label: "Sort" }, { t: "Sort by date", radio: true, on: CM.sort === "date", run: set("sort", "date") }, { t: "Sort by unread", radio: true, on: CM.sort === "unread", run: set("sort", "unread") },
     "-", { t: "Mark all as read", run: () => { CTHREADS.forEach(x => x.unread = false); renderComments(); toast("Marked all as read"); } }], { align: "right", minWidth: 224 }); }
   if (id === "cm-search") return openPanelSearch("cm-q");
   if (id === "ag-search") return openPanelSearch("ag-q");
   if (id === "ag-filter") { const set = (k, v) => () => { AG[k] = v; renderAgents(); }; return openMenu(t.closest("button"), [
-    { t: "Sort by date", toggle: true, on: AG.sort === "date", run: set("sort", "date") }, { t: "Sort by unread", toggle: true, on: AG.sort === "unread", run: set("sort", "unread") },
+    { t: "Sort by date", radio: true, on: AG.sort === "date", run: set("sort", "date") }, { t: "Sort by unread", radio: true, on: AG.sort === "unread", run: set("sort", "unread") },
     "-", { t: "Pinned only", toggle: true, on: AG.pinned, run: set("pinned", !AG.pinned) }, { t: "Show archived chats", toggle: true, on: AG.archived, run: set("archived", !AG.archived) }], { align: "right", minWidth: 200 }); }
   if (id === "cm-new") { S.tool = "comment"; renderDock(); app.classList.add("comment-tool"); toast("Click anything on the canvas to comment on it"); return; }
   if (id === "apply-source") { toast("Wrote 3 changes to app/routes/_index.tsx"); return; }
@@ -2121,7 +2124,7 @@ document.addEventListener("click", e => {
   const sel = t.closest("[data-st-sel]"); if (sel) {
     const key = sel.dataset.stSel, row = stPage(ST.page).sections.flatMap(s => s.rows || []).find(r => r.l === key);
     const opts = sel.dataset.opts ? sel.dataset.opts.split(",") : row.c.opts, cur = sel.querySelector("span").textContent;
-    return openMenu(sel, opts.map(o => ({ t: o, toggle: true, on: o === cur, run: () => { ST[row ? `sel:${ST.page}:${key}` : "sel:" + key] = o; renderSettings(); } })), { align: "right" });
+    return openMenu(sel, opts.map(o => ({ t: o, radio: true, on: o === cur, run: () => { ST[row ? `sel:${ST.page}:${key}` : "sel:" + key] = o; renderSettings(); } })), { align: "right" });
   }
   const host = t.closest("[data-st-host]"); if (host) { ST.host = host.dataset.stHost; return renderSettings(); }
   const ut = t.closest("[data-st-usage]"); if (ut) { ST.usageTab = ut.dataset.stUsage; return renderSettings(); }
@@ -2547,7 +2550,7 @@ const TOKEN_IMPORT_MENU = () => [
 // The app theme is next-themes' light / dark / system (root.tsx's command menu "Toggle theme"), not a Settings page.
 const appTheme = () => document.documentElement.dataset.theme || "system";
 function setAppTheme(t) { if (t === "system") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = t; }
-const THEME_MENU = () => [["light", "Light"], ["dark", "Dark"], ["system", "System theme"]].map(([k, t]) => ({ t, toggle: true, on: appTheme() === k, run: () => setAppTheme(k) }));
+const THEME_MENU = () => [["light", "Light"], ["dark", "Dark"], ["system", "System theme"]].map(([k, t]) => ({ t, radio: true, on: appTheme() === k, run: () => setAppTheme(k) }));
 // Same per-browser editor preference the shortcuts window edits (editor-preferences.ts), clamped to 1–1000px.
 function openNudge() {
   const nudge = S.nudge || (S.nudge = { small: 1, big: 10 });
@@ -2656,9 +2659,9 @@ function shareDialog() {
   pop.addEventListener("click", e => {
     const tab = e.target.closest("[data-sp-tab]"); if (tab) { A.tab = tab.dataset.spTab; sync(); return; }
     const role = e.target.closest("[data-sp-role]");
-    if (role) { e.preventDefault(); return openMenu(role, ["Viewer", "Commenter", "Editor", "Admin"].map(x => ({ t: x, toggle: true, on: role.firstChild.textContent === x, run: () => { role.firstChild.textContent = x; } })).concat(role.dataset.spRole === "invite" ? [] : ["-", { t: "Remove access", danger: true }]), { align: "right" }); }
-    if (e.target.closest("#sp-vis")) return openMenu(e.target.closest("#sp-vis"), VISIBILITY.map(([k, label]) => ({ t: label, toggle: true, on: A.vis === k, run: () => { A.vis = S.shareVis = k; sync(); } })));
-    if (e.target.closest("#sp-scope")) return openMenu(e.target.closest("#sp-scope"), [...(hasSel ? ["selection"] : []), "screen", "design"].map(k => ({ t: scopeLabel(k), toggle: true, on: A.scope === k, run: () => { A.scope = k; sync(); } })));
+    if (role) { e.preventDefault(); return openMenu(role, ["Viewer", "Commenter", "Editor", "Admin"].map(x => ({ t: x, radio: true, on: role.firstChild.textContent === x, run: () => { role.firstChild.textContent = x; } })).concat(role.dataset.spRole === "invite" ? [] : ["-", { t: "Remove access", danger: true }]), { align: "right" }); }
+    if (e.target.closest("#sp-vis")) return openMenu(e.target.closest("#sp-vis"), VISIBILITY.map(([k, label]) => ({ t: label, radio: true, on: A.vis === k, run: () => { A.vis = S.shareVis = k; sync(); } })));
+    if (e.target.closest("#sp-scope")) return openMenu(e.target.closest("#sp-scope"), [...(hasSel ? ["selection"] : []), "screen", "design"].map(k => ({ t: scopeLabel(k), radio: true, on: A.scope === k, run: () => { A.scope = k; sync(); } })));
     if (e.target.closest("#share-add")) { const v = pop.querySelector("#share-email").value.trim(); if (v) { toast(`Invited ${v}`); pop.querySelector("#share-email").value = ""; pop.querySelector("#share-add").disabled = true; } return; }
     if (e.target.closest("#sp-copy-link")) return copyText(linkTo("design"), "Link copied");
     if (e.target.closest("#sp-copy-prompt")) return copyText(prompt(), "Agent prompt copied");
