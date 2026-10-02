@@ -450,15 +450,32 @@ describe("page open document reads", () => {
     expect(server.calls).toEqual([]);
   });
 
-  it("reads the page in the collection its URL names", () => {
+  it("reads the page in the collection its URL names, with its review", () => {
     startPageOpenDocumentReads(queryClient, "known-page", {
       databaseId: "db-1",
     });
 
-    expect(server.calls.map((call) => call.params)).toEqual([
-      { id: "known-page", databaseId: "db-1" },
-      { documentId: "known-page" },
+    expect(server.calls.map((call) => [call.name, call.params])).toEqual([
+      ["get-document", { id: "known-page", databaseId: "db-1" }],
+      [expect.any(String), { documentId: "known-page" }],
+      ["list-comments", { documentId: "known-page" }],
+      [
+        "list-resource-suggestions",
+        { resourceType: "document", resourceId: "known-page" },
+      ],
     ]);
+  });
+
+  it("does not read review for a local file page", () => {
+    queryClient.setQueryData(["action", "get-document", { id: "local-page" }], {
+      id: "local-page",
+      title: "",
+      source: { mode: "local-files" },
+    } as unknown as Document);
+    startPageOpenDocumentReads(queryClient, "local-page");
+
+    expect(reads("list-comments")).toBe(0);
+    expect(reads("list-resource-suggestions")).toBe(0);
   });
 });
 
