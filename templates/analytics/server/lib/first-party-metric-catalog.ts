@@ -1944,6 +1944,7 @@ const ENTRIES: FirstPartyMetric[] = [
         seriesKey: "period",
         valueKey: "rate",
       },
+      // guard:allow-raw-color — chart series palette saved in the panel config, not a themed surface
       colors: ["#10b981", "#f59e0b", "#64748b", "#8b5cf6"],
       description: RETENTION_OVER_TIME_DESCRIPTION,
     },

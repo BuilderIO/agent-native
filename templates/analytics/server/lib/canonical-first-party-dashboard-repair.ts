@@ -651,6 +651,7 @@ export function repairCanonicalFirstPartyDashboardQueries(
 const PANELS_INTRODUCED_WITH_RETENTION_SPLIT = ["chat-readiness-by-app"];
 
 /** The two-series palette the retention panel had before it gained the split. */
+// guard:allow-raw-color — chart series palette saved in the panel config, not a themed surface
 const PRE_SPLIT_RETENTION_COLORS = ["#10b981", "#8b5cf6"];
 
 function appendPanelsIntroducedWithRetentionSplit(
