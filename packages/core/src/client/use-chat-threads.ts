@@ -172,13 +172,23 @@ export function appendChatThreadScopeParams(
   params.set("scopeId", scope.id);
 }
 
-function savedThreadScope(body: unknown): ChatThreadScope | null {
-  const scope = (body as { scope?: unknown } | null)?.scope;
-  if (!scope || typeof scope !== "object") return null;
+/**
+ * The scope a thread save reports for the thread: a scope, `null` when the
+ * server holds the thread unscoped, `undefined` when the response says nothing
+ * (an older server or an unreadable body), so the local scope is left alone.
+ */
+function savedThreadScope(body: unknown): ChatThreadScope | null | undefined {
+  const record = body as { scope?: unknown } | null;
+  if (!record || typeof record !== "object" || !("scope" in record)) {
+    return undefined;
+  }
+  const scope = record.scope;
+  if (scope === null) return null;
+  if (!scope || typeof scope !== "object") return undefined;
   const { type, id } = scope as { type?: unknown; id?: unknown };
   return typeof type === "string" && typeof id === "string"
     ? (scope as ChatThreadScope)
-    : null;
+    : undefined;
 }
 
 function withChatThreadScope(
@@ -1417,7 +1427,9 @@ export function useChatThreads(
                       // visible page at save time may no longer be; take the
                       // server's, or the active pointer stays under the
                       // unscoped key and a reload here starts fresh.
-                      ...(savedScope ? { scope: savedScope } : {}),
+                      ...(savedScope !== undefined
+                        ? { scope: savedScope }
+                        : {}),
                       updatedAt: Date.now(),
                     }
                   : t,
@@ -1433,7 +1445,10 @@ export function useChatThreads(
               messageCount: data.messageCount ?? 0,
               createdAt: now,
               updatedAt: now,
-              scope: savedScope ?? scopeRef.current ?? null,
+              scope:
+                savedScope !== undefined
+                  ? savedScope
+                  : (scopeRef.current ?? null),
             },
             ...prev,
           ]);

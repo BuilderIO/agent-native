@@ -2063,9 +2063,11 @@ export async function listWorkspaceApps(
     return finalize(manifestApps, { persist: !unverified });
   }
 
-  // A 401 means this deployment's own credentials are wrong, which someone has
-  // to see. A 403 means the registry will not show this reader its apps, so
-  // they get the deployment's own list instead, and none of it is recorded.
+  // With no local filesystem or manifest to answer, a 401 means this
+  // deployment's own credentials are wrong, which someone has to see. A 403
+  // means the registry will not show this reader its apps, so they get the
+  // deployment's own list instead, and none of it is recorded. (A manifest
+  // answers earlier for both, with the warning above.)
   if (gatewayDenial?.statusCode === 401) throw gatewayDenial;
   warnWorkspaceAppsGatewayDenial(gatewayDenial, "deployment's own app list");
 
