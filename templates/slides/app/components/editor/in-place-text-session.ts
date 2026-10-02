@@ -1992,13 +1992,17 @@ export function startInPlaceTextSession(
         : into;
     const join = textOffset(target, target, target.childNodes.length);
     if (hasRenderedContent(from)) {
-      if (from.tagName === "P" && ["P", "LI"].includes(target.tagName)) {
+      if (
+        from.tagName === "P" &&
+        (["P", "LI"].includes(target.tagName) ||
+          /^H[1-6]$/.test(target.tagName))
+      ) {
         target.append(...Array.from(from.childNodes));
       } else {
         target.append(from);
       }
     }
-    from.remove();
+    if (from.parentNode !== target) from.remove();
     placeCaret(...textPoint(target, join, true));
   }
 
