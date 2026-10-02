@@ -18,6 +18,330 @@ function json(value: unknown, status = 200): Response {
 }
 
 describe("createAgentNativeAgentKitTransport", () => {
+  it("creates a missing thread when its first snapshot races the user-message save", async () => {
+    const requests: Array<{ url: string; method: string; body?: string }> = [];
+    let created = false;
+    let savedThreadData: string | undefined;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        requests.push({
+          url,
+          method,
+          ...(typeof init?.body === "string" ? { body: init.body } : {}),
+        });
+        if (url.startsWith("/_agent-native/agent-chat/threads/first-save")) {
+          if (method === "GET" && !created) {
+            return json({ error: "Thread not found" }, 404);
+          }
+          if (method === "PUT") {
+            savedThreadData = JSON.parse(String(init?.body)).threadData;
+            return json({ ok: true });
+          }
+          return json({
+            id: "first-save",
+            title: "First prompt",
+            threadData: JSON.stringify({}),
+          });
+        }
+        if (
+          url ===
+            "/_agent-native/agent-chat/threads?scopeType=workspace-app&scopeId=app-one" &&
+          method === "POST"
+        ) {
+          created = true;
+          expect(JSON.parse(String(init?.body))).toEqual({
+            id: "first-save",
+            title: "First prompt",
+          });
+          return json({
+            id: "first-save",
+            title: "First prompt",
+            threadData: JSON.stringify({}),
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+      scope: { type: "workspace-app", id: "app-one" },
+      isolateHistoryByScope: true,
+    });
+
+    await transport.persistThreadSnapshot?.({
+      threadId: "first-save",
+      snapshot: {
+        id: "first-save",
+        title: "First prompt",
+        createdAt: "2026-09-30T00:00:00.000Z",
+        updatedAt: "2026-09-30T00:00:00.000Z",
+        messages: [
+          {
+            id: "prompt-1",
+            role: "user",
+            parts: [{ type: "text", text: "Make a launch deck" }],
+          },
+        ],
+      },
+    });
+
+    expect(requests.map(({ method }) => method)).toEqual([
+      "GET",
+      "POST",
+      "PUT",
+    ]);
+    expect(requests[1]?.url).toBe(
+      "/_agent-native/agent-chat/threads?scopeType=workspace-app&scopeId=app-one",
+    );
+    expect(JSON.parse(savedThreadData ?? "{}").agentKit.messages).toEqual([
+      expect.objectContaining({ id: "prompt-1", role: "user" }),
+    ]);
+  });
+
+  it("merges the incoming snapshot into a thread after concurrent create returns 409", async () => {
+    const requests: Array<{ url: string; method: string }> = [];
+    let threadReads = 0;
+    let savedThreadData: string | undefined;
+    let savedMessageCount: number | undefined;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        const method = init?.method ?? "GET";
+        requests.push({ url, method });
+        if (url.endsWith("/threads/raced-thread")) {
+          if (method === "GET") {
+            threadReads++;
+            if (threadReads === 1) {
+              return json({ error: "Thread not found" }, 404);
+            }
+            return json({
+              id: "raced-thread",
+              title: "Typed prompt",
+              threadData: JSON.stringify({
+                messages: [
+                  {
+                    id: "legacy-only-prompt",
+                    role: "user",
+                    content: "Keep the legacy prompt",
+                  },
+                ],
+                agentKit: {
+                  messages: [
+                    {
+                      id: "saved-prompt",
+                      role: "user",
+                      parts: [{ type: "text", text: "Stale prompt text" }],
+                    },
+                    {
+                      id: "stored-only-prompt",
+                      role: "user",
+                      parts: [{ type: "text", text: "Keep stored history" }],
+                    },
+                  ],
+                  toolCalls: [
+                    {
+                      id: "shared-tool",
+                      name: "old-tool-name",
+                      input: { version: "stored" },
+                      status: "running",
+                      messageId: "saved-prompt",
+                    },
+                    {
+                      id: "stored-only-tool",
+                      name: "keep-tool",
+                      output: { kept: true },
+                      status: "completed",
+                    },
+                  ],
+                  widgets: [
+                    {
+                      messageId: "saved-prompt",
+                      widget: {
+                        id: "saved-widget",
+                        kind: "test.action",
+                        data: {
+                          toolCallId: "saved-tool",
+                          toolName: "create-release",
+                        },
+                        title: "Saved action",
+                      },
+                    },
+                  ],
+                },
+              }),
+            });
+          }
+          if (method === "PUT") {
+            const body = JSON.parse(String(init?.body));
+            savedThreadData = body.threadData;
+            savedMessageCount = body.messageCount;
+            return json({ ok: true });
+          }
+        }
+        if (url === "/_agent-native/agent-chat/threads" && method === "POST") {
+          return json({ error: "Thread id already in use" }, 409);
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await transport.persistThreadSnapshot?.({
+      threadId: "raced-thread",
+      snapshot: {
+        id: "raced-thread",
+        title: "Typed prompt",
+        createdAt: "2026-09-30T00:00:00.000Z",
+        updatedAt: "2026-09-30T00:00:00.000Z",
+        messages: [
+          {
+            id: "saved-prompt",
+            role: "user",
+            parts: [{ type: "text", text: "Updated prompt text" }],
+          },
+        ],
+        toolCalls: [
+          {
+            id: "shared-tool",
+            name: "new-tool-name",
+            input: { version: "incoming" },
+            output: { saved: true },
+            status: "completed",
+            messageId: "saved-prompt",
+          },
+        ],
+        widgets: [
+          {
+            messageId: "missing-message",
+            widget: {
+              id: "orphan-widget",
+              kind: "test.action",
+              data: {
+                toolCallId: "orphan-tool",
+                toolName: "create-release",
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    expect(requests.map(({ method }) => method)).toEqual([
+      "GET",
+      "POST",
+      "GET",
+      "PUT",
+    ]);
+    const saved = JSON.parse(savedThreadData ?? "{}");
+    expect(saved.messages).toEqual([
+      expect.objectContaining({
+        id: "legacy-only-prompt",
+        role: "user",
+        content: "Keep the legacy prompt",
+      }),
+    ]);
+    expect(saved.agentKit.messages).toEqual([
+      expect.objectContaining({
+        id: "saved-prompt",
+        role: "user",
+        parts: [
+          expect.objectContaining({
+            type: "text",
+            text: "Updated prompt text",
+          }),
+        ],
+      }),
+      expect.objectContaining({
+        id: "stored-only-prompt",
+        role: "user",
+        parts: [
+          expect.objectContaining({
+            type: "text",
+            text: "Keep stored history",
+          }),
+        ],
+      }),
+      expect.objectContaining({
+        id: "legacy-only-prompt",
+        role: "user",
+        parts: [
+          expect.objectContaining({
+            type: "text",
+            text: "Keep the legacy prompt",
+          }),
+        ],
+      }),
+    ]);
+    expect(saved.agentKit.toolCalls).toEqual([
+      {
+        id: "shared-tool",
+        name: "new-tool-name",
+        input: { version: "incoming" },
+        output: { saved: true },
+        status: "completed",
+        messageId: "saved-prompt",
+      },
+      {
+        id: "stored-only-tool",
+        name: "keep-tool",
+        output: { kept: true },
+        status: "completed",
+      },
+    ]);
+    expect(saved.agentKit.widgets).toEqual([
+      {
+        messageId: "saved-prompt",
+        widget: {
+          id: "saved-widget",
+          kind: "test.action",
+          data: {
+            toolCallId: "saved-tool",
+            toolName: "create-release",
+          },
+          title: "Saved action",
+        },
+      },
+    ]);
+    expect(savedMessageCount).toBe(3);
+  });
+
+  it("preserves a thread-create failure when no accessible row exists", async () => {
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        if (String(input).endsWith("/threads/rejected-thread")) {
+          return json({ error: "Thread not found" }, 404);
+        }
+        if (String(input).endsWith("/threads") && init?.method === "POST") {
+          return json({ error: "Unavailable" }, 503);
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await expect(
+      transport.persistThreadSnapshot?.({
+        threadId: "rejected-thread",
+        snapshot: {
+          id: "rejected-thread",
+          createdAt: "2026-09-30T00:00:00.000Z",
+          updatedAt: "2026-09-30T00:00:00.000Z",
+          messages: [],
+        },
+      }),
+    ).rejects.toMatchObject({ status: 503 });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   it.each([
     {
       isolateHistoryByScope: true,
@@ -2135,6 +2459,28 @@ describe("createAgentNativeAgentKitTransport", () => {
     ).rejects.toThrow(
       "Agent chat request failed with 502, and its error body could not be read.",
     );
+  });
+
+  it("explains an oversized request and marks it non-retryable", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async () =>
+        json({ error: "Payload too large" }, 413),
+      ) as typeof fetch,
+    });
+
+    await expect(
+      transport.submitFeedback?.({
+        threadId: "thread-1",
+        messageId: "assistant-1",
+        value: "negative",
+      }),
+    ).rejects.toMatchObject({
+      message:
+        "This request exceeded the server's size limit (HTTP 413). Start a new chat or remove large attachments or references, then retry.",
+      code: "http_413",
+      status: 413,
+      retryable: false,
+    });
   });
 
   it("persists response feedback and forks durable history from a message", async () => {

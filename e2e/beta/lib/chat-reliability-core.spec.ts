@@ -15,6 +15,7 @@ import {
   LONG_ANSWER_LINES,
   newNonce,
   scanVisibleText,
+  stopControlState,
   summarizeTraffic,
   tail,
   threadDeepLink,
@@ -178,6 +179,28 @@ test("idle means no stop button, no current activity, and no streaming bubble", 
       state({ currentActivity: ["Contacting model"], stopVisible: true }),
     ),
     /Contacting model.*|stop=VISIBLE/,
+  );
+});
+
+test("Stop is shown, already over, or missing while a run works", () => {
+  assert.equal(stopControlState(state({ stopVisible: true })), "shown");
+  assert.equal(
+    stopControlState(
+      state({ stopVisible: true, messages: [message("assistant", "a", true)] }),
+    ),
+    "shown",
+  );
+  assert.equal(
+    stopControlState(state({ messages: [message("assistant", "all of it")] })),
+    "finished",
+  );
+  assert.equal(
+    stopControlState(state({ messages: [message("assistant", "a", true)] })),
+    "working-without-stop",
+  );
+  assert.equal(
+    stopControlState(state({ currentActivity: ["Contacting model"] })),
+    "working-without-stop",
   );
 });
 

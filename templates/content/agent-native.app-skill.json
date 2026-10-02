@@ -66,7 +66,7 @@
       "displayName": "Agent-Native Content",
       "shortDescription": "Draft and organize content",
       "longDescription": "Draft and organize documents and collection data in your Agent-Native Content workspace. Search and read available pages, create or revise documents, inspect databases, and add or update records. The plugin can access only data available to your connected account. It does not publish to an external CMS or Notion, and this listing does not include a delete action.",
-      "developerName": "Agent-Native",
+      "developerName": "Builder.io",
       "category": "Productivity",
       "capabilities": [
         "Draft and revise documents",

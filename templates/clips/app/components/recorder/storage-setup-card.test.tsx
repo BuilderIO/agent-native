@@ -136,9 +136,7 @@ describe("StorageSetupCard", () => {
     expect(container.textContent).toContain(
       "storageSetup.createBuilderAccount",
     );
-    expect(container.textContent).toContain(
-      "Store recorded videos with Builder.io or S3-compatible storage. Builder.io includes free hosting and AI credits.",
-    );
+    expect(container.textContent).toContain("storageSetup.description");
     expect(container.textContent).not.toContain(CONSENT);
     expect(container.querySelector('a[href*="builder.io/legal"]')).toBeNull();
     expect(container.querySelector("svg")).toBeNull();
@@ -315,6 +313,48 @@ describe("StorageSetupCard", () => {
 
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(onConfigured).toHaveBeenCalledOnce();
+  });
+
+  it("ignores a connection that arrives long after the connect was cancelled", async () => {
+    const onConfigured = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ configured: true }), {
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await renderCard(onConfigured);
+    await createAndActivate();
+
+    mocks.useBuilderConnectFlow.mockReturnValue(
+      flowState({ connecting: true }),
+    );
+    await act(async () => {
+      root.render(<StorageSetupCard onConfigured={onConfigured} />);
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          '[data-testid="storage-setup-builder-cancel"]',
+        )
+        ?.click();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(61_000);
+    });
+
+    const connectOptions = mocks.useBuilderConnectFlow.mock.calls[
+      mocks.useBuilderConnectFlow.mock.calls.length - 1
+    ]?.[0] as {
+      onConnected: () => void;
+    };
+    act(() => connectOptions.onConnected());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onConfigured).not.toHaveBeenCalled();
   });
 
   it("shows localized recovery and pending feedback while retrying Builder status", async () => {

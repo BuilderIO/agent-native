@@ -739,6 +739,8 @@ const messages = {
     imageAdded: "图片已添加",
     imageUploadError: "上传此图片时出了点问题。",
     exportFailed: "导出失败",
+    agentRunFailed:
+      "代理在创建任何幻灯片之前运行失败。请查看聊天中的详情，然后重试。",
     deckHasNoSlides: "幻灯片没有页面。",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",

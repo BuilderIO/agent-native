@@ -557,7 +557,7 @@ const messages: ToolkitAgentChatTranslation = {
   "error.chatgptPlanUsageLimit": "已达到您的 ChatGPT 方案使用上限。",
   "error.chatgptPlanUsageUnavailable":
     "OpenAI 无法检查此 ChatGPT 方案的使用上限。请查看 ChatGPT 使用量，或尝试其他模型。",
-  "error.failed": "智能体遇到错误",
+  "error.failed": "代理在完成前运行失败。",
   "error.render": "无法显示此内容。",
   "error.stopped": "智能体在完成前已停止",
   "errorMessages.agentConnection": "智能体连接已中断。请检查网络连接后重试。",
@@ -579,6 +579,8 @@ const messages: ToolkitAgentChatTranslation = {
     "工具架构无效，因此模型在请求开始前拒绝了该请求。可以跳过无效工具并重试请求。",
   "errorMessages.malformedRequest":
     "模型提供方认为该请求格式有误并予以拒绝，因此未重试。请重试，若问题持续出现，请开始新的对话。",
+  "errorMessages.requestTooLarge":
+    "此请求超出了服务器大小限制（HTTP 413）。请开始新聊天，或移除较大的附件或引用后重试。",
   "errorMessages.runInterrupted": "智能体在完成前停止了。",
   "errorMessages.runFailed": "智能体运行失败。",
   "errorMessages.runUnverified":

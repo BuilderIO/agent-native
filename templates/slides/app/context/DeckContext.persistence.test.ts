@@ -4696,6 +4696,55 @@ describe("DeckContext deck creation persistence", () => {
     expect(deckFetchCalls(fetchMock)).toEqual([]);
   });
 
+  it("defers an empty deck create and includes its prompt context in the initial write", async () => {
+    const { fetchMock, resolveCreate } = setupFetch();
+    const { result } = renderHook(() => useDecks(), { wrapper });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let deckId = "";
+    act(() => {
+      deckId = result.current.createDeck(undefined, {
+        noDefaultSlides: true,
+        deferPersistence: true,
+      }).id;
+      result.current.updateDeck(deckId, {
+        generationContext: {
+          originalPrompt: "Make a launch deck",
+          mode: "new",
+          generationAttemptId: "attempt-1",
+        },
+      });
+    });
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        requestString(url).includes("/_agent-native/actions/add-deck"),
+      ),
+    ).toHaveLength(0);
+
+    const persisted = result.current.ensureDeckPersisted(deckId);
+    await Promise.resolve();
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        requestString(url).includes("/_agent-native/actions/add-deck"),
+      ),
+    ).toHaveLength(1);
+    const createCall = fetchMock.mock.calls.find(([url]) =>
+      requestString(url).includes("/_agent-native/actions/add-deck"),
+    );
+    expect(actionCallBody(createCall?.[1]).deck).toMatchObject({
+      generationContext: {
+        originalPrompt: "Make a launch deck",
+        generationAttemptId: "attempt-1",
+      },
+    });
+
+    resolveCreate(
+      new Response(JSON.stringify({ id: deckId }), { status: 200 }),
+    );
+    await expect(persisted).resolves.toEqual({ persisted: true });
+  });
+
   it("reports a failed create request without polling for the optimistic deck", async () => {
     const { fetchMock, resolveCreate } = setupFetch();
     const { result } = renderHook(() => useDecks(), { wrapper });

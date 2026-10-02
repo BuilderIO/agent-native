@@ -586,7 +586,7 @@ const messages: ToolkitAgentChatTranslation = {
   "error.chatgptPlanUsageLimit": "تم بلوغ حد الاستخدام لخطة ChatGPT.",
   "error.chatgptPlanUsageUnavailable":
     "تعذّر على OpenAI التحقق من حد الاستخدام لخطة ChatGPT هذه. تحقّق من استخدام ChatGPT أو جرّب نموذجًا آخر.",
-  "error.failed": "واجه الوكيل خطأ",
+  "error.failed": "فشل تشغيل الوكيل قبل اكتماله.",
   "error.render": "تعذّر عرض هذا المحتوى.",
   "error.stopped": "توقف الوكيل قبل الانتهاء",
   "errorMessages.agentConnection":
@@ -610,6 +610,8 @@ const messages: ToolkitAgentChatTranslation = {
     "كان مخطط إحدى الأدوات غير صالح، لذلك رفض النموذج الطلب قبل بدئه. يمكن تخطي الأداة غير الصالحة وإعادة محاولة الطلب.",
   "errorMessages.malformedRequest":
     "رفض مزوّد النموذج هذا الطلب لأنه غير صالح، لذلك لم تُعد المحاولة. أعد المحاولة، أو ابدأ محادثة جديدة إذا استمر الأمر.",
+  "errorMessages.requestTooLarge":
+    "تجاوز هذا الطلب حد الحجم على الخادم (HTTP 413). ابدأ دردشة جديدة أو أزل المرفقات أو المراجع الكبيرة، ثم حاول مرة أخرى.",
   "errorMessages.runInterrupted": "توقف الوكيل قبل أن يُكمل.",
   "errorMessages.runFailed": "فشل تشغيل الوكيل.",
   "errorMessages.runUnverified":

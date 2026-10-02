@@ -588,7 +588,7 @@ const messages = {
     "Your ChatGPT plan usage limit has been reached.",
   "error.chatgptPlanUsageUnavailable":
     "OpenAI couldn’t check this ChatGPT plan’s usage limit. Check ChatGPT usage or try another model.",
-  "error.failed": "The agent hit an error",
+  "error.failed": "The agent run failed before it finished.",
   "error.render": "This content couldn’t be displayed.",
   "error.stopped": "The agent stopped before finishing",
   "errorMessages.agentConnection":
@@ -611,6 +611,8 @@ const messages = {
     "A tool schema was invalid, so the model rejected the request before it started. The invalid tool can be skipped and the request retried.",
   "errorMessages.malformedRequest":
     "The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.",
+  "errorMessages.requestTooLarge":
+    "This request exceeded the server's size limit (HTTP 413). Start a new chat or remove large attachments or references, then retry.",
   "errorMessages.runInterrupted": "The agent stopped before finishing.",
   "errorMessages.runFailed": "The agent run failed.",
   "errorMessages.runUnverified":

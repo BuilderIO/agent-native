@@ -1212,18 +1212,23 @@ export function useBuilderConnectFlow(
           };
         };
         void (async () => {
-          let result = await activate(
-            agentNativeProvisioningToken
+          // The provisioning token outlives the signed connect URL by a
+          // minute, so cached credentials count only when both are usable.
+          const cachedCredentials =
+            agentNativeProvisioningToken && connectToken
               ? {
                   provisioningToken: agentNativeProvisioningToken,
                   connectToken,
                 }
-              : await freshProvisioningCredentials(),
+              : null;
+          let result = await activate(
+            cachedCredentials ?? (await freshProvisioningCredentials()),
           );
           if (
             !result.ok &&
-            result.code === "provision_token_invalid" &&
-            agentNativeProvisioningToken &&
+            cachedCredentials &&
+            (result.code === "provision_token_invalid" ||
+              result.code === "cross_origin") &&
             isCurrentAttempt()
           ) {
             result = await activate(await freshProvisioningCredentials());
@@ -1237,8 +1242,18 @@ export function useBuilderConnectFlow(
             return;
           }
           if (result.code === "network_error") {
-            retryStatusRef.current();
-            return;
+            // The server may have finished before the response was lost, so
+            // look once; only a status that shows no connection ends the
+            // attempt with a retryable error.
+            const status = await fetchStatus();
+            if (!isCurrentAttempt()) return;
+            if (
+              status &&
+              isBuilderConnectComplete(status, connectTargetRef.current)
+            ) {
+              await confirmConnectSuccessRef.current(connectAttemptId);
+              return;
+            }
           }
           connectStartedAtRef.current = null;
           setConnecting(false);

@@ -755,6 +755,8 @@ const messages = {
     imageAdded: "图片已添加",
     imageUploadError: "上传此图片时出了点问题。",
     exportFailed: "导出失败",
+    agentRunFailed:
+      "슬라이드를 만들기 전에 에이전트 실행이 실패했습니다. 채팅에서 세부 정보를 확인한 뒤 다시 시도하세요.",
     deckHasNoSlides: "덱에 슬라이드가 없습니다.",
     pdfRenderFailed: "无法渲染 PDF。",
     buildingDeck: "正在构建幻灯片",

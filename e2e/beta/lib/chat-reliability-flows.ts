@@ -9,6 +9,9 @@ import {
   LONG_ANSWER_LINES,
   longAnswerPrompt,
   newNonce,
+  NO_STOP_CONTROL_GRACE_MS,
+  STOP_ANSWER_LINES,
+  stopControlState,
   tail,
   type ChatState,
   type ExpectedTurn,
@@ -137,14 +140,33 @@ export async function secondMessageWhileRunning(
 export async function stopMidStream(s: ChatReliabilitySession): Promise<void> {
   const first = newNonce();
   const followUp = newNonce();
-  await s.send(longAnswerPrompt(first), first);
+  await s.send(longAnswerPrompt(first, STOP_ANSWER_LINES), first);
+  let workingWithoutStopSince: number | null = null;
   await s.waitUntil(
     "the answer to stream with a Stop button showing",
-    (state) =>
-      streaming(state, first) === null && state.stopVisible
-        ? null
-        : describeState(state),
-    { timeoutMs: 60_000 },
+    (state) => {
+      const notStreaming = streaming(state, first);
+      if (notStreaming !== null) return notStreaming;
+      switch (stopControlState(state)) {
+        case "shown":
+          return null;
+        case "finished":
+          throw new Error(
+            `the whole answer had streamed before Stop could be pressed, so Stop was not exercised (${describeState(state)})`,
+          );
+        case "working-without-stop": {
+          workingWithoutStopSince ??= Date.now();
+          const waitedMs = Date.now() - workingWithoutStopSince;
+          if (waitedMs > NO_STOP_CONTROL_GRACE_MS) {
+            throw new Error(
+              `the composer showed no Stop control for ${(waitedMs / 1000).toFixed(1)}s while a run was working, so a user has no way to stop it (${describeState(state)})`,
+            );
+          }
+          return describeState(state);
+        }
+      }
+    },
+    { timeoutMs: 60_000, intervalMs: 100 },
   );
   await s.captureThreadId(first);
 

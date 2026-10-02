@@ -61,6 +61,35 @@ export async function renderedText(
   );
 }
 
+const DESTROYED_CONTEXT = /Execution context was destroyed/i;
+
+/**
+ * Run an in-page evaluation right after `goto(..., "domcontentloaded")`. An app
+ * that redirects once its first script runs destroys the context an evaluate
+ * was already sent to, and that says nothing about the app under test. Wait for
+ * the document to finish loading, and when the evaluation still hits a
+ * destroyed context, run it once more on the new document and report that it
+ * did. A second destroyed context, and every other error, are the caller's.
+ */
+export async function evaluateAfterNavigation<R>(
+  page: Page,
+  evaluate: () => Promise<R>,
+  recordRetry: (note: string) => void,
+): Promise<R> {
+  await page.waitForLoadState("load", { timeout: 30_000 });
+  try {
+    return await evaluate();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!DESTROYED_CONTEXT.test(message)) throw error;
+    recordRetry(
+      `evaluate lost its page to a navigation and ran again at ${page.url()}: ${message.split("\n")[0]}`,
+    );
+    await page.waitForLoadState("load", { timeout: 30_000 });
+    return await evaluate();
+  }
+}
+
 export interface AuthGateOutcome {
   gated: boolean;
   url: string;

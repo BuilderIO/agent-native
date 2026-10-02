@@ -388,7 +388,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Das Nutzungslimit deines ChatGPT-Plans ist erreicht.",
   "error.chatgptPlanUsageUnavailable":
     "OpenAI konnte das Nutzungslimit dieses ChatGPT-Plans nicht prüfen. Prüfe deine ChatGPT-Nutzung oder versuche es mit einem anderen Modell.",
-  "error.failed": "Beim Agenten ist ein Fehler aufgetreten",
+  "error.failed": "Der Agent-Lauf ist vor Abschluss fehlgeschlagen.",
   "error.render": "Dieser Inhalt konnte nicht angezeigt werden.",
   "error.stopped": "Der Agent wurde vor Abschluss gestoppt",
   "header.switchToCli": "Zur CLI wechseln",
@@ -1238,6 +1238,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Ein Tool-Schema war ungültig. Deshalb hat das Modell die Anfrage abgelehnt, bevor sie gestartet wurde. Das ungültige Tool kann übersprungen und die Anfrage erneut gesendet werden.",
   "errorMessages.malformedRequest":
     "Der Modellanbieter hat diese Anfrage als fehlerhaft abgelehnt, daher wurde sie nicht wiederholt. Versuchen Sie es erneut oder starten Sie einen neuen Chat, wenn das Problem weiterhin auftritt.",
+  "errorMessages.requestTooLarge":
+    "Diese Anfrage überschritt das Größenlimit des Servers (HTTP 413). Starte einen neuen Chat oder entferne große Anhänge oder Referenzen und versuche es erneut.",
   "errorMessages.runInterrupted": "Der Agent hat vor dem Abschluss aufgehört.",
   "errorMessages.runFailed": "Der Agent-Lauf ist fehlgeschlagen.",
   "errorMessages.runUnverified":

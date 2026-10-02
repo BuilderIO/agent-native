@@ -580,7 +580,7 @@ const messages: ToolkitAgentChatTranslation = {
     "आपकी ChatGPT योजना की उपयोग सीमा पूरी हो गई है।",
   "error.chatgptPlanUsageUnavailable":
     "OpenAI इस ChatGPT योजना की उपयोग सीमा जाँच नहीं सका। अपना ChatGPT उपयोग देखें या कोई दूसरा मॉडल आज़माएँ।",
-  "error.failed": "एजेंट को एक त्रुटि मिली",
+  "error.failed": "एजेंट का काम पूरा होने से पहले रन विफल हो गया।",
   "error.render": "यह सामग्री दिखाई नहीं जा सकी।",
   "error.stopped": "एजेंट पूरा करने से पहले रुक गया",
   "errorMessages.agentConnection":
@@ -603,6 +603,8 @@ const messages: ToolkitAgentChatTranslation = {
     "एक टूल स्कीमा अमान्य था, इसलिए मॉडल ने अनुरोध शुरू होने से पहले ही अस्वीकार कर दिया। अमान्य टूल को छोड़कर अनुरोध दोबारा किया जा सकता है।",
   "errorMessages.malformedRequest":
     "मॉडल प्रदाता ने इस अनुरोध को त्रुटिपूर्ण मानकर अस्वीकार कर दिया, इसलिए इसे दोबारा नहीं भेजा गया। फिर से प्रयास करें, या बार-बार होने पर नई चैट शुरू करें।",
+  "errorMessages.requestTooLarge":
+    "यह अनुरोध सर्वर की आकार सीमा से बड़ा था (HTTP 413)। नई चैट शुरू करें या बड़े अटैचमेंट या संदर्भ हटाकर फिर कोशिश करें।",
   "errorMessages.runInterrupted": "एजेंट काम पूरा करने से पहले रुक गया।",
   "errorMessages.runFailed": "एजेंट का रन विफल हो गया।",
   "errorMessages.runUnverified":

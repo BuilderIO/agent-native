@@ -754,6 +754,8 @@ const messages = {
     imageAdded: "चित्र जोड़ा गया",
     imageUploadError: "यह चित्र अपलोड करते समय कुछ गलत हुआ।",
     exportFailed: "निर्यात विफल",
+    agentRunFailed:
+      "स्लाइड बनाने से पहले एजेंट रन विफल हो गया। चैट में विवरण देखें और फिर कोशिश करें।",
     deckHasNoSlides: "डेक में कोई स्लाइड नहीं है।",
     pdfRenderFailed: "PDF रेंडर नहीं हो सका।",
     buildingDeck: "डेक बनाया जा रहा है",

@@ -235,7 +235,25 @@ const FIRST_TOUCH_QUERY_FIELDS = [
   "utm_campaign",
   "utm_content",
   "utm_term",
+  "gclid",
+  "msclkid",
+  "vector_source",
 ] as const;
+const FIRST_TOUCH_COOKIE_FIELD_PRIORITY = [
+  "gclid",
+  "msclkid",
+  "vector_source",
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "ref",
+  "via",
+  "utm_content",
+  "utm_term",
+  "landing_path",
+  "landing_referrer",
+  "landed_at",
+] as const satisfies readonly (keyof FirstTouchAttribution)[];
 
 let _firstTouchCaptured = false;
 
@@ -247,9 +265,13 @@ export interface FirstTouchAttribution {
   utm_campaign?: string;
   utm_content?: string;
   utm_term?: string;
+  gclid?: string;
+  msclkid?: string;
+  vector_source?: string;
   landing_path?: string;
   landing_referrer?: string;
   landed_at?: string;
+  capture_truncated?: string;
 }
 
 function safeStorageGet(key: string): string | null {
@@ -284,6 +306,9 @@ function readCachedLlmConnectionStatus(): LlmConnectionStatus | null {
     }
     return {
       configured: parsed.configured,
+      ...(typeof parsed.chatEligible === "boolean"
+        ? { chatEligible: parsed.chatEligible }
+        : {}),
       engine: parsed.engine,
       model: parsed.model,
       source: parsed.source,
@@ -304,15 +329,20 @@ function cacheLlmConnectionStatus(status: LlmConnectionStatus): void {
 
 function normalizeAgentEngineStatus(data: unknown): LlmConnectionStatus {
   const value = data as Record<string, unknown> | null;
-  if (!value || value.configured !== true) {
-    return { configured: false };
-  }
+  if (!value) return { configured: false };
   return {
-    configured: true,
-    engine: typeof value.engine === "string" ? value.engine : null,
-    model: typeof value.model === "string" ? value.model : null,
-    source: typeof value.source === "string" ? value.source : null,
-    envVar: typeof value.envVar === "string" ? value.envVar : null,
+    configured: value.configured === true,
+    ...(typeof value.chatEligible === "boolean"
+      ? { chatEligible: value.chatEligible }
+      : {}),
+    ...(value.configured === true
+      ? {
+          engine: typeof value.engine === "string" ? value.engine : null,
+          model: typeof value.model === "string" ? value.model : null,
+          source: typeof value.source === "string" ? value.source : null,
+          envVar: typeof value.envVar === "string" ? value.envVar : null,
+        }
+      : {}),
   };
 }
 
@@ -564,14 +594,64 @@ function readFirstTouchCookie(): string | null {
   return null;
 }
 
-function writeFirstTouchCookie(encodedValue: string): void {
-  if (typeof document === "undefined") return;
-  const cookie =
+function firstTouchCookieAssignment(encodedValue: string): string {
+  return (
     `${FIRST_TOUCH_COOKIE_NAME}=${encodedValue}; path=/; ` +
-    `max-age=${FIRST_TOUCH_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`;
-  if (cookie.length > FIRST_TOUCH_MAX_COOKIE_BYTES) return;
+    `max-age=${FIRST_TOUCH_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`
+  );
+}
+
+function fitFirstTouchCookieValue(value: string): string {
+  const source = JSON.parse(value) as FirstTouchAttribution;
+  const compact: FirstTouchAttribution = {};
+  let truncated = false;
+
+  for (const field of FIRST_TOUCH_COOKIE_FIELD_PRIORITY) {
+    const rawValue = source[field];
+    if (typeof rawValue !== "string" || !rawValue) continue;
+    const candidate = {
+      ...compact,
+      [field]: rawValue.slice(0, FIRST_TOUCH_MAX_FIELD_LENGTH),
+    };
+    const encoded = encodeURIComponent(JSON.stringify(candidate));
+    if (
+      firstTouchCookieAssignment(encoded).length <= FIRST_TOUCH_MAX_COOKIE_BYTES
+    ) {
+      Object.assign(compact, { [field]: candidate[field] });
+    } else {
+      truncated = true;
+    }
+  }
+
+  if (truncated) {
+    compact.capture_truncated = "1";
+    // Keep the auth handoff under its 4 KB header limit after re-encoding.
+    for (const field of [...FIRST_TOUCH_COOKIE_FIELD_PRIORITY].reverse()) {
+      const encoded = encodeURIComponent(JSON.stringify(compact));
+      if (
+        firstTouchCookieAssignment(encoded).length <=
+        FIRST_TOUCH_MAX_COOKIE_BYTES
+      ) {
+        return encoded;
+      }
+      delete compact[field];
+    }
+  }
+
+  const encoded = encodeURIComponent(JSON.stringify(compact));
+  if (
+    firstTouchCookieAssignment(encoded).length > FIRST_TOUCH_MAX_COOKIE_BYTES
+  ) {
+    throw new Error("First-touch attribution exceeded the cookie budget");
+  }
+  return encoded;
+}
+
+function writeFirstTouchCookie(value: string): void {
+  if (typeof document === "undefined") return;
+  const encodedValue = fitFirstTouchCookieValue(value);
   try {
-    document.cookie = cookie;
+    document.cookie = firstTouchCookieAssignment(encodedValue);
   } catch {
     // best-effort
   }
@@ -596,7 +676,7 @@ function captureFirstTouchAttribution(): void {
       // never overwrite the stored value itself (first-write-wins).
       if (!readFirstTouchCookie()) {
         try {
-          writeFirstTouchCookie(encodeURIComponent(existing));
+          writeFirstTouchCookie(existing);
         } catch {
           // ignore
         }
@@ -606,7 +686,7 @@ function captureFirstTouchAttribution(): void {
     const attribution = buildFirstTouchAttribution();
     const json = JSON.stringify(attribution);
     safeStorageSet(FIRST_TOUCH_STORAGE_KEY, json);
-    writeFirstTouchCookie(encodeURIComponent(json));
+    writeFirstTouchCookie(json);
   } catch {
     // Attribution is best-effort telemetry; never let it break boot.
   }

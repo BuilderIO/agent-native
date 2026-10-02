@@ -822,6 +822,41 @@ describe("useBuilderConnectFlow", () => {
       expect(openSpy).not.toHaveBeenCalled();
     });
 
+    it("does not treat another scope's connection as activation success", async () => {
+      const personalConnectionStatus = {
+        ...activationStatus,
+        configured: true,
+        grants: { personal: { connectedAt: 1 } },
+      };
+      vi.mocked(fetch).mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/_agent-native/builder/provision") {
+          throw new TypeError("Failed to fetch");
+        }
+        return jsonResponse(personalConnectionStatus);
+      });
+      const onConnected = vi.fn();
+
+      await act(async () => {
+        root.render(
+          <BuilderConnectProbe
+            provisionAccount
+            startScope="org"
+            onConnected={onConnected}
+          />,
+        );
+      });
+      await flushAfterPaint();
+      onConnected.mockClear();
+      await clickConnect();
+
+      expect(container.textContent).toContain("configured idle");
+      expect(container.textContent).toContain(
+        "Couldn't start Builder connect. Refresh this page and try again.",
+      );
+      expect(onConnected).not.toHaveBeenCalled();
+    });
+
     it("reports an unreachable activation route instead of waiting", async () => {
       mockActivation(() => new Response("Not found", { status: 404 }));
 
@@ -885,6 +920,91 @@ describe("useBuilderConnectFlow", () => {
       expect(container.textContent).toContain(
         "Couldn't start Builder connect. Refresh this page and try again.",
       );
+    });
+
+    it("retries once with fresh credentials when the request is refused as cross-origin", async () => {
+      const posts = mockActivation((attempt) =>
+        attempt === 1
+          ? activationResponse(403, {
+              ok: false,
+              code: "cross_origin",
+              message: "Cross-origin request rejected",
+            })
+          : activationResponse(200, { ok: true, scope: "user" }),
+      );
+
+      await act(async () => {
+        root.render(<BuilderConnectProbe provisionAccount />);
+      });
+      await flushAfterPaint();
+      await clickConnect();
+
+      expect(posts.map((post) => post.body.connectToken)).toEqual([
+        "signed",
+        "refreshed",
+      ]);
+      expect(container.textContent).toContain("configured idle resolved");
+    });
+
+    it("refreshes both tokens before the first request when the signed connect URL is stale", async () => {
+      let refreshed = false;
+      const posts: Array<{ provisioningToken: string; connectToken: string }> =
+        [];
+      vi.mocked(fetch).mockImplementation(async (input, init) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/_agent-native/builder/provision") {
+          posts.push(JSON.parse(String(init?.body)));
+          return activationResponse(200, { ok: true, scope: "user" });
+        }
+        if (posts.length) return jsonResponse(connectedBuilderStatus);
+        return jsonResponse(
+          refreshed
+            ? {
+                ...activationStatus,
+                agentNativeProvisioningToken: freshProvisioningToken,
+                connectUrl: refreshedConnectUrl,
+              }
+            : { ...activationStatus, connectUrl: null },
+        );
+      });
+
+      await act(async () => {
+        root.render(<BuilderConnectProbe provisionAccount />);
+      });
+      await flushAfterPaint();
+      refreshed = true;
+      await clickConnect();
+
+      expect(posts).toHaveLength(1);
+      expect(posts[0].provisioningToken).toBe(freshProvisioningToken);
+      expect(posts[0].connectToken).toBe("refreshed");
+      expect(container.textContent).toContain("configured idle resolved");
+    });
+
+    it("ends the attempt with a retryable error when a lost request created nothing", async () => {
+      vi.mocked(fetch).mockImplementation(async (input) => {
+        const url = new URL(String(input));
+        if (url.pathname === "/_agent-native/builder/provision") {
+          throw new TypeError("Failed to fetch");
+        }
+        return jsonResponse(activationStatus);
+      });
+      const onConnected = vi.fn();
+
+      await act(async () => {
+        root.render(
+          <BuilderConnectProbe provisionAccount onConnected={onConnected} />,
+        );
+      });
+      await flushAfterPaint();
+      await clickConnect();
+
+      expect(container.textContent).toContain("not-configured idle");
+      expect(container.textContent).toContain(
+        "Couldn't start Builder connect. Refresh this page and try again.",
+      );
+      expect(onConnected).not.toHaveBeenCalled();
+      expect(openSpy).not.toHaveBeenCalled();
     });
 
     it("reconciles a successful activation that finishes after cancel", async () => {

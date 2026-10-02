@@ -1387,6 +1387,8 @@ const messages = {
       "Didn't hear back from Builder in 5 minutes. Check the popup and try again.",
     builderConnected: "Builder.io connected",
     waitingForBuilder: "Waiting for Builder...",
+    description:
+      "Store recorded videos with Builder.io or S3-compatible storage. Builder.io includes free hosting and AI credits.",
     createBuilderAccount: "Create Builder.io account",
     signInWithBuilderAccount: "Sign in with Builder.io account",
     free: "Free",

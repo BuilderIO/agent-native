@@ -505,34 +505,25 @@ function AttachmentChip({
   if (src) {
     return (
       <>
-        <button
-          type="button"
-          onClick={() => setPreviewOpen(true)}
-          aria-label={t("agentChat.composer.previewAttachment", {
-            name: attachment.name,
-            defaultValue: `Preview ${attachment.name}`,
-          })}
-          className="agent-composer-attachment-image group relative flex h-16 min-w-16 max-w-28 cursor-zoom-in items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-muted/50"
-        >
-          <img
-            src={src}
-            alt={attachment.name}
-            className="max-h-full max-w-full object-contain p-1"
-          />
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={(e) => {
-              e.stopPropagation();
-              onRemove(attachment.id);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                e.stopPropagation();
-                onRemove(attachment.id);
-              }
-            }}
+        <div className="relative inline-flex">
+          <button
+            type="button"
+            onClick={() => setPreviewOpen(true)}
+            aria-label={t("agentChat.composer.previewAttachment", {
+              name: attachment.name,
+              defaultValue: `Preview ${attachment.name}`,
+            })}
+            className="agent-composer-attachment-image group flex h-16 min-w-16 max-w-28 cursor-zoom-in items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-muted/50"
+          >
+            <img
+              src={src}
+              alt={attachment.name}
+              className="max-h-full max-w-full object-contain p-1"
+            />
+          </button>
+          <button
+            type="button"
+            onClick={() => onRemove(attachment.id)}
             aria-label={t("agentChat.composer.removeAttachment", {
               name: attachment.name,
               defaultValue: `Remove ${attachment.name}`,
@@ -540,8 +531,8 @@ function AttachmentChip({
             className="absolute end-1 top-1 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border/60 bg-background/90 text-muted-foreground hover:text-foreground"
           >
             <IconX className="h-3 w-3" />
-          </span>
-        </button>
+          </button>
+        </div>
         {previewOpen ? (
           <ImagePreviewLightbox
             src={src}
