@@ -747,8 +747,38 @@ describe("getCrossScreenDropGuideForHitTest", () => {
 
     expect(result).toEqual({
       placement: "after",
+      guidePlacement: "after",
       axis: "x",
       boardRect: { x: 180, y: 240, width: 20, height: 60 },
+    });
+  });
+
+  it("keeps logical insertion order separate from the physical reverse-flow guide edge", () => {
+    const guide = getCrossScreenDropGuideForHitTest({
+      hit: {
+        placement: "before",
+        guidePlacement: "after",
+        axis: "x",
+        anchorRect: { left: 160, top: 80, width: 40, height: 120 },
+      },
+      targetGeometry: makeGeom(100, 200, 320, 640),
+      targetMetadata: { width: 640, height: 1280 },
+    });
+
+    expect(guide).toMatchObject({
+      placement: "before",
+      guidePlacement: "after",
+      axis: "x",
+    });
+    expect(
+      getCrossScreenDropGuideStyle({
+        guide: guide!,
+        pan: { x: 0, y: 0 },
+        scale: 1,
+      }),
+    ).toMatchObject({
+      left: SURFACE_PADDING + guide!.boardRect.x + guide!.boardRect.width - 1,
+      width: 2,
     });
   });
 

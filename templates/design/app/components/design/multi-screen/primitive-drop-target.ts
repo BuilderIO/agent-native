@@ -25,6 +25,7 @@ export interface PrimitiveDropTarget {
   boardRect: FrameGeometry;
   targetIdentity?: ScreenProjectionNodeIdentity;
   placement?: CrossScreenDropPlacement;
+  guidePlacement?: "before" | "after";
   axis?: CrossScreenDropAxis;
   anchorNodeId?: string;
 }
@@ -42,6 +43,8 @@ export interface ParsedScreenPrimitive {
   localHeight: number;
   isContainer: boolean;
   autoLayoutAxis?: CrossScreenDropAxis;
+  autoLayoutFlexDirection?: string;
+  autoLayoutDirection?: "ltr" | "rtl";
   autoLayoutWrapped?: boolean;
   autoLayoutGrid?: boolean;
   zIndex?: number;
@@ -193,6 +196,24 @@ function computeAutoLayoutAxis(style: {
   return undefined;
 }
 
+function resolveAuthoredDirection(element: Element): "ltr" | "rtl" | undefined {
+  let current: Element | null = element;
+  while (current) {
+    const inlineDirection = (current as HTMLElement).style.direction
+      .trim()
+      .toLowerCase();
+    if (inlineDirection === "ltr" || inlineDirection === "rtl") {
+      return inlineDirection;
+    }
+    const dirAttribute = current.getAttribute("dir")?.trim().toLowerCase();
+    if (dirAttribute === "ltr" || dirAttribute === "rtl") {
+      return dirAttribute;
+    }
+    current = current.parentElement;
+  }
+  return undefined;
+}
+
 function gridTrackCount(template: string): number {
   let count = 0;
   for (const track of gridTemplateTokens(template)) {
@@ -337,12 +358,14 @@ export function findAutoLayoutInsertionAnchor(
   anchorNodeId: string;
   anchorProjectionNodeId?: string;
   placement: "before" | "after";
+  guidePlacement: "before" | "after";
 } | null {
   const axis = container.autoLayoutAxis;
   if (!axis) return null;
   let best: ParsedScreenPrimitive | null = null;
   let bestDistance = Infinity;
   let placement: "before" | "after" = "after";
+  let guidePlacement: "before" | "after" = "after";
   for (const sibling of screenPrimitives) {
     if (container.projectionIdentity) {
       if (
@@ -378,7 +401,15 @@ export function findAutoLayoutInsertionAnchor(
     if (distance < bestDistance) {
       bestDistance = distance;
       best = sibling;
-      placement = pointer < center ? "before" : "after";
+      guidePlacement = pointer < center ? "before" : "after";
+      const reversesMainAxis =
+        (container.autoLayoutFlexDirection?.endsWith("-reverse") ?? false) !==
+        (axis === "x" && container.autoLayoutDirection === "rtl");
+      placement = reversesMainAxis
+        ? guidePlacement === "before"
+          ? "after"
+          : "before"
+        : guidePlacement;
     }
   }
   if (!best) return null;
@@ -388,6 +419,7 @@ export function findAutoLayoutInsertionAnchor(
       ? { anchorProjectionNodeId: best.projectionIdentity.nodeId }
       : {}),
     placement,
+    guidePlacement,
   };
 }
 
@@ -1263,6 +1295,13 @@ export function parsePrimitivesFromScreen(
         gridTemplateColumns: style.gridTemplateColumns,
         gridAutoFlow: style.gridAutoFlow,
       });
+      const autoLayoutFlexDirection =
+        style.display === "flex" || style.display === "inline-flex"
+          ? style.flexDirection || "row"
+          : undefined;
+      const autoLayoutDirection = autoLayoutFlexDirection
+        ? resolveAuthoredDirection(element)
+        : undefined;
       const autoLayoutWrapped =
         (style.display === "flex" || style.display === "inline-flex") &&
         (style.flexWrap === "wrap" || style.flexWrap === "wrap-reverse");
@@ -1335,6 +1374,8 @@ export function parsePrimitivesFromScreen(
         localHeight: height,
         isContainer,
         autoLayoutAxis,
+        ...(autoLayoutFlexDirection ? { autoLayoutFlexDirection } : {}),
+        ...(autoLayoutDirection ? { autoLayoutDirection } : {}),
         ...(autoLayoutWrapped ? { autoLayoutWrapped: true } : {}),
         ...(autoLayoutGrid ? { autoLayoutGrid: true } : {}),
         ...(Number.isFinite(parsedZIndex) && zIndexApplies
@@ -1557,6 +1598,7 @@ export function getPrimitiveDropTargetForPoint(
             ),
             anchorNodeId: anchor.anchorNodeId,
             placement: anchor.placement,
+            guidePlacement: anchor.guidePlacement,
             axis: containerPrimitive.autoLayoutAxis,
           };
         }

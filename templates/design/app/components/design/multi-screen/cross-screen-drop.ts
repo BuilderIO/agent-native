@@ -124,6 +124,7 @@ export function getCrossScreenDropGuideForHitTest(args: {
   const axis = args.hit.axis ?? "y";
   return {
     placement,
+    guidePlacement: args.hit.guidePlacement ?? placement,
     axis,
     boardRect: screenLocalRectToBoardGeometry(
       rect,
@@ -139,6 +140,7 @@ export function getCrossScreenDropGuideStyle(args: {
   scale: number;
 }): CSSProperties {
   const { boardRect, placement, axis } = args.guide;
+  const guidePlacement = args.guide.guidePlacement ?? placement;
   const left = args.pan.x + (SURFACE_PADDING + boardRect.x) * args.scale;
   const top = args.pan.y + (SURFACE_PADDING + boardRect.y) * args.scale;
   const width = Math.max(1, boardRect.width * args.scale);
@@ -161,7 +163,7 @@ export function getCrossScreenDropGuideStyle(args: {
   }
 
   if (axis === "x") {
-    const x = placement === "before" ? left : left + width;
+    const x = guidePlacement === "before" ? left : left + width;
     const lineLeft = x - 1;
     return {
       left: lineLeft,
@@ -178,7 +180,7 @@ export function getCrossScreenDropGuideStyle(args: {
     };
   }
 
-  const y = placement === "before" ? top : top + height;
+  const y = guidePlacement === "before" ? top : top + height;
   const lineTop = y - 1;
   return {
     left,

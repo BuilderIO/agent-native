@@ -13,7 +13,8 @@
  *   { type: 'agent-native:hit-test-result', correlationId: string,
  *     anchorNodeId: string, pendingNodeId: string | undefined,
  *     anchorSelector: string | undefined,
- *     placement: 'before'|'after'|'inside', axis: 'x'|'y',
+ *     placement: 'before'|'after'|'inside',
+ *     guidePlacement: 'before'|'after'|'inside', axis: 'x'|'y',
  *     anchorRect: { left: number, top: number, width: number, height: number } }
  *
  * `anchorSelector` accompanies `pendingNodeId`, and also accompanies an
@@ -226,6 +227,36 @@
       return cols > 1 ? "x" : "y";
     }
     return "y";
+  }
+
+  function isReverseFlow(parent: Element, axis: string): boolean {
+    var cs = window.getComputedStyle(parent);
+    if (cs.display !== "flex" && cs.display !== "inline-flex") return false;
+    if (axis === "x") {
+      var isRow =
+        cs.flexDirection === "row" || cs.flexDirection === "row-reverse";
+      return (
+        isRow &&
+        (cs.flexDirection === "row-reverse") !== (cs.direction === "rtl")
+      );
+    }
+    return axis === "y" && cs.flexDirection === "column-reverse";
+  }
+
+  function flowPlacementsForSide(
+    parent: Element,
+    axis: string,
+    guidePlacement: string,
+  ) {
+    var reverseFlow = isReverseFlow(parent, axis);
+    return {
+      placement: reverseFlow
+        ? guidePlacement === "before"
+          ? "after"
+          : "before"
+        : guidePlacement,
+      guidePlacement: guidePlacement,
+    };
   }
 
   function wrappedFlexMainAxis(parent: Element): string | null {
@@ -641,6 +672,8 @@
     var best: Element | null = null;
     var bestDistance = Infinity;
     var placement = "after";
+    var guidePlacement = "after";
+    var reverseFlow = isReverseFlow(container, axis);
     for (var j = 0; j < children.length; j += 1) {
       var rect = children[j].getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) continue;
@@ -658,20 +691,17 @@
         bestDistance = distance;
         best = children[j];
         var placementPointer = axis === "x" ? clientX : clientY;
-        placement =
-          multiTrackGrid || wrappedFlexAxis
-            ? placementPointer < center
-              ? "before"
-              : "after"
-            : pointer < center
-              ? "before"
-              : "after";
+        guidePlacement = placementPointer < center ? "before" : "after";
+        var before = guidePlacement === "before";
+        if (reverseFlow) before = !before;
+        placement = before ? "before" : "after";
       }
     }
     if (!best) return null;
     return {
       anchor: best,
       placement: placement,
+      guidePlacement: guidePlacement,
       axis: axis,
       dropMode: "flow-insert",
     };
@@ -703,6 +733,7 @@
   ): {
     anchor: Element;
     placement: string;
+    guidePlacement?: string;
     axis: string;
     dropMode: string;
   } | null {
@@ -763,9 +794,16 @@
             ? childRect.left + childRect.width / 2
             : childRect.top + childRect.height / 2;
         var childPointer = parentAxis === "x" ? clientX : clientY;
+        var physicalPlacement = childPointer < childCenter ? "before" : "after";
+        var flowPlacements = flowPlacementsForSide(
+          parent,
+          parentAxis,
+          physicalPlacement,
+        );
         return {
           anchor: cursor,
-          placement: childPointer < childCenter ? "before" : "after",
+          placement: flowPlacements.placement,
+          guidePlacement: flowPlacements.guidePlacement,
           axis: parentAxis,
           dropMode: "flow-insert",
         };
@@ -780,9 +818,15 @@
           clientY,
         );
         if (edgePlacement && parent && isAutoLayoutElement(parent)) {
+          var edgeFlowPlacements = flowPlacementsForSide(
+            parent,
+            edgeAxis,
+            edgePlacement,
+          );
           return {
             anchor: cursor,
-            placement: edgePlacement,
+            placement: edgeFlowPlacements.placement,
+            guidePlacement: edgeFlowPlacements.guidePlacement,
             axis: edgeAxis,
             dropMode: "flow-insert",
           };
@@ -844,6 +888,7 @@
     target: {
       anchor: Element;
       placement: string;
+      guidePlacement?: string;
       axis: string;
       dropMode: string;
     } | null,
@@ -869,6 +914,7 @@
     target: {
       anchor: Element;
       placement: string;
+      guidePlacement?: string;
       axis: string;
       dropMode: string;
     } | null,
@@ -916,16 +962,28 @@
         ? crect.left + crect.width / 2
         : crect.top + crect.height / 2;
     var pointer = pAxis === "x" ? clientX : clientY;
+    var physicalPlacement = pointer < center ? "before" : "after";
+    var flowPlacements = flowPlacementsForSide(
+      parent,
+      pAxis,
+      physicalPlacement,
+    );
     return {
       anchor: container,
-      placement: pointer < center ? "before" : "after",
+      placement: flowPlacements.placement,
+      guidePlacement: flowPlacements.guidePlacement,
       axis: pAxis,
       dropMode: "flow-insert",
     };
   }
 
   function showInsertionGuideFor(
-    target: { anchor: Element; placement: string; axis: string } | null,
+    target: {
+      anchor: Element;
+      placement: string;
+      guidePlacement?: string;
+      axis: string;
+    } | null,
   ): void {
     if (!target || !target.anchor) {
       hideInsertionGuide();
@@ -938,7 +996,8 @@
     guide.style.border = "0";
     guide.style.borderRadius = "999px";
     guide.style.boxShadow = "0 0 0 1px var(--design-editor-accent-color)";
-    if (target.placement === "inside") {
+    var guidePlacement = target.guidePlacement || target.placement;
+    if (guidePlacement === "inside") {
       guide.style.left = rect.left + "px";
       guide.style.top = rect.top + "px";
       guide.style.width = rect.width + "px";
@@ -951,13 +1010,13 @@
       return;
     }
     if (target.axis === "x") {
-      var x = target.placement === "before" ? rect.left : rect.right;
+      var x = guidePlacement === "before" ? rect.left : rect.right;
       guide.style.left = x + "px";
       guide.style.top = rect.top + "px";
       guide.style.width = "2px";
       guide.style.height = rect.height + "px";
     } else {
-      var y = target.placement === "before" ? rect.top : rect.bottom;
+      var y = guidePlacement === "before" ? rect.top : rect.bottom;
       guide.style.left = rect.left + "px";
       guide.style.top = y + "px";
       guide.style.width = rect.width + "px";
@@ -1297,6 +1356,9 @@
       ? buildSourceEquivalentSelector(result ? result.anchor : null)
       : "";
     var placement: string = result ? result.placement : "inside";
+    var guidePlacement: string = result
+      ? result.guidePlacement || result.placement
+      : "inside";
     var axis: string = result ? result.axis : "y";
     var dropMode: string = result ? result.dropMode : "flow-insert";
     var anchorRect = result ? result.anchor.getBoundingClientRect() : null;
@@ -1310,6 +1372,7 @@
           pendingNodeId: pendingNodeId || undefined,
           anchorSelector: anchorSelector || undefined,
           placement: placement,
+          guidePlacement: guidePlacement,
           axis: axis,
           dropMode: dropMode,
           layerName: result

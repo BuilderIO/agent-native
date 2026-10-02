@@ -140,6 +140,22 @@ export const hitTestBridgeScript: string = `"use strict";
       }
       return "y";
     }
+    function isReverseFlow(parent, axis) {
+      var cs = window.getComputedStyle(parent);
+      if (cs.display !== "flex" && cs.display !== "inline-flex") return false;
+      if (axis === "x") {
+        var isRow = cs.flexDirection === "row" || cs.flexDirection === "row-reverse";
+        return isRow && cs.flexDirection === "row-reverse" !== (cs.direction === "rtl");
+      }
+      return axis === "y" && cs.flexDirection === "column-reverse";
+    }
+    function flowPlacementsForSide(parent, axis, guidePlacement) {
+      var reverseFlow = isReverseFlow(parent, axis);
+      return {
+        placement: reverseFlow ? guidePlacement === "before" ? "after" : "before" : guidePlacement,
+        guidePlacement
+      };
+    }
     function wrappedFlexMainAxis(parent) {
       var cs = window.getComputedStyle(parent);
       if (cs.display !== "flex" && cs.display !== "inline-flex") {
@@ -428,6 +444,8 @@ export const hitTestBridgeScript: string = `"use strict";
       var best = null;
       var bestDistance = Infinity;
       var placement = "after";
+      var guidePlacement = "after";
+      var reverseFlow = isReverseFlow(container, axis);
       for (var j = 0; j < children.length; j += 1) {
         var rect = children[j].getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) continue;
@@ -441,13 +459,17 @@ export const hitTestBridgeScript: string = `"use strict";
           bestDistance = distance;
           best = children[j];
           var placementPointer = axis === "x" ? clientX : clientY;
-          placement = multiTrackGrid || wrappedFlexAxis ? placementPointer < center ? "before" : "after" : pointer < center ? "before" : "after";
+          guidePlacement = placementPointer < center ? "before" : "after";
+          var before = guidePlacement === "before";
+          if (reverseFlow) before = !before;
+          placement = before ? "before" : "after";
         }
       }
       if (!best) return null;
       return {
         anchor: best,
         placement,
+        guidePlacement,
         axis,
         dropMode: "flow-insert"
       };
@@ -513,9 +535,16 @@ export const hitTestBridgeScript: string = `"use strict";
           var childRect = cursor.getBoundingClientRect();
           var childCenter = parentAxis === "x" ? childRect.left + childRect.width / 2 : childRect.top + childRect.height / 2;
           var childPointer = parentAxis === "x" ? clientX : clientY;
+          var physicalPlacement = childPointer < childCenter ? "before" : "after";
+          var flowPlacements = flowPlacementsForSide(
+            parent,
+            parentAxis,
+            physicalPlacement
+          );
           return {
             anchor: cursor,
-            placement: childPointer < childCenter ? "before" : "after",
+            placement: flowPlacements.placement,
+            guidePlacement: flowPlacements.guidePlacement,
             axis: parentAxis,
             dropMode: "flow-insert"
           };
@@ -530,9 +559,15 @@ export const hitTestBridgeScript: string = `"use strict";
             clientY
           );
           if (edgePlacement && parent && isAutoLayoutElement(parent)) {
+            var edgeFlowPlacements = flowPlacementsForSide(
+              parent,
+              edgeAxis,
+              edgePlacement
+            );
             return {
               anchor: cursor,
-              placement: edgePlacement,
+              placement: edgeFlowPlacements.placement,
+              guidePlacement: edgeFlowPlacements.guidePlacement,
               axis: edgeAxis,
               dropMode: "flow-insert"
             };
@@ -614,9 +649,16 @@ export const hitTestBridgeScript: string = `"use strict";
       var pAxis = parentFlowAxis(parent);
       var center = pAxis === "x" ? crect.left + crect.width / 2 : crect.top + crect.height / 2;
       var pointer = pAxis === "x" ? clientX : clientY;
+      var physicalPlacement = pointer < center ? "before" : "after";
+      var flowPlacements = flowPlacementsForSide(
+        parent,
+        pAxis,
+        physicalPlacement
+      );
       return {
         anchor: container,
-        placement: pointer < center ? "before" : "after",
+        placement: flowPlacements.placement,
+        guidePlacement: flowPlacements.guidePlacement,
         axis: pAxis,
         dropMode: "flow-insert"
       };
@@ -633,7 +675,8 @@ export const hitTestBridgeScript: string = `"use strict";
       guide.style.border = "0";
       guide.style.borderRadius = "999px";
       guide.style.boxShadow = "0 0 0 1px var(--design-editor-accent-color)";
-      if (target.placement === "inside") {
+      var guidePlacement = target.guidePlacement || target.placement;
+      if (guidePlacement === "inside") {
         guide.style.left = rect.left + "px";
         guide.style.top = rect.top + "px";
         guide.style.width = rect.width + "px";
@@ -645,13 +688,13 @@ export const hitTestBridgeScript: string = `"use strict";
         return;
       }
       if (target.axis === "x") {
-        var x = target.placement === "before" ? rect.left : rect.right;
+        var x = guidePlacement === "before" ? rect.left : rect.right;
         guide.style.left = x + "px";
         guide.style.top = rect.top + "px";
         guide.style.width = "2px";
         guide.style.height = rect.height + "px";
       } else {
-        var y = target.placement === "before" ? rect.top : rect.bottom;
+        var y = guidePlacement === "before" ? rect.top : rect.bottom;
         guide.style.left = rect.left + "px";
         guide.style.top = y + "px";
         guide.style.width = rect.width + "px";
@@ -917,6 +960,7 @@ export const hitTestBridgeScript: string = `"use strict";
       );
       var anchorSelector = needsSourceSelector ? buildSourceEquivalentSelector(result ? result.anchor : null) : "";
       var placement = result ? result.placement : "inside";
+      var guidePlacement = result ? result.guidePlacement || result.placement : "inside";
       var axis = result ? result.axis : "y";
       var dropMode = result ? result.dropMode : "flow-insert";
       var anchorRect = result ? result.anchor.getBoundingClientRect() : null;
@@ -930,6 +974,7 @@ export const hitTestBridgeScript: string = `"use strict";
             pendingNodeId: pendingNodeId || void 0,
             anchorSelector: anchorSelector || void 0,
             placement,
+            guidePlacement,
             axis,
             dropMode,
             layerName: result ? layerNameForElement(result.anchor) || void 0 : void 0,

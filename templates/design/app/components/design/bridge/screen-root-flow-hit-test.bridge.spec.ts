@@ -1,4 +1,4 @@
-import { chromium } from "@playwright/test";
+import { chromium, type Page } from "@playwright/test";
 import { describe, expect, it } from "vitest";
 
 import { hitTestBridgeScript } from "../../../../.generated/bridge/hit-test.generated";
@@ -7,6 +7,103 @@ const SCREEN_ROOT = `<!doctype html><html><body style="margin:0;display:flex;fle
   <section data-agent-native-node-id="first" style="width:280px;height:100px;flex:none">First</section>
   <section data-agent-native-node-id="second" style="width:280px;height:100px;flex:none">Second</section>
 </body></html>`;
+
+type HitTestPacket = {
+  anchorNodeId: string;
+  placement: string;
+  guidePlacement: string;
+  axis: string;
+  dropMode: string;
+  anchorRect: { left: number; top: number; width: number; height: number };
+};
+
+async function expectGuideAtSide(
+  page: Page,
+  packet: HitTestPacket,
+  side: "before" | "after",
+) {
+  expect(packet.guidePlacement).toBe(side);
+  const guideRect = await page
+    .locator("[data-agent-native-hit-test-preview]")
+    .evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+      };
+    });
+
+  if (packet.axis === "x") {
+    expect(guideRect.left).toBe(
+      side === "before"
+        ? packet.anchorRect.left
+        : packet.anchorRect.left + packet.anchorRect.width,
+    );
+    expect(guideRect.width).toBe(2);
+  } else {
+    expect(guideRect.top).toBe(
+      side === "before"
+        ? packet.anchorRect.top
+        : packet.anchorRect.top + packet.anchorRect.height,
+    );
+    expect(guideRect.height).toBe(2);
+  }
+}
+
+const REVERSE_FLOW_CASES = [
+  {
+    name: "row-reverse in LTR",
+    flexDirection: "row-reverse",
+    direction: "ltr",
+    axis: "x",
+    gapPoint: { x: 230, y: 50 },
+    childPoint: { x: 260, y: 50 },
+    placement: "after",
+    guidePlacement: "before",
+  },
+  {
+    name: "column-reverse",
+    flexDirection: "column-reverse",
+    direction: "ltr",
+    axis: "y",
+    gapPoint: { x: 150, y: 170 },
+    childPoint: { x: 150, y: 200 },
+    placement: "after",
+    guidePlacement: "before",
+  },
+  {
+    name: "row in RTL",
+    flexDirection: "row",
+    direction: "rtl",
+    axis: "x",
+    gapPoint: { x: 230, y: 50 },
+    childPoint: { x: 260, y: 50 },
+    placement: "after",
+    guidePlacement: "before",
+  },
+  {
+    name: "row-reverse in RTL",
+    flexDirection: "row-reverse",
+    direction: "rtl",
+    axis: "x",
+    gapPoint: { x: 90, y: 50 },
+    childPoint: { x: 60, y: 50 },
+    placement: "after",
+    guidePlacement: "after",
+  },
+  {
+    name: "row in LTR",
+    flexDirection: "row",
+    direction: "ltr",
+    axis: "x",
+    gapPoint: { x: 90, y: 50 },
+    childPoint: { x: 60, y: 50 },
+    placement: "after",
+    guidePlacement: "after",
+  },
+] as const;
 
 describe("Screen-root auto-layout hit testing", () => {
   it("returns a real root child insertion anchor from the gap between children", async () => {
@@ -189,4 +286,92 @@ describe("Screen-root auto-layout hit testing", () => {
       await browser.close();
     }
   });
+
+  it.each(REVERSE_FLOW_CASES)(
+    "keeps logical placement and physical guide side correct for $name",
+    async (flow) => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage({
+          viewport: { width: 320, height: 260 },
+        });
+        const isRow = flow.axis === "x";
+        const childWidth = isRow ? 80 : 280;
+        const childHeight = isRow ? 100 : 80;
+        await page.setContent(`<!doctype html><html><body style="margin:0;display:flex;flex-direction:${flow.flexDirection};direction:${flow.direction};gap:20px;width:320px;height:260px">
+          <section data-agent-native-node-id="first" style="flex:none;width:${childWidth}px;height:${childHeight}px">First</section>
+          <section data-agent-native-node-id="second" style="flex:none;width:${childWidth}px;height:${childHeight}px">Second</section>
+        </body></html>`);
+        await page.addScriptTag({ content: hitTestBridgeScript });
+        await page.evaluate(() => {
+          (window as any).__hitTestResults = [];
+          window.addEventListener("message", (event) => {
+            if (event.data?.type === "agent-native:hit-test-result") {
+              (window as any).__hitTestResults.push(event.data);
+            }
+          });
+        });
+
+        const hitTest = async (
+          correlationId: string,
+          point: { x: number; y: number },
+        ) => {
+          await page.evaluate(
+            ({ correlationId, x, y }) => {
+              window.postMessage(
+                {
+                  type: "agent-native:hit-test",
+                  correlationId,
+                  x,
+                  y,
+                  preview: true,
+                },
+                "*",
+              );
+            },
+            { correlationId, ...point },
+          );
+          await page.waitForFunction(
+            (id) =>
+              (window as any).__hitTestResults.some(
+                (result: any) => result.correlationId === id,
+              ),
+            correlationId,
+          );
+          return (await page.evaluate(
+            (id) =>
+              (window as any).__hitTestResults.find(
+                (result: any) => result.correlationId === id,
+              ),
+            correlationId,
+          )) as HitTestPacket;
+        };
+
+        const gapPacket = await hitTest("reverse-flow-gap", flow.gapPoint);
+        expect(gapPacket).toMatchObject({
+          anchorNodeId: "first",
+          placement: flow.placement,
+          guidePlacement: flow.guidePlacement,
+          axis: flow.axis,
+          dropMode: "flow-insert",
+        });
+        await expectGuideAtSide(page, gapPacket, flow.guidePlacement);
+
+        const childPacket = await hitTest(
+          "reverse-flow-child",
+          flow.childPoint,
+        );
+        expect(childPacket).toMatchObject({
+          anchorNodeId: "first",
+          placement: flow.placement,
+          guidePlacement: flow.guidePlacement,
+          axis: flow.axis,
+          dropMode: "flow-insert",
+        });
+        await expectGuideAtSide(page, childPacket, flow.guidePlacement);
+      } finally {
+        await browser.close();
+      }
+    },
+  );
 });

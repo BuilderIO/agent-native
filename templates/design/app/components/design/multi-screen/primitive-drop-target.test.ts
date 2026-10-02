@@ -667,6 +667,28 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     expect(first?.autoLayoutAxis).toBeUndefined();
   });
 
+  it("preserves flex direction in parsed auto-layout metadata", () => {
+    for (const [flexDirection, axis] of [
+      ["row-reverse", "x"],
+      ["column-reverse", "y"],
+    ] as const) {
+      const screen = {
+        ...flexScreen,
+        id: `${flexDirection}-screen`,
+        content: flexScreen.content.replace(
+          "flex-direction:row",
+          `flex-direction:${flexDirection}`,
+        ),
+      };
+      expect(
+        parsePrimitivesFromScreen(screen).find((p) => p.nodeId === "parent"),
+      ).toMatchObject({
+        autoLayoutAxis: axis,
+        autoLayoutFlexDirection: flexDirection,
+      });
+    }
+  });
+
   it("counts repeat grid columns and respects column auto-flow", () => {
     const screen = {
       ...flexScreen,
@@ -968,6 +990,7 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
       anchorNodeId: "first",
       anchorProjectionNodeId: firstProjectionNodeId,
       placement: "before",
+      guidePlacement: "before",
     });
   });
 
@@ -988,6 +1011,149 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
       anchorNodeId: "first",
       anchorProjectionNodeId: firstProjectionNodeId,
       placement: "after",
+      guidePlacement: "after",
+    });
+  });
+
+  it("keeps DOM insertion placement separate from the visual slot in reverse flex layouts", () => {
+    const cases = [
+      {
+        direction: "row-reverse",
+        axis: "x",
+        firstStyle: "left:140px;top:20px;width:20px;height:20px",
+        secondStyle: "left:30px;top:20px;width:20px;height:20px",
+        beforePoint: { x: 135, y: 30 },
+        afterPoint: { x: 165, y: 30 },
+      },
+      {
+        direction: "column-reverse",
+        axis: "y",
+        firstStyle: "left:20px;top:80px;width:20px;height:20px",
+        secondStyle: "left:20px;top:25px;width:20px;height:20px",
+        beforePoint: { x: 30, y: 75 },
+        afterPoint: { x: 30, y: 105 },
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const screen = {
+        id: testCase.direction,
+        filename: `${testCase.direction}.html`,
+        content: `<!doctype html><html><body>
+          <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:120px;display:flex;flex-direction:${testCase.direction}">
+            <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="position:absolute;${testCase.firstStyle}"></div>
+            <div data-agent-native-node-id="second" data-an-primitive="rectangle" style="position:absolute;${testCase.secondStyle}"></div>
+          </div>
+        </body></html>`,
+      };
+      const primitives = parsePrimitivesFromScreen(screen);
+      const parent = primitives.find(
+        (primitive) => primitive.nodeId === "parent",
+      )!;
+      expect(parent).toMatchObject({
+        autoLayoutAxis: testCase.axis,
+        autoLayoutFlexDirection: testCase.direction,
+      });
+      expect(
+        findAutoLayoutInsertionAnchor(
+          parent,
+          primitives,
+          testCase.beforePoint,
+          null,
+        ),
+      ).toMatchObject({
+        anchorNodeId: "first",
+        placement: "after",
+        guidePlacement: "before",
+      });
+      expect(
+        findAutoLayoutInsertionAnchor(
+          parent,
+          primitives,
+          testCase.afterPoint,
+          null,
+        ),
+      ).toMatchObject({
+        anchorNodeId: "first",
+        placement: "before",
+        guidePlacement: "after",
+      });
+
+      if (testCase.direction === "row-reverse") {
+        expect(
+          getPrimitiveDropTargetForPoint(
+            testCase.beforePoint,
+            null,
+            [screen],
+            { [screen.id]: { x: 0, y: 0, width: 200, height: 120 } },
+            () => ({ width: 200, height: 120 }),
+          ),
+        ).toMatchObject({
+          nodeId: "parent",
+          anchorNodeId: "first",
+          placement: "after",
+          guidePlacement: "before",
+          axis: "x",
+        });
+      }
+    }
+  });
+
+  it("uses inherited RTL and nearer inline direction for row insertion", () => {
+    const rtlScreen = {
+      id: "rtl-row-screen",
+      filename: "rtl-row-screen.html",
+      content: `<!doctype html><html><body dir="rtl">
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:120px;display:flex;flex-direction:row">
+          <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="position:absolute;left:140px;top:20px;width:20px;height:20px"></div>
+          <div data-agent-native-node-id="second" data-an-primitive="rectangle" style="position:absolute;left:30px;top:20px;width:20px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+    const rtlPrimitives = parsePrimitivesFromScreen(rtlScreen);
+    const rtlParent = rtlPrimitives.find(
+      (primitive) => primitive.nodeId === "parent",
+    )!;
+    expect(rtlParent.autoLayoutDirection).toBe("rtl");
+    expect(
+      findAutoLayoutInsertionAnchor(
+        rtlParent,
+        rtlPrimitives,
+        { x: 135, y: 30 },
+        null,
+      ),
+    ).toMatchObject({
+      anchorNodeId: "first",
+      placement: "after",
+      guidePlacement: "before",
+    });
+
+    const inlineLtrScreen = {
+      id: "inline-ltr-row-screen",
+      filename: "inline-ltr-row-screen.html",
+      content: `<!doctype html><html><body dir="rtl">
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:120px;display:flex;flex-direction:row;direction:ltr">
+          <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="position:absolute;left:30px;top:20px;width:20px;height:20px"></div>
+          <div data-agent-native-node-id="second" data-an-primitive="rectangle" style="position:absolute;left:140px;top:20px;width:20px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+    const inlineLtrPrimitives = parsePrimitivesFromScreen(inlineLtrScreen);
+    const inlineLtrParent = inlineLtrPrimitives.find(
+      (primitive) => primitive.nodeId === "parent",
+    )!;
+    expect(inlineLtrParent.autoLayoutDirection).toBe("ltr");
+    expect(
+      findAutoLayoutInsertionAnchor(
+        inlineLtrParent,
+        inlineLtrPrimitives,
+        { x: 25, y: 30 },
+        null,
+      ),
+    ).toMatchObject({
+      anchorNodeId: "first",
+      placement: "before",
+      guidePlacement: "before",
     });
   });
 
@@ -1008,6 +1174,7 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
       anchorNodeId: "second",
       anchorProjectionNodeId: secondProjectionNodeId,
       placement: "before",
+      guidePlacement: "before",
     });
   });
 
