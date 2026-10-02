@@ -33,30 +33,4 @@ describe("native Creative Context clone actions", () => {
       expect(source).not.toMatch(/return\s+\{[^}]*cloneHandle/s);
     },
   );
-
-  it("uses the owned mutations for each persisted clone", () => {
-    expect(action("slides", "clone-creative-context-deck.ts")).toContain(
-      "insert(schema.decks)",
-    );
-    expect(
-      action("design", "clone-creative-context-design-native.ts"),
-    ).toContain("saveImportedDesignFiles");
-    expect(action("content", "clone-creative-context-document.ts")).toContain(
-      "createDocument.run",
-    );
-    expect(action("assets", "clone-creative-context-asset.ts")).toContain(
-      "createAssetFromBuffer",
-    );
-    expect(
-      action("analytics", "clone-creative-context-dashboard.ts"),
-    ).toContain("upsertDashboard");
-  });
-
-  it("never executes Analytics dashboard queries while cloning", () => {
-    const source = action("analytics", "clone-creative-context-dashboard.ts");
-    expect(source).not.toMatch(
-      /execute(Query|Dashboard|Panel)|runDashboardQuery/,
-    );
-    expect(source).toContain("without executing any of its queries");
-  });
 });

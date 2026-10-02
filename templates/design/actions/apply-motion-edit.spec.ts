@@ -167,18 +167,6 @@ describe("apply-motion-edit write ordering (Issue 2 — non-atomic write)", () =
     expect(txIdx).toBeLessThan(persistIdx);
   });
 
-  it("comment describes timeline-first ordering (not HTML-first)", () => {
-    const actionPath = path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "apply-motion-edit.ts",
-    );
-    const src = readFileSync(actionPath, "utf8");
-
-    expect(src).toMatch(/motion_timeline row FIRST/i);
-
-    expect(src).not.toMatch(/Content is written before the row/);
-  });
-
   it("does not re-apply list access filtering after assertAccess authorizes the design", () => {
     const actionPath = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
@@ -213,10 +201,6 @@ describe("apply-motion-edit write ordering (Issue 2 — non-atomic write)", () =
 });
 
 describe("motionTrackKey (Issue 6 — NUL separator made the file binary)", () => {
-  it("does not contain a literal NUL byte", () => {
-    expect(motionTrackKey("node-1", "opacity")).not.toContain("\0");
-  });
-
   it("uses the ASCII Unit Separator (\\x1f) as the field delimiter", () => {
     expect(motionTrackKey("node-1", "opacity")).toBe("node-1\x1fopacity");
   });
@@ -228,12 +212,6 @@ describe("motionTrackKey (Issue 6 — NUL separator made the file binary)", () =
     expect(a).not.toBe(b);
     expect(a).not.toBe(c);
     expect(b).not.toBe(c);
-  });
-
-  it("returns the same key for the same pair (duplicate detection works)", () => {
-    expect(motionTrackKey("node-9", "color")).toBe(
-      motionTrackKey("node-9", "color"),
-    );
   });
 
   it("cannot be forged by a nodeId/property boundary shift", () => {

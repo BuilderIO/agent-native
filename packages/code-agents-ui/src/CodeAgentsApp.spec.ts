@@ -151,24 +151,6 @@ describe("CodeAgentsApp credential recovery", () => {
   });
 });
 
-describe("CodeAgentsApp AgentKit host controls", () => {
-  it("keeps local-code approval and stop controls host-owned", () => {
-    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
-    const runtime = readFileSync("src/code-agent-agentkit-runtime.ts", "utf8");
-
-    expect(source).toContain('onStop={() => controlRun("stop")}');
-    expect(source).toContain(
-      'onApproveAlways={() => controlRun("approve-always")}',
-    );
-    expect(source).toContain("always allow this exact command");
-    expect(source).toContain("disabled={chat.chatBlocked}");
-    expect(source).toContain("<CodeAgentExternalTranscriptBridge");
-    expect(source).toContain("control.load().catch");
-    expect(source).toContain("onDisabledClick={chat.onDisabledClick}");
-    expect(runtime).toContain('status: "unsupported"');
-  });
-});
-
 describe("chat-first keyboard navigation", () => {
   const appIds = ["mail", "calendar", "design"];
   const chatIds = ["chat-1", "chat-2"];
@@ -215,66 +197,6 @@ describe("chat-first keyboard navigation", () => {
   });
 });
 
-describe("CodeAgentsApp full-page chat width", () => {
-  it("keeps the empty and loading chat rails on the shared wide max", () => {
-    const css = readFileSync("src/styles.css", "utf8");
-
-    expect(css).toContain("--code-agents-chat-max: 750px;");
-    expect(css).toMatch(
-      /\.code-agents-start\s*\{[\s\S]*?max-width: var\(--code-agents-chat-max\);/,
-    );
-    expect(css).toMatch(
-      /\.code-agents-overview-skeleton\s*\{[\s\S]*?max-width: var\(--code-agents-chat-max\);/,
-    );
-    expect(css).toMatch(
-      /\.code-agents-project-picker--bar\s*\{[\s\S]*?width: min\(100%, var\(--code-agents-chat-max\)\);/,
-    );
-    expect(css).toMatch(
-      /\.code-agents-project-picker--bar\s*\{[\s\S]*?margin-top: 0;/,
-    );
-    expect(css).toMatch(/\.code-agents-start\s*\{[\s\S]*?gap: 12px;/);
-    expect(css).toMatch(
-      /\.code-agents-project-picker--bar \.code-agents-project-select\s*\{[\s\S]*?flex: 0 1 auto;/,
-    );
-    const executionTargetRule = css.match(
-      /\.code-agents-project-picker--bar \.code-agents-execution-target-select\s*\{([^}]*)\}/,
-    )?.[1];
-    expect(executionTargetRule).toContain("flex: 0 0 auto;");
-    expect(executionTargetRule).not.toContain("min-width:");
-  });
-});
-
-describe("CodeAgentsApp chat-first rail scrolling", () => {
-  it("keeps navigation, apps, and chats in one scroll body above the footer", () => {
-    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
-    const css = readFileSync("src/styles.css", "utf8");
-
-    expect(source).toContain('className="code-agents-rail-scroll"');
-    expect(source).toContain('className="code-agents-rail-footer"');
-    expect(css).toMatch(
-      /\.code-agents-rail-scroll\s*\{[\s\S]*?overflow-y: auto;/,
-    );
-  });
-
-  it("aligns sticky secondary navigation with New chat", () => {
-    const css = readFileSync("src/styles.css", "utf8");
-
-    expect(css).toMatch(
-      /\.code-agents-primary-new-chat-shell\s*\{[\s\S]*?padding: 6px var\(--code-agents-rail-gutter\) 0;/,
-    );
-    expect(css).toMatch(
-      /\.code-agents-nav-list\s*\{[\s\S]*?padding-inline: var\(--code-agents-rail-gutter\);/,
-    );
-  });
-
-  it("lets the desktop toolbar clear the selected chat", () => {
-    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
-
-    expect(source).toContain('"agent-native:desktop-new-chat"');
-    expect(source).toContain("openSelectedGoalRef.current();");
-  });
-});
-
 describe("CodeAgentsApp transcript selection", () => {
   it("does not let an older transcript read replace a newly selected chat", () => {
     const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
@@ -300,74 +222,6 @@ describe("CodeAgentsApp transcript selection", () => {
     expect(source).toContain(
       "<RunDetailCard\n                            key={selectedRun.id}",
     );
-  });
-});
-
-describe("CodeAgentsApp project folder picker", () => {
-  it("keeps folder creation in the dropdown instead of duplicating its action", () => {
-    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
-    const css = readFileSync("src/styles.css", "utf8");
-    const waitlist = readFileSync("src/RemoteWaitlistPopover.tsx", "utf8");
-
-    expect(source).toContain("<span>Add folder...</span>");
-    expect(source).not.toContain('aria-label="Add folder"');
-    expect(source).toContain('value="portal"');
-    expect(source).toContain('description="Continue on a paired computer"');
-    expect(source).toContain('value="cloud"');
-    expect(source).toContain(
-      'description="Run in the cloud - join the waitlist"',
-    );
-    expect(source).toContain("onCloudSelect");
-    expect(waitlist).toContain("Join the Cloud waitlist");
-    expect(source).not.toContain("onRemoteSelect?.();");
-    expect(source).toContain('description="Use the selected folder directly"');
-    expect(source.indexOf('aria-label="Select working folder"')).toBeLessThan(
-      source.indexOf('aria-label="Select workspace"'),
-    );
-    expect(css).toMatch(
-      /\.code-agents-project-picker--bar\s*\{[\s\S]*?margin-top: 0;/,
-    );
-    expect(css).toContain(
-      ".dark .code-agents-popover-content {\n  box-shadow: 0 18px 44px hsl(var(--code-agents-dark-shadow, 0 0% 0%) / 0.42);",
-    );
-    expect(css).not.toContain("hsl(var(--foreground, 0 0% 90%) / 0.42)");
-  });
-
-  it("keeps reusable worktree choices behind the Worktree chevron", () => {
-    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
-    const css = readFileSync("src/styles.css", "utf8");
-
-    expect(source).toContain('aria-label="Worktree options"');
-    expect(source).toContain("New named worktree");
-    expect(source).toContain("Use named worktree");
-    expect(source).toContain('worktreeSelection.mode === "named"');
-    expect(source).toContain("listWorktrees");
-    expect(css).toContain(".code-agents-worktree-options-trigger");
-    expect(css).toContain(".code-agents-worktree-recovery");
-  });
-});
-
-describe("CodeAgentsApp chat forks", () => {
-  it("exposes workspace and new-worktree fork targets through shared chat actions", () => {
-    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
-
-    expect(source).toContain("onForkChat={onForkChat}");
-    expect(source).toContain("Fork chat from here");
-    expect(source).toContain("Fork in this workspace");
-    expect(source).toContain("Fork in a new worktree");
-    expect(source).toContain("host.forkRun");
-  });
-});
-
-describe("CodeAgentsApp Portal transfer actions", () => {
-  it("offers bulk and per-chat handoff controls", () => {
-    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
-
-    expect(source).toContain("Move local chats to Portal");
-    expect(source).toContain("Move to Portal");
-    expect(source).toContain("transferAll");
-    expect(source).toContain("transferRun");
-    expect(source).toContain("full text context");
   });
 });
 

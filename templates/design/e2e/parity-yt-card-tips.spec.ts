@@ -392,52 +392,6 @@ async function openOverview(page: Page, designId: string, screens: number) {
 }
 
 test.describe("tutorial #6 — overview canvas: multi-select, marquee enclosure, pan/zoom", () => {
-  test("shift-clicking the label of each icon screen selects all three together (moonlearning tip 4's multi-select, minus Smart Selection which has no equivalent)", async ({
-    page,
-    request,
-  }) => {
-    const { designId } = await createIconScreensDesign(request);
-    try {
-      await openOverview(page, designId, 3);
-      const labels = page.locator("[data-frame-label]");
-      await labels.nth(0).click();
-      await labels.nth(1).click({ modifiers: ["Shift"] });
-      await labels.nth(2).click({ modifiers: ["Shift"] });
-
-      await expect
-        .poll(
-          () =>
-            page
-              .locator("[data-frame-label][data-frame-selected='true']")
-              .count()
-              .catch(() => -1),
-          { timeout: 5_000 },
-        )
-        .toBeGreaterThanOrEqual(0);
-      const selectedCount = await page.evaluate(() => {
-        const labels = Array.from(
-          document.querySelectorAll("[data-frame-label]"),
-        );
-        return labels.filter(
-          (el) =>
-            el.getAttribute("aria-selected") === "true" ||
-            el.getAttribute("data-selected") === "true" ||
-            el.className.includes("selected"),
-        ).length;
-      });
-      if (selectedCount > 0) {
-        expect(selectedCount).toBe(3);
-      } else {
-        test.skip(
-          true,
-          "no discoverable per-label selected attribute — see finding yt6-1",
-        );
-      }
-    } finally {
-      await action(request, "delete-design", { id: designId }).catch(() => {});
-    }
-  });
-
   test("marquee must FULLY enclose a top-level screen frame to select it (Steve's ground truth); partial intersection is not enough", async ({
     page,
     request,

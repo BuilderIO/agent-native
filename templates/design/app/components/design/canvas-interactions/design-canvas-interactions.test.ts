@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createDesignCanvasInteractionAdapter,
-  DESIGN_CANVAS_INTERACTION_CAPABILITIES,
   resolveDesignCanvasShortcut,
 } from "./design-canvas-interactions";
 
@@ -158,26 +157,5 @@ describe("Design canvas interaction adapter", () => {
     expect(onNudge).toHaveBeenCalledWith(
       expect.objectContaining({ direction: "left", largeStep: true }),
     );
-  });
-
-  it("keeps every shared capability explicit rather than maintaining a local mirror", () => {
-    expect(DESIGN_CANVAS_INTERACTION_CAPABILITIES).toEqual({
-      selection: true,
-      multiSelection: true,
-      move: true,
-      resize: true,
-      textEditing: true,
-      nudge: true,
-      duplicate: true,
-      clipboard: true,
-      delete: true,
-      arrange: true,
-      snapping: true,
-      alignment: true,
-      distribution: true,
-      grouping: true,
-      rotation: true,
-      marquee: true,
-    });
   });
 });

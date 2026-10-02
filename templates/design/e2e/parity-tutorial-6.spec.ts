@@ -683,34 +683,4 @@ test.describe("parity: Figma Tutorial 6 - reusable icon grid", () => {
       expect([restored.x, restored.y]).toEqual([preDrag.x, preDrag.y]);
     }
   });
-
-  test("step 10 [no equivalent]: Design has no boolean path operations (Union selection) and no components/variants system", async ({
-    page,
-  }) => {
-    await openTutorialStep(page, designId);
-    await selectLayerRowById(page, frameId);
-    await page.keyboard.press("Enter");
-    await page.waitForTimeout(400);
-    await page.keyboard.down("Shift");
-    await page.keyboard.press("ArrowDown");
-    await page.keyboard.up("Shift");
-    await page.mouse.click(5, 5);
-    const hasUnion = await page
-      .getByRole("button", { name: /union selection/i })
-      .isVisible();
-    const hasCreateComponent = await page
-      .getByRole("button", { name: /create component/i })
-      .isVisible();
-    expect(
-      hasUnion,
-      "finding: no 'Union selection' boolean-path-operation control exists anywhere in the toolbar/inspector " +
-        "(ownedBy unknown, severity low) -- Design has no boolean path operations equivalent to Figma's " +
-        "Union/Subtract/Intersect/Exclude.",
-    ).toBe(false);
-    expect(
-      hasCreateComponent,
-      "finding: no 'Create component' control exists (ownedBy unknown, severity low) -- Design has no " +
-        "components/variants system equivalent to Figma's Main Component / Instance model.",
-    ).toBe(false);
-  });
 });

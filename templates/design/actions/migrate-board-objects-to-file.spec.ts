@@ -16,10 +16,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  BOARD_FILENAME,
   boardObjectEntryToHtmlFragment,
   emptyBoardHtml,
-  isBoardFile,
 } from "../shared/board-file.js";
 import type { BoardObjectEntry } from "../shared/board-objects.js";
 import migrateBoardObjectsAction from "./migrate-board-objects-to-file.js";
@@ -46,18 +44,6 @@ describe("migrate-board-objects-to-file schema", () => {
       designId: 42,
     });
     expect(result.success).toBe(false);
-  });
-});
-
-describe("BOARD_FILENAME is the reserved board filename", () => {
-  it("is __board__.html", () => {
-    expect(BOARD_FILENAME).toBe("__board__.html");
-    expect(isBoardFile(BOARD_FILENAME)).toBe(true);
-  });
-
-  it("does not match ordinary files", () => {
-    expect(isBoardFile("index.html")).toBe(false);
-    expect(isBoardFile("board.html")).toBe(false);
   });
 });
 

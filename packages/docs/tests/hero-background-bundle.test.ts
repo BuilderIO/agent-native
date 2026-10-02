@@ -24,19 +24,6 @@ function walk(dir: string): string[] {
   });
 }
 
-describe("hero background bundle assertions", () => {
-  it("names the build it needs when the output is absent", () => {
-    if (!built || !serverBuilt) {
-      console.warn(
-        "docs build output missing -- run " +
-          "`NITRO_PRESET=netlify pnpm --filter @agent-native/docs build` to " +
-          "exercise the hero background bundle assertions.",
-      );
-    }
-    expect(true).toBe(true);
-  });
-});
-
 describeBuilt("prerendered homepage", () => {
   it("ships no GPU code in the prerendered HTML", () => {
     const index = path.join(CLIENT_DIR, "index.html");

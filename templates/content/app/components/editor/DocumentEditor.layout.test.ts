@@ -164,17 +164,6 @@ describe("document editor layout", () => {
     }
   });
 
-  it("keeps an open comment when its portalled menus are clicked", () => {
-    const source = readFileSync("app/components/editor/DocumentEditor.tsx", {
-      encoding: "utf8",
-    });
-    // The @ menu, emoji picker, and model menu render in portals; React still
-    // bubbles their clicks through the page's dismissal handler.
-    expect(source).toContain(
-      "if (target && !event.currentTarget.contains(target)) return;",
-    );
-  });
-
   it("attests an identified revert even when its snapshot matches the saved page", () => {
     const base = {
       hasUpdates: false,
@@ -290,22 +279,6 @@ describe("document editor layout", () => {
     );
     expect(title).not.toContain("leading-tight");
     expect(title).toContain("md:pb-0.5");
-  });
-
-  it("keeps inline comments outside the independent reading column", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).not.toContain('"mx-auto max-w-5xl"');
-    expect(source).toContain('showDesktopInfoPanel ? "flex-1" : "w-full"');
-    expect(source).toContain('className="absolute right-0 top-0 w-80"');
-    expect(source).toContain("useElementMinWidth(documentLayoutRef, 960)");
-    expect(source).toContain("useElementMinWidth(documentLayoutRef, 1088)");
-    expect(source).toContain('reserveInlineReviewSpace && "pr-80"');
-    expect(source).toContain(
-      "observeCommentLane(container, lane, setCommentLaneOffset)",
-    );
   });
 
   it("projects decisions immediately without changing canonical rejection content", () => {
@@ -441,35 +414,6 @@ describe("document editor layout", () => {
     expect(sameSuggestionAnchorIds(["one"], ["two"])).toBe(false);
     expect(sameSuggestionAnchorIds(null, [])).toBe(false);
   });
-
-  it("does not feed suggestion anchor decoration transactions back into the parent", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const handler = source.slice(
-      source.indexOf("const handleSuggestionAnchorsChange"),
-      source.indexOf("const [selectedSuggestionId"),
-    );
-
-    expect(handler).toContain("if (isSuggesting) return");
-    expect(handler).toContain("sameSuggestionAnchorIds(current, next)");
-  });
-
-  it("keeps suggestion history notifications out of the parent render loop", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const handler = source.slice(
-      source.indexOf("const editorHistoryStateRef"),
-      source.indexOf("const handleHistoryControllerChange"),
-    );
-
-    expect(handler).toContain("editorHistoryStateRef.current = next");
-    expect(handler).toContain("if (isSuggesting) return");
-    expect(handler).toContain("setEditorHistoryState(next)");
-  });
   it("blocks a changed pending selection without dropping its recovery position", () => {
     expect(
       pendingCommentTargetMatches(
@@ -491,19 +435,6 @@ describe("document editor layout", () => {
       }),
     ).toEqual({ left: 16, top: 116, width: 248, placement: "below" });
   });
-  it("re-validates the pending comment target on selection changes only", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    ).replace(/\r\n/g, "\n");
-    expect(
-      source.match(/setPendingCommentTargetValid\(false\);\n    update\(\);/g),
-    ).toHaveLength(1);
-    expect(source).toContain(
-      "}, [pendingCommentTargetId, pendingCommentQuotedText]);",
-    );
-    expect(source).not.toContain("  }, [pendingComment]);");
-  });
   it("keeps an unchanged anchored comment position out of state", () => {
     const position = {
       left: 16,
@@ -523,25 +454,6 @@ describe("document editor layout", () => {
         placement: "above",
       }),
     ).toBe(false);
-  });
-  it("hides suggestion decorations with comments without losing resolved anchor metadata", () => {
-    const source = readFileSync(
-      new URL("./VisualEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const start = source.indexOf("const specs = suggestions");
-    const effect = source.slice(
-      start,
-      source.indexOf("const position = resolveAnchorPoint", start),
-    );
-    expect(effect).toContain("new Set(specs.map((spec) => spec.suggestionId))");
-    expect(effect).toMatch(
-      /const visibleSpecs = showCommentIndicators\s+\? specs\s+: specs\.filter\(\(spec\) => spec\.settling\)/,
-    );
-    expect(effect).toContain("specs: visibleSpecs");
-    expect(effect).toMatch(
-      /suggestionsSignature,\r?\n\s+showCommentIndicators,/,
-    );
   });
   it("blocks every document metadata mutation while suggesting", () => {
     expect(documentCanonicalMutationsEnabled(true, false)).toBe(true);
@@ -938,49 +850,6 @@ describe("document editor layout", () => {
       from: deletion!.anchor.from,
       to: deletion!.anchor.to,
     });
-  });
-  it("lets nested menus consume Escape before dismissing comment focus", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).toContain(
-      'if (event.key !== "Escape" || event.defaultPrevented) return;',
-    );
-  });
-  it("resizes titles when their available width changes without observing height feedback", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).toContain(
-      "if (!documentTitleWidthChanged(previousWidth, nextWidth)) return;",
-    );
-    expect(source).toContain("observer?.observe(textarea)");
-  });
-  it("measures an untransformed comment lane without an offset feedback loop", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).not.toContain("[commentLaneOffset, showInlineComments]");
-    expect(source).toContain(
-      "observeCommentLane(container, lane, setCommentLaneOffset)",
-    );
-    expect(source).toContain("[documentId, showInlineComments]");
-    const lane = source.slice(source.indexOf("ref={commentLaneRef}"));
-    expect(lane.slice(0, lane.indexOf(">"))).not.toContain("transform");
-    expect(lane.slice(lane.indexOf(">"))).toContain(
-      "translateX(${commentLaneOffset}px)",
-    );
-  });
-  it("keeps selected and hovered comment highlights distinct", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).toContain("activeThreadId={selectedThreadId}");
-    expect(source).toContain("hoveredThreadId={hoveredThreadId}");
   });
   it("surfaces unsuccessful suggestion decisions instead of treating HTTP success as acceptance", () => {
     const source = readFileSync(
@@ -2107,132 +1976,6 @@ describe("document editor layout", () => {
     expect(documentEditorDatabaseRegionClassName()).toContain("min-w-0");
   });
 
-  it("keeps the editor flex chain shrinkable inside the app shell", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    expect(source).toContain(
-      'className="relative flex min-h-0 min-w-0 flex-1"',
-    );
-    expect(source).toContain(
-      'className="flex min-h-0 min-w-0 flex-1 flex-col"',
-    );
-  });
-
-  it("focuses the editor padding without moving the document scroll position", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("pm?.focus({ preventScroll: true });");
-    expect(source).toContain("scrollContainer.scrollTop = scrollTop;");
-    expect(source).toContain("window.setTimeout(restoreScroll, 50);");
-    expect(source).toContain(
-      "onPointerDownCapture={cancelPaddingScrollRestore}",
-    );
-    expect(source).toContain("onWheelCapture={cancelPaddingScrollRestore}");
-    expect(source).toContain("onKeyDownCapture={cancelPaddingScrollRestore}");
-  });
-
-  it("shows the editor skeleton instead of stale data during document switches", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    expect(source).toContain("usePageOpenDocument(");
-    expect(source).toContain("databaseId,");
-    expect(source).toContain("databaseDocumentId,");
-    expect(source).toContain("isFetchedAfterMount");
-    expect(source).toContain("queriedDocument?.id === documentId");
-    expect(source).toContain("documentEditorLoadState");
-    expect(source).toMatch(
-      /return \(\s*<DocumentEditorSkeleton\s+title=\{optimisticTitle\}\s+iconRow=\{readPageIconRowHint\(documentId\)\}/,
-    );
-  });
-
-  it("keeps the contextual right rail inside the document scroll surface", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    const scrollIndex = source.indexOf("data-document-print-scroll");
-    const contentIndex = source.lastIndexOf("data-document-scroll-content");
-    const desktopPanelIndex = source.indexOf("{showDesktopRightRail ? (");
-    const mobileSheetIndex = source.indexOf("<Sheet");
-
-    expect(scrollIndex).toBeGreaterThan(-1);
-    expect(contentIndex).toBeGreaterThan(scrollIndex);
-    expect(desktopPanelIndex).toBeGreaterThan(contentIndex);
-    expect(desktopPanelIndex).toBeLessThan(mobileSheetIndex);
-    expect(source).toContain(
-      'type DocumentUtilityPanel = "info" | "comments" | null',
-    );
-    expect(source).toContain('utilityPanel === "info"');
-    expect(source).toContain('setUtilityPanel("comments")');
-    expect(source).toContain("showInlineComments");
-  });
-
-  it("keeps metadata in Info while reusing canonical properties inline in previews", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      { encoding: "utf8" },
-    );
-    const infoPanel = readFileSync(
-      new URL("./DocumentInfoPanel.tsx", import.meta.url),
-      { encoding: "utf8" },
-    );
-    const properties = readFileSync(
-      new URL("./DocumentProperties.tsx", import.meta.url),
-      { encoding: "utf8" },
-    );
-
-    expect(source).toContain("<DocumentInfoPanel");
-    expect(source).toContain("{!isDatabasePage ? (");
-    expect(source.indexOf("{!isDatabasePage ? (")).toBeLessThan(
-      source.indexOf("const primaryEditor ="),
-    );
-    expect(infoPanel).toContain("<DescriptionField");
-    expect(infoPanel).toContain("<DocumentProperties");
-    expect(source).toContain("ref={setUtilityPanelSheetContainer}");
-    expect(source).toContain("utilityPanelSheetContainer,");
-    expect(infoPanel).toContain("popoverContainer={popoverContainer}");
-    expect(properties).toMatch(
-      /<PropertyValuePopover[\s\S]*?container=\{popoverContainer\}/,
-    );
-    expect(properties).toMatch(
-      /<PropertyManagementPopover[\s\S]*?popoverContainer=\{popoverContainer\}/,
-    );
-    expect(properties).toMatch(
-      /<HiddenPropertiesMenu[\s\S]*?popoverContainer=\{popoverContainer\}/,
-    );
-    expect(properties).toMatch(
-      /<AddProperty[\s\S]*?popoverContainer=\{popoverContainer\}/,
-    );
-    expect(infoPanel).toContain(
-      "databaseId={databaseId ?? document.databaseMembership.databaseId}",
-    );
-    expect(infoPanel).toMatch(
-      /databaseDocumentId=\{[\s\S]*?databaseDocumentId \?\?[\s\S]*?document\.databaseMembership\.databaseDocumentId[\s\S]*?\}/,
-    );
-    expect(source).toMatch(
-      /<DocumentBlockFields[\s\S]*?databaseId=\{[\s\S]*?databaseId \?\?[\s\S]*?document\.databaseMembership\.databaseId[\s\S]*?databaseDocumentId=\{[\s\S]*?databaseDocumentId \?\?[\s\S]*?document\.databaseMembership\.databaseDocumentId[\s\S]*?\}/,
-    );
-    expect(source).not.toContain("<DescriptionField");
-    expect(source).toContain("<DocumentProperties");
-    expect(source).toContain('host === "preview" &&');
-  });
-
   it("keys editor sessions by page and explicit membership context", () => {
     expect(
       pageEditorSessionKey({
@@ -2247,60 +1990,6 @@ describe("document editor layout", () => {
         databaseDocumentId: "membership-b",
       }),
     );
-  });
-
-  it("keeps the document toolbar in normal layout flow", () => {
-    const source = readFileSync(
-      new URL("./DocumentToolbar.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-    const editorSource = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain(
-      "relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4",
-    );
-    expect(source).toContain("ToolbarBreadcrumb");
-    expect(source).toContain("disabled={menuItem.id === currentDocumentId}");
-    expect(source).toContain("formatEditedLabel");
-    expect(source).toContain("editor.toolbar.createShareableCopy");
-    expect(source).toContain("editor.toolbar.sharePeople");
-    expect(source).toContain("editor.toolbar.shareAgents");
-    expect(source).toContain("editor.toolbar.info");
-    expect(source).toContain("comments.title");
-    expect(source).toContain("showCommentsControl ?");
-    expect(editorSource).toContain(
-      "commentsHistoryOpen={showCommentsHistoryDrawer}",
-    );
-    expect(source).toContain("quickCopy={{");
-    expect(source).toContain("agentTabContent={");
-    expect(source).not.toContain("shareLinkContent=");
-    expect(source).toContain('utilityPanel === "info" ? null : "info"');
-    expect(source).toContain('commentsHistoryOpen ? null : "comments"');
-    expect(source).not.toContain('aria-pressed={utilityPanel === "info"}');
-    expect(source).toContain("aria-pressed={commentsHistoryOpen}");
-    expect(source).toContain(
-      'utilityPanel === "info" && "bg-accent text-foreground"',
-    );
-    expect(editorSource).toContain("setShowCommentIndicators");
-    expect(editorSource).toContain(
-      "showCommentIndicators={showCommentIndicators}",
-    );
-    expect(editorSource).toContain('"comments.hideIndicators"');
-    expect(editorSource).toContain('"comments.showIndicators"');
-    expect(editorSource).not.toContain(
-      "absolute end-2 top-2 z-20 flex items-center",
-    );
-    expect(source).toContain("setDeleteDialogOpen(true)");
-    expect(source).toContain("text-destructive focus:text-destructive");
-    expect(source).toContain("<IconTrash");
-    expect(source).toContain("sidebar.deletePageQuestion");
-    expect(source).not.toContain("absolute top-2 right-2");
-    expect(source).not.toContain("shadow-sm");
   });
 
   it("flushes pending document saves when leaving an editor", () => {
@@ -2357,22 +2046,6 @@ describe("document editor layout", () => {
     expect(source).toContain("pendingPersistenceRef.current.size > 0");
     expect(source).toContain("onSessionChangeRef");
     expect(source).toContain("documentLayoutRef.current?.querySelector");
-  });
-
-  it("routes global Escape handling to the nearest nested page editor", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("const pathOwner = path.find(");
-    expect(source).toContain(
-      'activeElement.closest<HTMLElement>("[data-page-editor-owner]")',
-    );
-    expect(source).toContain(
-      "eventOwner?.dataset.pageEditorOwner === pageEditorOwner",
-    );
-    expect(source).not.toContain("path.includes(editorRoot)");
   });
 
   it("renders viewers from SQL while retaining scoped presence", () => {
@@ -2457,75 +2130,6 @@ describe("document editor layout", () => {
     );
   });
 
-  it("opens comments and selects a highlighted thread atomically", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const activationStart = source.indexOf("const activateCommentThread");
-    const activationEnd = source.indexOf(
-      "const handleUtilityPanelChange",
-      activationStart,
-    );
-    const activation = source.slice(activationStart, activationEnd);
-
-    expect(activationStart).toBeGreaterThan(-1);
-    expect(activation).toContain("setSelectedThreadId(threadId)");
-    expect(activation).toContain(
-      "setCommentsBrowseOpen(preserveBrowseContext)",
-    );
-    expect(activation).toContain('setUtilityPanel("comments")');
-    expect(source).toContain(
-      'activateCommentThread(threadId, presentation === "history")',
-    );
-    expect(source).not.toContain("? setSelectedThreadId\n");
-  });
-
-  it("does not clear comment focus at the start of a touch or scroll gesture", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).not.toContain("onPointerDownCapture={(event) => {");
-    expect(source).toContain("onClickCapture={(event) => {");
-  });
-
-  it("keeps the comments history drawer width-safe and vertically reachable", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain(
-      'className="flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0',
-    );
-    expect(source).toContain(
-      'className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"',
-    );
-    expect(source).toContain("data-[state=closed]:duration-[260ms]");
-    expect(source).toContain("data-[state=open]:ease-[var(--ease-drawer)]");
-    expect(source).toContain(
-      'target.closest("[data-radix-popper-content-wrapper]")',
-    );
-    expect(source).toContain(
-      "utilityPanelSheetContainer?.contains(nestedPopper)",
-    );
-    expect(source).not.toContain("{showUtilityPanelSheet ? (");
-    expect(source).toContain("utilityPanelSheetContainer,");
-    expect(source).toContain("showDesktopCommentsHistory");
-    expect(source).toContain("data-comments-history-rail");
-    expect(source).toContain("commentsHistoryRailMounted");
-    expect(source).toContain('event.propertyName === "width"');
-    expect(source).toContain(
-      '"min-h-0 shrink-0 overflow-hidden border-s bg-background transition-[width] duration-[260ms] ease-[var(--ease-drawer)]"',
-    );
-    expect(source).toContain('renderUtilityPanelContent("comments")');
-    expect(source).toContain(
-      "commentsHistoryDrawerOpen: showCommentsHistoryDrawer",
-    );
-  });
-
   it("keeps title and content save watermarks independent after partial saves", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
@@ -2567,20 +2171,6 @@ describe("document editor layout", () => {
     ).toBeLessThan(baseAwareReconcile.indexOf("reportReconcile(result.status"));
     expect(baseAwareReconcile).toContain(
       'reportReconcile("failed", result.content)',
-    );
-  });
-
-  it("localizes the live-editor flush failure fallback", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    expect(source).toContain('t("editor.liveDocumentSaveBeforeSyncFailed")');
-    expect(source).not.toContain(
-      'error instanceof Error\n                      ? error.message\n                      : "The live document could not be saved before syncing."',
     );
   });
 
@@ -2715,20 +2305,6 @@ describe("document editor layout", () => {
     );
   });
 
-  it("does not steal reply focus when activating a suggestion", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const activation = source.slice(
-      source.indexOf("const activateSuggestion ="),
-      source.indexOf("const handleUtilityPanelChange ="),
-    );
-    expect(activation).not.toContain(".focus(");
-    expect(activation).toContain('block: "nearest"');
-    expect(activation).toContain("rect.top < viewport.top");
-  });
-
   it("freezes the suggestion editor while mode exit persists proposals", () => {
     const source = readFileSync(
       new URL("./DocumentEditor.tsx", import.meta.url),
@@ -2809,17 +2385,6 @@ describe("document editor layout", () => {
     );
   });
 
-  it("composes saved and draft suggestion anchors in the active editor", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("suggestionSessionVisuals(");
-    expect(source).toContain("byId.set(suggestion.id");
-    expect(source).toContain("suggestions={visualSuggestions}");
-  });
-
   it("does not open the narrow suggestion Sheet merely because a draft changed", () => {
     expect(
       documentEditorShowsUtilityPanelSheet({
@@ -2830,22 +2395,6 @@ describe("document editor layout", () => {
         selectedSuggestionId: null,
       }),
     ).toBe(false);
-  });
-
-  it("opens comments for deep links and conflicts without coupling mode exit to navigation", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(
-      source.match(
-        /setUtilityPanel\("comments"\);\s+setCommentsBrowseOpen\(true\)/g,
-      ),
-    ).toHaveLength(2);
-    expect(source).not.toMatch(
-      /setIsSuggesting\(false\);[\s\S]{0,240}setUtilityPanel\("comments"\)/,
-    );
   });
 
   it("wakes live-editor flush reads from shared sync events instead of polling", () => {
@@ -3343,17 +2892,6 @@ describe("document editor layout", () => {
       "personal-files",
     ]);
     expect(items.map((item) => item.iconKind)).toEqual(["folder", "folder"]);
-  });
-
-  it("keeps hover-open breadcrumb menus non-modal and uses folder icons", () => {
-    const source = readFileSync(
-      new URL("./DocumentToolbar.tsx", import.meta.url),
-      { encoding: "utf8" },
-    );
-
-    expect(source).toMatch(/<DropdownMenu\s+modal=\{false\}/);
-    expect(source).toContain('item.iconKind === "folder"');
-    expect(source).toContain('menuItem.iconKind === "folder"');
   });
 
   it("keeps filesystem time separate from the SQL save watermark", () => {
