@@ -19,6 +19,7 @@ import {
   isLoopbackRequest,
 } from "../server/auth.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
+import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
   MCP_CONNECT_MCP_URL_TEMPLATE,
@@ -176,7 +177,7 @@ function canUseDevOpenConnect(event: H3Event): boolean {
   return (
     isLoopbackRequest(event) &&
     isLoopbackOrigin(deriveOrigin(event)) &&
-    !process.env.A2A_SECRET?.trim() &&
+    !readDeployCredentialEnv("A2A_SECRET")?.trim() &&
     !process.env.ACCESS_TOKEN?.trim() &&
     !process.env.ACCESS_TOKENS?.trim()
   );
@@ -267,7 +268,7 @@ async function signConnectToken(params: {
   includeOrgIdClaim?: boolean;
   catalogScope?: "full";
 }): Promise<string> {
-  if (process.env.A2A_SECRET?.trim()) {
+  if (readDeployCredentialEnv("A2A_SECRET")?.trim()) {
     return signA2AToken(params.ownerEmail, params.orgDomain, undefined, {
       preferGlobalSecret: true,
       expiresIn: params.expiresIn,
@@ -1345,7 +1346,10 @@ export async function handleMcpConnect(
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     const session = await getSession(event);
     if (!session?.email) return json({ error: "Unauthorized" }, 401);
-    if (!process.env.A2A_SECRET?.trim() && canUseDevOpenConnect(event)) {
+    if (
+      !readDeployCredentialEnv("A2A_SECRET")?.trim() &&
+      canUseDevOpenConnect(event)
+    ) {
       return json(
         mcpResultPayload(appUrl, options, { ownerEmail: session.email }),
       );
@@ -1511,7 +1515,8 @@ export async function handleMcpConnect(
     }
     try {
       const devOpen =
-        !process.env.A2A_SECRET?.trim() && canUseDevOpenConnect(event);
+        !readDeployCredentialEnv("A2A_SECRET")?.trim() &&
+        canUseDevOpenConnect(event);
       const orgDomain = await resolveOrgDomain(row.orgId ?? undefined);
       await prepareConnectIssuance();
       return await withMcpCredentialIssuance(
