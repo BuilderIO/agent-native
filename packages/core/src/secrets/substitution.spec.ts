@@ -211,6 +211,30 @@ describe("resolveKeyReferencesWithRequestScopes", () => {
     });
   });
 
+  it("orders legacy credentials org-first for an owner or admin", async () => {
+    mockResolveCredentialForScope.mockImplementation(async (_key, { scope }) =>
+      scope === "user" ? "legacy-personal-token" : "legacy-org-token",
+    );
+    for (const role of ["owner", "admin"]) {
+      mockReadOrgMemberRole.mockResolvedValue(role);
+      const result = await resolveKeyReferencesWithRequestScopes(
+        "Bearer ${keys.GITHUB_TOKEN}",
+        "alice@example.test",
+      );
+      expect(result.resolved).toBe("Bearer legacy-org-token");
+      expect(result.resolvedKeys).toEqual([
+        { name: "GITHUB_TOKEN", scope: "org", scopeId: "org_123" },
+      ]);
+    }
+
+    mockReadOrgMemberRole.mockResolvedValue("member");
+    const member = await resolveKeyReferencesWithRequestScopes(
+      "Bearer ${keys.GITHUB_TOKEN}",
+      "alice@example.test",
+    );
+    expect(member.resolved).toBe("Bearer legacy-personal-token");
+  });
+
   it("reads allowlists from the resolved scope", async () => {
     mockReadAppSecretMeta.mockResolvedValue({
       urlAllowlist: ["https://api.github.com"],

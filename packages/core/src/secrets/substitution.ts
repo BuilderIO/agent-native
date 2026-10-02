@@ -171,30 +171,23 @@ async function readLegacyCredential(
   userScopeId: string,
 ): Promise<{ value: string; ref: ResolvedKeyReference } | null> {
   const orgId = getRequestOrgId();
-  const userValue = await resolveCredentialForScope(name, {
-    userEmail: userScopeId,
+  const candidates = await orderCredentialScopes(
+    [
+      { scope: "user" as const, scopeId: userScopeId },
+      ...(orgId ? [{ scope: "org" as const, scopeId: orgId }] : []),
+    ],
     orgId,
-    scope: "user",
-  }).catch(() => undefined);
-  if (userValue) {
-    return {
-      value: userValue,
-      ref: { name, scope: "user", scopeId: userScopeId },
-    };
+    userScopeId,
+  );
+  for (const ref of candidates) {
+    const value = await resolveCredentialForScope(name, {
+      userEmail: userScopeId,
+      orgId,
+      scope: ref.scope,
+    });
+    if (value) return { value, ref: { name, ...ref } };
   }
-
-  if (!orgId) return null;
-  const orgValue = await resolveCredentialForScope(name, {
-    userEmail: userScopeId,
-    orgId,
-    scope: "org",
-  }).catch(() => undefined);
-  if (!orgValue) return null;
-
-  return {
-    value: orgValue,
-    ref: { name, scope: "org", scopeId: orgId },
-  };
+  return null;
 }
 
 function requestSecretCandidates(
