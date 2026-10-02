@@ -54,7 +54,7 @@
         {
           "id": "TOP-07",
           "status": "proposed",
-          "change": "Local app screens: Interact's route picker shows the localhost URL; Design shows Apply to source beside zoom.",
+          "change": "Local app screens: one route control (status dot, route ▾) in the top bar's center in both modes, Interact's address bar and Design's screen control (INSP-07). Apply to source moves into its menu.",
           "prototype": "Scenario: Local app screen."
         },
         {
@@ -107,7 +107,7 @@
           "id": "MOVE-03",
           "status": "proposed",
           "today": "The localhost link and Apply to source sit in `rightSidebarActions`.",
-          "change": "The localhost link moves into Interact's route picker; Apply to source sits beside zoom in Design."
+          "change": "The localhost link becomes the route control's tooltip and its Open in browser item; Apply to source moves into the same menu (INSP-07)."
         },
         {
           "id": "MOVE-04",
@@ -868,15 +868,16 @@
           "id": "INSP-07",
           "status": "proposed",
           "today": "Every selected screen shows a Source segmented control, Static | URL (`update-screen-source`). URL reveals a Screen URL field with Update and, with more than one connected app, Choose local app. The Static label reuses `editPanel.positionOptions.static`, the Position option of the same name.",
-          "change": "Treat a URL screen like an instance of your app's route, and drop the Source control. Static screens show no source UI at all. Designers see the route, not the server: the selection header shows the screen name and its route (`/home`), the same as a static screen, and the Screen section is one grid field, Route (`/home ▾`, spanning the two value columns), whose menu lists the app's routes, grouped by app only when more than one is connected (replacing Choose local app), then Custom path…. The app itself sits behind one header action, a server icon with a status dot: green when the connection answers, grey when it doesn't (the connection's `status` and the bridge health check). Its tooltip names the app and host (Agent-Native Web · localhost:5173), and its menu has Open in browser (with the host as the trailing hint) and Reload screen. There's no Detach from app: editing a URL screen writes to the app's code (`apply-visual-edit` on consented localhost files), so the screen stays connected, and ⌘D duplicates it like any frame. When the app stops answering, the dot goes grey, the menu swaps Open and Reload for Retry connection, and the canvas keeps the last render greyed out under one pill, Can't reach Agent-Native Web · Retry connection, in place of the bridge's error text. Interact's address bar shows the same dot and the path, with the host in its tooltip. Adding a route as a screen moves to Screens' + menu (Blank screen, From your app…), the code's “Add a screen from your app” flow (INSP-09). Switching a screen between static and live stays with the agent (`update-screen-source`), in both directions, with no UI. “Static snapshot” no longer needs its own string.",
+          "change": "Treat a URL screen like an instance of your app's route, and drop the Source control. Static screens show no source UI at all. Designers see the route, not the server, and it lives in the top bar rather than the inspector (whose Screen section goes, leaving the frame's own properties). In Design, a URL screen puts one control in the top bar's center, the same one as Interact's address bar: a status dot and the route (`● /home ▾`), green when the connection answers and grey when it doesn't (the connection's `status` and the bridge health check), with the app and host in its tooltip (Agent-Native Web · localhost:5173). Its menu lists the app's routes, grouped by app only when more than one is connected (replacing Choose local app), then Custom path…; then the app's name, Open in browser (with the host as the trailing hint), Reload screen, and Apply to source (the code's floppy button, with the file as the hint), which leaves the bar. The selection header shows the screen name and its route, the same as a static screen. There's no Detach from app: editing a URL screen writes to the app's code (`apply-visual-edit` on consented localhost files), so the screen stays connected, and ⌘D duplicates it like any frame. When the app stops answering, the dot goes grey, the menu swaps Open and Reload for Retry connection and disables Apply to source, and the canvas keeps the last render greyed out under one pill, Can't reach Agent-Native Web · Retry connection, in place of the bridge's error text. Interact's address bar shows the same dot and the path. Adding a route as a screen moves to Screens' + menu (Blank screen, From your app…), the code's “Add a screen from your app” flow (INSP-09). Switching a screen between static and live stays with the agent (`update-screen-source`), in both directions, with no UI. “Static snapshot” no longer needs its own string.",
           "refs": [
             "templates/design/app/components/design/EditPanel.tsx#editPanel.screenSource.title",
             "templates/design/actions/update-screen-source.ts#static HTML and a live localhost URL",
             "templates/design/actions/list-localhost-connections.ts#\"connected\", \"detected\", \"manual\", \"error\"",
             "templates/design/app/i18n/en-US.ts#permissionPromptRetry: \"Retry connection\"",
-            "templates/design/actions/apply-visual-edit.ts#diff-first literal leaf JSX edits on consented localhost files"
+            "templates/design/actions/apply-visual-edit.ts#diff-first literal leaf JSX edits on consented localhost files",
+            "templates/design/app/i18n/en-US.ts#applyToSourcePath"
           ],
-          "prototype": "Scenario: Local app screen, select the screen, then open Route or the server icon. Scenario: Local app stopped shows the grey dot and the canvas pill. Interact shows the address bar. Screens' + shows From your app…."
+          "prototype": "Scenario: Local app screen, then open the route control in the top bar. Scenario: Local app stopped shows the grey dot and the canvas pill. Interact shows the address bar. Screens' + shows From your app…."
         },
         {
           "id": "INSP-08",

@@ -381,11 +381,9 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .inp.tokfield { padding-right: 0; }
 .tok-chip { display: inline-flex; align-items: center; gap: 4px; height: 18px; margin-right: auto; padding: 0 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font: 500 11px/18px var(--font); }
 .tok-chip svg.i { width: 12px; height: 12px; }
-/* A URL screen's connection: a status dot on the server icon, green when the app answers, grey when it doesn't. */
+/* A URL screen's connection: a status dot, green when the app answers, grey when it doesn't. */
 .sdot { width: 6px; height: 6px; border-radius: 50%; background: var(--live); flex: none; }
 .sdot.off { background: var(--muted-fg); }
-.src-ind { position: relative; }
-.src-ind .sdot { position: absolute; right: 4px; bottom: 4px; box-shadow: 0 0 0 1.5px var(--bg); }
 .inp.sel .v { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .src-offline { position: absolute; left: 50%; top: 24px; translate: -50% 0; z-index: 3; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 4px 0 12px; border-radius: 8px; background: var(--popover); box-shadow: var(--shadow); font-size: 12px; white-space: nowrap; }
 .src-offline button { height: 24px; padding: 0 8px; border-radius: 6px; background: var(--muted); font-weight: 500; }
@@ -1124,7 +1122,7 @@ const frameToken = () => boundToken() || nearestToken(RESP.w);
 const widthMenu = (cur, run) => { const [name, , kind] = (cur === RESP.w ? frameToken() : nearestToken(cur)) || []; return [{ label: "Container" }, ...widthTokens("container").map(([n, px]) => ({ t: n, k: String(px), radio: true, on: kind === "container" && name === n, run: () => run(px, [n, px, "container"]) })), "-", { label: "Breakpoint" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: n, k: String(px), radio: true, on: kind === "breakpoint" && name === n, run: () => run(px, [n, px, "breakpoint"]) }))]; };
 const whenMenu = (r) => [{ label: "Container (this layer's parent)" }, ...widthTokens("container").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), radio: true, on: r.scale === "container" && r.token === n, run: () => { r.scale = "container"; r.token = n; renderPage(); renderInspector(); } })), "-", { label: "Breakpoint (the frame)" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), radio: true, on: r.scale === "breakpoint" && r.token === n, run: () => { r.scale = "breakpoint"; r.token = n; renderPage(); renderInspector(); } }))];
 // A URL screen is like an instance of your app's route. Designers see the route; the app and its host live
-// behind the server icon's status dot and tooltip. There's no detach: edits write back to the app's code, and
+// behind the status dot and tooltip of the top bar's route control, the same control as Interact's address bar. There's no detach: edits write back to the app's code, and
 // turning a live screen static is left to the agent (update-screen-source). Static screens have no source UI.
 const SRC = { name: "Agent-Native Web", host: "localhost:5173", apps: [["Agent-Native Web", "localhost:5173"]] };
 const localApp = () => S.scenario === "local" || S.scenario === "local-off";
@@ -1133,15 +1131,19 @@ const urlScreen = localApp;
 const srcUp = () => S.scenario !== "local-off";
 const srcTip = () => srcUp() ? `${SRC.name} · ${SRC.host}` : `Can't reach ${SRC.name} at ${SRC.host}. Is its dev server running?`;
 const sdot = () => `<span class="sdot ${srcUp() ? "" : "off"}" title="${srcTip()}"></span>`;
-const routeMenu = () => [...SRC.apps.flatMap(([name]) => [...(SRC.apps.length > 1 ? [{ label: name }] : []), ...ROUTES.map(r => ({ t: r.path, radio: true, on: S.route === r.path, run: () => { S.screenSel = true; go(r.path); } }))]),
+const routeMenu = () => [...SRC.apps.flatMap(([name]) => [...(SRC.apps.length > 1 ? [{ label: name }] : []), ...ROUTES.map(r => ({ t: r.path, radio: true, on: S.route === r.path, run: () => go(r.path) }))]),
   "-", { t: "Custom path…", toast: "Type a path on this app, like /plans" }];
-const appMenu = () => [{ label: SRC.name },
+const retryConnection = () => { S.scenario = "local"; $("#scenario-sel").value = "local"; render(); toast(`Connected to ${SRC.name}`); };
+// Apply to source (the code's applyToSourcePath) writes the screen back to its route file; it needs the app up.
+const screenMenu = () => [...routeMenu(), "-", { label: SRC.name },
   ...(srcUp()
     ? [{ icon: "external-link", t: "Open in browser", k: SRC.host, toast: `Opens ${SRC.host}${S.route}` }, { icon: "refresh", t: "Reload screen", run: () => { renderPage(); toast(`Reloaded ${S.route}`); } }]
-    : [{ icon: "refresh", t: "Retry connection", run: () => { S.scenario = "local"; $("#scenario-sel").value = "local"; render(); toast(`Connected to ${SRC.name}`); } }])];
+    : [{ icon: "refresh", t: "Retry connection", run: retryConnection }]),
+  { icon: "device-floppy", t: "Apply to source", k: routeFile(), disabled: !srcUp(), toast: `Saved to app/routes/${routeFile()}` }];
+const routeFile = () => S.route === "/home" ? "_index.tsx" : `${S.route.slice(1)}.tsx`;
 // Device sizes use the Frame tool's list, so there's one set of presets; a device sets W and a fixed H.
 const deviceMenu = () => FRAME_PRESETS.map(([key, label, icon, list]) => ({ icon, t: label, sub: list.map(([n, w, h]) => ({ t: n, k: `${w}\u2009×\u2009${h}`, radio: true, on: RESP.w === w && RESP.h === h, run: () => { RESP.h = h; setFrameWidth(w); } })) }));
-// The selected screen's frame, in the code's order: Screen, Position (X/Y, size with device presets),
+// The selected screen's frame, in the code's order: Position (X/Y, size with device presets),
 // Layout grids, Appearance, Fill, Stroke, Effects, Export.
 function renderScreenInspector(el) {
   const tok = boundToken();
@@ -1150,7 +1152,6 @@ function renderScreenInspector(el) {
     : `<label class="inp"><span class="pre">W</span><input id="screen-w" value="${RESP.w}" aria-label="Frame width" inputmode="numeric"><button class="post" data-w-menu aria-haspopup="menu" title="Width tokens">${ic("chevron-down", "s12")}</button></label>`;
   el.innerHTML = `<div class="sel-head"><div class="g"><span class="nm">${ic("frame", "s14")}<span>${screenName()}</span></span><span class="muted" style="font-size:12px">${S.route}</span></div></div>
     <div class="insp-scroll">
-    ${urlScreen() ? sec("screen", "Screen", `<button class="icon-btn xs src-ind" data-app-menu aria-haspopup="menu" title="${srcTip()}">${ic("server")}${sdot()}</button>`, `<div class="g5">${field("Route", `<button class="inp sel" data-route-menu aria-haspopup="menu"><span class="v">${S.route}</span>${ic("chevron-down", "s12")}</button>`, "c13")}</div>`) : ""}
     ${sec("position", "Position", `<button class="icon-btn xs" data-device-menu aria-haspopup="menu" title="Device sizes">${ic("devices")}</button>`, `
       <div class="g5">${field("Position", inp("X", "0px"))}${field("&nbsp;", inp("Y", "0px"), "c3")}</div>
       <div class="g5">${field("Size", wField)}${field("&nbsp;", `<label class="inp"><span class="pre">H</span><input id="screen-h" value="${RESP.h ? RESP.h : "Hug"}" aria-label="Frame height"></label>`, "c3")}</div>`)}
@@ -1172,9 +1173,8 @@ document.addEventListener("click", e => {
   const t = e.target;
   if (t.closest?.("[data-select-screen]")) { S.screenSel = true; S.multi = []; renderTree(); renderPage(); renderInspector(); return; }
   const dm = t.closest?.("[data-device-menu]"); if (dm) return openMenu(dm, deviceMenu(), { align: "right" });
-  const rm = t.closest?.("[data-route-menu]"); if (rm) return openMenu(rm, routeMenu(), { minWidth: 184 });
-  if (t.closest?.("[data-app-retry]")) return appMenu().find(i => i.t === "Retry connection").run();
-  const am = t.closest?.("[data-app-menu]"); if (am) return openMenu(am, appMenu(), { align: "right", minWidth: 220 });
+  const rm = t.closest?.("[data-route-menu]"); if (rm) return openMenu(rm, screenMenu(), { minWidth: 240 });
+  if (t.closest?.("[data-app-retry]")) return retryConnection();
   const as = t.closest?.("[data-add-screen]");
   if (as) return openMenu(as, [{ icon: "frame", t: "Blank screen", toast: "Adds a blank screen; press F for device sizes" }, { icon: "world", t: "From your app…", run: appDialog }], { align: "right" });
   const wm = t.closest?.("[data-w-menu]");
@@ -1278,11 +1278,11 @@ function renderTopbar() {
     <div class="tb-zone tb-center">
       ${interact ? `<span class="nav-btns"><button class="icon-btn" id="nav-back" title="Back" ${S.hIndex === 0 ? "disabled" : ""}>${ic("arrow-left")}</button><button class="icon-btn" id="nav-fwd" title="Forward" ${S.hIndex >= S.history.length - 1 ? "disabled" : ""}>${ic("arrow-right")}</button></span>
       <button class="select route" id="route-btn" aria-haspopup="menu" title="Go to a route">${localApp() ? sdot() : ic("circle-dashed")}<span class="v">${r.path}</span>${ic("chevron-down", "chev")}</button>
-      <span class="nav-btns"><button class="icon-btn" id="nav-reload" title="Reload">${ic("refresh")}</button></span>` : ""}
+      <span class="nav-btns"><button class="icon-btn" id="nav-reload" title="Reload">${ic("refresh")}</button></span>`
+      : urlScreen() && S.route !== "*" ? `<button class="select route" data-route-menu aria-haspopup="menu" title="${srcTip()}">${sdot()}<span class="v">${S.route}</span>${ic("chevron-down", "chev")}</button>` : ""}
     </div>
     <div class="tb-zone tb-right">
       ${S.scenario === "rewrite" ? `<button class="btn secondary" style="height:28px;font-size:13px;border-radius:8px" id="review-changes" aria-haspopup="menu">${ic("stack-2", "s14")}Review changes · 2</button>` : ""}
-      ${!interact && localApp() ? `<button class="icon-btn" id="apply-source" style="width:28px;height:28px" title="Apply to source (app/routes/_index.tsx)">${ic("device-floppy")}</button>` : ""}
       <button class="select" id="zoom-btn" aria-haspopup="menu" title="Zoom (same in both modes)"><span class="v">${S.zoom}%</span>${ic("chevron-down", "chev")}</button>
     </div>
     <div class="tb-insp">
@@ -1950,7 +1950,6 @@ document.addEventListener("click", e => {
     { t: "Sort by date", radio: true, on: AG.sort === "date", run: set("sort", "date") }, { t: "Sort by unread", radio: true, on: AG.sort === "unread", run: set("sort", "unread") },
     "-", { t: "Pinned only", toggle: true, on: AG.pinned, run: set("pinned", !AG.pinned) }, { t: "Show archived chats", toggle: true, on: AG.archived, run: set("archived", !AG.archived) }], { align: "right", minWidth: 200 }); }
   if (id === "cm-new") { S.tool = "comment"; renderDock(); app.classList.add("comment-tool"); toast("Click anything on the canvas to comment on it"); return; }
-  if (id === "apply-source") { toast("Wrote 3 changes to app/routes/_index.tsx"); return; }
   if (id === "apply-feedback") { startSkillText("Apply all open design review feedback", "Apply feedback"); return; }
   if (id === "review-changes") return openMenu(t.closest("button"), [{ label: "Changes ready to review" }, { icon: "device-desktop", t: "Screen 1 · 3 variants", toast: "Opens the screen with the variant picker" }, { icon: "device-desktop", t: "Screen 2 · 2 variants", toast: "Opens the screen with the variant picker" }], { align: "right" });
   if (id === "import-btn") return importDialog();
