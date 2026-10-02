@@ -2612,7 +2612,7 @@ export default function Index({ active = true }: { active?: boolean }) {
               <DeckSearchInput
                 value={deckSearch}
                 onChange={setDeckSearch}
-                className="w-full sm:w-64"
+                className="w-full sm:w-64 sm:shrink-0"
               />
             ) : null
           }

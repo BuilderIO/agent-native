@@ -50,12 +50,18 @@ export function SlidesHomeLibrary({
                 {labels.recent}
               </TabsTrigger>
             ) : null}
-            <TabsTrigger value="templates" className="flex-none">
+            <TabsTrigger
+              value="templates"
+              className="flex-none"
+              onClick={() => {
+                if (activeValue === "templates") onValueChange("templates");
+              }}
+            >
               {labels.templates}
             </TabsTrigger>
           </TabsList>
           {activeValue === "recent" ? (
-            <div className="flex w-full min-w-0 items-center justify-end gap-2 sm:w-auto">
+            <div className="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:w-auto">
               {search}
               {recentActions}
             </div>

@@ -1143,7 +1143,7 @@ export default function Index() {
   useSetPageTitle(t("home.pageTitle"));
 
   const searchInput = (
-    <div className="relative w-full min-w-0 sm:w-64">
+    <div className="relative w-full min-w-0 sm:w-64 sm:shrink-0">
       <IconSearch className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
       <Input
         size="sm"
@@ -1340,7 +1340,7 @@ export default function Index() {
                     variant="outline"
                     size="sm"
                     aria-label={ownerFilterLabels[designFilter]}
-                    className="h-9 gap-2"
+                    className="h-9 shrink-0 gap-2"
                   >
                     <span className="grid">
                       {Object.entries(ownerFilterLabels).map(

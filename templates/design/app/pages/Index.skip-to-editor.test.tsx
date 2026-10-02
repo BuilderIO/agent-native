@@ -1093,7 +1093,7 @@ describe("home library", () => {
         ?.textContent,
     ).toBe("navigation.templates");
     expect(container.textContent).toContain("navigation.templates");
-    expect(container.textContent).toContain("home.recent");
+    expect(container.textContent).not.toContain("home.recent");
     expect(container.querySelector('a[href="/templates"]')).not.toBeNull();
     mocks.ownCount = 1;
     await act(async () => root.render(<Index />));
@@ -1102,12 +1102,10 @@ describe("home library", () => {
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
     ).toBe("home.recent");
-    expect(localStorage.getItem("design:home-library-tab")).toBe("recent");
   });
 
-  it("restores a saved Recent choice before the design summary completes", async () => {
+  it("defaults to Templates until the accessible-design summary completes", async () => {
     await act(async () => root.unmount());
-    localStorage.setItem("design:home-library-tab", "recent");
     mocks.ownCount = 1;
     mocks.ownStatus = "pending";
     root = createRoot(container);
@@ -1116,12 +1114,18 @@ describe("home library", () => {
     expect(
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
+    ).toBe("navigation.templates");
+    expect(container.textContent).not.toContain("home.recent");
+
+    mocks.ownStatus = "success";
+    await act(async () => root.render(<Index />));
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
     ).toBe("home.recent");
   });
 
-  it("does not server-render the home library before restoring its saved tab", () => {
-    localStorage.setItem("design:home-library-tab", "recent");
-
+  it("does not server-render the home library", () => {
     expect(renderToString(<Index />)).not.toContain(
       "agent-prompt-home-library",
     );
@@ -1146,7 +1150,6 @@ describe("home library", () => {
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
     ).toBe("navigation.templates");
-    expect(localStorage.getItem("design:home-library-tab")).toBe("templates");
 
     await act(async () => root.unmount());
     mocks.ownStatus = "success";
@@ -1155,7 +1158,7 @@ describe("home library", () => {
     expect(
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
-    ).toBe("navigation.templates");
+    ).toBe("home.recent");
   });
 
   it("does not treat pending or failed ownership reads as successful empty results", async () => {

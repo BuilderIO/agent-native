@@ -33,7 +33,7 @@ export function DeckFilterMenu({
           variant="outline"
           size="sm"
           aria-label={label}
-          className="h-9 gap-2"
+          className="h-9 shrink-0 gap-2"
         >
           <span className="grid">
             {Object.entries(optionLabels).map(([filter, option]) => (
