@@ -32,11 +32,13 @@ import {
   mergeAttributes,
   type NodeViewProps,
 } from "@tiptap/react";
+import { useState } from "react";
 
 import { usePageLinkTarget } from "../../../hooks/use-content-links";
 import { ContentIcon } from "../../icons/ContentIcon";
 import { EmojiPicker } from "../EmojiPicker";
 import { MathRenderer } from "../MathRenderer";
+import { isSuggestingEdits } from "../suggestions/read-only-blocks";
 
 const BLOCK_ATOM_TAGS = [
   "page",
@@ -351,9 +353,13 @@ export function focusToggleSummaryAtPosition(
 }
 
 function ToggleView({ node, editor, getPos }: NodeViewProps) {
-  const open = !!node.attrs.open;
+  // The page stores whether a Toggle is open, and a suggestion cannot change
+  // a Toggle, so while suggesting it opens and closes only in this view.
+  const suggesting = isSuggestingEdits(editor.state);
+  const [suggestingOpen, setSuggestingOpen] = useState<boolean | null>(null);
+  const open = suggestingOpen ?? !!node.attrs.open;
   const summary = (node.attrs.summary || "") as string;
-  const isEditable = editor.isEditable;
+  const isEditable = editor.isEditable && !suggesting;
   const bodyHasNoBlocks = node.childCount === 0;
 
   const updateToggleAttributes = (
@@ -374,7 +380,9 @@ function ToggleView({ node, editor, getPos }: NodeViewProps) {
   };
 
   const setOpen = (value: boolean) =>
-    updateToggleAttributes({ open: value }, "pointer");
+    suggesting
+      ? setSuggestingOpen(value)
+      : updateToggleAttributes({ open: value }, "pointer");
 
   const focusEmptyBody = (event: React.MouseEvent<HTMLElement>) => {
     if (!isEditable) return;

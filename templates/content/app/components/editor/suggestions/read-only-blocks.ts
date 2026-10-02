@@ -5,7 +5,12 @@ import type {
   Node as ProseMirrorNode,
   Slice,
 } from "@tiptap/pm/model";
-import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
+import {
+  Plugin,
+  PluginKey,
+  type EditorState,
+  type Transaction,
+} from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 
 import { supportsSuggestionNode } from "./model";
@@ -82,11 +87,16 @@ export function editsUnsupportedSuggestionNode(
 
 const readOnlyBlocksKey = new PluginKey("suggestingReadOnlyBlocks");
 
+export function isSuggestingEdits(state: EditorState): boolean {
+  return readOnlyBlocksKey.get(state)?.spec.isSuggesting?.() === true;
+}
+
 export function suggestingReadOnlyBlocksPlugin(isSuggesting: () => boolean) {
   let cached: { doc: ProseMirrorNode; decorations: DecorationSet } | null =
     null;
   return new Plugin({
     key: readOnlyBlocksKey,
+    isSuggesting,
     filterTransaction: (transaction) =>
       !isSuggesting() ||
       !transaction.docChanged ||
