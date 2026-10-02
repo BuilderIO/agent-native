@@ -399,6 +399,10 @@ function isAuthFailureStatus(status: number): boolean {
 }
 
 function shouldGuardAuthFailure(method: string, url: URL): boolean {
+  // Only an embed replays refusals, so a missing or expired embed token can't
+  // set off a retry storm. Elsewhere a refusal can lift mid-session, as when
+  // someone shares the page, and a replayed one would hide that for a minute.
+  if (!isEmbedAuthActive()) return false;
   if (!GUARDED_METHODS.has(method)) return false;
   if (url.pathname === EMBED_START_PATH) return false;
   if (
