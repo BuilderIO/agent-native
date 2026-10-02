@@ -11,7 +11,11 @@ import { notifyWithDelivery } from "../notifications/registry.js";
 import { getAppProductionUrl } from "../server/app-url.js";
 import type { EmailTemplateApp } from "../server/email-template.js";
 import { resolveEmailBrandApp } from "../server/email-templates.js";
-import { isEmailConfigured, sendEmail } from "../server/email.js";
+import {
+  getEmailReadiness,
+  isEmailConfigured,
+  sendEmail,
+} from "../server/email.js";
 import { getUserProfile } from "../user-profile/store.js";
 import {
   decideAccessRequest,
@@ -555,7 +559,8 @@ function staleRequest(): never {
 
 /**
  * Whether the requester was emailed that they're in: `skipped` when the app
- * has no email set up, `failed` when sending did.
+ * has no email set up, `failed` when sending failed or the email setup is
+ * broken or unreadable.
  */
 export type AccessGrantedEmail = "sent" | "skipped" | "failed";
 
@@ -568,7 +573,15 @@ async function sendAccessGrantedEmail(
 ): Promise<AccessGrantedEmail> {
   try {
     if (isSyntheticQaEmail(request.requesterEmail)) return "skipped";
-    if (!(await isEmailConfigured())) return "skipped";
+    // `isEmailConfigured` is false for a broken setup too, which the approver
+    // needs to hear about rather than read as "no email here".
+    const readiness = await getEmailReadiness();
+    if (readiness.status === "not-configured") return "skipped";
+    if (readiness.status !== "ready") {
+      throw new Error(
+        `Email is ${readiness.status} (provider: ${readiness.provider}).`,
+      );
+    }
     const approver = await getUserProfile(approverEmail);
     const { subject, html, text } = await renderTransactionalEmail(
       CORE_ACCESS_GRANTED_EMAIL_ID,

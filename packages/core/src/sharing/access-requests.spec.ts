@@ -78,15 +78,22 @@ vi.mock("../notifications/registry.js", () => ({
 }));
 
 const sendEmail = vi.fn(async (_args: any) => {});
-const emailConfigured: { value: boolean; error: Error | null } = {
-  value: true,
-  error: null,
-};
+const emailConfigured: {
+  value: boolean;
+  error: Error | null;
+  broken: "misconfigured" | "unavailable" | null;
+} = { value: true, error: null, broken: null };
 vi.mock("../server/email.js", () => ({
   isEmailConfigured: async () => {
     if (emailConfigured.error) throw emailConfigured.error;
-    return emailConfigured.value;
+    return emailConfigured.value && !emailConfigured.broken;
   },
+  getEmailReadiness: async () =>
+    emailConfigured.broken
+      ? { status: emailConfigured.broken, provider: "unknown" }
+      : emailConfigured.value
+        ? { status: "ready", provider: "resend" }
+        : { status: "not-configured", provider: "dev" },
   sendEmail: (args: any) => sendEmail(args),
 }));
 
@@ -293,6 +300,7 @@ beforeEach(async () => {
   sendEmail.mockReset();
   emailConfigured.value = true;
   emailConfigured.error = null;
+  emailConfigured.broken = null;
   afterShareRead.run = null;
 });
 
@@ -669,8 +677,10 @@ describe("reviewing a request", () => {
   it("keeps the access when the email telling the requester fails, and says so", async () => {
     await insertDoc("doc");
     await insertDoc("quiet-doc");
+    await insertDoc("broken-doc");
     const failed = await openRequest();
     const quiet = await openRequest("quiet-doc");
+    const broken = await openRequest("broken-doc");
     sendEmail.mockRejectedValue(new Error("provider down"));
 
     expect(
@@ -684,6 +694,19 @@ describe("reviewing a request", () => {
     ).toEqual({ state: "approved", role: "viewer", email: "failed" });
     expect(await shareRole("doc", outsiderEmail)).toBe("viewer");
 
+    // A setup that's broken or unreadable is a failure, not "no email here".
+    emailConfigured.broken = "misconfigured";
+    expect(
+      await as(ownerEmail, () =>
+        approveAccessRequest({
+          requestId: broken.id,
+          generation: broken.generation,
+          role: "viewer",
+        }),
+      ),
+    ).toMatchObject({ email: "failed" });
+
+    emailConfigured.broken = null;
     emailConfigured.value = false;
     expect(
       await as(ownerEmail, () =>

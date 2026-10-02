@@ -52,6 +52,7 @@ const sharesData = vi.hoisted(() => ({
 const accessRequestsData = vi.hoisted(() => ({
   current: [] as unknown[],
   hasMore: false,
+  isError: false,
 }));
 const refetchRequests = vi.hoisted(() => vi.fn(async () => undefined));
 const approveRequest = vi.hoisted(() => vi.fn());
@@ -66,7 +67,7 @@ vi.mock("@agent-native/core/client/use-action", () => ({
             requests: accessRequestsData.current,
             hasMore: accessRequestsData.hasMore,
           },
-          isError: false,
+          isError: accessRequestsData.isError,
           refetch: refetchRequests,
         }
       : {
@@ -210,6 +211,7 @@ describe("ShareButton", () => {
     approveRequest.mockReset().mockResolvedValue(undefined);
     accessRequestsData.current = [];
     accessRequestsData.hasMore = false;
+    accessRequestsData.isError = false;
     refetchRequests.mockClear();
     queriedActions.length = 0;
     refetchShares.mockClear();
@@ -1326,6 +1328,22 @@ describe("ShareButton", () => {
 
     await allowPat();
 
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "Pat Example has access, but we couldn't email them.",
+    );
+  });
+
+  it("keeps saying the email failed when the list can't reload", async () => {
+    accessRequestsData.current = [patRequest];
+    approveRequest.mockImplementationOnce(async () => {
+      accessRequestsData.isError = true;
+      return { state: "approved", role: "viewer", email: "failed" };
+    });
+    await renderWithRequests();
+
+    await allowPat();
+
+    expect(container.textContent).toContain("Couldn't load access requests.");
     expect(container.querySelector('[role="status"]')?.textContent).toBe(
       "Pat Example has access, but we couldn't email them.",
     );

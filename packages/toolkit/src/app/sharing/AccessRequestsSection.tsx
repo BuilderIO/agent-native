@@ -19,60 +19,63 @@ export function AccessRequestsSection({
   const t = useT();
   const { requests, hasMore, isError, refetch, decisions } =
     useResourceAccessRequests({ resourceType, resourceId });
-  if (isError) {
-    return (
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <span role="alert">
-          {t("agentChat.share.accessRequestsLoadFailed", {
-            defaultValue: "Couldn't load access requests.",
-          })}
-        </span>
-        <ActionButton
-          emphasis="ghost"
-          size="compact"
-          onPress={() => void refetch()}
-        >
-          {t("agentChat.accessRequest.retry", { defaultValue: "Retry" })}
-        </ActionButton>
-      </div>
-    );
-  }
   const error = decisions.error;
   const unemailed = decisions.unemailed;
-  // Kept after the last request is handled while its outcome is still worth
-  // reading: a stale decision, or an email that didn't send.
-  if (!requests.length && !error && !unemailed) return null;
+  // A decision's outcome stays readable after its row is gone, even when the
+  // list's reload fails: a stale decision, or an email that didn't send.
+  if (!isError && !requests.length && !error && !unemailed) return null;
   // A failure shows as `decisions.error`, and a stale one reloads the list.
   const decide = (run: () => Promise<void>) =>
     void run().catch(() => undefined);
   return (
     <div className="space-y-2">
-      <div className="text-sm font-semibold">
-        {t("agentChat.share.accessRequests", {
-          defaultValue: "Access requests",
-        })}
-      </div>
-      {requests.length ? (
-        <ul className="m-0 flex list-none flex-col gap-1 p-0">
-          {requests.map((request) => (
-            <AccessRequestRow
-              key={request.id}
-              request={request}
-              deciding={decisions.pendingId === request.id}
-              onAllow={() => decide(() => decisions.approve(request, "viewer"))}
-              onDecline={() => decide(() => decisions.decline(request))}
-            />
-          ))}
-        </ul>
-      ) : null}
-      {hasMore ? (
-        <p className="text-xs text-muted-foreground">
-          {t("agentChat.share.accessRequestsNewest", {
-            count: requests.length,
-            defaultValue: "Showing the {{count}} newest requests.",
-          })}
-        </p>
-      ) : null}
+      {isError ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span role="alert">
+            {t("agentChat.share.accessRequestsLoadFailed", {
+              defaultValue: "Couldn't load access requests.",
+            })}
+          </span>
+          <ActionButton
+            emphasis="ghost"
+            size="compact"
+            onPress={() => void refetch()}
+          >
+            {t("agentChat.accessRequest.retry", { defaultValue: "Retry" })}
+          </ActionButton>
+        </div>
+      ) : (
+        <>
+          <div className="text-sm font-semibold">
+            {t("agentChat.share.accessRequests", {
+              defaultValue: "Access requests",
+            })}
+          </div>
+          {requests.length ? (
+            <ul className="m-0 flex list-none flex-col gap-1 p-0">
+              {requests.map((request) => (
+                <AccessRequestRow
+                  key={request.id}
+                  request={request}
+                  deciding={decisions.pendingId === request.id}
+                  onAllow={() =>
+                    decide(() => decisions.approve(request, "viewer"))
+                  }
+                  onDecline={() => decide(() => decisions.decline(request))}
+                />
+              ))}
+            </ul>
+          ) : null}
+          {hasMore ? (
+            <p className="text-xs text-muted-foreground">
+              {t("agentChat.share.accessRequestsNewest", {
+                count: requests.length,
+                defaultValue: "Showing the {{count}} newest requests.",
+              })}
+            </p>
+          ) : null}
+        </>
+      )}
       {unemailed ? (
         <p role="status" className="text-xs text-muted-foreground">
           {t("agentChat.accessRequest.emailFailed", {
