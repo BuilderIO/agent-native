@@ -11,9 +11,11 @@ import {
   RecordFirstFileMissingError,
   RecordFirstFileUnreadableError,
   recordFirstFilesKey,
+  RecordFirstHandoffResetError,
   recordFirstFilesToQueue,
   saveRecordFirstFiles,
   stageRecordFirstFile,
+  stagedIdAfterFailure,
   transferRecordFirstFiles,
   type RecordFirstChunk,
   type RecordFirstFile,
@@ -499,6 +501,64 @@ describe("queueRecordFirstUpload", () => {
     expect(upload).toMatchObject({ recordingId: "rec-7", bytes: 10 });
   });
 
+  it("keeps the staged id after a create cut off mid-flight, and reuses that row", async () => {
+    openFile(new Uint8Array(10).fill(7));
+    fetchMock.mockImplementation(async (url: string) => {
+      const path = new URL(url).pathname;
+      if (path.endsWith("/status")) {
+        return Response.json({ error: "Not found" }, { status: 404 });
+      }
+      // The server inserts the row, but the response never arrives.
+      if (path.endsWith("/create-recording"))
+        throw new TypeError("network lost");
+      return new Response("{}", { status: 200 });
+    });
+    const staged = { ...file, stagedRecordingId: "rec-7" };
+
+    const error = await queueRecordFirstUpload({
+      serverUrl: "https://clips.example",
+      ownerEmail: "me@example.com",
+      file: staged,
+    }).catch((e: unknown) => e);
+
+    expect(error).not.toBeInstanceOf(RecordFirstHandoffResetError);
+    expect(stagedIdAfterFailure("rec-7", error)).toBe("rec-7");
+
+    // The retry finds the row the cut-off create inserted and stages into it.
+    fetchMock.mockClear();
+    openFile(new Uint8Array(10).fill(7));
+    serverWith({ "rec-7": { status: "uploading" } });
+    const upload = await queueRecordFirstUpload({
+      serverUrl: "https://clips.example",
+      ownerEmail: "me@example.com",
+      file: staged,
+    });
+    expect(upload).toMatchObject({ recordingId: "rec-7" });
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).endsWith("/create-recording"),
+      ),
+    ).toBe(false);
+  });
+
+  it("trashes an earlier attempt that ended failed and only then drops its id", async () => {
+    openFile(new Uint8Array(10).fill(7));
+    serverWith({ "rec-7": { status: "failed" } });
+
+    const error = await queueRecordFirstUpload({
+      serverUrl: "https://clips.example",
+      ownerEmail: "me@example.com",
+      file: { ...file, stagedRecordingId: "rec-7" },
+    }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(RecordFirstHandoffResetError);
+    expect(stagedIdAfterFailure("rec-7", error)).toBeUndefined();
+    const trash = fetchMock.mock.calls.find(([url]) =>
+      String(url).endsWith("/trash-recording"),
+    );
+    expect(JSON.parse(String(trash?.[1]?.body))).toEqual({ id: "rec-7" });
+  });
+
   it("hands off nothing when the staged copy already uploaded before a crash", async () => {
     openFile(new Uint8Array(10).fill(7));
     serverWith({ "rec-7": { status: "ready" } });
@@ -583,7 +643,7 @@ describe("queueRecordFirstUpload", () => {
         ownerEmail: "me@example.com",
         file,
       }),
-    ).rejects.toThrow("disk read failed");
+    ).rejects.toThrow(RecordFirstHandoffResetError);
 
     const urls = fetchMock.mock.calls.map(([url]) => String(url));
     expect(urls).toContain("https://clips.example/api/uploads/rec-9/abort");

@@ -121,6 +121,7 @@ import {
 } from "@/lib/recording-visibility";
 import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
 import { uploadChunkRequest } from "@/lib/upload-request";
+import { uploadTargetAtStart } from "@/lib/upload-target";
 import { cn } from "@/lib/utils";
 import { probeVideoMetadata, resolveVideoMimeType } from "@/lib/video-metadata";
 
@@ -638,6 +639,15 @@ interface PendingRecording {
   uploadMode?: UploadMode;
   /** No server row yet: storage was not connected when recording started. */
   localOnly?: boolean;
+}
+
+/** The server upload create-recording opened for a take. */
+interface CreatedUploadTarget {
+  id: string;
+  uploadChunkUrl: string;
+  abortUrl: string;
+  resetChunksUrl?: string;
+  uploadMode?: UploadMode;
 }
 
 const RECORDING_INTERRUPTED_REASON =
@@ -1241,6 +1251,11 @@ export default function RecordRoute() {
   // full copy (the local copy failed to write), so Download still works.
   const bufferedEngineRef = useRef<RecorderEngine | null>(null);
   const [localCopy] = useState(() => new LocalCopyOwnership());
+  // A take's upload target while it resolves during the countdown.
+  const pendingUploadTargetRef = useRef<{
+    session: number;
+    target: Promise<CreatedUploadTarget | null>;
+  } | null>(null);
   const {
     hold: holdLocalCopy,
     release: releaseLocalCopy,
@@ -1250,6 +1265,37 @@ export default function RecordRoute() {
   // Settles once the current local upload, and its bookkeeping, has ended.
   const localUploadSettledRef = useRef<Promise<void> | null>(null);
   const localAutoRetryRef = useRef(0);
+  /** Point the engine at its server upload, or at a local-only copy. */
+  const applyUploadTarget = useCallback(
+    (engine: RecorderEngine, info: CreatedUploadTarget | null): string => {
+      if (info) {
+        const uploadChunkUrl = `${appBasePath()}${info.uploadChunkUrl}`;
+        const abortUrl = `${appBasePath()}${info.abortUrl}`;
+        pendingRef.current = { id: info.id, uploadChunkUrl, abortUrl };
+        engine.setUploadTarget({
+          recordingId: info.id,
+          uploadUrl: uploadChunkUrl,
+          abortUrl,
+          resetUrl: info.resetChunksUrl
+            ? `${appBasePath()}${info.resetChunksUrl}`
+            : undefined,
+          uploadMode: info.uploadMode,
+        });
+      } else {
+        const localId = newRecordingId();
+        pendingRef.current = {
+          id: localId,
+          uploadChunkUrl: "",
+          abortUrl: "",
+          localOnly: true,
+        };
+        engine.setLocalOnlyTarget(localId);
+      }
+      localCopy.markRecordedHere(pendingRef.current.id);
+      return pendingRef.current.id;
+    },
+    [localCopy],
+  );
   const countdownAudioCueRef = useRef<CountdownAudioCue | null>(null);
   const confettiRef = useRef<ConfettiHandle>(null);
   const doStopRef = useRef<() => Promise<void>>(async () => {});
@@ -1459,26 +1505,6 @@ export default function RecordRoute() {
         }
 
         const intake = clipIntakeRef.current;
-        let storageReady = true;
-        if (!intake) {
-          // Recording never waits on storage. A missing or unreadable status
-          // records into the local copy and asks for storage after Stop.
-          // coercion-ok: an unreadable status records locally; the upload step re-reads it.
-          const status = await fetchVideoStorageStatus().catch(() => null);
-          if (isStale()) {
-            try {
-              await liveTranscription.stopAndWait();
-              // coercion-ok: stale recording cleanup intentionally ignores stop failure.
-            } catch {
-              // The recording is already stale; cleanup failure cannot change the outcome.
-            }
-            await engine.cancel("user_cancelled").catch(() => {});
-            return;
-          }
-          if (status) markStorageConfigured(status);
-          storageReady = status?.configured === true;
-        }
-
         const reportContext = bugReportContextRef.current;
         const reportTitle = reportContext
           ? `Bug report: ${bugReportTitle(reportContext)}`
@@ -1504,15 +1530,25 @@ export default function RecordRoute() {
           ownerEmail: authSessionEmailRef.current,
           title: recordingTitle,
         });
-        type CreatedTarget = {
-          id: string;
-          uploadChunkUrl: string;
-          abortUrl: string;
-          resetChunksUrl?: string;
-          uploadMode?: UploadMode;
-        };
-        let info: CreatedTarget | null = null;
-        if (storageReady) {
+        const dropRow = (id: string) =>
+          void callAction(
+            "trash-recording" as any,
+            { id, skipIfReady: true } as any,
+          ).catch(() => {
+            // coercion-ok: no row, or one already marked failed.
+          });
+        // Opens the server upload when storage reads as connected. Without an
+        // intake it never throws: anything short of a target (no storage, an
+        // unreadable status, a refused create) records into the local copy and
+        // asks for storage after Stop, with the bytes already safe.
+        const resolveTarget = async (): Promise<CreatedUploadTarget | null> => {
+          if (!intake) {
+            // coercion-ok: an unreadable status records locally; the upload step re-reads it.
+            const status = await fetchVideoStorageStatus().catch(() => null);
+            if (isStale()) return null;
+            if (status) markStorageConfigured(status);
+            if (status?.configured !== true) return null;
+          }
           const serverId = intake ? undefined : newRecordingId();
           const res = await createRecordingRequest(
             agentNativePath(
@@ -1544,13 +1580,23 @@ export default function RecordRoute() {
           });
           if (res?.ok) {
             const created = (await res.json()) as {
-              result?: CreatedTarget;
-            } & Partial<CreatedTarget>;
-            info = created.result ?? (created as CreatedTarget);
+              result?: CreatedUploadTarget;
+            } & Partial<CreatedUploadTarget>;
+            const info = created.result ?? (created as CreatedUploadTarget);
             if (!info?.id) {
-              throw new Error("create-recording did not return an id");
+              if (intake)
+                throw new Error("create-recording did not return an id");
+              if (serverId) dropRow(serverId);
+              return null;
             }
-          } else if (intake) {
+            // Cancelled while the row was being opened: drop it, keep nothing.
+            if (!intake && isStale()) {
+              dropRow(info.id);
+              return null;
+            }
+            return info;
+          }
+          if (intake) {
             if (res?.status === 401 || res?.status === 403) {
               throw new Error("SESSION_EXPIRED");
             }
@@ -1561,89 +1607,60 @@ export default function RecordRoute() {
             throw new Error(
               body?.error ?? `create-recording failed (${res?.status})`,
             );
-          } else if (serverId) {
-            // Storage read as connected but the server could not open an
-            // upload (an expired Builder grant, a provider outage, a lost
-            // session). Keep recording locally; the failure surfaces after
-            // Stop with the bytes already safe. Drop any row it left behind.
-            if (res) {
-              console.warn(
-                `[recorder] create-recording returned ${res.status}; recording locally`,
-              );
-              trackEvent("clips_recording_create_failed", {
-                app_name: "clips",
-                cause: "http",
-                status: res.status,
-              });
-            }
-            void callAction(
-              "trash-recording" as any,
-              { id: serverId, skipIfReady: true } as any,
-            ).catch(() => {
-              // coercion-ok: no row, or one already marked failed.
+          }
+          // Storage read as connected but the server could not open an
+          // upload (an expired Builder grant, a provider outage, a lost
+          // session). Keep recording locally; the failure surfaces after
+          // Stop with the bytes already safe. Drop any row it left behind.
+          if (res) {
+            console.warn(
+              `[recorder] create-recording returned ${res.status}; recording locally`,
+            );
+            trackEvent("clips_recording_create_failed", {
+              app_name: "clips",
+              cause: "http",
+              status: res.status,
             });
           }
-        }
-        if (isStale()) {
-          const userCancelled = cancelledStartSessionRef.current === session;
-          if (userCancelled) cancelledStartSessionRef.current = null;
-          await liveTranscription.stopAndWait().catch(() => "");
-          const failureCode = userCancelled
-            ? "user_cancelled"
-            : "recording_interrupted";
-          if (info && intake) {
-            fetch(`${appBasePath()}${info.abortUrl}`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                reason: userCancelled
-                  ? "Recording cancelled by user"
-                  : RECORDING_INTERRUPTED_REASON,
-                failureCode,
-              }),
-            }).catch(() => {});
-          } else if (info) {
-            fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ id: info.id }),
-            }).catch(() => {});
+          if (serverId) dropRow(serverId);
+          return null;
+        };
+
+        if (intake) {
+          // An intake upload has no local-only fallback, so it is opened
+          // before the countdown and its failures are shown right away.
+          const info = await resolveTarget();
+          if (isStale()) {
+            const userCancelled = cancelledStartSessionRef.current === session;
+            if (userCancelled) cancelledStartSessionRef.current = null;
+            // coercion-ok: a stale take's transcript is discarded either way.
+            await liveTranscription.stopAndWait().catch(() => "");
+            const failureCode = userCancelled
+              ? "user_cancelled"
+              : "recording_interrupted";
+            if (info) {
+              fetch(`${appBasePath()}${info.abortUrl}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  reason: userCancelled
+                    ? "Recording cancelled by user"
+                    : RECORDING_INTERRUPTED_REASON,
+                  failureCode,
+                }),
+              }).catch(() => {});
+            }
+            await engine.cancel(failureCode).catch(() => {});
+            return;
           }
-          await engine.cancel(failureCode).catch(() => {});
-          return;
-        }
-        if (info) {
-          const uploadChunkUrl = `${appBasePath()}${info.uploadChunkUrl}`;
-          const abortUrl = `${appBasePath()}${info.abortUrl}`;
-          pendingRef.current = {
-            id: info.id,
-            uploadChunkUrl,
-            abortUrl,
-          };
-          engine.setUploadTarget({
-            recordingId: info.id,
-            uploadUrl: uploadChunkUrl,
-            abortUrl,
-            resetUrl: info.resetChunksUrl
-              ? `${appBasePath()}${info.resetChunksUrl}`
-              : undefined,
-            uploadMode: info.uploadMode,
-          });
-          if (!intake) await saveBugReportContextRef.current(info.id);
+          // Own the copy before the countdown, so no chunk is ever written to
+          // a copy another tab could see as abandoned.
+          await holdLocalCopy(applyUploadTarget(engine, info));
         } else {
-          const localId = newRecordingId();
-          pendingRef.current = {
-            id: localId,
-            uploadChunkUrl: "",
-            abortUrl: "",
-            localOnly: true,
-          };
-          engine.setLocalOnlyTarget(localId);
+          // Recording never waits on storage: the upload target resolves
+          // during the countdown and is applied when capture starts.
+          pendingUploadTargetRef.current = { session, target: resolveTarget() };
         }
-        // Own the copy before the countdown, so no chunk is ever written to a
-        // copy another tab could see as abandoned.
-        localCopy.markRecordedHere(pendingRef.current.id);
-        await holdLocalCopy(pendingRef.current.id);
         void protectLocalCopyStorage();
 
         setPreviewStream(ps);
@@ -1700,6 +1717,7 @@ export default function RecordRoute() {
       }
     },
     [
+      applyUploadTarget,
       holdLocalCopy,
       liveTranscription,
       markStorageConfigured,
@@ -2326,6 +2344,29 @@ export default function RecordRoute() {
     const engine = engineRef.current;
     if (!engine) return;
     try {
+      const pendingTarget = pendingUploadTargetRef.current;
+      pendingUploadTargetRef.current = null;
+      if (pendingTarget) {
+        // A target still resolving never delays capture: this take records
+        // into the local copy, and a row that opens late is dropped.
+        const target = await uploadTargetAtStart(
+          pendingTarget.target,
+          (late) => {
+            void callAction(
+              "trash-recording" as any,
+              { id: late.id, skipIfReady: true } as any,
+            ).catch(() => {
+              // coercion-ok: no row, or one already marked failed.
+            });
+          },
+        );
+        if (startSessionRef.current !== pendingTarget.session) return;
+        const id = applyUploadTarget(engine, target);
+        if (target) void saveBugReportContextRef.current(target.id);
+        // Own the copy before its first chunk, so another tab never sees it
+        // as abandoned.
+        await holdLocalCopy(id);
+      }
       await engine.start();
       trackEvent("app.first_action", {
         action: "recording_start",
@@ -2390,7 +2431,9 @@ export default function RecordRoute() {
       showRecordingErrorToast(message);
     }
   }, [
+    applyUploadTarget,
     extensionCapture,
+    holdLocalCopy,
     recordingMode,
     resolvedDisplaySurface,
     showRecordingErrorToast,

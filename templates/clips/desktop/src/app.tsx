@@ -139,6 +139,7 @@ import {
   RecordFirstFileMissingError,
   recordFirstFilesKey,
   recordFirstFilesToQueue,
+  stagedIdAfterFailure,
   transferRecordFirstFiles,
   type RecordFirstFile,
   type VideoStorageStatus,
@@ -3377,9 +3378,16 @@ export function App({
             file,
           });
         } catch (err) {
-          // One bad file never blocks the rest of the queue. A failed
-          // handoff was cleaned up, so the next try starts a fresh one.
-          setEntry({ ...file, stagedRecordingId: undefined });
+          // One bad file never blocks the rest of the queue. The staged id is
+          // kept unless its row was cleaned up: after an ambiguous failure
+          // (a create cut off mid-flight) the retry must reuse that row.
+          setEntry({
+            ...file,
+            stagedRecordingId: stagedIdAfterFailure(
+              file.stagedRecordingId,
+              err,
+            ),
+          });
           const message = err instanceof Error ? err.message : String(err);
           setRecordFirstFileErrors((errors) => ({
             ...errors,

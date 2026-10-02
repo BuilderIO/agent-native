@@ -64,6 +64,28 @@ export class RecordFirstFileMissingError extends Error {
   }
 }
 
+/**
+ * The handoff's server row was cleaned up (trashed after a failed staging,
+ * or found already failed), so its id must not be reused. Any other failure
+ * is ambiguous (the row may exist), and retrying with the same id reuses it.
+ */
+export class RecordFirstHandoffResetError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RecordFirstHandoffResetError";
+  }
+}
+
+/** The staged id a list entry keeps after a failed handoff. */
+export function stagedIdAfterFailure(
+  stagedRecordingId: string | undefined,
+  error: unknown,
+): string | undefined {
+  return error instanceof RecordFirstHandoffResetError
+    ? undefined
+    : stagedRecordingId;
+}
+
 /** The file may still be there but cannot be read now; it stays queued. */
 export class RecordFirstFileUnreadableError extends Error {
   constructor(cause: unknown) {

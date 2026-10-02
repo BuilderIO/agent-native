@@ -33,6 +33,7 @@ import {
 import { reconcileProcessingBackup } from "./processing-backup-recovery";
 import {
   classifyRecordFirstOpenFailure,
+  RecordFirstHandoffResetError,
   stageRecordFirstFile,
   type RecordFirstFile,
 } from "./record-first";
@@ -1378,7 +1379,12 @@ export async function queueRecordFirstUpload(input: {
     // Uploaded from its staged copy before the crash: nothing left to hand off.
     if (existing === "ready" || existing === "processing") return null;
     if (existing !== null && existing !== "uploading") {
-      throw new Error(`The earlier upload of this file is ${existing}.`);
+      // A failed earlier attempt (its create was cut off, then aborted) is
+      // removed, so the next try starts a new row instead of reusing it.
+      await trashRecording(input.serverUrl, recordingId, input.authToken);
+      throw new RecordFirstHandoffResetError(
+        "The earlier upload of this file stopped. Upload now starts it again.",
+      );
     }
     if (existing === null) {
       await createServerRecording(
@@ -1431,7 +1437,9 @@ export async function queueRecordFirstUpload(input: {
         input.authToken,
       );
       await trashRecording(input.serverUrl, recordingId, input.authToken);
-      throw err;
+      throw new RecordFirstHandoffResetError(
+        err instanceof Error ? err.message : String(err),
+      );
     }
   } finally {
     await handle.close().catch((err) => {
