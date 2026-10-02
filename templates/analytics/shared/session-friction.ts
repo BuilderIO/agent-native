@@ -38,6 +38,26 @@ export type ReplayFrictionSignal = (typeof REPLAY_FRICTION_SIGNALS)[number];
 export type EventFrictionSignal = (typeof EVENT_FRICTION_SIGNALS)[number];
 export type SessionFrictionSignal = (typeof SESSION_FRICTION_SIGNALS)[number];
 
+/**
+ * Event signals a session's client must report completely, which it declares
+ * with the `agent_signals` pageview marker. Without it they are unmeasured.
+ */
+export const AGENT_REPORTED_FRICTION_SIGNALS = [
+  "thumbs_down",
+  "cancelled_runs",
+] as const satisfies readonly EventFrictionSignal[];
+
+export type AgentReportedFrictionSignal =
+  (typeof AGENT_REPORTED_FRICTION_SIGNALS)[number];
+
+export function isAgentReportedFrictionSignal(
+  signal: string,
+): signal is AgentReportedFrictionSignal {
+  return (AGENT_REPORTED_FRICTION_SIGNALS as readonly string[]).includes(
+    signal,
+  );
+}
+
 /** The score also weighs the error and rage-click counts every row shows. */
 export type ScoredFrictionInput =
   | SessionFrictionSignal
@@ -178,7 +198,8 @@ export interface SessionTroubleGroup {
 export interface SessionErrorIssueLink {
   id: string;
   title: string;
-  count: number;
+  /** Null when the recording's occurrences of the issue are no longer kept. */
+  count: number | null;
 }
 
 export interface SessionFriction {
@@ -186,10 +207,18 @@ export interface SessionFriction {
   score: number | null;
   /** Null when the recording's replay was not measured from its start. */
   replay: Record<ReplayFrictionSignal, number> | null;
-  /** Null when the session's events were not measured completely. */
-  events: Record<EventFrictionSignal, number> | null;
+  /**
+   * Null when the session's events were not measured completely. Thumbs-down
+   * and cancelled runs are null on their own when the session's client does
+   * not report them.
+   */
+  events: Record<EventFrictionSignal, number | null> | null;
   topSignals: SessionFrictionSignalCount[];
   troubles: SessionTroubleGroup[];
-  /** Null when the issue lookup did not run or could not cover this row. */
+  /**
+   * Null when the issue links are unknown: the lookup did not run, its read
+   * was truncated, or the recording has errors no stored issue links to.
+   * An empty list means the recording has no issues.
+   */
   errorIssues: SessionErrorIssueLink[] | null;
 }

@@ -14,6 +14,8 @@ import { cn } from "@/lib/utils";
 
 import {
   type AgentTroubleCause,
+  REPLAY_FRICTION_SIGNALS,
+  type ReplayFrictionSignal,
   type ScoredFrictionInput,
   SESSION_FRICTION_SIGNALS,
   type SessionFriction,
@@ -23,6 +25,12 @@ import {
 import { issueDetailPath } from "./SessionDevToolsPanel";
 
 type T = ReturnType<typeof useT>;
+
+function isReplayFrictionSignal(
+  signal: SessionFrictionSignal,
+): signal is ReplayFrictionSignal {
+  return (REPLAY_FRICTION_SIGNALS as readonly string[]).includes(signal);
+}
 
 export function frictionSignalLabel(signal: ScoredFrictionInput, t: T): string {
   switch (signal) {
@@ -140,17 +148,42 @@ export function SessionFrictionFilter({
   );
 }
 
-/** A row's top friction signals, its trouble groups, and its error issues. */
+function signalMeasured(
+  friction: SessionFriction,
+  signal: SessionFrictionSignal,
+): boolean {
+  if (isReplayFrictionSignal(signal)) return friction.replay !== null;
+  return friction.events !== null && friction.events[signal] !== null;
+}
+
+/**
+ * A row's top friction signals, its trouble groups, and its error issues.
+ * When the list is sorted by one signal, a row that never measured it says
+ * so rather than passing for zero.
+ */
 export function SessionFrictionStrip({
   friction,
+  sortSignal,
 }: {
   friction: SessionFriction | undefined;
+  sortSignal?: SessionFrictionSignal;
 }) {
   const t = useT();
   if (!friction) return null;
-  const issues = friction.errorIssues ?? [];
+  const issues = friction.errorIssues;
   const measured = friction.replay !== null || friction.events !== null;
-  if (measured && !friction.topSignals.length && !issues.length) return null;
+  const unmeasuredSortSignal =
+    measured && sortSignal && !signalMeasured(friction, sortSignal)
+      ? sortSignal
+      : null;
+  if (
+    measured &&
+    !friction.topSignals.length &&
+    issues?.length === 0 &&
+    !unmeasuredSortSignal
+  ) {
+    return null;
+  }
   return (
     <div className="flex flex-wrap items-center gap-1.5 px-4 pb-3 text-xs">
       {measured ? (
@@ -175,23 +208,36 @@ export function SessionFrictionStrip({
               {troubleLabel(group, t)}
             </Badge>
           ))}
+          {unmeasuredSortSignal ? (
+            <span className="text-muted-foreground">
+              {t("sessions.signalNotMeasured", {
+                label: frictionSignalLabel(unmeasuredSortSignal, t),
+              })}
+            </span>
+          ) : null}
         </>
       ) : (
         <span className="text-muted-foreground">
           {t("sessions.frictionNotMeasured")}
         </span>
       )}
-      {issues.map((issue) => (
-        <Link
-          key={issue.id}
-          to={issueDetailPath(issue.id)}
-          className="inline-flex max-w-64 items-center gap-1 text-destructive hover:underline"
-          aria-label={t("sessions.openErrorIssue", { title: issue.title })}
-        >
-          <IconBug className="size-3.5 shrink-0" />
-          <span className="truncate">{issue.title}</span>
-        </Link>
-      ))}
+      {issues === null ? (
+        <span className="text-muted-foreground">
+          {t("sessions.issueLinksUnavailable")}
+        </span>
+      ) : (
+        issues.map((issue) => (
+          <Link
+            key={issue.id}
+            to={issueDetailPath(issue.id)}
+            className="inline-flex max-w-64 items-center gap-1 text-destructive hover:underline"
+            aria-label={t("sessions.openErrorIssue", { title: issue.title })}
+          >
+            <IconBug className="size-3.5 shrink-0" />
+            <span className="truncate">{issue.title}</span>
+          </Link>
+        ))
+      )}
     </div>
   );
 }

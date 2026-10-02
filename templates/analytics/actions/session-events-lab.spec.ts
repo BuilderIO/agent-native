@@ -73,6 +73,7 @@ describe("Sessions triage Lab guard on event actions", () => {
   beforeEach(() => {
     labEnabled.value = false;
     getUserLabEnabled.mockClear();
+    listSessionRecordings.mockClear();
     listSessionRecordingsPage.mockClear();
     getSessionFrictionDetails.mockClear();
   });
@@ -134,6 +135,36 @@ describe("Sessions triage Lab guard on event actions", () => {
     }
     expect(listSessionRecordingsPage).not.toHaveBeenCalled();
     expect(getSessionFrictionDetails).not.toHaveBeenCalled();
+  });
+
+  it("names what the Lab gates in its 403", async () => {
+    await expect(
+      listRecordings.run({ paginated: true, sort: "friction" } as never),
+    ).rejects.toThrow(
+      "Session friction is part of the Sessions triage Lab. Turn it on in Settings > Labs.",
+    );
+    await expect(
+      listRecordings.run({
+        paginated: true,
+        didEvents: ["clip_viewed"],
+        includeFriction: true,
+      } as never),
+    ).rejects.toThrow("Session events and friction are part of");
+  });
+
+  it("answers a friction filter with the paginated shape, so coverage can travel with it", async () => {
+    labEnabled.value = true;
+    listSessionRecordingsPage.mockResolvedValueOnce({
+      recordings: [],
+      total: 0,
+      appCounts: [],
+      frictionCoverageStartedAt: null,
+    } as never);
+    const result = await listRecordings.run({
+      frictionSignals: ["dead_clicks"],
+    } as never);
+    expect(listSessionRecordings).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ frictionCoverageStartedAt: null });
   });
 
   it("keeps the plain sorts working with the Lab off", async () => {

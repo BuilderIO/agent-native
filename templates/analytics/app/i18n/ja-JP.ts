@@ -1293,6 +1293,11 @@ export default {
     frictionFiltersActive: "フリクション ({{count}})",
     sortFriction: "フリクションが多い順",
     frictionNotMeasured: "フリクション未計測",
+    signalNotMeasured: "{{label}}は未計測",
+    issueLinksUnavailable: "問題へのリンクは利用できません",
+    frictionCoverageSince:
+      "フリクションは {{date}} 以降のセッションが対象です。",
+    frictionCoverageNone: "フリクションを計測したセッションはまだありません。",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:
       "このリンクはフリクションで絞り込みまたは並べ替えをしています。適用するには、設定で「セッションの絞り込み」Lab をオンにしてください。",

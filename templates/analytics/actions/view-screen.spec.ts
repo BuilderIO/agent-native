@@ -546,6 +546,32 @@ describe("view-screen Sessions context", () => {
     });
   });
 
+  it("carries friction coverage so an empty friction match is not read as zero", async () => {
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
+    listSessionRecordingsPage.mockResolvedValueOnce({
+      recordings: [],
+      total: 0,
+      appCounts: [],
+      frictionCoverageStartedAt: null,
+    } as never);
+    setScreen(
+      { view: "sessions" },
+      {
+        pathname: "/sessions",
+        search: "?signal=dead_clicks",
+        searchParams: { signal: "dead_clicks" },
+      },
+    );
+    const friction = await runScreen();
+    expect(friction.sessionReplayPage.frictionCoverageStartedAt).toBeNull();
+
+    setScreen({ view: "sessions" }, { pathname: "/sessions" });
+    const plain = await runScreen();
+    expect(plain.sessionReplayPage).not.toHaveProperty(
+      "frictionCoverageStartedAt",
+    );
+  });
+
   it("keeps an unsafe page out of the backend offset and context", async () => {
     setScreen(
       { view: "sessions" },
