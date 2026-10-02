@@ -2116,7 +2116,7 @@ export function createAgentNativeAgentKitTransport(
         "cancelled",
         "errored",
         "aborted",
-      ].includes(status.status ?? "")
+      ].includes(String(status.status ?? ""))
     );
   }
 
