@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  crossScreenSKeyHeldFromTimes,
   crossScreenSKeyTimesAfterKeyChange,
   crossScreenReleaseModifiers,
+  isCrossScreenModifierFromActiveSourceIframe,
   isCrossScreenIgnoreAutoLayoutHeldAtRelease,
   mergeCrossScreenReleaseModifiers,
   seedCrossScreenSKeyTimesAtStart,
@@ -69,9 +71,69 @@ describe("cross-screen Ignore Auto Layout release timing", () => {
 
     const released = crossScreenSKeyTimesAfterKeyChange(started, false, 130);
     expect(released).toEqual({ downAt: 100, upAt: 130 });
+    expect(crossScreenSKeyHeldFromTimes(started)).toBe(true);
+    expect(crossScreenSKeyHeldFromTimes(released)).toBe(false);
     expect(
       isCrossScreenIgnoreAutoLayoutHeldAtRelease(140, released, false),
     ).toBe(false);
+  });
+
+  it("accepts only modifier messages from the active source iframe", () => {
+    expect(
+      isCrossScreenModifierFromActiveSourceIframe(
+        "source-screen::bp-390",
+        "source-screen::bp-390",
+      ),
+    ).toBe(true);
+    expect(
+      isCrossScreenModifierFromActiveSourceIframe(
+        "source-screen::bp-390",
+        "source-screen",
+      ),
+    ).toBe(false);
+    expect(
+      isCrossScreenModifierFromActiveSourceIframe(
+        "source-screen::bp-390",
+        "source-screen::bp-768",
+      ),
+    ).toBe(false);
+    expect(
+      isCrossScreenModifierFromActiveSourceIframe(undefined, "source-screen"),
+    ).toBe(false);
+  });
+
+  it("ignores stale key transitions that arrive after a newer change", () => {
+    const released = crossScreenSKeyTimesAfterKeyChange(
+      crossScreenSKeyTimesAfterKeyChange(withoutTimes(), true, 120),
+      false,
+      140,
+    );
+    const stalePressed = crossScreenSKeyTimesAfterKeyChange(
+      released,
+      true,
+      130,
+    );
+    expect(stalePressed).toBe(released);
+    expect(crossScreenSKeyHeldFromTimes(stalePressed)).toBe(false);
+    expect(
+      isCrossScreenIgnoreAutoLayoutHeldAtRelease(150, released, true),
+    ).toBe(false);
+
+    const pressed = crossScreenSKeyTimesAfterKeyChange(
+      withoutTimes(),
+      true,
+      160,
+    );
+    const staleReleased = crossScreenSKeyTimesAfterKeyChange(
+      pressed,
+      false,
+      150,
+    );
+    expect(staleReleased).toBe(pressed);
+    expect(crossScreenSKeyHeldFromTimes(staleReleased)).toBe(true);
+    expect(
+      isCrossScreenIgnoreAutoLayoutHeldAtRelease(170, pressed, false),
+    ).toBe(true);
   });
 
   it("lets release modifiers override stale cached values in both directions", () => {
@@ -129,6 +191,19 @@ describe("cross-screen Ignore Auto Layout release timing", () => {
       ).toMatchObject({ ignoreAutoLayout, forceNestedAutoLayout });
     },
   );
+
+  it("requires Control without Command for Apple Ignore Auto Layout", () => {
+    expect(
+      crossScreenReleaseModifiers(
+        true,
+        { metaKey: false, ctrlKey: true },
+        false,
+      ),
+    ).toMatchObject({ ignoreAutoLayout: true, forceNestedAutoLayout: false });
+    expect(
+      crossScreenReleaseModifiers(true, { metaKey: true, ctrlKey: true }, true),
+    ).toMatchObject({ ignoreAutoLayout: false, forceNestedAutoLayout: false });
+  });
 
   it("leaves the non-Apple S-key state to the shared release timeline", () => {
     expect(

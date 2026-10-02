@@ -208,6 +208,43 @@ async function frameRectSnapshot(page: Page, id: string) {
     });
 }
 
+async function persistedNodeSnapshot(page: Page, html: string, id: string) {
+  return page.evaluate(
+    ({ html, id }) => {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+      const element = doc.querySelector<HTMLElement>(
+        `[data-agent-native-node-id="${CSS.escape(id)}"]`,
+      );
+      const parent = element?.parentElement;
+      return {
+        parentTag: parent?.tagName ?? null,
+        parentId: parent?.getAttribute("data-agent-native-node-id") ?? null,
+        index: parent ? Array.from(parent.children).indexOf(element!) : -1,
+        position: element?.style.position ?? "",
+        left: element?.style.left ?? "",
+        top: element?.style.top ?? "",
+      };
+    },
+    { html, id },
+  );
+}
+
+async function liveNodeSnapshot(page: Page, id: string) {
+  return preview(page)
+    .locator(`[data-agent-native-node-id="${id}"]`)
+    .evaluate((element) => {
+      const parent = element.parentElement;
+      return {
+        parentTag: parent?.tagName ?? null,
+        parentId: parent?.getAttribute("data-agent-native-node-id") ?? null,
+        index: parent ? Array.from(parent.children).indexOf(element) : -1,
+        position: element.style.position,
+        left: element.style.left,
+        top: element.style.top,
+      };
+    });
+}
+
 async function guideSnapshot(page: Page) {
   return preview(page)
     .locator("body")
@@ -532,6 +569,7 @@ test("G-5 held explicit-span grid drop uses a conservative line and preserves au
   const designId = await newDesign(page, GRID_EXPLICIT_ORACLE_FIXTURE);
   try {
     await openEditor(page, designId);
+    const originalPlacement = await liveNodeSnapshot(page, "explicit-source");
     await selectNode(page, "explicit-source");
     const e2 = (await node(page, "e2").boundingBox())!;
     await dragToHeldPoint(page, "explicit-source", {
@@ -603,6 +641,9 @@ test("G-5 held explicit-span grid drop uses a conservative line and preserves au
       .toEqual(["e1", "e2", "e3"]);
     const undoneHtml = await indexHtml(page, designId);
     expect(
+      await persistedNodeSnapshot(page, undoneHtml, "explicit-source"),
+    ).toEqual(originalPlacement);
+    expect(
       undoneHtml.indexOf('data-agent-native-node-id="explicit-source"'),
     ).toBeGreaterThanOrEqual(0);
     expect(
@@ -645,6 +686,7 @@ test("G-5 after-edge grid drop persists through undo, redo, and reload", async (
   const designId = await newDesign(page, GRID_EXPLICIT_ORACLE_FIXTURE);
   try {
     await openEditor(page, designId);
+    const originalPlacement = await liveNodeSnapshot(page, "explicit-source");
     await selectNode(page, "explicit-source");
     const e2 = (await node(page, "e2").boundingBox())!;
     await dragToHeldPoint(page, "explicit-source", {
@@ -684,6 +726,10 @@ test("G-5 after-edge grid drop persists through undo, redo, and reload", async (
         ),
       )
       .toEqual(["e1", "e2", "e3"]);
+    const undoneHtml = await indexHtml(page, designId);
+    expect(
+      await persistedNodeSnapshot(page, undoneHtml, "explicit-source"),
+    ).toEqual(originalPlacement);
 
     await page.keyboard.down(MOD);
     await page.keyboard.press("Shift+z");
@@ -695,15 +741,57 @@ test("G-5 after-edge grid drop persists through undo, redo, and reload", async (
         ),
       )
       .toEqual(["e1", "e2", "explicit-source", "e3"]);
+    const redoneHtml = await indexHtml(page, designId);
+    expect(persistedGridChildren(redoneHtml, "explicit-grid")).toEqual([
+      "e1",
+      "e2",
+      "explicit-source",
+      "e3",
+    ]);
     await openEditor(page, designId);
     const afterReload = await preview(page)
       .locator('[data-agent-native-node-id="explicit-source"]')
-      .evaluate((source) => ({
-        parent: source.parentElement?.getAttribute("data-agent-native-node-id"),
-      }));
+      .evaluate((source) => {
+        const doc = source.ownerDocument;
+        const e1 = doc.querySelector('[data-agent-native-node-id="e1"]');
+        const e2 = doc.querySelector('[data-agent-native-node-id="e2"]');
+        const grid = doc.querySelector(
+          '[data-agent-native-node-id="explicit-grid"]',
+        );
+        return {
+          parent: source.parentElement?.getAttribute(
+            "data-agent-native-node-id",
+          ),
+          position: getComputedStyle(source).position,
+          sourceLeft: source.getBoundingClientRect().left,
+          sourceTop: source.getBoundingClientRect().top,
+          e1Left: e1?.getBoundingClientRect().left,
+          e2Top: e2?.getBoundingClientRect().top,
+          e2Height: e2?.getBoundingClientRect().height,
+          rowGap: grid ? parseFloat(getComputedStyle(grid).rowGap) : NaN,
+        };
+      });
     expect(afterReload).toEqual({
       parent: "explicit-grid",
+      position: "static",
+      sourceLeft: expect.any(Number),
+      sourceTop: expect.any(Number),
+      e1Left: expect.any(Number),
+      e2Top: expect.any(Number),
+      e2Height: expect.any(Number),
+      rowGap: expect.any(Number),
     });
+    expect(Math.abs(afterReload.sourceLeft - afterReload.e1Left!)).toBeLessThan(
+      1,
+    );
+    expect(
+      Math.abs(
+        afterReload.sourceTop -
+          afterReload.e2Top! -
+          afterReload.e2Height! -
+          afterReload.rowGap!,
+      ),
+    ).toBeLessThan(1);
   } finally {
     await deleteDesign(page, designId);
   }

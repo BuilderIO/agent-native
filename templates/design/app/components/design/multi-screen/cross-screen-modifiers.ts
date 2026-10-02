@@ -3,6 +3,25 @@ export type CrossScreenSKeyTimes = {
   upAt: number | null;
 };
 
+export function isCrossScreenModifierFromActiveSourceIframe(
+  activeSourceIframeId: string | undefined,
+  senderIframeId: string | undefined,
+): boolean {
+  return (
+    activeSourceIframeId !== undefined &&
+    activeSourceIframeId === senderIframeId
+  );
+}
+
+export function crossScreenSKeyHeldFromTimes(
+  times: CrossScreenSKeyTimes,
+): boolean | null {
+  if (times.downAt === null && times.upAt === null) return null;
+  return (
+    times.downAt !== null && (times.upAt === null || times.downAt > times.upAt)
+  );
+}
+
 export type CrossScreenModifierState = {
   metaKey?: boolean;
   ctrlKey?: boolean;
@@ -40,6 +59,11 @@ export function crossScreenSKeyTimesAfterKeyChange(
   if (typeof changedAt !== "number" || !Number.isFinite(changedAt)) {
     return times;
   }
+  const latestChangeAt = Math.max(
+    times.downAt ?? Number.NEGATIVE_INFINITY,
+    times.upAt ?? Number.NEGATIVE_INFINITY,
+  );
+  if (changedAt < latestChangeAt) return times;
   return pressed
     ? { downAt: changedAt, upAt: null }
     : { ...times, upAt: changedAt };
@@ -52,10 +76,15 @@ export function crossScreenReleaseModifiers(
 ): CrossScreenModifierState {
   const metaKey = event.metaKey === true;
   const ctrlKey = event.ctrlKey === true;
+  const ignoreAutoLayoutAtRelease = isApplePlatform
+    ? ctrlKey && !metaKey
+    : ignoreAutoLayout;
   return {
     metaKey,
     ctrlKey,
-    ...(ignoreAutoLayout === undefined ? {} : { ignoreAutoLayout }),
+    ...(ignoreAutoLayoutAtRelease === undefined
+      ? {}
+      : { ignoreAutoLayout: ignoreAutoLayoutAtRelease }),
     forceNestedAutoLayout: isApplePlatform
       ? metaKey && !ctrlKey
       : ctrlKey && !metaKey,

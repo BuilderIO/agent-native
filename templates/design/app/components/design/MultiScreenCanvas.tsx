@@ -296,7 +296,9 @@ import {
 } from "./multi-screen/chrome-transitions";
 import {
   crossScreenReleaseModifiers,
+  crossScreenSKeyHeldFromTimes,
   crossScreenSKeyTimesAfterKeyChange,
+  isCrossScreenModifierFromActiveSourceIframe,
   isCrossScreenIgnoreAutoLayoutHeldAtRelease,
   mergeCrossScreenReleaseModifiers,
   seedCrossScreenSKeyTimesAtStart,
@@ -1215,6 +1217,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   const canvasMountedRef = useRef(true);
   const crossScreenPreviewTargetIdRef = useRef<string | null>(null);
   const crossScreenDragMsgRef = useRef<{
+    sourceScreenId: string;
+    sourceIframeId: string;
     selector: string;
     sourceId?: string;
     sourceDeleteRequestId?: string;
@@ -3396,22 +3400,37 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         : undefined;
       if (!sourcePreviewIframe) return;
       if (event.data.type === "agent-native:cross-screen-modifiers") {
-        if (!crossScreenDragMsgRef.current) return;
+        const current = crossScreenDragMsgRef.current;
+        const senderIframeId =
+          sourcePreviewIframe.getAttribute("data-screen-iframe-id") ??
+          boardFileId ??
+          undefined;
+        if (
+          !current ||
+          !isCrossScreenModifierFromActiveSourceIframe(
+            current.sourceIframeId,
+            senderIframeId,
+          )
+        ) {
+          return;
+        }
         const pressed = event.data.ignoreAutoLayout === true;
-        crossScreenSKeyTimesRef.current = crossScreenSKeyTimesAfterKeyChange(
+        const nextSKeyTimes = crossScreenSKeyTimesAfterKeyChange(
           crossScreenSKeyTimesRef.current,
           pressed,
           typeof event.data.changedAt === "number"
             ? event.data.changedAt
             : undefined,
         );
-        crossScreenIgnoreAutoLayoutRef.current = pressed;
-        const current = crossScreenDragMsgRef.current;
+        crossScreenSKeyTimesRef.current = nextSKeyTimes;
+        const ignoreAutoLayout =
+          crossScreenSKeyHeldFromTimes(nextSKeyTimes) ?? pressed;
+        crossScreenIgnoreAutoLayoutRef.current = ignoreAutoLayout;
         crossScreenDragMsgRef.current = {
           ...current,
           modifiers: {
             ...current.modifiers,
-            ignoreAutoLayout: pressed,
+            ignoreAutoLayout,
           },
         };
         return;
@@ -3592,6 +3611,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }
         crossScreenLastBoardPointRef.current = null;
         crossScreenDragMsgRef.current = {
+          sourceScreenId,
+          sourceIframeId: domScreenId ?? sourceScreenId,
           selector: msg.selector ?? "",
           sourceId: msg.sourceId,
           sourceDeleteRequestId: msg.sourceDeleteRequestId,
@@ -3684,11 +3705,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             payload,
             lastBoardPoint,
             releasedAt,
-            crossScreenReleaseModifiers(
-              applePlatform,
-              ev,
-              applePlatform ? ev.ctrlKey : undefined,
-            ),
+            crossScreenReleaseModifiers(applePlatform, ev),
           );
           sourcePreviewIframe.contentWindow?.postMessage(
             { type: "agent-native:cancel-active-drag", pressedAt: releasedAt },
@@ -3711,12 +3728,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           pressed: boolean,
           eventTimeStamp: number,
         ) => {
-          crossScreenIgnoreAutoLayoutRef.current = pressed;
-          crossScreenSKeyTimesRef.current = crossScreenSKeyTimesAfterKeyChange(
+          const nextSKeyTimes = crossScreenSKeyTimesAfterKeyChange(
             crossScreenSKeyTimesRef.current,
             pressed,
             eventEpochMilliseconds(eventTimeStamp),
           );
+          crossScreenSKeyTimesRef.current = nextSKeyTimes;
+          crossScreenIgnoreAutoLayoutRef.current =
+            crossScreenSKeyHeldFromTimes(nextSKeyTimes) ?? pressed;
         };
         const handleParentKeyDown = (ev: KeyboardEvent) => {
           if (isApplePlatform() && ev.key === "Control") {
@@ -3810,6 +3829,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         }
 
         crossScreenDragMsgRef.current = {
+          sourceScreenId:
+            crossScreenDragMsgRef.current?.sourceScreenId ?? sourceScreenId,
+          sourceIframeId:
+            crossScreenDragMsgRef.current?.sourceIframeId ??
+            domScreenId ??
+            sourceScreenId,
           selector: crossScreenDragMsgRef.current?.selector ?? selector ?? "",
           sourceId: crossScreenDragMsgRef.current
             ? crossScreenDragMsgRef.current.sourceId
@@ -4927,22 +4952,28 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     const hostUsesSForIgnoreAutoLayout = () => !isApplePlatform();
     const handleKeyDown = (event: KeyboardEvent) => {
       if (hostUsesSForIgnoreAutoLayout() && event.key.toLowerCase() === "s") {
-        crossScreenSKeyPressedRef.current = true;
-        crossScreenSKeyTimesRef.current = crossScreenSKeyTimesAfterKeyChange(
+        const nextSKeyTimes = crossScreenSKeyTimesAfterKeyChange(
           crossScreenSKeyTimesRef.current,
           true,
           eventEpochMilliseconds(event.timeStamp),
         );
+        crossScreenSKeyTimesRef.current = nextSKeyTimes;
+        const isPressed = crossScreenSKeyHeldFromTimes(nextSKeyTimes) ?? true;
+        crossScreenSKeyPressedRef.current = isPressed;
+        crossScreenIgnoreAutoLayoutRef.current = isPressed;
       }
     };
     const handleKeyUp = (event: KeyboardEvent) => {
       if (hostUsesSForIgnoreAutoLayout() && event.key.toLowerCase() === "s") {
-        crossScreenSKeyPressedRef.current = false;
-        crossScreenSKeyTimesRef.current = crossScreenSKeyTimesAfterKeyChange(
+        const nextSKeyTimes = crossScreenSKeyTimesAfterKeyChange(
           crossScreenSKeyTimesRef.current,
           false,
           eventEpochMilliseconds(event.timeStamp),
         );
+        crossScreenSKeyTimesRef.current = nextSKeyTimes;
+        const isPressed = crossScreenSKeyHeldFromTimes(nextSKeyTimes) ?? false;
+        crossScreenSKeyPressedRef.current = isPressed;
+        crossScreenIgnoreAutoLayoutRef.current = isPressed;
       }
     };
     const handleBlur = () => {
