@@ -188,9 +188,21 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "mcp_connect_tokens", column: "created_by" },
   { table: "mcp_oauth_codes", column: "owner_email", offboard: "delete" },
   {
+    table: "mcp_oauth_codes",
+    column: "issued_for_email",
+    emailChange: "retain",
+    offboard: "retain",
+  },
+  {
     table: "mcp_oauth_refresh_tokens",
     column: "owner_email",
     offboard: "revoke",
+  },
+  {
+    table: "mcp_oauth_refresh_tokens",
+    column: "issued_for_email",
+    emailChange: "retain",
+    offboard: "retain",
   },
   { table: "notifications", column: "owner", mode: "owner" },
   { table: "progress_runs", column: "owner", mode: "owner" },
@@ -926,6 +938,41 @@ async function rekeyPromotedEvalDatasetKeys(
   }
 }
 
+async function rekeyOAuthGrantOwners(
+  db: IdentityRekeyDb,
+  oldEmail: string,
+  newEmail: string,
+  counts: Record<string, number>,
+  dryRun: boolean,
+): Promise<Set<string>> {
+  const handled = new Set<string>();
+  for (const table of ["mcp_oauth_codes", "mcp_oauth_refresh_tokens"]) {
+    const available = await columns(db, table);
+    if (!available.has("owner_email") || !available.has("issued_for_email"))
+      continue;
+    const rows = await db.unsafe(
+      `SELECT owner_email, issued_for_email FROM ${quote(table)} WHERE LOWER(owner_email) = LOWER($1) FOR UPDATE`,
+      [oldEmail],
+    );
+    counts[`${table}.owner_email`] = rows.length;
+    counts[`${table}.issued_for_email`] = rows.filter(
+      (row) => row.issued_for_email === row.owner_email,
+    ).length;
+    handled.add(`${table}.owner_email`);
+    handled.add(`${table}.issued_for_email`);
+    if (dryRun || !rows.length) continue;
+    // Invalid or legacy bindings must not become valid merely because the
+    // renamed owner happens to match the stored issuance address.
+    const updated = await db.unsafe(
+      `UPDATE ${quote(table)} SET issued_for_email = CASE WHEN issued_for_email = owner_email THEN $2 ELSE NULL END, owner_email = $2 WHERE LOWER(owner_email) = LOWER($1) RETURNING owner_email`,
+      [oldEmail, newEmail],
+    );
+    if (updated.length !== rows.length)
+      throw new Error("OAuth grant ownership changed during email rekey.");
+  }
+  return handled;
+}
+
 /** Run inside the caller's PostgreSQL transaction. It deliberately refuses credential and derived-key stores it cannot safely rewrite. */
 export async function rekeyIdentity(
   db: IdentityRekeyDb,
@@ -990,8 +1037,20 @@ export async function rekeyIdentity(
   const counts: Record<string, number> = {};
   let oauthRevokedCount = 0;
   counts["user.email"] = 1;
+  const handledGrantOwners = await rekeyOAuthGrantOwners(
+    db,
+    oldEmail,
+    newEmail,
+    counts,
+    options.dryRun === true,
+  );
   for (const entry of identityColumns) {
-    if (entry.table === "user" || entry.emailChange === "retain") continue;
+    if (
+      entry.table === "user" ||
+      entry.emailChange === "retain" ||
+      handledGrantOwners.has(`${entry.table}.${entry.column}`)
+    )
+      continue;
     if (entry.mode === "unsupported-oauth") {
       const oauthColumns = await columns(db, "oauth_tokens");
       if (!oauthColumns.size) continue;

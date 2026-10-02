@@ -4,6 +4,7 @@ vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getMethod: () => "POST",
   getRequestHeader: () => undefined,
+  getHeader: () => undefined,
   setResponseHeader: vi.fn(),
   setResponseStatus: vi.fn(),
 }));

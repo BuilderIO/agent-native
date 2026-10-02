@@ -181,6 +181,10 @@ async function seedEveryRegisteredIdentityColumn(
         ["id", `${table}-fixture-${rowNumber++}`],
         [entry.column, oldEmail],
       ]);
+      if (table === "mcp_oauth_codes" || table === "mcp_oauth_refresh_tokens") {
+        values.set("owner_email", oldEmail);
+        values.set("issued_for_email", oldEmail);
+      }
       if (entry.mode === "user-share") {
         values.set("principal_type", "user");
         values.set("resource_id", `${table}-resource-${rowNumber}`);
@@ -225,6 +229,17 @@ async function seedEveryRegisteredIdentityColumn(
 }
 
 describe("IDENTITY_REKEY_COLUMNS offboard policy", () => {
+  it("retains OAuth issuance identity on offboarding while permitting email rekey", () => {
+    for (const table of ["mcp_oauth_codes", "mcp_oauth_refresh_tokens"]) {
+      expect(
+        IDENTITY_REKEY_COLUMNS.find(
+          (entry) =>
+            entry.table === table && entry.column === "issued_for_email",
+        ),
+      ).toMatchObject({ offboard: "retain" });
+    }
+  });
+
   it("never hands framework MCP credentials to the successor", () => {
     const policy = (table: string) =>
       IDENTITY_REKEY_COLUMNS.find(
@@ -240,6 +255,56 @@ describe("IDENTITY_REKEY_COLUMNS offboard policy", () => {
 });
 
 describe("rekeyIdentity", () => {
+  it("rekeys valid OAuth owner bindings atomically without admitting legacy or mismatched grants", async () => {
+    const pg = await createTestPglite();
+    try {
+      await seed(pg);
+      for (const table of ["mcp_oauth_codes", "mcp_oauth_refresh_tokens"]) {
+        await pg.exec(`CREATE TABLE ${table} (id TEXT PRIMARY KEY, owner_email TEXT, issued_for_email TEXT);
+          INSERT INTO ${table} VALUES
+            ('valid', 'old@example.test', 'old@example.test'),
+            ('legacy', 'old@example.test', NULL),
+            ('mismatch', 'old@example.test', 'new@example.test'),
+            ('other-mismatch', 'new@example.test', 'old@example.test');`);
+      }
+      await pg.db.transaction((tx) =>
+        rekeyIdentity(dbAdapter(tx), "old@example.test", "new@example.test"),
+      );
+      for (const table of ["mcp_oauth_codes", "mcp_oauth_refresh_tokens"]) {
+        expect(
+          await pg
+            .prepare(
+              `SELECT id, owner_email, issued_for_email FROM ${table} ORDER BY id`,
+            )
+            .all(),
+        ).toEqual([
+          {
+            id: "legacy",
+            owner_email: "new@example.test",
+            issued_for_email: null,
+          },
+          {
+            id: "mismatch",
+            owner_email: "new@example.test",
+            issued_for_email: null,
+          },
+          {
+            id: "other-mismatch",
+            owner_email: "new@example.test",
+            issued_for_email: "old@example.test",
+          },
+          {
+            id: "valid",
+            owner_email: "new@example.test",
+            issued_for_email: "new@example.test",
+          },
+        ]);
+      }
+    } finally {
+      await pg.close();
+    }
+  });
+
   it("moves every registered identity column, including denormalized secret scopes", async () => {
     const pg = await createTestPglite();
     try {

@@ -348,6 +348,10 @@ describe("offboardMember", () => {
         ('connect-already-revoked', 'old@example.test', 'org-1', 'personal', NULL, 42),
         ('connect-org-2', 'old@example.test', 'org-2', 'personal', NULL, NULL),
         ('service-token', 'svc-ci@service.org-1', 'org-1', 'service', 'old@example.test', NULL);
+      ALTER TABLE mcp_oauth_refresh_tokens ADD COLUMN issued_for_email TEXT;
+      UPDATE mcp_oauth_refresh_tokens SET issued_for_email = owner_email;
+      ALTER TABLE mcp_oauth_codes ADD COLUMN issued_for_email TEXT;
+      UPDATE mcp_oauth_codes SET issued_for_email = owner_email;
     `);
 
     const result = await offboardMember(dbExec(pglite), "old@example.test", {
@@ -372,6 +376,13 @@ describe("offboardMember", () => {
       Number(row?.revoked_at) > 0;
 
     const refresh = await rows("mcp_oauth_refresh_tokens");
+    expect(
+      await pglite
+        .prepare(
+          "SELECT issued_for_email FROM mcp_oauth_refresh_tokens WHERE id = 'refresh-org-1'",
+        )
+        .get(),
+    ).toEqual({ issued_for_email: "old@example.test" });
     expect(refresh.map((row) => row.owner_email)).not.toContain(
       "new@example.test",
     );
