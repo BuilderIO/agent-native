@@ -2277,6 +2277,28 @@ describe("database item preview", () => {
     expect(fitDatabaseNavigationState(fitted)).toBe(fitted);
   });
 
+  it("drops every row but keeps the view's settings when the settings alone pass the budget", () => {
+    const filters = Array.from({ length: 20 }, (_, index) => ({
+      id: `filter-${index}`,
+      propertyId: "notes",
+      operator: "contains",
+      value: "a long filter value ".repeat(5),
+    }));
+    const state = {
+      databaseActiveFilters: filters,
+      databaseVisibleItems: [{ itemId: "row-0" }, { itemId: "row-1" }],
+      databaseSelectedItems: [{ itemId: "row-0" }],
+      databaseVisibleItemLimit: DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
+    };
+
+    const fitted = fitDatabaseNavigationState(state, 512);
+
+    expect(fitted.databaseVisibleItems).toEqual([]);
+    expect(fitted.databaseSelectedItems).toEqual([]);
+    expect(fitted.databaseVisibleItemLimit).toBe(0);
+    expect(fitted.databaseActiveFilters).toBe(filters);
+  });
+
   it("omits preview row ids from navigation state when no row is open", () => {
     expect(
       databaseNavigationState({

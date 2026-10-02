@@ -88,7 +88,10 @@ function jsonByteLength(value: unknown) {
 /**
  * Keep the largest row prefix whose state fits the byte budget, and report
  * the applied cap in `databaseVisibleItemLimit` so a trimmed summary is never
- * mistaken for the whole visible slice.
+ * mistaken for the whole visible slice. Rows are the only part that grows
+ * with the collection. The view's own settings stay whole even when they
+ * alone pass the budget: dropping a sort or filter would describe a
+ * different view to the agent.
  */
 export function fitDatabaseNavigationState<
   State extends {
