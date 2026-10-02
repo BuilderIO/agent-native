@@ -155,10 +155,6 @@ test.describe("[content-convergence] two tabs on one beta page", () => {
     await runOnBeta("agent-edit", browser, testInfo, async (s) => {
       const first = await s.tabs.open("A", s.id);
       const second = await s.tabs.open("B", s.id);
-      // Minting an MCP token every six hours would pile up connections on the
-      // test account, so beta's agent edit is the same action over HTTP.
-      const agent = AgentClient.http(s.reader);
-      s.notes.agentTransport = agent.transport;
 
       await s.tabs.showOnly(first);
       await typeAtParagraphEnd(
@@ -169,7 +165,10 @@ test.describe("[content-convergence] two tabs on one beta page", () => {
       await s.tabs.waitForSaveAnswers(first, 1);
 
       const fromAgent = s.markers.next("Agent");
-      await agent.edit(
+      // The connection's token is revoked right after the edit, so the 6 h
+      // schedule leaves no live MCP tokens on the test account.
+      s.notes.agentIdentity = await AgentClient.editOnce(
+        s.reader,
         s.id,
         "Delta paragraph stays untouched.",
         `Delta paragraph edited by the agent ${fromAgent}.`,

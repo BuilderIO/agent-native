@@ -624,38 +624,44 @@ export function countMarkers(
   );
 }
 
-export type AgentTransport = "mcp" | "http";
+const MCP_TOKENS_PATH = "/_agent-native/mcp/connect/tokens";
+
+async function activeMcpTokenIds(page: Page): Promise<Set<string>> {
+  const response = await page.request.get(MCP_TOKENS_PATH);
+  const text = await response.text();
+  expect(response.ok(), `MCP token list (${response.status()}): ${text}`).toBe(
+    true,
+  );
+  const { tokens } = JSON.parse(text) as {
+    tokens: Array<{ id: string; revokedAt: number | null }>;
+  };
+  return new Set(tokens.filter((t) => !t.revokedAt).map((t) => t.id));
+}
 
 /**
- * An external agent's revisioned edit. MCP is the real transport; the HTTP
- * action call is recorded by the server as caller "http", not "mcp", so a
- * scenario that falls back to it says so in its record.
+ * An external agent's revisioned edit over MCP, connected through the same
+ * device flow a real connector uses. `edit-document` has no HTTP action
+ * route, so MCP (or A2A) is the only way an agent reaches it.
  */
 export class AgentClient {
   private constructor(
     private readonly page: Page,
-    readonly transport: AgentTransport,
-    private readonly connectorHeaders: Record<string, string> = {},
+    private readonly connectorHeaders: Record<string, string>,
+    private readonly tokenId: string | null,
   ) {}
 
   /** How the server identified the agent: a minted token, or loopback dev-open. */
-  get identity(): "token" | "owner-email" | "session" {
-    if (this.connectorHeaders.Authorization) return "token";
-    if (this.connectorHeaders["X-Agent-Native-Owner-Email"])
-      return "owner-email";
-    return "session";
-  }
-
-  static http(page: Page): AgentClient {
-    return new AgentClient(page, "http");
+  get identity(): "token" | "owner-email" {
+    return this.connectorHeaders.Authorization ? "token" : "owner-email";
   }
 
   static async connect(page: Page): Promise<AgentClient> {
+    const before = await activeMcpTokenIds(page);
     const start = await page.request.post(
       "/_agent-native/mcp/connect/device/start",
       { data: {} },
     );
-    if (!start.ok()) return new AgentClient(page, "http");
+    expect(start.ok(), `MCP device start: ${await start.text()}`).toBe(true);
     const { device_code, user_code } = (await start.json()) as {
       device_code: string;
       user_code: string;
@@ -683,46 +689,51 @@ export class AgentClient {
     expect(Object.keys(headers), "MCP connector identity headers").not.toEqual(
       [],
     );
-    return new AgentClient(page, "mcp", headers);
+    if (!headers.Authorization) return new AgentClient(page, headers, null);
+    // The token list names rows, not tokens; the one new row is this one.
+    const minted = [...(await activeMcpTokenIds(page))].filter(
+      (id) => !before.has(id),
+    );
+    expect(
+      minted,
+      "exactly one MCP token minted by this connection",
+    ).toHaveLength(1);
+    return new AgentClient(page, headers, minted[0]);
+  }
+
+  /** Connect, apply one edit, and revoke the connection even if the edit fails. */
+  static async editOnce(
+    page: Page,
+    id: string,
+    find: string,
+    replace: string,
+  ): Promise<AgentClient["identity"]> {
+    const agent = await AgentClient.connect(page);
+    try {
+      await agent.edit(id, find, replace);
+    } finally {
+      await agent.disconnect();
+    }
+    return agent.identity;
+  }
+
+  /** Revoke the token this connection minted, so scheduled runs leave none behind. */
+  async disconnect(): Promise<void> {
+    if (!this.tokenId) return;
+    const response = await this.page.request.post(`${MCP_TOKENS_PATH}/revoke`, {
+      data: { id: this.tokenId },
+    });
+    const text = await response.text();
+    expect(response.ok(), `MCP token revoke: ${text}`).toBe(true);
+    expect(
+      (await activeMcpTokenIds(this.page)).has(this.tokenId),
+      "the MCP token is still active after revoke",
+    ).toBe(false);
   }
 
   /** Apply one find/replace and fail unless the server reports it applied. */
   async edit(id: string, find: string, replace: string): Promise<void> {
     const { revision } = await getDocument(this.page, id);
-    const args = {
-      id,
-      baseRevision: revision,
-      idempotencyKey: `${id}-${find}-${Date.now()}`,
-      edits: [{ find, replace }],
-    };
-    const receipt =
-      this.transport === "http"
-        ? await this.editOverHttp(args)
-        : await this.editOverMcp(args);
-    expect(
-      receipt.applied,
-      `edit-document applied ${receipt.applied} of ${receipt.total}: ${JSON.stringify(receipt)}`,
-    ).toBe(receipt.total);
-  }
-
-  private async editOverHttp(
-    args: Record<string, unknown>,
-  ): Promise<{ applied?: number; total?: number }> {
-    const response = await this.page.request.post(
-      "/_agent-native/actions/edit-document",
-      {
-        data: args,
-        headers: { "X-Agent-Native-CSRF": "1" },
-      },
-    );
-    const text = await response.text();
-    expect(response.ok(), `edit-document over HTTP: ${text}`).toBe(true);
-    return JSON.parse(text);
-  }
-
-  private async editOverMcp(
-    args: Record<string, unknown>,
-  ): Promise<{ applied?: number; total?: number }> {
     const response = await this.page.request.post("/_agent-native/mcp", {
       headers: {
         ...this.connectorHeaders,
@@ -737,7 +748,12 @@ export class AgentClient {
         method: "tools/call",
         params: {
           name: "edit-document",
-          arguments: args,
+          arguments: {
+            id,
+            baseRevision: revision,
+            idempotencyKey: `${id}-${find}-${Date.now()}`,
+            edits: [{ find, replace }],
+          },
           _meta: {
             "io.modelcontextprotocol/protocolVersion": "2026-07-28",
             "io.modelcontextprotocol/clientInfo": {
@@ -767,7 +783,11 @@ export class AgentClient {
     expect(typeof text, `edit-document over MCP returned no text: ${raw}`).toBe(
       "string",
     );
-    return JSON.parse(text);
+    const receipt = JSON.parse(text) as { applied?: number; total?: number };
+    expect(
+      receipt.applied,
+      `edit-document applied ${receipt.applied} of ${receipt.total}: ${text}`,
+    ).toBe(receipt.total);
   }
 }
 

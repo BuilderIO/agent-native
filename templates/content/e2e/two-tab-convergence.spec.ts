@@ -428,9 +428,6 @@ test.describe("two tabs editing one page at beta cadence", () => {
   }, testInfo) => {
     await runScenario("agent-edit", testInfo, context, async (s) => {
       const { first, second } = await openPair(s);
-      const agent = await AgentClient.connect(s.reader);
-      s.notes.agentTransport = agent.transport;
-      s.notes.agentIdentity = agent.identity;
 
       await s.tabs.showOnly(first);
       await typeAtParagraphEnd(
@@ -441,7 +438,8 @@ test.describe("two tabs editing one page at beta cadence", () => {
       await s.tabs.waitForSaveAnswers(first, 1);
 
       const fromAgent = s.markers.next("Agent");
-      await agent.edit(
+      s.notes.agentIdentity = await AgentClient.editOnce(
+        s.reader,
         s.id,
         "Delta paragraph stays untouched.",
         `Delta paragraph edited by the agent ${fromAgent}.`,
