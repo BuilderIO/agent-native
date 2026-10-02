@@ -556,7 +556,12 @@ async function createAndUpload(
       { signal },
     )) as typeof created;
   } catch (error) {
-    if (isAbortError(error)) throw error;
+    if (isAbortError(error)) {
+      // The server may have inserted the row before the request was cut off;
+      // trashing a row that was never inserted is a harmless no-op.
+      void trashStaleServerRecordings([serverId]);
+      throw error;
+    }
     const details = errorDetails(error);
     throw new LocalRecordingUploadError(
       classifyLocalUploadFailure(details),

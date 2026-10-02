@@ -282,6 +282,25 @@ describe("retryRecordingUploadFromBackup", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("leaves a copy whose end never arrived to the recovery prompt", async () => {
+    vi.mocked(getRecordingBackupMeta).mockResolvedValue({
+      ...meta,
+      incomplete: true,
+    });
+    vi.mocked(getRecordingBackupChunks).mockResolvedValue([
+      backupChunk(0, "a"),
+      backupChunk(1, "b"),
+    ]);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(retryRecordingUploadFromBackup("rec-1")).rejects.toThrow(
+      /backup is incomplete/,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(deleteRecordingBackup).not.toHaveBeenCalled();
+  });
+
   it("rejects a non-contiguous backup before resetting the server", async () => {
     vi.mocked(getRecordingBackupMeta).mockResolvedValue(meta);
     vi.mocked(getRecordingBackupChunks).mockResolvedValue([

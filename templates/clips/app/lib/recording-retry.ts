@@ -57,7 +57,9 @@ async function replayLocalCopy(
       "This clip's recorded data isn't saved in this browser, so it can only be retried from the device it was recorded on.",
     );
   }
-  if (!isCompleteRecordingBackup(meta, chunks)) {
+  // A copy whose end never arrived is finished from the recovery prompt,
+  // which uploads it with a partial warning and keeps the copy.
+  if (meta.incomplete || !isCompleteRecordingBackup(meta, chunks)) {
     throw new Error(
       "This browser's local recording backup is incomplete and can't be safely retried.",
     );
@@ -201,12 +203,7 @@ async function replayLocalCopy(
     },
     { bytes: meta.bytes, durationMs: meta.durationMs },
   );
-  if (
-    status === "ready" &&
-    mayDelete &&
-    !meta.incomplete &&
-    proof === "verified"
-  ) {
+  if (status === "ready" && mayDelete && proof === "verified") {
     await deleteRecordingBackup(recordingId).catch((err: unknown) => {
       // coercion-ok: the clip is saved; a leftover copy is reconciled by the next scan.
       console.warn("[clips] deleting the retried local copy failed:", err);

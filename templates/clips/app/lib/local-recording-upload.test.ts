@@ -417,6 +417,26 @@ describe("uploadLocalRecording", () => {
     );
   });
 
+  it("trashes the row a cancelled create may already have inserted", async () => {
+    mocks.readRecoverableRecordingBackup.mockResolvedValue(copy());
+    mocks.callAction.mockImplementation(async (name: string) => {
+      if (name === "create-recording") {
+        throw new DOMException("The user aborted a request.", "AbortError");
+      }
+      return {};
+    });
+
+    await expect(uploadLocalRecording("local-1", ME)).rejects.toMatchObject({
+      name: "AbortError",
+    });
+
+    expect(mocks.callAction).toHaveBeenCalledWith("trash-recording", {
+      id: "local-1",
+      skipIfReady: true,
+    });
+    expect(mocks.deleteRecordingBackup).not.toHaveBeenCalled();
+  });
+
   it("keeps the copy when a short server assembly still reports ready", async () => {
     mocks.readRecoverableRecordingBackup.mockResolvedValue(copy({}, 10));
     mocks.uploadChunkRequest.mockResolvedValue(readyFor(6));

@@ -1,6 +1,7 @@
 import { getDbExec } from "@agent-native/core/db";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
+import { WAITING_STORAGE_EXPIRED_REASON } from "../../shared/upload-interruption.js";
 import { getDb, schema } from "../db/index.js";
 import {
   normalizeRecordingPlatform,
@@ -35,8 +36,7 @@ export function uploadLeaseExpiry(nowMs: number = Date.now()): string {
  */
 export const WAITING_STORAGE_LEASE_MS = 7 * 24 * 60 * 60 * 1000;
 
-export const WAITING_STORAGE_EXPIRED_REASON =
-  "Storage was never connected, so this upload expired.";
+export { WAITING_STORAGE_EXPIRED_REASON };
 
 export function waitingStorageLeaseExpiry(nowMs: number = Date.now()): string {
   return new Date(nowMs + WAITING_STORAGE_LEASE_MS).toISOString();

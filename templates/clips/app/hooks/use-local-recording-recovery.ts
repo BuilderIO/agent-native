@@ -33,7 +33,11 @@ const REMIND_LATER_MS = 24 * 60 * 60_000;
 export interface LocalRecordingScan {
   /** Copies to offer: unfinished, ownerless, or kept after an upload. */
   pending: RecordingBackupMeta[];
-  /** Copies whose server row is still processing; rescan to settle them. */
+  /**
+   * Copies to look at again soon: their server row is still processing, or
+   * it is proven but another tab held the copy when this scan tried to
+   * delete it.
+   */
   waitingOnServer: number;
 }
 
@@ -44,14 +48,14 @@ export interface LocalRecordingScan {
  */
 async function deleteConfirmedCopy(
   meta: RecordingBackupMeta,
-): Promise<boolean> {
+): Promise<"deleted" | "busy" | "unavailable"> {
   const claim = await claimRecordingBackupLock(meta.recordingId);
-  if (claim.status !== "held") return false;
+  if (claim.status !== "held") return claim.status;
   try {
     // coercion-ok: copies from before stale tracking have no superseded rows.
     await trashStaleServerRecordings(meta.staleServerRecordingIds ?? []);
     await deleteRecordingBackup(meta.recordingId);
-    return true;
+    return "deleted";
   } finally {
     claim.release();
   }
@@ -107,8 +111,11 @@ export async function findLocalRecordingsToFinish(
           durationMs: meta.durationMs,
         });
         if (whole && proof === "verified") {
-          // Not deleted when another tab holds it; the next scan retries.
-          await deleteConfirmedCopy(meta);
+          // A copy that could not be deleted is never hidden: it stays
+          // offered, and one another tab held is checked again soon.
+          const deleted = await deleteConfirmedCopy(meta);
+          if (deleted !== "deleted") pending.push(meta);
+          if (deleted === "busy") waitingOnServer += 1;
           continue;
         }
         pending.push(meta);

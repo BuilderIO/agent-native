@@ -1,10 +1,11 @@
-import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
+import { IDBFactory, IDBKeyRange, IDBObjectStore } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   getRecordingBackupChunks,
   getRecordingBackupMeta,
   listRecordingBackupMetas,
+  readRecoverableRecordingBackup,
 } from "@/lib/recording-backup";
 
 import { RecorderEngine } from "./recorder-engine";
@@ -164,6 +165,46 @@ describe("RecorderEngine local copy lifecycle (IndexedDB)", () => {
       chunkCount: 2,
       completedAt: expect.any(String),
     });
+  });
+
+  it("lists only the chunks already stored when Stop marks the copy finished", async () => {
+    const engine = await startedEngine();
+    const recorder = AsyncFinalChunkRecorder.instance!;
+    recorder.emitChunk(new Blob(["head"]));
+    await written(engine);
+    // Hold the write queue so Stop's "finished" write waits behind it.
+    const internals = engine as unknown as { backupMirrorQueue: Promise<void> };
+    let openQueue!: () => void;
+    internals.backupMirrorQueue = internals.backupMirrorQueue.then(
+      () => new Promise<void>((resolve) => (openQueue = resolve)),
+    );
+    const stopped = engine.stop();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // One more chunk lands while that write still waits, and its own write
+    // then fails, as on a full disk.
+    recorder.emitChunk(new Blob(["late"]));
+    const put = IDBObjectStore.prototype.put;
+    vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(function (
+      this: IDBObjectStore,
+      ...args: Parameters<IDBObjectStore["put"]>
+    ) {
+      if (
+        this.name === "chunks" &&
+        (args[0] as { index?: number }).index === 2
+      ) {
+        throw new DOMException("disk full", "QuotaExceededError");
+      }
+      return put.apply(this, args);
+    });
+    openQueue();
+    await stopped;
+    await written(engine);
+    vi.restoreAllMocks();
+
+    const copy = await readRecoverableRecordingBackup("local-1");
+    expect(copy?.meta).toMatchObject({ chunkCount: 2 });
+    expect(copy?.whole).toBe(true);
+    expect(await copy?.blob?.text()).toBe("headtail");
   });
 
   it("keeps a finished copy finished when one more chunk arrives after Stop", async () => {

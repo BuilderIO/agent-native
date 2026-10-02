@@ -507,6 +507,8 @@ export class RecorderEngine {
   private backupCompletedAt: string | null = null;
   /** Settles once a Stop in flight has seen (or given up on) the final chunk. */
   private finalChunkSettled: Promise<unknown> | null = null;
+  /** The copy was deleted; a late chunk must not recreate part of it. */
+  private backupCleared = false;
   private backupDetails: {
     ownerEmail: string | null;
     title: string | null;
@@ -1205,6 +1207,7 @@ export class RecorderEngine {
     this.discarded = false;
     this.captureComplete = true;
     this.backupCompletedAt = null;
+    this.backupCleared = false;
     this.startRecordingBackup();
     this.uploadAbort = new AbortController();
     this.uploadMode = this.opts.uploadMode ?? "buffered";
@@ -2743,7 +2746,9 @@ export class RecorderEngine {
 
   private mirrorChunkToBackup(blob: Blob): void {
     const recordingId = this.opts.recordingId;
-    if (!recordingId || recordingId === "__pending__") return;
+    if (!recordingId || recordingId === "__pending__" || this.backupCleared) {
+      return;
+    }
     const index = this.backupChunkIndex++;
     const meta = this.backupMetaNow(recordingId, index + 1);
     this.backupMirrorQueue = this.backupMirrorQueue
@@ -2761,6 +2766,10 @@ export class RecorderEngine {
     if (!recordingId || recordingId === "__pending__") return;
     const completedAt = new Date().toISOString();
     this.backupCompletedAt = completedAt;
+    // Counted now: a chunk that arrives while this write waits is listed by
+    // its own write, once it is stored.
+    const bytes = this.totalRecordedBytes;
+    const chunkCount = this.backupChunkIndex;
     this.backupMirrorQueue = this.backupMirrorQueue
       .then(() => {
         if (this.backupError) return;
@@ -2773,8 +2782,8 @@ export class RecorderEngine {
             height: meta.dimensions.height,
             hasAudio: meta.hasAudio,
             hasCamera: meta.hasCamera,
-            bytes: this.totalRecordedBytes,
-            chunkCount: this.backupChunkIndex,
+            bytes,
+            chunkCount,
             savedAt: completedAt,
             completedAt,
             state: "recorded-local",
@@ -2812,6 +2821,7 @@ export class RecorderEngine {
   private clearRecordingBackup(): void {
     const recordingId = this.opts.recordingId;
     if (!recordingId || recordingId === "__pending__") return;
+    this.backupCleared = true;
     this.backupMirrorQueue = this.backupMirrorQueue
       .then(() => deleteRecordingBackup(recordingId))
       .catch(() => {

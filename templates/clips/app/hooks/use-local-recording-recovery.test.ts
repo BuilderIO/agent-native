@@ -135,6 +135,33 @@ describe("findLocalRecordingsToFinish", () => {
     ]);
   });
 
+  it("keeps a proven copy visible, and rechecks it, when another tab holds it", async () => {
+    await saveCopy(meta("proven", { serverRecordingId: "srv-1" }));
+    mocks.fetchServerUploadStatus.mockImplementation(async () => {
+      // Another tab takes the copy while this status request is in flight.
+      await claimRecordingBackupLock("proven");
+      return ready(4);
+    });
+
+    const scan = await findLocalRecordingsToFinish("me@example.com");
+
+    expect(await getRecordingBackupMeta("proven")).not.toBeNull();
+    expect(scan.pending.map((m) => m.recordingId)).toEqual(["proven"]);
+    expect(scan.waitingOnServer).toBe(1);
+  });
+
+  it("keeps a proven copy visible when the browser has no Web Locks", async () => {
+    vi.stubGlobal("navigator", {});
+    await saveCopy(meta("proven", { serverRecordingId: "srv-1" }));
+    mocks.fetchServerUploadStatus.mockResolvedValue(ready(4));
+
+    const scan = await findLocalRecordingsToFinish("me@example.com");
+
+    expect(await getRecordingBackupMeta("proven")).not.toBeNull();
+    expect(scan.pending.map((m) => m.recordingId)).toEqual(["proven"]);
+    expect(scan.waitingOnServer).toBe(0);
+  });
+
   it("keeps a copy that was cut short even when the server matches it", async () => {
     await saveCopy(
       meta("cut-short", { serverRecordingId: "srv-1", incomplete: true }),

@@ -571,7 +571,9 @@ export async function hasRecordingBackup(
       getRecordingBackupMeta(recordingId),
       getRecordingBackupChunks(recordingId),
     ]);
-    return !!meta && isCompleteRecordingBackup(meta, chunks);
+    return (
+      !!meta && !meta.incomplete && isCompleteRecordingBackup(meta, chunks)
+    );
   } catch {
     // coercion-ok: an unreadable backup store is exactly as unusable for
     // retry as a missing one — both mean "can't replay from this browser".
