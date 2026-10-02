@@ -1268,7 +1268,9 @@ export function PageEditorSurface({
   const [manualRetry, setManualRetry] = useState<{
     documentId: string;
     fromAccessScreen: boolean;
+    seq: number;
   } | null>(null);
+  const manualRetrySeqRef = useRef(0);
   const isManualRetrying = manualRetry?.documentId === documentId;
   const admittedDocumentIdRef = useRef<string | null>(null);
   const loadFailureRef = useRef<DocumentLoadFailureState | null>(null);
@@ -1320,7 +1322,9 @@ export function PageEditorSurface({
   );
 
   async function retryDocumentQuery({ fromAccessScreen = false } = {}) {
-    setManualRetry({ documentId, fromAccessScreen });
+    // A newer retry owns the flag; an older one finishing must not clear it.
+    const seq = ++manualRetrySeqRef.current;
+    setManualRetry({ documentId, fromAccessScreen, seq });
     try {
       await queryClient.cancelQueries({
         queryKey: documentQueryKey(documentId, {
@@ -1338,9 +1342,7 @@ export function PageEditorSurface({
       };
       await documentQuery.refetch();
     } finally {
-      setManualRetry((current) =>
-        current?.documentId === documentId ? null : current,
-      );
+      setManualRetry((current) => (current?.seq === seq ? null : current));
     }
   }
 

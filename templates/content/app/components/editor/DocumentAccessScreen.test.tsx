@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   session: { current: null as { email: string } | null },
   signOut: vi.fn(),
   restore: vi.fn(),
+  restoreSucceeded: false,
   queries: {} as Record<string, QueryResult>,
   useActionQuery: vi.fn(),
   gate: {
@@ -75,7 +76,11 @@ vi.mock("@agent-native/core/client/sharing", async (importOriginal) => ({
   },
 }));
 vi.mock("@/hooks/use-documents", () => ({
-  useRestoreDocument: () => ({ mutateAsync: mocks.restore, isPending: false }),
+  useRestoreDocument: () => ({
+    mutateAsync: mocks.restore,
+    isPending: false,
+    isSuccess: mocks.restoreSucceeded,
+  }),
 }));
 vi.mock("@/components/layout/sidebar-trigger", () => ({
   useSidebarTrigger: () => null,
@@ -96,6 +101,7 @@ describe("DocumentAccessScreen", () => {
     mocks.gate.isError = false;
     mocks.queries = {};
     mocks.rootGates = {};
+    mocks.restoreSucceeded = false;
     mocks.useActionQuery.mockReset();
     mocks.useActionQuery.mockImplementation(
       (
@@ -262,7 +268,10 @@ describe("DocumentAccessScreen", () => {
 
     expect(mocks.restore).toHaveBeenCalledWith({ id: "private-doc" });
     expect(mocks.toast.success).toHaveBeenCalledWith("trash.restored");
-    expect(onReload).toHaveBeenCalledTimes(1);
+    // The restored page's status reloads it once, through the same path as
+    // access arriving, rather than a second reload of its own.
+    expect(mocks.gate.refetch).toHaveBeenCalledTimes(1);
+    expect(onReload).not.toHaveBeenCalled();
   });
 
   it("restores from the page that was deleted when the viewer manages it", async () => {
@@ -322,10 +331,13 @@ describe("DocumentAccessScreen", () => {
     expect(mocks.rootRefetch).toHaveBeenCalledTimes(1);
   });
 
-  it("can't restore twice while the restored page loads", () => {
+  it("can't restore twice", () => {
     trashedPage(null);
     render({ state: "trashed", role: "owner" }, true);
+    expect(button("trash.restore")?.disabled).toBe(true);
 
+    mocks.restoreSucceeded = true;
+    render({ state: "trashed", role: "owner" }, false);
     expect(button("trash.restore")?.disabled).toBe(true);
   });
 

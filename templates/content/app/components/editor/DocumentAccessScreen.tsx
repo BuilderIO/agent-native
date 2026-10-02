@@ -125,12 +125,14 @@ export function DocumentAccessScreen({
     const canRestore = trashedWithParent
       ? managesPage(rootGate.status?.role)
       : managesPage(role);
+    // Once restored, the page's status turns `allowed`, which reads the page
+    // again through the same path as access arriving, exactly once.
     const restorePage = async () => {
       if (!trashRootId) return;
       try {
         await restore.mutateAsync({ id: trashRootId });
         toast.success(t("trash.restored"));
-        onReload();
+        void gate.refetch();
       } catch {
         toast.error(t("trash.restoreFailed"));
       }
@@ -146,7 +148,7 @@ export function DocumentAccessScreen({
             <>
               <Button
                 onClick={() => void restorePage()}
-                disabled={restore.isPending || reloading}
+                disabled={restore.isPending || restore.isSuccess || reloading}
               >
                 {t("trash.restore")}
               </Button>
