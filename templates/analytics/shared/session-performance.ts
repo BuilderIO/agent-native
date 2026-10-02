@@ -238,4 +238,6 @@ export interface SessionPerformanceSummary {
   cls: number | null;
   slowRequests: number;
   maxRequestMs: number | null;
+  /** Some of this session's measurements failed to save; it may be slower. */
+  incomplete: boolean;
 }

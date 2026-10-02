@@ -1975,7 +1975,7 @@ export async function listSessionRecordingsPage(
       didEvents: filters.didEvents,
       didNotEvents: filters.didNotEvents,
     })),
-    ...(await slowSessionConditions(filters.slow)),
+    ...(await slowSessionConditions(scope, filters.slow)),
   );
   const appConditions = [...conditions];
   if (filters.app)

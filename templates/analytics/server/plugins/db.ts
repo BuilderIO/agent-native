@@ -1541,7 +1541,7 @@ ALTER TABLE analysis_revisions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
       },
     },
     {
-      version: 154,
+      version: 155,
       name: "analytics-performance-aggregates",
       sql: {
         postgres: `CREATE TABLE IF NOT EXISTS analytics_route_performance_daily (
@@ -1591,6 +1591,8 @@ ALTER TABLE analysis_revisions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
     );
     CREATE UNIQUE INDEX IF NOT EXISTS analytics_performance_gaps_key_idx
       ON analytics_performance_gaps (tenant_key, event_date, session_id);
+    CREATE INDEX IF NOT EXISTS analytics_performance_gaps_session_idx
+      ON analytics_performance_gaps (tenant_key, session_id);
     CREATE TABLE IF NOT EXISTS analytics_performance_coverage (
       tenant_key TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL,

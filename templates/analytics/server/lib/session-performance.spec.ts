@@ -18,6 +18,7 @@ vi.mock("../db/index.js", async () => {
   return { ...actual, getDb: getDbMock };
 });
 
+import { histogramEdges } from "../../shared/session-performance";
 import { schema } from "../db/index.js";
 import type { SessionEventIndexInputRow } from "./session-event-index";
 import {
@@ -133,6 +134,29 @@ describe("aggregatePerformanceRows", () => {
     expect(routeBuckets).toEqual([]);
   });
 
+  it("caps out-of-range values into the top bucket instead of dropping them", () => {
+    const { sessions, routeBuckets } = aggregatePerformanceRows([
+      vitals("s1", { lcp_ms: 3_600_000, cls: 250 }),
+      response("s1", { duration_ms: 400, sample_weight: 50_000 }),
+    ]);
+    expect(sessions).toEqual([
+      expect.objectContaining({ maxLcpMs: 600_000, maxCls: 100 }),
+    ]);
+    expect(
+      routeBuckets.map(({ metric, bucket, weight }) => ({
+        metric,
+        bucket,
+        weight,
+      })),
+    ).toEqual(
+      expect.arrayContaining([
+        { metric: "lcp", bucket: histogramEdges("lcp").length - 1, weight: 1 },
+        { metric: "cls", bucket: histogramEdges("cls").length - 1, weight: 1 },
+        { metric: "request", bucket: 18, weight: 10_000 },
+      ]),
+    );
+  });
+
   it("weights sampled requests and merges samples into fixed buckets", () => {
     const { routeBuckets } = aggregatePerformanceRows([
       response(null, { duration_ms: 120, sample_weight: 10 }),
@@ -215,6 +239,8 @@ describe("performance aggregates on Postgres", () => {
     );
   }
 
+  const scope = { userEmail: OWNER, orgId: ORG };
+
   async function slowRecordings(
     filter: "any" | "vitals" | "requests",
   ): Promise<string[]> {
@@ -222,7 +248,7 @@ describe("performance aggregates on Postgres", () => {
     const rows = await db
       .select({ id: r.id })
       .from(r)
-      .where(and(...(await slowSessionConditions(filter))))
+      .where(and(...(await slowSessionConditions(scope, filter))))
       .orderBy(asc(r.id));
     return rows.map((row: { id: string }) => row.id);
   }
@@ -235,8 +261,6 @@ describe("performance aggregates on Postgres", () => {
       `CREATE TRIGGER fail_insert BEFORE INSERT ON ${table} FOR EACH ROW EXECUTE FUNCTION fail_insert()`,
     );
   }
-
-  const scope = { userEmail: OWNER, orgId: ORG };
 
   it("reports route percentiles across batches, and no data as null", async () => {
     await ingest([
@@ -313,6 +337,7 @@ describe("performance aggregates on Postgres", () => {
       cls: 0,
       slowRequests: 0,
       maxRequestMs: 400,
+      incomplete: false,
     });
     expect(summaries.has("r-unmeasured")).toBe(false);
   });
@@ -330,14 +355,17 @@ describe("performance aggregates on Postgres", () => {
     expect(result.routes.map((route) => route.lcp?.samples)).toEqual([1]);
   });
 
-  it("marks sessions and days incomplete when an aggregate write fails", async () => {
+  it("reads a session whose maxima failed to save as incomplete, not complete", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    await ingest([vitals("s-ok", { lcp_ms: 1_000 })]);
+    await ingest([
+      vitals("s-ok", { lcp_ms: 1_000 }),
+      vitals("s-partial", { lcp_ms: 900 }),
+    ]);
     await failInsertsInto("analytics_session_performance");
-    await client.query(
-      "CREATE TRIGGER fail_insert BEFORE INSERT ON analytics_route_performance_daily FOR EACH ROW EXECUTE FUNCTION fail_insert()",
-    );
-    await ingest([vitals("s-lost", { lcp_ms: 5_000 })]);
+    await ingest([
+      vitals("s-lost", { lcp_ms: 900 }),
+      vitals("s-partial", { lcp_ms: 900 }),
+    ]);
     warn.mockRestore();
 
     // The events still committed.
@@ -345,15 +373,104 @@ describe("performance aggregates on Postgres", () => {
       "SELECT count(*)::int AS count FROM session_recordings",
     );
     expect(stored.rows).toEqual([{ count: 2 }]);
-    const gaps = await client.query(
-      "SELECT event_date, session_id FROM analytics_performance_gaps ORDER BY session_id",
-    );
-    expect(gaps.rows).toEqual([
-      { event_date: DAY, session_id: "" },
-      { event_date: DAY, session_id: "s-lost" },
+    await addRecording("r-ok", "s-ok");
+    await addRecording("r-lost", "s-lost");
+    await addRecording("r-partial", "s-partial");
+
+    const summaries = await getSessionPerformanceSummaries([
+      { id: "r-ok", sessionId: "s-ok", ownerEmail: OWNER, orgId: ORG },
+      { id: "r-lost", sessionId: "s-lost", ownerEmail: OWNER, orgId: ORG },
+      {
+        id: "r-partial",
+        sessionId: "s-partial",
+        ownerEmail: OWNER,
+        orgId: ORG,
+      },
     ]);
+    expect(summaries.get("r-ok")?.incomplete).toBe(false);
+    expect(summaries.get("r-lost")).toEqual({
+      ttfbMs: null,
+      lcpMs: null,
+      inpMs: null,
+      cls: null,
+      slowRequests: 0,
+      maxRequestMs: null,
+      incomplete: true,
+    });
+    expect(summaries.get("r-partial")).toMatchObject({
+      lcpMs: 900,
+      incomplete: true,
+    });
+    // Nothing measured rules them out, so the filter keeps them.
+    expect(await slowRecordings("vitals")).toEqual(["r-lost", "r-partial"]);
+    expect(await slowRecordings("requests")).toEqual(["r-lost", "r-partial"]);
+    // The route samples were written in full, so the day is complete.
+    const result = await listRoutePerformance(scope, { from: DAY, to: DAY });
+    expect(result.incompleteDates).toEqual([]);
+    expect(result.routes[0]?.lcp?.samples).toBe(4);
+  });
+
+  it("marks a day incomplete when its route aggregates fail to save", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await ingest([vitals("s-ok", { lcp_ms: 1_000 })]);
+    await failInsertsInto("analytics_route_performance_daily");
+    await ingest([vitals("s-lost-route", { lcp_ms: 5_000 })]);
+    warn.mockRestore();
+
+    const gaps = await client.query(
+      "SELECT event_date, session_id FROM analytics_performance_gaps",
+    );
+    expect(gaps.rows).toEqual([{ event_date: DAY, session_id: "" }]);
     const result = await listRoutePerformance(scope, { from: DAY, to: DAY });
     expect(result.incompleteDates).toEqual([DAY]);
+    // A route-day marker says nothing about any one session.
+    await addRecording("r-ok", "s-ok");
+    expect(
+      (
+        await getSessionPerformanceSummaries([
+          { id: "r-ok", sessionId: "s-ok", ownerEmail: OWNER, orgId: ORG },
+        ])
+      ).get("r-ok")?.incomplete,
+    ).toBe(false);
+  });
+
+  it("stores caller text the way Postgres keeps it, so a batch never collides", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const long = `/${"a".repeat(260)}`;
+    await ingest([
+      vitals("s1", { route: "/nul\u0000route", lcp_ms: 1_000 }),
+      // Two different lone surrogates both become U+FFFD in Postgres.
+      vitals("s1", { route: "/x/\uD800", lcp_ms: 1_000 }),
+      vitals("s1", { route: "/x/\uDC00", lcp_ms: 1_000 }),
+      vitals("s-\uD800", { lcp_ms: 1_000 }),
+      vitals("s-\uDBFF", { lcp_ms: 1_000 }),
+      vitals("s2", { route: `${long}b`, lcp_ms: 1_000 }),
+      vitals("s2", { route: `${long}c`, lcp_ms: 1_000 }),
+      vitals("s3", { lcp_ms: 1_000 }, { app: "cl\u0000ips" }),
+    ]);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+
+    const gaps = await client.query(
+      "SELECT count(*)::int AS count FROM analytics_performance_gaps",
+    );
+    expect(gaps.rows).toEqual([{ count: 0 }]);
+    const result = await listRoutePerformance(scope, { from: DAY, to: DAY });
+    const samples = Object.fromEntries(
+      result.routes.map((row) => [row.route, row.lcp?.samples]),
+    );
+    expect(samples).toEqual({
+      "/nulroute": 1,
+      "/x/\uFFFD": 2,
+      [long.slice(0, 200)]: 2,
+      "/r/:id": 3,
+    });
+    expect(result.routes.every((row) => row.app === "clips")).toBe(true);
+    const merged = await client.query(
+      "SELECT page_views FROM analytics_session_performance WHERE session_id = $1",
+      ["s-\uFFFD"],
+    );
+    expect(merged.rows).toEqual([{ page_views: 2 }]);
   });
 
   it("stores events and reports no coverage before the tables are migrated", async () => {

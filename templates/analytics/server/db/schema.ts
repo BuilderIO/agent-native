@@ -458,6 +458,9 @@ export const analyticsPerformanceGaps = table(
       t.eventDate,
       t.sessionId,
     ),
+    performanceGapSessionIdx: index(
+      "analytics_performance_gaps_session_idx",
+    ).on(t.tenantKey, t.sessionId),
   }),
 );
 

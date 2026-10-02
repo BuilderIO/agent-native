@@ -8,6 +8,7 @@ import {
   inArray,
   lt,
   lte,
+  ne,
   or,
   sql,
 } from "drizzle-orm";
@@ -91,6 +92,11 @@ interface ParsedPerformanceRow {
   samples: PerformanceSample[];
 }
 
+/**
+ * A measurement above `max` is capped rather than dropped: dropping the
+ * slowest samples would bias every percentile toward fast. The cap sits in
+ * the open top bucket, which reads as "at least".
+ */
 function numberOf(value: unknown, max: number): number | null {
   const parsed =
     typeof value === "number"
@@ -98,14 +104,29 @@ function numberOf(value: unknown, max: number): number | null {
       : typeof value === "string" && value.trim()
         ? Number(value)
         : Number.NaN;
-  return Number.isFinite(parsed) && parsed >= 0 && parsed <= max
-    ? parsed
-    : null;
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.min(parsed, max) : null;
+}
+
+const LONE_SURROGATE =
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
+/**
+ * Caller text as Postgres stores it. Postgres rejects NUL and stores a lone
+ * surrogate as U+FFFD, so two raw values differing only there would hash to
+ * different ids yet land on the same unique key, failing the whole insert.
+ * Clean before hashing.
+ */
+function postgresText(value: string | null | undefined): string | undefined {
+  return value?.split("\u0000").join("").replace(LONE_SURROGATE, "\uFFFD");
+}
+
+function indexedText(value: string | null | undefined, maxLength: number) {
+  return boundedText(postgresText(value), maxLength);
 }
 
 function routeOf(value: unknown): string | null {
   if (typeof value !== "string") return null;
-  const route = boundedText(value, MAX_ROUTE_LENGTH);
+  const route = indexedText(value, MAX_ROUTE_LENGTH);
   return route.startsWith("/") ? route : null;
 }
 
@@ -170,10 +191,10 @@ function parsePerformanceRow(
     tenantKey: sessionEventTenantKey(row.ownerEmail, orgId),
     ownerEmail: row.ownerEmail,
     orgId,
-    sessionId: sessionIdOf(row.sessionId),
+    sessionId: sessionIdOf(postgresText(row.sessionId)),
     eventDate: row.eventDate || row.timestamp.slice(0, 10),
     timestamp: row.timestamp,
-    app: boundedText(row.app, MAX_APP_LENGTH),
+    app: indexedText(row.app, MAX_APP_LENGTH),
     route: routeOf(properties.route),
     pageView: row.eventName === WEB_VITALS_EVENT_NAME,
     samples,
@@ -530,15 +551,20 @@ function tenantOf(recording: { orgId: AnyColumn; ownerEmail: AnyColumn }) {
  * Conditions on `session_recordings` for the slow-session filter, correlated
  * to each recording's own tenant and session so they can never widen the
  * recording access filter they are combined with. A session without
- * measurements is never slow, and never shown as fast either.
+ * measurements is never slow, and never shown as fast either. A session with
+ * a gap marker matches too: its missing measurements cannot rule it out, and
+ * its summary says it is incomplete.
  */
 export async function slowSessionConditions(
+  scope: SessionEventScope,
   filter: SlowSessionFilter | undefined,
 ) {
   if (!filter) return [];
   if (!(await performanceTablesExist(getDb()))) return [sql`false`];
   const r = schema.sessionRecordings;
   const p = schema.analyticsSessionPerformance;
+  const gaps = schema.analyticsPerformanceGaps;
+  const tenantKeys = viewerTenantKeys(scope);
   const poorVitals = sql`(${p.maxLcpMs} > ${WEB_VITAL_THRESHOLDS.lcp.poor} or ${p.maxInpMs} > ${WEB_VITAL_THRESHOLDS.inp.poor} or ${p.maxCls} > ${WEB_VITAL_THRESHOLDS.cls.poor} or ${p.maxTtfbMs} > ${WEB_VITAL_THRESHOLDS.ttfb.poor})`;
   const slowRequests = sql`${p.slowRequests} > 0`;
   const slow =
@@ -547,8 +573,11 @@ export async function slowSessionConditions(
       : filter === "requests"
         ? slowRequests
         : sql`(${poorVitals} or ${slowRequests})`;
+  // The constant tenant list lets the planner probe each table's
+  // (tenant_key, session_id) index; the correlation keeps every match on the
+  // recording's own tenant.
   return [
-    sql`exists (select 1 from ${p} where ${p.tenantKey} = ${tenantOf(r)} and ${p.sessionId} = ${r.sessionId} and ${slow})`,
+    sql`(exists (select 1 from ${p} where ${inArray(p.tenantKey, tenantKeys)} and ${p.tenantKey} = ${tenantOf(r)} and ${p.sessionId} = ${r.sessionId} and ${slow}) or exists (select 1 from ${gaps} where ${inArray(gaps.tenantKey, tenantKeys)} and ${gaps.tenantKey} = ${tenantOf(r)} and ${gaps.sessionId} = ${r.sessionId} and ${gaps.sessionId} <> ''))`,
   ];
 }
 
@@ -577,7 +606,8 @@ export async function getPerformanceCoverageStart(
 /**
  * Performance summaries for a page of recordings the caller already read
  * through the recording access filter. Recordings the aggregates never
- * measured are absent from the map.
+ * measured are absent from the map; a recording whose aggregate write failed
+ * is present and `incomplete`, even with nothing measured.
  */
 export async function getSessionPerformanceSummaries(
   recordings: ReadonlyArray<{
@@ -602,38 +632,77 @@ export async function getSessionPerformanceSummaries(
   const sessionIds = [
     ...new Set(recordings.map((recording) => recording.sessionId)),
   ];
-  const rows = await db
-    .select({
-      tenantKey: p.tenantKey,
-      sessionId: p.sessionId,
-      maxTtfbMs: p.maxTtfbMs,
-      maxLcpMs: p.maxLcpMs,
-      maxInpMs: p.maxInpMs,
-      maxCls: p.maxCls,
-      slowRequests: p.slowRequests,
-      maxRequestMs: p.maxRequestMs,
-    })
-    .from(p)
-    .where(
-      and(inArray(p.tenantKey, tenantKeys), inArray(p.sessionId, sessionIds)),
-    )
-    .limit(tenantKeys.length * sessionIds.length);
+  const gaps = schema.analyticsPerformanceGaps;
+  const pairLimit = tenantKeys.length * sessionIds.length;
+  const [rows, gapRowsForPage] = await Promise.all([
+    db
+      .select({
+        tenantKey: p.tenantKey,
+        sessionId: p.sessionId,
+        maxTtfbMs: p.maxTtfbMs,
+        maxLcpMs: p.maxLcpMs,
+        maxInpMs: p.maxInpMs,
+        maxCls: p.maxCls,
+        slowRequests: p.slowRequests,
+        maxRequestMs: p.maxRequestMs,
+      })
+      .from(p)
+      .where(
+        and(inArray(p.tenantKey, tenantKeys), inArray(p.sessionId, sessionIds)),
+      )
+      .limit(pairLimit),
+    db
+      .selectDistinct({ tenantKey: gaps.tenantKey, sessionId: gaps.sessionId })
+      .from(gaps)
+      .where(
+        and(
+          inArray(gaps.tenantKey, tenantKeys),
+          inArray(gaps.sessionId, sessionIds),
+          ne(gaps.sessionId, ""),
+        ),
+      )
+      .limit(pairLimit),
+  ]);
+  const pairKey = (tenantKey: string, sessionId: string) =>
+    `${tenantKey}\u0000${sessionId}`;
+  const incomplete = new Set<string>(
+    gapRowsForPage.map((row: { tenantKey: string; sessionId: string }) =>
+      pairKey(row.tenantKey, row.sessionId),
+    ),
+  );
   const byKey = new Map<string, SessionPerformanceSummary>();
   const nullable = (value: unknown) =>
     value === null || value === undefined ? null : Number(value);
   for (const row of rows) {
-    byKey.set(`${row.tenantKey}\u0000${row.sessionId}`, {
+    const key = pairKey(row.tenantKey, row.sessionId);
+    byKey.set(key, {
       ttfbMs: nullable(row.maxTtfbMs),
       lcpMs: nullable(row.maxLcpMs),
       inpMs: nullable(row.maxInpMs),
       cls: nullable(row.maxCls),
       slowRequests: Number(row.slowRequests),
       maxRequestMs: nullable(row.maxRequestMs),
+      incomplete: incomplete.has(key),
+    });
+  }
+  for (const key of incomplete) {
+    if (byKey.has(key)) continue;
+    byKey.set(key, {
+      ttfbMs: null,
+      lcpMs: null,
+      inpMs: null,
+      cls: null,
+      slowRequests: 0,
+      maxRequestMs: null,
+      incomplete: true,
     });
   }
   for (const recording of recordings) {
     const summary = byKey.get(
-      `${sessionEventTenantKey(recording.ownerEmail, recording.orgId)}\u0000${recording.sessionId}`,
+      pairKey(
+        sessionEventTenantKey(recording.ownerEmail, recording.orgId),
+        recording.sessionId,
+      ),
     );
     if (summary) summaries.set(recording.id, summary);
   }
@@ -719,12 +788,15 @@ export async function listRoutePerformance(
   }>;
 
   const gaps = schema.analyticsPerformanceGaps;
+  // Only route-day markers: a session marker means that session's maxima
+  // failed, while its route samples may have been written in full.
   const gapRowsInRange = await db
     .selectDistinct({ eventDate: gaps.eventDate })
     .from(gaps)
     .where(
       and(
         inArray(gaps.tenantKey, tenantKeys),
+        eq(gaps.sessionId, ""),
         gte(gaps.eventDate, fromDate),
         lte(gaps.eventDate, toDate),
       ),
