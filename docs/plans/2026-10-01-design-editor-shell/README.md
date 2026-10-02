@@ -232,7 +232,7 @@ The one behavior change in the plan, so it ships alone and after step 10 and
 INSP-07: HTML routes save each edit as you make them like React routes do, and
 Apply to source goes. The dot and the route control show unsaved edits, Screens
 marks each screen that has them, and Review changes saves what it safely can
-and hands files that changed on disk to the agent. Cover the app-down,
+and replays edits onto files that changed on disk instead of overwriting them. Cover the app-down,
 no-consent, and changed-on-disk cases with tests before the UI.
 
 ### Every step
@@ -275,4 +275,4 @@ where it names Annotate or the old toolbar.
 - **RESP-13** Desktop-first `max-*` output, or flip the base so it's mobile-first?
 - **RESP-14** Keep side-by-side frames at other widths, or rely on drag plus Interact viewports?
 - **RESP-15** Responsive rules on any layer, or only on components?
-- **SAVE-05** When a file changed on disk, is Ask the agent to merge enough, or also offer Keep Design's version and Keep the file's?
+- **SAVE-05** When a file changed on disk, is Reapply my changes enough, or also offer Overwrite the file and Discard my changes?

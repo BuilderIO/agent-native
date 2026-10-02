@@ -50,6 +50,15 @@
   --page-bg: hsl(0 0% 100%);
   --live: hsl(145 63% 42%);
   --warn: hsl(36 92% 50%);
+  --diff-add: hsl(140 70% 42%);
+  --diff-del: hsl(0 72% 52%);
+  --diff-add-bg: hsl(140 60% 94%);
+  --diff-del-bg: hsl(0 85% 96%);
+  --diff-add-word: hsl(140 55% 82%);
+  --diff-del-word: hsl(0 80% 88%);
+  --syn-tag: hsl(150 50% 30%);
+  --syn-attr: hsl(265 55% 50%);
+  --syn-str: hsl(215 70% 35%);
   --font: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
 }
@@ -61,6 +70,9 @@
     --popover: hsl(0 0% 16%); --shadow: 0 8px 28px rgb(0 0 0 / 50%), 0 1px 3px rgb(0 0 0 / 40%);
     --accent-soft: color-mix(in srgb, hsl(205 100% 53%) 24%, transparent);
     --accent-row: color-mix(in srgb, hsl(205 100% 53%) 18%, transparent);
+    --diff-add-bg: hsl(140 40% 16%); --diff-del-bg: hsl(0 45% 18%);
+    --diff-add-word: hsl(140 45% 26%); --diff-del-word: hsl(0 50% 30%);
+    --syn-tag: hsl(150 50% 62%); --syn-attr: hsl(265 70% 76%); --syn-str: hsl(205 80% 72%);
     color-scheme: dark;
   }
 }
@@ -71,6 +83,9 @@
   --popover: hsl(0 0% 16%); --shadow: 0 8px 28px rgb(0 0 0 / 50%), 0 1px 3px rgb(0 0 0 / 40%);
   --accent-soft: color-mix(in srgb, hsl(205 100% 53%) 24%, transparent);
   --accent-row: color-mix(in srgb, hsl(205 100% 53%) 18%, transparent);
+  --diff-add-bg: hsl(140 40% 16%); --diff-del-bg: hsl(0 45% 18%);
+  --diff-add-word: hsl(140 45% 26%); --diff-del-word: hsl(0 50% 30%);
+  --syn-tag: hsl(150 50% 62%); --syn-attr: hsl(265 70% 76%); --syn-str: hsl(205 80% 72%);
   color-scheme: dark;
 }
 html, body { height: 100%; }
@@ -389,14 +404,48 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .sdot.warn { background: var(--warn); }
 .topbar #unsaved-btn { padding-inline: 8px; }
 .row .sdot { margin-right: 4px; }
-.sync-list { display: flex; flex-direction: column; margin: -8px -8px 0; }
-.sync-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 40px; padding: 4px 8px; border-radius: 6px; font-size: 12px; }
-.sync-row .p { display: flex; flex-direction: column; min-width: 0; }
-.sync-row .p b { font: 500 12px/16px var(--mono); }
-.sync-row .p small { color: var(--muted-fg); font-size: 12px; line-height: 16px; }
-.sync-row .p small.warn { display: inline-flex; align-items: center; gap: 4px; color: var(--fg); }
-.sync-row .p small.warn svg { color: var(--warn); }
-.sync-row .btn { height: 24px; border-radius: 6px; font-size: 12px; gap: 6px; padding-inline: 8px; }
+/* Review changes: GitHub-style. Changed files in their folders on the left, the selected file's diff on the right. */
+.dlg.review-dlg { width: min(880px, 100%); height: min(560px, calc(100vh - 32px)); }
+.rv { flex: 1; min-height: 0; display: grid; grid-template-columns: 240px minmax(0, 1fr); border-top: 1px solid var(--border); }
+.rv-tree { border-right: 1px solid var(--border); overflow: auto; padding: 8px 0; font-size: 12px; }
+.rv-dir { display: flex; align-items: center; gap: 6px; height: 28px; padding-inline: 12px; color: var(--muted-fg); }
+.rv-file { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px 0 28px; width: 100%; text-align: left; }
+.rv-file:hover { background: var(--hover); }
+.rv-file[aria-selected="true"] { background: var(--accent-row); }
+.rv-file input { margin: 0; accent-color: var(--accent); }
+.rv-file .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
+.rv-file svg { color: var(--warn); flex: none; }
+.rv-n { font: 11px/16px var(--mono); white-space: nowrap; }
+.rv-n .a { color: var(--diff-add); } .rv-n .d { color: var(--diff-del); }
+.rv-diff { overflow: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; background: var(--canvas); }
+.rv-card { border: 1px solid var(--border); border-radius: 10px; background: var(--bg); overflow: hidden; flex: none; scroll-margin: 12px; }
+.rv-card.sel { border-color: var(--accent); }
+.rv-ch { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 8px 0 12px; font-size: 12px; }
+.rv-ch b { font-weight: 600; }
+.rv-chip { padding: 2px 6px; border-radius: 6px; background: var(--muted); font: 12px/16px var(--mono); }
+.rv-ch .grow { flex: 1; }
+.rv-ch .chev svg { transition: transform .12s; }
+.rv-card.closed .rv-ch .chev svg { transform: rotate(-90deg); }
+.rv-acts { display: flex; gap: 8px; padding: 0 12px 8px; }
+.rv-acts .btn { height: 24px; border-radius: 6px; font-size: 12px; padding-inline: 8px; gap: 6px; }
+.rv-card.closed .rv-acts, .rv-card.closed .rv-warn, .rv-card.closed .rv-code { display: none; }
+.rv-bar { display: inline-flex; gap: 2px; margin-left: 6px; vertical-align: -1px; }
+.rv-bar i { width: 8px; height: 8px; border-radius: 2px; background: var(--border); }
+.rv-bar i.a { background: var(--diff-add); } .rv-bar i.d { background: var(--diff-del); }
+.rv-warn { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border); font-size: 12px; line-height: 16px; }
+.rv-warn > svg { color: var(--warn); flex: none; }
+.rv-warn span { flex: 1; }
+.rv-warn .btn { height: 24px; border-radius: 6px; font-size: 12px; padding-inline: 8px; flex: none; }
+.rv-code { border-top: 1px solid var(--border); overflow-x: auto; font: 12px/20px var(--mono); padding: 4px 0; }
+.rv-gap { height: 12px; }
+.rv-ln { display: grid; grid-template-columns: 40px 20px max-content; white-space: pre; min-width: 100%; }
+.rv-ln .no { color: var(--muted-fg); text-align: right; padding-right: 8px; user-select: none; }
+.rv-ln .sg { user-select: none; }
+.rv-ln.add { background: var(--diff-add-bg); } .rv-ln.add .sg, .rv-ln.add .no { color: var(--diff-add); }
+.rv-ln.del { background: var(--diff-del-bg); } .rv-ln.del .sg { color: var(--diff-del); }
+.rv-ln.add mark { background: var(--diff-add-word); color: inherit; border-radius: 2px; }
+.rv-ln.del mark { background: var(--diff-del-word); color: inherit; border-radius: 2px; }
+.rv-ln .tg { color: var(--syn-tag); } .rv-ln .at { color: var(--syn-attr); } .rv-ln .st { color: var(--syn-str); }
 .inp.sel .v { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .src-offline { position: absolute; left: 50%; top: 24px; translate: -50% 0; z-index: 3; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 4px 0 12px; border-radius: 8px; background: var(--popover); box-shadow: var(--shadow); font-size: 12px; white-space: nowrap; }
 .src-offline button { height: 24px; padding: 0 8px; border-radius: 6px; background: var(--muted); font-weight: 500; }
@@ -1172,36 +1221,119 @@ function openRouteMenu(anchor) {
 }
 const retryConnection = () => { SRC.down = false; render(); toast(unsaved() ? `Connected. ${changes(unsaved())} are ready to save.` : `Connected to ${SRC.name}`); };
 const routeFile = (path = S.route) => path === "/home" ? "_index.tsx" : `${path.slice(1)}.tsx`;
-// Save to your app writes every unsaved change whose file hasn't moved on disk; the rest wait for a merge.
+// What each screen's unsaved edits do to its route file, as a unified diff: [sign, old line, new line, text].
+const DIFFS = {
+  "/home": { file: "app/routes/_index.tsx", hunks: [["@@ -14,12 +14,12 @@ export default function Home()", [
+    [" ", 14, 14, '      <section className="hero">'],
+    ["-", 15, 0, '        <span className="pill">v1.4</span>'],
+    ["+", 0, 15, '        <span className="pill">v1.5</span>'],
+    ["-", 16, 0, '        <h1 className="text-6xl font-bold">'],
+    ["+", 0, 16, '        <h1 className="text-7xl font-semibold tracking-tight">'],
+    [" ", 17, 17, '          The app framework your agent can actually use.'],
+    [" ", 18, 18, '        </h1>'],
+    ["-", 19, 0, '        <p className="mt-4 text-lg text-muted-foreground">'],
+    ["+", 0, 19, '        <p className="mt-6 text-xl text-muted-foreground">'],
+    [" ", 20, 20, '          Agent-Native turns every app you build into a set of typed actions.'],
+    [" ", 21, 21, '        </p>'],
+    ["-", 22, 0, '        <Button size="lg">Start building free</Button>'],
+    ["+", 0, 22, '        <Button size="lg">Start building</Button>'],
+    [" ", 23, 23, '      </section>']]],
+    ["@@ -41,3 +41,4 @@", [
+    [" ", 41, 41, '      <Features />'],
+    ["+", 0, 42, '      <Testimonials />'],
+    [" ", 42, 43, '      <Footer />']]]] },
+  "/docs": { file: "app/routes/docs.tsx", hunks: [["@@ -8,9 +8,10 @@ export default function Docs()", [
+    [" ", 8, 8, '    <main className="docs">'],
+    ["-", 9, 0, '      <h2 className="text-4xl">Documentation</h2>'],
+    ["+", 0, 9, '      <h2 className="text-5xl tracking-tight">Documentation</h2>'],
+    [" ", 10, 10, '      <p className="text-muted-foreground">'],
+    ["-", 11, 0, '        Build agent-native apps where the UI and the agent share one action surface.'],
+    ["+", 0, 11, '        Build apps where the UI and the agent share one set of actions.'],
+    [" ", 12, 12, '      </p>'],
+    ["+", 0, 13, '      <hr className="my-8" />'],
+    [" ", 13, 14, '      <Toc />']]]] },
+  "/pricing": { file: "app/routes/pricing.tsx", hunks: [["@@ -21,7 +21,7 @@ export default function Pricing()", [
+    [" ", 21, 21, '      <div className="plans grid gap-6">'],
+    ["-", 22, 0, '        <Plan name="Free" price="$0" />'],
+    ["+", 0, 22, '        <Plan name="Hobby" price="$0" />'],
+    ["-", 23, 0, '        <Plan name="Pro" price="$20" featured />'],
+    ["+", 0, 23, '        <Plan name="Pro" price="$24" featured />'],
+    [" ", 24, 24, '        <Plan name="Team" price="Contact us" />'],
+    ["-", 25, 0, '      </div>'],
+    ["+", 0, 25, '      </div>{/* gap-8 at md */}']]]] },
+};
+const diffStat = path => DIFFS[path].hunks.flatMap(([, ls]) => ls).reduce((n, [g]) => (g === "+" ? n.a++ : g === "-" ? n.d++ : 0, n), { a: 0, d: 0 });
+const files = n => `${n} file${n === 1 ? "" : "s"}`;
+// Save writes the checked files. A file that changed on disk is held until Reapply my changes, so saving never
+// overwrites someone's edits from their code editor.
+const RV = { sel: null, skip: new Set() };
 function saveUnsaved() {
-  const ready = Object.keys(SYNC.pending).filter(p => !SYNC.conflict.has(p));
-  const saved = ready.reduce((n, p) => n + SYNC.pending[p], 0);
+  const ready = Object.keys(SYNC.pending).filter(p => !SYNC.conflict.has(p) && !RV.skip.has(p));
   ready.forEach(p => delete SYNC.pending[p]);
-  render(); document.querySelector("#sync-dlg")?._paint?.();
-  const [held] = [...SYNC.conflict];
-  toast(held ? `Saved ${changes(saved)}. ${routeFile(held)} changed on disk, so its ${changes(SYNC.pending[held])} are waiting.` : `Saved ${changes(saved)} to your app`);
+  render(); document.querySelector(".dlg.review-dlg")?._paint?.();
+  toast(`Saved ${files(ready.length)} to your app`);
 }
-function mergeWithAgent(path) {
-  toast(`The agent is merging ${changes(SYNC.pending[path])} into ${routeFile(path)}`);
-  setTimeout(() => { delete SYNC.pending[path]; SYNC.conflict.delete(path); render(); document.querySelector("#sync-dlg")?._paint?.(); toast(`Merged into ${routeFile(path)}`); }, 1500);
+// The edits are kept as visual-edit intents, so they replay onto the newer file; any that no longer fit go to the agent.
+function reapplyChanges(path) {
+  setTimeout(() => { SYNC.conflict.delete(path); document.querySelector(".dlg.review-dlg")?._paint?.(); render(); toast(`Reapplied ${changes(SYNC.pending[path])} to the latest ${routeFile(path)}`); }, 900);
 }
 function syncDialog() {
-  dialog(`<div class="dlg-h">Unsaved changes<span class="grow"></span><button class="icon-btn xs" data-close aria-label="Close">${ic("x")}</button></div><div class="dlg-b"><div class="sync-list" id="sync-dlg"></div></div><div class="dlg-f" id="sync-f"></div>`, (sc, close) => {
-    const list = sc.querySelector("#sync-dlg"), foot = sc.querySelector("#sync-f");
-    const paint = () => {
-      const rows = Object.entries(SYNC.pending);
-      if (!rows.length) return close();
-      list.innerHTML = rows.map(([path, n]) => {
-        const held = SYNC.conflict.has(path);
-        return `<div class="sync-row"><span class="p"><b>${path}</b>${held ? `<small class="warn">${ic("alert-triangle", "s12")}${routeFile(path)} changed on disk · ${changes(n)}</small>` : `<small>${routeFile(path)} · ${changes(n)}</small>`}</span>${held ? `<button class="btn secondary" data-merge="${path}">${ic("git-merge", "s14")}Ask the agent to merge</button>` : ""}</div>`;
-      }).join("");
-      const ready = rows.filter(([p]) => !SYNC.conflict.has(p)).reduce((a, [, n]) => a + n, 0);
-      foot.innerHTML = `<span class="app-src">${sdot()}${srcUp() ? `Connected to ${SRC.name}` : `Can't reach ${SRC.name}`}</span>${ready ? `<button class="btn primary" style="height:28px;border-radius:8px;font-size:12px" data-save-all ${srcUp() ? "" : "disabled"}>Save ${changes(ready)}</button>` : ""}`;
+  RV.skip = new Set(); RV.closed = new Set(); RV.scroll = 0; RV.sel = Object.keys(SYNC.pending)[0];
+  dialog(`<div class="dlg-h">Review changes<span class="grow"></span><button class="icon-btn xs" data-close aria-label="Close">${ic("x")}</button></div><div class="rv"></div><div class="dlg-f" id="rv-f"></div>`, (sc, close) => {
+    const box = sc.querySelector(".dlg"); box.classList.add("review-dlg");
+    const rv = sc.querySelector(".rv"), foot = sc.querySelector("#rv-f");
+    const stat = ({ a, d }) => `<span class="rv-n"><span class="a">+${a}</span> <span class="d">−${d}</span></span>`;
+    const bar = ({ a, d }) => { const t = a + d, ga = Math.round(5 * a / t), gd = Math.min(5 - ga, Math.round(5 * d / t)); return `<span class="rv-bar">${"<i class=a></i>".repeat(ga)}${"<i class=d></i>".repeat(gd)}${"<i></i>".repeat(5 - ga - gd)}</span>`; };
+    // One card per changed file, like a PR's file list: one line-number column, gaps between hunks, light JSX
+    // coloring, and the changed words marked inside a changed line.
+    const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const syn = t => esc(t).replace(/(&lt;\/?)([\w.]+)|(\s)([\w-]+)=|("[^"]*")/g, (m, lt, tag, sp, at, str) => lt ? `${lt}<span class="tg">${tag}</span>` : at ? `${sp}<span class="at">${at}</span>=` : `<span class="st">${str}</span>`);
+    const words = (a, b) => { let i = 0, j = 0; while (i < a.length && a[i] === b[i]) i++; while (j < a.length - i && j < b.length - i && a[a.length - 1 - j] === b[b.length - 1 - j]) j++; return [i, j]; };
+    const lineHTML = (ls, k) => {
+      const [g, , n, t] = ls[k], pair = g === "-" ? ls[k + 1] : g === "+" ? ls[k - 1] : null;
+      let body = syn(t);
+      if (pair && pair[0] === (g === "-" ? "+" : "-")) { const [i, j] = words(t, pair[3]); if (i + j < t.length) body = syn(t.slice(0, i)) + `<mark>${syn(t.slice(i, t.length - j))}</mark>` + syn(t.slice(t.length - j)); }
+      return `<div class="rv-ln ${g === "+" ? "add" : g === "-" ? "del" : ""}"><span class="no">${g === "-" ? "" : n}</span><span class="sg">${g === " " ? "" : g === "-" ? "−" : "+"}</span><span>${body}</span></div>`;
     };
-    list._paint = paint; paint();
+    const card = p => {
+      const D = DIFFS[p], name = D.file.split("/").pop(), held = SYNC.conflict.has(p), closed = RV.closed?.has(p);
+      return `<section class="rv-card ${p === RV.sel ? "sel" : ""} ${closed ? "closed" : ""}" data-card="${p}"><div class="rv-ch"><b>Modified</b><span class="rv-chip" title="${D.file}">${name}</span>${held ? ic("alert-triangle", "s14") : ""}<span class="grow"></span>${stat(diffStat(p))}${bar(diffStat(p))}<button class="icon-btn xs chev" data-fold="${p}" aria-expanded="${!closed}" title="${closed ? "Expand" : "Collapse"}">${ic("chevron-down", "s14")}</button></div>
+        <div class="rv-acts"><button class="btn secondary" data-view-file="${D.file}">${ic("file-code", "s14")}View file</button><button class="btn secondary" data-mention="${D.file}">${ic("at", "s14")}Mention in chat</button></div>
+        ${held ? `<div class="rv-warn">${ic("alert-triangle", "s14")}<span>${name} changed on disk after these edits. Saving now would overwrite that work.</span><button class="btn secondary" data-reapply="${p}">Reapply my changes</button></div>` : ""}
+        <div class="rv-code">${D.hunks.map(([, ls]) => ls.map((_, k) => lineHTML(ls, k)).join("")).join('<div class="rv-gap"></div>')}</div></section>`;
+    };
+    const paint = () => {
+      const paths = Object.keys(SYNC.pending);
+      if (!paths.length) return close();
+      if (!SYNC.pending[RV.sel]) RV.sel = paths[0];
+      rv.innerHTML = `<div class="rv-tree" role="tree" aria-label="Changed files"><div class="rv-dir">${ic("folder", "s14")}app/routes</div>${paths.map(p => {
+        const c = SYNC.conflict.has(p);
+        return `<div class="rv-file" role="treeitem" data-rv="${p}" aria-selected="${p === RV.sel}" title="${DIFFS[p].file}"><input type="checkbox" data-rv-skip="${p}" aria-label="Save ${DIFFS[p].file.split("/").pop()}" ${c ? "disabled" : RV.skip.has(p) ? "" : "checked"}><span class="nm">${DIFFS[p].file.split("/").pop()}</span>${c ? ic("alert-triangle", "s14") : ""}${stat(diffStat(p))}</div>`;
+      }).join("")}</div>
+      <div class="rv-diff">${paths.map(card).join("")}</div>`;
+      // The tree follows the card at the top of the pane, and the pane keeps its place when the tree redraws.
+      const diff = rv.querySelector(".rv-diff"); diff.scrollTop = RV.scroll || 0;
+      diff.addEventListener("scroll", () => {
+        RV.scroll = diff.scrollTop;
+        const top = diff.getBoundingClientRect().top, cards = [...diff.querySelectorAll(".rv-card")];
+        const cur = cards.filter(c => c.getBoundingClientRect().top - top <= 24).pop() || cards[0];
+        if (!cur || cur.dataset.card === RV.sel) return;
+        RV.sel = cur.dataset.card;
+        rv.querySelectorAll(".rv-file").forEach(f => f.setAttribute("aria-selected", f.dataset.rv === RV.sel));
+        cards.forEach(c => c.classList.toggle("sel", c === cur));
+      });
+      const ready = paths.filter(p => !SYNC.conflict.has(p) && !RV.skip.has(p)).length;
+      foot.innerHTML = `<span class="app-src">${sdot()}${srcUp() ? `Connected to ${SRC.name}` : `Can't reach ${SRC.name}`}</span><button class="btn primary" style="height:28px;border-radius:8px;font-size:12px" data-save-all autofocus ${ready && srcUp() ? "" : "disabled"}>Save ${files(ready)}</button>`;
+    };
+    box._paint = paint; paint();
     sc.addEventListener("click", e => {
       if (e.target.closest("[data-save-all]")) return saveUnsaved();
-      const m = e.target.closest("[data-merge]"); if (m) { m.disabled = true; mergeWithAgent(m.dataset.merge); }
+      const ra = e.target.closest("[data-reapply]"); if (ra) { ra.disabled = true; ra.textContent = "Reapplying…"; return reapplyChanges(ra.dataset.reapply); }
+      const cb = e.target.closest("[data-rv-skip]"); if (cb) { cb.checked ? RV.skip.delete(cb.dataset.rvSkip) : RV.skip.add(cb.dataset.rvSkip); return paint(); }
+      const fo = e.target.closest("[data-fold]"); if (fo) { RV.closed ??= new Set(); const k = fo.dataset.fold; RV.closed.has(k) ? RV.closed.delete(k) : RV.closed.add(k); return paint(); }
+      const vf = e.target.closest("[data-view-file]"); if (vf) return toast(`Opens ${vf.dataset.viewFile} in the code view`);
+      const mc = e.target.closest("[data-mention]"); if (mc) { close(); setPanel("agents"); return toast(`Added ${mc.dataset.mention} to the chat`); }
+      const f = e.target.closest("[data-rv]"); if (f) { RV.sel = f.dataset.rv; RV.closed?.delete(RV.sel); paint(); sc.querySelector(`[data-card="${RV.sel}"]`)?.scrollIntoView({ block: "start", behavior: "smooth" }); }
     });
   });
 }
