@@ -1148,6 +1148,8 @@ export default {
     collapseFilters: "Réduire les filtres",
     expandFilters: "Développer les filtres",
     filterSeries: "Filter",
+    chartTimeRangeOverride: "Remplacer la plage horaire de ce graphique",
+    chartTimeRangeInherit: "Plage du tableau de bord",
     hide: "Hide",
     show: "Show",
     saveAsView: "Enregistrer sous vue",

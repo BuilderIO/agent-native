@@ -1095,6 +1095,8 @@ export default {
     collapseFilters: "फ़िल्टर संक्षिप्त करें",
     expandFilters: "फ़िल्टर का विस्तार करें",
     filterSeries: "Filter",
+    chartTimeRangeOverride: "इस चार्ट के लिए समय सीमा ओवरराइड करें",
+    chartTimeRangeInherit: "डैशबोर्ड सीमा",
     hide: "Hide",
     show: "Show",
     saveAsView: "दृश्य के रूप में सहेजें",

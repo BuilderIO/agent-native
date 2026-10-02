@@ -799,6 +799,8 @@ export default {
     collapseFilters: "Collapse filters",
     expandFilters: "Expand filters",
     filterSeries: "Filter",
+    chartTimeRangeOverride: "Override time range for this chart",
+    chartTimeRangeInherit: "Dashboard range",
     hide: "Hide",
     show: "Show",
     saveAsView: "Save as View",

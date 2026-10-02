@@ -1125,6 +1125,8 @@ export default {
     collapseFilters: "フィルターを折りたたむ",
     expandFilters: "フィルターを展開する",
     filterSeries: "Filter",
+    chartTimeRangeOverride: "このチャートの期間を上書き",
+    chartTimeRangeInherit: "ダッシュボードの期間",
     hide: "Hide",
     show: "Show",
     saveAsView: "ビューとして保存",

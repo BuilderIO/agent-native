@@ -1107,6 +1107,8 @@ export default {
     collapseFilters: "필터 접기",
     expandFilters: "필터 확장",
     filterSeries: "Filter",
+    chartTimeRangeOverride: "이 차트의 기간 재정의",
+    chartTimeRangeInherit: "대시보드 기간",
     hide: "Hide",
     show: "Show",
     saveAsView: "보기로 저장",

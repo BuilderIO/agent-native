@@ -1133,6 +1133,8 @@ export default {
     collapseFilters: "Recolher filtros",
     expandFilters: "Expandir filtros",
     filterSeries: "Filter",
+    chartTimeRangeOverride: "Substituir o intervalo de tempo deste gráfico",
+    chartTimeRangeInherit: "Intervalo do painel",
     hide: "Hide",
     show: "Show",
     saveAsView: "Salvar como visualização",

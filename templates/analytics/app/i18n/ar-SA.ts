@@ -1108,6 +1108,8 @@ export default {
     collapseFilters: "طي عوامل التصفية",
     expandFilters: "قم بتوسيع عوامل التصفية",
     filterSeries: "Filter",
+    chartTimeRangeOverride: "تجاوز النطاق الزمني لهذه الرسمة البيانية",
+    chartTimeRangeInherit: "نطاق لوحة المعلومات",
     hide: "Hide",
     show: "Show",
     saveAsView: "حفظ كعرض",

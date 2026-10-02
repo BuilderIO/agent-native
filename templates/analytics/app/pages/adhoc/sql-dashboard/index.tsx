@@ -177,6 +177,7 @@ import {
   clampDashboardColumns,
   DEFAULT_DASHBOARD_COLUMNS,
   type DashboardCertification,
+  type DashboardFilter,
   type SqlDashboardConfig,
   type SqlPanel,
 } from "./types";
@@ -265,6 +266,7 @@ function DashboardDragPreview({ panel }: { panel: SqlPanel | null }) {
 const PanelCell = memo(function PanelCell({
   panel,
   vars,
+  timeRangeFilter,
   remoteEditor,
   editable,
   eagerLoad,
@@ -279,6 +281,7 @@ const PanelCell = memo(function PanelCell({
 }: {
   panel: SqlPanel;
   vars: Record<string, string>;
+  timeRangeFilter: DashboardFilter | undefined;
   remoteEditor: { color: string; name: string } | undefined;
   editable: boolean;
   eagerLoad: boolean;
@@ -294,6 +297,14 @@ const PanelCell = memo(function PanelCell({
   onSavePanel: (panel: SqlPanel) => Promise<void>;
   dashboardExtensionContext: Record<string, unknown>;
 }) {
+  const [timeRangeOverride, setTimeRangeOverride] = useState<string | null>(
+    null,
+  );
+  const effectiveVars = useMemo(
+    () =>
+      timeRangeOverride ? { ...vars, timeRange: timeRangeOverride } : vars,
+    [vars, timeRangeOverride],
+  );
   const resolved = useMemo(
     () =>
       panel.config?.description
@@ -301,16 +312,23 @@ const PanelCell = memo(function PanelCell({
             ...panel,
             config: {
               ...panel.config,
-              description: interpolate(panel.config.description, vars),
+              description: interpolate(
+                panel.config.description,
+                effectiveVars,
+              ),
             },
           }
         : panel,
-    [panel, vars],
+    [panel, effectiveVars],
   );
   const resolvedSql = useMemo(
     () =>
-      interpolateDashboardPanelSql(serializePanelSql(panel.sql), vars, panel),
-    [panel.sql, vars],
+      interpolateDashboardPanelSql(
+        serializePanelSql(panel.sql),
+        effectiveVars,
+        panel,
+      ),
+    [panel.sql, effectiveVars],
   );
   const handleSelectForChat = useCallback(
     (options?: SelectDashboardPanelOptions) => {
@@ -377,7 +395,10 @@ const PanelCell = memo(function PanelCell({
             ? dashboardExtensionContext.dashboardId
             : ""
         }
-        filters={vars}
+        filters={effectiveVars}
+        timeRangeFilter={timeRangeFilter}
+        timeRangeOverride={timeRangeOverride}
+        onTimeRangeOverrideChange={setTimeRangeOverride}
         extensionContext={
           panel.chartType === "extension"
             ? {
@@ -1509,6 +1530,11 @@ function SqlDashboardPageContent({
     return { ...(dashboard?.variables ?? {}), ...filterValues };
   }, [dashboard?.variables, dashboard?.filters, searchParams]);
 
+  const timeRangeFilter = useMemo<DashboardFilter | undefined>(
+    () => dashboard?.filters?.find((f) => f.id === "timeRange"),
+    [dashboard?.filters],
+  );
+
   const dashboardExtensionContext = useMemo<Record<string, unknown>>(
     () => ({
       dashboardId,
@@ -2547,6 +2573,7 @@ function SqlDashboardPageContent({
                               <PanelCell
                                 panel={panel}
                                 vars={vars}
+                                timeRangeFilter={timeRangeFilter}
                                 remoteEditor={
                                   reportScreenshot
                                     ? undefined

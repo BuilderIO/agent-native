@@ -1149,6 +1149,8 @@ export default {
     collapseFilters: "Filter ausblenden",
     expandFilters: "Filter erweitern",
     filterSeries: "Filter",
+    chartTimeRangeOverride: "Zeitraum für dieses Diagramm überschreiben",
+    chartTimeRangeInherit: "Dashboard-Zeitraum",
     hide: "Hide",
     show: "Show",
     saveAsView: "Als Ansicht speichern",

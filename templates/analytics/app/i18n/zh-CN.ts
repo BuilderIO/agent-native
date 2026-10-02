@@ -1069,6 +1069,8 @@ export default {
     collapseFilters: "折叠过滤器",
     expandFilters: "展开过滤器",
     filterSeries: "Filter",
+    chartTimeRangeOverride: "覆盖此图表的时间范围",
+    chartTimeRangeInherit: "仪表板范围",
     hide: "Hide",
     show: "Show",
     saveAsView: "另存为视图",

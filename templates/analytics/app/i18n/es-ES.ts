@@ -1138,6 +1138,8 @@ export default {
     collapseFilters: "Contraer filtros",
     expandFilters: "Ampliar filtros",
     filterSeries: "Filter",
+    chartTimeRangeOverride: "Anular el rango de tiempo de este gráfico",
+    chartTimeRangeInherit: "Rango del panel",
     hide: "Hide",
     show: "Show",
     saveAsView: "Guardar como vista",

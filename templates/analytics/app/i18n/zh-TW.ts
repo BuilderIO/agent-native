@@ -1154,6 +1154,8 @@ export default {
     collapseFilters: "折疊過濾器",
     expandFilters: "展開過濾器",
     filterSeries: "篩選",
+    chartTimeRangeOverride: "覆寫此圖表的時間範圍",
+    chartTimeRangeInherit: "儀表板範圍",
     hide: "Hide",
     show: "Show",
     saveAsView: "另存為檢視",
