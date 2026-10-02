@@ -192,6 +192,29 @@ describe("flushObservability", () => {
     });
   });
 
+  it("counts a flush whose timer fired long after its deadline as suspended", async () => {
+    vi.useFakeTimers();
+    const meterProvider = createTestMeterProvider(
+      () => new Promise<void>(() => {}),
+    );
+    register({ meterProvider });
+
+    const flushed = flushObservability();
+    // A frozen process: wall-clock time passes but no timers run.
+    vi.setSystemTime(Date.now() + 60_000);
+    await vi.advanceTimersByTimeAsync(OBSERVABILITY_FLUSH_TIMEOUT_MS);
+    await flushed;
+
+    expect(meterProvider.recorded).toContainEqual({
+      instrument: "agent_native.telemetry.flush_failures",
+      value: 1,
+      attributes: {
+        "agent_native.telemetry.signal": "metrics",
+        "error.type": "suspended",
+      },
+    });
+  });
+
   it("counts a failed flush by error name instead of throwing", async () => {
     const meterProvider = createTestMeterProvider(async () => {
       throw new TypeError("exporter blew up");
