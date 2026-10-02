@@ -79,6 +79,7 @@ export default defineAction({
   outputSchema: healthSchema,
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async () => {
     const scope = resolveScope();

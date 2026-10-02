@@ -7,6 +7,27 @@ export async function loadRunCodeToolEntries(
   runCodeOptions?: {
     bridgeTools?: string[];
     evaluator?: SandboxCodeEvaluator;
+    /**
+     * Names of actions the app defines itself. These entries are spread after
+     * the app's actions, so a same-named entry here would silently replace the
+     * app's version (and drop its `mcpTool` exposure). Leave those names to
+     * the app.
+     */
+    appActionNames?: Iterable<string>;
+  },
+): Promise<Record<string, ActionEntry>> {
+  const entries = await createRunCodeToolEntries(supplier, runCodeOptions);
+  for (const name of runCodeOptions?.appActionNames ?? []) {
+    delete entries[name];
+  }
+  return entries;
+}
+
+async function createRunCodeToolEntries(
+  supplier: () => Record<string, ActionEntry>,
+  runCodeOptions?: {
+    bridgeTools?: string[];
+    evaluator?: SandboxCodeEvaluator;
   },
 ): Promise<Record<string, ActionEntry>> {
   try {

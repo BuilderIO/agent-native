@@ -29,6 +29,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   link: ({ result }) => {
     const first = Array.isArray(result) ? result[0] : null;
