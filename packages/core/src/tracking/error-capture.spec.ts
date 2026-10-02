@@ -204,6 +204,10 @@ describe("tracking captureException", () => {
       "WITH U&\"caf!00E9\" /* identifier */ UESCAPE /* marker */ '!' /* AS */ AS (SELECT id FROM users WHERE email = $1) SELECT * FROM U&\"caf!00E9\" UESCAPE '!'",
     ],
     [
+      "Unicode-escaped CTE identifiers with an escape-string UESCAPE literal",
+      String.raw`WITH U&"caf\00E9" UESCAPE E'\\' AS (SELECT id FROM users WHERE email = $1) SELECT * FROM U&"caf\00E9" UESCAPE E'\\'`,
+    ],
+    [
       "Unicode dollar-quote tags in CTE bodies",
       "WITH data AS (SELECT $é$) ) $é$ AS value) SELECT value FROM data",
     ],

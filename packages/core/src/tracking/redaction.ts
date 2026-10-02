@@ -166,6 +166,72 @@ function afterSqlToken(value: string, token: RegExp): string | undefined {
   return match ? statement.slice(match[0].length) : undefined;
 }
 
+function decodeSqlEscapeString(value: string): string | undefined {
+  let decoded = "";
+  for (let index = 0; index < value.length; ) {
+    if (value[index] !== "\\") {
+      if (value.startsWith("''", index)) {
+        decoded += "'";
+        index += 2;
+      } else {
+        const character = String.fromCodePoint(value.codePointAt(index) ?? 0);
+        decoded += character;
+        index += character.length;
+      }
+      continue;
+    }
+
+    const escape =
+      /^\\([0-7]{1,3}|x[\da-f]{1,2}|u[\da-f]{4}|U[\da-f]{8}|[\s\S])/iu.exec(
+        value.slice(index),
+      );
+    if (!escape) return undefined;
+
+    const sequence = escape[1];
+    const codePoint = /^[0-7]/u.test(sequence)
+      ? Number.parseInt(sequence, 8)
+      : /^[xX]/u.test(sequence)
+        ? Number.parseInt(sequence.slice(1), 16)
+        : /^[uU]/u.test(sequence)
+          ? Number.parseInt(sequence.slice(1), 16)
+          : undefined;
+    if (codePoint !== undefined) {
+      if (
+        codePoint === 0 ||
+        codePoint > 0x10ffff ||
+        (codePoint >= 0xd800 && codePoint <= 0xdfff)
+      ) {
+        return undefined;
+      }
+      decoded += String.fromCodePoint(codePoint);
+    } else {
+      const character = sequence.toLowerCase();
+      decoded +=
+        ({ b: "\b", f: "\f", n: "\n", r: "\r", t: "\t" } as const)[
+          character as "b" | "f" | "n" | "r" | "t"
+        ] ?? sequence;
+    }
+    index += escape[0].length;
+  }
+  return decoded;
+}
+
+function parseSqlStringConstant(
+  value: string,
+): { value: string; remainder: string } | undefined {
+  const escapeString = /^[eE]'/.test(value);
+  const literal = escapeString
+    ? /^[eE]'((?:''|\\[\s\S]|[^'\\])*)'/u.exec(value)
+    : /^'((?:''|[^'])*)'/u.exec(value);
+  if (!literal) return undefined;
+
+  const decoded = escapeString
+    ? decodeSqlEscapeString(literal[1])
+    : literal[1].replace(/''/g, "'");
+  if (decoded === undefined) return undefined;
+  return { value: decoded, remainder: value.slice(literal[0].length) };
+}
+
 function afterSqlIdentifier(value: string): string | undefined {
   const statement = afterLeadingSqlComments(value);
   const identifier = SQL_CTE_IDENTIFIER_RE.exec(statement);
@@ -180,11 +246,15 @@ function afterSqlIdentifier(value: string): string | undefined {
   if (!uescape) return remainder;
 
   remainder = afterLeadingSqlComments(remainder.slice(uescape[0].length));
-  const escapeCharacter = /^(?:[eE])?'(.)'/u.exec(remainder);
-  if (!escapeCharacter || /[\da-f+"'\s]/iu.test(escapeCharacter[1])) {
+  const escapeClause = parseSqlStringConstant(remainder);
+  if (
+    !escapeClause ||
+    Array.from(escapeClause.value).length !== 1 ||
+    /[\da-f+"'\s]/iu.test(escapeClause.value)
+  ) {
     return undefined;
   }
-  return afterLeadingSqlComments(remainder.slice(escapeCharacter[0].length));
+  return afterLeadingSqlComments(escapeClause.remainder);
 }
 
 function afterSqlKeywordOutsideQuotedText(
