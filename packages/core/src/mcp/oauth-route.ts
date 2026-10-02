@@ -1064,12 +1064,8 @@ const NOT_A_MEMBER_DESCRIPTION =
   "The user is no longer a member of the organization this grant was issued for";
 
 /** Retryable: the client must keep its refresh token, not start over. */
-function membershipUnavailableError(): Response {
-  const response = oauthError(
-    "temporarily_unavailable",
-    CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
-    503,
-  );
+function grantUnavailableError(description: string): Response {
+  const response = oauthError("temporarily_unavailable", description, 503);
   response.headers.set("Retry-After", "5");
   return response;
 }
@@ -1095,7 +1091,9 @@ async function handleAuthorizationCodeGrant(
     return oauthError("invalid_grant", "PKCE verification failed");
   }
   const membership = await grantOrgMembership(event, row);
-  if (membership === "unavailable") return membershipUnavailableError();
+  if (membership === "unavailable") {
+    return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+  }
   if (membership === "not-member") {
     await consumeOAuthCode(code);
     return oauthError("invalid_grant", NOT_A_MEMBER_DESCRIPTION);
@@ -1139,12 +1137,20 @@ async function handleRefreshTokenGrant(
     );
   }
   const membership = await grantOrgMembership(event, existing);
-  if (membership === "unavailable") return membershipUnavailableError();
+  if (membership === "unavailable") {
+    return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
+  }
   if (membership === "not-member") {
     await revokeOAuthRefreshToken(refreshToken);
     return oauthError("invalid_grant", NOT_A_MEMBER_DESCRIPTION);
   }
-  await touchOAuthRefreshToken(refreshToken).catch(() => undefined);
+  try {
+    await touchOAuthRefreshToken(refreshToken);
+  } catch {
+    return grantUnavailableError(
+      "Unable to renew the refresh token. Retry the request.",
+    );
+  }
   const issuer = getMcpOAuthIssuer(event);
   if (!issuer)
     return oauthError("server_error", "Unable to derive issuer", 500);

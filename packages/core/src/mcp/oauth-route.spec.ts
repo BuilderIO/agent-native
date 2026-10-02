@@ -2005,7 +2005,7 @@ describe("MCP OAuth route", () => {
   });
 });
 
-describe("MCP OAuth grants for a user who left the organization", () => {
+describe("MCP OAuth grant validation", () => {
   const verifier = "m".repeat(50);
 
   async function authorizedCode(): Promise<{ clientId: string; code: string }> {
@@ -2144,6 +2144,38 @@ describe("MCP OAuth grants for a user who left the organization", () => {
     expect(res.headers.get("retry-after")).toBe("5");
     expect((await res.json()).error).toBe("temporarily_unavailable");
     expect(refreshRows.get(issued.refresh_token)).toEqual(before);
+  });
+
+  it("mints nothing when refresh renewal fails and lets the same token retry", async () => {
+    const { clientId, code } = await authorizedCode();
+    const issued = await (await exchange(clientId, code)).json();
+    const before = { ...refreshRows.get(issued.refresh_token) };
+    const store = await import("./oauth-store.js");
+    vi.mocked(store.touchOAuthRefreshToken).mockRejectedValueOnce(
+      new Error("Synthetic database write failure"),
+    );
+    const token = await import("./oauth-token.js");
+    const sign = vi.spyOn(token, "signMcpOAuthAccessToken");
+
+    const failed = await refresh(clientId, issued.refresh_token);
+    const failedBody = await failed.json();
+
+    expect(failed.status).toBe(503);
+    expect(failed.headers.get("retry-after")).toBe("5");
+    expect(failedBody.error).toBe("temporarily_unavailable");
+    expect(failedBody.access_token).toBeUndefined();
+    expect(sign).not.toHaveBeenCalled();
+    expect(refreshRows.get(issued.refresh_token)).toEqual(before);
+
+    const retried = await refresh(clientId, issued.refresh_token);
+    expect(retried.status).toBe(200);
+    const retriedBody = await retried.json();
+    expect(retriedBody.refresh_token).toBe(issued.refresh_token);
+    expect(retriedBody.access_token).toBeTruthy();
+    expect(sign).toHaveBeenCalledTimes(1);
+    expect(refreshRows.get(issued.refresh_token).expiresAt).toBeGreaterThan(
+      before.expiresAt,
+    );
   });
 
   it("refuses and consumes an authorization code once the user has left", async () => {
