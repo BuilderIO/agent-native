@@ -1239,6 +1239,23 @@ function suggestionAnchorRange(
     if (!mapped) return null;
     const plain = buildDocText(doc);
     if (plain.text !== mapped.text) return null;
+    if (mapped.emptyCell) {
+      const emptyCells: number[] = [];
+      doc.descendants((node, pos) => {
+        if (
+          (node.type.name === "tableCell" ||
+            node.type.name === "tableHeader") &&
+          node.childCount === 1 &&
+          node.firstChild!.type.name === "paragraph" &&
+          node.firstChild!.content.size === 0
+        )
+          emptyCells.push(pos + 2);
+      });
+      const at = emptyCells[mapped.emptyCell.index];
+      return emptyCells.length === mapped.emptyCell.count && at !== undefined
+        ? { from: at, to: at }
+        : null;
+    }
     const position = (offset: number, affinity: "left" | "right") => {
       let textOffset = 0;
       let result: number | null = null;

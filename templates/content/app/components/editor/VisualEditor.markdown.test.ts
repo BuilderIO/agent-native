@@ -1038,6 +1038,129 @@ describe("markdown clipboard parsing", () => {
   });
 });
 
+describe("suggestions inside frames", () => {
+  const page = [
+    "Intro.",
+    "",
+    "| Name | Value |",
+    "| --- | --- |",
+    "| alpha cell | beta cell |",
+    "",
+    '<callout icon="💡">',
+    "\tCallout text.",
+    "</callout>",
+    "",
+    "<details open>",
+    "<summary>Title</summary>",
+    "\tToggle text.",
+    "</details>",
+    "",
+    "<columns>",
+    "\t<column>",
+    "\t\tLeft text.",
+    "\t</column>",
+    "\t<column>",
+    "\t\tRight text.",
+    "\t</column>",
+    "</columns>",
+    "",
+    "Closing.",
+  ].join("\n");
+
+  // Highlights one suggested change in the draft and in the canonical page.
+  function highlights(draftSource: string, base = page) {
+    const session = createSuggestionDraftSession({
+      id: "frame-suggestion",
+      baseContent: base,
+      baseRevision: "one",
+      startedAt: "2026-10-02T00:00:00.000Z",
+    });
+    const draft = docToNfm(nfmToDoc(draftSource));
+    const operations = suggestionDraftOperations(session, draft);
+    expect(operations).toHaveLength(1);
+    const operation = operations[0]!;
+    return (["draft", "canonical"] as const).map((presentation) => {
+      const editor = new Editor({
+        extensions: createVisualEditorExtensions(),
+        content: nfmToDoc(presentation === "draft" ? draft : base),
+      });
+      try {
+        const spec = suggestionHighlightSpec(editor.state.doc, {
+          id: `frame-suggestion-${presentation}`,
+          kind: operation.kind,
+          beforeText: operation.before.changedText,
+          afterText: operation.after.changedText,
+          anchor:
+            presentation === "draft"
+              ? draftSuggestionAnchors(operations, draft)[0]!
+              : operation.anchor,
+          canonicalOperation:
+            presentation === "canonical" ? operation : undefined,
+          presentation,
+        });
+        expect(spec).not.toBeNull();
+        const { from, to } = spec!;
+        const { doc } = editor.state;
+        const $from = doc.resolve(from);
+        return {
+          from,
+          to,
+          text: doc.textBetween(from, to),
+          cell: {
+            type: $from.node(-1).type.name,
+            index: $from.index(-2),
+            row: $from.node(-2).textContent,
+          },
+          before: (length: number) => doc.textBetween(from - length, from),
+          after: (length: number) => doc.textBetween(to, to + length),
+        };
+      } finally {
+        editor.destroy();
+      }
+    });
+  }
+
+  it.each([
+    ["callout", "Callout text.", "\t"],
+    ["toggle", "Toggle text.", "\t"],
+    ["column", "Left text.", "\t\t"],
+  ])("highlights a paragraph added inside a %s", (_, text, indent) => {
+    const [draft, canonical] = highlights(
+      page.replace(text, `${text}\n${indent}Added.`),
+    );
+    expect(draft!.text).toBe("Added.");
+    expect(canonical!.to).toBe(canonical!.from);
+    expect(canonical!.before(text.length)).toBe(text);
+  });
+
+  it("highlights text inserted at the start of a pipe-table cell", () => {
+    const [draft, canonical] = highlights(
+      page.replace("beta cell", "pasted beta cell"),
+    );
+    expect(draft!.text).toBe("pasted ");
+    expect(canonical!.to).toBe(canonical!.from);
+    expect(canonical!.after("beta".length)).toBe("beta");
+  });
+
+  it("highlights text typed into an empty pipe-table cell", () => {
+    const base = page.replace(
+      "| alpha cell | beta cell |",
+      "| alpha cell | beta cell |\n| gamma cell |  |\n|  | delta cell |",
+    );
+    const [draft, canonical] = highlights(
+      base.replace("|  | delta cell |", "| Filled | delta cell |"),
+      base,
+    );
+    expect(draft!.text).toBe("Filled");
+    expect(canonical!.to).toBe(canonical!.from);
+    expect(canonical!.cell).toEqual({
+      type: "tableCell",
+      index: 0,
+      row: "delta cell",
+    });
+  });
+});
+
 describe("live suggestion presentation", () => {
   function createSuggestionEditor(content: string) {
     return new Editor({

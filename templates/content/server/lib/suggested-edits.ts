@@ -29,7 +29,8 @@ import { hasSuggestionBodyTarget } from "../../actions/_suggestion-eligibility.j
 import { commentIdForIdempotency } from "../../actions/add-comment.js";
 import {
   SUPPORTED_SUGGESTION_MARKS,
-  supportsSuggestionNode,
+  suggestionFrameShape,
+  suggestionNodeRole,
 } from "../../app/components/editor/suggestions/model.js";
 import { createContentEditorStructuralSchema } from "../../shared/content-editor-structural-schema.js";
 import { mergeDocumentBodyIntents } from "../../shared/document-intent-merge.js";
@@ -278,9 +279,20 @@ function unsupportedSuggestionStructure(
     }
     return result;
   }
-  if (!supportsSuggestionNode(node.type ?? "")) {
+  const role = suggestionNodeRole(node.type ?? "");
+  if (role === "frozen") {
     result.push({ path, node });
     return result;
+  }
+  if (role === "frame") {
+    result.push({
+      path,
+      frame: suggestionFrameShape(
+        node.type ?? "",
+        node.attrs,
+        (node.content ?? []).map((child) => child.type ?? ""),
+      ),
+    });
   }
   for (const child of node.content ?? []) {
     unsupportedSuggestionStructure(child, [...path, node.type ?? ""], result);
@@ -577,7 +589,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     validateSuggestionStructure(
       before.markdown,
       after.markdown,
-      "Suggestions cannot change tables, images, or other content or formatting they do not support yet. Suggest changes to the surrounding text instead.",
+      "Suggestions can change text inside tables, callouts, toggles, and columns, but not a table's rows or cells, a callout's icon, a toggle's title, the columns themselves, images, or other content or formatting they do not support yet. Suggest a change to the text instead.",
     );
     return operations;
   },
@@ -670,7 +682,7 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
     const nextDocument = validateSuggestionStructure(
       currentContent,
       nextContent,
-      "This suggestion changes a table, image, or other content or formatting that suggestions do not support yet, so it cannot be accepted.",
+      "This suggestion changes a table's rows or cells, a callout's icon, a toggle's title, a column layout, an image, or other content or formatting that suggestions do not support yet, so it cannot be accepted.",
     );
     if (currentContent.includes("<InlineDatabase")) {
       fail("Pages containing inline databases cannot accept suggestions yet.", {
