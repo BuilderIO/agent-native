@@ -95,9 +95,7 @@ export function classifyLocalUploadFailure(input: {
   if (
     input.errorCode === "builder_oauth_reauthorization_required" ||
     isStorageSetupFailureReason(message) ||
-    /video storage could not start|reconnect builder|builder\.io access/i.test(
-      message,
-    )
+    /reconnect builder|builder\.io access/i.test(message)
   ) {
     return "storage_setup_required";
   }

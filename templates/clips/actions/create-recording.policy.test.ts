@@ -66,7 +66,9 @@ vi.mock("../server/lib/streaming-upload-mode.js", () => ({
   shouldEnableStreamingUpload: () => calls.streamingEnabled,
 }));
 
-import createRecording from "./create-recording";
+import createRecording, {
+  classifyInitialUploadFailure,
+} from "./create-recording";
 
 describe("create-recording policy", () => {
   beforeEach(() => {
@@ -177,7 +179,7 @@ describe("create-recording policy", () => {
     expect(calls.writeState).not.toHaveBeenCalled();
   });
 
-  it("marks rejected Builder upload authorization as setup-required and non-retryable", async () => {
+  it("keeps a transient Builder signed-URL authorization failure retryable", async () => {
     calls.bufferedFallbackAvailable = false;
     calls.streamingEnabled = true;
     calls.uploadProvider.mockResolvedValueOnce({
@@ -211,19 +213,33 @@ describe("create-recording policy", () => {
       ),
     ).rejects.toMatchObject({
       statusCode: 503,
-      data: { retryable: false },
+      data: { retryable: true },
     });
 
     expect(calls.update).toHaveBeenCalledOnce();
     expect(calls.updateSet).toHaveBeenCalledWith(
-      expect.objectContaining({ failureCode: "storage_setup_required" }),
+      expect.objectContaining({ failureCode: "multipart_start_failed" }),
     );
     expect(calls.writeState).toHaveBeenLastCalledWith(
       "recording-upload-rec-1",
       expect.objectContaining({
         status: "failed",
-        storageSetupRequired: true,
+        storageSetupRequired: false,
       }),
     );
+  });
+
+  it("keeps explicit Builder reauthorization failures setup-required", () => {
+    expect(
+      classifyInitialUploadFailure(
+        Object.assign(new Error("Builder authorization expired"), {
+          status: 401,
+          errorCode: "builder_oauth_reauthorization_required",
+        }),
+      ),
+    ).toMatchObject({
+      failureCode: "storage_setup_required",
+      httpStatus: 401,
+    });
   });
 });

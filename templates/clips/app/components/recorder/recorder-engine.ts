@@ -1783,7 +1783,7 @@ export class RecorderEngine {
     }
   }
 
-  async cancel(failureCode = "unknown"): Promise<void> {
+  async cancel(failureCode = "recording_interrupted"): Promise<void> {
     // Before the recorder stops: its final chunk arrives afterwards and must
     // not write a new copy behind the delete.
     this.discarded = true;
@@ -1837,7 +1837,7 @@ export class RecorderEngine {
             reason:
               failureCode === "user_cancelled"
                 ? "Recording cancelled by user"
-                : failureCode === "unknown"
+                : failureCode === "recording_interrupted"
                   ? "Recording interruption has unknown cause"
                   : failureCode === "storage_setup_required"
                     ? "Video storage is not connected yet"

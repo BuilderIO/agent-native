@@ -165,6 +165,48 @@ describe("agent chat run lifecycle tracking", () => {
     ]);
     expect(events[2]?.userId).toBeUndefined();
   });
+
+  it("uses the request identity snapshot after request context is gone", () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "agent-chat-run-lifecycle-snapshot-test",
+      track(event) {
+        events.push(event);
+      },
+    });
+
+    try {
+      trackAgentChatRunLifecycle(
+        "run_finished",
+        "thread-1",
+        "run-1",
+        undefined,
+        { status: "completed" },
+        "slides",
+        {
+          userId: "owner@example.com",
+          authUserId: "auth-user-1",
+          sessionId: "browser-session-1",
+        },
+      );
+    } finally {
+      unregisterTrackingProvider("agent-chat-run-lifecycle-snapshot-test");
+    }
+
+    expect(events).toMatchObject([
+      {
+        name: "run_finished",
+        userId: "owner@example.com",
+        sessionId: "browser-session-1",
+        properties: {
+          auth_user_id: "auth-user-1",
+          session_id: "browser-session-1",
+          thread_id: "thread-1",
+          attempt_id: "run-1",
+        },
+      },
+    ]);
+  });
 });
 
 describe("agent checkpoint path provenance", () => {

@@ -124,7 +124,7 @@ describe("classifyLocalUploadFailure", () => {
         message:
           "Video storage could not start an upload: Builder.io signed-URL request failed (401): Unauthorized",
       }),
-    ).toBe("storage_setup_required");
+    ).toBe("server_unavailable");
     expect(
       classifyLocalUploadFailure({
         status: 400,
@@ -132,6 +132,20 @@ describe("classifyLocalUploadFailure", () => {
       }),
     ).toBe("storage_setup_required");
     expect(classifyLocalUploadFailure({ status: 401 })).toBe("session_expired");
+    expect(
+      classifyLocalUploadFailure({
+        status: 401,
+        message:
+          "Builder.io signed-URL request failed (401): Authorization required",
+      }),
+    ).toBe("session_expired");
+    expect(
+      classifyLocalUploadFailure({
+        status: 503,
+        message:
+          "Video storage could not start an upload: Builder.io signed-URL request failed (401): Unauthorized",
+      }),
+    ).toBe("server_unavailable");
     expect(classifyLocalUploadFailure({ status: 413 })).toBe(
       "recording_too_large",
     );
