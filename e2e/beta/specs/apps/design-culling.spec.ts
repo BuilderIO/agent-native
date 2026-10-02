@@ -26,6 +26,16 @@ test.skip(!selected.has("design"), "design not in this run's selection");
 const SCREEN_COUNT = 48;
 const LIVE_IFRAME_BUDGET = 32;
 
+/**
+ * Every browsing context that previews a screen. On a board larger than the
+ * live pool, a screen narrower than the live-editor threshold on screen gets a
+ * static preview instead of a live editor, so at overview zoom the live editors
+ * are only the protected active screen and never follow the camera. Counting
+ * live editors alone measures that one screen, not the pool culling bounds.
+ */
+const PREVIEW_IFRAME_SELECTOR =
+  "iframe[data-design-preview-iframe], iframe[data-screen-static-preview]";
+
 function screenHtml(index: number): string {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
     <body style="margin:0;background:#020617;color:#f8fafc"><main data-cull-layer="screen-${index}" style="width:720px;height:420px;padding:24px;box-sizing:border-box;font:20px system-ui">Screen ${index + 1}</main></body></html>`;
@@ -84,7 +94,7 @@ async function createCullingDesign(
 
 async function previewIframeIds(page: Page): Promise<string[]> {
   const ids = await page
-    .locator("iframe[data-design-preview-iframe]")
+    .locator(PREVIEW_IFRAME_SELECTOR)
     .evaluateAll((iframes) =>
       iframes.map(
         (iframe, index) =>
@@ -119,7 +129,7 @@ async function settledPreviewIframeIds(page: Page): Promise<string[]> {
 }
 
 async function installChurnObserver(page: Page): Promise<void> {
-  await page.addInitScript(() => {
+  await page.addInitScript((selector) => {
     const state = { iframeAdded: 0, iframeRemoved: 0, iframeLoads: 0 };
     (
       window as typeof window & { __betaCullingPerf?: typeof state }
@@ -127,8 +137,8 @@ async function installChurnObserver(page: Page): Promise<void> {
     const count = (node: Node): number => {
       if (!(node instanceof Element)) return 0;
       return (
-        (node.matches("iframe[data-design-preview-iframe]") ? 1 : 0) +
-        node.querySelectorAll("iframe[data-design-preview-iframe]").length
+        (node.matches(selector) ? 1 : 0) +
+        node.querySelectorAll(selector).length
       );
     };
     new MutationObserver((records) => {
@@ -143,14 +153,14 @@ async function installChurnObserver(page: Page): Promise<void> {
       (event) => {
         if (
           event.target instanceof HTMLIFrameElement &&
-          event.target.matches("iframe[data-design-preview-iframe]")
+          event.target.matches(selector)
         ) {
           state.iframeLoads += 1;
         }
       },
       true,
     );
-  });
+  }, PREVIEW_IFRAME_SELECTOR);
 }
 
 async function resetChurn(page: Page): Promise<void> {
@@ -193,7 +203,7 @@ test("Design culling preserves a bounded preview pool during physical pan and zo
     );
     await expect(page.locator("[data-screen-shell]")).toHaveCount(SCREEN_COUNT);
     await expect
-      .poll(() => page.locator("iframe[data-design-preview-iframe]").count(), {
+      .poll(() => page.locator(PREVIEW_IFRAME_SELECTOR).count(), {
         timeout: 45_000,
       })
       .toBeGreaterThan(0);
