@@ -39,6 +39,7 @@ import {
   reloadForClientCompatibilityMismatch,
 } from "./build-compatibility.js";
 import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
+import { currentRouteTemplate } from "./route-template.js";
 import { recheckSessionAfterUnauthorized } from "./use-session.js";
 
 function actionPrefix(): string {
@@ -571,6 +572,16 @@ type ActionResponseSampling = {
   sampled: boolean;
 };
 
+function actionTelemetryRoute(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    return currentRouteTemplate();
+  } catch {
+    // coercion-ok: telemetry never changes the action; the event omits route.
+    return undefined;
+  }
+}
+
 function getActionResponseSampling(
   error: unknown,
   durationMs: number,
@@ -602,6 +613,7 @@ async function actionFetch<T>(
 ): Promise<T> {
   assertAgentNativeApiEnabled(`${method} ${name}`);
   const startedAt = actionTelemetryNow();
+  const routeAtStart = actionTelemetryRoute();
   const hiddenEpochAtStart = pageHiddenEpoch;
   const hiddenAtStart =
     typeof document !== "undefined" && document.visibilityState !== "visible";
@@ -661,6 +673,7 @@ async function actionFetch<T>(
             response?.headers.get("x-agent-native-request-id") ?? undefined,
           action: name,
           method,
+          route: routeAtStart,
           sample_rate: sampling.sampleRate,
           sample_weight: 1 / sampling.sampleRate,
           sampled: sampling.sampled,

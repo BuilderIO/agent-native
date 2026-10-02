@@ -323,10 +323,20 @@ Other framework-level baseline events:
 
 - `session status` from `useSession()`, with `signed_in`
 - `action.response` from the browser action transport, with action name,
+  the `route` template of the page that made the request,
   browser-perceived duration and TTFB, response status/outcome, response size
   when known, and parsed `Server-Timing` phases for framework readiness and
   database work. Its `request_id` joins the exact browser and server events.
   This separates server time from CDN/network/body overhead.
+- `web_vitals` once per page view, with the React Router `route` template
+  (`/sessions/:id`, never the ids), `navigation_type` (`load`, `client`,
+  or `resume` after the tab was hidden), and `ttfb_ms`, `lcp_ms`,
+  `inp_ms`, and `cls`. TTFB and LCP exist only for document loads, and a
+  metric the browser cannot measure is omitted rather than sent as 0. A page
+  view ends on `pushState`/`popstate` to another path or when the tab is
+  hidden; `replaceState` keeps it, so redirects land on the final route.
+  Measured with native `PerformanceObserver`s; `configureTracking({
+  webVitals: false })` turns it off. Each page view also marks the replay.
 - `http.response` from Nitro request/response hooks, with normalized path,
   status, request duration, first-request-in-isolate cold marker, process age,
   framework readiness wait, deploy/runtime fingerprint, database

@@ -233,6 +233,34 @@ describe("callAction", () => {
     );
   });
 
+  it("attributes the response to the route template the request started on", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE", "1");
+    const location = { pathname: "/sessions/rec_42", href: "" };
+    vi.stubGlobal("window", {
+      location,
+      __reactRouterManifest: {
+        routes: {
+          root: { id: "root", path: "" },
+          detail: { id: "detail", parentId: "root", path: "sessions/:id" },
+        },
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        location.pathname = "/sessions";
+        return jsonResponse({ ok: true }, { status: 200 });
+      }),
+    );
+
+    await callAction("list-plans", {}, { method: "GET" });
+
+    expect(analyticsMocks.trackEvent).toHaveBeenCalledWith(
+      "action.response",
+      expect.objectContaining({ route: "/sessions/:id" }),
+    );
+  });
+
   it("correlates browser timing with server and database phases", async () => {
     vi.stubEnv("VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE", "1");
     const fetchMock = vi.fn().mockResolvedValue(

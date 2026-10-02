@@ -429,6 +429,40 @@ describe("session replay", () => {
     );
   });
 
+  it("marks page-view Web Vitals on the replay, leaving out unmeasured metrics", async () => {
+    installBrowser("https://clips.agent-native.com/library");
+    const addCustomEvent = vi.fn();
+    (
+      recordMock as typeof recordMock & {
+        addCustomEvent: typeof addCustomEvent;
+      }
+    ).addCustomEvent = addCustomEvent;
+    recordMock.mockReturnValue(vi.fn());
+    const {
+      emitSessionReplayWebVitals,
+      startSessionReplay,
+      SESSION_REPLAY_VITALS_EVENT_TAG,
+    } = await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+    });
+    emitSessionReplayWebVitals({
+      route: "/r/:id",
+      navigationType: "load",
+      ttfbMs: 120,
+      lcpMs: 2_600,
+      inpMs: undefined,
+      cls: Number.NaN,
+    });
+
+    expect(addCustomEvent).toHaveBeenCalledWith(
+      SESSION_REPLAY_VITALS_EVENT_TAG,
+      { route: "/r/:id", navigationType: "load", ttfbMs: 120, lcpMs: 2_600 },
+    );
+  });
+
   it("caps app event markers per replay, across restarts and reloads", async () => {
     const { storage, fetchMock } = installBrowser(
       "https://clips.agent-native.com/library",

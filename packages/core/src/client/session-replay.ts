@@ -347,6 +347,7 @@ export const SESSION_REPLAY_CONSOLE_EVENT_TAG = "agent-native.console";
 export const SESSION_REPLAY_NETWORK_EVENT_TAG = "agent-native.network";
 export const SESSION_REPLAY_AGENT_CHAT_EVENT_TAG = "agent-native.chat";
 export const SESSION_REPLAY_ANALYTICS_EVENT_TAG = "agent-native.event";
+export const SESSION_REPLAY_VITALS_EVENT_TAG = "agent-native.vitals";
 const SESSION_REPLAY_LIFECYCLE_EVENT_TAG = "agent-native.session_replay";
 
 const DEFAULT_MAX_CONSOLE_EVENTS = 1000;
@@ -3639,16 +3640,10 @@ export function emitSessionReplayException(input: {
   });
 }
 
-/**
- * Mark a tracked analytics event on the replay timeline. Only the event name
- * is recorded; event properties stay out of the replay.
- */
-export function emitSessionReplayAnalyticsEvent(name: string): void {
-  const state = getState();
-  if (!state.active || !state.addCustomEvent) return;
-  if (state.analyticsEventCount >= MAX_ANALYTICS_EVENTS_PER_REPLAY) return;
-  const bounded = name.trim().slice(0, MAX_ANALYTICS_EVENT_NAME_LENGTH);
-  if (!bounded) return;
+function reserveAnalyticsMarker(state: SessionReplayState): boolean {
+  if (state.analyticsEventCount >= MAX_ANALYTICS_EVENTS_PER_REPLAY) {
+    return false;
+  }
   state.analyticsEventCount += 1;
   const stored = readStoredReplaySession();
   if (stored?.replayId === state.replayId) {
@@ -3657,8 +3652,51 @@ export function emitSessionReplayAnalyticsEvent(name: string): void {
       analyticsEventCount: state.analyticsEventCount,
     });
   }
+  return true;
+}
+
+/**
+ * Mark a tracked analytics event on the replay timeline. Only the event name
+ * is recorded; event properties stay out of the replay.
+ */
+export function emitSessionReplayAnalyticsEvent(name: string): void {
+  const state = getState();
+  if (!state.active || !state.addCustomEvent) return;
+  const bounded = name.trim().slice(0, MAX_ANALYTICS_EVENT_NAME_LENGTH);
+  if (!bounded || !reserveAnalyticsMarker(state)) return;
   emitReplayCustomEvent(state, SESSION_REPLAY_ANALYTICS_EVENT_TAG, {
     name: bounded,
+  });
+}
+
+export type SessionReplayWebVitals = {
+  route: string;
+  navigationType: string;
+  ttfbMs?: number;
+  lcpMs?: number;
+  inpMs?: number;
+  cls?: number;
+};
+
+/**
+ * Mark a finished page view's Web Vitals on the replay timeline. Shares the
+ * analytics marker budget, since each page view adds one.
+ */
+export function emitSessionReplayWebVitals(
+  input: SessionReplayWebVitals,
+): void {
+  const state = getState();
+  if (!state.active || !state.addCustomEvent) return;
+  if (!reserveAnalyticsMarker(state)) return;
+  const metric = (value: number | undefined) =>
+    typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  emitReplayCustomEvent(state, SESSION_REPLAY_VITALS_EVENT_TAG, {
+    route: input.route.slice(0, 200),
+    navigationType: input.navigationType.slice(0, 20),
+    ...(metric(input.ttfbMs) !== undefined ? { ttfbMs: input.ttfbMs } : {}),
+    ...(metric(input.lcpMs) !== undefined ? { lcpMs: input.lcpMs } : {}),
+    ...(metric(input.inpMs) !== undefined ? { inpMs: input.inpMs } : {}),
+    ...(metric(input.cls) !== undefined ? { cls: input.cls } : {}),
   });
 }
 
