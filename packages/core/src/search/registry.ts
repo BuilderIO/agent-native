@@ -10,7 +10,10 @@ import {
   resourceChangeTriggerNames,
   type ResourceChangeSource,
 } from "../resource-changes/store.js";
-import { ensureSearchIndexTables } from "./index-store.js";
+import {
+  ensureSearchIndexTables,
+  raiseSearchIndexTarget,
+} from "./index-store.js";
 
 /** The change-feed consumer name the search index subscribes as. */
 export const SEARCH_CHANGE_CONSUMER = "search";
@@ -139,8 +142,9 @@ export function searchableResourceSource(
 }
 
 /**
- * A named migration that creates the search tables and installs change
- * capture on the registration's table. Add it to the app's `runMigrations`
+ * A named migration that creates the search tables, raises the index's
+ * target to the registration's version, and installs change capture on the
+ * registration's table. Add it to the app's `runMigrations`
  * list with the app's next version number. It's recorded under `name` plus a
  * fingerprint of the capture SQL, so a release that changes that SQL installs
  * it again.
@@ -159,6 +163,10 @@ export function searchIndexMigration(
     sql: {},
     run: async (exec) => {
       await ensureSearchIndexTables(exec);
+      // Before capture exists: a build still running a lower version would
+      // otherwise see this capture, finish a rebuild at its own version, and
+      // answer from rows it didn't write.
+      await raiseSearchIndexTarget(exec, registration);
       const installed = await installResourceChangeCapture(
         exec,
         source,

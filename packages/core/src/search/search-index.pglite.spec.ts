@@ -1114,6 +1114,45 @@ describe("change capture", () => {
       true,
     );
   });
+
+  it("is installed only after older versions are fenced out", async () => {
+    await run(
+      `CREATE TABLE search_handover (id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '')`,
+    );
+    await run(
+      `INSERT INTO search_handover (id, title) VALUES ('h1', 'Handover')`,
+    );
+    const table = isolatedTable("search_handover");
+    const older = search.registerSearchableResource({
+      app: "isolated",
+      type: "handover",
+      table,
+      idColumn: table.id,
+      version: 1,
+      load: async (ids) => {
+        const rows = await db
+          .select()
+          .from(table)
+          .where(drizzle.inArray(table.id, ids));
+        return rows.map((row: any) => ({ id: row.id, title: row.title }));
+      },
+    });
+    const newer = { ...older, version: 2 };
+    // The newer release migrates while the older build still serves.
+    await search.searchIndexMigration(newer, {
+      version: 1,
+      name: "capture-handover",
+    }).run!(exec());
+    search.resetSearchIndexRuntime();
+    expect(await prepareFully(older)).toEqual({
+      ready: false,
+      reason: "outdated-registration",
+    });
+    expect(await indexedIds("handover")).toEqual([]);
+    search.resetSearchIndexRuntime();
+    expect(await prepareFully(newer)).toEqual({ ready: true });
+    expect(await indexedVersions("handover")).toEqual(["2/v2"]);
+  });
 });
 
 describe("index writes", () => {

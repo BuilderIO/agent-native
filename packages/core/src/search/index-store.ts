@@ -56,6 +56,28 @@ export function ensureSearchIndexTables(
   return ensured;
 }
 
+/**
+ * Raises an index's target version, leaving the rebuild for the first drain
+ * at that version to claim. A process on a lower version reads the index as
+ * outdated from then on and serves its previous search.
+ */
+export async function raiseSearchIndexTarget(
+  exec: DbExec,
+  target: { app: string; type: string; version: number },
+): Promise<void> {
+  await exec.execute({
+    sql: `INSERT INTO ${SEARCH_INDEX_STATE_TABLE} (app, resource_type, target_version)
+          VALUES (?, ?, ?)
+          ON CONFLICT (app, resource_type) DO UPDATE SET
+            target_version = EXCLUDED.target_version,
+            rebuild_high_seq = NULL,
+            rebuild_started_at = NULL,
+            rebuild_completed_at = NULL
+          WHERE ${SEARCH_INDEX_STATE_TABLE}.target_version < EXCLUDED.target_version`,
+    args: [target.app, target.type, target.version],
+  });
+}
+
 async function ensureAll(injectedClient?: DbExec): Promise<void> {
   const options = { injectedClient };
   await ensureTableExists(

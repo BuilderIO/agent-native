@@ -250,7 +250,11 @@ Instead:
    The migration is recorded under its name plus a hash of the trigger SQL. A
    release that changes that SQL, including the trigger names, installs it
    again; under the bare name, a database that recorded an earlier build's
-   capture would keep it, and search would stay on the fallback.
+   capture would keep it, and search would stay on the fallback. Before
+   installing anything, it raises the index's target to the registration's
+   version. A release migrates before its code deploys, so the build still
+   serving would otherwise find capture in place and finish a rebuild at its
+   own, lower version.
 
    Search checks at most once a minute that the triggers exist and are
    enabled. If they're missing or disabled, search reports
@@ -325,10 +329,15 @@ Instead:
      larger than that is written alone. Between rows, a drain yields to other
      work every 20 ms.
 6. **Rebuilds.** A higher registration `version` rebuilds the index:
-   - The first process to see it raises the target version.
-   - It enqueues every row with one `INSERT … SELECT`. That replaces changes
-     already queued, including leased and failing ones, and it records the
-     highest `seq` it assigned.
+   - The release migration raises the target version, and so does the first
+     process to see it if no migration did.
+   - The first drain at that version enqueues every row with one
+     `INSERT … SELECT`. That replaces changes already queued, including leased
+     and failing ones, and it records the highest `seq` it assigned. On a
+     large table it is the rebuild's one long statement, about 1.4 s for
+     51,000 documents on PGlite, and no budget cuts it short. Saves that queue
+     a change for a row it holds wait for it, and so do queries sharing its
+     connection.
    - The rebuild is complete when nothing at or below that `seq` is pending.
      Rows whose source is gone are then removed.
    - A rebuild at the same version, after capture was missing, is claimed by
