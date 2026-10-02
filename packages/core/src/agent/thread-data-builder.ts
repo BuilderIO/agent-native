@@ -1557,6 +1557,7 @@ function mergeAgentKitHistoryArray(
   kind: "message" | "toolCall" | "widget",
   existingMessageRunIds: Map<string, string>,
   incomingMessageRunIds: Map<string, string>,
+  promptRunIds: Map<string, string>,
 ): unknown[] | undefined {
   if (!Array.isArray(existing) && !Array.isArray(incoming)) return undefined;
   const merged = Array.isArray(existing) ? [...existing] : [];
@@ -1576,10 +1577,7 @@ function mergeAgentKitHistoryArray(
     }
   });
   const matchedAssistantTextPositions = new Set<number>();
-  const matchedExisting = new Set<number>();
-  const newIncoming = new Set<unknown>();
-  const incomingEntries = Array.isArray(incoming) ? incoming : [];
-  for (const entry of incomingEntries) {
+  for (const entry of Array.isArray(incoming) ? incoming : []) {
     const id = snapshotEntryId(entry, kind);
     const idIndex = id ? positions.get(id) : undefined;
     const textKey =
@@ -1596,9 +1594,7 @@ function mergeAgentKitHistoryArray(
     if (index === undefined) {
       if (id) positions.set(id, merged.length);
       merged.push(entry);
-      newIncoming.add(entry);
     } else {
-      matchedExisting.add(index);
       if (kind === "message") matchedAssistantTextPositions.add(index);
       if (id && idIndex === undefined) positions.set(id, index);
       const preferIncoming = preferIncomingSnapshotEntry(
@@ -1616,96 +1612,113 @@ function mergeAgentKitHistoryArray(
     }
   }
   if (kind !== "message") return merged;
-  const existingCount = Array.isArray(existing) ? existing.length : 0;
-  const replaced = promptsWithNewReplies(incomingEntries, (entry) =>
-    newIncoming.has(entry),
+  const runAt = replyRunIdAt(
+    merged,
+    [incomingMessageRunIds, existingMessageRunIds],
+    promptRunIds,
   );
-  const runOf = (message: any) =>
-    getMessageRunId(message) ??
-    (typeof message?.id === "string"
-      ? (incomingMessageRunIds.get(message.id) ??
-        existingMessageRunIds.get(message.id))
-      : undefined);
   return merged.filter(
-    (_entry, index) =>
-      !isSupersededInFlightReply(merged, index, {
-        unmatched: index < existingCount && !matchedExisting.has(index),
-        replacedPrompts: replaced,
-        runOf,
-      }),
+    (_entry, index) => !isSupersededInFlightReply(merged, index, runAt),
   );
 }
 
-function promptIdBefore(entries: unknown[], index: number): string | undefined {
-  for (let i = index - 1; i >= 0; i--) {
-    const message = getStoredMessage(entries[i]);
-    if (message?.role === "user") return messageId(message);
+/** Prompt id to the run it was submitted to, from the stored user messages. */
+function submittedPromptRunIds(...lists: unknown[]): Map<string, string> {
+  const runs = new Map<string, string>();
+  for (const list of lists) {
+    for (const entry of Array.isArray(list) ? list : []) {
+      const message = getStoredMessage(entry);
+      const id = messageId(message);
+      const runId = message?.metadata?.custom?.submittedRunId;
+      if (message?.role === "user" && id && typeof runId === "string") {
+        runs.set(id, runId);
+      }
+    }
   }
-  return undefined;
+  return runs;
 }
 
-/** Prompts the incoming save answers with a reply storage does not have yet. */
-function promptsWithNewReplies(
-  incoming: unknown[],
-  isNew: (entry: unknown, index: number) => boolean,
-): Set<string> {
-  const prompts = new Set<string>();
-  incoming.forEach((entry, index) => {
-    if (!isNew(entry, index)) return;
-    if (getStoredMessage(entry)?.role !== "assistant") return;
-    const prompt = promptIdBefore(incoming, index);
-    if (prompt) prompts.add(prompt);
-  });
-  return prompts;
+/**
+ * The run behind each reply: its own metadata, else the AgentKit events, else
+ * the prompt's submitted run when it is the prompt's first reply. Compacted
+ * events drop the link for a reply saved mid-stream, so the prompt is often
+ * the only record left.
+ */
+function replyRunIdAt(
+  entries: unknown[],
+  eventRunIds: Map<string, string>[],
+  promptRunIds: Map<string, string>,
+): (index: number) => string | undefined {
+  return (index) => {
+    const message = getStoredMessage(entries[index]);
+    const id = messageId(message);
+    const recorded =
+      getMessageRunId(message) ??
+      (id ? eventRunIds.find((runs) => runs.has(id))?.get(id) : undefined);
+    if (recorded) return recorded;
+    for (let i = index - 1; i >= 0; i--) {
+      const earlier = getStoredMessage(entries[i]);
+      if (earlier?.role === "assistant") return undefined;
+      if (earlier?.role === "user") {
+        const prompt = messageId(earlier);
+        return prompt ? promptRunIds.get(prompt) : undefined;
+      }
+    }
+    return undefined;
+  };
 }
 
 function storedMessageText(message: any): string {
   return messageText(message?.content ?? message?.parts);
 }
 
+function isInFlightReply(message: any): boolean {
+  return (
+    message?.role === "assistant" &&
+    (message.status === "streaming" || message.status?.type === "running")
+  );
+}
+
 /**
- * A reloaded page replays an unfinished run under a new message id, so the
- * reply it had saved mid-stream reaches storage as a second, partial answer
- * unless a save retires it. A stored copy the save dropped gives way to any new
- * reply to its prompt; a save that has no new reply never saw the run and
- * leaves it alone. A copy the save still carries gives way only once a reply of
- * the same run has finished past its text, so a reply still in flight stays.
+ * A reloaded page replays an unfinished run from its first event under a new
+ * message id, so the reply it saved mid-stream reaches storage beside the
+ * replay. That partial gives way only to a finished reply to the same prompt
+ * from the same run whose text extends it, and only while no other run is
+ * still answering that prompt. Without a known run on both sides, both stay.
  */
 function isSupersededInFlightReply(
   entries: unknown[],
   index: number,
-  options: {
-    unmatched: boolean;
-    replacedPrompts: Set<string>;
-    runOf: (message: any) => string | undefined;
-  },
+  runAt: (index: number) => string | undefined,
 ): boolean {
   const message = getStoredMessage(entries[index]);
-  if (message?.role !== "assistant") return false;
-  if (message.status !== "streaming" && message.status?.type !== "running") {
-    return false;
-  }
-  const prompt = promptIdBefore(entries, index);
-  if (prompt === undefined) return false;
-  if (options.unmatched && options.replacedPrompts.has(prompt)) return true;
-  const runId = options.runOf(message);
+  if (!isInFlightReply(message)) return false;
+  const runId = runAt(index);
   if (!runId) return false;
+  let start = index;
+  while (start > 0 && getStoredMessage(entries[start - 1])?.role !== "user") {
+    start--;
+  }
+  if (start === 0) return false;
   const text = storedMessageText(message);
-  for (let later = index + 1; later < entries.length; later++) {
-    const reply = getStoredMessage(entries[later]);
-    if (reply?.role === "user") return false;
+  let finishedPast = false;
+  for (let other = start; other < entries.length; other++) {
+    const reply = getStoredMessage(entries[other]);
+    if (reply?.role === "user") break;
+    if (other === index || reply?.role !== "assistant") continue;
+    const otherRunId = runAt(other);
+    if (isInFlightReply(reply) && otherRunId !== runId) return false;
     const replyText = storedMessageText(reply);
     if (
-      reply?.role === "assistant" &&
       (reply.status === "complete" || reply.status?.type === "complete") &&
-      options.runOf(reply) === runId &&
+      otherRunId === runId &&
       replyText.length > text.length &&
       replyText.startsWith(text)
     ) {
-      return true;
+      finishedPast = true;
     }
   }
-  return false;
+  return finishedPast;
 }
 
 function latestSnapshotRun(runs: unknown): AgentRunSnapshot | undefined {
@@ -1839,7 +1852,11 @@ export function foldThreadRunSuggestions(
   };
 }
 
-function mergeAgentKitHistory(existing: unknown, incoming: unknown): unknown {
+function mergeAgentKitHistory(
+  existing: unknown,
+  incoming: unknown,
+  promptRunIds: Map<string, string>,
+): unknown {
   if (
     !existing ||
     typeof existing !== "object" ||
@@ -1915,6 +1932,7 @@ function mergeAgentKitHistory(existing: unknown, incoming: unknown): unknown {
       kind,
       existingMessageRunIds,
       incomingMessageRunIds,
+      promptRunIds,
     );
     if (entries) merged[key] = entries;
   }
@@ -1973,10 +1991,15 @@ export function mergeThreadDataForClientSave(
     merged.queuedMessages = existingNormalized.queuedMessages;
   }
 
+  const promptRunIds = submittedPromptRunIds(
+    existingNormalized?.messages,
+    incomingNormalized?.messages,
+  );
   if (merged.agentKit !== undefined) {
     merged.agentKit = mergeAgentKitHistory(
       existingNormalized?.agentKit,
       merged.agentKit,
+      promptRunIds,
     );
   }
 
@@ -1999,7 +2022,6 @@ export function mergeThreadDataForClientSave(
   );
   const usedIncoming = new Set<number>();
   const nextMessages: any[] = [];
-  const unmatchedExisting = new Set<unknown>();
   const idRewrites = new Map<string, string>();
 
   // A message that keeps its own id owns the incoming copy with that id; a
@@ -2049,7 +2071,6 @@ export function mergeThreadDataForClientSave(
       );
 
     if (incomingIndex === -1) {
-      unmatchedExisting.add(existingEntry);
       nextMessages.push(existingEntry);
       continue;
     }
@@ -2087,26 +2108,13 @@ export function mergeThreadDataForClientSave(
       message?.role === "assistant" ? getMessageRunId(message) : null;
     if (runId) serverReplyRuns.add(runId);
   }
-  const replacedPrompts = promptsWithNewReplies(
-    incomingMessages,
-    (entry, index) =>
-      !usedIncoming.has(index) &&
-      !messageContentIsEmpty(getStoredMessage(entry)?.content),
+  const runAt = replyRunIdAt(
+    nextMessages,
+    [eventRunIds, snapshotMessageRunIds(existingNormalized?.agentKit)],
+    promptRunIds,
   );
   const keptMessages = nextMessages.filter((entry, index) => {
-    if (
-      isSupersededInFlightReply(nextMessages, index, {
-        unmatched: unmatchedExisting.has(entry),
-        replacedPrompts,
-        runOf: (message) =>
-          getMessageRunId(message) ??
-          (typeof message?.id === "string"
-            ? eventRunIds.get(message.id)
-            : undefined),
-      })
-    ) {
-      return false;
-    }
+    if (isSupersededInFlightReply(nextMessages, index, runAt)) return false;
     const message = getStoredMessage(entry);
     if (message?.role !== "assistant" || getMessageRunId(message)) return true;
     const runId =
