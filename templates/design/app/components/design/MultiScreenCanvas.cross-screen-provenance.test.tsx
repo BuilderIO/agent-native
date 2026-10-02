@@ -346,13 +346,15 @@ describe("cross-screen drag identity provenance", () => {
     const sourcePostMessage = vi
       .spyOn(sourceWindow, "postMessage")
       .mockImplementation(() => {});
-    const sendDrag = (data: Record<string, unknown>) =>
+    const sendSourceMessage = (data: Record<string, unknown>) =>
       window.dispatchEvent(
         new MessageEvent("message", {
-          data: { type: "agent-native:cross-screen-drag", ...data },
+          data,
           source: sourceWindow as unknown as Window,
         }),
       );
+    const sendDrag = (data: Record<string, unknown>) =>
+      sendSourceMessage({ type: "agent-native:cross-screen-drag", ...data });
     const sourceCloneHtml =
       '<button data-agent-native-node-id="source-node">Move me</button>';
 
@@ -379,6 +381,18 @@ describe("cross-screen drag identity provenance", () => {
       );
     });
 
+    expect(onCrossScreenElementDrop).not.toHaveBeenCalled();
+    const probe = sourcePostMessage.mock.calls
+      .map(([message]) => message as { type?: string; requestId?: string })
+      .find(
+        (message) =>
+          message.type === "agent-native:cross-screen-modifier-snapshot-probe",
+      );
+    expect(probe?.requestId).toBeTruthy();
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 75));
+    });
+
     expect(onCrossScreenElementDrop).toHaveBeenCalledWith(
       expect.objectContaining({
         sourceScreenId: "source",
@@ -394,4 +408,174 @@ describe("cross-screen drag identity provenance", () => {
       "*",
     );
   });
+
+  it.each([
+    ["before", -1, false],
+    ["after", 1, true],
+  ] as const)(
+    "uses the source keyup timestamp when delivered after host mouseup (%s release)",
+    async (_timing, keyupOffset, expectedIgnoreAutoLayout) => {
+      const onCrossScreenElementDrop = vi.fn();
+      await act(async () => {
+        root.render(
+          <MultiScreenCanvas
+            screens={[
+              {
+                id: "source",
+                filename: "source.html",
+                content: "<html></html>",
+              },
+              {
+                id: "target",
+                filename: "target.html",
+                content: "<html></html>",
+              },
+            ]}
+            zoom={100}
+            activeId="source"
+            activeTool="move"
+            geometryById={{
+              source: { x: 0, y: 0, width: 400, height: 300 },
+              target: { x: 600, y: 0, width: 400, height: 300 },
+            }}
+            renderScreenContent={(screen) => (
+              <iframe
+                data-design-preview-iframe=""
+                data-screen-iframe-id={screen.id}
+              />
+            )}
+            onPick={() => {}}
+            onCrossScreenElementDrop={onCrossScreenElementDrop}
+          />,
+        );
+      });
+
+      const sourceWindow = container.querySelector<HTMLIFrameElement>(
+        'iframe[data-screen-iframe-id="source"]',
+      )!.contentWindow!;
+      const targetWindow = container.querySelector<HTMLIFrameElement>(
+        'iframe[data-screen-iframe-id="target"]',
+      )!.contentWindow!;
+      const hitTestMessages: Array<{
+        correlationId: string;
+        modifiers?: { ignoreAutoLayout?: boolean };
+      }> = [];
+      const modifierProbes: Array<{ type?: string; requestId?: string }> = [];
+      vi.spyOn(sourceWindow, "postMessage").mockImplementation(((message: {
+        type?: string;
+        requestId?: string;
+      }) => {
+        modifierProbes.push(message);
+      }) as typeof sourceWindow.postMessage);
+      vi.spyOn(targetWindow, "postMessage").mockImplementation(((message: {
+        type?: string;
+        correlationId?: string;
+        modifiers?: { ignoreAutoLayout?: boolean };
+      }) => {
+        if (
+          message.type !== "agent-native:hit-test" ||
+          !message.correlationId
+        ) {
+          return;
+        }
+        hitTestMessages.push(message as (typeof hitTestMessages)[number]);
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: {
+              type: "agent-native:hit-test-result",
+              correlationId: message.correlationId,
+              anchorNodeId: "target-anchor",
+            },
+            source: targetWindow as unknown as Window,
+          }),
+        );
+      }) as typeof targetWindow.postMessage);
+      const sendSourceMessage = (data: Record<string, unknown>) =>
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data,
+            source: sourceWindow as unknown as Window,
+          }),
+        );
+      const releasedAt = Date.now();
+      await act(async () => {
+        sendSourceMessage({
+          type: "agent-native:cross-screen-drag",
+          phase: "start",
+          screenId: "source",
+          selector: ".source",
+          sourceId: "source-node",
+          startedAt: releasedAt - 100,
+          modifiers: { ignoreAutoLayout: true },
+        });
+        sendSourceMessage({
+          type: "agent-native:cross-screen-drag",
+          phase: "move",
+          screenId: "source",
+          selector: ".source",
+          sourceId: "source-node",
+          iframeX: 650,
+          iframeY: 100,
+          viewportW: 400,
+          viewportH: 300,
+        });
+
+        const mouseup = new MouseEvent("mouseup", {
+          bubbles: true,
+          clientX: 1150,
+          clientY: 400,
+        });
+        Object.defineProperty(mouseup, "timeStamp", { value: releasedAt });
+        window.dispatchEvent(mouseup);
+      });
+
+      expect(onCrossScreenElementDrop).not.toHaveBeenCalled();
+      const probe = modifierProbes.find(
+        (message) =>
+          message.type === "agent-native:cross-screen-modifier-snapshot-probe",
+      );
+      expect(probe?.requestId).toBeTruthy();
+
+      const keyupAt = releasedAt + keyupOffset;
+      await act(async () => {
+        sendSourceMessage({
+          type: "agent-native:cross-screen-modifiers",
+          ignoreAutoLayout: false,
+          changedAt: keyupAt,
+        });
+        sendSourceMessage({
+          type: "agent-native:cross-screen-drag",
+          phase: "end",
+          screenId: "source",
+          selector: ".source",
+          sourceId: "source-node",
+          releasedAt: keyupAt,
+          iframeX: 399,
+          iframeY: 299,
+          viewportW: 400,
+          viewportH: 300,
+          sourceCloneHtml: '<div class="source"></div>',
+        });
+        sendSourceMessage({
+          type: "agent-native:cross-screen-modifier-snapshot",
+          requestId: probe?.requestId,
+          ignoreAutoLayout: false,
+          changedAt: keyupAt,
+        });
+      });
+
+      expect(hitTestMessages.length).toBeGreaterThan(0);
+      expect(
+        hitTestMessages[hitTestMessages.length - 1]?.modifiers,
+      ).toMatchObject({
+        ignoreAutoLayout: expectedIgnoreAutoLayout,
+      });
+      expect(onCrossScreenElementDrop).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceScreenId: "source",
+          targetScreenId: "target",
+        }),
+      );
+    },
+  );
 });

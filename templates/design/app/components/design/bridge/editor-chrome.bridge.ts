@@ -6613,6 +6613,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var activeEditorDragId = "";
   var bridgeSpaceKeyPressed = false;
   var bridgeIgnoreAutoLayoutKeyPressed = false;
+  var bridgeIgnoreAutoLayoutChangedAt: number | undefined;
+  var endedCrossScreenModifierSnapshot: {
+    ignoreAutoLayout: boolean;
+    changedAt?: number;
+  } | null = null;
   var hostIgnoreAutoLayoutAtPointerDown = false;
   var bridgeSpaceKeyConsumedByDrag = false;
 
@@ -6637,12 +6642,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ignoreAutoLayout: boolean,
     event: { timeStamp?: number },
   ): void {
+    var changedAt = eventEpochMilliseconds(event);
+    bridgeIgnoreAutoLayoutChangedAt = changedAt;
     if (!activeCrossScreenDragIdentity) return;
     (window.parent as Window).postMessage(
       {
         type: "agent-native:cross-screen-modifiers",
         ignoreAutoLayout,
-        changedAt: eventEpochMilliseconds(event),
+        changedAt,
       },
       "*",
     );
@@ -16611,6 +16618,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       return;
     }
     if (phase === "start") {
+      endedCrossScreenModifierSnapshot = null;
       activeCrossScreenDeleteRequestId = `cross-screen-source-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
       activeCrossScreenStyleSnapshot =
         options?.styleSnapshot !== undefined
@@ -16688,10 +16696,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       "*",
     );
     if (phase === "end") {
+      endedCrossScreenModifierSnapshot = {
+        ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
+        changedAt: bridgeIgnoreAutoLayoutChangedAt,
+      };
       // A non-Apple S keyup can land in the overview host after this source
       // iframe loses focus. End the source gesture's modifier scope here so a
-      // missed iframe keyup cannot affect the next drag.
+      // missed iframe keyup cannot affect the next drag, but preserve its
+      // release-time state until the host's ordered snapshot probe is answered.
       bridgeIgnoreAutoLayoutKeyPressed = false;
+      bridgeIgnoreAutoLayoutChangedAt =
+        eventEpochMilliseconds(ev) ?? Date.now();
       activeCrossScreenStyleSnapshot = undefined;
       activeCrossScreenSourceHtml = undefined;
       activeCrossScreenComputedSize = undefined;
@@ -24764,11 +24779,17 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     modifierListenerWindows.get(window)?.cleanup();
     var onParentModifierKeyDown = function (e) {
       if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+        if (!bridgeIgnoreAutoLayoutKeyPressed) {
+          bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(e);
+        }
         bridgeIgnoreAutoLayoutKeyPressed = true;
       }
     };
     var onParentModifierKeyUp = function (e) {
       if (!isApplePlatformBridge() && String(e.key).toLowerCase() === "s") {
+        if (bridgeIgnoreAutoLayoutKeyPressed) {
+          bridgeIgnoreAutoLayoutChangedAt = eventEpochMilliseconds(e);
+        }
         bridgeIgnoreAutoLayoutKeyPressed = false;
       }
     };
@@ -24829,6 +24850,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     window.setTimeout(function () {
       if (!activeDragCancel) {
         bridgeIgnoreAutoLayoutKeyPressed = false;
+        bridgeIgnoreAutoLayoutChangedAt = Date.now();
         hostIgnoreAutoLayoutAtPointerDown = false;
       }
     }, 0);
@@ -25925,6 +25947,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   window.addEventListener("message", function (e) {
     if (e.source !== window.parent) return;
     if (!e.data) return;
+    if (e.data.type === "agent-native:cross-screen-modifier-snapshot-probe") {
+      if (typeof e.data.requestId !== "string") return;
+      var snapshot = endedCrossScreenModifierSnapshot ?? {
+        ignoreAutoLayout: bridgeIgnoreAutoLayoutKeyPressed,
+        changedAt: bridgeIgnoreAutoLayoutChangedAt,
+      };
+      endedCrossScreenModifierSnapshot = null;
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:cross-screen-modifier-snapshot",
+          requestId: e.data.requestId,
+          ignoreAutoLayout: snapshot.ignoreAutoLayout,
+          changedAt: snapshot.changedAt,
+        },
+        "*",
+      );
+      return;
+    }
     if (e.data.type === "measurement-modifier-release") {
       hideMeasurements();
       lastHoverInfoPostedEl = hoveredEl;

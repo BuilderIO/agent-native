@@ -197,6 +197,7 @@ const SCREEN_CARD_HEIGHT = SCREEN_HEIGHT + 26;
 const SCREEN_GAP = 56;
 const DUPLICATE_DRAG_THRESHOLD = 6;
 const DRAG_THRESHOLD = 3;
+const CROSS_SCREEN_MODIFIER_SNAPSHOT_TIMEOUT_MS = 50;
 
 function eventEpochMilliseconds(eventTimeStamp: number): number {
   return eventTimeStamp >= 1_000_000_000_000
@@ -1214,6 +1215,15 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     downAt: number | null;
     upAt: number | null;
   }>({ downAt: null, upAt: null });
+  const crossScreenModifierProbeRef = useRef<{
+    requestId: string;
+    sourceIframeId: string;
+    timeoutId: number;
+    resolve: (snapshot?: {
+      ignoreAutoLayout: boolean;
+      changedAt?: number;
+    }) => void;
+  } | null>(null);
   const crossScreenSKeyPressedRef = useRef(false);
   const crossScreenControlPressedRef = useRef(false);
   const canvasMountedRef = useRef(true);
@@ -2571,6 +2581,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     canvasMountedRef.current = true;
     return () => {
       canvasMountedRef.current = false;
+      if (crossScreenModifierProbeRef.current) {
+        window.clearTimeout(crossScreenModifierProbeRef.current.timeoutId);
+        crossScreenModifierProbeRef.current = null;
+      }
     };
   }, []);
 
@@ -2612,6 +2626,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       crossScreenParentDragCleanupRef.current = null;
     };
 
+    const clearCrossScreenModifierProbe = () => {
+      if (!crossScreenModifierProbeRef.current) return;
+      window.clearTimeout(crossScreenModifierProbeRef.current.timeoutId);
+      crossScreenModifierProbeRef.current = null;
+    };
+
     const postCrossScreenClaim = (sourceScreenId: string, claimed: boolean) => {
       const sourceScreen = screensRef.current.find(
         (item) => item.id === sourceScreenId,
@@ -2631,6 +2651,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
     const clearCrossScreenDrag = (options?: { keepBoardMounted?: boolean }) => {
       crossScreenPreviewGenerationRef.current += 1;
+      clearCrossScreenModifierProbe();
       stopParentCrossScreenDrag();
       crossScreenIgnoreAutoLayoutRef.current = false;
       crossScreenControlPressedRef.current = false;
@@ -3401,6 +3422,34 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           ).find((iframe) => iframe.contentWindow === event.source)
         : undefined;
       if (!sourcePreviewIframe) return;
+      if (event.data.type === "agent-native:cross-screen-modifier-snapshot") {
+        const pending = crossScreenModifierProbeRef.current;
+        const senderIframeId =
+          sourcePreviewIframe.getAttribute("data-screen-iframe-id") ??
+          boardFileId ??
+          undefined;
+        if (
+          !pending ||
+          event.data.requestId !== pending.requestId ||
+          !isCrossScreenModifierFromActiveSourceIframe(
+            pending.sourceIframeId,
+            senderIframeId,
+          )
+        ) {
+          return;
+        }
+        window.clearTimeout(pending.timeoutId);
+        crossScreenModifierProbeRef.current = null;
+        pending.resolve({
+          ignoreAutoLayout: event.data.ignoreAutoLayout === true,
+          changedAt:
+            typeof event.data.changedAt === "number" &&
+            Number.isFinite(event.data.changedAt)
+              ? event.data.changedAt
+              : undefined,
+        });
+        return;
+      }
       if (event.data.type === "agent-native:cross-screen-modifiers") {
         const current = crossScreenDragMsgRef.current;
         const senderIframeId =
@@ -3528,9 +3577,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         msg.styleSnapshotCaptureFailed === true;
 
       if (msg.phase === "cancel") {
-        if (!crossScreenEndSeenRef.current) {
-          crossScreenDropSeqRef.current += 1;
-        }
+        if (crossScreenEndSeenRef.current) return;
+        crossScreenDropSeqRef.current += 1;
         clearCrossScreenDrag({
           keepBoardMounted: boardCrossScreenDropPendingRef.current,
         });
@@ -3578,6 +3626,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         });
       }
       if (msg.phase === "start") {
+        clearCrossScreenModifierProbe();
         setCrossScreenDragActive(true);
         const startFrame =
           renderedFrameGeometryRef.current[sourceScreenId] ??
@@ -3684,10 +3733,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           }
         };
         const handleParentMouseUp = (ev: MouseEvent) => {
+          if (crossScreenEndSeenRef.current) return;
           cancelPendingParentDrag();
           activateParentDrag(ev);
           const candidate = crossScreenTargetRef.current;
-          const payload = crossScreenDragMsgRef.current ?? {
+          const lastBoardPoint = crossScreenLastBoardPointRef.current;
+          const releasedAt = eventEpochMilliseconds(ev.timeStamp);
+          const fallbackPayload = crossScreenDragMsgRef.current ?? {
             selector: msg.selector ?? "",
             sourceId: msg.sourceId,
             sourceDeleteRequestId: msg.sourceDeleteRequestId,
@@ -3702,19 +3754,94 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             styleSnapshot,
             styleSnapshotCaptureFailed,
           };
-          const lastBoardPoint = crossScreenLastBoardPointRef.current;
-          const releasedAt = eventEpochMilliseconds(ev.timeStamp);
-          const applePlatform = isApplePlatform();
-          finalizeCrossScreenDrop(
-            sourceScreenId,
-            candidate,
-            payload,
-            lastBoardPoint,
-            releasedAt,
-            crossScreenReleaseModifiers(applePlatform, ev),
+          const releaseModifiers = crossScreenReleaseModifiers(
+            isApplePlatform(),
+            ev,
           );
+          const dropSeq = crossScreenDropSeqRef.current;
+          crossScreenEndSeenRef.current = true;
+          crossScreenHostCommittedRef.current = true;
+          stopParentCrossScreenDrag();
+
+          const finishRelease = (snapshot?: {
+            ignoreAutoLayout: boolean;
+            changedAt?: number;
+          }) => {
+            if (snapshot) {
+              if (typeof snapshot.changedAt === "number") {
+                crossScreenSKeyTimesRef.current =
+                  crossScreenSKeyTimesAfterKeyChange(
+                    crossScreenSKeyTimesRef.current,
+                    snapshot.ignoreAutoLayout,
+                    snapshot.changedAt,
+                  );
+              }
+              const ignoreAutoLayout =
+                crossScreenSKeyHeldFromTimes(crossScreenSKeyTimesRef.current) ??
+                snapshot.ignoreAutoLayout;
+              crossScreenIgnoreAutoLayoutRef.current = ignoreAutoLayout;
+              const current = crossScreenDragMsgRef.current;
+              if (current) {
+                crossScreenDragMsgRef.current = {
+                  ...current,
+                  modifiers: {
+                    ...current.modifiers,
+                    ignoreAutoLayout,
+                  },
+                };
+              }
+            }
+            if (
+              !canvasMountedRef.current ||
+              crossScreenDropSeqRef.current !== dropSeq
+            ) {
+              return;
+            }
+            const payload = crossScreenDragMsgRef.current ?? fallbackPayload;
+            if (!payload) return;
+            finalizeCrossScreenDrop(
+              sourceScreenId,
+              candidate,
+              payload,
+              lastBoardPoint,
+              releasedAt,
+              releaseModifiers,
+            );
+            sourcePreviewIframe.contentWindow?.postMessage(
+              {
+                type: "agent-native:cancel-active-drag",
+                pressedAt: releasedAt,
+              },
+              "*",
+            );
+          };
+
+          if (!hostUsesSForIgnoreAutoLayout()) {
+            finishRelease();
+            return;
+          }
+
+          const requestId = `cross-screen-release:${sourceScreenId}:${dropSeq}`;
+          const timeoutId = window.setTimeout(() => {
+            const pending = crossScreenModifierProbeRef.current;
+            if (!pending || pending.requestId !== requestId) return;
+            crossScreenModifierProbeRef.current = null;
+            pending.resolve();
+          }, CROSS_SCREEN_MODIFIER_SNAPSHOT_TIMEOUT_MS);
+          crossScreenModifierProbeRef.current = {
+            requestId,
+            sourceIframeId:
+              sourcePreviewIframe.getAttribute("data-screen-iframe-id") ??
+              boardFileId ??
+              sourceScreenId,
+            timeoutId,
+            resolve: finishRelease,
+          };
           sourcePreviewIframe.contentWindow?.postMessage(
-            { type: "agent-native:cancel-active-drag", pressedAt: releasedAt },
+            {
+              type: "agent-native:cross-screen-modifier-snapshot-probe",
+              requestId,
+            },
             "*",
           );
         };
@@ -3910,7 +4037,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
 
       if (msg.phase === "end") {
         if (crossScreenEndSeenRef.current) {
-          clearCrossScreenDrag();
+          const current = crossScreenDragMsgRef.current;
+          if (current && typeof msg.sourceCloneHtml === "string") {
+            crossScreenDragMsgRef.current = {
+              ...current,
+              sourceCloneHtml: msg.sourceCloneHtml,
+            };
+          }
           return;
         }
         const cachedPayload = crossScreenDragMsgRef.current;
