@@ -985,6 +985,7 @@ export default {
     dataDictionary: "Diccionario de datos - Analytics",
     dataSources: "Fuentes de datos - Analytics",
     sessions: "Sesiones - Analytics",
+    eventCatalog: "Catálogo de eventos - Analytics",
     monitoring: "Monitorización - Analytics",
     agents: "Agentes - Analytics",
     session: "Reproducción de sesión - Analytics",
@@ -1302,7 +1303,8 @@ export default {
     rageClickCountSingular: "{{count}} clic repetido",
     showingSingular: "{{count}} sesión",
     labName: "Clasificación de sesiones",
-    labDescription: "Explora los filtros y la ordenación de sesiones.",
+    labDescription:
+      "Filtra sesiones por eventos registrados, ve los eventos de la app en la línea de tiempo de la reproducción y explora el catálogo de eventos.",
     allApps: "Todas las apps",
     customRange: "Rango personalizado",
     fromDate: "Desde",
@@ -1342,6 +1344,43 @@ export default {
     sessionPlaylist: "Lista de sesiones",
     userFilters: "Filtros de usuario",
     eventFilters: "Filtros de eventos",
+    eventFiltersActive: "Eventos ({{count}})",
+    eventCatalog: "Catálogo de eventos",
+    removeEventCondition: "Quitar {{event}}",
+    eventConditionLimit: "Hasta {{count}} condiciones de evento.",
+    addEventCondition: "Añadir condición",
+    searchEvents: "Buscar eventos...",
+    eventNamesFailed: "No se pudieron cargar los eventos: {{message}}",
+    noEventNames: "No hay eventos en este intervalo.",
+    eventCoverageSince:
+      "Los filtros de eventos cubren las sesiones desde el {{date}}.",
+    eventCoverageStarting:
+      "Los filtros de eventos cubren las sesiones grabadas a partir de ahora.",
+    eventDid: "Con",
+    eventDidNot: "Sin",
+    eventFiltersNeedLab:
+      "Este enlace tiene filtros de eventos. Activa el Lab Clasificación de sesiones en Ajustes para aplicarlos.",
+    collapsePageChanges: "Agrupar cambios de página",
+    pageChangesCollapsed: "{{count}} cambios de página",
+    catalogDescription:
+      "Todos los eventos que ha recibido Analytics, con su volumen, la fecha en que se vio por última vez y propiedades de ejemplo. Selecciona un evento para ver las sesiones que lo enviaron.",
+    catalogNeedsLab:
+      "El catálogo de eventos forma parte del Lab Clasificación de sesiones.",
+    openLabSettings: "Abrir ajustes del Lab",
+    catalogOnlyAutomatic:
+      "{{app}} solo envía eventos automáticos, como vistas de página. Registra eventos con nombre para ver qué hacen las personas en ella.",
+    catalogVolume: "Volumen",
+    catalogLastSeen: "Visto por última vez",
+    catalogLoadFailed: "No se pudo cargar el catálogo de eventos: {{message}}",
+    catalogNoMatches: "Ningún evento coincide con tu búsqueda.",
+    catalogEmpty: "Aún no hay eventos en este intervalo.",
+    catalogOpenSessions: "Mostrar sesiones con {{event}}",
+    catalogAutomatic: "Automático",
+    catalogStoppedFiring: "Ya no se envía",
+    catalogPropertyKeys: "Claves de propiedades",
+    catalogMoreKeys: "+{{count}} más",
+    catalogTruncated:
+      "Solo se muestran los {{count}} eventos vistos más recientemente.",
     anyActivity: "Cualquier actividad",
     filtersDescription:
       "Los filtros se guardan en la URL para que el agente y los enlaces compartidos vean la misma lista de sesiones.",

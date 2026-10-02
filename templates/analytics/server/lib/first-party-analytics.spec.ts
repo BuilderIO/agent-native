@@ -22,6 +22,10 @@ const exceptionMocks = vi.hoisted(() => ({
   ingest: vi.fn(),
   recordFailure: vi.fn(),
 }));
+const sessionEventIndexMocks = vi.hoisted(() => ({
+  record: vi.fn(),
+  catalog: vi.fn(),
+}));
 const deliveryMocks = vi.hoisted(() => ({
   queueMissing: vi.fn(),
   fallbackKey: (eventId: string) =>
@@ -87,6 +91,10 @@ vi.mock("./error-capture.js", () => ({
   ingestAnalyticsExceptionEvents: exceptionMocks.ingest,
   recordErrorIngestFailure: exceptionMocks.recordFailure,
 }));
+vi.mock("./session-event-index.js", () => ({
+  recordSessionEventIndex: sessionEventIndexMocks.record,
+  recordEventCatalog: sessionEventIndexMocks.catalog,
+}));
 vi.mock("./first-party-analytics-health.js", () => ({
   classifyFirstPartyAnalyticsQuery: healthMocks.classify,
   queryOutcomeFromError: healthMocks.outcome,
@@ -107,6 +115,7 @@ vi.mock("./first-party-analytics-backend.js", () => ({
 import {
   isMarketingWebsiteSessionEvent,
   normalizeAnalyticsTimestamp,
+  parseAnalyticsTrackPayload,
   queryFirstPartyAnalytics,
   recordAnalyticsEvents,
   resolveAnalyticsEventDimensions,
@@ -158,6 +167,10 @@ beforeEach(() => {
     }));
   backendMocks.query.mockReset();
   exceptionMocks.ingest.mockReset();
+  sessionEventIndexMocks.record.mockReset();
+  sessionEventIndexMocks.record.mockResolvedValue(undefined);
+  sessionEventIndexMocks.catalog.mockReset();
+  sessionEventIndexMocks.catalog.mockResolvedValue(undefined);
   exceptionMocks.recordFailure.mockReset();
   deliveryMocks.queueMissing.mockReset();
   deliveryMocks.queueMissing.mockReturnValue(false);
@@ -443,6 +456,95 @@ describe("recordAnalyticsEvents", () => {
       [expect.objectContaining({ eventName: "pageview" })],
       "builder-3b0a2.analytics.first_party_analytics_events_raw",
     );
+  });
+
+  it.each(["postgres", "dual", "bigquery"] as const)(
+    "indexes session events in Postgres at ingest with the %s sink",
+    async (sink) => {
+      backendMocks.get.mockResolvedValueOnce({
+        sink,
+        table:
+          sink === "postgres"
+            ? null
+            : "builder-3b0a2.analytics.first_party_analytics_events_raw",
+        backfillCursor: sink === "postgres" ? null : "evt_last",
+        backfillCompleted: sink === "bigquery",
+      });
+      let openTransactions = 0;
+      let catalogSawOpenTransaction = false;
+      analyticsDbMocks.db.transaction.mockImplementationOnce(
+        async (callback: (transaction: unknown) => unknown) => {
+          openTransactions += 1;
+          try {
+            return await callback(analyticsDbMocks.db);
+          } finally {
+            openTransactions -= 1;
+          }
+        },
+      );
+      sessionEventIndexMocks.catalog.mockImplementationOnce(async () => {
+        catalogSawOpenTransaction = openTransactions > 0;
+      });
+
+      await recordAnalyticsEvents("anpk_test", [
+        {
+          event: "recording_started",
+          properties: { sessionId: "rs_1", app: "clips" },
+        },
+      ]);
+
+      expect(sessionEventIndexMocks.record).toHaveBeenCalledOnce();
+      expect(sessionEventIndexMocks.record).toHaveBeenCalledWith(
+        analyticsDbMocks.db,
+        [
+          expect.objectContaining({
+            eventName: "recording_started",
+            ownerEmail: "owner@example.com",
+          }),
+        ],
+        expect.any(String),
+      );
+      expect(sessionEventIndexMocks.catalog).toHaveBeenCalledOnce();
+      expect(catalogSawOpenTransaction).toBe(false);
+    },
+  );
+
+  it("replaces a lone surrogate in an event name instead of failing the batch", async () => {
+    // JSON can carry half of a surrogate pair as an escape like \ud83d.
+    const parsed = parseAnalyticsTrackPayload(
+      JSON.stringify({
+        publicKey: "anpk_test",
+        events: [{ event: "clip_\uD83D", properties: { sessionId: "rs_1" } }],
+      }),
+    );
+    await recordAnalyticsEvents(parsed.publicKey, parsed.events);
+
+    expect(sessionEventIndexMocks.record).toHaveBeenCalledWith(
+      analyticsDbMocks.db,
+      [expect.objectContaining({ eventName: "clip_\uFFFD" })],
+      expect.any(String),
+    );
+  });
+
+  it("does not index session events when persistence fails", async () => {
+    rollupMocks.upsert.mockRejectedValueOnce(new Error("rollup unavailable"));
+
+    await expect(
+      recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
+    ).rejects.toThrow();
+
+    expect(sessionEventIndexMocks.record).not.toHaveBeenCalled();
+    expect(sessionEventIndexMocks.catalog).not.toHaveBeenCalled();
+  });
+
+  it("fails the batch when its sessions cannot be indexed or marked incomplete", async () => {
+    sessionEventIndexMocks.record.mockRejectedValueOnce(
+      new Error("gap marker write failed"),
+    );
+
+    await expect(
+      recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
+    ).rejects.toThrow("gap marker write failed");
   });
 
   it("enforces the Postgres volume limit during dual writes", async () => {
