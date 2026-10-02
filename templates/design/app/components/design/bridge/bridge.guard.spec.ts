@@ -11173,6 +11173,118 @@ it(
 );
 
 it(
+  "deduplicates CSS resources and bounds concurrent fetches",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+      const result = await page.evaluate(async () => {
+        const bridge = (window as any).__anEditorChromeBridgeInstance;
+        const originalFetch = window.fetch;
+        let active = 0;
+        let maximumActive = 0;
+        const requests: string[] = [];
+        window.fetch = (async (input: RequestInfo | URL) => {
+          const url = String(input);
+          requests.push(url);
+          active += 1;
+          maximumActive = Math.max(maximumActive, active);
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          active -= 1;
+          return new Response(new Blob(["pixel"], { type: "image/png" }));
+        }) as typeof fetch;
+        try {
+          const rules = Array.from(
+            { length: 8 },
+            (_, index) =>
+              `.asset-${index} { background-image: url("https://export.test/${index}.png"); }`,
+          );
+          rules.push(
+            '.reused { background-image: url("https://export.test/shared.svg#one"), url("https://export.test/shared.svg#two"), url("https://export.test/shared.svg#one"); }',
+          );
+          const exportResult = await bridge.inlineExportResources(
+            `<!doctype html><html><head><style>${rules.join("\n")}</style></head><body></body></html>`,
+          );
+          const doc = new DOMParser().parseFromString(
+            exportResult.html,
+            "text/html",
+          );
+          return {
+            ...exportResult,
+            css: doc.querySelector("style")?.textContent,
+            requests,
+            maximumActive,
+          };
+        } finally {
+          window.fetch = originalFetch;
+        }
+      });
+
+      expect(result.complete).toBe(true);
+      expect(result.requests).toHaveLength(9);
+      expect(
+        result.requests.filter((url: string) => url.endsWith("shared.svg")),
+      ).toHaveLength(1);
+      expect(result.maximumActive).toBeGreaterThan(1);
+      expect(result.maximumActive).toBeLessThanOrEqual(4);
+      expect(result.css).toContain("data:image/png;base64,cGl4ZWw=#one");
+      expect(result.css).toContain("data:image/png;base64,cGl4ZWw=#two");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "preserves media qualifiers when inlining CSS imports",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<!doctype html><html><body></body></html>");
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScript(),
+      });
+      const result = await page.evaluate(async () => {
+        const bridge = (window as any).__anEditorChromeBridgeInstance;
+        const originalFetch = window.fetch;
+        window.fetch = (async () =>
+          new Response(".theme { color: red; }", {
+            headers: { "content-type": "text/css" },
+          })) as typeof fetch;
+        try {
+          const exportResult = await bridge.inlineExportResources(
+            `<!doctype html><html><head><style>@import url("https://export.test/theme.css") screen and (min-width: 640px);</style></head><body></body></html>`,
+          );
+          const doc = new DOMParser().parseFromString(
+            exportResult.html,
+            "text/html",
+          );
+          return {
+            ...exportResult,
+            css: doc.querySelector("style")?.textContent,
+          };
+        } finally {
+          window.fetch = originalFetch;
+        }
+      });
+
+      expect(result.complete).toBe(true);
+      expect(result.css).toMatch(/\)\s+screen and \(min-width: 640px\);/);
+      expect(result.css).toContain("data:text/css");
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "runtime export snapshots preserve live form state and reject uncapturable surfaces",
   { timeout: 30_000 },
   async () => {

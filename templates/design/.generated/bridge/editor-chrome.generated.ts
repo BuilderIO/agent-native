@@ -2628,6 +2628,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       );
       var parsed = new DOMParser().parseFromString(html, "text/html");
       var resourceData = /* @__PURE__ */ new Map();
+      var resourceRequests = /* @__PURE__ */ new Map();
       var totalBytes = 0;
       var complete = true;
       var maxResourceBytes = 4e6;
@@ -2768,44 +2769,98 @@ export const editorChromeBridgeScript: string = `"use strict";
         var key = url.href;
         var cached = resourceData.get(key);
         if (cached) return cached + fragment;
+        var pendingRequest = resourceRequests.get(key);
+        if (!pendingRequest) {
+          pendingRequest = (async function() {
+            try {
+              var response = await fetch(key, {
+                credentials: "same-origin",
+                signal: resourceSignal
+              });
+              if (!response.ok) throw new Error("resource unavailable");
+              var blob = await readBoundedBody(response);
+              if (!blob) return null;
+              var dataUrl2 = await new Promise(function(resolve, reject) {
+                var reader = new FileReader();
+                reader.onload = function() {
+                  resolve(typeof reader.result === "string" ? reader.result : "");
+                };
+                reader.onerror = function() {
+                  reject(reader.error || new Error("resource encoding failed"));
+                };
+                reader.readAsDataURL(blob);
+              });
+              if (!dataUrl2) throw new Error("resource encoding failed");
+              return dataUrl2;
+            } catch {
+              markFailure(
+                resourceTimedOut ? "resource-timeout" : resourceBudgetExceeded ? "export-resource-size-limit" : "resource-fetch-" + resourceKind
+              );
+              return null;
+            }
+          })();
+          resourceRequests.set(key, pendingRequest);
+        }
         try {
-          var response = await fetch(key, {
-            credentials: "same-origin",
-            signal: resourceSignal
-          });
-          if (!response.ok) throw new Error("resource unavailable");
-          var blob = await readBoundedBody(response);
-          if (!blob) return null;
-          var dataUrl = await new Promise(function(resolve, reject) {
-            var reader = new FileReader();
-            reader.onload = function() {
-              resolve(typeof reader.result === "string" ? reader.result : "");
-            };
-            reader.onerror = function() {
-              reject(reader.error || new Error("resource encoding failed"));
-            };
-            reader.readAsDataURL(blob);
-          });
-          if (!dataUrl) throw new Error("resource encoding failed");
+          var dataUrl = await pendingRequest;
+          if (!dataUrl) return null;
           resourceData.set(key, dataUrl);
           return dataUrl + fragment;
-        } catch {
-          markFailure(
-            resourceTimedOut ? "resource-timeout" : resourceBudgetExceeded ? "export-resource-size-limit" : "resource-fetch-" + resourceKind
-          );
-          return null;
+        } finally {
+          if (resourceRequests.get(key) === pendingRequest)
+            resourceRequests.delete(key);
         }
       }
       async function inlineCssUrls(css, baseUrl) {
         var matches = findCssUrlTokens(css);
-        var replacements = await Promise.all(
-          matches.map(async function(match2) {
-            var rawUrl = match2.value;
-            if (!rawUrl || /^(?:data|about):/i.test(rawUrl)) return null;
-            var dataUrl = await resourceDataUrl(rawUrl, baseUrl);
-            return dataUrl ? { dataUrl } : null;
-          })
+        var resourceGroups = /* @__PURE__ */ new Map();
+        var resourceKeys = [];
+        var resourceFragments = [];
+        for (var matchIndex = 0; matchIndex < matches.length; matchIndex += 1) {
+          var rawUrl = matches[matchIndex].value;
+          if (!rawUrl || rawUrl.startsWith("#") || /^(?:data|about):/i.test(rawUrl)) {
+            resourceKeys.push(null);
+            resourceFragments.push("");
+            continue;
+          }
+          try {
+            var resourceUrl = new URL(rawUrl, baseUrl);
+            var fragment = resourceUrl.hash;
+            resourceUrl.hash = "";
+            var key = resourceUrl.href;
+            resourceGroups.set(key, key);
+            resourceKeys.push(key);
+            resourceFragments.push(fragment);
+          } catch {
+            var invalidKey = "invalid:" + rawUrl;
+            resourceGroups.set(invalidKey, rawUrl);
+            resourceKeys.push(invalidKey);
+            resourceFragments.push("");
+          }
+        }
+        var resourceEntries = Array.from(resourceGroups.entries());
+        var resourceResults = /* @__PURE__ */ new Map();
+        var nextResourceIndex = 0;
+        var resourceWorkers = Array.from(
+          { length: Math.min(4, resourceEntries.length) },
+          async function() {
+            while (nextResourceIndex < resourceEntries.length) {
+              var resourceIndex = nextResourceIndex++;
+              var entry = resourceEntries[resourceIndex];
+              resourceResults.set(
+                entry[0],
+                await resourceDataUrl(entry[1], baseUrl)
+              );
+            }
+          }
         );
+        await Promise.all(resourceWorkers);
+        var replacements = matches.map(function(_match, index2) {
+          var key2 = resourceKeys[index2];
+          if (!key2) return null;
+          var dataUrl = resourceResults.get(key2);
+          return dataUrl ? { dataUrl: dataUrl + resourceFragments[index2] } : null;
+        });
         var result = "";
         var cursor = 0;
         for (var index = 0; index < matches.length; index += 1) {
@@ -2881,7 +2936,8 @@ export const editorChromeBridgeScript: string = `"use strict";
               }
             );
             if (!importedDataUrl) throw new Error("stylesheet encoding failed");
-            result += '@import url("' + importedDataUrl + '")' + String(importMatch[3] || "") + ";";
+            var importQualifier = String(importMatch[3] || "").trim();
+            result += '@import url("' + importedDataUrl + '")' + (importQualifier ? " " + importQualifier : "") + ";";
           } catch {
             markFailure(
               resourceTimedOut ? "resource-timeout" : resourceBudgetExceeded ? "export-resource-size-limit" : "stylesheet-import"
