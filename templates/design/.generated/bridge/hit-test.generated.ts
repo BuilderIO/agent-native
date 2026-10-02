@@ -630,7 +630,6 @@ export const hitTestBridgeScript: string = `"use strict";
       if (!container || container === document.body || container === document.documentElement || !isContainerDropTarget(container)) {
         return target;
       }
-      var crect = container.getBoundingClientRect();
       var rootContainer = container;
       while (rootContainer.parentElement && rootContainer.parentElement !== document.body) {
         rootContainer = rootContainer.parentElement;

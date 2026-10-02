@@ -946,7 +946,6 @@
     ) {
       return target;
     }
-    var crect = container.getBoundingClientRect();
     var rootContainer = container;
     while (
       rootContainer.parentElement &&
