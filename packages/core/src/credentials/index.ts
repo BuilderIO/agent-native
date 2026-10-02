@@ -246,16 +246,13 @@ export async function resolveCredentialDetailed(
 
   if (ctx.credentialScope === "org" && !ctx.orgId) return undefined;
   const orgLookup = await resolveEffectiveOrgId(ctx);
-  // An owner or admin runs on the organization's credential ahead of their own.
-  if (
-    personal &&
-    (orgLookup.lookupFailed ||
-      !(await readsOrgCredentialFirst(orgLookup.orgId, ctx.userEmail)))
-  ) {
-    return personal;
-  }
+  // Before the personal answer: without the org, an owner's role is unknown.
   assertCredentialStoreReadable(orgLookup);
   const { orgId } = orgLookup;
+  // An owner or admin runs on the organization's credential ahead of their own.
+  if (personal && !(await readsOrgCredentialFirst(orgId, ctx.userEmail))) {
+    return personal;
+  }
 
   if (orgId) {
     const orgSecret = await readScopedAppSecret(key, "org", orgId);

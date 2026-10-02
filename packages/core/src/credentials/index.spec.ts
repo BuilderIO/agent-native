@@ -456,6 +456,28 @@ describe("credentials encryption at rest", () => {
     ).rejects.toThrow(/could not read/i);
   });
 
+  it("throws instead of answering with the caller's personal key when org membership is unreadable", async () => {
+    resolveOrgIdForEmail = async () => {
+      throw Object.assign(new Error("db connect timed out"), {
+        code: "ETIMEDOUT",
+      });
+    };
+    readAppSecret.mockImplementation(async (ref: any) =>
+      ref.scope === "user" && ref.scopeId === "owner@example.test"
+        ? { value: "personal-placeholder", last4: "lder", updatedAt: 1 }
+        : null,
+    );
+    const { resolveCredential } = await import("./index.js");
+
+    // Without the org the caller's role is unknown: an owner must not quietly
+    // run on the personal key the organization's is meant to replace.
+    await expect(
+      resolveCredential("BIGQUERY_SERVICE_ACCOUNT", {
+        userEmail: "owner@example.test",
+      }),
+    ).rejects.toThrow(/could not read/i);
+  });
+
   it("still finds a pre-org solo workspace secret once the user has an org", async () => {
     readAppSecret.mockImplementation(async (ref: any) =>
       ref.scope === "workspace" && ref.scopeId === "solo:owner@example.test"
