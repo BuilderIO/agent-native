@@ -9,7 +9,12 @@ import {
   within,
   waitFor,
 } from "@testing-library/react";
-import { type ComponentProps, type ReactElement, type ReactNode } from "react";
+import {
+  type ComponentProps,
+  type ReactElement,
+  type ReactNode,
+  useImperativeHandle,
+} from "react";
 import { createPortal } from "react-dom";
 import { renderToString } from "react-dom/server";
 import { Link, MemoryRouter, useMatch } from "react-router";
@@ -99,7 +104,11 @@ const {
   headerActions,
   pageTitle,
   homeSuggestions,
+  submitDraft,
+  getDraftSnapshot,
 } = vi.hoisted(() => ({
+  submitDraft: vi.fn(async () => true),
+  getDraftSnapshot: vi.fn(),
   useDecks: vi.fn(),
   reloadDecks: vi.fn(),
   createDeck: vi.fn(),
@@ -225,7 +234,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
         data:
           options?.enabled === false
             ? undefined
-            : { suggestions: homeSuggestions.value },
+            : { status: "ready", suggestions: homeSuggestions.value },
         isLoading: false,
         isError: false,
       };
@@ -378,8 +387,15 @@ vi.mock("@/components/editor/NewDeckReferenceStep", () => ({
   },
 }));
 vi.mock("@/components/editor/PromptDialog", () => ({
-  default: (props: ComponentProps<typeof PromptPopover>) => {
+  default: function PromptDialogMock(
+    props: ComponentProps<typeof PromptPopover>,
+  ) {
     promptProps(props);
+    useImperativeHandle(props.controllerRef, () => ({
+      submitSource: vi.fn(async () => true),
+      submitDraft,
+      getDraftSnapshot,
+    }));
     if (!props.open) return null;
     return (
       <textarea
@@ -691,6 +707,33 @@ describe("Slides prompt-led home", () => {
       }),
     );
     expect(attachments.commit).toHaveBeenCalledOnce();
+  });
+
+  it("explains an unreadable attachment instead of showing the raw send-failure code", async () => {
+    createDeck.mockReturnValue({ id: "new-deck" });
+    agentSubmit.mockResolvedValueOnce({
+      delivered: false,
+      reason: "attachment-unreadable",
+    });
+    renderHome({
+      ensureDeckPersisted: vi.fn().mockResolvedValue({ persisted: true }),
+      deleteDeck: vi.fn(),
+    });
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    await act(async () => {
+      promptProps.mock.lastCall![0].onSubmit("Summarize my notes", [], {
+        commit: vi.fn(),
+        discard: vi.fn(),
+        attachments: [],
+      });
+    });
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    const description = toastError.mock.lastCall?.[1]?.description;
+    expect(description).not.toBe("attachment-unreadable");
+    // The test catalog may echo the key; either way it is the attachment copy.
+    expect(description).toMatch(/uploadAttachedFailed|attached file/i);
   });
 
   it("sends the direct-start payload through existing persisted deck generation and chat", async () => {
@@ -1171,6 +1214,95 @@ describe("Slides prompt-led home", () => {
         modelStatusChecksEnabled: true,
       }),
     );
+  });
+
+  const submittedDraft = {
+    text: "Make a pitch deck",
+    referenceKeys: [],
+    attachmentIds: ["file-1"],
+  };
+
+  it("sends the held-back draft once after AI setup becomes ready", async () => {
+    agentEngine.state = "missing";
+    agentEngine.missing = true;
+    submitDraft.mockClear();
+    getDraftSnapshot.mockReturnValue({ ...submittedDraft });
+    const home = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    let canSubmit: unknown;
+    await act(async () => {
+      canSubmit =
+        await promptProps.mock.lastCall![0].onBeforeSubmit!(submittedDraft);
+    });
+    expect(canSubmit).toBe(false);
+    expect(submitDraft).not.toHaveBeenCalled();
+
+    agentEngine.state = "configured";
+    agentEngine.missing = false;
+    await act(async () => home.rerenderHome());
+    await act(async () => home.rerenderHome());
+
+    expect(submitDraft).toHaveBeenCalledOnce();
+    expect(createDeck).not.toHaveBeenCalled();
+  });
+
+  it("leaves a draft edited while connecting in the composer instead of sending it", async () => {
+    agentEngine.state = "missing";
+    agentEngine.missing = true;
+    submitDraft.mockClear();
+    getDraftSnapshot.mockReturnValue({
+      ...submittedDraft,
+      text: "Make a pitch deck for investors, and also a roadmap",
+    });
+    const home = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onBeforeSubmit!(submittedDraft);
+    });
+
+    agentEngine.state = "configured";
+    agentEngine.missing = false;
+    await act(async () => home.rerenderHome());
+    await act(async () => home.rerenderHome());
+
+    expect(submitDraft).not.toHaveBeenCalled();
+  });
+
+  it("leaves a draft whose attachments changed while connecting in the composer", async () => {
+    agentEngine.state = "missing";
+    agentEngine.missing = true;
+    submitDraft.mockClear();
+    getDraftSnapshot.mockReturnValue({
+      ...submittedDraft,
+      attachmentIds: ["file-1", "file-2"],
+    });
+    const home = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+    await act(async () => {
+      await promptProps.mock.lastCall![0].onBeforeSubmit!(submittedDraft);
+    });
+
+    agentEngine.state = "configured";
+    agentEngine.missing = false;
+    await act(async () => home.rerenderHome());
+    await act(async () => home.rerenderHome());
+
+    expect(submitDraft).not.toHaveBeenCalled();
+  });
+
+  it("does not send a draft nobody tried to send when setup becomes ready", async () => {
+    agentEngine.state = "missing";
+    agentEngine.missing = true;
+    submitDraft.mockClear();
+    const home = renderHome();
+    await screen.findByRole("textbox", { name: "Presentation prompt" });
+
+    agentEngine.state = "configured";
+    agentEngine.missing = false;
+    await act(async () => home.rerenderHome());
+
+    expect(submitDraft).not.toHaveBeenCalled();
   });
 
   it("keeps the composer interactive while checking and offers retry if status is unavailable", async () => {

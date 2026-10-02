@@ -59,6 +59,7 @@ const messages = {
     commentsAndRepliesDescription:
       "Wenn jemand dein Deck kommentiert oder darin antwortet.",
     retry: "Erneut versuchen",
+    reload: "Neu laden",
     mcpAbout:
       "Verbinde Slides mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in Slides für dich arbeiten: Decks erstellen, Folien hinzufügen und nach PowerPoint exportieren. Sie sieht nur, was du sehen kannst.",
     workspaceTitle: "Arbeitsbereich",

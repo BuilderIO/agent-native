@@ -1,3 +1,4 @@
+import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import {
@@ -275,6 +276,106 @@ describe("createHttpAgentChatRuntime", () => {
     });
   });
 
+  it("maps a run-slot 409 to a retryable AgentKit busy error", async () => {
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              statusCode: 409,
+              statusMessage: "Run already in progress",
+              data: {
+                code: "run_slot_busy",
+                activeRunId: "run-active",
+                retryable: true,
+              },
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          ),
+      ) as typeof fetch,
+    });
+    let error: unknown;
+    try {
+      await (
+        await runtime.createSession({ id: "thread-1" })
+      ).startTurn({
+        prompt: "Follow up while another tab is running",
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(AgentKitRunSlotBusyError);
+    expect(error).toMatchObject({
+      code: "run_slot_busy",
+      activeRunId: "run-active",
+      status: 409,
+      retryable: true,
+    });
+  });
+
+  it("maps a top-level typed slot-busy 409 to an AgentKit busy error", async () => {
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: "Run already in progress for this thread",
+              code: "run_slot_busy",
+              retryable: true,
+              activeRunId: "run-active",
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          ),
+      ) as typeof fetch,
+    });
+    let error: unknown;
+    try {
+      await (
+        await runtime.createSession({ id: "thread-1" })
+      ).startTurn({ prompt: "A second message" });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(AgentKitRunSlotBusyError);
+    expect(error).toMatchObject({
+      code: "run_slot_busy",
+      status: 409,
+      retryable: true,
+      activeRunId: "run-active",
+    });
+  });
+
+  it("preserves an explicit non-slot 409 that also includes an active run ID", async () => {
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      fetch: vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              code: "revision_conflict",
+              activeRunId: "run-active",
+              message: "The thread revision changed",
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          ),
+      ) as typeof fetch,
+    });
+
+    await expect(
+      (await runtime.createSession({ id: "thread-1" })).startTurn({
+        prompt: "Keep this request visible",
+      }),
+    ).rejects.toMatchObject({
+      code: "revision_conflict",
+      activeRunId: "run-active",
+      status: 409,
+    });
+  });
+
   it("lets a transport continue a paused turn with the previous input", async () => {
     const fetchMock = vi
       .fn()
@@ -422,6 +523,36 @@ describe("createAgentNativeChatRuntime", () => {
     });
   });
 
+  it("forwards queued promotion identity with a stable turn ID", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }]));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-queued",
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession()
+    ).startTurn({
+      prompt: "Run the queued prompt",
+      queuePromotion: {
+        messageId: "queued-1",
+        claimId: "claim-1",
+        turnId: "queue-queued-1",
+      },
+    });
+
+    await drain(turn.events);
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({
+      message: "Run the queued prompt",
+      turnId: "queue-queued-1",
+      queuedMessageId: "queued-1",
+      queuedMessageClaimId: "claim-1",
+    });
+  });
+
   it("forwards pending-selection suppression to the agent request", async () => {
     const fetchMock = vi
       .fn()
@@ -445,6 +576,35 @@ describe("createAgentNativeChatRuntime", () => {
     ).toMatchObject({
       message: "Use this selection once",
       skipPendingSelectionContext: true,
+    });
+  });
+
+  it("forwards the submitted AgentKit message ID to durable chat persistence", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(sseResponse([{ type: "done" }], "run-identity"));
+    const runtime = createAgentNativeChatRuntime({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock as typeof fetch,
+    });
+    const session = await runtime.createSession({ id: "thread-identity" });
+    const turn = await session.startTurn({
+      prompt: "Submit this message",
+      messages: [
+        {
+          id: "message-agentkit-1",
+          role: "user",
+          content: [{ type: "text", text: "Submit this message" }],
+        },
+      ],
+    });
+    await drain(turn.events);
+
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)),
+    ).toMatchObject({
+      message: "Submit this message",
+      agentKitMessageId: "message-agentkit-1",
     });
   });
 

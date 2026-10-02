@@ -18,6 +18,7 @@ import {
   shouldDisableRecurringJobsRuntime,
   trackAgentChatRunLifecycle,
 } from "./agent-chat-plugin.js";
+import { runWithRequestContext } from "./request-context.js";
 
 describe("agent chat run lifecycle tracking", () => {
   it("keys server run events by durable thread and attempt ids", () => {
@@ -98,6 +99,71 @@ describe("agent chat run lifecycle tracking", () => {
         },
       },
     ]);
+  });
+
+  it("carries the canonical user id when the run context has no owner yet", () => {
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "agent-chat-run-lifecycle-identity-test",
+      track(event) {
+        events.push(event);
+      },
+    });
+
+    try {
+      // A durable worker: the verified initiator is the only identity it has.
+      runWithRequestContext(
+        { userEmail: "owner@example.com", authUserId: "auth-user-1" },
+        () => {
+          trackAgentChatRunLifecycle(
+            "run_started",
+            "thread-1",
+            "run-1",
+            undefined,
+            {},
+            "slides",
+          );
+          trackAgentChatRunLifecycle(
+            "run_finished",
+            "thread-1",
+            "run-1",
+            "owner@example.com",
+            { status: "completed" },
+            "slides",
+          );
+        },
+      );
+      runWithRequestContext(
+        { userEmail: "anon-visitor-1", agentRunAnonymous: true },
+        () => {
+          trackAgentChatRunLifecycle(
+            "run_no_reply",
+            "thread-2",
+            "run-2",
+            undefined,
+            {},
+            "slides",
+          );
+        },
+      );
+    } finally {
+      unregisterTrackingProvider("agent-chat-run-lifecycle-identity-test");
+    }
+
+    expect(events).toMatchObject([
+      {
+        name: "run_started",
+        userId: "owner@example.com",
+        properties: { auth_user_id: "auth-user-1", attempt_id: "run-1" },
+      },
+      {
+        name: "run_finished",
+        userId: "owner@example.com",
+        properties: { auth_user_id: "auth-user-1", status: "completed" },
+      },
+      { name: "run_no_reply", properties: { attempt_id: "run-2" } },
+    ]);
+    expect(events[2]?.userId).toBeUndefined();
   });
 });
 

@@ -121,6 +121,39 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
 }));
 
+const setupResumeClaims = vi.hoisted(() => new Map<string, string>());
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
+  // The claim store, with the compare-and-set retry the real one performs.
+  mutateSetting: async (
+    key: string,
+    updater: (
+      current: Record<string, unknown> | null,
+    ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+  ) => {
+    for (;;) {
+      const raw = setupResumeClaims.get(key) ?? null;
+      const next = await updater(raw === null ? null : JSON.parse(raw));
+      await Promise.resolve();
+      if ((setupResumeClaims.get(key) ?? null) === raw) {
+        setupResumeClaims.set(key, JSON.stringify(next));
+        return next;
+      }
+    }
+  },
+  listSettingsByPrefix: async (prefix: string) =>
+    [...setupResumeClaims]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([key, value]) => ({ key, value: JSON.parse(value) })),
+  deleteSettingIfValue: async (
+    key: string,
+    expected: Record<string, unknown>,
+  ) => {
+    if (setupResumeClaims.get(key) !== JSON.stringify(expected)) return false;
+    return setupResumeClaims.delete(key);
+  },
+}));
+
 vi.mock("./run-manager.js", async () => ({
   ...(await vi.importActual<typeof import("./run-manager.js")>(
     "./run-manager.js",
@@ -2000,6 +2033,171 @@ describe("resolvePresendWithCap", () => {
 });
 
 describe("createProductionAgentHandler", () => {
+  it("returns a typed conflict when another run owns the thread slot", async () => {
+    mockTryClaimRunSlot.mockResolvedValueOnce({
+      claimed: false,
+      activeRunId: "run-active",
+    });
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: vi.fn(),
+    };
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+    });
+    const event = mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "A second message",
+          threadId: "thread-1",
+        }),
+      }),
+    );
+
+    const result = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "acme", run: {} },
+      () => handler(event),
+    );
+
+    expect(event.res.status).toBe(409);
+    expect(result).toEqual({
+      error: "Run already in progress for this thread",
+      code: "run_slot_busy",
+      retryable: true,
+      activeRunId: "run-active",
+    });
+    expect(engine.stream).not.toHaveBeenCalled();
+  });
+
+  describe("resuming a refused prompt after AI setup", () => {
+    function resumeHandler() {
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        stream: vi.fn(),
+      };
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine,
+        actions: {},
+      });
+      const resume = (metadataOverrides = {}) =>
+        runWithRequestContext(
+          { userEmail: "alice@example.com", orgId: "acme", run: {} },
+          () =>
+            handler(
+              mockEvent(
+                new Request("http://app.example.com/_agent-native/agent-chat", {
+                  method: "POST",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify({
+                    message: "Create a pitch deck",
+                    threadId: "thread-refused",
+                    metadata: {
+                      custom: {
+                        agentNativeRecoveryAction: "retry",
+                        agentNativeRecoveryOfRunId: "run-refused",
+                        agentNativeResumeAfterSetup: true,
+                        ...metadataOverrides,
+                      },
+                    },
+                  }),
+                }),
+              ),
+            ),
+        );
+      return { engine, resume };
+    }
+
+    const busy = { claimed: false, activeRunId: "run-winner" };
+
+    it("starts one run when two tabs resume the same refused prompt", async () => {
+      setupResumeClaims.clear();
+      mockTryClaimRunSlot.mockClear();
+      let releaseSlot!: () => void;
+      mockTryClaimRunSlot.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            releaseSlot = () => resolve(busy);
+          }),
+      );
+      const { engine, resume } = resumeHandler();
+
+      const tabs = [resume(), resume()];
+      const loser = await Promise.race(
+        tabs.map((tab, index) => tab.then((result) => ({ index, result }))),
+      );
+      releaseSlot();
+      await Promise.all(tabs);
+
+      expect(loser.result).toEqual({
+        ok: true,
+        stopped: true,
+        resumeAlreadySent: true,
+      });
+      expect(mockTryClaimRunSlot).toHaveBeenCalledOnce();
+      expect(engine.stream).not.toHaveBeenCalled();
+    });
+
+    it("does not tell a later resend it already went out when the thread's run slot was busy", async () => {
+      setupResumeClaims.clear();
+      mockTryClaimRunSlot.mockClear();
+      mockTryClaimRunSlot.mockResolvedValueOnce(busy);
+      const { resume } = resumeHandler();
+
+      await resume();
+      expect([...setupResumeClaims.keys()]).toEqual([]);
+
+      mockTryClaimRunSlot.mockResolvedValueOnce(busy);
+      const later = await resume();
+
+      expect(later).not.toMatchObject({ resumeAlreadySent: true });
+      expect(mockTryClaimRunSlot).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps the claim once the run slot is taken, and never holds back a manual retry", async () => {
+      setupResumeClaims.clear();
+      mockTryClaimRunSlot.mockClear();
+      mockTryClaimRunSlot.mockResolvedValueOnce({
+        claimed: false,
+        activeRunId: null,
+        completedRunId: "run-done",
+      } as never);
+      const { resume } = resumeHandler();
+
+      await resume().catch(() => undefined);
+      expect(setupResumeClaims.size).toBe(1);
+
+      mockTryClaimRunSlot.mockClear();
+      mockTryClaimRunSlot.mockResolvedValueOnce(busy);
+      await resume({ agentNativeResumeAfterSetup: undefined });
+      expect(mockTryClaimRunSlot).toHaveBeenCalledOnce();
+    });
+  });
+
   it("adds MCP actions for authenticated requests and skips anonymous runs", async () => {
     const seenActionNames: string[][] = [];
     const mcpToolName = `mcp__user_${hashEmail("alice@example.com")}_calendar__list`;
@@ -2064,6 +2262,108 @@ describe("createProductionAgentHandler", () => {
 
     expect(resolveAdditionalActions).toHaveBeenCalledOnce();
     expect(seenActionNames[1]).not.toContain(mcpToolName);
+  });
+
+  it("records a turn refused for missing credentials before answering it", async () => {
+    const { registerAgentEngine, unregisterAgentEngine } =
+      await import("./engine/registry.js");
+    const engine: AgentEngine = {
+      name: "needs-key-test",
+      label: "Needs key",
+      defaultModel: "needs-key-model",
+      supportedModels: ["needs-key-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      stream: vi.fn(),
+    };
+    registerAgentEngine({
+      name: engine.name,
+      label: engine.label,
+      description: "Test engine that needs a key",
+      capabilities: engine.capabilities,
+      defaultModel: engine.defaultModel,
+      supportedModels: engine.supportedModels,
+      requiredEnvVars: ["NEEDS_KEY_TEST_API_KEY"],
+      create: () => engine,
+    });
+    const onRunNotStarted = vi.fn(async () => undefined);
+    const onRunPrepared = vi.fn();
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine,
+      actions: {},
+      onRunPrepared,
+      onRunNotStarted,
+    });
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "alice@example.com", run: {} },
+        () =>
+          handler(
+            mockEvent(
+              new Request("http://app.example.com/_agent-native/agent-chat", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  message: "Create a pitch deck",
+                  threadId: "thread-unconnected",
+                  turnId: "turn-unconnected",
+                  model: "model-original",
+                  effort: "high",
+                  mode: "plan",
+                  metadata: {
+                    references: [
+                      {
+                        type: "file",
+                        path: "docs/brief.md",
+                        name: "brief.md",
+                        source: "workspace",
+                      },
+                    ],
+                    custom: { ignored: "not kept" },
+                  },
+                }),
+              }),
+            ),
+          ),
+      );
+
+      expect(onRunNotStarted).toHaveBeenCalledWith({
+        runId: "turn-unconnected",
+        turnId: "turn-unconnected",
+        threadId: "thread-unconnected",
+        message: "Create a pitch deck",
+        attachments: [],
+        retryContext: {
+          references: [
+            {
+              type: "file",
+              path: "docs/brief.md",
+              name: "brief.md",
+              source: "workspace",
+            },
+          ],
+          model: "model-original",
+          effort: "high",
+          requestMode: "plan",
+        },
+        failure: {
+          code: "missing_credentials",
+          message: expect.stringContaining("No LLM provider"),
+        },
+      });
+      expect(onRunPrepared).not.toHaveBeenCalled();
+      expect(engine.stream).not.toHaveBeenCalled();
+      const body = await new Response(response as ReadableStream).text();
+      expect(body).toContain('"errorCode":"missing_credentials"');
+    } finally {
+      unregisterAgentEngine(engine.name);
+    }
   });
 
   it("rejects a non-string request engine before resolving provider credentials", async () => {
@@ -2862,6 +3162,7 @@ describe("createProductionAgentHandler", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           message: "Run the queued prompt",
+          agentKitMessageId: " message-agentkit-1 ",
           queuedMessageId: " queued-1 ",
         }),
       }),
@@ -2875,6 +3176,7 @@ describe("createProductionAgentHandler", () => {
     expect(onRunPrepared).toHaveBeenCalledWith(
       expect.objectContaining({
         message: "Run the queued prompt",
+        agentKitMessageId: "message-agentkit-1",
         queuedMessageId: "queued-1",
         turnId: expect.any(String),
       }),

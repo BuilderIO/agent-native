@@ -1,3 +1,4 @@
+import { defineEventHandler } from "h3";
 import { afterEach, describe, it, expect, vi } from "vitest";
 
 import {
@@ -8,6 +9,7 @@ import { createServer } from "./create-server.js";
 
 describe("createServer", () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
     resetAppConfigForTests();
   });
@@ -18,6 +20,52 @@ describe("createServer", () => {
     expect(router).toBeDefined();
     expect(typeof router.get).toBe("function");
     expect(typeof router.post).toBe("function");
+  });
+
+  it("keeps safe database codes and causes in server error logs", async () => {
+    const privateValue = "private customer value";
+    const cause = Object.assign(new Error("duplicate key"), { code: "23505" });
+    const error = Object.assign(
+      new Error(
+        `Failed query: INSERT INTO users (email) VALUES ($1)\n\tparams: ${privateValue}`,
+      ),
+      { code: "23505", cause },
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const { app } = createServer();
+    app.use(
+      "/_test/server-error",
+      defineEventHandler(() => {
+        throw error;
+      }),
+    );
+
+    const response = await app.request("http://localhost/_test/server-error");
+    const loggedParts = consoleError.mock.calls.find(
+      ([message]) =>
+        typeof message === "string" &&
+        message.startsWith("[agent-native] Server error:"),
+    )?.[1];
+
+    expect(response.status).toBe(500);
+    expect(loggedParts).toMatchObject({
+      diagnostics: {
+        cause: {
+          type: "Error",
+          diagnostics: {
+            code: "23505",
+            cause: {
+              type: "Error",
+              message: "duplicate key",
+              diagnostics: { code: "23505" },
+            },
+          },
+        },
+      },
+    });
+    expect(JSON.stringify(loggedParts)).not.toContain(privateValue);
   });
 
   it("disables CORS when cors is false", () => {

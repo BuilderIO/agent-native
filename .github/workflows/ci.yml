@@ -39,6 +39,8 @@ jobs:
       query_budget_matrix: ${{ steps.scope.outputs.query_budget_matrix }}
       neon_connection_budget: ${{ steps.scope.outputs.neon_connection_budget }}
       agentkit_acceptance: ${{ steps.scope.outputs.agentkit_acceptance }}
+      slides_chat_e2e: ${{ steps.scope.outputs.slides_chat_e2e }}
+      slides_authoring_e2e: ${{ steps.scope.outputs.slides_authoring_e2e }}
       changeset: ${{ steps.scope.outputs.changeset }}
       script_tests: ${{ steps.scope.outputs.script_tests }}
       lanes_matrix: ${{ steps.lanes.outputs.matrix }}
@@ -142,7 +144,7 @@ jobs:
           done < <(git diff --name-only -z "$CI_BASE_SHA...$CI_HEAD_SHA")
 
           if ((${#format_files[@]} > 0)); then
-            pnpm exec oxfmt --check "${format_files[@]}"
+            pnpm exec oxfmt --check --no-error-on-unmatched-pattern "${format_files[@]}"
           fi
           if ((${#lint_files[@]} > 0)); then
             pnpm exec oxlint --config .oxlintrc.json --no-error-on-unmatched-pattern "${lint_files[@]}"
@@ -534,20 +536,9 @@ jobs:
   slides-chat-e2e:
     name: Slides chat caret in Chromium
     needs: change-scope
-    # Off on purpose. #6485 disabled this job and #6496 switched it back on as a
-    # side effect of a Slides change; it then failed on every PR that reached it.
-    # Turning it back on is an explicit decision, not something to restore while
-    # editing this block.
-    if: >-
-      false && (
-      needs.change-scope.outputs.full == 'true' ||
-      contains(needs.change-scope.outputs.workspace_filters, '{templates/slides}') ||
-      contains(needs.change-scope.outputs.workspace_filters, '{packages/core}') ||
-      contains(needs.change-scope.outputs.workspace_filters, '{packages/toolkit}') ||
-      contains(needs.change-scope.outputs.workspace_filters, '{packages/creative-context}')
-      )
+    if: ${{ needs.change-scope.outputs.slides_chat_e2e == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -565,18 +556,44 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell --with-deps chromium
 
-      - name: Install Playwright WebKit
-        run: pnpm exec playwright install --with-deps webkit
-
       - name: Check selection direction and chat typing while slide text editing remains active
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
+
+      - name: Check line-edge caret navigation in slide text
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa
+
+  slides-authoring-e2e:
+    name: Slides rich-text authoring
+    needs: change-scope
+    if: needs.change-scope.outputs.slides_authoring_e2e == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium and WebKit
+        run: |
+          pnpm exec playwright install --only-shell --with-deps chromium
+          pnpm exec playwright install --with-deps webkit
 
       - name: Check IME Escape preserves inline slide text editing
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --ime-escape
 
-      - name: Check typing fidelity across Slides text surfaces
+      - name: Check typing fidelity across Slides text surfaces in Chromium
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
 

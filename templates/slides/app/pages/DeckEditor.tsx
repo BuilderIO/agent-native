@@ -158,6 +158,7 @@ import {
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import { exportDeckAsPptx } from "@/lib/export-pptx-client";
 import {
+  isNewDeckGenerationFailed,
   shouldClearNewDeckGeneratingState,
   shouldClearNewDeckGenerationRun,
   shouldShowNewDeckGeneratingOverlay,
@@ -571,7 +572,7 @@ export default function DeckEditor() {
       presentNavigationRef.current = false;
     };
   }, [id]);
-  usePendingDeckUnloadGuard(hasPendingDeckWrites);
+  usePendingDeckUnloadGuard(hasPendingDeckEdits);
   const pendingDeckNavigationBlocker = useBlocker(
     useCallback(
       ({ currentLocation, nextLocation }) =>
@@ -1373,9 +1374,9 @@ export default function DeckEditor() {
             failure_code: failureCode,
             failure_stage: "agent",
           });
-        } else {
-          trackEvent("generation_completed", properties);
         }
+        // Success is `generation_completed`, reported by the server when the
+        // run that wrote the first slide ends; this tab may already be closed.
       } finally {
         clearStartedGenerationAttempt(generationAttemptId, id);
         if (generationSettlingAttemptRef.current === generationAttemptId) {
@@ -1842,11 +1843,15 @@ export default function DeckEditor() {
       generating: newDeckGenerationSignal,
       waitingOnQuestions: waitingOnNewDeckQuestions,
     });
-  const generationFailed =
-    slideCount === 0 &&
-    generationContext !== null &&
-    (typeof generationContext.generationFailureCode === "string" ||
-      (isNewDeckCreation && newDeckGenerationPhase === "abandoned"));
+  const generationFailed = isNewDeckGenerationFailed({
+    slideCount,
+    hasGenerationContext: generationContext !== null,
+    failureCode: generationContext?.generationFailureCode,
+    isNewDeckCreation,
+    phase: newDeckGenerationPhase,
+    generating: newDeckGenerationSignal,
+    waitingOnQuestions: waitingOnNewDeckQuestions,
+  });
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
     generating: newDeckGenerationSignal,
     isNewDeckCreation,

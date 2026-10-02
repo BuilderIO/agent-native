@@ -59,6 +59,7 @@ const messages = {
     commentsAndRepliesDescription:
       "誰かがあなたのデッキにコメントまたは返信したとき。",
     retry: "再試行",
+    reload: "再読み込み",
     mcpAbout:
       "Slides を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって Slides で作業できます。デッキの作成、スライドの追加、PowerPoint への書き出しなどです。アプリが見られるのは、あなたが見られるものだけです。",
     workspaceTitle: "ワークスペース",

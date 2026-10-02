@@ -16,10 +16,14 @@ import type {
 } from "@agent-native/agentkit/protocol";
 import {
   isAgentKitProtocolVersion,
+  parseAgentRunOptions,
   parseAgentThreadSnapshot,
 } from "@agent-native/agentkit/protocol";
 
-import { BACKGROUND_FUNCTION_WALL_MS } from "../../app-config/run-lifecycle-invariants.js";
+import {
+  RUN_NOT_STARTED_METADATA_KEY,
+  retryContextFromRequest,
+} from "../../shared/agent-chat-run-not-started.js";
 import { agentNativePath } from "../api-path.js";
 import { CHAT_REQUEST_TOO_LARGE_MESSAGE } from "../error-format.js";
 import { dispatchAgentChatRunning } from "../use-agent-chat-running-threads.js";
@@ -37,6 +41,7 @@ import {
 import { trackRunOutcome } from "./run-outcome-telemetry.js";
 import {
   createAgentNativeChatRuntime,
+  isAgentNativeChatRuntime,
   type AgentChatRuntime,
   type CreateAgentNativeChatRuntimeOptions,
 } from "./runtime.js";
@@ -67,14 +72,11 @@ interface ActiveRunStatus {
   status?: unknown;
   runId?: unknown;
   awaitingRedispatch?: unknown;
+  terminalReason?: unknown;
 }
 
 const RUN_SLOT_POLL_INTERVAL_MS = 150;
 const RUN_SLOT_STABLE_POLLS = 2;
-const RUN_SLOT_MAX_POLLS = RUN_SLOT_STABLE_POLLS * 2;
-// A message sent while an earlier run still owns the thread waits for that run
-// instead of failing; no single run outlives one background function wall.
-const BUSY_THREAD_POLL_INTERVAL_MS = 1_000;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -209,6 +211,57 @@ function messagePart(
   };
 }
 
+function attachmentReferenceUrl(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? value
+      : undefined;
+  } catch {
+    return value.startsWith("/") && !value.startsWith("//") ? value : undefined;
+  }
+}
+
+function storedAttachmentPart(value: unknown): AgentMessagePart | null {
+  const attachment = asRecord(value);
+  if (
+    !attachment ||
+    (attachment.type !== "file" && attachment.type !== "image")
+  ) {
+    return null;
+  }
+  const contentParts = Array.isArray(attachment.content)
+    ? attachment.content.map(asRecord).filter((part) => part !== null)
+    : [];
+  const reference = contentParts.find(
+    (part) =>
+      (part.type === "file" && typeof part.url === "string") ||
+      (part.type === "image" && typeof part.image === "string"),
+  );
+  const metadata = asRecord(attachment.metadata);
+  const url =
+    attachmentReferenceUrl(metadata?.uploadUrl) ??
+    attachmentReferenceUrl(reference?.url ?? reference?.image);
+  const name =
+    (typeof attachment.name === "string" && attachment.name) ||
+    (typeof reference?.filename === "string" && reference.filename) ||
+    attachment.type;
+  const fileId =
+    (typeof attachment.id === "string" && attachment.id) ||
+    (typeof reference?.fileId === "string" && reference.fileId);
+  const mediaType =
+    (typeof attachment.contentType === "string" && attachment.contentType) ||
+    (typeof reference?.mimeType === "string" && reference.mimeType);
+  return {
+    type: "file",
+    name,
+    ...(url ? { url } : {}),
+    ...(fileId ? { fileId } : {}),
+    ...(mediaType ? { mediaType } : {}),
+  };
+}
+
 function storedMessages(
   value: unknown,
   now: () => string,
@@ -249,6 +302,11 @@ function storedMessages(
               .map((part) => messagePart(part, textFormat))
               .filter((part) => part !== null)
           : [];
+    const attachmentParts = Array.isArray(message.attachments)
+      ? message.attachments
+          .map(storedAttachmentPart)
+          .filter((part) => part !== null)
+      : [];
     return [
       {
         id:
@@ -256,7 +314,7 @@ function storedMessages(
             ? message.id
             : `repository-message-${index}`,
         role,
-        parts,
+        parts: [...parts, ...attachmentParts],
         createdAt: timestamp(message.createdAt, now()),
         ...(asRecord(message.metadata)
           ? { metadata: asRecord(message.metadata)! }
@@ -269,11 +327,227 @@ function storedMessages(
   });
 }
 
-function reconcileDurableAssistantText(
+/**
+ * The server answers a turn it refused before any run started with a durable
+ * notice and a failed run. The run renders as the recovery card, so showing the
+ * notice too would print the same failure twice.
+ */
+function isRenderedRunNotStartedNotice(
+  message: AgentMessage,
+  failedRunIds: ReadonlySet<string>,
+): boolean {
+  const metadata = asRecord(message.metadata);
+  return (
+    message.role === "assistant" &&
+    asRecord(metadata?.custom)?.[RUN_NOT_STARTED_METADATA_KEY] === true &&
+    typeof metadata?.runId === "string" &&
+    failedRunIds.has(metadata.runId)
+  );
+}
+
+function sameUserPrompt(left: AgentMessage, right: AgentMessage): boolean {
+  if (
+    left.role !== "user" ||
+    right.role !== "user" ||
+    !left.createdAt ||
+    !right.createdAt ||
+    Date.parse(left.createdAt) !== Date.parse(right.createdAt) ||
+    left.parts.length !== right.parts.length
+  ) {
+    return false;
+  }
+  return left.parts.every((part, index) => {
+    const other = right.parts[index];
+    if (!other || part.type !== other.type) return false;
+    if (part.type === "text" && other.type === "text") {
+      return part.text === other.text;
+    }
+    if (part.type !== "file" || other.type !== "file") return false;
+    const sameReference =
+      (part.fileId && other.fileId && part.fileId === other.fileId) ||
+      (part.url && other.url && part.url === other.url);
+    if (sameReference) return true;
+    if ((part.fileId && other.fileId) || (part.url && other.url)) return false;
+    return (
+      Boolean(part.name) &&
+      part.name === other.name &&
+      part.mediaType === other.mediaType
+    );
+  });
+}
+
+function completedDurableRunIds(messages: AgentMessage[]): Set<string> {
+  return new Set(
+    messages.flatMap((message) => {
+      const runId = asRecord(message.metadata)?.runId;
+      const custom = asRecord(asRecord(message.metadata)?.custom);
+      return message.role === "assistant" &&
+        message.status === "complete" &&
+        custom?.continued !== true &&
+        custom?.userStopped !== true &&
+        typeof runId === "string"
+        ? [runId]
+        : [];
+    }),
+  );
+}
+
+function userStoppedDurableRunIds(messages: AgentMessage[]): Set<string> {
+  return new Set(
+    messages.flatMap((message) => {
+      const runId = asRecord(message.metadata)?.runId;
+      const custom = asRecord(asRecord(message.metadata)?.custom);
+      return message.role === "assistant" &&
+        custom?.userStopped === true &&
+        typeof runId === "string"
+        ? [runId]
+        : [];
+    }),
+  );
+}
+
+function durableRunFailures(messages: AgentMessage[]): Map<string, AgentError> {
+  return new Map(
+    messages.flatMap((message) => {
+      const runId = asRecord(message.metadata)?.runId;
+      const error = asRecord(
+        asRecord(asRecord(message.metadata)?.custom)?.runError,
+      );
+      if (
+        message.role !== "assistant" ||
+        message.status !== "error" ||
+        typeof runId !== "string" ||
+        !error ||
+        typeof error.message !== "string"
+      ) {
+        return [];
+      }
+      return [
+        [
+          runId,
+          {
+            code:
+              typeof error.errorCode === "string"
+                ? error.errorCode
+                : "run_failed",
+            message: error.message,
+            ...(error.details !== undefined ? { details: error.details } : {}),
+            ...(typeof error.recoverable === "boolean"
+              ? { retryable: error.recoverable }
+              : {}),
+          },
+        ] as const,
+      ];
+    }),
+  );
+}
+
+const REFUSED_TURN_CUSTOM_KEYS = [
+  RUN_NOT_STARTED_METADATA_KEY,
+  "submittedRunId",
+  "submittedTurnId",
+] as const;
+
+/** The retry context of a refused prompt, bounded the way the server stores it. */
+function refusedTurnRetryContext(
+  metadata: Record<string, unknown> | null | undefined,
+) {
+  return retryContextFromRequest({
+    metadata,
+    model: metadata?.model,
+    engine: metadata?.engine,
+    effort: metadata?.effort,
+    mode: metadata?.requestMode,
+  });
+}
+
+/**
+ * A snapshot copy of a prompt the server refused stands in for the durable one,
+ * and a client save keeps only a few markers of it, so the refusal marker and
+ * the retry context come from the durable message when the copy lacks them.
+ */
+function withRefusedTurnMetadata(
+  message: AgentMessage,
+  stored: AgentMessage,
+): AgentMessage {
+  const storedMetadata = asRecord(stored.metadata);
+  const storedCustom = asRecord(storedMetadata?.custom);
+  if (storedCustom?.[RUN_NOT_STARTED_METADATA_KEY] !== true) return message;
+  const metadata = asRecord(message.metadata);
+  const custom = asRecord(metadata?.custom);
+  return {
+    ...message,
+    metadata: {
+      ...refusedTurnRetryContext(storedMetadata),
+      ...metadata,
+      custom: {
+        ...Object.fromEntries(
+          REFUSED_TURN_CUSTOM_KEYS.flatMap((key) =>
+            storedCustom[key] === undefined ? [] : [[key, storedCustom[key]]],
+          ),
+        ),
+        ...custom,
+      },
+    },
+  };
+}
+
+function reconcileDurableMessages(
   messages: AgentMessage[],
   durable: AgentMessage[],
   events: AgentThreadSnapshot["events"],
+  runs: AgentThreadSnapshot["runs"],
 ): AgentMessage[] {
+  const submittedRunId = (message: AgentMessage) => {
+    const value = asRecord(asRecord(message.metadata)?.custom)?.submittedRunId;
+    return typeof value === "string" ? value : undefined;
+  };
+  const submittedAgentKitMessageId = (message: AgentMessage) => {
+    const value = asRecord(
+      asRecord(message.metadata)?.custom,
+    )?.agentKitMessageId;
+    return typeof value === "string" ? value : undefined;
+  };
+  const sameSubmittedPrompt = (
+    snapshot: AgentMessage,
+    stored: AgentMessage,
+  ) => {
+    const storedMessageId = submittedAgentKitMessageId(stored);
+    return (
+      (storedMessageId === undefined || storedMessageId === snapshot.id) &&
+      sameUserPrompt(snapshot, stored)
+    );
+  };
+  const submittedUsers = durable.filter(
+    (message) =>
+      message.role === "user" &&
+      asRecord(message.metadata)?.hideUserMessage !== true &&
+      submittedRunId(message) !== undefined,
+  );
+  const submittedIds = new Set(submittedUsers.map((message) => message.id));
+  const durableIndexById = new Map(
+    durable.map((message, index) => [message.id, index]),
+  );
+  const submittedUsersByRun = new Map<string, AgentMessage | null>();
+  for (const stored of submittedUsers) {
+    const runId = submittedRunId(stored)!;
+    submittedUsersByRun.set(
+      runId,
+      submittedUsersByRun.has(runId) ? null : stored,
+    );
+  }
+  const submittedUsersByAgentKitMessageId = new Map<
+    string,
+    AgentMessage | null
+  >();
+  for (const stored of submittedUsers) {
+    const messageId = submittedAgentKitMessageId(stored);
+    if (!messageId) continue;
+    submittedUsersByAgentKitMessageId.set(
+      messageId,
+      submittedUsersByAgentKitMessageId.has(messageId) ? null : stored,
+    );
+  }
   const durableById = new Map(durable.map((message) => [message.id, message]));
   const assistantIdsByRun = new Map<string, Set<string>>();
   for (const event of events ?? []) {
@@ -300,16 +574,198 @@ function reconcileDurableAssistantText(
     durableByRun.set(runId, durableByRun.has(runId) ? null : message);
   }
 
-  return messages.map((message) => {
+  const representedSubmittedUserIds = new Set<string>();
+  const storedUserBySnapshotId = new Map<string, AgentMessage>();
+  const unmatchedSnapshotUsers: AgentMessage[] = [];
+  const representedAssistantIds = new Set(
+    messages.flatMap((message) =>
+      message.role === "assistant" ? [message.id] : [],
+    ),
+  );
+  const representedAssistantRunIds = new Set<string>();
+  for (const message of messages) {
+    if (
+      message.role === "user" &&
+      asRecord(message.metadata)?.hideUserMessage !== true
+    ) {
+      const runId = submittedRunId(message);
+      const hasAgentKitMessageId = submittedUsersByAgentKitMessageId.has(
+        message.id,
+      );
+      const represented = hasAgentKitMessageId
+        ? submittedUsersByAgentKitMessageId.get(message.id)
+        : submittedIds.has(message.id)
+          ? durableById.get(message.id)
+          : runId
+            ? submittedUsersByRun.get(runId)
+            : undefined;
+      if (represented?.role === "user") {
+        representedSubmittedUserIds.add(represented.id);
+        storedUserBySnapshotId.set(message.id, represented);
+      } else if (!runId) {
+        unmatchedSnapshotUsers.push(message);
+      }
+    } else if (message.role === "assistant") {
+      const metadataRunId = asRecord(message.metadata)?.runId;
+      const runId =
+        typeof metadataRunId === "string"
+          ? metadataRunId
+          : runByAssistantId.get(message.id);
+      const stored = runId ? durableByRun.get(runId) : undefined;
+      if (runId && stored) representedAssistantRunIds.add(runId);
+    }
+  }
+  const matchedSnapshotUserIds = new Set<string>();
+  for (const snapshotUser of unmatchedSnapshotUsers) {
+    const candidates = submittedUsers.filter(
+      (message) =>
+        !representedSubmittedUserIds.has(message.id) &&
+        sameSubmittedPrompt(snapshotUser, message),
+    );
+    if (candidates.length !== 1) continue;
+    const stored = candidates[0]!;
+    const matchingSnapshots = unmatchedSnapshotUsers.filter(
+      (message) =>
+        !matchedSnapshotUserIds.has(message.id) &&
+        sameSubmittedPrompt(message, stored),
+    );
+    if (matchingSnapshots.length !== 1) continue;
+    representedSubmittedUserIds.add(stored.id);
+    matchedSnapshotUserIds.add(snapshotUser.id);
+    storedUserBySnapshotId.set(snapshotUser.id, stored);
+  }
+  // ponytail: only collapse balanced indistinguishable prompt groups; use
+  // stable message IDs when the client exposes them for unequal groups.
+  for (const snapshotUser of unmatchedSnapshotUsers) {
+    if (matchedSnapshotUserIds.has(snapshotUser.id)) continue;
+    const candidates = submittedUsers.filter(
+      (message) =>
+        !representedSubmittedUserIds.has(message.id) &&
+        sameSubmittedPrompt(snapshotUser, message),
+    );
+    if (candidates.length < 2) continue;
+    const matchingSnapshots = unmatchedSnapshotUsers.filter(
+      (message) =>
+        !matchedSnapshotUserIds.has(message.id) &&
+        candidates.every((candidate) =>
+          sameSubmittedPrompt(message, candidate),
+        ),
+    );
+    if (matchingSnapshots.length !== candidates.length) continue;
+    for (const candidate of candidates) {
+      representedSubmittedUserIds.add(candidate.id);
+    }
+    for (const message of matchingSnapshots) {
+      matchedSnapshotUserIds.add(message.id);
+    }
+  }
+
+  const missingMessages: AgentMessage[] = submittedUsers.filter(
+    (message) => !representedSubmittedUserIds.has(message.id),
+  );
+  const completedRunIds = new Set([
+    ...(runs ?? [])
+      .filter((run) =>
+        ["completed", "failed", "cancelled"].includes(run.status),
+      )
+      .map((run) => run.id),
+    ...completedDurableRunIds(durable),
+  ]);
+  const durableAssistantRunIds = new Set(
+    durable.flatMap((message) => {
+      const runId = asRecord(message.metadata)?.runId;
+      const custom = asRecord(asRecord(message.metadata)?.custom);
+      return message.role === "assistant" &&
+        ["complete", "error"].includes(message.status ?? "") &&
+        custom?.continued !== true &&
+        typeof runId === "string"
+        ? [runId]
+        : [];
+    }),
+  );
+  const recoverableAssistantRunIds = new Set([
+    ...completedRunIds,
+    ...durableAssistantRunIds,
+  ]);
+  for (const message of durable) {
+    if (
+      message.role !== "assistant" ||
+      representedAssistantIds.has(message.id)
+    ) {
+      continue;
+    }
+    const runId = asRecord(message.metadata)?.runId;
+    if (typeof runId !== "string" || !recoverableAssistantRunIds.has(runId)) {
+      continue;
+    }
+    if (representedAssistantRunIds.has(runId)) continue;
+    missingMessages.push(message);
+    representedAssistantIds.add(message.id);
+  }
+
+  const projectedMessages = [
+    ...messages,
+    ...missingMessages.sort(
+      (left, right) =>
+        (durableIndexById.get(left.id) ?? 0) -
+        (durableIndexById.get(right.id) ?? 0),
+    ),
+  ]
+    .map((message, index) => ({
+      message,
+      index,
+    }))
+    .sort((left, right) => {
+      const leftCreatedAt = Date.parse(left.message.createdAt ?? "");
+      const rightCreatedAt = Date.parse(right.message.createdAt ?? "");
+      if (
+        Number.isFinite(leftCreatedAt) &&
+        Number.isFinite(rightCreatedAt) &&
+        leftCreatedAt !== rightCreatedAt
+      ) {
+        return leftCreatedAt - rightCreatedAt;
+      }
+      return left.index - right.index;
+    })
+    .map(({ message }) => message);
+
+  return projectedMessages.map((message) => {
+    if (message.role === "user") {
+      const stored = storedUserBySnapshotId.get(message.id);
+      return stored ? withRefusedTurnMetadata(message, stored) : message;
+    }
     if (message.role !== "assistant") return message;
-    const runId = runByAssistantId.get(message.id);
+    const metadataRunId = asRecord(message.metadata)?.runId;
+    const runId =
+      runByAssistantId.get(message.id) ??
+      (typeof metadataRunId === "string" ? metadataRunId : undefined);
     const stored =
       durableById.get(message.id) ??
       (runId ? durableByRun.get(runId) : undefined);
     if (stored?.role !== "assistant") return message;
-    const lastPart = message.parts.at(-1);
-    if (lastPart && lastPart.type !== "text") return message;
-    const currentText = message.parts
+    const messageMetadata = asRecord(message.metadata);
+    const storedMetadata = asRecord(stored.metadata);
+    const messageCustom = asRecord(messageMetadata?.custom);
+    const storedCustom = asRecord(storedMetadata?.custom);
+    const metadata = storedMetadata
+      ? {
+          ...messageMetadata,
+          ...storedMetadata,
+          ...(messageCustom || storedCustom
+            ? { custom: { ...messageCustom, ...storedCustom } }
+            : {}),
+        }
+      : message.metadata;
+    const reconciled = {
+      ...message,
+      ...(stored.status === "complete" || stored.status === "error"
+        ? { status: stored.status }
+        : {}),
+      ...(metadata ? { metadata } : {}),
+    };
+    const lastPart = reconciled.parts.at(-1);
+    if (lastPart && lastPart.type !== "text") return reconciled;
+    const currentText = reconciled.parts
       .filter((part) => part.type === "text")
       .map((part) => part.text)
       .join("");
@@ -321,22 +777,24 @@ function reconcileDurableAssistantText(
       !storedText.startsWith(currentText) ||
       storedText.length <= currentText.length
     ) {
-      return message;
+      return reconciled;
     }
     const suffix = storedText.slice(currentText.length);
-    const parts = [...message.parts];
+    const parts = [...reconciled.parts];
     if (!lastPart) {
       parts.push({ type: "text", text: suffix });
     } else {
       parts[parts.length - 1] = { ...lastPart, text: lastPart.text + suffix };
     }
-    return { ...message, parts };
+    return { ...reconciled, parts };
   });
 }
 
 function messageStatus(value: unknown): AgentMessage["status"] | undefined {
-  return value === "streaming" || value === "complete" || value === "error"
-    ? value
+  const status = asRecord(value)?.type ?? value;
+  if (status === "incomplete") return "error";
+  return status === "streaming" || status === "complete" || status === "error"
+    ? status
     : undefined;
 }
 
@@ -377,6 +835,14 @@ function storedQueue(
       ...(asRecord(queued.metadata)
         ? { metadata: asRecord(queued.metadata)! }
         : {}),
+      ...(queued.options === undefined
+        ? {}
+        : {
+            options: parseAgentRunOptions(
+              queued.options,
+              `queuedMessages[${index}].options`,
+            ),
+          }),
     };
   });
 }
@@ -600,10 +1066,43 @@ function persistedMessages(messages: AgentMessage[]): AgentMessage[] {
     }),
     ...(message.createdAt ? { createdAt: message.createdAt } : {}),
     ...(message.status ? { status: message.status } : {}),
-    ...(asRecord(message.metadata)?.hideUserMessage === true
-      ? { metadata: { hideUserMessage: true } }
-      : {}),
+    ...persistedMessageMetadata(message.metadata),
   }));
+}
+
+/**
+ * Only the markers a reloaded or second tab needs: a hidden recovery message,
+ * which failed run a recovery message already answered, so the same failure is
+ * never sent again from another tab or after a reload, and, for a prompt the
+ * server refused before a run started, its refusal marker and retry context,
+ * so the setup card and Retry still resend the original request.
+ */
+function persistedMessageMetadata(
+  value: unknown,
+): { metadata: Record<string, unknown> } | Record<string, never> {
+  const metadata = asRecord(value);
+  const custom = asRecord(metadata?.custom);
+  const answeredRunId = custom?.agentNativeRecoveryOfRunId;
+  const refused = custom?.[RUN_NOT_STARTED_METADATA_KEY] === true;
+  const refusedCustom = refused
+    ? Object.fromEntries(
+        REFUSED_TURN_CUSTOM_KEYS.flatMap((key) =>
+          custom[key] === undefined ? [] : [[key, custom[key]]],
+        ),
+      )
+    : {};
+  const keptCustom = {
+    ...refusedCustom,
+    ...(typeof answeredRunId === "string" && answeredRunId
+      ? { agentNativeRecoveryOfRunId: answeredRunId }
+      : {}),
+  };
+  const kept = {
+    ...(refused ? refusedTurnRetryContext(metadata) : {}),
+    ...(metadata?.hideUserMessage === true ? { hideUserMessage: true } : {}),
+    ...(Object.keys(keptCustom).length > 0 ? { custom: keptCustom } : {}),
+  };
+  return Object.keys(kept).length > 0 ? { metadata: kept } : {};
 }
 
 function mergeStoredAndIncomingMessages(
@@ -816,22 +1315,35 @@ async function responseError(response: Response): Promise<Error> {
               : undefined;
   const explicitRetryable =
     data?.retryable ?? payload?.retryable ?? nestedError?.retryable;
-  const error = new Error(
-    nestedMessage ??
-      (body.trim() || `Agent chat request failed with ${response.status}.`),
-  );
+  const activeRunId =
+    (typeof data?.activeRunId === "string" && data.activeRunId) ||
+    (typeof payload?.activeRunId === "string" && payload.activeRunId) ||
+    (typeof nestedError?.activeRunId === "string" && nestedError.activeRunId);
+  const code =
+    (typeof data?.code === "string" && data.code) ||
+    (typeof payload?.code === "string" && payload.code) ||
+    (typeof payload?.errorCode === "string" && payload.errorCode) ||
+    (typeof nestedError?.code === "string" && nestedError.code) ||
+    (response.status === 409 && activeRunId ? "run_slot_busy" : undefined) ||
+    httpErrorCode(response.status);
+  const runSlotBusy = response.status === 409 && code === "run_slot_busy";
+  const error = runSlotBusy
+    ? new AgentKitRunSlotBusyError(
+        typeof activeRunId === "string" ? activeRunId : undefined,
+      )
+    : new Error(
+        nestedMessage ??
+          (body.trim() || `Agent chat request failed with ${response.status}.`),
+      );
   Object.assign(error, {
-    code:
-      (typeof data?.code === "string" && data.code) ||
-      (typeof payload?.code === "string" && payload.code) ||
-      (typeof payload?.errorCode === "string" && payload.errorCode) ||
-      (typeof nestedError?.code === "string" && nestedError.code) ||
-      httpErrorCode(response.status),
+    ...(nestedMessage ? { message: nestedMessage } : {}),
+    code,
     status: response.status,
     retryable:
       typeof explicitRetryable === "boolean"
         ? explicitRetryable
         : isRetryableHttpStatus(response.status),
+    ...(activeRunId ? { activeRunId } : {}),
     ...(data?.details === undefined &&
     payload?.details === undefined &&
     nestedError?.details === undefined
@@ -879,9 +1391,26 @@ export function createAgentNativeAgentKitTransport(
   const apiUrl = options.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
   const fetcher = options.fetch ?? fetch;
   const now = options.adapter?.now ?? (() => new Date().toISOString());
+  const promotionClaimIds = new Map<string, string>();
   let transport: AgentKitProtocolAdapter;
-  /** Queued messages a send on this page is still waiting to deliver itself. */
-  const parkedMessageIds = new Set<string>();
+
+  function promotionClaimId(threadId: string, messageId: string): string {
+    const key = JSON.stringify([threadId, messageId]);
+    let claimId = promotionClaimIds.get(key);
+    if (!claimId) {
+      const suffix =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      claimId = `queue-claim-${suffix}`;
+      promotionClaimIds.set(key, claimId);
+    }
+    return claimId;
+  }
+
+  function clearPromotionClaimId(threadId: string, messageId: string): void {
+    promotionClaimIds.delete(JSON.stringify([threadId, messageId]));
+  }
 
   async function headers(input: { sessionId?: string } = {}): Promise<Headers> {
     const configured =
@@ -916,17 +1445,29 @@ export function createAgentNativeAgentKitTransport(
     const createdAt = timestamp(stored.createdAt, projectedAt);
     const updatedAt = timestamp(stored.updatedAt, createdAt);
     const repository = storedRepository(stored);
+    const agentKit = asRecord(repository.agentKit);
+    const failedRunIds = new Set(
+      (Array.isArray(agentKit?.runs) ? agentKit.runs : []).flatMap((value) => {
+        const run = asRecord(value);
+        return run?.status === "failed" &&
+          asRecord(run.error) &&
+          typeof run.id === "string"
+          ? [run.id]
+          : [];
+      }),
+    );
     const storedMessageProjection = storedMessages(
       repository.messages,
       now,
       options.adapter?.textFormat,
+    ).filter(
+      (message) => !isRenderedRunNotStartedNotice(message, failedRunIds),
     );
     const queuedMessages = storedQueue(
       repository.queuedMessages,
       threadId,
       updatedAt,
     );
-    const agentKit = asRecord(repository.agentKit);
     const protocolSnapshot = agentKit
       ? parseAgentThreadSnapshot({
           id: threadId,
@@ -947,16 +1488,13 @@ export function createAgentNativeAgentKitTransport(
           annotations: agentKit.annotations,
         })
       : undefined;
-    const durableMessages = storedMessages(
-      repository.messages,
-      now,
-      options.adapter?.textFormat,
-    );
+    const durableMessages = storedMessageProjection;
     const messages = protocolSnapshot?.messages
-      ? reconcileDurableAssistantText(
+      ? reconcileDurableMessages(
           protocolSnapshot.messages,
           durableMessages,
           protocolSnapshot.events,
+          protocolSnapshot.runs,
         )
       : durableMessages;
     const actionWidgets = storedActionWidgets(repository.messages);
@@ -1067,23 +1605,10 @@ export function createAgentNativeAgentKitTransport(
     threadId: string,
   ): Promise<AgentThreadSnapshot | null> {
     const stored = await fetchThread(threadId);
-    if (!stored) return null;
-    const thread = projectThread(threadId, stored);
-    // A message parked by a send still waiting on this page is delivered by
-    // that wait; listing it as queued here would let a promotion race it.
-    return parkedMessageIds.size === 0
-      ? thread
-      : {
-          ...thread,
-          queuedMessages: thread.queuedMessages?.filter(
-            (message) => !parkedMessageIds.has(message.id),
-          ),
-        };
+    return stored ? projectThread(threadId, stored) : null;
   }
 
-  async function activeRunSnapshot(
-    threadId: string,
-  ): Promise<AgentRunSnapshot | undefined> {
+  async function activeRunStatus(threadId: string): Promise<ActiveRunStatus> {
     const response = await fetcher(
       `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
       { headers: await headers({ sessionId: threadId }) },
@@ -1093,25 +1618,85 @@ export function createAgentNativeAgentKitTransport(
     if (!value) {
       throw new TypeError("Agent chat active-run response must be an object.");
     }
+    return value;
+  }
+
+  async function activeRunSnapshot(
+    threadId: string,
+  ): Promise<AgentRunSnapshot | null | undefined> {
+    const value = await activeRunStatus(threadId);
     const status = value.status;
-    if (
-      value.active !== true ||
-      typeof value.runId !== "string" ||
-      !value.runId ||
-      status === "completed" ||
-      status === "complete" ||
-      status === "failed" ||
-      status === "cancelled"
-    ) {
-      return undefined;
+    if (value.active === false) return null;
+    if (value.active !== true) return undefined;
+    if (typeof value.runId !== "string" || !value.runId) {
+      throw new TypeError(
+        "Agent chat active-run response must include an active run ID.",
+      );
     }
-    const runStatus: AgentRunSnapshot["status"] =
+    let runStatus: AgentRunSnapshot["status"];
+    let error: AgentRunSnapshot["error"];
+    const terminalReason =
+      typeof value.terminalReason === "string"
+        ? value.terminalReason
+        : undefined;
+    const legacyTruncated =
+      status === "truncated" ||
+      (["complete", "completed"].includes(String(status)) &&
+        terminalReason !== undefined &&
+        terminalReason !== "done");
+    if (legacyTruncated && value.awaitingRedispatch === true) {
+      runStatus = "running";
+    } else if (legacyTruncated) {
+      runStatus = "failed";
+      error = {
+        code:
+          terminalReason && terminalReason !== "done"
+            ? terminalReason.startsWith("error:")
+              ? terminalReason.slice("error:".length)
+              : terminalReason
+            : "run_truncated",
+        message:
+          terminalReason === "run_timeout"
+            ? "The run reached its time limit before completion was confirmed."
+            : "The server stopped the run before it confirmed completion.",
+        retryable: true,
+        ...(terminalReason ? { metadata: { terminalReason } } : {}),
+      };
+    } else if (status === "complete" || status === "completed") {
+      runStatus = "completed";
+    } else if (status === "failed" || status === "errored") {
+      runStatus = "failed";
+      error = {
+        code: terminalReason?.startsWith("error:")
+          ? terminalReason.slice("error:".length)
+          : (terminalReason ?? "run_failed"),
+        message:
+          terminalReason === "run_timeout"
+            ? "The run reached its time limit before completion was confirmed."
+            : "The server reported that this run failed.",
+        ...(terminalReason ? { metadata: { terminalReason } } : {}),
+      };
+    } else if (status === "cancelled" || status === "aborted") {
+      runStatus = "cancelled";
+    } else if (status === "truncated") {
+      runStatus = "failed";
+      error = {
+        code: "run_truncated",
+        message: "The server stopped the run before it confirmed completion.",
+        retryable: true,
+      };
+    } else if (
       status === "queued" ||
       status === "running" ||
       status === "awaiting_approval" ||
       status === "awaiting_input"
-        ? status
-        : "running";
+    ) {
+      runStatus = status;
+    } else {
+      throw new TypeError(
+        "Agent chat active-run response has an invalid status.",
+      );
+    }
     return {
       id: value.runId,
       threadId,
@@ -1119,26 +1704,146 @@ export function createAgentNativeAgentKitTransport(
       // The durable SSE endpoint replays from its first event when a browser
       // has no saved AgentKit cursor; the protocol adapter rebuilds the log.
       lastSequence: 0,
+      ...(error ? { error } : {}),
     };
   }
 
   async function threadSnapshotWithActiveRun(
     threadId: string,
   ): Promise<AgentThreadSnapshot | null> {
-    const thread = await snapshot(threadId);
-    if (!thread || options.runtime) return thread;
+    const stored = await fetchThread(threadId);
+    const thread = stored ? projectThread(threadId, stored) : null;
+    if (!stored || !thread) return thread;
+    if (options.runtime && !isAgentNativeChatRuntime(options.runtime)) {
+      return thread;
+    }
+    const durableMessages = storedMessages(
+      storedRepository(stored).messages,
+      now,
+      options.adapter?.textFormat,
+    );
+    const completedRunIds = completedDurableRunIds(durableMessages);
+    const userStoppedRunIds = userStoppedDurableRunIds(durableMessages);
+    const durableFailures = durableRunFailures(durableMessages);
     const activeRun = await activeRunSnapshot(threadId);
-    if (!activeRun) return thread;
-    const runs = [
-      ...(thread.runs ?? []).filter((entry) => entry.id !== activeRun.id),
-      activeRun,
-    ];
+    if (activeRun === undefined) return thread;
+    let discoveredRun = activeRun;
+    if (discoveredRun?.status === "failed") {
+      const durableFailure = durableFailures.get(discoveredRun.id);
+      if (durableFailure) {
+        discoveredRun = {
+          ...discoveredRun,
+          error: { ...discoveredRun.error, ...durableFailure },
+        };
+      }
+    }
+    const knownActiveRunId =
+      discoveredRun &&
+      !["completed", "failed", "cancelled"].includes(discoveredRun.status)
+        ? discoveredRun.id
+        : undefined;
+    const runs = (thread.runs ?? [])
+      .filter((entry) => entry.id !== discoveredRun?.id)
+      .map((run) => {
+        if (
+          activeRun === null &&
+          run.status === "running" &&
+          userStoppedRunIds.has(run.id)
+        ) {
+          return { ...run, status: "cancelled" as const };
+        }
+        if (
+          activeRun === null &&
+          run.status === "running" &&
+          completedRunIds.has(run.id)
+        ) {
+          return { ...run, status: "completed" as const };
+        }
+        if (
+          activeRun !== undefined &&
+          run.id !== knownActiveRunId &&
+          ![
+            "completed",
+            "failed",
+            "cancelled",
+            "awaiting_approval",
+            "awaiting_input",
+          ].includes(run.status)
+        ) {
+          return {
+            ...run,
+            status: "failed" as const,
+            error: {
+              ...(durableFailures.get(run.id) ?? {
+                code: "run_state_unavailable",
+                message:
+                  "The server no longer reports this run as active, so its final result could not be confirmed.",
+                retryable: true,
+              }),
+            },
+          };
+        }
+        return run;
+      });
+    if (discoveredRun) runs.push(discoveredRun);
+    const activeRunIds =
+      discoveredRun &&
+      !["completed", "failed", "cancelled"].includes(discoveredRun.status)
+        ? [discoveredRun.id]
+        : activeRun === null
+          ? runs
+              .filter((run) =>
+                ["awaiting_approval", "awaiting_input"].includes(run.status),
+              )
+              .map((run) => run.id)
+          : [];
+    const failedRunIds = new Set(
+      runs.flatMap((run) =>
+        run.status === "failed" && run.error ? [run.id] : [],
+      ),
+    );
+    const messages = reconcileDurableMessages(
+      thread.messages,
+      durableMessages.filter(
+        (message) => !isRenderedRunNotStartedNotice(message, failedRunIds),
+      ),
+      thread.events,
+      runs,
+    );
+    const replayFromStart = [
+      "running",
+      "awaiting_approval",
+      "awaiting_input",
+    ].includes(discoveredRun?.status ?? "");
+    const replayedMessageIds = new Set<string>();
+    for (const event of thread.events ?? []) {
+      if (
+        event.runId === discoveredRun?.id &&
+        (event.type === "message.created" ||
+          event.type === "message.completed") &&
+        event.message.role === "assistant"
+      ) {
+        replayedMessageIds.add(event.message.id);
+      }
+    }
+    const messagesForReplay = replayFromStart
+      ? messages.filter((message) => {
+          if (message.role !== "assistant") return true;
+          const runId = asRecord(message.metadata)?.runId;
+          return !(
+            runId === discoveredRun?.id ||
+            replayedMessageIds.has(message.id) ||
+            (message.status === "streaming" && typeof runId !== "string")
+          );
+        })
+      : messages;
     return {
       ...thread,
+      // Replay starts at sequence zero, so rebuild an active assistant instead
+      // of appending the same prefix to its persisted partial projection.
+      messages: messagesForReplay,
       runs,
-      activeRunIds: [
-        ...new Set([...(thread.activeRunIds ?? []), activeRun.id]),
-      ],
+      activeRunIds,
     };
   }
 
@@ -1288,8 +1993,8 @@ export function createAgentNativeAgentKitTransport(
     | { type: "append"; message: AgentQueuedMessage }
     | { type: "remove"; messageId: string }
     | { type: "moveToTop"; messageId: string }
-    | { type: "claim"; messageId: string }
-    | { type: "restore"; message: AgentQueuedMessage; index: number };
+    | { type: "claim"; messageId: string; claimId: string }
+    | { type: "release"; messageId: string; claimId: string };
 
   async function persistQueueMutation(
     threadId: string,
@@ -1297,8 +2002,7 @@ export function createAgentNativeAgentKitTransport(
   ): Promise<{
     queuedMessages: AgentQueuedMessage[];
     message?: AgentQueuedMessage;
-    removedMessage?: AgentQueuedMessage;
-    index?: number;
+    claimedMessage?: AgentQueuedMessage;
   }> {
     const requestHeaders = await headers({ sessionId: threadId });
     requestHeaders.set("content-type", "application/json");
@@ -1321,181 +2025,64 @@ export function createAgentNativeAgentKitTransport(
     const message = value.message
       ? storedQueue([value.message], threadId, now())[0]
       : undefined;
-    const removedMessage = value.removedMessage
-      ? storedQueue([value.removedMessage], threadId, now())[0]
+    const claimedMessage = value.claimedMessage
+      ? storedQueue([value.claimedMessage], threadId, now())[0]
       : undefined;
     return {
       queuedMessages: storedQueue(value.queuedMessages, threadId, now()),
       ...(message ? { message } : {}),
-      ...(removedMessage ? { removedMessage } : {}),
-      ...(typeof value.index === "number" ? { index: value.index } : {}),
+      ...(claimedMessage ? { claimedMessage } : {}),
     };
+  }
+
+  function runSlotIsClear(status: ActiveRunStatus): boolean {
+    return (
+      status.awaitingRedispatch !== true &&
+      (status.active !== true ||
+        status.status === "completed" ||
+        status.status === "complete" ||
+        status.status === "failed" ||
+        status.status === "cancelled" ||
+        status.status === "errored" ||
+        status.status === "aborted")
+    );
   }
 
   async function waitForRunSlot(
     threadId: string,
-    wait: { maxPolls: number; intervalMs: number; signal?: AbortSignal } = {
-      maxPolls: RUN_SLOT_MAX_POLLS,
-      intervalMs: RUN_SLOT_POLL_INTERVAL_MS,
-    },
+    maxPolls = RUN_SLOT_STABLE_POLLS * 2,
   ): Promise<void> {
     let consecutiveClearPolls = 0;
-    for (let poll = 0; poll < wait.maxPolls; poll += 1) {
-      wait.signal?.throwIfAborted();
-      const response = await fetcher(
-        `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
-        {
-          headers: await headers({ sessionId: threadId }),
-          ...(wait.signal ? { signal: wait.signal } : {}),
-        },
-      );
-      if (!response.ok) throw await responseError(response);
-      const status = asRecord(await response.json()) as ActiveRunStatus | null;
-      if (!status) {
-        throw new TypeError(
-          "Agent chat active-run response must be an object.",
-        );
-      }
-      const clear =
-        status.awaitingRedispatch !== true &&
-        (status.active !== true ||
-          status.status === "completed" ||
-          status.status === "complete" ||
-          status.status === "failed" ||
-          status.status === "cancelled" ||
-          status.status === "errored" ||
-          status.status === "aborted");
-      consecutiveClearPolls = clear ? consecutiveClearPolls + 1 : 0;
-      if (consecutiveClearPolls >= RUN_SLOT_STABLE_POLLS) return;
-      if (poll + 1 < wait.maxPolls) {
-        await new Promise((resolve) => setTimeout(resolve, wait.intervalMs));
-      }
-    }
-    throw new AgentKitRunSlotBusyError();
-  }
-
-  /** Waits for the thread to free up; a failed poll is not a failed send. */
-  async function waitForFreeThread(
-    threadId: string,
-    deadline: number,
-    signal?: AbortSignal,
-  ): Promise<void> {
-    for (let failures = 0; ; failures += 1) {
+    let status: ActiveRunStatus | undefined;
+    let lastError: unknown;
+    for (let poll = 0; poll < maxPolls; poll += 1) {
       try {
-        return await waitForRunSlot(threadId, {
-          maxPolls: Math.max(
-            RUN_SLOT_STABLE_POLLS,
-            Math.ceil((deadline - Date.now()) / BUSY_THREAD_POLL_INTERVAL_MS),
-          ),
-          intervalMs: BUSY_THREAD_POLL_INTERVAL_MS,
-          signal,
-        });
+        status = await activeRunStatus(threadId);
+        lastError = undefined;
+        consecutiveClearPolls = runSlotIsClear(status)
+          ? consecutiveClearPolls + 1
+          : 0;
+        if (consecutiveClearPolls >= RUN_SLOT_STABLE_POLLS) return;
       } catch (error) {
-        if (
-          signal?.aborted ||
-          asRecord(error)?.retryable === false ||
-          Date.now() >= deadline
-        ) {
-          throw error;
-        }
+        if (asRecord(error)?.retryable !== true) throw error;
+        lastError = error;
+        consecutiveClearPolls = 0;
+      }
+      if (poll + 1 < maxPolls) {
         await new Promise((resolve) =>
-          setTimeout(resolve, Math.min(1_000 * 2 ** failures, 15_000)),
+          setTimeout(resolve, RUN_SLOT_POLL_INTERVAL_MS),
         );
       }
     }
+    if (lastError) throw lastError;
+    throw new AgentKitRunSlotBusyError(
+      typeof status?.runId === "string" ? status.runId : undefined,
+    );
   }
 
-  /**
-   * The server refuses (409 `run_slot_busy`) a message sent while an earlier
-   * run still owns the thread, before saving it. Park it in the thread's
-   * server-side queue, so leaving the page cannot lose it (the next page
-   * promotes it like any queued message), and deliver it from here once the
-   * thread is free. Giving up while still on the page takes it back out, and
-   * the send fails where the user can see it.
-   */
-  async function startRunWhenThreadIsFree(
-    input: Parameters<AgentKitProtocolAdapter["startRun"]>[0],
-    context: Parameters<AgentKitProtocolAdapter["startRun"]>[1],
-  ): ReturnType<AgentKitProtocolAdapter["startRun"]> {
-    try {
-      return await startRun(input, context);
-    } catch (error) {
-      if (asRecord(error)?.code !== "run_slot_busy") throw error;
-    }
-    const message = [...input.messages]
-      .reverse()
-      .find((candidate) => candidate.role === "user");
-    if (!message) throw new AgentKitRunSlotBusyError();
-    const parked: AgentQueuedMessage = {
-      id: message.id,
-      threadId: input.threadId,
-      text: message.parts
-        .map((part) => (part.type === "text" ? part.text : ""))
-        .join(""),
-      createdAt: message.createdAt ?? now(),
-      attachments: message.parts.filter((part) => part.type === "file"),
-      ...(message.metadata ? { metadata: message.metadata } : {}),
-    };
-    await persistQueueMutation(input.threadId, {
-      type: "append",
-      message: parked,
-    });
-    parkedMessageIds.add(parked.id);
-    const deadline = Date.now() + BACKGROUND_FUNCTION_WALL_MS;
-    try {
-      for (;;) {
-        await waitForFreeThread(input.threadId, deadline, context?.signal);
-        const claim = await persistQueueMutation(input.threadId, {
-          type: "claim",
-          messageId: parked.id,
-        });
-        if (!claim.removedMessage || typeof claim.index !== "number") {
-          throw new TypeError("Agent chat queue claim response is invalid.");
-        }
-        try {
-          return await startRun(input, context);
-        } catch (error) {
-          if (
-            asRecord(error)?.code !== "run_slot_busy" ||
-            Date.now() >= deadline
-          ) {
-            throw error;
-          }
-          await persistQueueMutation(input.threadId, {
-            type: "restore",
-            message: claim.removedMessage,
-            index: claim.index,
-          });
-        }
-      }
-    } catch (error) {
-      // Leaving the page keeps the parked copy queued for the next one.
-      if (!context?.signal?.aborted) {
-        await persistQueueMutation(input.threadId, {
-          type: "remove",
-          messageId: parked.id,
-        }).catch((removeError: unknown) => {
-          // coercion-ok: the send still fails with its own error below; a copy left queued is delivered later, never lost.
-          console.warn(
-            "[agent-chat] could not take a failed send out of the queue:",
-            removeError,
-          );
-        });
-      }
-      throw error;
-    } finally {
-      parkedMessageIds.delete(parked.id);
-    }
-  }
-
-  /**
-   * Queue promotion has its own busy-slot retry, so it fails fast ("fail")
-   * instead of holding the thread's queue mutations while it waits.
-   */
   async function startRunTrackingRunningState(
     input: Parameters<AgentKitProtocolAdapter["startRun"]>[0],
     context: Parameters<AgentKitProtocolAdapter["startRun"]>[1],
-    onBusyThread: "wait" | "fail",
   ): ReturnType<AgentKitProtocolAdapter["startRun"]> {
     dispatchAgentChatRunning({
       isRunning: true,
@@ -1504,10 +2091,7 @@ export function createAgentNativeAgentKitTransport(
       tabId: input.threadId,
     });
     try {
-      const run =
-        onBusyThread === "wait"
-          ? await startRunWhenThreadIsFree(input, context)
-          : await startRun(input, context);
+      const run = await startRun(input, context);
       dispatchAgentChatRunning({
         isRunning: true,
         phase: "working",
@@ -1536,6 +2120,25 @@ export function createAgentNativeAgentKitTransport(
       );
     }
     return thread.queuedMessages ? [...thread.queuedMessages] : [];
+  }
+
+  function submittedQueueMessage(
+    thread: AgentThreadSnapshot,
+    messageId: string,
+  ): AgentMessage | undefined {
+    const isSubmitted = (message: AgentMessage) =>
+      message.id === messageId ||
+      asRecord(message.metadata?.custom)?.agentNativeQueuedMessageId ===
+        messageId;
+    const messageEvent = thread.events?.find(
+      (event) => event.type === "message.created" && isSubmitted(event.message),
+    );
+    return (
+      thread.messages.find(isSubmitted) ??
+      (messageEvent?.type === "message.created"
+        ? messageEvent.message
+        : undefined)
+    );
   }
 
   const runtime = options.runtime ?? createAgentNativeChatRuntime(options);
@@ -1572,9 +2175,17 @@ export function createAgentNativeAgentKitTransport(
       getThreadSnapshot: ({ threadId }) =>
         threadSnapshotWithActiveRun(threadId),
       listQueuedMessages: async ({ threadId }) => readQueue(threadId),
-      queueMessage: async ({ threadId, text, attachments, metadata }) => {
+      queueMessage: async ({
+        threadId,
+        id,
+        text,
+        attachments,
+        metadata,
+        options: runOptions,
+      }) => {
         const message: AgentQueuedMessage = {
           id:
+            id ??
             options.adapter?.createId?.("queued-message") ??
             `queued-message-${
               typeof crypto !== "undefined" && crypto.randomUUID
@@ -1586,6 +2197,7 @@ export function createAgentNativeAgentKitTransport(
           createdAt: now(),
           attachments,
           metadata,
+          options: runOptions,
         };
         const result = await persistQueueMutation(threadId, {
           type: "append",
@@ -1602,29 +2214,79 @@ export function createAgentNativeAgentKitTransport(
       moveQueuedMessageToTop: async ({ threadId, messageId }) => {
         await persistQueueMutation(threadId, { type: "moveToTop", messageId });
       },
-      steerQueuedMessage: async ({ threadId, messageId }) => {
-        const current = await readQueue(threadId);
-        if (!current.some((message) => message.id === messageId)) {
-          throw new Error(`Unknown queued message: ${messageId}`);
+      steerQueuedMessage: async ({
+        threadId,
+        messageId,
+        interruptActiveRun,
+      }) => {
+        const initial = await snapshot(threadId);
+        if (!initial) throw new Error(`Unknown agent chat thread: ${threadId}`);
+        const queued = (initial.queuedMessages ?? []).find(
+          (message) => message.id === messageId,
+        );
+        if (!queued) {
+          const submitted = submittedQueueMessage(initial, messageId);
+          const runId = asRecord(submitted?.metadata?.custom)?.submittedRunId;
+          if (submitted && typeof runId === "string") {
+            clearPromotionClaimId(threadId, messageId);
+            return { runId, alreadySubmitted: true };
+          }
+          return { alreadyRemoved: true as const };
         }
-        await waitForRunSlot(threadId);
-        const thread = await snapshot(threadId);
-        if (!thread) throw new Error(`Unknown agent chat thread: ${threadId}`);
-        const claim = await persistQueueMutation(threadId, {
-          type: "claim",
-          messageId,
-        });
-        const queued = claim.removedMessage;
-        if (!queued || typeof claim.index !== "number") {
-          throw new TypeError("Agent chat queue claim response is invalid.");
+        const claimId = promotionClaimId(threadId, messageId);
+        let claim: Awaited<ReturnType<typeof persistQueueMutation>>;
+        try {
+          claim = await persistQueueMutation(threadId, {
+            type: "claim",
+            messageId,
+            claimId,
+          });
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            error.message.includes(`Unknown queued message: ${messageId}`)
+          ) {
+            const latest = await snapshot(threadId);
+            const submitted =
+              latest && submittedQueueMessage(latest, messageId);
+            const runId = asRecord(submitted?.metadata?.custom)?.submittedRunId;
+            if (submitted && typeof runId === "string") {
+              clearPromotionClaimId(threadId, messageId);
+              return { runId, alreadySubmitted: true };
+            }
+            if (
+              latest &&
+              !(latest.queuedMessages ?? []).some(
+                (message) => message.id === messageId,
+              )
+            ) {
+              clearPromotionClaimId(threadId, messageId);
+              return { alreadyRemoved: true as const };
+            }
+          }
+          throw error;
         }
         try {
-          return await startRunTrackingRunningState(
+          if (!claim.claimedMessage) {
+            throw new TypeError("Agent chat queue claim response is invalid.");
+          }
+          if (interruptActiveRun) {
+            const activeRun = await activeRunSnapshot(threadId);
+            if (activeRun) {
+              await transport.cancelRun({
+                threadId,
+                runId: activeRun.id,
+              });
+              await waitForRunSlot(threadId, RUN_SLOT_STABLE_POLLS * 4);
+            }
+          }
+          const thread = await snapshot(threadId);
+          if (!thread)
+            throw new Error(`Unknown agent chat thread: ${threadId}`);
+          const run = await startRunTrackingRunningState(
             {
               threadId,
               messages: [
-                // A send parked while it waited may already sit in the saved
-                // history (a snapshot saved during the wait); send it once.
                 ...thread.messages.filter(
                   (message) => message.id !== queued.id,
                 ),
@@ -1639,22 +2301,29 @@ export function createAgentNativeAgentKitTransport(
                   metadata: queued.metadata,
                 },
               ],
+              options: queued.options,
               metadata: queued.metadata,
+              queuePromotion: {
+                messageId,
+                claimId,
+                turnId: `queue-${messageId}`,
+              },
             },
             undefined,
-            "fail",
           );
+          clearPromotionClaimId(threadId, messageId);
+          return run;
         } catch (error) {
           try {
             await persistQueueMutation(threadId, {
-              type: "restore",
-              message: queued,
-              index: claim.index,
+              type: "release",
+              messageId,
+              claimId,
             });
-          } catch (restoreError) {
+          } catch (releaseError) {
             throw new AggregateError(
-              [error, restoreError],
-              "Queue promotion failed and its durable rollback also failed.",
+              [error, releaseError],
+              "Queue promotion failed and its lease could not be released.",
             );
           }
           throw error;
@@ -1797,13 +2466,40 @@ export function createAgentNativeAgentKitTransport(
       ...options.operations,
     },
   });
-  const startRun = protocolTransport.startRun.bind(protocolTransport);
+  const protocolStartRun = protocolTransport.startRun.bind(protocolTransport);
+  const startRun: typeof protocolTransport.startRun = async (
+    input,
+    context,
+  ) => {
+    try {
+      return await protocolStartRun(input, context);
+    } catch (error) {
+      const record = asRecord(error);
+      const activeRunId = record?.activeRunId;
+      const explicitNonSlotCode =
+        typeof record?.code === "string" &&
+        record.code !== "run_slot_busy" &&
+        record.code !== "http_409";
+      if (
+        record?.status === 409 &&
+        (error instanceof AgentKitRunSlotBusyError ||
+          record.code === "run_slot_busy" ||
+          (typeof activeRunId === "string" && !explicitNonSlotCode))
+      ) {
+        const busy = new AgentKitRunSlotBusyError(
+          typeof activeRunId === "string" ? activeRunId : undefined,
+        );
+        Object.assign(busy, { status: 409 });
+        throw busy;
+      }
+      throw error;
+    }
+  };
   const subscribeToRun =
     protocolTransport.subscribeToRun.bind(protocolTransport);
   transport = {
     ...protocolTransport,
-    startRun: (input, context) =>
-      startRunTrackingRunningState(input, context, "wait"),
+    startRun: (input, context) => startRunTrackingRunningState(input, context),
     async *subscribeToRun(input) {
       dispatchAgentChatRunning({
         isRunning: true,

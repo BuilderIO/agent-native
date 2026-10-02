@@ -1,10 +1,12 @@
 import {
   createAgentChatPlugin,
+  getRequestUserEmail,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { CLIENT_COMPATIBILITY_VERSION } from "../../shared/client-compatibility.js";
 import { resolveSlidesRequestAuthContext } from "../handlers/request-auth-context.js";
 import { prepareSlidesChatAttachments } from "../lib/chat-attachments.js";
 import { CHATGPT_DIRECTORY_PROFILE } from "../lib/chatgpt-directory-tools.js";
@@ -12,6 +14,10 @@ import {
   createDeckChatBeginningSnapshot,
   deckVersionChatContextFromRun,
 } from "../lib/deck-versions.js";
+import {
+  readGeneratedDeckSlideCount,
+  trackGenerationCompletedForRun,
+} from "../lib/generation-completion.js";
 import "../register-secrets.js";
 
 const SLIDES_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -168,6 +174,20 @@ async function autosaveDeckAfterAgentTurn(
   });
 }
 
+async function reportGenerationCompletion(
+  _scope: unknown,
+  run: { runId: string; turnId?: string; threadId?: string; status: string },
+  outcome: { turnContinues: boolean },
+): Promise<void> {
+  const userEmail = getRequestUserEmail();
+  await trackGenerationCompletedForRun(
+    run,
+    outcome,
+    readGeneratedDeckSlideCount,
+    userEmail ? { userId: userEmail } : undefined,
+  );
+}
+
 async function autosaveDeckBeforeAgentTurn(
   scope: { type: string; id: string },
   run: { threadId?: string; runId?: string },
@@ -188,8 +208,10 @@ async function autosaveDeckBeforeAgentTurn(
 
 export default createAgentChatPlugin({
   appId: "slides",
+  clientCompatibilityVersion: CLIENT_COMPATIBILITY_VERSION,
   onAgentTurnStart: autosaveDeckBeforeAgentTurn,
   onAgentTurnComplete: autosaveDeckAfterAgentTurn,
+  onAgentRunComplete: reportGenerationCompletion,
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
   mcp: {

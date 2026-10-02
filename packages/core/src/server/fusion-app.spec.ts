@@ -1,13 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const resolveBuilderRequestAuthorizationMock = vi.hoisted(() => vi.fn());
+const builderApiHost = vi.hoisted(() => ({
+  value: "https://api.example.test",
+}));
 
 vi.mock("./builder-api-auth.js", () => ({
   resolveBuilderRequestAuthorization: resolveBuilderRequestAuthorizationMock,
 }));
 
 vi.mock("./builder-browser.js", () => ({
-  getBuilderApiHost: () => "https://api.example.test",
+  getBuilderApiHost: () => builderApiHost.value,
   getBuilderAppHost: () => "https://builder.example.test",
 }));
 
@@ -21,6 +24,7 @@ import {
 describe("Fusion Builder authorization", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    builderApiHost.value = "https://api.example.test";
     vi.stubGlobal("fetch", vi.fn());
   });
 
@@ -153,6 +157,57 @@ describe("Fusion Builder authorization", () => {
     );
 
     await expect(getBuilderCreditUsage()).rejects.toThrow();
+  });
+
+  it.each([
+    [500, 503],
+    [429, 503],
+    [404, 502],
+  ])(
+    "reports a Builder credit service %i as a typed upstream outage (%i)",
+    async (upstreamStatus, statusCode) => {
+      resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+        token: "<OAUTH_TOKEN_EXAMPLE>",
+        authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+        source: "oauth",
+      });
+      vi.mocked(fetch).mockResolvedValue(
+        new Response("upstream failed", { status: upstreamStatus }),
+      );
+
+      await expect(getBuilderCreditUsage()).rejects.toMatchObject({
+        actionContractError: true,
+        errorCode: "builder_credit_usage_unavailable",
+        statusCode,
+        details: { upstreamStatus },
+      });
+    },
+  );
+
+  it("does not type a misconfigured Builder host as a credit service outage", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "<OAUTH_TOKEN_EXAMPLE>",
+      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      source: "oauth",
+    });
+    builderApiHost.value = "not a url";
+
+    await expect(getBuilderCreditUsage()).rejects.toBeInstanceOf(TypeError);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("reports an unreachable Builder credit service as unavailable", async () => {
+    resolveBuilderRequestAuthorizationMock.mockResolvedValue({
+      token: "<OAUTH_TOKEN_EXAMPLE>",
+      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      source: "oauth",
+    });
+    vi.mocked(fetch).mockRejectedValue(new TypeError("fetch failed"));
+
+    await expect(getBuilderCreditUsage()).rejects.toMatchObject({
+      errorCode: "builder_credit_usage_unavailable",
+      statusCode: 503,
+    });
   });
 
   it("reads the Builder referral link and totals with the AI invoke scope", async () => {

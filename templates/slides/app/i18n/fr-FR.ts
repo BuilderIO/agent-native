@@ -59,6 +59,7 @@ const messages = {
     commentsAndRepliesDescription:
       "Quand quelqu’un commente votre deck ou y répond.",
     retry: "Réessayer",
+    reload: "Recharger",
     mcpAbout:
       "Connectez Slides à Claude, ChatGPT, Cursor ou toute application d’IA compatible avec MCP. Cette application peut alors travailler dans Slides pour vous : créer des decks, ajouter des diapositives et exporter vers PowerPoint. Elle ne voit que ce que vous pouvez voir.",
     workspaceTitle: "Espace de travail",

@@ -58,6 +58,7 @@ const messages = {
     commentsAndRepliesDescription:
       "누군가 내 덱에 댓글을 달거나 답글을 남길 때.",
     retry: "다시 시도",
+    reload: "새로고침",
     mcpAbout:
       "Slides를 Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 Slides에서 덱을 만들고, 슬라이드를 추가하고, PowerPoint로 내보낼 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
     workspaceTitle: "워크스페이스",

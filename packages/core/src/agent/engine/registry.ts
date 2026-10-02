@@ -37,6 +37,10 @@ import {
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
 import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../chatgpt-subscription-contract.js";
 import { readDefaultAgentEngineSetting } from "../default-agent-engine.js";
+import {
+  BUILDER_CLAUDE_SONNET_MODEL_ID,
+  CLAUDE_SONNET_MODEL_ID,
+} from "../model-config.js";
 import { createProviderEndpointFetch } from "./ai-sdk-engine.js";
 import {
   OLLAMA_DEFAULT_BASE_URL,
@@ -285,12 +289,7 @@ export function normalizeModelForEngine(
   const candidate = typeof model === "string" ? model.trim() : "";
   if (!candidate) return engine.defaultModel;
 
-  if (
-    engine.preserveCustomModels ||
-    engine.acceptsCustomModels ||
-    options.preserveCustomModels ||
-    options.acceptsCustomModels
-  ) {
+  if (engine.preserveCustomModels || options.preserveCustomModels) {
     return candidate;
   }
 
@@ -300,10 +299,20 @@ export function normalizeModelForEngine(
     return candidate;
   }
 
-  return (
-    findLatestSupportedVersionMatch(candidate, engine.supportedModels) ??
-    engine.defaultModel
+  if (engine.acceptsCustomModels || options.acceptsCustomModels) {
+    return candidate === BUILDER_CLAUDE_SONNET_MODEL_ID &&
+      engine.supportedModels.includes(CLAUDE_SONNET_MODEL_ID)
+      ? CLAUDE_SONNET_MODEL_ID
+      : candidate;
+  }
+
+  const versionMatch = findLatestSupportedVersionMatch(
+    candidate,
+    engine.supportedModels,
   );
+  if (versionMatch) return versionMatch;
+
+  return engine.defaultModel;
 }
 
 type ModelResolvableEngine = Pick<

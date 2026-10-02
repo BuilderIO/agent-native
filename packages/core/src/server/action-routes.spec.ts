@@ -134,7 +134,7 @@ describe("mountActionRoutes", () => {
 
   it("rejects cached frontend clients before an action can read or write", async () => {
     process.env.AGENT_NATIVE_BUILD_ID = "server-build";
-    process.env.AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION = "spaces-v1";
+    process.env.AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION = "fallback-v1";
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
     const run = vi.fn(async () => ({ ok: true }));
@@ -144,7 +144,13 @@ describe("mountActionRoutes", () => {
       ),
     };
 
-    mountActionRoutes(nitroApp, { test: { run } as any });
+    mountActionRoutes(
+      nitroApp,
+      { test: { run } as any },
+      {
+        clientCompatibilityVersion: "slides-write-v1",
+      },
+    );
     const event = {
       _method: "POST",
       _headers: {
@@ -157,7 +163,7 @@ describe("mountActionRoutes", () => {
     await expect(mounted[0]!.handler(event)).resolves.toMatchObject({
       code: "client_build_mismatch",
       serverBuildId: "server-build",
-      requiredCompatibility: "spaces-v1",
+      requiredCompatibility: "slides-write-v1",
     });
     expect(event).toMatchObject({
       _status: 409,
@@ -831,7 +837,7 @@ describe("mountActionRoutes", () => {
     });
   });
 
-  it("keeps a bare thrown Error as a generic 500", async () => {
+  it("keeps SQL errors generic and redacts bound values from action logs", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
     const nitroApp = {
@@ -839,11 +845,19 @@ describe("mountActionRoutes", () => {
         mounted.push({ path, handler }),
       ),
     };
+    const privateValue = "example transcript content";
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
     const actions = {
       getMeeting: {
         run: vi
           .fn()
-          .mockRejectedValue(new Error('relation "meetings" does not exist')),
+          .mockRejectedValue(
+            new Error(
+              `Failed query: insert into dictations (text) values ($1)\nparams: ${privateValue}`,
+            ),
+          ),
         http: { method: "POST" as const },
       },
     };
@@ -855,6 +869,11 @@ describe("mountActionRoutes", () => {
 
     expect(event._status).toBe(500);
     expect(result).toEqual({ error: "Internal server error" });
+    expect(JSON.stringify(consoleError.mock.calls)).not.toContain(privateValue);
+    expect(JSON.stringify(consoleError.mock.calls)).toContain(
+      "params: <redacted>",
+    );
+    expect(consoleError.mock.calls[0]?.[1]?.error).toMatch(/\n\s+at /);
   });
 
   it("echoes a missing-credential message instead of a generic 500", async () => {

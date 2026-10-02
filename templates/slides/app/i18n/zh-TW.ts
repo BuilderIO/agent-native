@@ -56,6 +56,7 @@ const messages = {
     commentsAndReplies: "留言和回覆",
     commentsAndRepliesDescription: "有人在你的簡報中留言或回覆時。",
     retry: "重試",
+    reload: "重新載入",
     mcpAbout:
       "將 Slides 連接到 Claude、ChatGPT、Cursor 或任何支援 MCP 的 AI 應用程式。之後該應用程式就能代你在 Slides 中工作：建立簡報、新增投影片並匯出為 PowerPoint。它只能看到你有權看到的內容。",
     workspaceTitle: "工作區",

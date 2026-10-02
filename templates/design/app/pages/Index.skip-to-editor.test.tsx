@@ -41,6 +41,8 @@ const mocks = vi.hoisted(() => ({
   refetch: vi.fn(),
   focusComposer: vi.fn(),
   submitWithText: vi.fn(),
+  submitDraft: vi.fn(async () => true),
+  getDraftSnapshot: vi.fn(),
   agentEngine: { state: "configured", missing: false },
   fetchAgentEngineConfiguredState: vi.fn(
     async () => "missing" as AgentEngineConfiguredState,
@@ -179,6 +181,7 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
       }
       return {
         data: {
+          status: "ready",
           suggestions: [
             {
               id: "design-suggestion",
@@ -285,6 +288,8 @@ vi.mock("@/components/editor/PromptDialog", () => ({
       props.composerRef.current = {
         focus: mocks.focusComposer,
         submitWithText: mocks.submitWithText,
+        submit: mocks.submitDraft,
+        getDraftSnapshot: mocks.getDraftSnapshot,
       };
     return null;
   },
@@ -688,6 +693,53 @@ describe("Index skip to editor", () => {
 
     expect(await preflight).toBe(true);
     expect(container.textContent).not.toContain("Connect AI");
+  });
+
+  describe("a send held back for missing AI setup", () => {
+    const submittedDraft = {
+      text: "A landing page for a bakery",
+      referenceKeys: [],
+      attachmentIds: ["file-1"],
+    };
+
+    async function holdBackThenConnect(liveDraft: typeof submittedDraft) {
+      mocks.agentEngine = { state: "missing", missing: true };
+      mocks.fetchAgentEngineConfiguredState.mockResolvedValue("missing");
+      mocks.submitDraft.mockClear();
+      mocks.getDraftSnapshot.mockReturnValue(liveDraft);
+      await act(async () => root.render(<Index />));
+      let canSubmit: unknown;
+      await act(async () => {
+        canSubmit = await mocks.promptProps?.onBeforeSubmit?.(submittedDraft);
+      });
+      expect(canSubmit).toBe(false);
+      expect(mocks.submitDraft).not.toHaveBeenCalled();
+
+      mocks.agentEngine = { state: "configured", missing: false };
+      await act(async () => root.render(<Index />));
+      await act(async () => root.render(<Index />));
+    }
+
+    it("is sent once after AI setup becomes ready", async () => {
+      await holdBackThenConnect({ ...submittedDraft });
+
+      expect(mocks.submitDraft).toHaveBeenCalledOnce();
+    });
+
+    it("is left in the composer when its text was edited while connecting", async () => {
+      await holdBackThenConnect({
+        ...submittedDraft,
+        text: "A landing page for a bakery, now with a pricing table",
+      });
+
+      expect(mocks.submitDraft).not.toHaveBeenCalled();
+    });
+
+    it("is left in the composer when its attachments changed while connecting", async () => {
+      await holdBackThenConnect({ ...submittedDraft, attachmentIds: [] });
+
+      expect(mocks.submitDraft).not.toHaveBeenCalled();
+    });
   });
 
   it("hides home suggestions while provider setup is pending", async () => {

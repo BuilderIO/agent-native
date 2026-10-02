@@ -60,13 +60,13 @@ const GROQ_MODEL = "whisper-large-v3-turbo";
 const GROQ_CLEANUP_MODEL = "llama-3.3-70b-versatile";
 const OPENAI_MODEL = "gpt-transcribe";
 const OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions";
-const OPENAI_CLEANUP_MODEL = "gpt-5.6-luna";
+const OPENAI_CLEANUP_MODEL = "gpt-6-luna";
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const MAX_TRANSCRIPT_CHARS = 150_000;
 const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
-const BUILDER_CLEANUP_MODEL = "gpt-5-6-luna";
+const BUILDER_CLEANUP_MODEL = "gpt-6-luna";
 
-const GEMINI_MODEL = "gemini-2.0-flash-lite";
+const GEMINI_MODEL = "gemini-3.1-flash-lite";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 /**

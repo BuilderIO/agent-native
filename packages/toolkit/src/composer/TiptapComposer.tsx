@@ -98,6 +98,77 @@ import { useSkills } from "./use-skills.js";
 import { RealtimeVoiceModeBoundary } from "./useRealtimeVoiceMode.js";
 import { useVoiceDictation } from "./useVoiceDictation.js";
 import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
+/**
+ * What a send would take from the composer at one moment, so a host that held
+ * a send back can tell the draft it held from one the person kept editing.
+ */
+export interface ComposerDraftSnapshot {
+  text: string;
+  /** Each reference exactly as it would be submitted, stably serialized. */
+  referenceKeys: string[];
+  attachmentIds: string[];
+}
+
+/** The same value always serializes the same, whatever order its keys were set in. */
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+const attachmentFileInstances = new WeakMap<object, number>();
+let nextAttachmentFileInstance = 0;
+
+/**
+ * Names and ids can repeat: a replacement file may carry the same name, and
+ * the image adapter has used the name as the id. The attachment's own File
+ * object is what tells one file from another, so it is part of the identity.
+ */
+function composerAttachmentIdentity(attachment: {
+  id?: string;
+  name?: string;
+  file?: unknown;
+}): string {
+  const label = attachment.id ?? attachment.name ?? "";
+  const file = attachment.file;
+  if (!file || typeof file !== "object") return label;
+  let instance = attachmentFileInstances.get(file);
+  if (instance === undefined) {
+    instance = ++nextAttachmentFileInstance;
+    attachmentFileInstances.set(file, instance);
+  }
+  return `${label}#${instance}`;
+}
+
+export function composerDraftSnapshot(
+  text: string,
+  references: readonly Reference[],
+  attachments: readonly { id?: string; name?: string; file?: unknown }[],
+): ComposerDraftSnapshot {
+  return {
+    text,
+    referenceKeys: references.map((ref) => stableJson(ref)),
+    attachmentIds: attachments.map(composerAttachmentIdentity),
+  };
+}
+
+export function sameComposerDraft(
+  a: ComposerDraftSnapshot,
+  b: ComposerDraftSnapshot,
+): boolean {
+  return (
+    a.text === b.text &&
+    JSON.stringify(a.referenceKeys) === JSON.stringify(b.referenceKeys) &&
+    JSON.stringify(a.attachmentIds) === JSON.stringify(b.attachmentIds)
+  );
+}
+
 export interface TiptapComposerHandle {
   focus(): void;
   /** Add a file through the same attachment pipeline as paste and drop. */
@@ -112,6 +183,10 @@ export interface TiptapComposerHandle {
   setText(text: string): void;
   /** Submit replacement text with the current attachments and context, without editing the draft on failure. */
   submitWithText(text: string): Promise<boolean>;
+  /** Submit the current draft as if the person pressed send. */
+  submit?(): Promise<boolean>;
+  /** The draft as a send would take it right now. */
+  getDraftSnapshot?(): ComposerDraftSnapshot;
   insertReference(ref: AgentComposerReference): void;
   replaceReference(refType: string, ref: AgentComposerReference | null): void;
   getSelection(): ComposerTextSelection | null;
@@ -135,6 +210,7 @@ export const DEFAULT_VOICE_DICTATION_ENABLED = false;
 
 export interface TiptapComposerSubmitOptions {
   intent?: ComposerSubmitIntent;
+  steer?: boolean;
   contextItems?: ComposerContextSnapshot;
   /** Clear the submitted draft once the host owns the message and its failure recovery. */
   onLocalSubmit?: () => void;
@@ -428,7 +504,7 @@ export function getComposerSubmitIntentForEnterKey(
   if (event.key !== "Enter" || event.shiftKey) return null;
 
   const queuedModifierPressed = isMac ? event.metaKey : event.ctrlKey;
-  if (queuedModifierPressed) return "queued";
+  if (queuedModifierPressed) return "immediate";
 
   if (!event.metaKey && !event.ctrlKey) return "immediate";
 
@@ -916,8 +992,11 @@ export interface TiptapComposerProps {
     attachments?: ReadonlyArray<unknown>,
     options?: TiptapComposerSubmitOptions,
   ) => void | Promise<void>;
+  onEmptySubmit?: () => void | Promise<void>;
   /** Return false to stop a submit before it enters the chat runtime. */
-  onBeforeSubmit?: () => boolean | Promise<boolean>;
+  onBeforeSubmit?: (
+    draft?: ComposerDraftSnapshot,
+  ) => boolean | Promise<boolean>;
   onSubmissionPendingChange?: (pending: boolean) => void;
   /** Scope where a failed submission should be recovered after the host forks. */
   getSubmitFailureDraftScope?: () => string | null;
@@ -1252,6 +1331,7 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "openai/gpt-6-sol": "GPT-6 Sol",
   "openai/gpt-6-luna": "GPT-6 Luna",
   "anthropic/claude-opus-5.5": "Claude Opus 5.5",
+  "anthropic/claude-sonnet-5.5": "Claude Sonnet 5.5",
   "anthropic/claude-fable-5.1": "Claude Fable 5.1",
   "google/gemini-3.8-flash": "Gemini 3.8 Flash",
   "qwen/qwen3.8-max-0902": "Qwen 3.8 Max",
@@ -1259,7 +1339,12 @@ const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   "inception/mercury-2.5": "Mercury 2.5",
   "claude-opus-5-5": "Claude Opus 5.5",
   "claude-opus-4-8": "Claude Opus 4.8",
+  "claude-sonnet-5-5": "Claude Sonnet 5.5",
   "claude-sonnet-5": "Claude Sonnet 5",
+  "gpt-5-4": "GPT-5.4",
+  "gpt-5-5": "GPT-5.5",
+  "gpt-5-4-mini": "GPT-5.4 Mini",
+  "gpt-5-1-codex-mini": "GPT-5.1 Codex Mini",
   "claude-haiku-4-5": "Claude Haiku 4.5",
   "gemini-3-5-flash-lite": "Gemini 3.5 Flash-Lite",
   "gemini-3-1-flash-lite": "Gemini 3.1 Flash-Lite",
@@ -2574,6 +2659,7 @@ export function TiptapComposer({
   initialText,
   initialTextKey,
   onSubmit,
+  onEmptySubmit,
   onBeforeSubmit,
   onSubmissionPendingChange,
   getSubmitFailureDraftScope,
@@ -3253,7 +3339,7 @@ export function TiptapComposer({
 
         // Submit on Enter. Shift+Enter inserts a newline and keeps the
         // composer scrolled to the caret.
-        // Cmd+Enter on macOS / Ctrl+Enter elsewhere marks the submit queued.
+        // Cmd+Enter on macOS / Ctrl+Enter elsewhere steers the active run.
         if (event.key === "Enter" && event.shiftKey) {
           event.preventDefault();
           return insertComposerHardBreakAndScrollIntoView(view);
@@ -3262,7 +3348,11 @@ export function TiptapComposer({
         const submitIntent = getComposerSubmitIntentForEnterKey(event, isMac);
         if (submitIntent) {
           event.preventDefault();
-          void submitComposer(submitIntent);
+          void submitComposer(
+            submitIntent,
+            undefined,
+            isMac ? event.metaKey : event.ctrlKey,
+          );
           return true;
         }
 
@@ -3551,6 +3641,15 @@ export function TiptapComposer({
       flushComposerDraft();
     },
     submitWithText: (text: string) => submitComposer("immediate", text),
+    submit: () => submitComposer("immediate"),
+    getDraftSnapshot: () => {
+      const { text, references } = extractComposerPayload();
+      return composerDraftSnapshot(
+        text,
+        references,
+        composerRuntime.getState().attachments,
+      );
+    },
     insertReference,
     replaceReference(refType, ref) {
       if (!isComposerEditorUsable(editor)) return;
@@ -4059,7 +4158,9 @@ export function TiptapComposer({
     async (
       intent: ComposerSubmitIntent = "immediate",
       textOverride?: string,
+      steer = false,
     ): Promise<boolean> => {
+      const submitIntent = steer ? "immediate" : willQueue ? "queued" : intent;
       const ed = editor;
       if (!isComposerEditorUsable(ed)) return false;
       if (submitInFlightRef.current || attachmentCleanupPendingRef.current > 0)
@@ -4115,8 +4216,23 @@ export function TiptapComposer({
       let submittedSlotReferences = slotReferencesRef.current;
       let submittedEditorDocument = ed.state.doc;
       let submittedDraftHtml = ed.getHTML();
-      if (!text.trim() && references.length === 0 && attachments.length === 0)
-        return false;
+      if (!text.trim() && references.length === 0 && attachments.length === 0) {
+        if (!onEmptySubmit) return false;
+        try {
+          await onEmptySubmit();
+          return true;
+        } catch (error) {
+          setContextSubmissionError(
+            formatAttachmentError(
+              error,
+              t("agentChat.composer.submitFailed", {
+                defaultValue: "Could not submit. Try again.",
+              }),
+            ),
+          );
+          return false;
+        }
+      }
       const oversizedDocumentError = getOversizedDocumentAttachmentError(
         attachments,
         {
@@ -4339,7 +4455,9 @@ export function TiptapComposer({
         submitInFlightRef.current = true;
         onSubmissionPendingChange?.(true);
         try {
-          const shouldSubmit = await onBeforeSubmit();
+          const shouldSubmit = await onBeforeSubmit(
+            composerDraftSnapshot(text, references, attachments),
+          );
           if (!shouldSubmit) {
             restoreSubmittedDraft(true);
             return false;
@@ -4573,7 +4691,8 @@ export function TiptapComposer({
             references,
             submittedAttachments,
             {
-              intent,
+              intent: submitIntent,
+              ...(steer ? { steer: true } : {}),
               onLocalSubmit,
               ...(composerModeContext === undefined
                 ? {}
@@ -4696,6 +4815,7 @@ export function TiptapComposer({
       clearOnSubmitImmediately,
       getSubmitFailureDraftScope,
       onBeforeSubmit,
+      onEmptySubmit,
       onSubmissionPendingChange,
       extractComposerPayload,
       syncComposerState,
@@ -4705,6 +4825,7 @@ export function TiptapComposer({
       voice,
       allSlashCommands,
       announceSlashCommand,
+      willQueue,
       t,
     ],
   );
@@ -5402,7 +5523,13 @@ export function TiptapComposer({
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={() => void submitComposer("immediate")}
+                    onClick={(event) =>
+                      void submitComposer(
+                        "immediate",
+                        undefined,
+                        event.metaKey || event.ctrlKey,
+                      )
+                    }
                     disabled={!canSend || sendButtonDisabled}
                     aria-label={sendButtonTooltip}
                     data-agent-composer-slot="send-button"

@@ -8,6 +8,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useVisibleAvatarUrl } from "@/lib/use-visible-avatar-url";
 import { cn } from "@/lib/utils";
 
@@ -78,9 +79,17 @@ export function ViewedByPopover({
         </div>
         <div className="max-h-80 overflow-y-auto p-1.5">
           {q.isLoading ? (
-            <p className="px-2 py-3 text-sm text-muted-foreground">
-              {t("recordingInsights.loading")}
-            </p>
+            <ul aria-busy="true" className="space-y-0.5">
+              {Array.from({ length: 4 }, (_, index) => (
+                <li key={index} className="flex items-center gap-2 px-2 py-1.5">
+                  <Skeleton className="size-6 shrink-0 rounded-full" />
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <Skeleton className="h-3 w-28" />
+                    <Skeleton className="h-3 w-16" />
+                  </div>
+                </li>
+              ))}
+            </ul>
           ) : views.length === 0 ? (
             <p className="px-2 py-3 text-sm text-muted-foreground">
               {t("recordingInsights.noViewsYet")}

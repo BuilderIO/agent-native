@@ -153,6 +153,9 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
 }));
 
+const track = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/tracking", () => ({ track }));
+
 vi.mock("drizzle-orm", () => ({
   and: mocks.and,
   eq: mocks.eq,
@@ -458,6 +461,18 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     expect(mocks.seededCollabText.get("file-1")).toContain(
       "data-agent-native-node-id",
     );
+    expect(track).toHaveBeenCalledWith(
+      "generation_completed",
+      expect.objectContaining({
+        app_name: "design",
+        output_id: "design-1",
+        output_type: "design",
+        file_count: 1,
+        outcome: "completed",
+        source: "generate_design_action",
+      }),
+      undefined,
+    );
   });
 
   it("reports (never throws) the conflict when the live content changed since it was read (concurrent write)", async () => {
@@ -501,6 +516,9 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
 
     expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
     expect(result.savedFiles).toEqual([]);
+    expect(
+      track.mock.calls.some(([name]) => name === "generation_completed"),
+    ).toBe(false);
     expect(result.fileErrors).toEqual([
       {
         filename: "index.html",

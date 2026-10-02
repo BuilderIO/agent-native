@@ -495,7 +495,7 @@ jobs:
           set -uo pipefail
           CLAUDE_ALLOWED_TOOLS="Read,Write,Bash(git diff:*)"
           CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --allowedTools "$CLAUDE_ALLOWED_TOOLS" --permission-mode dontAsk --output-format json)
-          CLAUDE_ARGS+=(--model "${VISUAL_RECAP_MODEL:-claude-sonnet-5}")
+          CLAUDE_ARGS+=(--model "${VISUAL_RECAP_MODEL:-claude-sonnet-5-5}")
           rm -f recap-source.json recap-url.txt recap-url-reason.txt claude-result.json claude-stderr.log
           run_claude() {
             set +e
@@ -663,7 +663,7 @@ jobs:
           set -uo pipefail
           CLAUDE_ALLOWED_TOOLS="Read,Write"
           CLAUDE_ARGS=(-p "$(cat recap-repair-prompt.md)" --allowedTools "$CLAUDE_ALLOWED_TOOLS" --permission-mode dontAsk --output-format json)
-          CLAUDE_ARGS+=(--model "${VISUAL_RECAP_MODEL:-claude-sonnet-5}")
+          CLAUDE_ARGS+=(--model "${VISUAL_RECAP_MODEL:-claude-sonnet-5-5}")
           rm -f claude-repair-result.json claude-repair-stderr.log
           set +e
           npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-repair-result.json 2> claude-repair-stderr.log

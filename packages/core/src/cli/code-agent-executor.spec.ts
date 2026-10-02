@@ -399,6 +399,7 @@ describe("executeCodeAgentRun", () => {
 
       expect(getCodeAgentRunRecord(run.id)?.status).toBe("completed");
       const args = JSON.parse(fs.readFileSync(argsPath, "utf8")) as string[];
+      expect(args[args.indexOf("--model") + 1]).toBe("claude-sonnet-5-5");
       const configPath = args[args.indexOf("--mcp-config") + 1];
       expect(path.isAbsolute(configPath)).toBe(true);
       expect(args).toContain("--strict-mcp-config");
