@@ -1,5 +1,32 @@
 # @agent-native/dispatch
 
+## 0.40.11
+
+### Patch Changes
+
+- b5a3453: Bundle Dispatch view-screen's built-in action dispatch with static action imports so production builds can resolve Dreams and connected-agent actions.
+- Release all public npm packages with a patch version bump.
+- ab62f9c: Fix packaged Dispatch catch-all routes crashing during server-side rendering.
+- 9d8b0b6: Replace workspace catch-all loading UI with a layout-matched skeleton.
+- Updated dependencies [4aa4088]
+- Updated dependencies [bf2b2ae]
+- Updated dependencies [73c2373]
+- Updated dependencies [563e22a]
+- Updated dependencies [73c2373]
+- Updated dependencies [53f0c01]
+- Updated dependencies [0c17540]
+- Updated dependencies
+- Updated dependencies [5113a23]
+- Updated dependencies [9a09590]
+- Updated dependencies [73c2373]
+- Updated dependencies [73c2373]
+- Updated dependencies [73c2373]
+- Updated dependencies [73c2373]
+- Updated dependencies [4bee69d]
+- Updated dependencies [7ec9079]
+- Updated dependencies [73c2373]
+  - @agent-native/toolkit@0.200.0
+
 ## 0.40.10
 
 ### Patch Changes
@@ -1081,11 +1108,5 @@
 ### Patch Changes
 
 - 1b7d8c2: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
-
-## 0.27.4
-
-### Patch Changes
-
-- fa0f828: Resolve hosted workspace app sign-in from the authenticated live registry so custom mounted apps can receive Dispatch embed sessions without a copied app list. Keep the registry action scoped to its verified A2A caller and refresh the desktop canary identity state before automatic sign-in.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).
