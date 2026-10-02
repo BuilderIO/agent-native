@@ -507,6 +507,38 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     }
   });
 
+  it("adopts a new value that arrives after its timestamp did", async () => {
+    // A parent can render the new timestamp next to the old value first; that
+    // render must not mark the new revision applied.
+    vi.useFakeTimers();
+    const baseline = "original body\n\nSecond paragraph.";
+    const harness = makePeerReconcileHarness(baseline);
+    try {
+      act(() => root.render(React.createElement(harness.Harness)));
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      const updatedAt = "2024-01-01T00:00:02.000Z";
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, { revision: null, updatedAt }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(30));
+      act(() =>
+        root.render(
+          React.createElement(harness.Harness, {
+            revision: null,
+            updatedAt,
+            value: `Accepted ${baseline}`,
+          }),
+        ),
+      );
+      await act(async () => vi.advanceTimersByTimeAsync(30000));
+      expect(harness.markdown()).toBe(`Accepted ${baseline}`);
+    } finally {
+      harness.dispose();
+    }
+  });
+
   it("still adopts the snapshot, with a warning, when the catch-up sync fails", async () => {
     vi.useFakeTimers();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

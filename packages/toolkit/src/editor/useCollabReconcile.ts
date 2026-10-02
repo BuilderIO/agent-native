@@ -789,8 +789,19 @@ export function useCollabReconcile({
         contentRevision !== authoritativeBaseRef.current.revision &&
         !!contentUpdatedAt &&
         contentUpdatedAt === lastAppliedUpdatedAtRef.current;
+      // A parent that derives `value` and `contentUpdatedAt` separately can
+      // render the new timestamp next to the old value first. That render
+      // marks the timestamp applied, so the new value that follows it would
+      // never be adopted.
+      const valueChangedAtSameTimestamp =
+        !contentRevision &&
+        !!contentUpdatedAt &&
+        contentUpdatedAt === lastAppliedUpdatedAtRef.current &&
+        lastAppliedValueRef.current !== null &&
+        value !== lastAppliedValueRef.current;
       const externalNewer =
         revisionChangedAtSameTimestamp ||
+        valueChangedAtSameTimestamp ||
         !lastAppliedUpdatedAtRef.current ||
         !contentUpdatedAt ||
         contentUpdatedAt > lastAppliedUpdatedAtRef.current;

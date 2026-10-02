@@ -74,6 +74,7 @@ export interface SharedRichEditorProps {
   initialAppliedUpdatedAt?: string | null;
   requestInitialSeed?: UseCollabReconcileOptions["requestInitialSeed"];
   requestCollabSync?: UseCollabReconcileOptions["requestCollabSync"];
+  onRemoteSnapshotChange?: UseCollabReconcileOptions["onRemoteSnapshotChange"];
   onInitialSeedError?: UseCollabReconcileOptions["onInitialSeedError"];
   wrapperClassName?: string;
   onEditorReady?: (editor: import("@tiptap/react").Editor) => void;
@@ -113,6 +114,7 @@ export function SharedRichEditor({
   initialAppliedUpdatedAt,
   requestInitialSeed,
   requestCollabSync,
+  onRemoteSnapshotChange,
   onInitialSeedError,
   wrapperClassName,
   onEditorReady,
@@ -198,7 +200,11 @@ export function SharedRichEditor({
       },
       onUpdate: ({ editor, transaction }) => {
         const guards = guardsRef.current;
-        if (!guards || guards.shouldIgnoreUpdate(transaction)) return;
+        if (!guards) return;
+        if (guards.shouldIgnoreUpdate(transaction)) {
+          guards.reportRemoteUpdate(transaction);
+          return;
+        }
         try {
           const markdown = readMarkdown(editor);
           if (!guards.registerEmitted(markdown)) return;
@@ -236,6 +242,7 @@ export function SharedRichEditor({
     requestInitialSeed,
     quietSeedEditability: Boolean(requestInitialSeed),
     requestCollabSync,
+    onRemoteSnapshotChange,
     onInitialSeedError,
   });
   guardsRef.current = collabState;
