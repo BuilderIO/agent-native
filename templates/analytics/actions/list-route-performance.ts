@@ -14,7 +14,7 @@ import { sessionEventBoundSchema } from "../shared/session-events.js";
 
 export default defineAction({
   description:
-    "List page routes (React Router templates such as /sessions/:id) with p50 and p95 of TTFB, LCP, INP, CLS, and action request duration, plus the count of requests of 1 s or more, from Analytics' own daily histograms. Percentiles are interpolated inside fixed buckets (within about 28% of the exact value; under 1 ms, or CLS 0.001, within that much); request counts are scaled by their sampling. A metric with no samples is null, which means no data, not fast. Returns the busiest routes first, coverageStartedAt (null when nothing is measured yet), and incompleteDates whose aggregates missed some events. Ranges cover whole UTC days, at most 90. Requires the Sessions triage Lab.",
+    "List page routes (React Router templates such as /sessions/:id) with p50 and p95 of TTFB, LCP, INP, CLS, and action request duration, plus the count of requests of 1 s or more, from Analytics' own daily histograms. Percentiles are interpolated inside fixed buckets (within about 28% of the exact value; under 1 ms, or CLS 0.001, within that much); request counts are scaled by their sampling. A metric with no samples is null, which means no data, not fast. Returns the most-measured routes first (vitals reported plus requests timed), apps (every app with measured routes in the range, whatever the app filter), coverageStartedAt (null when nothing is measured yet), and incompleteDates whose aggregates missed some events. Ranges cover whole UTC days, at most 90. Requires the Sessions triage Lab.",
   schema: z.object({
     from: sessionEventBoundSchema
       .optional()
@@ -33,7 +33,7 @@ export default defineAction({
       .min(1)
       .max(ROUTE_PERFORMANCE_MAX_LIMIT)
       .optional()
-      .describe("Most routes to return, busiest first; defaults to 50"),
+      .describe("Most routes to return, most-measured first; defaults to 50"),
   }),
   http: { method: "GET" },
   readOnly: true,

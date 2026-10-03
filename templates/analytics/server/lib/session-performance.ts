@@ -575,9 +575,12 @@ export async function slowSessionConditions(
 }
 
 /**
- * The latest coverage start among the viewer's tenants. Each of their
- * recordings is matched against its own tenant's aggregates, so only the
- * latest holds for all of them.
+ * The latest coverage start among the viewer's tenants that have one. Each
+ * recording is matched against its own tenant's aggregates, so only the latest
+ * holds for all of them. A tenant without coverage has reported no vitals or
+ * timed request since the tables were created, so its recordings either
+ * started before this date or came from a client that measures no speed, and
+ * their rows read not measured.
  */
 export async function getPerformanceCoverageStart(
   scope: SessionEventScope,
@@ -785,6 +788,7 @@ export async function listRoutePerformance(
     from: fromDate,
     to: toDate,
     routes: [],
+    apps: [],
     coverageStartedAt: null,
     incompleteDates: [],
     truncated: false,
@@ -796,26 +800,41 @@ export async function listRoutePerformance(
 
   const t = schema.analyticsRoutePerformanceDaily;
   const tenantKeys = viewerTenantKeys(scope);
-  const inRange = [
+  const inDays = [
     inArray(t.tenantKey, tenantKeys),
     gte(t.eventDate, fromDate),
     lte(t.eventDate, toDate),
     eq(t.histogramVersion, PERFORMANCE_HISTOGRAM_VERSION),
+  ];
+  const inRange = [
+    ...inDays,
     ...(filters.app !== undefined ? [eq(t.app, filters.app)] : []),
   ];
-  // Routes ranked by how much was measured on them, so the busiest pages
-  // come first and the response stays bounded.
-  const ranked = await db
-    .select({
-      app: t.app,
-      route: t.route,
-      total: sql<number>`sum(${t.weight})`,
-    })
-    .from(t)
-    .where(and(...inRange))
-    .groupBy(t.app, t.route)
-    .orderBy(desc(sql`sum(${t.weight})`), t.app, t.route)
-    .limit(limit + 1);
+  const [ranked, appRows] = await Promise.all([
+    // Routes ranked by how much was measured on them (vitals reported plus
+    // requests timed), so the response stays bounded.
+    db
+      .select({
+        app: t.app,
+        route: t.route,
+        total: sql<number>`sum(${t.weight})`,
+      })
+      .from(t)
+      .where(and(...inRange))
+      .groupBy(t.app, t.route)
+      .orderBy(desc(sql`sum(${t.weight})`), t.app, t.route)
+      .limit(limit + 1),
+    // Every app in range, not only those of the listed routes, so an app
+    // whose routes rank below the limit can still be chosen.
+    db
+      .selectDistinct({ app: t.app })
+      .from(t)
+      .where(and(...inDays))
+      .orderBy(t.app),
+  ]);
+  const apps = appRows
+    .map((row: { app: string }) => row.app)
+    .filter((app: string) => app !== "");
   const truncated = ranked.length > limit;
   const listed = ranked.slice(0, limit) as Array<{
     app: string;
@@ -842,7 +861,7 @@ export async function listRoutePerformance(
     (row: { eventDate: string }) => row.eventDate,
   );
   if (!listed.length) {
-    return { ...empty, coverageStartedAt, incompleteDates };
+    return { ...empty, apps, coverageStartedAt, incompleteDates };
   }
 
   const bucketRows = await db
@@ -900,6 +919,7 @@ export async function listRoutePerformance(
     from: fromDate,
     to: toDate,
     routes,
+    apps,
     coverageStartedAt,
     incompleteDates,
     truncated,
