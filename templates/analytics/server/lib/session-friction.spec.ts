@@ -1416,7 +1416,14 @@ describe("session friction on Postgres", () => {
       replay: { http_5xx: 1 },
       events: null,
       troubles: [],
+      errorIssues: [],
     });
+    // A chunk friction has not read could hold an exception, and the viewer
+    // can't tell "no issues" from issues in a scope they can't read.
+    const erroring = await getSessionFrictionDetails(SCOPE, [
+      { ...recording, chunkCount: 2, errorCount: 1 },
+    ]);
+    expect(erroring.get("r-shared")?.errorIssues).toBeNull();
     expect(await matching(["failed_actions"])).toEqual([]);
     expect(await matching(["http_5xx"])).toEqual(["r-shared"]);
   });
