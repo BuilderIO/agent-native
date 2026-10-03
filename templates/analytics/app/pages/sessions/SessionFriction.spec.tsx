@@ -3,11 +3,18 @@ import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useT:
+    () =>
+    (key: string, params?: Record<string, string>): string =>
+      params ? `${key}(${Object.values(params).join("|")})` : key,
 }));
 
 import type { SessionFriction } from "../../../shared/session-friction";
-import { SessionFrictionStrip } from "./SessionFriction";
+import {
+  SessionFrictionBreakdown,
+  SessionFrictionPanel,
+  SessionFrictionStrip,
+} from "./SessionFriction";
 
 const measuredEvents = {
   agent_failures: 0,
@@ -54,5 +61,101 @@ describe("SessionFrictionStrip", () => {
         "thumbs_down",
       ),
     ).toBe("");
+  });
+});
+
+describe("SessionFrictionBreakdown", () => {
+  const measured: SessionFriction = {
+    score: 9,
+    replay: {
+      error_then_leave: 0,
+      http_5xx: 2,
+      retry_loops: 0,
+      error_toasts: 0,
+      dead_clicks: 1,
+      slow_requests: 0,
+      http_4xx: 3,
+    },
+    events: { ...measuredEvents, agent_failures: 4 },
+    topSignals: [],
+    troubles: [
+      {
+        kind: "agent",
+        label: "no_model_connected",
+        status: null,
+        cause: "no_model_connected",
+        count: 4,
+      },
+    ],
+    errorIssues: null,
+  };
+
+  function breakdown(friction: SessionFriction) {
+    return renderToStaticMarkup(
+      <MemoryRouter>
+        <SessionFrictionBreakdown friction={friction} />
+      </MemoryRouter>,
+    );
+  }
+
+  it("counts every signal, 4xx apart from 5xx, and names agent trouble by cause", () => {
+    const html = breakdown(measured);
+    expect(html).toContain(
+      "sessions.frictionSignalCount(sessions.signalHttp4xx|3)",
+    );
+    expect(html).toContain(
+      "sessions.frictionSignalCount(sessions.signalHttp5xx|2)",
+    );
+    expect(html).toContain(
+      "sessions.frictionSignalCount(sessions.signalRetryLoops|0)",
+    );
+    expect(html).toContain(
+      "sessions.frictionSignalCount(sessions.causeNoModelConnected|4)",
+    );
+    expect(html).toContain("sessions.issueLinksUnavailable");
+  });
+
+  it("says which signals were not measured instead of showing zero", () => {
+    const html = breakdown(measured);
+    expect(html).toContain(
+      "sessions.signalNotMeasured(sessions.signalThumbsDown)",
+    );
+    expect(html).not.toContain(
+      "sessions.frictionSignalCount(sessions.signalThumbsDown",
+    );
+    const replayOnly = breakdown({ ...measured, events: null, troubles: [] });
+    expect(replayOnly).toContain(
+      "sessions.signalNotMeasured(sessions.signalAgentFailures)",
+    );
+    expect(
+      breakdown({ ...measured, replay: null, events: null, troubles: [] }),
+    ).toContain("sessions.frictionNotMeasured");
+  });
+
+  it("links issues, and shows nothing for a session with none", () => {
+    const html = breakdown({
+      ...measured,
+      errorIssues: [{ id: "issue-a", title: "Save failed", count: 1 }],
+    });
+    expect(html).toContain("issue=issue-a");
+    expect(breakdown({ ...measured, errorIssues: [] })).not.toContain(
+      "sessions.issueLinksUnavailable",
+    );
+  });
+
+  it("offers a retry for a failed read rather than an empty breakdown", () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <SessionFrictionPanel
+          friction={undefined}
+          failed
+          fetching={false}
+          onRetry={() => {}}
+        />
+      </MemoryRouter>,
+    );
+    expect(html).toContain("sessions.frictionUnavailable");
+    expect(html).toContain("sidebar.retry");
+    expect(html).not.toContain("sessions.frictionSignalCount");
   });
 });

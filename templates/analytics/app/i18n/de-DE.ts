@@ -1328,8 +1328,7 @@ export default {
       "Reibung ist noch nicht für alle Sitzungen in diesem Zeitraum gemessen.",
     labStateUnavailable:
       "Ihre Lab-Einstellungen konnten nicht geladen werden, daher werden die Filter dieses Links nicht angewendet.",
-    frictionUnavailable:
-      "Reibung für diese Sitzungen konnte nicht geladen werden.",
+    frictionUnavailable: "Reibung konnte nicht geladen werden.",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:
       "Dieser Link filtert oder sortiert nach Reibung. Aktivieren Sie das Lab „Sitzungen prüfen“ in den Einstellungen, um ihn anzuwenden.",

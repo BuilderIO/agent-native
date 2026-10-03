@@ -1301,8 +1301,7 @@ export default {
       "この期間のすべてのセッションでフリクションが計測されているわけではありません。",
     labStateUnavailable:
       "Lab の設定を読み込めなかったため、このリンクのフィルターは適用されていません。",
-    frictionUnavailable:
-      "これらのセッションのフリクションを読み込めませんでした。",
+    frictionUnavailable: "フリクションを読み込めませんでした。",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:
       "このリンクはフリクションで絞り込みまたは並べ替えをしています。適用するには、設定で「セッションの絞り込み」Lab をオンにしてください。",

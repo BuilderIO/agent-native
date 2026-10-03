@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { listRecordingFriction } from "../server/lib/session-friction.js";
 import { assertSessionsTriageLabEnabled } from "../server/lib/sessions-triage-lab.js";
+import type { SessionRecordingFriction } from "../shared/session-friction.js";
 import { SESSION_PAGE_SIZE } from "../shared/session-page.js";
 
 export default defineAction({
@@ -22,7 +23,7 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
-  run: async ({ recordingIds }) => {
+  run: async ({ recordingIds }): Promise<SessionRecordingFriction> => {
     const userEmail = getRequestUserEmail();
     if (!userEmail) {
       fail("no authenticated user", {

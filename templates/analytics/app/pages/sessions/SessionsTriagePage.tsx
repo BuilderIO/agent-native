@@ -60,6 +60,7 @@ import {
   type SessionFriction,
   type SessionFrictionSignal,
   type SessionFrictionSort,
+  type SessionRecordingFriction,
 } from "../../../shared/session-friction";
 import {
   readSessionPage,
@@ -113,8 +114,6 @@ type Page = {
   /** Present when a friction filter or sort applied; null: part uncovered. */
   frictionCoverageStartedAt?: string | null;
 };
-
-type RowFriction = { friction: Record<string, SessionFriction> };
 
 const RANGES: Range[] = ["24h", "7d", "30d", "90d", "all"];
 const SORTS: Sort[] = ["newest", "longest", "errors", "events", "rage"];
@@ -430,7 +429,7 @@ export function SessionsTriagePage() {
     error: rowFrictionError,
     isFetching: rowFrictionFetching,
     refetch: refetchRowFriction,
-  } = useActionQuery<RowFriction>(
+  } = useActionQuery<SessionRecordingFriction>(
     "list-session-friction",
     { recordingIds: recordings.map((recording) => recording.id) },
     {
