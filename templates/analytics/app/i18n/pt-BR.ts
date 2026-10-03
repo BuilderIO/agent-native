@@ -1309,6 +1309,8 @@ export default {
     frictionCoverageSince: "O atrito cobre sessões desde {{date}}.",
     frictionCoverageIncomplete:
       "O atrito ainda não é medido em todas as sessões deste período.",
+    labStateUnavailable:
+      "Não foi possível carregar suas configurações de Lab, então os filtros deste link não foram aplicados.",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:
       "Este link filtra ou ordena por atrito. Ative o Lab Triagem de sessões em Configurações para aplicá-lo.",

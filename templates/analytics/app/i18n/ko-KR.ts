@@ -1280,6 +1280,8 @@ export default {
     frictionCoverageSince: "마찰은 {{date}} 이후 세션에 적용됩니다.",
     frictionCoverageIncomplete:
       "이 기간의 모든 세션에서 마찰이 아직 측정되지는 않았습니다.",
+    labStateUnavailable:
+      "Lab 설정을 불러오지 못해 이 링크의 필터가 적용되지 않았습니다.",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:
       "이 링크는 마찰 기준으로 필터링하거나 정렬합니다. 적용하려면 설정에서 세션 분류 Lab을 켜세요.",

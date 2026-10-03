@@ -1278,6 +1278,8 @@ export default {
     issueLinksUnavailable: "روابط المشكلات غير متاحة",
     frictionCoverageSince: "يشمل قياس الاحتكاك الجلسات منذ {{date}}.",
     frictionCoverageIncomplete: "لم يُقَس الاحتكاك بعد لكل الجلسات في هذا النطاق.",
+    labStateUnavailable:
+      "تعذّر تحميل إعدادات Lab، لذلك لم تُطبَّق عوامل التصفية في هذا الرابط.",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:
       "يصفّي هذا الرابط أو يرتّب حسب الاحتكاك. فعّل Lab فرز الجلسات من الإعدادات لتطبيقه.",

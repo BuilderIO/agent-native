@@ -1314,6 +1314,8 @@ export default {
     frictionCoverageSince: "La fricción cubre las sesiones desde el {{date}}.",
     frictionCoverageIncomplete:
       "La fricción aún no se mide en todas las sesiones de este periodo.",
+    labStateUnavailable:
+      "No se pudieron cargar tus ajustes de Lab, así que los filtros de este enlace no se aplican.",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:
       "Este enlace filtra u ordena por fricción. Activa el Lab Clasificación de sesiones en Ajustes para aplicarlo.",

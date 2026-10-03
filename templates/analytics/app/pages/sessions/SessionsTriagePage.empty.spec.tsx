@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   labEnabled: false,
+  labLoading: false,
+  labError: false,
+  labRefetch: vi.fn(),
   configured: true,
   total: 0,
   pending: false,
@@ -41,7 +44,12 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 vi.mock("@agent-native/core/client/labs", () => ({
-  useLabState: () => ({ enabled: mocks.labEnabled, isLoading: false }),
+  useLabState: () => ({
+    enabled: mocks.labEnabled,
+    isLoading: mocks.labLoading,
+    isError: mocks.labError,
+    refetch: mocks.labRefetch,
+  }),
 }));
 vi.mock("@agent-native/toolkit/app/blocks", () => ({
   CodeSurface: () => <div data-testid="installation-snippet" />,
@@ -87,6 +95,8 @@ describe("Sessions empty states", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.labEnabled = false;
+    mocks.labLoading = false;
+    mocks.labError = false;
     mocks.error = null;
     mocks.total = 0;
     mocks.pending = false;
@@ -369,6 +379,64 @@ describe("Sessions empty states", () => {
         (button) => button.textContent === "sessions.frictionFiltersActive",
       ),
     ).toBe(true);
+  });
+
+  function listCalls() {
+    return (
+      mocks.useActionQuery.mock.calls as unknown as Array<
+        [string, Record<string, unknown>, Record<string, unknown>]
+      >
+    ).filter(
+      ([name, args]) =>
+        name === "list-session-recordings" && args.limit === 100,
+    );
+  }
+
+  it("says a Lab state that failed to load is why a link's filters are off", async () => {
+    mocks.labError = true;
+    await act(async () => {
+      root.render(
+        <MemoryRouter
+          initialEntries={["/sessions?signal=dead_clicks&event=clip_viewed"]}
+        >
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("sessions.labStateUnavailable");
+    expect(container.textContent).not.toContain(
+      "sessions.frictionFiltersNeedLab",
+    );
+    expect(container.textContent).not.toContain("sessions.eventFiltersNeedLab");
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "sidebar.retry")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(mocks.labRefetch).toHaveBeenCalledOnce();
+  });
+
+  it("stops holding a friction link when the Lab state hangs", async () => {
+    vi.useFakeTimers();
+    mocks.labLoading = true;
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions?sort=friction"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+    let calls = listCalls();
+    expect(calls[calls.length - 1][2].enabled).toBe(false);
+
+    await act(async () => {
+      vi.advanceTimersByTime(5_000);
+    });
+
+    calls = listCalls();
+    expect(calls[calls.length - 1][2].enabled).toBe(true);
+    expect(container.textContent).toContain("sessions.labStateUnavailable");
   });
 
   it("says when friction coverage began in an empty friction match", async () => {

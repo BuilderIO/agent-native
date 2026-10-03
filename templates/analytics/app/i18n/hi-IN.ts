@@ -1268,6 +1268,8 @@ export default {
     frictionCoverageSince: "रुकावट {{date}} से रिकॉर्ड हुए सत्रों के लिए मापी जाती है।",
     frictionCoverageIncomplete:
       "इस अवधि के सभी सत्रों के लिए रुकावट अभी मापी नहीं गई है।",
+    labStateUnavailable:
+      "आपकी Lab सेटिंग्स लोड नहीं हो सकीं, इसलिए इस लिंक के फ़िल्टर लागू नहीं हैं।",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:
       "यह लिंक रुकावट के आधार पर फ़िल्टर या क्रमबद्ध करता है। इसे लागू करने के लिए सेटिंग्स में सत्र जाँच Lab चालू करें।",
