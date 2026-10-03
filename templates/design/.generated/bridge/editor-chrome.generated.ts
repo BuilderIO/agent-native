@@ -13653,14 +13653,6 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     function dropFitsContainer(container, sourceWidth, sourceHeight) {
       var size = dropContentSize(container);
-      var style = window.getComputedStyle(container);
-      var singleLineFlex = (style.display === "flex" || style.display === "inline-flex") && style.flexWrap !== "wrap" && style.flexWrap !== "wrap-reverse";
-      if (singleLineFlex && style.flexDirection.indexOf("row") === 0) {
-        return size.width >= sourceWidth;
-      }
-      if (singleLineFlex && style.flexDirection.indexOf("column") === 0) {
-        return size.height >= sourceHeight;
-      }
       return size.width >= sourceWidth && size.height >= sourceHeight;
     }
     function isOutsideIframeViewport(clientX, clientY) {
