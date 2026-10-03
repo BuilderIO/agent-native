@@ -17,7 +17,12 @@ export interface UsePlanPresenceResult {
   recentEdits: AttributedRecentEdit[];
   collabDoc: Pick<
     UseCollaborativeDocResult,
-    "ydoc" | "awareness" | "isSynced" | "initialization"
+    | "ydoc"
+    | "awareness"
+    | "isSynced"
+    | "initialization"
+    | "flushUpdates"
+    | "requestSync"
   >;
 }
 
@@ -34,11 +39,16 @@ export function usePlanPresence(options: {
     awareness,
     isSynced,
     initialization,
+    flushUpdates,
+    requestSync,
     activeUsers,
     agentPresent,
     agentActive,
   } = useCollaborativeDoc({
     docId,
+    activityResource: planId
+      ? { resourceType: "plan", resourceId: planId }
+      : undefined,
     user,
     requestSource: TAB_ID,
     pollInterval: 3000,
@@ -53,6 +63,13 @@ export function usePlanPresence(options: {
     agentPresent,
     agentActive,
     recentEdits,
-    collabDoc: { ydoc, awareness, isSynced, initialization },
+    collabDoc: {
+      ydoc,
+      awareness,
+      isSynced,
+      initialization,
+      flushUpdates,
+      requestSync,
+    },
   };
 }

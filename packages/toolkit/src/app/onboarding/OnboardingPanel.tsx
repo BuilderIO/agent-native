@@ -26,13 +26,15 @@ import {
   IconKey,
   IconLoader2,
 } from "@tabler/icons-react";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useId } from "react";
 
 import {
   BuilderConnectPopover,
   useBuilderConnectFlow,
 } from "../settings/index.js";
 import { StorageSettingsForm } from "../settings/StorageSettingsForm.js";
+import { useCredentialSaveScope } from "../settings/use-credential-save-scope.js";
+import { WhoField } from "../settings/WhoField.js";
 
 type FormOnboardingMethod = Extract<OnboardingMethod, { kind: "form" }>;
 
@@ -596,13 +598,20 @@ function FormMethod({
   method: Extract<OnboardingMethod, { kind: "form" }>;
   onCompleted: () => Promise<void>;
 }) {
-  const { fields, writeScope, saveTo, secretDescription } = method.payload;
+  const { fields, saveTo, secretDescription } = method.payload;
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Owners and admins pick who can use the keys (organization by default);
+  // everyone else saves personally — the server refuses a member's shared save.
+  const t = useT();
+  const saveScope = useCredentialSaveScope();
+  const whoId = useId();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const scope = saveScope.scope;
+    if (!scope) return;
     setSaving(true);
     setErr(null);
     try {
@@ -614,10 +623,7 @@ function FormMethod({
         return;
       }
       if (saveTo === "scoped-secrets") {
-        const secretScope =
-          writeScope === "workspace" || writeScope === "app"
-            ? "workspace"
-            : "user";
+        const secretScope = scope === "org" ? "workspace" : "user";
         for (const entry of vars) {
           const res = await fetch(
             agentNativePath("/_agent-native/secrets/adhoc"),
@@ -648,7 +654,10 @@ function FormMethod({
       const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vars, scope: writeScope ?? "workspace" }),
+        body: JSON.stringify({
+          vars,
+          scope,
+        }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -683,10 +692,27 @@ function FormMethod({
           />
         </label>
       ))}
+      {saveScope.canChoose && saveScope.scope ? (
+        <WhoField
+          id={whoId}
+          choice
+          scope={saveScope.scope}
+          disabled={saving}
+          onChange={saveScope.setScope}
+        />
+      ) : null}
+      {saveScope.roleUnavailable ? (
+        <p role="alert" style={styles.errText}>
+          {t("agentPanel.saveScopeRoleUnavailable")}{" "}
+          <button type="button" onClick={saveScope.retry}>
+            {t("agentChat.common.retry")}
+          </button>
+        </p>
+      ) : null}
       {err && <p style={styles.errText}>{err}</p>}
       <button
         type="submit"
-        disabled={saving}
+        disabled={saving || !saveScope.scope}
         style={{ ...buttonPrimary(method.primary), opacity: saving ? 0.6 : 1 }}
       >
         {saving ? "Saving..." : "Save"}

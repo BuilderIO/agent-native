@@ -100,6 +100,12 @@ Together the two layers mean an interrupted run that already had a real side eff
 
 </Callout>
 
+## Reprise automatique après une limite de temps {#auto-continue}
+
+Lorsque le serveur arrête un tour à sa limite de durée d'exécution et que rien côté serveur ne le reprend, le chat le poursuit de lui-même, dans le **même tour**. L'exécution reprise reçoit les appels d'outils et les résultats du fil ainsi que la note de journal ci-dessus : les étapes terminées sont réutilisées, et une répétition identique d'une écriture — y compris une délégation `call-agent` entre applications, dont la clé d'idempotence est dérivée du tour — renvoie le résultat enregistré au lieu d'être envoyée à nouveau. Le chat affiche le statut _Reprise_, et Arrêter continue de fonctionner.
+
+Un tour est poursuivi automatiquement **trois fois au maximum**. Le compteur est stocké avec les exécutions du tour : recharger la page ne le réinitialise pas et un second onglet ne peut pas le doubler. Ensuite, ou après une erreur, un arrêt, une annulation ou une limite d'identifiants ou de débit, le tour se termine avec **Continuer** disponible et vous attend.
+
 ## Connexe
 
 - [**Real-Time Sync**](/docs/real-time-collaboration) : comment le grand livre d'exécution durable est diffusé vers le client et rejoué lors de la reconnexion.
