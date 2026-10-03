@@ -14497,7 +14497,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return normalized;
   }
 
-  function radiusDragMaximums(corner, radii, width, height, minimumRadius) {
+  function radiusDragMaximums(
+    corner,
+    radii,
+    width,
+    height,
+    minimumRadius,
+    allowBeyondHalf,
+  ) {
     var horizontalNeighbor =
       corner === "nw"
         ? radii.ne.x
@@ -14517,11 +14524,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return {
       x: Math.max(
         minimumRadius ? minimumRadius.x : 0,
-        Math.max(0, Math.min(width / 2, width - horizontalNeighbor)),
+        Math.max(
+          0,
+          Math.min(
+            allowBeyondHalf ? width : width / 2,
+            width - horizontalNeighbor,
+          ),
+        ),
       ),
       y: Math.max(
         minimumRadius ? minimumRadius.y : 0,
-        Math.max(0, Math.min(height / 2, height - verticalNeighbor)),
+        Math.max(
+          0,
+          Math.min(
+            allowBeyondHalf ? height : height / 2,
+            height - verticalNeighbor,
+          ),
+        ),
       ),
     };
   }
@@ -24793,6 +24812,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             elWidthPx,
             elHeightPx,
             wholeShape ? null : originRadius,
+            radiiWereNormalized,
           );
     var maxRadiusX = maxRadius.x;
     var maxRadiusY = maxRadius.y;

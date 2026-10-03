@@ -11608,17 +11608,29 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       return normalized;
     }
-    function radiusDragMaximums(corner, radii, width, height, minimumRadius) {
+    function radiusDragMaximums(corner, radii, width, height, minimumRadius, allowBeyondHalf) {
       var horizontalNeighbor = corner === "nw" ? radii.ne.x : corner === "ne" ? radii.nw.x : corner === "se" ? radii.sw.x : radii.se.x;
       var verticalNeighbor = corner === "nw" ? radii.sw.y : corner === "ne" ? radii.se.y : corner === "se" ? radii.ne.y : radii.nw.y;
       return {
         x: Math.max(
           minimumRadius ? minimumRadius.x : 0,
-          Math.max(0, Math.min(width / 2, width - horizontalNeighbor))
+          Math.max(
+            0,
+            Math.min(
+              allowBeyondHalf ? width : width / 2,
+              width - horizontalNeighbor
+            )
+          )
         ),
         y: Math.max(
           minimumRadius ? minimumRadius.y : 0,
-          Math.max(0, Math.min(height / 2, height - verticalNeighbor))
+          Math.max(
+            0,
+            Math.min(
+              allowBeyondHalf ? height : height / 2,
+              height - verticalNeighbor
+            )
+          )
         )
       };
     }
@@ -19338,7 +19350,8 @@ export const editorChromeBridgeScript: string = `"use strict";
         radii,
         elWidthPx,
         elHeightPx,
-        wholeShape ? null : originRadius
+        wholeShape ? null : originRadius,
+        radiiWereNormalized
       );
       var maxRadiusX = maxRadius.x;
       var maxRadiusY = maxRadius.y;
