@@ -341,8 +341,25 @@
       used += tracks[index];
     }
     var leftover = contentSize - used;
+    var alignment = (distribution || "normal").trim().split(/\s+/);
+    var mode = alignment.pop() || "normal";
+    if (leftover < -0.01) {
+      if (alignment.indexOf("safe") !== -1) {
+        return { offset: 0, gap: gap };
+      }
+      if (mode === "center") return { offset: leftover / 2, gap: gap };
+      if (mode === "end" || mode === "flex-end") {
+        return { offset: leftover, gap: gap };
+      }
+      if (mode === "right") {
+        return { offset: reverse ? 0 : leftover, gap: gap };
+      }
+      if (mode === "left") {
+        return { offset: reverse ? leftover : 0, gap: gap };
+      }
+      return { offset: 0, gap: gap };
+    }
     if (!(leftover > 0.01)) return { offset: 0, gap: gap };
-    var mode = (distribution || "normal").split(" ").pop() || "normal";
     if (mode === "center") return { offset: leftover / 2, gap: gap };
     if (mode === "end" || mode === "flex-end") {
       return { offset: leftover, gap: gap };

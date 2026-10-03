@@ -327,6 +327,138 @@ describe("grid hit-test placement", () => {
     }
   });
 
+  it("maps overflowing center and end alignment to the rendered grid tracks", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 320, height: 240 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="grid" data-agent-native-node-id="grid" style="position:absolute;left:40px;top:40px;box-sizing:border-box;width:150px;height:150px;display:grid;grid-template-columns:100px 100px;grid-template-rows:100px 100px;justify-content:center;align-content:center">
+          <div id="track-probe" style="position:absolute;grid-column:2 / 3;grid-row:2 / 3;inset:0;pointer-events:none"></div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+      });
+
+      const cases = [
+        {
+          justifyContent: "center",
+          alignContent: "center",
+          x: 120,
+          y: 120,
+          column: 2,
+          row: 2,
+          left: 115,
+          top: 115,
+        },
+        {
+          justifyContent: "end",
+          alignContent: "center",
+          x: 100,
+          y: 120,
+          column: 2,
+          row: 2,
+          left: 90,
+          top: 115,
+        },
+        {
+          justifyContent: "center",
+          alignContent: "end",
+          x: 120,
+          y: 100,
+          column: 2,
+          row: 2,
+          left: 115,
+          top: 90,
+        },
+        {
+          justifyContent: "end",
+          alignContent: "end",
+          x: 100,
+          y: 100,
+          column: 2,
+          row: 2,
+          left: 90,
+          top: 90,
+        },
+        {
+          justifyContent: "safe center",
+          alignContent: "safe center",
+          x: 120,
+          y: 120,
+          column: 1,
+          row: 1,
+          left: 40,
+          top: 40,
+        },
+      ];
+      for (const [index, testCase] of cases.entries()) {
+        const actualTrack = await page.evaluate(
+          (value) => {
+            const grid = document.querySelector<HTMLElement>("#grid")!;
+            grid.style.justifyContent = value.justifyContent;
+            grid.style.alignContent = value.alignContent;
+            const probe = document.querySelector<HTMLElement>("#track-probe")!;
+            probe.style.gridColumn = `${value.column} / ${value.column + 1}`;
+            probe.style.gridRow = `${value.row} / ${value.row + 1}`;
+            const rect = probe.getBoundingClientRect();
+            window.postMessage(
+              {
+                type: "agent-native:hit-test",
+                correlationId: `overflow-grid-${value.index}`,
+                x: value.x,
+                y: value.y,
+              },
+              "*",
+            );
+            return {
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              height: rect.height,
+            };
+          },
+          { ...testCase, index },
+        );
+        await page.waitForFunction(
+          (expectedLength) =>
+            (window as any).__hitTestResults.length === expectedLength,
+          index + 1,
+        );
+        const packet = await page.evaluate(
+          (resultIndex) => (window as any).__hitTestResults[resultIndex],
+          index,
+        );
+        expect(actualTrack).toEqual({
+          left: testCase.left,
+          top: testCase.top,
+          width: 100,
+          height: 100,
+        });
+        expect(
+          packet.gridPlacement,
+          `${testCase.justifyContent} / ${testCase.alignContent}`,
+        ).toEqual({
+          column: testCase.column,
+          columnEnd: testCase.column + 1,
+          row: testCase.row,
+          rowEnd: testCase.row + 1,
+        });
+        expect(packet.guideRect).toEqual(actualTrack);
+      }
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("uses a spanning source item's full grid footprint for placement and preview", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
@@ -608,6 +740,49 @@ describe("grid hit-test placement", () => {
       );
       expect(packet.gridPlacement).toBeUndefined();
       expect(packet.guideRect).toBeUndefined();
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("does not offer an empty-cell target in whitespace of an underfilled auto-placed item", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 240, height: 120 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="grid" data-agent-native-node-id="grid" style="position:absolute;left:20px;top:20px;box-sizing:border-box;width:160px;height:80px;display:grid;grid-template-columns:80px 80px;grid-template-rows:80px">
+          <div data-agent-native-node-id="auto-underfilled" style="width:20px;height:20px;justify-self:start;align-self:start"></div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "auto-underfilled-whitespace",
+            x: 70,
+            y: 70,
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+      const packet = await page.evaluate(
+        () => (window as any).__hitTestResults[0],
+      );
+      expect(packet.gridPlacement).toBeUndefined();
+      expect(packet.guideRect).toBeUndefined();
+      expect(packet.anchorNodeId).toBe("auto-underfilled");
     } finally {
       await browser.close();
     }

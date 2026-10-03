@@ -209,8 +209,25 @@ export const hitTestBridgeScript: string = `"use strict";
         used += tracks[index];
       }
       var leftover = contentSize - used;
+      var alignment = (distribution || "normal").trim().split(/\\s+/);
+      var mode = alignment.pop() || "normal";
+      if (leftover < -0.01) {
+        if (alignment.indexOf("safe") !== -1) {
+          return { offset: 0, gap };
+        }
+        if (mode === "center") return { offset: leftover / 2, gap };
+        if (mode === "end" || mode === "flex-end") {
+          return { offset: leftover, gap };
+        }
+        if (mode === "right") {
+          return { offset: reverse ? 0 : leftover, gap };
+        }
+        if (mode === "left") {
+          return { offset: reverse ? leftover : 0, gap };
+        }
+        return { offset: 0, gap };
+      }
       if (!(leftover > 0.01)) return { offset: 0, gap };
-      var mode = (distribution || "normal").split(" ").pop() || "normal";
       if (mode === "center") return { offset: leftover / 2, gap };
       if (mode === "end" || mode === "flex-end") {
         return { offset: leftover, gap };
