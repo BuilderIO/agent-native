@@ -845,7 +845,8 @@ export async function runAuthoringFuzz(
         fitLayers,
       };
     }, slideSelector);
-  let initialSlideScroll: SlideScrollState | null = null;
+  let outsideBaseline: OutsideSnapshot | null = null;
+  let slideScrollBaseline: SlideScrollState | null = null;
   const typeBurst = async (value: string, verifyPlacement: boolean) => {
     if (!value) return;
     const before = await inspectSelection();
@@ -1061,6 +1062,21 @@ export async function runAuthoringFuzz(
           const changes: string[] = [];
           for (let index = 0; index < stylePropertyNames.length; index++) {
             const property = stylePropertyNames[index]!;
+            if (
+              property === "transform-origin" &&
+              ["transform", "translate", "rotate", "scale"].every(
+                (transformProperty) => {
+                  const transformIndex =
+                    stylePropertyNames.indexOf(transformProperty);
+                  return (
+                    before[transformIndex] === "none" &&
+                    style.getPropertyValue(transformProperty) === "none"
+                  );
+                },
+              )
+            ) {
+              continue;
+            }
             if (before[index] !== style.getPropertyValue(property)) {
               changes.push(property);
             }
@@ -1334,8 +1350,22 @@ export async function runAuthoringFuzz(
               record.node instanceof Text
                 ? record.node.data.length
                 : contentSignature(record.node).length;
+            const currentStyle = getComputedStyle(styleNode);
+            const styleDetails = changedStyle.slice(0, 6).map((property) => {
+              const propertyIndex = stylePropertyNames.indexOf(property);
+              return `${property}=${record.styleValues[propertyIndex]}->${currentStyle.getPropertyValue(property)}`;
+            });
+            if (
+              changedStyle.includes("transform-origin") &&
+              !changedStyle.includes("transform")
+            ) {
+              const transformIndex = stylePropertyNames.indexOf("transform");
+              styleDetails.push(
+                `transform=${record.styleValues[transformIndex]}->${currentStyle.getPropertyValue("transform")}`,
+              );
+            }
             failures.push(
-              `changed ${record.node.nodeName} at ${path(record.node)} (${changes.join(", ")}${changes.includes("text") ? `, content signature length=${record.contentSignature.length}->${changedTextLength}` : ""}${changedStyle.length ? `: ${changedStyle.slice(0, 6).join(", ")}` : ""})`,
+              `changed ${record.node.nodeName} at ${path(record.node)} (${changes.join(", ")}${changes.includes("text") ? `, content signature length=${record.contentSignature.length}->${changedTextLength}` : ""}${styleDetails.length ? `: ${styleDetails.join(", ")}` : ""})`,
             );
           }
         }
@@ -1374,16 +1404,19 @@ export async function runAuthoringFuzz(
         styleProperties: AUTHORING_FUZZ_STYLE_PROPERTIES,
       },
     );
-  const assertOutsideUnchanged = async (baseline: OutsideSnapshot) => {
+  const assertOutsideUnchanged = async () => {
     await page.evaluate(
       () =>
         new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
     );
+    const baseline = outsideBaseline;
+    if (!baseline)
+      throw new Error("outside-layout baseline is not initialized");
     const current = await snapshotOutside();
+    const beforeScroll = slideScrollBaseline;
+    const afterScroll = await slideScrollState();
     const changes = outsideAuthoringChangesFor(baseline, current);
     if (changes.length) {
-      const afterScroll = await slideScrollState();
-      const beforeScroll = initialSlideScroll;
       const scrollCandidates: Array<{ before: ScrollBox; after: ScrollBox }> = (
         afterScroll?.editorAncestors ?? []
       ).flatMap((after) => {
@@ -1464,6 +1497,8 @@ export async function runAuthoringFuzz(
           fitSizeUnchanged,
         })
       ) {
+        outsideBaseline = current;
+        slideScrollBaseline = afterScroll;
         return;
       }
       const scrollSummary = (state: SlideScrollState | null) =>
@@ -1532,6 +1567,8 @@ export async function runAuthoringFuzz(
         `unexpected changes outside the edited element: ${JSON.stringify(changes.slice(0, 5))}; records=${JSON.stringify(changedRecords)}; caret-scroll evidence=${JSON.stringify({ before: scrollSummary(beforeScroll), after: scrollSummary(afterScroll), editedRects: [baseline.editedRect, current.editedRect], scrollDelta, contentGrew, containerOverflows, containerStationary: stationary === true, fitPositionStylesUnchanged, fitSizeUnchanged })}`,
       );
     }
+    outsideBaseline = current;
+    slideScrollBaseline = afterScroll;
   };
   const withoutSessionAttributes = async (html: string) =>
     page.evaluate((value: string) => {
@@ -2321,8 +2358,8 @@ export async function runAuthoringFuzz(
       await assertSlideIsScaled(page, slideSelector);
     }
     const { originalHtml, originalSlideHtml } = options;
-    const outsideBefore = await snapshotOutside();
-    initialSlideScroll = await slideScrollState();
+    outsideBaseline = await snapshotOutside();
+    slideScrollBaseline = await slideScrollState();
 
     for (activeIndex = 0; activeIndex < plan.length; activeIndex += 1) {
       activePhase = `step ${activeIndex}`;
@@ -3530,7 +3567,7 @@ export async function runAuthoringFuzz(
           `sibling block inside the editor moved or restyled: ${siblingChanges.slice(0, 5).join(", ")}`,
         );
       }
-      await assertOutsideUnchanged(outsideBefore);
+      await assertOutsideUnchanged();
     }
 
     const finalHtml = await editor.innerHTML();
@@ -3559,7 +3596,7 @@ export async function runAuthoringFuzz(
       currentHtml = nextHtml;
       await assertCaret();
       await checkPageErrors();
-      await assertOutsideUnchanged(outsideBefore);
+      await assertOutsideUnchanged();
     }
     assertByteIdenticalHtml(
       currentHtml,
@@ -3589,7 +3626,7 @@ export async function runAuthoringFuzz(
       currentHtml = nextHtml;
       await assertCaret();
       await checkPageErrors();
-      await assertOutsideUnchanged(outsideBefore);
+      await assertOutsideUnchanged();
     }
     assertByteIdenticalHtml(currentHtml, finalHtml, "redo-all editor HTML");
     assertByteIdenticalHtml(
