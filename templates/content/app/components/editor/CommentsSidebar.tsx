@@ -2216,16 +2216,18 @@ function ProposalGroup({
         aria-expanded={expanded}
         aria-controls={detailsId}
         onClick={() => setExpanded((current) => !current)}
-        className="flex w-full min-w-0 items-center gap-2 px-3 py-2 text-start text-xs hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        className="flex w-full min-w-0 items-start gap-2 px-3 py-2 text-start text-xs hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
         <IconChevronDown
           size={14}
           className={cn(
-            "shrink-0 text-muted-foreground transition-transform duration-200 ease-[var(--ease-collapse)]",
+            "mt-px shrink-0 text-muted-foreground transition-transform duration-200 ease-[var(--ease-collapse)]",
             !expanded && "-rotate-90",
           )}
         />
-        <span className="min-w-0 flex-1 truncate font-medium">{summary}</span>
+        <span className="line-clamp-2 min-w-0 flex-1 break-words font-medium">
+          {summary}
+        </span>
         <span className="shrink-0 text-muted-foreground">
           {t("comments.proposalEditCount", { count: totalCount })}
         </span>
