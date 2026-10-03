@@ -383,9 +383,11 @@ describe("ModelSettingsPage", () => {
     expect(buttons(row("provider-org-groq"))).toEqual([]);
 
     expect(row("provider-personal-builder").textContent).toContain(
-      "Connect your own account to use it instead of the organization's.",
+      "Use your own Builder.io account instead of the organization's connection.",
     );
-    expect(buttons(row("provider-personal-builder"))).toEqual(["Connect"]);
+    expect(buttons(row("provider-personal-builder"))).toEqual([
+      "Use Builder.io",
+    ]);
     act(() => {
       (
         row("provider-personal-builder").querySelector("button") as HTMLElement
@@ -640,7 +642,7 @@ describe("ModelSettingsPage", () => {
       "The agent needs a provider to respond. We recommend Builder.io for model access, browser automation, file storage, and workspace identity. Free tier available.",
     );
     expect(prominence(empty)).toEqual([
-      "Connect Builder.io:primary",
+      "Use Builder.io:primary",
       "Add provider:outline",
     ]);
     // The empty state holds the page's one primary, so the header is empty.
@@ -670,7 +672,7 @@ describe("ModelSettingsPage", () => {
     act(() => {
       (
         [...empty.querySelectorAll("button")].find(
-          (button) => button.textContent === "Connect Builder.io",
+          (button) => button.textContent === "Use Builder.io",
         ) as HTMLElement
       ).click();
     });
@@ -738,7 +740,7 @@ describe("ModelSettingsPage", () => {
     );
     const builderRow = row("provider-org-builder");
     expect(builderRow.textContent).toContain("Recommended");
-    expect(prominence(builderRow)).toEqual(["Connect:outline"]);
+    expect(prominence(builderRow)).toEqual(["Use Builder.io:outline"]);
   });
 
   it("doesn't recommend a member's own Builder.io over the organization's connection", async () => {

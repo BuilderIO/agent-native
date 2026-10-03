@@ -476,7 +476,7 @@ const messages = {
         "Termina de añadir el destinatario o borra el texto antes de enviar.",
       pleaseAddRecipient: "Añade al menos un destinatario",
       aiEngineRequired:
-        "Conecta Builder u otro motor de IA antes de usar Generar.",
+        "Usa Builder.io (plan gratuito disponible) u otro motor de IA antes de usar Generar.",
       couldNotUnsubscribe: "No se pudo cancelar la suscripción",
       unsubscribeSent: "Solicitud de baja enviada",
       draftQueued: "Borrador en cola.",
@@ -734,7 +734,7 @@ const messages = {
       connectJevToRunTriage: "Conecta Jev para usar el triaje",
       freeBuilderOrApiKey: "Gratis con Builder.io o añade una clave de API.",
       jevAvailabilityFailed: "No se pudo comprobar si Jev está disponible.",
-      connectBuilder: "Conectar Builder.io",
+      connectBuilder: "Usar Builder.io",
       addJevApiKey: "Añadir clave de API",
     },
     draftQueue: {

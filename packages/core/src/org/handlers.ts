@@ -805,6 +805,7 @@ async function inviteOne(
         text,
         templateId: CORE_INVITE_EMAIL_ID,
         orgId: ctx.orgId,
+        authCritical: true,
       });
       emailSent = true;
     } catch (err) {

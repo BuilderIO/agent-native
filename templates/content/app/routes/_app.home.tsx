@@ -1,4 +1,4 @@
-import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import type {
   ContentLandingResult,
@@ -6,7 +6,7 @@ import type {
 } from "@shared/content-landing";
 import { contentRecentHref } from "@shared/content-personal-navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import {
   Link,
   PrefetchPageLinks,
@@ -28,11 +28,16 @@ import {
   startPageOpenDocumentReads,
 } from "@/hooks/use-documents";
 import { useLastLocationTitleHint } from "@/hooks/use-optimistic-document-title";
-import { readContentLandingRecovery } from "@/lib/content-landing";
+import {
+  isPersonalLanding,
+  readContentLandingRecovery,
+} from "@/lib/content-landing";
 import {
   landingOptimisticTitle,
   stashLandingTitleHint,
 } from "@/lib/document-title-hint";
+import { filesRootHintScope } from "@/lib/files-root-hint";
+import { readLastLocationHint } from "@/lib/last-location-hint";
 import { readPageIconRowHint } from "@/lib/page-icon-row-hint";
 
 const SEO_TITLE = "Content - Open Source, agent-friendly Obsidian alternative";
@@ -117,12 +122,18 @@ export default function HomeRoute() {
   const recoveredDocumentId =
     readContentLandingRecovery(location.state)?.unavailableDocumentId ?? null;
   const queryClient = useQueryClient();
-  // The personal landing restores the last page visited, which the hint
-  // already names, so that page's reads start while the landing validates it.
-  const likelyDocumentId =
-    !spaceId && !recoveredDocumentId
-      ? (lastLocationHint?.documentId ?? null)
-      : null;
+  const { session } = useSession();
+  const scope = filesRootHintScope(session?.email, session?.orgId);
+  const localLastDocumentId = useMemo(
+    () => readLastLocationHint(scope),
+    [scope],
+  );
+  // The personal landing restores the last page visited. This browser's copy
+  // names it at mount, before the saved location loads, so that page's reads
+  // start while the landing validates it.
+  const likelyDocumentId = isPersonalLanding(location)
+    ? (lastLocationHint?.documentId ?? localLastDocumentId)
+    : null;
   useEffect(() => {
     if (!likelyDocumentId) return;
     const search = new URLSearchParams(location.search);

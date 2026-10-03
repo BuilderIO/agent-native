@@ -258,7 +258,7 @@ describe("formatChatErrorText", () => {
       expect(
         normalizeChatError("Invalid token", "builder_auth_error").message,
       ).toBe(
-        "Builder rejected the connected credentials. Reconnect Builder.io (free tier available) in Settings, then retry.",
+        "Builder rejected the connected credentials. Sign in to Builder.io again (free tier available) in Settings, then retry.",
       );
       expect(
         formatChatErrorText(

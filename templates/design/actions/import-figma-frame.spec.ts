@@ -947,7 +947,7 @@ describe("import-figma-frame", () => {
     await expect(
       action.run({ fileKey: "abcDEF12345", nodeId: "1:2" } as any),
     ).rejects.toThrow(
-      /Connect Builder\.io.*configure S3.*No image bytes were stored in SQL/i,
+      /Use Builder\.io.*configure S3.*No image bytes were stored in SQL/i,
     );
     expect(mocks.saveImportedDesignFiles).not.toHaveBeenCalled();
   });

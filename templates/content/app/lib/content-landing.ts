@@ -33,6 +33,20 @@ export function readContentLandingRecovery(
     : null;
 }
 
+// /home with no space and no unavailable page to explain returns to the last
+// page opened anywhere, which is the page a last-location hint names.
+export function isPersonalLanding(location: {
+  pathname: string;
+  search: string;
+  state: unknown;
+}) {
+  return (
+    location.pathname === CONTENT_LANDING_PATH &&
+    !new URLSearchParams(location.search).get("spaceId") &&
+    !readContentLandingRecovery(location.state)
+  );
+}
+
 let landingWriteQueue = Promise.resolve();
 
 export function rememberContentLandingDocument(

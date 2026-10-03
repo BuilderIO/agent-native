@@ -408,6 +408,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: false,
   toolCallable: true,
   run: async (args) => {
     const configuredProjectId = await getBigQueryProjectId();

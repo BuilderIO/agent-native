@@ -390,7 +390,7 @@ function InfrastructurePageContent({
         disabled={flow.connecting}
       >
         {flow.connecting ? <Spinner aria-hidden /> : null}
-        {flow.connecting ? t(`${K}connecting`) : label}
+        {flow.connecting ? t("agentChat.composer.connectingBuilder") : label}
       </Button>
     </DeferredBuilderConnectPopover>
   );
@@ -414,7 +414,10 @@ function InfrastructurePageContent({
     );
   } else if (recommendBuilder) {
     builderDescription = t(`${K}builderRecommended`);
-    builderControl = connectBuilder("default", t(`${K}connect`));
+    builderControl = connectBuilder(
+      "default",
+      t("agentChat.setup.connectBuilder"),
+    );
   } else {
     builderDescription = t(`${K}builderNotConnected`);
   }

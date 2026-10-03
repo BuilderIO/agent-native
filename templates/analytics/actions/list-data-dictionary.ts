@@ -27,6 +27,7 @@ export default defineAction({
       .describe("Optional department filter (e.g. 'Sales', 'Marketing')"),
   }),
   http: { method: "GET" },
+  mcpTool: true,
   run: async (args) => {
     const orgId = getRequestOrgId() || null;
     const email = getRequestUserEmail();

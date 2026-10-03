@@ -100,6 +100,7 @@ import {
   resolveBuilderGatewayAuth,
   type BuilderGatewayAuth,
 } from "../server/credential-provider.js";
+import { orderCredentialScopes } from "../server/credential-read-order.js";
 import { readBody } from "../server/h3-helpers.js";
 import { resolveHostedHarnessPolicy } from "../server/hosted-harness-policy.js";
 import {
@@ -135,6 +136,7 @@ import {
   SYNTHETIC_TRAFFIC_BETA_E2E,
   SYNTHETIC_TRAFFIC_HEADER,
 } from "../shared/test-traffic.js";
+import type { TrackingMeta } from "../tracking/registry.js";
 import { actionPreparationContinuationNote } from "./action-continuation-guidance.js";
 import {
   drainAgentWarnings,
@@ -309,7 +311,10 @@ import {
   resolveAgentToolApprovalTurnId,
 } from "./tool-approval-store.js";
 import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
-import { findCompletedJournalEntry } from "./tool-call-journal.js";
+import {
+  buildResumeJournalNote,
+  findCompletedJournalEntry,
+} from "./tool-call-journal.js";
 import {
   redactSensitiveFields,
   sanitizeToolErrorText,
@@ -588,7 +593,7 @@ async function getOwnerApiKeyDetailed(
     } else if (!syntheticTraffic && !personalRestricted) {
       refs.push({ scope: "workspace", scopeId: `solo:${ownerEmail}` });
     }
-    for (const ref of refs) {
+    for (const ref of await orderCredentialScopes(refs, orgId, ownerEmail)) {
       for (const storedKey of secretKeyNames(secretKey)) {
         const fromSecrets = await readAppSecret({
           key: storedKey,
@@ -1599,6 +1604,11 @@ export function createPlanModeActionRegistry(
   return filtered;
 }
 
+type AgentRunTrackingSource = Pick<
+  TrackingMeta,
+  "userId" | "authUserId" | "anonymousId" | "sessionId"
+> & { isSyntheticTraffic?: boolean };
+
 export interface ProductionAgentOptions {
   actions?: Record<string, ActionEntry>;
   /** @deprecated Use `actions` instead */
@@ -1619,7 +1629,11 @@ export interface ProductionAgentOptions {
   hostedHarnessConfig?: AgentNativeHarnessSetting;
   reasoningEffort?: ReasoningEffort;
   providerOptions?: EngineMessage extends never ? never : any;
-  onRunComplete?: (run: ActiveRun, threadId: string | undefined) => void;
+  onRunComplete?: (
+    run: ActiveRun,
+    threadId: string | undefined,
+    trackingSource?: AgentRunTrackingSource,
+  ) => void;
   onRunPrepared?: (details: {
     runId: string;
     turnId: string;
@@ -1722,6 +1736,35 @@ export async function resolveAgentOwnerEmail(
     }
   }
   return ownerEmail ?? getRequestUserEmail() ?? null;
+}
+
+function snapshotAgentRunTrackingSource(): AgentRunTrackingSource | undefined {
+  const requestContext = getRequestContext();
+  if (!requestContext) return undefined;
+  const source = requestContext.agentRunAnonymous
+    ? {
+        ...(requestContext.userEmail
+          ? { anonymousId: requestContext.userEmail }
+          : {}),
+        ...(requestContext.browserSessionId
+          ? { sessionId: requestContext.browserSessionId }
+          : {}),
+      }
+    : {
+        ...(requestContext.userEmail
+          ? { userId: requestContext.userEmail }
+          : {}),
+        ...(requestContext.authUserId
+          ? { authUserId: requestContext.authUserId }
+          : {}),
+        ...(requestContext.browserSessionId
+          ? { sessionId: requestContext.browserSessionId }
+          : {}),
+      };
+  const isSyntheticTraffic = requestContext.isSyntheticTraffic === true;
+  return Object.keys(source).length > 0 || isSyntheticTraffic
+    ? { ...source, ...(isSyntheticTraffic ? { isSyntheticTraffic: true } : {}) }
+    : undefined;
 }
 
 const MAX_RETRIES = 3;
@@ -2882,7 +2925,7 @@ export type AgentLoopContinuationReason =
 export function appendAgentLoopContinuation(
   messages: EngineMessage[],
   reason: AgentLoopContinuationReason,
-  options: { actionPreparationTool?: string } = {},
+  options: { actionPreparationTool?: string; journalNote?: string } = {},
 ) {
   const note =
     reason === "loop_limit"
@@ -2903,12 +2946,15 @@ export function appendAgentLoopContinuation(
   const actionInputNote = options.actionPreparationTool
     ? actionPreparationContinuationNote(options.actionPreparationTool)
     : "";
+  // The journal rides in the same message: the turn's last user message must
+  // still start with the continue prompt to read as a continuation.
+  const journalNote = options.journalNote ? `\n\n${options.journalNote}` : "";
   messages.push({
     role: "user",
     content: [
       {
         type: "text",
-        text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: ${note}${actionInputNote}`,
+        text: `${AGENT_INTERNAL_CONTINUE_PROMPT}\n\nInternal note: ${note}${actionInputNote}${journalNote}`,
       },
     ],
   });
@@ -3991,7 +4037,7 @@ export function permanentPreconditionRemedy(message: string): string | null {
 const PERMANENT_PRECONDITION_PATTERNS: readonly RegExp[] = [
   /\b(?:api[ -]?keys?|access tokens?|credentials?|secrets?)\b[^.]{0,60}\bnot (?:configured|set|connected|available)\b/i,
   /\bsave [A-Z][A-Z0-9_]{3,} in (?:the )?settings\b/i,
-  /(?:^|[.:!?]\s+)Connect [A-Z][\w.-]*[^;]{0,40}?\b(?:before|first|in settings)\b/,
+  /(?:^|[.:!?]\s+)(?:Connect|Use) [A-Z][\w.-]*[^;]{0,40}?\b(?:before|first|in settings|to)\b/,
   /\bplan mode blocked\b/i,
   /\bno authenticated user\b/i,
   /\bssrf blocked\b/i,
@@ -8656,6 +8702,9 @@ export function createProductionAgentHandler(
     actionsToEngineTools(getRequestActions(actions));
 
   return defineEventHandler(async (event) => {
+    let completionTrackingSource = options.onRunComplete
+      ? snapshotAgentRunTrackingSource()
+      : undefined;
     const setupT0 = Date.now();
     const setupMarks: Record<string, number> = {};
     const setupMark = (k: string) => {
@@ -8693,6 +8742,7 @@ export function createProductionAgentHandler(
       queuedMessageClaimId,
       agentKitMessageId: requestedAgentKitMessageId,
       internalContinuation,
+      autoContinueOfRunId: requestedAutoContinueOfRunId,
       turnId: requestTurnId,
       model: requestModel,
       engine: requestEngine,
@@ -8703,6 +8753,12 @@ export function createProductionAgentHandler(
       trackInRunsTray,
       skipPendingSelectionContext,
     } = body;
+    const autoContinueOfRunId =
+      internalContinuation === true &&
+      typeof requestedAutoContinueOfRunId === "string" &&
+      requestedAutoContinueOfRunId.trim().length <= 200
+        ? requestedAutoContinueOfRunId.trim() || undefined
+        : undefined;
     if (requestEngine !== undefined && typeof requestEngine !== "string") {
       setResponseStatus(event, 400);
       return { error: "engine must be a string" };
@@ -9844,6 +9900,9 @@ export function createProductionAgentHandler(
           ...(dispatchToBackground
             ? { dispatchPayload: JSON.stringify(body) }
             : {}),
+          ...(autoContinueOfRunId
+            ? { autoContinueOf: autoContinueOfRunId }
+            : {}),
         });
       } catch (error) {
         await setupResumeClaim?.release();
@@ -9859,6 +9918,15 @@ export function createProductionAgentHandler(
       if (slot.turnAborted) {
         await setupResumeClaim?.release();
         return { ok: true, stopped: true };
+      }
+      if (slot.autoContinueRefused) {
+        await setupResumeClaim?.release();
+        setResponseStatus(event, 409);
+        return {
+          error: "This turn will not continue automatically.",
+          code: slot.autoContinueRefused,
+          retryable: false,
+        };
       }
       if (slot.completedRunId) {
         const stream = await replayCompletedTurn(threadId, effectiveTurnId);
@@ -9937,16 +10005,27 @@ export function createProductionAgentHandler(
       ? Math.max(0, priorTurnInputTokensFromBody)
       : 0;
 
-    if (isChainedBackgroundContinuation && effectiveThreadId) {
+    // A server successor and an automatic continuation resume the same turn
+    // the same way: the thread's tool calls and results, plus the turn's
+    // journal of finished steps, so nothing already done is sent again.
+    if (
+      (isChainedBackgroundContinuation || autoContinueOfRunId) &&
+      effectiveThreadId
+    ) {
       try {
         const { getThread } = await import("../chat-threads/store.js");
-        const { threadDataToEngineMessages } =
+        const { resumeThreadHistoryForRequest } =
           await import("./thread-data-builder.js");
-        const priorThreadData = (await getThread(effectiveThreadId))
-          ?.threadData;
-        const resumed = threadDataToEngineMessages(priorThreadData, {
-          includeToolCalls: true,
-        });
+        const { messages: resumed, foundTurnPrompt } =
+          resumeThreadHistoryForRequest(
+            (await getThread(effectiveThreadId))?.threadData,
+          );
+        // A continuation always follows a stopped run, so a thread without
+        // that turn's prompt means its history was lost, not that there was
+        // none. A successor stays best-effort and resumes from what is there.
+        if (autoContinueOfRunId && !foundTurnPrompt) {
+          throw new Error(`thread ${effectiveThreadId} has no turn prompt`);
+        }
         if (resumed.length > 0) {
           const actionPreparationTool =
             typeof backgroundRunMarker?.actionPreparationTool === "string" &&
@@ -9958,13 +10037,45 @@ export function createProductionAgentHandler(
           )
             ? backgroundRunMarker.continuationReason
             : "run_timeout";
+          const journalRead = await loadPriorTurnToolCallJournal(
+            effectiveThreadId,
+            effectiveTurnId,
+          );
+          if (autoContinueOfRunId && journalRead.status === "unreadable") {
+            throw new Error(journalRead.error);
+          }
+          const journalNote =
+            journalRead.status === "read" && journalRead.toolCallJournal
+              ? buildResumeJournalNote(journalRead.toolCallJournal)
+              : null;
           appendAgentLoopContinuation(resumed, continuationReason, {
             ...(actionPreparationTool ? { actionPreparationTool } : {}),
+            ...(journalNote ? { journalNote } : {}),
           });
           messages.length = 0;
           messages.push(...resumed);
         }
-      } catch {
+      } catch (error) {
+        if (autoContinueOfRunId) {
+          // The browser's history lacks the stopped run's tool results, so
+          // continuing from it could repeat a step that already finished.
+          console.warn(
+            `[agent-chat] auto-continue history unreadable for thread ${effectiveThreadId}:`,
+            error,
+          );
+          if (await updateRunStatusIfRunning(runId, "errored")) {
+            await setRunTerminalReason(
+              runId,
+              "auto_continue_history_unreadable",
+            );
+          }
+          setResponseStatus(event, 503);
+          return {
+            error: "This turn's history could not be read to continue it.",
+            code: "auto_continue_history_unreadable",
+            retryable: true,
+          };
+        }
         // Keep the body-derived messages — never drop the run.
       }
     }
@@ -10257,11 +10368,17 @@ export function createProductionAgentHandler(
         ? async (run: ActiveRun) => {
             try {
               await runCompletionCallbackWithDatabaseRetry(() =>
-                options.onRunComplete?.(run, threadId),
+                options.onRunComplete?.(
+                  run,
+                  threadId,
+                  completionTrackingSource,
+                ),
               );
             } catch (err) {
               await completeTrackedProgressRun(run, err);
               throw err;
+            } finally {
+              completionTrackingSource = undefined;
             }
             await completeTrackedProgressRun(run);
           }

@@ -234,7 +234,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "home.googleSlidesReferenceUrl": "Paste a Google Slides link",
       "onboarding.fileStorage.title": "Connect storage to upload files",
       "onboarding.fileStorage.custom": "Custom keys",
-      "composer.connectBuilder": "Connect Builder.io",
+      "composer.connectBuilder": "Use Builder.io",
       "raw.uploadFailed": "Upload failed",
       "raw.uploadAttachedFailed": "Upload failed",
       "raw.uploading": "Uploading...",
@@ -942,9 +942,7 @@ describe("uploadPromptFiles", () => {
         name: "Connect storage to upload files",
       }),
     ).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Connect Builder.io" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Use Builder.io" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Custom keys" })).toBeTruthy();
   });
 

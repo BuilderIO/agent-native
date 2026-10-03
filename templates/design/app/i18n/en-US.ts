@@ -214,7 +214,7 @@ export default {
       tokenLabel: "Figma access token",
       tokenPlaceholder: "Paste Figma access token",
       connecting: "Connecting…",
-      connect: "Connect",
+      connect: "Use Builder.io",
       getToken: "Get token",
       importFrame: "Import frame",
       chooseFrame: "Choose frame",
@@ -1368,6 +1368,15 @@ export default {
         "PNG capture isn't available in read-only previews",
       pngSaveError: "Could not save PNG",
       pngExportError: "Could not export PNG",
+      exportTooLarge:
+        "Export is too large. Requests are limited to 5 MB; reduce embedded assets or raster dimensions and try again.",
+      exportResourcesUnavailable:
+        "The export could not be rendered accurately because one or more images, fonts, or stylesheets are unavailable. Check those resources and try again.",
+      exportTimedOut:
+        "Export timed out. Try again, or reduce the design's size.",
+      exportBusy: "Another export is rendering. Wait a moment and try again.",
+      exportChromiumUnavailable:
+        "Export is unavailable because the renderer could not start. Try again later.",
       pdfExportError: "Could not export PDF",
       pdfDownloaded: "PDF downloaded",
       pdfAllScreensDownloaded: "PDF downloaded (all screens)",
@@ -1731,8 +1740,8 @@ export default {
     designPromptTitle: "Let's create your first design",
     recent: "Recent",
     browseAllTemplates: "Browse all",
-    connectBuilderIo: "Connect Builder.io",
-    connectingBuilder: "Connecting Builder.io…",
+    connectBuilderIo: "Use Builder.io",
+    connectingBuilder: "Setting up Builder.io…",
     pageTitle: "Designs",
     searchPlaceholder: "Search designs...",
     newDesign: "New Design",

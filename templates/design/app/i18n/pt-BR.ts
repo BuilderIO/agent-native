@@ -216,7 +216,7 @@ export default {
       tokenLabel: "Token de acesso do Figma",
       tokenPlaceholder: "Cole o token de acesso do Figma",
       connecting: "Conectando…",
-      connect: "Conectar",
+      connect: "Usar Builder.io",
       getToken: "Obter token",
       importFrame: "Importar frame",
       chooseFrame: "Escolher frame",
@@ -1374,6 +1374,16 @@ export default {
         "A captura PNG não está disponível em visualizações somente leitura",
       pngSaveError: "Não foi possível salvar PNG",
       pngExportError: "Não foi possível exportar PNG",
+      exportTooLarge:
+        "A exportação é grande demais. As solicitações têm limite de 5 MB; reduza os recursos incorporados ou as dimensões rasterizadas e tente novamente.",
+      exportResourcesUnavailable:
+        "Não foi possível renderizar a exportação com precisão porque uma ou mais imagens, fontes ou folhas de estilo estão indisponíveis. Verifique esses recursos e tente novamente.",
+      exportTimedOut:
+        "A exportação atingiu o tempo limite. Tente novamente ou reduza o tamanho do design.",
+      exportBusy:
+        "Outra exportação está sendo renderizada. Aguarde um momento e tente novamente.",
+      exportChromiumUnavailable:
+        "A exportação está indisponível porque o renderizador não conseguiu iniciar. Tente novamente mais tarde.",
       pdfExportError: "Não foi possível exportar PDF",
       pdfDownloaded: "PDF baixado",
       pdfAllScreensDownloaded: "PDF baixado (todas as telas)",
@@ -1744,8 +1754,8 @@ export default {
     designPromptTitle: "Vamos criar seu primeiro design",
     recent: "Recentes",
     browseAllTemplates: "Ver todos",
-    connectBuilderIo: "Conectar o Builder.io",
-    connectingBuilder: "Conectando ao Builder.io…",
+    connectBuilderIo: "Usar Builder.io",
+    connectingBuilder: "Configurando o Builder.io…",
     pageTitle: "Designs",
     searchPlaceholder: "Pesquisar desenhos...",
     newDesign: "Novo Design",

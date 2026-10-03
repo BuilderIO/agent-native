@@ -235,7 +235,7 @@ export default {
     eventRulesAutomationLink: "For other actions, create an automation",
     eventRulesConnectJev: "Connect Jev to run invitation rules",
     eventRulesFreeBuilderOrApiKey: "Free with Builder.io, or add an API key.",
-    eventRulesConnectBuilder: "Connect Builder.io",
+    eventRulesConnectBuilder: "Use Builder.io",
     eventRulesAddJevApiKey: "Add API key",
     eventRulesTabRules: "Rules",
     eventRulesHelpLabel: "About invitation rule prompts",

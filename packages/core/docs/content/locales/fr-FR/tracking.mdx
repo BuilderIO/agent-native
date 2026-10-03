@@ -258,6 +258,12 @@ diagnostics shaping, and access policy inside the Analytics template.
 
 Pour le développement local uniquement, Analytics peut se replier sur des blocs SQL en ligne plafonnés lorsque le stockage blob privé n'est pas disponible. Les déploiements en production doivent configurer un stockage blob privé ou chiffré plutôt que de s'appuyer sur Postgres pour les charges utiles de relecture.
 
+## Identités de test {#test-identities}
+
+Les comptes QA et E2E continuent de fonctionner partout, mais ne sont jamais comptés. `track()`, `identify()`, le suivi navigateur et le replay de session ignorent les événements d'une identité de test avant qu'un fournisseur ne les voie. Les exceptions serveur d'une identité de test sont conservées, marquées `test_identity: true` et transmises uniquement aux fournisseurs qui définissent `acceptsTestIdentityExceptions` (Agent-Native Analytics) : elles restent interrogeables sans alerter personne. Les e-mails sans lien avec l'authentification adressés à une identité de test sont aussi supprimés : `sendEmail()` renvoie `{ status: "suppressed", reason: "test-identity" }` et journalise la tentative, tandis que les e-mails de connexion, de vérification, de réinitialisation de mot de passe et d'invitation partent toujours. Cela s'applique à chaque ligne de destinataires : les identités de test en `cc` et `bcc` sont aussi retirées et journalisées. Quand `to` est une identité de test, un vrai destinataire en `cc` prend sa place ; jamais un destinataire en `bcc`, car le reste de `bcc` le verrait. S'il ne reste aucun destinataire en `to` ou `cc`, l'envoi entier est supprimé et chaque adresse écartée est journalisée.
+
+`isTestIdentity(email)` de `@agent-native/core/server` est l'unique règle. Elle reconnaît les domaines réservés `.test`, `.invalid`, `.localhost` et `.example` ainsi que le marqueur QA `+autoz`. Ajoutez-en d'autres par déploiement avec `AGENT_NATIVE_TEST_IDENTITY_EMAILS`, une liste séparée par des virgules d'adresses exactes (`qa@corp.com`) ou d'entrées `@domaine` (`@example.com`). `testIdentitySql(column)` est la même règle sous forme d'expression PostgreSQL/BigQuery pour les requêtes de métriques. Les navigateurs ne reçoivent jamais cette liste : la réponse de session porte un indicateur `testIdentity` résolu côté serveur, que le suivi navigateur, le replay de session et la capture d'exceptions respectent en plus des règles intégrées ; l'ingestion d'Agent-Native Analytics applique aussi la liste du déploiement.
+
 ## Avancé : fournisseurs personnalisés et éléments internes {#advanced}
 
 La plupart des applications n'ont besoin que de `track()` / `identify()` et d'un fournisseur intégré. Le reste de la surface (enregistrement des fournisseurs personnalisés, de l'interface `TrackingProvider`, des éléments internes de traitement par lots et de la propre télémétrie du navigateur du framework) se trouve ci-dessous.
@@ -351,7 +357,7 @@ Les racines du modèle appellent `configureTracking()` une fois au démarrage. L
 - `llm_connection_source` — `app_secrets`, `settings` ou `env`
 - `llm_connection_configured` – si une connexion LLM est disponible
 
-Le framework suit également `builder connect clicked` à partir des CTA Connect Builder, et les routes de connexion Builder côté serveur suivent les événements de cycle de vie démarrés/réussis/échoués. `configureTracking()` est appelé automatiquement par le framework ; vous n'avez pas besoin de l'appeler dans votre propre code de modèle.
+Le framework suit également `builder connect clicked` lorsqu’un utilisateur sélectionne un CTA pour utiliser Builder.io, et les routes de connexion Builder côté serveur suivent les événements de cycle de vie démarrés/réussis/échoués. `configureTracking()` est appelé automatiquement par le framework ; vous n'avez pas besoin de l'appeler dans votre propre code de modèle.
 
 </details>
 
