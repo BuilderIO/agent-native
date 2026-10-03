@@ -238,8 +238,8 @@ const ORDERED_TYPE_MARKER: Record<string, string> = {
 };
 const PLACEHOLDER_ONLY = new RegExp(`^${ZERO_WIDTH_SPACE}+$`);
 const ALL_ZWSP = new RegExp(ZERO_WIDTH_SPACE, "g");
-export const IN_PLACE_TEXT_UNDO_LIMIT = 512;
-export const IN_PLACE_TEXT_UNDO_BYTE_LIMIT = 32 * 1024 * 1024;
+export const IN_PLACE_TEXT_UNDO_LIMIT = 2048;
+export const IN_PLACE_TEXT_UNDO_BYTE_LIMIT = 64 * 1024 * 1024;
 /** How far Tab nests a legacy bullet row, the way generated decks draw sub-bullets. */
 const LEGACY_ROW_INDENT_PX = 24;
 const TYPING_RUN_MS = 1000;
@@ -1522,7 +1522,10 @@ export function startInPlaceTextSession(
   }
 
   /** A styled bullet row (marker span + text) whose list lies inside `el`. */
-  function legacyRowAt(node: Node): HTMLElement | null {
+  function legacyRowAt(
+    node: Node,
+    boundaryOffset?: number,
+  ): HTMLElement | null {
     const start = node instanceof HTMLElement ? node : node.parentElement;
     if (!start) return null;
     for (
@@ -1531,6 +1534,31 @@ export function startInPlaceTextSession(
       row = row.parentElement
     ) {
       if (row.hasAttribute("data-slide-plain-row")) return row;
+      if (
+        row !== el &&
+        row.parentElement &&
+        el.contains(row.parentElement) &&
+        isBulletRow(row) &&
+        !["UL", "OL"].includes(row.parentElement.tagName)
+      ) {
+        return row;
+      }
+    }
+    if (boundaryOffset !== undefined && node instanceof HTMLElement) {
+      for (const adjacent of [
+        node.childNodes[boundaryOffset - 1],
+        node.childNodes[boundaryOffset],
+      ]) {
+        if (
+          adjacent instanceof HTMLElement &&
+          el.contains(adjacent) &&
+          (adjacent.hasAttribute("data-slide-plain-row") ||
+            (isBulletRow(adjacent) &&
+              !["UL", "OL"].includes(adjacent.parentElement?.tagName ?? "")))
+        ) {
+          return adjacent;
+        }
+      }
     }
     const list = findEnclosingList(start, el);
     if (
@@ -2268,6 +2296,13 @@ export function startInPlaceTextSession(
       return;
     }
     // Typing on the new line continues the inline style the caret was in.
+    if (!hasRenderedContent(clone)) {
+      for (const link of Array.from(clone.querySelectorAll("a"))) {
+        if (!hasRenderedContent(link)) {
+          link.removeAttribute("href");
+        }
+      }
+    }
     let target: Element = clone;
     for (
       let child = target.firstElementChild;
@@ -2790,8 +2825,18 @@ export function startInPlaceTextSession(
         return;
       }
     }
-    const row = legacyRowAt(caret.startContainer);
+    const row = legacyRowAt(caret.startContainer, caret.startOffset);
     if (row) {
+      if (!row.contains(caret.startContainer)) {
+        const atRowStart =
+          row.parentNode === caret.startContainer &&
+          caret.startContainer.childNodes[caret.startOffset] === row;
+        const content = rowTextRange(row, rowMarker(row));
+        const point: [Node, number] = atRowStart
+          ? [content.startContainer, content.startOffset]
+          : [content.endContainer, content.endOffset];
+        placeCaret(point[0], point[1]);
+      }
       const list = row.parentElement!;
       const rows = legacyRows(list);
       if (row === rows[rows.length - 1] && isEmptyRow(row)) {

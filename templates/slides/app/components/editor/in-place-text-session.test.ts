@@ -731,6 +731,29 @@ describe("in-place text session: Enter", () => {
     expect(el.innerHTML).toBe("Text<br><br><br>new line");
   });
 
+  it("keeps link styling without carrying its link into a new paragraph", () => {
+    const el = mount(
+      '<div id="t"><p><a href="https://example.com" class="accent" style="color: rgb(4, 128, 64); font-weight: 600">Linked text</a></p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const linkedText = textOf(el, "Linked text");
+    caret(linkedText, linkedText.length);
+
+    beforeInput(el, "insertParagraph");
+    type(el, "plain text");
+
+    const paragraphs = Array.from(el.querySelectorAll(":scope > p"));
+    expect(paragraphs.map((paragraph) => paragraph.textContent)).toEqual([
+      "Linked text",
+      "plain text",
+    ]);
+    const continuation = paragraphs[1]?.querySelector("a");
+    expect(continuation?.hasAttribute("href")).toBe(false);
+    expect(continuation?.className).toBe("accent");
+    expect(continuation?.style.color).toBe("rgb(4, 128, 64)");
+    expect(continuation?.style.fontWeight).toBe("600");
+  });
+
   it("breaks the line mid-text without a placeholder", () => {
     const el = mount('<p id="t">Heading</p>');
     session = startInPlaceTextSession(el);
@@ -979,6 +1002,44 @@ describe("in-place text session: Enter", () => {
     const savedRows = Array.from(el.children, (child) => child.textContent);
     expect(savedRows.slice(0, 3)).toEqual(["●Alpha", "●Beta", "●Gamma"]);
     expect(savedRows[3]).toBe("");
+  });
+
+  it("continues a styled bullet row inside a mixed text box", () => {
+    const el = mount(
+      '<div id="t"><div style="display: flex; gap: 12px"><span>●</span><span>Alpha</span></div><p>Following text</p><p>More text</p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const alpha = textOf(el, "Alpha");
+    caret(alpha, alpha.length);
+
+    beforeInput(el, "insertParagraph");
+    type(el, "Beta");
+
+    const rows = Array.from(el.children).filter(
+      (child) =>
+        child.querySelector(":scope > span:first-child")?.textContent === "●",
+    );
+    expect(rows.map((row) => row.textContent)).toEqual(["●Alpha", "●Beta"]);
+    expect(el.children[2]?.textContent).toBe("Following text");
+    expect(el.children[3]?.textContent).toBe("More text");
+  });
+
+  it("continues a styled bullet when the caret is at the row boundary", () => {
+    const el = mount(
+      '<div id="t"><div style="display: flex; gap: 12px"><span>●</span><span>Alpha</span></div><p>Following text</p><p>More text</p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(el, 1);
+
+    beforeInput(el, "insertParagraph");
+    type(el, "Beta");
+
+    expect(Array.from(el.children, (child) => child.textContent)).toEqual([
+      "●Alpha",
+      "●Beta",
+      "Following text",
+      "More text",
+    ]);
   });
 
   it("inserts a line break for Shift+Enter even in a list item", () => {
@@ -1861,6 +1922,49 @@ describe("in-place text session: paste", () => {
     expect(el.innerHTML).toBe(
       'Click <a href="https://example.com/path">here</a>',
     );
+  });
+
+  it("pastes a safe URL across an existing link boundary", () => {
+    const el = mount(
+      '<div id="t"><p><a href="https://old.example">u</a>rl478</p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const first = textOf(el, "u");
+    const rest = textOf(el, "rl478");
+    select(first, 0, rest, rest.length);
+
+    paste(el, { "text/plain": "https://example.com/path" });
+
+    const links = Array.from(el.querySelectorAll("a"));
+    expect(window.getSelection()?.toString()).toBe("url478");
+    expect(links.map((link) => link.textContent).join("")).toBe("url478");
+    expect(
+      links.every(
+        (link) => link.getAttribute("href") === "https://example.com/path",
+      ),
+    ).toBe(true);
+  });
+
+  it("changes only selected text when pasting a URL across link boundaries", () => {
+    const el = mount(
+      '<p id="t"><a href="https://old.example">prefix url</a>478 suffix</p>',
+    );
+    session = startInPlaceTextSession(el);
+    const linked = textOf(el, "url");
+    const plain = textOf(el, "478");
+    select(linked, 7, plain, 3);
+
+    paste(el, { "text/plain": "https://example.com/path" });
+
+    const links = Array.from(el.querySelectorAll("a"));
+    expect(el.textContent).toBe("prefix url478 suffix");
+    expect(window.getSelection()?.toString()).toBe("url478");
+    expect(links.map((link) => link.textContent).join("")).toBe(
+      "prefix url478",
+    );
+    expect(links[0]?.getAttribute("href")).toBe("https://old.example");
+    expect(links[1]?.getAttribute("href")).toBe("https://example.com/path");
+    expect(el.lastChild?.textContent).toBe(" suffix");
   });
 
   it("auto-links a typed URL on the trailing space and undoes to plain text", () => {
@@ -3025,6 +3129,11 @@ describe("in-place text session: dock changes", () => {
       expect(el.innerHTML).toBe(
         'Hello <code data-slide-authoring-format="code">world</code>',
       );
+      const selection = window.getSelection();
+      expect(selection?.toString()).toBe("world");
+      expect(selection?.isCollapsed).toBe(false);
+      expect(el.contains(selection?.anchorNode ?? null)).toBe(true);
+      expect(el.contains(selection?.focusNode ?? null)).toBe(true);
     },
   );
 
