@@ -1110,20 +1110,26 @@ export function startInPlaceTextSession(
   };
   const preserveLayoutReservation = () => {
     if (!reservationEnabled || layoutReservationApplied) return;
-    layoutReservationApplied = true;
     const contain = initialLayout.computedContain
       .split(/\s+/u)
-      .filter((value) => value && value !== "none");
+      .filter((value) => value && value !== "none")
+      .map((value) => (value === "inline-size" ? "size" : value));
+    const reservedContain = [...new Set([...contain, "size"])].join(" ");
+    if (!CSS.supports("contain", reservedContain)) return;
     el.style.setProperty(
       "contain",
-      [...new Set([...contain, "size"])].join(" "),
+      reservedContain,
       initialLayout.containPriority,
     );
+    if (!el.style.getPropertyValue("contain").split(/\s+/u).includes("size")) {
+      return;
+    }
     el.style.setProperty(
       "contain-intrinsic-size",
       `${initialLayout.width}px ${initialLayout.height}px`,
       initialLayout.intrinsicSizePriority,
     );
+    layoutReservationApplied = true;
   };
   const restoreSessionMenuAria = () => {
     for (const name of SESSION_MENU_ATTRIBUTES) {

@@ -614,6 +614,10 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell --with-deps chromium
 
+      - name: Check chat typing while slide text editing remains active
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
+
       - name: Check platform-aware line-edge caret navigation in slide text
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa

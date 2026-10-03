@@ -244,6 +244,48 @@ describe("in-place text session: entering and ending", () => {
     expect(el.style.getPropertyValue("contain")).toBe("size");
   });
 
+  it("replaces inline-size containment when reserving the edited size", () => {
+    const el = mount('<div id="t" style="contain: inline-size">Alpha</div>');
+    const supports = vi.fn(() => true);
+    vi.stubGlobal("CSS", { supports });
+    vi.spyOn(el, "offsetWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "offsetHeight", "get").mockReturnValue(48);
+    const getComputedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (element, pseudo) => {
+        const computed = getComputedStyle(element, pseudo);
+        if (element !== el) return computed;
+        return new Proxy(computed, {
+          get(target, property) {
+            return property === "contain"
+              ? "inline-size"
+              : Reflect.get(target, property, target);
+          },
+        });
+      },
+    );
+    session = startInPlaceTextSession(el);
+    const text = el.firstChild as Text;
+    caret(text, text.length);
+
+    type(el, "beta");
+
+    expect(supports).toHaveBeenCalledWith("contain", "size");
+    expect(el.style.getPropertyValue("contain")).toBe("size");
+    expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe(
+      "240px 48px",
+    );
+    expect(beforeInput(el, "historyUndo").defaultPrevented).toBe(true);
+    expect(el.innerHTML).toBe("Alpha");
+    expect(el.style.getPropertyValue("contain")).toBe("inline-size");
+    expect(beforeInput(el, "historyRedo").defaultPrevented).toBe(true);
+    expect(el.innerHTML).toBe("Alphabeta");
+    expect(el.style.getPropertyValue("contain")).toBe("size");
+
+    session.end();
+    expect(el.style.getPropertyValue("contain")).toBe("size");
+  });
+
   it("counts a root style patch as a visible edit", () => {
     const el = mount('<p id="t">Alpha</p>');
     session = startInPlaceTextSession(el);
