@@ -279,8 +279,21 @@ pub(crate) fn rewind_clip_prepare(
         }
     }
     let response_sources = sources.clone();
-    let mut active = state.0.lock().map_err(|error| error.to_string())?;
-    let mut pending = state.1.lock().map_err(|error| error.to_string())?;
+    let mut active = match state.0.lock() {
+        Ok(active) => active,
+        Err(error) => {
+            shared_sink.cancel();
+            return Err(error.to_string());
+        }
+    };
+    let mut pending = match state.1.lock() {
+        Ok(pending) => pending,
+        Err(error) => {
+            drop(active);
+            shared_sink.cancel();
+            return Err(error.to_string());
+        }
+    };
     let is_current_startup = pending
         .as_ref()
         .is_some_and(|pending| pending.startup_id == startup_id);
