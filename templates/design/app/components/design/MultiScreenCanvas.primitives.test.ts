@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import { getFrameGroupBounds, type FrameBounds } from "@shared/canvas-math";
 import type { CodeLayerSource } from "@shared/code-layer";
 import {
@@ -84,6 +86,9 @@ type ScreenStub = {
   filename: string;
   content: string;
   codeLayerSource?: CodeLayerSource;
+  activeBreakpointWidth?: number;
+  width?: number;
+  height?: number;
 };
 
 describe("isApplePlatform", () => {
@@ -153,15 +158,7 @@ function hashString(s: string): string {
 }
 
 function seedCache(screen: ScreenStub, prims: ParsedScreenPrimitive[]) {
-  const source =
-    screen.codeLayerSource ??
-    ({ kind: "design-file", fileId: screen.id } as const);
-  const sourceKey = Object.entries(source)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, value]) => `${key}=${String(value)}`)
-    .join("\u0000");
-  const key = `${screen.id}:${sourceKey}:${screen.content.length}:${hashString(screen.content)}`;
-  primitiveParseCache.set(key, prims);
+  primitiveParseCache.set(makeCacheKey(screen), prims);
 }
 
 beforeEach(() => {
@@ -748,8 +745,38 @@ describe("getCrossScreenDropGuideForHitTest", () => {
 
     expect(result).toEqual({
       placement: "after",
+      guidePlacement: "after",
       axis: "x",
       boardRect: { x: 180, y: 240, width: 20, height: 60 },
+    });
+  });
+
+  it("keeps logical insertion order separate from the physical reverse-flow guide edge", () => {
+    const guide = getCrossScreenDropGuideForHitTest({
+      hit: {
+        placement: "before",
+        guidePlacement: "after",
+        axis: "x",
+        anchorRect: { left: 160, top: 80, width: 40, height: 120 },
+      },
+      targetGeometry: makeGeom(100, 200, 320, 640),
+      targetMetadata: { width: 640, height: 1280 },
+    });
+
+    expect(guide).toMatchObject({
+      placement: "before",
+      guidePlacement: "after",
+      axis: "x",
+    });
+    expect(
+      getCrossScreenDropGuideStyle({
+        guide: guide!,
+        pan: { x: 0, y: 0 },
+        scale: 1,
+      }),
+    ).toMatchObject({
+      left: SURFACE_PADDING + guide!.boardRect.x + guide!.boardRect.width - 1,
+      width: 2,
     });
   });
 
@@ -824,11 +851,37 @@ describe("getCrossScreenDropGuideForHitTest", () => {
   });
 });
 
-function makeCacheKey(screen: { id: string; content: string }): string {
-  return `${screen.id}:${screen.content.length}:${hashString(screen.content)}`;
+function makeCacheKey(screen: ScreenStub): string {
+  const source =
+    screen.codeLayerSource ??
+    ({ kind: "design-file", fileId: screen.id } as const);
+  const sourceKey = Object.entries(source)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${String(value)}`)
+    .join("\u0000");
+  const viewportKey = [
+    screen.activeBreakpointWidth ?? "",
+    screen.width ?? "",
+    screen.height ?? "",
+  ].join(":");
+  return `${screen.id}:${sourceKey}:${viewportKey}:${screen.content.length}:${hashString(screen.content)}`;
 }
 
 describe("parsePrimitivesFromScreen cache key", () => {
+  it("includes destination viewport dimensions in the cache key", () => {
+    const screen = {
+      id: "viewport-cache-key",
+      filename: "f.html",
+      content: "<div>",
+      width: 320,
+      height: 640,
+    };
+
+    expect(makeCacheKey(screen)).not.toBe(
+      makeCacheKey({ ...screen, width: 640 }),
+    );
+  });
+
   it("uses a different cache key when content changes with equal length, prefix differs", () => {
     const screenId = "cache-test";
     const contentA = "A".repeat(80);
@@ -1006,6 +1059,49 @@ describe("parsePrimitivesFromScreen identity cache", () => {
     expect(
       __getPrimitiveParseCacheSizesForTests().identity,
     ).toBeLessThanOrEqual(64);
+  });
+
+  it.each([
+    [
+      "tokenized flex-flow",
+      "display:flex;flex-flow:var(--flow);width:300px;height:200px",
+      "",
+    ],
+    [
+      "anonymous direct text",
+      "display:flex;flex-direction:row;width:300px;height:200px",
+      "text before the flex child",
+    ],
+    [
+      "unknown forward-flex geometry",
+      "display:flex;flex-direction:row;justify-content:space-between;width:300px;height:200px",
+      "",
+    ],
+  ])("does not target descendants with %s", (_name, parentStyle, text) => {
+    const screenId = `uncertain-flex-${String(_name).replace(/ /g, "-")}`;
+    const screen: ScreenStub = {
+      id: screenId,
+      filename: "f.html",
+      width: 320,
+      height: 640,
+      content: `<body><div data-agent-native-node-id="parent" data-an-primitive="frame" style="${parentStyle}">${text}<div data-agent-native-node-id="child" data-an-primitive="frame" style="width:120px;height:80px"></div></div></body>`,
+    };
+    const primitives = parsePrimitivesFromScreen(screen as never);
+    const parent = primitives.find(
+      (primitive) => primitive.nodeId === "parent",
+    );
+
+    expect(parent?.autoLayoutOrderKnown).toBe(false);
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 50, y: 50 },
+        null,
+        [screen as never],
+        { [screenId]: makeGeom(0, 0, 320, 640) },
+        () => ({ width: 320, height: 640 }),
+        { identityCoordinateScreenIds: new Set([screenId]) },
+      ),
+    ).toBeNull();
   });
 });
 

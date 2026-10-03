@@ -2877,6 +2877,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             placement: isCrossScreenDropPlacement(ev.data.placement)
               ? ev.data.placement
               : undefined,
+            guidePlacement: isCrossScreenDropPlacement(ev.data.guidePlacement)
+              ? ev.data.guidePlacement
+              : undefined,
             axis: isCrossScreenDropAxis(ev.data.axis)
               ? ev.data.axis
               : undefined,
@@ -11496,6 +11499,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             style={getCrossScreenDropGuideStyle({
               guide: {
                 placement: primitiveDropTarget.placement,
+                guidePlacement:
+                  primitiveDropTarget.guidePlacement ??
+                  primitiveDropTarget.placement,
                 axis: primitiveDropTarget.axis ?? "y",
                 boardRect: primitiveDropTarget.boardRect,
               },

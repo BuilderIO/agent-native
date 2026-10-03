@@ -845,6 +845,7 @@ export interface CrossScreenHitTestResult {
   pendingNodeId?: string;
   anchorSelector?: string;
   placement?: CrossScreenDropPlacement;
+  guidePlacement?: CrossScreenDropPlacement;
   axis?: CrossScreenDropAxis;
   dropMode?: CrossScreenDropMode;
   anchorRect?: CrossScreenHitTestAnchorRect;
@@ -878,6 +879,7 @@ export interface CanvasLayerMarqueeSelection {
 
 export interface CrossScreenDropGuide {
   placement: CrossScreenDropPlacement;
+  guidePlacement?: CrossScreenDropPlacement;
   axis: CrossScreenDropAxis;
   boardRect: FrameGeometry;
 }

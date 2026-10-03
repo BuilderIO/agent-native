@@ -1,5 +1,5 @@
 import { ActionContractError } from "@agent-native/core";
-import { getUserLabs } from "@agent-native/core/labs/server";
+import { getUserLabEnabled } from "@agent-native/core/labs/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 
 import { PLAN_EDITIONS } from "../../shared/labs.js";
@@ -14,8 +14,7 @@ import { PLAN_EDITIONS } from "../../shared/labs.js";
 export async function isEditionsLabEnabled(): Promise<boolean> {
   const email = getRequestUserEmail();
   if (!email) return true;
-  const labs = await getUserLabs(email);
-  return labs[PLAN_EDITIONS.key] === true;
+  return getUserLabEnabled(email, PLAN_EDITIONS);
 }
 
 /** 404, not 403: an app whose owner never turned the lab on has no editions. */

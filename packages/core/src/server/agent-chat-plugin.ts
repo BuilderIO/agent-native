@@ -6255,6 +6255,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return { error: "message is required" };
           }
           const orgId = await getOrgIdFromEvent(event);
+          await runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+            requireAgentChatAiSetup(),
+          );
+
           try {
             const title = await runWithRequestContext(
               { userEmail: ownerEmail, orgId },
