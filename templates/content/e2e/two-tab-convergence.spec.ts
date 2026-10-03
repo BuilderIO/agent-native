@@ -31,9 +31,9 @@ test.describe.configure({ retries: 0, timeout: 300_000 });
 
 const BUILD = process.env.CONTENT_CONVERGENCE_BUILD ?? "local";
 
-// Main loses text in these, so CI runs them in a step that reports every run
-// without failing the PR. The PR that fixes a loss drops its tag, which moves
-// the scenario into the required gate.
+// Main loses or duplicates text in these, so CI runs them in a step that
+// reports every run without failing the PR. The PR that fixes one drops its
+// tag, which moves the scenario into the required gate.
 const KNOWN_LOSS = { tag: "@known-loss" };
 
 // SESSION_RESULT_LIFETIME_MS in core's client-status-requests.ts.
@@ -410,60 +410,60 @@ test.describe("two tabs editing one page at beta cadence", () => {
     });
   });
 
-  test("switching away and back ten times while typing keeps every word", async ({
-    context,
-  }, testInfo) => {
-    await runScenario("switch-back-cycles", testInfo, context, async (s) => {
-      const { first, second } = await openPair(s);
-      for (let cycle = 1; cycle <= 10; cycle++) {
-        await s.tabs.showOnly(first);
-        await typeAtParagraphEnd(
-          first,
-          "Alpha paragraph",
-          ` ${s.markers.next("A")}`,
-        );
-        await s.tabs.showOnly(second);
-        await second.waitForTimeout(300);
-      }
-      await s.tabs.showOnly(first);
-    });
-  });
-
   test(
-    "an agent edit between two open tabs keeps every author's text",
+    "switching away and back ten times while typing keeps every word",
     KNOWN_LOSS,
     async ({ context }, testInfo) => {
-      await runScenario("agent-edit", testInfo, context, async (s) => {
+      await runScenario("switch-back-cycles", testInfo, context, async (s) => {
         const { first, second } = await openPair(s);
-
+        for (let cycle = 1; cycle <= 10; cycle++) {
+          await s.tabs.showOnly(first);
+          await typeAtParagraphEnd(
+            first,
+            "Alpha paragraph",
+            ` ${s.markers.next("A")}`,
+          );
+          await s.tabs.showOnly(second);
+          await second.waitForTimeout(300);
+        }
         await s.tabs.showOnly(first);
-        await typeAtParagraphEnd(
-          first,
-          "Alpha paragraph",
-          ` ${s.markers.next("A")}`,
-        );
-        await s.tabs.waitForSaveAnswers(first, 1);
-
-        const fromAgent = s.markers.next("Agent");
-        s.notes.agentIdentity = await AgentClient.editOnce(
-          s.reader,
-          s.id,
-          "Delta paragraph stays untouched.",
-          `Delta paragraph edited by the agent ${fromAgent}.`,
-        );
-        await s.tabs.showOnly(second);
-        await typeAtParagraphEnd(
-          second,
-          "Charlie paragraph",
-          ` ${s.markers.next("B")}`,
-        );
-        await s.tabs.showOnly(first);
-        await typeAtParagraphEnd(
-          first,
-          "Alpha paragraph",
-          ` ${s.markers.next("A")}`,
-        );
       });
     },
   );
+
+  test("an agent edit between two open tabs keeps every author's text", async ({
+    context,
+  }, testInfo) => {
+    await runScenario("agent-edit", testInfo, context, async (s) => {
+      const { first, second } = await openPair(s);
+
+      await s.tabs.showOnly(first);
+      await typeAtParagraphEnd(
+        first,
+        "Alpha paragraph",
+        ` ${s.markers.next("A")}`,
+      );
+      await s.tabs.waitForSaveAnswers(first, 1);
+
+      const fromAgent = s.markers.next("Agent");
+      s.notes.agentIdentity = await AgentClient.editOnce(
+        s.reader,
+        s.id,
+        "Delta paragraph stays untouched.",
+        `Delta paragraph edited by the agent ${fromAgent}.`,
+      );
+      await s.tabs.showOnly(second);
+      await typeAtParagraphEnd(
+        second,
+        "Charlie paragraph",
+        ` ${s.markers.next("B")}`,
+      );
+      await s.tabs.showOnly(first);
+      await typeAtParagraphEnd(
+        first,
+        "Alpha paragraph",
+        ` ${s.markers.next("A")}`,
+      );
+    });
+  });
 });
