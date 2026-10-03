@@ -2,6 +2,7 @@ export const AGENT_NATIVE_DOCS_ORIGIN = "https://www.agent-native.com";
 
 export type DocsUrlOptions = {
   hash?: string;
+  source?: string;
   medium?: string;
   campaign?: string;
   content?: string | null;
@@ -9,13 +10,14 @@ export type DocsUrlOptions = {
 
 function applyDocsUtm(params: URLSearchParams, options: DocsUrlOptions): void {
   const wantsUtm =
+    options.source != null ||
     options.medium != null ||
     options.campaign != null ||
     options.content != null;
   if (!wantsUtm) return;
-  params.set("utm_source", "agent-native");
+  params.set("utm_source", options.source ?? "agent-native");
   params.set("utm_medium", options.medium ?? "product");
-  params.set("utm_campaign", options.campaign ?? "docs");
+  if (options.campaign != null) params.set("utm_campaign", options.campaign);
   if (options.content) params.set("utm_content", options.content);
 }
 

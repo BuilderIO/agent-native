@@ -633,7 +633,7 @@
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest --run --dir src",
-    "prepack": "tsx ../../scripts/sync-core-first-party-templates.ts && tsx ../../scripts/sync-workspace-core-skills.ts --check && npm run build && cp ../../README.md ./README.md",
+    "prepack": "tsx ../../scripts/sync-core-first-party-templates.ts && tsx ../../scripts/sync-workspace-core-skills.ts --check && npm run build && sed -e 's/utm_source=github/utm_source=npm/g' -e 's/utm_content=readme/utm_content=core-readme/g' ../../README.md > ./README.md",
     "postpack": "tsx ../../scripts/sync-core-first-party-templates.ts --clean",
     "prepublishOnly": "npm run build"
   },

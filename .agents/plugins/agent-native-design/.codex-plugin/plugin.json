@@ -2,8 +2,11 @@
   "name": "agent-native-design",
   "version": "1.0.0+codex.2f1d55b07154",
   "description": "Explore, compare, iterate, and export interactive UI design prototypes from the Design app.",
-  "author": { "name": "Agent-Native", "url": "https://agent-native.com" },
-  "homepage": "https://design.agent-native.com",
+  "author": {
+    "name": "Agent-Native",
+    "url": "https://agent-native.com/?utm_source=codex-plugins&utm_medium=referral&utm_content=plugin-author"
+  },
+  "homepage": "https://design.agent-native.com/?utm_source=codex-plugins&utm_medium=referral&utm_content=plugin-homepage",
   "license": "MIT",
   "keywords": ["agent-native", "design", "mcp", "skills", "app-backed-skill"],
   "skills": "./skills/",
@@ -15,7 +18,7 @@
     "developerName": "Agent-Native",
     "category": "Productivity",
     "capabilities": ["Interactive", "Read", "Write"],
-    "websiteURL": "https://design.agent-native.com",
+    "websiteURL": "https://design.agent-native.com/?utm_source=codex-plugins&utm_medium=referral&utm_content=plugin-website",
     "defaultPrompt": [
       "Open Design where useful",
       "Use Design for app-backed workflows",
