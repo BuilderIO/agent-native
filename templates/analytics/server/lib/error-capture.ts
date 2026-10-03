@@ -1503,6 +1503,11 @@ export interface RecordingErrorIssueInput {
   ownerEmail: string;
   orgId: string | null;
   errorCount: number;
+  /**
+   * Of those errors, the ones Monitoring could have made an issue of. Null
+   * when not measured, so every error counts.
+   */
+  issueErrorCount?: number | null;
 }
 
 export interface RecordingErrorIssue {
@@ -1521,9 +1526,10 @@ const MAX_RECORDING_ISSUE_ROWS = 500;
  * issue's newest occurrences, so a recording with none left falls back to the
  * issues whose last recording it is, with no count. A recording still without
  * an issue maps to null when the read was truncated, or when it has errors
- * and its owner scope has issues they could belong to; never to "no issues".
- * An owner scope without a single issue does not capture errors as issues,
- * so its recordings truly have none.
+ * Monitoring could have made an issue of and its owner scope has issues they
+ * could belong to; never to "no issues". A plain `console.error` never
+ * becomes an issue, and an owner scope without a single issue does not
+ * capture errors as issues, so such recordings truly have none.
  */
 export async function listRecordingErrorIssues(
   scope: ErrorReadScope,
@@ -1678,7 +1684,7 @@ export async function listRecordingErrorIssues(
     }
     if (truncated || lastRecordingTruncated) {
       result.set(recording.id, null);
-    } else if (recording.errorCount > 0) {
+    } else if ((recording.issueErrorCount ?? recording.errorCount) > 0) {
       erroringWithoutIssue.push(recording);
     } else {
       result.set(recording.id, []);

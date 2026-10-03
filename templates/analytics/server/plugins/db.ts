@@ -1566,6 +1566,7 @@ ALTER TABLE error_events ADD COLUMN IF NOT EXISTS test_identity BOOLEAN NOT NULL
       slow_requests INTEGER NOT NULL DEFAULT 0,
       http_4xx INTEGER NOT NULL DEFAULT 0,
       http_5xx INTEGER NOT NULL DEFAULT 0,
+      issue_errors INTEGER,
       score INTEGER NOT NULL DEFAULT 0,
       detector_state TEXT NOT NULL DEFAULT '{}',
       updated_at TEXT NOT NULL

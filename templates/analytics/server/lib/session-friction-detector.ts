@@ -60,6 +60,13 @@ export interface ReplayFrictionDelta {
   slowRequests: number;
   http4xx: number;
   http5xx: number;
+  /**
+   * Errors Monitoring could have turned into an issue: uncaught errors,
+   * unhandled rejections, and captured exceptions, never a plain
+   * `console.error`. An older recorder's console error could be either, so
+   * it counts.
+   */
+  issueErrors: number;
 }
 
 export function emptyReplayFrictionDetectorState(): ReplayFrictionDetectorState {
@@ -234,6 +241,7 @@ export function detectReplayFriction(
     slowRequests: 0,
     http4xx: 0,
     http5xx: 0,
+    issueErrors: 0,
   };
 
   for (const raw of events) {
@@ -284,7 +292,13 @@ export function detectReplayFriction(
     if (type !== RRWEB_CUSTOM) continue;
     const payload = record(data.payload);
     if (data.tag === SESSION_REPLAY_CONSOLE_EVENT_TAG) {
-      if (payload.level === "error") state.lastErrorAt = at;
+      if (payload.level !== "error") continue;
+      state.lastErrorAt = at;
+      if (payload.source !== "console" || payload.exception !== false) {
+        const repeat = finiteNumber(payload.repeat);
+        delta.issueErrors +=
+          repeat !== null && repeat >= 1 ? Math.floor(repeat) : 1;
+      }
       continue;
     }
     if (data.tag !== SESSION_REPLAY_NETWORK_EVENT_TAG) continue;

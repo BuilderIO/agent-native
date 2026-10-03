@@ -30,7 +30,10 @@ import {
   type SessionFrictionSignal,
   type SessionFrictionSort,
 } from "../../shared/session-friction.js";
-import { SESSION_REPLAY_NETWORK_EVENT_TAG } from "../../shared/session-replay-diagnostics.js";
+import {
+  SESSION_REPLAY_CONSOLE_EVENT_TAG,
+  SESSION_REPLAY_NETWORK_EVENT_TAG,
+} from "../../shared/session-replay-diagnostics.js";
 import { schema } from "../db/index.js";
 import {
   __resetSessionEventIndexForTests,
@@ -1071,6 +1074,46 @@ describe("session friction on Postgres", () => {
     expect(details.get("r-errors")?.errorIssues).toBeNull();
     expect(details.get("r-clean")?.errorIssues).toEqual([]);
     expect(details.get("r-personal")?.errorIssues).toEqual([]);
+  });
+
+  it("shows no issue link for a recording whose only errors were console errors", async () => {
+    await migrateFriction(client);
+    const consoleError = (exception?: boolean) => ({
+      type: 5,
+      timestamp: 1_000,
+      data: {
+        tag: SESSION_REPLAY_CONSOLE_EVENT_TAG,
+        payload: {
+          level: "error",
+          source: "console",
+          message: "logged",
+          ...(exception === undefined ? {} : { exception }),
+        },
+      },
+    });
+    for (const id of ["r-logged", "r-captured", "r-old", "r-behind"]) {
+      await addRecording(id, `s-${id}`, at(0), 1);
+    }
+    await replayBatch("r-logged", "s-r-logged", 0, [consoleError(false)]);
+    await replayBatch("r-captured", "s-r-captured", 0, [consoleError(true)]);
+    await replayBatch("r-old", "s-r-old", 0, [consoleError()]);
+    await replayBatch("r-behind", "s-r-behind", 0, [consoleError(false)]);
+    // The owner's scope has issues, just none these recordings link to.
+    await client.query(`
+      INSERT INTO error_issues (id, title, owner_email, org_id) VALUES
+        ('issue-a', 'TypeError: x is undefined', '${OWNER}', '${ORG}')
+    `);
+    const details = await getSessionFrictionDetails(SCOPE, [
+      { ...recordingInput("r-logged", "s-r-logged", 1), errorCount: 1 },
+      { ...recordingInput("r-captured", "s-r-captured", 1), errorCount: 1 },
+      { ...recordingInput("r-old", "s-r-old", 1), errorCount: 1 },
+      // A chunk the detector has not seen could hold an exception.
+      { ...recordingInput("r-behind", "s-r-behind", 2), errorCount: 1 },
+    ]);
+    expect(details.get("r-logged")?.errorIssues).toEqual([]);
+    expect(details.get("r-captured")?.errorIssues).toBeNull();
+    expect(details.get("r-old")?.errorIssues).toBeNull();
+    expect(details.get("r-behind")?.errorIssues).toBeNull();
   });
 
   it("reports when friction coverage began for the viewer's own tenants", async () => {

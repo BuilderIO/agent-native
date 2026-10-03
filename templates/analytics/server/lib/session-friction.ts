@@ -257,6 +257,11 @@ export async function recordReplayFriction(
     );
     const values = {
       ...counts,
+      issueErrors: !existing
+        ? delta.issueErrors
+        : existing.issueErrors === null
+          ? null
+          : existing.issueErrors + delta.issueErrors,
       processedChunks: input.priorChunkCount + input.newChunks.length,
       score,
       detectorState: JSON.stringify(state),
@@ -913,10 +918,18 @@ export async function getSessionFrictionDetails(
   const f = schema.analyticsSessionFriction;
   const t = schema.analyticsSessionTrouble;
 
-  const [replayRows, eventRows, issues] = await Promise.all([
-    db.select().from(rf).where(inArray(rf.recordingId, ids)) as Promise<
-      Array<typeof rf.$inferSelect>
-    >,
+  const replayRows: Array<typeof rf.$inferSelect> = await db
+    .select()
+    .from(rf)
+    .where(inArray(rf.recordingId, ids));
+  const replayById = new Map(replayRows.map((row) => [row.recordingId, row]));
+  const completeReplayRow = (recording: SessionFrictionRecording) => {
+    const row = replayById.get(recording.id);
+    return row && row.processedChunks === recording.chunkCount
+      ? row
+      : undefined;
+  };
+  const [eventRows, issues] = await Promise.all([
     db
       .select({
         recordingId: r.id,
@@ -942,10 +955,15 @@ export async function getSessionFrictionDetails(
         ),
       )
       .where(inArray(r.id, ids)),
-    listRecordingErrorIssues(scope, recordings),
+    listRecordingErrorIssues(
+      scope,
+      recordings.map((recording) => ({
+        ...recording,
+        issueErrorCount: completeReplayRow(recording)?.issueErrors ?? null,
+      })),
+    ),
   ]);
 
-  const replayById = new Map(replayRows.map((row) => [row.recordingId, row]));
   const eventsById = new Map<string, any>(
     eventRows.map((row: any) => [row.recordingId, row]),
   );
@@ -1002,11 +1020,8 @@ export async function getSessionFrictionDetails(
   }
 
   for (const recording of recordings) {
-    const replayRow = replayById.get(recording.id);
-    const replay =
-      replayRow && replayRow.processedChunks === recording.chunkCount
-        ? replayCountsBySignal(replayRow)
-        : null;
+    const replayRow = completeReplayRow(recording);
+    const replay = replayRow ? replayCountsBySignal(replayRow) : null;
     const eventRow = eventsById.get(recording.id);
     const eventsCovered = eventRow?.covered === true && eventRow.tenantKey;
     const events = eventsCovered ? eventCountsBySignal(eventRow) : null;
