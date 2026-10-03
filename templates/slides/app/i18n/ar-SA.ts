@@ -978,8 +978,8 @@ const messages = {
           "اقرأ موقع الشركة المقدم وأنشئ عرضًا عن الشركة. أبلغ عن تعذر الوصول بدلًا من اختلاق الحقائق.",
       },
     },
-    connectBuilderIo: "ربط Builder.io",
-    connectingBuilder: "جارٍ ربط Builder.io…",
+    connectBuilderIo: "استخدم Builder.io",
+    connectingBuilder: "جارٍ إعداد Builder.io…",
     recent: "الأخيرة",
     starters: {
       pitch: {

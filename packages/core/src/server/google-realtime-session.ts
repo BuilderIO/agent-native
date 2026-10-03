@@ -17,6 +17,7 @@ import {
   readDeployCredentialEnv,
   resolveBuilderGatewayAuth,
 } from "./credential-provider.js";
+import { orderCredentialScopes } from "./credential-read-order.js";
 import { runWithRequestContext } from "./request-context.js";
 import { isSameOriginRequest } from "./request-origin.js";
 
@@ -49,7 +50,10 @@ export async function resolveGoogleRealtimeCredentials(opts: {
     }
   }
 
-  for (const ref of secretRefs) {
+  const ordered = opts.userEmail
+    ? await orderCredentialScopes(secretRefs, opts.orgId, opts.userEmail)
+    : secretRefs;
+  for (const ref of ordered) {
     const secret = await readAppSecret({
       key: "GOOGLE_APPLICATION_CREDENTIALS",
       scope: ref.scope,

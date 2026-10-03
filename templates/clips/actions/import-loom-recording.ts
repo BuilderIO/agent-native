@@ -99,9 +99,9 @@ const ImportLoomRecordingSchema = z.object({
 });
 
 const LOOM_STORAGE_SETUP_REQUIRED_REASON =
-  "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage, then retry this Loom import.";
+  "Video storage is not connected yet. Use Builder.io (free tier available) or configure S3-compatible storage, then retry this Loom import.";
 const DIRECT_VIDEO_STORAGE_SETUP_REQUIRED_REASON =
-  "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage, then retry this import.";
+  "Video storage is not connected yet. Use Builder.io (free tier available) or configure S3-compatible storage, then retry this import.";
 
 function recordingDeepLink(recordingId: string): string {
   return buildDeepLink({
@@ -229,11 +229,6 @@ export default defineAction({
     const { organizationId } = await requireOrganizationAccess(
       existingRecording?.organizationId ?? args.organizationId,
     );
-    const defaultVisibility = await getDefaultRecordingVisibility(
-      organizationId,
-      actionContext?.userEmail ?? ownerEmail,
-    );
-
     const now = new Date().toISOString();
     const id = existingRecording?.id ?? nanoid();
     const createdAt = existingRecording?.createdAt ?? now;
@@ -259,7 +254,12 @@ export default defineAction({
     const height = boundedDimension(oembed?.height ?? oembed?.thumbnail_height);
     const folderId = args.folderId ?? existingRecording?.folderId ?? null;
     const visibility =
-      args.visibility ?? existingRecording?.visibility ?? defaultVisibility;
+      args.visibility ??
+      existingRecording?.visibility ??
+      (await getDefaultRecordingVisibility(
+        organizationId,
+        actionContext?.userEmail ?? ownerEmail,
+      ));
     const titleSource = args.title
       ? "manual"
       : (existingRecording?.titleSource ?? "upload");

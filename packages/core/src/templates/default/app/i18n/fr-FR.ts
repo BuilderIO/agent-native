@@ -373,9 +373,9 @@ const messages = {
       "Laissez notre agent cloud effectuer les modifications pour vous. Vous recevrez un lien pour prévisualiser et déployer.",
     codeChangeTitle: "Cela nécessite un changement de code",
     codeChangeBadge: "Changement de code",
-    connectBuilderTitle: "Connecter Builder.io",
+    connectBuilderTitle: "Utiliser Builder.io",
     connectBuilderDescription:
-      "Connectez Builder (offre gratuite disponible) pour activer les modifications de code basées sur le cloud à partir de cette application.",
+      "Utilisez Builder.io (offre gratuite disponible) pour activer les modifications de code basées sur le cloud à partir de cette application.",
     setupRequired: "Configuration requise",
     branchCreated: "Branche créée",
     close: "Fermer",
@@ -630,7 +630,7 @@ const messages = {
     back: "Retour",
     agentEngineRequired: "Moteur d'agent requis",
     agentEngineDescription:
-      "Connect Builder.io (offre gratuite disponible) or an LLM key before {{platform}} can answer.",
+      "Utilisez Builder.io (offre gratuite disponible) ou une clé LLM avant que {{platform}} puisse répondre.",
     openLlm: "Ouvrir LLM",
     setup: "Setup",
     shareDocumentsWith: "Partager des documents avec",

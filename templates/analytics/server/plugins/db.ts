@@ -1541,9 +1541,15 @@ ALTER TABLE analysis_revisions ADD COLUMN IF NOT EXISTS chat_context TEXT`,
       },
     },
     {
+      version: 154,
+      name: "error-capture-test-identity-flags",
+      sql: `ALTER TABLE error_issues ADD COLUMN IF NOT EXISTS test_identity_only BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE error_events ADD COLUMN IF NOT EXISTS test_identity BOOLEAN NOT NULL DEFAULT false`,
+    },
+    {
       // The coverage table comes last: ingest and reads take its existence
       // as proof that every friction table and index exists.
-      version: 154,
+      version: 155,
       name: "analytics-session-friction",
       sql: {
         postgres: `CREATE TABLE IF NOT EXISTS session_recording_friction (

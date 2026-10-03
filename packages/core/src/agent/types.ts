@@ -293,6 +293,8 @@ export interface AgentChatRequest {
   parentId?: string | null;
   attachments?: AgentChatAttachment[];
   internalContinuation?: boolean;
+  /** The time-limit stop this request continues, in the same turn. */
+  autoContinueOfRunId?: string;
   __backgroundRun?: {
     runId: string;
     turnId?: string;

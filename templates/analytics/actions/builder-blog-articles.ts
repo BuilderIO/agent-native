@@ -216,6 +216,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: true,
   grounding: true,
   run: async (args, context) => {
     return listBuilderBlogArticles(args, context);

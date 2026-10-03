@@ -779,6 +779,33 @@ afterEach(async () => {
 });
 
 describe("AgentKitAssistantChat host behavior", () => {
+  it("asks for a title on the engine and model the first prompt was sent with", async () => {
+    const onGenerateTitle = vi.fn();
+    const props = baseProps({ onGenerateTitle });
+    await mount(props);
+
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      messages: [
+        {
+          id: "message-user-1",
+          role: "user",
+          parts: [{ type: "text", text: "Write forty lines" }],
+          metadata: { engine: "ai-sdk:openai", model: "gpt-5.6-luna" },
+        },
+      ],
+    };
+    await act(async () => {
+      root.render(<AgentKitAssistantChat {...props} />);
+    });
+
+    expect(onGenerateTitle).toHaveBeenCalledWith(
+      chatMocks.threadId,
+      "Write forty lines",
+      { engine: "ai-sdk:openai", model: "gpt-5.6-luna" },
+    );
+  });
+
   it("shows a retry when chat history fails to load", async () => {
     const retryHistory = vi.fn();
     chatMocks.history = {
@@ -4307,7 +4334,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     };
     chatMocks.failureError = {
       code: "AGENT_CHAT_AI_SETUP_REQUIRED",
-      message: "Connect Builder AI or a provider API key before chatting.",
+      message: "Use Builder.io or a provider API key before chatting.",
     };
 
     await mount(
@@ -4411,13 +4438,38 @@ describe("AgentKitAssistantChat host behavior", () => {
     },
   };
 
-  it("keeps an ordinary failure with Retry after a later run starts", async () => {
+  it("keeps an ordinary failure with Retry when a different run is retried", async () => {
     chatMocks.failureError = { code: "test-error", message: "Run failed" };
     chatMocks.thread.runs = failedThenLaterRun;
+    chatMocks.thread.messages = [
+      {
+        id: "user-retry",
+        role: "user",
+        parts: [{ type: "text", text: "Later prompt" }],
+        metadata: { custom: { agentNativeRecoveryOfRunId: "run-2" } },
+      },
+    ];
 
     await mount(baseProps());
 
     expect(chatMocks.failureProps.onRetry).toEqual(expect.any(Function));
+  });
+
+  it("hides an ordinary failure once a persisted retry answers its run", async () => {
+    chatMocks.failureError = { code: "test-error", message: "Run failed" };
+    chatMocks.thread.runs = failedThenLaterRun;
+    chatMocks.thread.messages = [
+      {
+        id: "user-retry",
+        role: "user",
+        parts: [{ type: "text", text: "Original prompt" }],
+        metadata: { custom: { agentNativeRecoveryOfRunId: "run-1" } },
+      },
+    ];
+
+    await mount(baseProps());
+
+    expect(chatMocks.failureProps).toBeNull();
   });
 
   it("hides an AI-setup refusal once a later run supersedes it", async () => {
@@ -4529,7 +4581,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     it("keeps references, model, effort and mode when the refusal arrives as a connection error", async () => {
       chatMocks.connectionError = refuse({
         code: "AGENT_CHAT_AI_SETUP_REQUIRED",
-        message: "Connect Builder AI or a provider API key before chatting.",
+        message: "Use Builder.io or a provider API key before chatting.",
       });
       chatMocks.failureCopies = 0;
       const props = baseProps({ providerStatusChecksEnabled: true });
@@ -4581,7 +4633,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     it("finds the refused prompt after a reload and resends it with its context, once per run", async () => {
       chatMocks.connectionError = refuse({
         code: "AGENT_CHAT_AI_SETUP_REQUIRED",
-        message: "Connect Builder AI or a provider API key before chatting.",
+        message: "Use Builder.io or a provider API key before chatting.",
       });
       chatMocks.failureCopies = 0;
       chatMocks.thread.messages = [reloadedRefusal];
@@ -4671,7 +4723,7 @@ describe("AgentKitAssistantChat host behavior", () => {
     it("does not resend an attachment that has nothing to upload", async () => {
       chatMocks.connectionError = refuse({
         code: "AGENT_CHAT_AI_SETUP_REQUIRED",
-        message: "Connect Builder AI or a provider API key before chatting.",
+        message: "Use Builder.io or a provider API key before chatting.",
       });
       chatMocks.failureCopies = 0;
       chatMocks.thread.messages = [

@@ -23,6 +23,10 @@ import {
   ssrCacheHeadersForPolicy,
 } from "../shared/cache-control.js";
 import {
+  EMBED_TARGET_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
+} from "../shared/embed-auth.js";
+import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
@@ -2261,6 +2265,39 @@ export default defineAppConfig({ app: { homePath: "/inbox" } });
       {},
     );
     expect(missingApi.status).toBe(404);
+  });
+
+  it("filters embed auth metadata from generated GET action arguments", async () => {
+    const dir = makeTempDir();
+    const actionPath = path.join(dir, "list-things-action.mjs");
+    fs.writeFileSync(
+      actionPath,
+      `export default { run: async (params) => ({ ok: true, params }) };\n`,
+    );
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry(
+        [],
+        [],
+        [],
+        [{ name: "list-things", absPath: actionPath, method: "get" }],
+      ),
+    );
+    const url = new URL("https://app.test/_agent-native/actions/list-things");
+    url.searchParams.set("q", "hello");
+    url.searchParams.append(EMBED_TOKEN_QUERY_PARAM, "embed-test-token");
+    url.searchParams.append(`${EMBED_TOKEN_QUERY_PARAM}[]`, "embed-test-array");
+    url.searchParams.append(EMBED_TARGET_QUERY_PARAM, "/design/1");
+    url.searchParams.append(`${EMBED_TARGET_QUERY_PARAM}[]`, "/design/2");
+    url.searchParams.append("tag[]", "one");
+    url.searchParams.append("tag[]", "two");
+
+    const response = await worker.fetch(new Request(url), {}, {});
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      params: { q: "hello", tag: ["one", "two"] },
+    });
   });
 
   it("strips mounted base path for auto-mounted action routes under /_agent-native/actions/", async () => {

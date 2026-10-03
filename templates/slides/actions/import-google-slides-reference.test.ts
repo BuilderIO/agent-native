@@ -178,6 +178,10 @@ describe("import-google-slides-reference action", () => {
 
     await action.run({ fileId: "presentation_123" });
 
+    expect(mocks.parsePptx).toHaveBeenCalledWith(expect.anything(), {
+      includeHiddenSlides: true,
+    });
+
     const apiCall = mocks.ssrfSafeFetch.mock.calls.find(([url]) =>
       String(url).startsWith("https://slides.googleapis.com/"),
     );
