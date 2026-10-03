@@ -1,5 +1,5 @@
 #[cfg(target_os = "macos")]
-use objc2_foundation::{NSPoint, NSRect, NSSize};
+use objc2_foundation::{NSPoint, NSProcessInfo, NSRect, NSSize};
 use serde::{Deserialize, Serialize};
 #[cfg(target_os = "macos")]
 use std::io::Write;
@@ -2063,6 +2063,12 @@ mod tests {
     use tauri::PhysicalSize;
 
     #[test]
+    fn offscreen_popover_requires_supported_background_throttling() {
+        assert!(!crate::util::supports_disabled_background_throttling(13));
+        assert!(crate::util::supports_disabled_background_throttling(14));
+    }
+
+    #[test]
     fn popover_size_uses_work_area_and_preserves_recorder_controls() {
         assert_eq!(
             clamp_popover_logical_size(120.0, Some(1_000.0), PhysicalSize::new(800, 600), 1.0),
@@ -2697,8 +2703,26 @@ pub async fn park_popover_offscreen(app: AppHandle) -> Result<(), String> {
         set_popover_parked(&app, true);
         set_capture_excluded(&window);
         let _ = window.set_ignore_cursor_events(true);
-        let _ = window.set_position(PhysicalPosition::new(-10_000_i32, -10_000_i32));
-        set_window_opacity(&window, 0.0);
+        #[cfg(target_os = "macos")]
+        let can_park_offscreen = {
+            let major_version = NSProcessInfo::processInfo()
+                .operatingSystemVersion()
+                .majorVersion;
+            crate::util::supports_disabled_background_throttling(major_version)
+        };
+        #[cfg(not(target_os = "macos"))]
+        let can_park_offscreen = true;
+
+        if can_park_offscreen {
+            let _ = window.set_position(PhysicalPosition::new(-10_000_i32, -10_000_i32));
+            set_window_opacity(&window, 0.0);
+        } else {
+            // Keep a visible pixel on older macOS versions so WKWebView timers keep
+            // running.
+            let _ = window.set_position(PhysicalPosition::new(2_i32, 2_i32));
+            let _ = window.set_size(tauri::Size::Physical(PhysicalSize::new(2, 2)));
+            set_window_opacity(&window, 1.0);
+        }
     }
     Ok(())
 }
