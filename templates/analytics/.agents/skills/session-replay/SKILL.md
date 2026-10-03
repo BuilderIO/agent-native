@@ -125,6 +125,10 @@ agent answers about browser recordings in the Analytics template.
   trouble groups come from tracked events in a savepoint nested inside the
   event index savepoint, one row per session in `analytics_session_friction`
   plus `analytics_session_trouble`.
+- A request the page aborted itself (status 0 with an error `isBenignAbort`
+  in core recognizes, or the recorder's `XMLHttpRequest aborted`) is not a
+  failure: it never feeds retry loops or leaving after an error. Any other
+  status-0 failure does.
 - Never store page text or URLs: detector state keeps timestamps, rrweb node
   ids, and hashed request keys; quick backs compare hashed paths.
 - A replay row counts only while `processed_chunks` equals the recording's
@@ -159,9 +163,14 @@ agent answers about browser recordings in the Analytics template.
 - `errorIssues` links occurrences in `error_events`, which keeps only each
   issue's newest ones, then falls back to issues whose
   `last_session_recording_id` is the recording, with a null count. A
-  recording with errors and still no issue reads null (unknown), never [],
-  unless its owner scope has no issues at all: it does not capture errors as
-  issues, so [] is the truth there.
+  recording with errors Monitoring could capture and still no issue reads
+  null (unknown), never [], unless its owner scope has no issues at all: it
+  does not capture errors as issues, so [] is the truth there. Only captured
+  exceptions can become issues, and a plain `console.error` never does: the
+  recorder marks console errors `exception: false` or `true`, and the replay
+  row counts the others in `issue_errors`, so a recording whose only errors
+  were plain console errors reads []. A row measured before that column, or
+  not measured from its start, falls back to the recording's `errorCount`.
 - Agent failures group by a named cause from `AGENT_TROUBLE_CAUSES` in core
   (`no_model_connected`, `rate_limit`, `context_overflow`, `provider_error`),
   else by the normalized message. Failed actions group by action and status.
@@ -170,9 +179,22 @@ agent answers about browser recordings in the Analytics template.
   `SESSION_FRICTION_SIGNAL_CAP`, computed per part at ingest and summed at
   read. Change weights only in `SESSION_FRICTION_WEIGHTS`.
 - Every friction surface is behind the Sessions triage Lab, in the UI and in
-  `list-session-recordings` / `view-screen`; the 403 names what the Lab
-  gates. With the Lab off, Sessions looks and behaves exactly as before;
-  ingest still records friction.
+  `list-session-recordings`, `list-session-friction`, `view-screen`, and
+  `get-session-replay-summary`; a 403 names what the Lab gates. With the Lab off, Sessions looks and behaves exactly as before;
+  ingest still records friction. A link with Lab filters waits up to 5
+  seconds for the Lab state; one that fails or hangs says so with a retry
+  and never reads as the Lab being off.
+- Without a friction filter or sort, the list loads without friction and its
+  rows read friction from `list-session-friction`, one page of ids at most,
+  through the recordings' access filter. A failed friction read then leaves
+  the list in place with a retry. With a friction filter or sort, friction
+  comes with the list and a failure is a list error.
+- The replay's dev tools show a Friction tab with every signal's count, its
+  trouble groups, and its issue links. `get-session-replay-summary` returns
+  the same `friction` for the agent. A failed Lab state or friction read is
+  reported as `labStateError` or `frictionError`, never as no friction; on
+  the list, `view-screen` reports them beside the base list, and its
+  `activeFilters` echo the filters it applied, not the URL's.
 
 ## Agent Diagnostics Surface
 
