@@ -120,6 +120,43 @@ describe("appendSiteHandoff", () => {
       "youtube.com",
     );
   });
+
+  it("forwards a later visit with a source as last touch", () => {
+    const firstTouch = {
+      utm_source: "google",
+      landing_path: "/",
+      landing_referrer: "www.google.com",
+      landed_at: "2026-09-20T00:00:00.000Z",
+    };
+    const target = appendSiteHandoff(
+      "https://plan.agent-native.com/",
+      firstTouch,
+      "/apps/plan",
+      {
+        ref: "steve",
+        utm_medium: "video",
+        landing_referrer: "www.youtube.com",
+        touched_at: "2026-10-01T00:00:00.000Z",
+      },
+    );
+
+    expect(Object.fromEntries(new URL(target).searchParams)).toEqual({
+      utm_source: "google",
+      site_referrer: "www.google.com",
+      site_landing_path: "/",
+      last_ref: "steve",
+      last_utm_medium: "video",
+      last_referrer: "www.youtube.com",
+    });
+
+    const sameVisit = appendSiteHandoff(
+      "https://plan.agent-native.com/",
+      firstTouch,
+      "/apps/plan",
+      { utm_source: "google", touched_at: firstTouch.landed_at },
+    );
+    expect(new URL(sameVisit).searchParams.has("last_utm_source")).toBe(false);
+  });
 });
 
 describe("installAppLinkAttribution", () => {

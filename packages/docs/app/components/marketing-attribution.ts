@@ -1,6 +1,8 @@
 import {
   getFirstTouchAttribution,
+  getLastTouchAttribution,
   type FirstTouchAttribution,
+  type LastTouchAttribution,
 } from "@agent-native/core/client/analytics";
 
 const FIRST_TOUCH_HANDOFF_FIELDS = [
@@ -15,6 +17,19 @@ const FIRST_TOUCH_HANDOFF_FIELDS = [
   "msclkid",
   "vector_source",
 ] as const satisfies ReadonlyArray<keyof FirstTouchAttribution>;
+
+// The app reads these back as its last touch; see `readForwardedLastTouch`.
+const LAST_TOUCH_HANDOFF_FIELDS = [
+  ["last_ref", "ref"],
+  ["last_via", "via"],
+  ["last_utm_source", "utm_source"],
+  ["last_utm_medium", "utm_medium"],
+  ["last_utm_campaign", "utm_campaign"],
+  ["last_utm_content", "utm_content"],
+  ["last_referrer", "landing_referrer"],
+] as const satisfies ReadonlyArray<
+  readonly [string, keyof LastTouchAttribution]
+>;
 
 const MARKETING_HOSTS = new Set([
   "agent-native.com",
@@ -59,11 +74,16 @@ export function isFirstPartyAppHost(hostname: string): boolean {
  * referrer, so forward where the visitor reached the site from and the page
  * they landed on. `site_landing_path` is always set: it marks the signup as
  * having come through the site even when the visitor had no source here.
+ *
+ * When the visitor's latest sourced visit to the site is a later one than
+ * their first, forward it too as `last_*`, so the app credits what brought
+ * them back.
  */
 export function appendSiteHandoff(
   targetUrl: string,
   attribution: FirstTouchAttribution | null,
   currentPath: string,
+  lastTouch: LastTouchAttribution | null = null,
 ): string {
   const withCampaign = appendFirstTouchAttribution(targetUrl, attribution);
   try {
@@ -72,6 +92,11 @@ export function appendSiteHandoff(
       ["site_referrer", attribution?.landing_referrer],
       ["site_landing_path", attribution?.landing_path || currentPath],
     ];
+    if (lastTouch && lastTouch.touched_at !== attribution?.landed_at) {
+      for (const [param, field] of LAST_TOUCH_HANDOFF_FIELDS) {
+        siteFields.push([param, lastTouch[field]]);
+      }
+    }
     for (const [field, value] of siteFields) {
       if (value && !url.searchParams.has(field)) {
         url.searchParams.set(field, value);
@@ -107,6 +132,7 @@ export function installAppLinkAttribution(target: Document = document) {
       cleanUrl,
       getFirstTouchAttribution(),
       window.location.pathname,
+      getLastTouchAttribution(),
     );
     if (nextUrl === cleanUrl) return;
     link.href = nextUrl;

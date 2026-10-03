@@ -54,6 +54,7 @@ function setLocation(
   location: {
     href: string;
     origin: string;
+    host: string;
     hostname: string;
     pathname: string;
     search: string;
@@ -64,6 +65,7 @@ function setLocation(
   const url = new URL(next, location.href);
   location.href = url.href;
   location.origin = url.origin;
+  location.host = url.host;
   location.hostname = url.hostname;
   location.pathname = url.pathname;
   location.search = url.search;
@@ -119,6 +121,7 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
   const location = {
     href: parsed.href,
     origin: parsed.origin,
+    host: parsed.host,
     hostname: parsed.hostname,
     pathname: parsed.pathname,
     search: parsed.search,
@@ -146,7 +149,12 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
       storage.delete(key);
     },
   };
-  let cookie = "";
+  // Last assignment per cookie name, so each cookie keeps its own value.
+  const cookieAssignments = new Map<string, string>();
+  const readCookies = () =>
+    [...cookieAssignments.values()]
+      .map((assignment) => assignment.split(";", 1)[0]!)
+      .join("; ");
   const windowMock = {
     location,
     history,
@@ -158,16 +166,18 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
     setTimeout,
   };
   vi.stubGlobal("window", windowMock);
-  vi.stubGlobal("document", {
+  const documentMock = {
     referrer: "https://builder.io/start?token=secret&utm=ok",
     title: "Inbox",
     get cookie() {
-      return cookie;
+      return readCookies();
     },
     set cookie(value: string) {
-      cookie = value;
+      const name = value.slice(0, value.indexOf("=")).trim();
+      cookieAssignments.set(name, value);
     },
-  });
+  };
+  vi.stubGlobal("document", documentMock);
   vi.stubGlobal("navigator", { sendBeacon: vi.fn(() => false) });
 
   return {
@@ -177,7 +187,27 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
     localStorage,
     listeners,
     location,
-    getCookie: () => cookie,
+    getCookie: readCookies,
+    cookieAssignment: (name: string) => cookieAssignments.get(name),
+    cookieJson: (name: string) => {
+      const assignment = cookieAssignments.get(name);
+      if (!assignment) return undefined;
+      const value = assignment.slice(name.length + 1).split(";", 1)[0]!;
+      return JSON.parse(decodeURIComponent(value)) as Record<string, string>;
+    },
+    /** Load the app again at `next` in the same browser, as a later visit. */
+    revisit: async (next: string, referrer = "") => {
+      setLocation(location, next);
+      documentMock.referrer = referrer;
+      resetPageviewState();
+      const analytics = await freshAnalytics();
+      analytics.configureTracking({
+        llmConnectionStatus: false,
+        authSessionRefresh: false,
+        pageviewTracking: false,
+      });
+      return analytics;
+    },
   };
 }
 
@@ -335,7 +365,7 @@ describe("browser analytics pageviews", () => {
       site_referrer: "github.com",
       site_landing_path: "/apps/design",
     });
-    const { getCookie } = installBrowser(
+    const { cookieJson } = installBrowser(
       `https://design.agent-native.com/?${params}`,
     );
     const { configureTracking } = await freshAnalytics();
@@ -346,11 +376,108 @@ describe("browser analytics pageviews", () => {
       pageviewTracking: false,
     });
 
-    const value = getCookie().slice("an_ft=".length).split(";", 1)[0]!;
-    expect(JSON.parse(decodeURIComponent(value))).toMatchObject({
+    expect(cookieJson("an_ft")).toMatchObject({
       site_referrer: "github.com",
       site_landing_path: "/apps/design",
       landing_path: "/",
+    });
+  });
+
+  it("replaces a first touch that had no source with the first visit that does", async () => {
+    const { cookieJson, revisit } = installBrowser();
+    await revisit("https://plan.agent-native.com/");
+    expect(cookieJson("an_ft")).not.toHaveProperty("ref");
+    expect(cookieJson("an_lt")).toBeUndefined();
+
+    const { getFirstTouchAttribution, getLastTouchAttribution } = await revisit(
+      "https://plan.agent-native.com/?ref=steve&utm_medium=video",
+    );
+
+    expect(getFirstTouchAttribution()).toMatchObject({
+      ref: "steve",
+      utm_medium: "video",
+    });
+    expect(cookieJson("an_ft")).toMatchObject({ ref: "steve" });
+    expect(getLastTouchAttribution()).toMatchObject({
+      ref: "steve",
+      utm_medium: "video",
+      landing_path: "/",
+      touched_at: expect.any(String),
+    });
+  });
+
+  it("keeps the first visit with a source and records later ones as last touch", async () => {
+    const { cookieJson, revisit } = installBrowser();
+    await revisit(
+      "https://plan.agent-native.com/?utm_source=youtube&utm_medium=video",
+    );
+    await revisit("https://plan.agent-native.com/p/abc?ref=steve");
+    const { getFirstTouchAttribution } = await revisit(
+      "https://plan.agent-native.com/",
+    );
+
+    expect(getFirstTouchAttribution()).toMatchObject({
+      utm_source: "youtube",
+      utm_medium: "video",
+    });
+    expect(cookieJson("an_ft")).toMatchObject({ utm_source: "youtube" });
+    expect(cookieJson("an_lt")).toEqual({
+      ref: "steve",
+      landing_path: "/p/abc",
+      touched_at: expect.any(String),
+    });
+  });
+
+  it("ignores referrers from our own apps and Google sign-in", async () => {
+    const { cookieJson, revisit } = installBrowser();
+    await revisit("https://plan.agent-native.com/");
+    await revisit(
+      "https://plan.agent-native.com/",
+      "https://mail.agent-native.com/inbox",
+    );
+    await revisit(
+      "https://plan.agent-native.com/",
+      "https://accounts.google.com/",
+    );
+
+    expect(cookieJson("an_ft")).not.toHaveProperty("landing_referrer");
+    expect(cookieJson("an_lt")).toBeUndefined();
+
+    await revisit(
+      "https://plan.agent-native.com/",
+      "https://news.ycombinator.com/item?id=1",
+    );
+    expect(cookieJson("an_ft")).toMatchObject({
+      landing_referrer: "news.ycombinator.com",
+    });
+    expect(cookieJson("an_lt")).toMatchObject({
+      landing_referrer: "news.ycombinator.com",
+    });
+  });
+
+  it("takes the marketing site's forwarded last touch over its first touch", async () => {
+    const params = new URLSearchParams({
+      utm_source: "google",
+      utm_medium: "cpc",
+      site_referrer: "www.google.com",
+      site_landing_path: "/",
+      last_ref: "steve",
+      last_utm_medium: "video",
+      last_referrer: "www.youtube.com",
+    });
+    const { cookieJson, revisit } = installBrowser();
+    await revisit(`https://plan.agent-native.com/?${params}`);
+
+    expect(cookieJson("an_ft")).toMatchObject({
+      utm_source: "google",
+      site_referrer: "www.google.com",
+    });
+    expect(cookieJson("an_lt")).toEqual({
+      ref: "steve",
+      utm_medium: "video",
+      site_referrer: "www.youtube.com",
+      landing_path: "/",
+      touched_at: expect.any(String),
     });
   });
 
@@ -364,7 +491,7 @@ describe("browser analytics pageviews", () => {
       utm_content: "💡".repeat(120),
       utm_term: "💡".repeat(120),
     });
-    const { getCookie, localStorage } = installBrowser(
+    const { cookieAssignment, cookieJson, localStorage } = installBrowser(
       `https://slides.agent-native.com/?${params}`,
     );
     const { configureTracking } = await freshAnalytics();
@@ -375,13 +502,11 @@ describe("browser analytics pageviews", () => {
       pageviewTracking: false,
     });
 
-    const cookie = getCookie();
-    const value = cookie.slice("an_ft=".length).split(";", 1)[0]!;
-    const captured = JSON.parse(decodeURIComponent(value));
     const stored = JSON.parse(localStorage.getItem("an_attribution")!);
 
-    expect(cookie.length).toBeLessThanOrEqual(1500);
-    expect(captured).toMatchObject({
+    expect(cookieAssignment("an_ft")!.length).toBeLessThanOrEqual(1500);
+    expect(cookieAssignment("an_lt")!.length).toBeLessThanOrEqual(700);
+    expect(cookieJson("an_ft")).toMatchObject({
       gclid: "click-id",
       msclkid: "microsoft-click-id",
       utm_source: "google",
