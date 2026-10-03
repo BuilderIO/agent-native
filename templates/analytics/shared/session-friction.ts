@@ -124,10 +124,13 @@ export interface SessionFrictionSignalCount {
   count: number;
 }
 
+/** How many signals a session row shows unless more are pinned. */
+export const SESSION_FRICTION_TOP_SIGNAL_LIMIT = 3;
+
 /** The signals that add most to a score, heaviest first. */
 export function topSessionFrictionSignals(
   counts: FrictionCounts,
-  limit = 3,
+  limit = SESSION_FRICTION_TOP_SIGNAL_LIMIT,
 ): SessionFrictionSignalCount[] {
   return (Object.keys(SESSION_FRICTION_WEIGHTS) as ScoredFrictionInput[])
     .map((signal) => ({

@@ -1327,6 +1327,8 @@ export default {
       "La friction n'est pas encore mesurée pour toutes les sessions de cette période.",
     labStateUnavailable:
       "Impossible de charger vos paramètres de Lab : les filtres de ce lien ne sont pas appliqués.",
+    labFeaturesUnavailable:
+      "Impossible de charger vos paramètres de Lab : les fonctionnalités Lab sont masquées.",
     frictionUnavailable: "Impossible de charger la friction.",
     frictionSignalCount: "{{label}} : {{count}}",
     frictionFiltersNeedLab:

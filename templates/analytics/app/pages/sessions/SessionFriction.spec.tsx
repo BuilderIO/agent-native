@@ -9,7 +9,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       params ? `${key}(${Object.values(params).join("|")})` : key,
 }));
 
-import type { SessionFriction } from "../../../shared/session-friction";
+import type {
+  SessionFriction,
+  SessionFrictionSignal,
+} from "../../../shared/session-friction";
 import {
   SessionFrictionBreakdown,
   SessionFrictionPanel,
@@ -25,10 +28,18 @@ const measuredEvents = {
   cancelled_runs: null,
 };
 
-function strip(friction: SessionFriction, sortSignal?: "thumbs_down") {
+function strip(
+  friction: SessionFriction,
+  sortSignal?: "thumbs_down",
+  filterSignals?: SessionFrictionSignal[],
+) {
   return renderToStaticMarkup(
     <MemoryRouter>
-      <SessionFrictionStrip friction={friction} sortSignal={sortSignal} />
+      <SessionFrictionStrip
+        friction={friction}
+        sortSignal={sortSignal}
+        filterSignals={filterSignals}
+      />
     </MemoryRouter>,
   );
 }
@@ -61,6 +72,33 @@ describe("SessionFrictionStrip", () => {
         "thumbs_down",
       ),
     ).toBe("");
+  });
+
+  it("leads with the signal a row was filtered by, even a light one", () => {
+    const busy: SessionFriction = {
+      ...calm,
+      score: 9,
+      events: {
+        ...measuredEvents,
+        agent_failures: 2,
+        stuck_chats: 1,
+        failed_actions: 2,
+        quick_backs: 1,
+      },
+      topSignals: [
+        { signal: "agent_failures", count: 2 },
+        { signal: "failed_actions", count: 2 },
+        { signal: "stuck_chats", count: 1 },
+      ],
+    };
+    const html = strip(busy, undefined, ["quick_backs"]);
+    const chips = html.match(/sessions\.frictionSignalCount\(([^|]+)/g);
+    expect(chips).toEqual([
+      "sessions.frictionSignalCount(sessions.signalQuickBacks",
+      "sessions.frictionSignalCount(sessions.signalAgentFailures",
+      "sessions.frictionSignalCount(sessions.signalFailedActions",
+    ]);
+    expect(strip(busy)).not.toContain("signalQuickBacks");
   });
 });
 
