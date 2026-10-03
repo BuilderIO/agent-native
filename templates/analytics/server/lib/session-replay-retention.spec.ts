@@ -78,6 +78,10 @@ describe("session replay retention", () => {
       [
         {
           id: "rec_1",
+          sessionId: "session_1",
+          ownerEmail: "owner@example.com",
+          orgId: null,
+          chunkCount: 3,
           status: "active",
           startedAt: "2026-01-01T00:00:00.000Z",
           updatedAt: "2026-01-01T00:20:00.000Z",
@@ -102,11 +106,18 @@ describe("session replay retention", () => {
         updatedAt: "2026-01-01T01:00:00.000Z",
       },
     });
-    expect(finalizeReplayFrictionMock).toHaveBeenCalledWith({
-      recordingId: "rec_1",
-      errorCount: 0,
-      rageClickCount: 0,
-    });
+    expect(finalizeReplayFrictionMock).toHaveBeenCalledWith(
+      {
+        id: "rec_1",
+        sessionId: "session_1",
+        ownerEmail: "owner@example.com",
+        orgId: null,
+        chunkCount: 3,
+        errorCount: 0,
+        rageClickCount: 0,
+      },
+      "2026-01-01T01:00:00.000Z",
+    );
   });
 
   it("leaves a recording active for the next sweep when its friction cannot be finalized", async () => {
@@ -114,6 +125,10 @@ describe("session replay retention", () => {
       [
         {
           id: "rec_1",
+          sessionId: "session_1",
+          ownerEmail: "owner@example.com",
+          orgId: "org_1",
+          chunkCount: 3,
           status: "active",
           startedAt: "2026-01-01T00:00:00.000Z",
           updatedAt: "2026-01-01T00:20:00.000Z",
@@ -131,11 +146,14 @@ describe("session replay retention", () => {
       new Date("2026-01-01T01:00:00.000Z"),
     );
 
-    expect(finalizeReplayFrictionMock).toHaveBeenCalledWith({
-      recordingId: "rec_1",
-      errorCount: 2,
-      rageClickCount: 1,
-    });
+    expect(finalizeReplayFrictionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "rec_1",
+        errorCount: 2,
+        rageClickCount: 1,
+      }),
+      "2026-01-01T01:00:00.000Z",
+    );
     expect(result).toEqual({ finalized: 0 });
     expect(updates).toEqual([]);
     expect(warn).toHaveBeenCalledWith(
