@@ -9,6 +9,7 @@ import {
   canonicalTrackingEvent,
   legacyLifecycleEvent,
   normalizeTrackingDimension,
+  SLOW_ACTION_RESPONSE_MS,
   withCanonicalTrackingProperties,
   type AgentNativeLifecycleEventName,
 } from "../shared/analytics-events.js";
@@ -2199,7 +2200,17 @@ const REPLAY_UNMARKED_EVENT_NAMES = new Set([
   AGENT_NATIVE_EXCEPTION_EVENT_NAME,
 ]);
 
-function markTrackedEventInSessionReplay(name: string): void {
+function markTrackedEventInSessionReplay(
+  name: string,
+  props: Record<string, unknown>,
+): void {
+  if (
+    name === "action.response" &&
+    typeof props.duration_ms === "number" &&
+    props.duration_ms >= SLOW_ACTION_RESPONSE_MS
+  ) {
+    _sessionReplayModuleForCapture?.emitSessionReplaySlowRequest?.(props);
+  }
   if (REPLAY_UNMARKED_EVENT_NAMES.has(name)) return;
   _sessionReplayModuleForCapture?.emitSessionReplayAnalyticsEvent?.(name);
 }
@@ -2232,7 +2243,9 @@ function trackBrowserEvent(
       sendGtag: !gtagNameMatchesCanonical,
     });
   }
-  if (markInReplay) markTrackedEventInSessionReplay(canonical?.name ?? name);
+  if (markInReplay) {
+    markTrackedEventInSessionReplay(canonical?.name ?? name, props);
+  }
   void recordTrackingEvent(name, props, "client");
   const lifecycle = legacyLifecycleEvent(name, props);
   // The alias describes the same moment, so it gets no second replay marker.

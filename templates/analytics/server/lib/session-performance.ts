@@ -31,7 +31,10 @@ import {
   WEB_VITAL_THRESHOLDS,
   WEB_VITALS_EVENT_NAME,
 } from "../../shared/session-performance.js";
-import { isSlowRequest } from "../../shared/slow-request.js";
+import {
+  isSlowRequest,
+  isWaitedActionResponse,
+} from "../../shared/slow-request.js";
 import { getDb, schema } from "../db/index.js";
 import {
   boundedText,
@@ -177,10 +180,7 @@ function parsePerformanceRow(
       if (value !== null) samples.push({ metric, value, weight: 1 });
     }
   } else {
-    // Background tabs throttle timers and cancelled requests never finish,
-    // so neither duration is what a person waited for.
-    if (properties.page_hidden === true) return null;
-    if (properties.outcome === "cancelled") return null;
+    if (!isWaitedActionResponse(properties)) return null;
     const value = numberOf(
       properties.duration_ms,
       performanceCeiling("request"),

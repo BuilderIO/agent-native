@@ -2,6 +2,9 @@ import { SLOW_REQUEST_THRESHOLD_MS } from "./slow-request.js";
 
 export const WEB_VITALS_EVENT_NAME = "web_vitals";
 export const SESSION_REPLAY_VITALS_EVENT_TAG = "agent-native.vitals";
+/** A slow `action.response`, marked with that event's own timing. */
+export const SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG =
+  "agent-native.slow_request";
 
 export const PERFORMANCE_METRICS = [
   "ttfb",

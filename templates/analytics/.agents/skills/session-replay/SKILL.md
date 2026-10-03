@@ -251,11 +251,13 @@ agent answers about browser recordings in the Analytics template.
   creates `analytics_performance_coverage`, ingest stores events without these
   aggregates and warns, the slow filter matches nothing, and reads report no
   coverage.
-- The replay's slow-request markers show only what the row count counts:
-  action requests made while the page was visible (replay network events
-  carry `pageHidden`). Replay times a request to its response headers, so
-  one just over 1 s may be counted without a marker, and a failed or timed-out
-  action request is marked as failed even when the count includes it.
+- The replay's slow-request markers come from the `agent-native.slow_request`
+  events core records beside each slow `action.response`, with that event's
+  own duration, status, and outcome, and follow the count's rule
+  (`isWaitedActionResponse`), so a marker matches exactly what the row
+  counts. Never derive them from replay network events: those stop timing at
+  the response headers. Replays from clients without these events show no
+  slow-request markers.
 - `slow` and `includePerformance` on `list-session-recordings`,
   `list-session-performance`, `list-route-performance`, the replay's vitals
   and slow-request markers, and `performance` on `get-session-replay-summary`

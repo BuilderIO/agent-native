@@ -84,9 +84,13 @@ import type { SessionRecordingFriction } from "../../../shared/session-friction"
 import {
   formatPerformanceValue,
   rateWebVital,
+  SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG,
   SESSION_REPLAY_VITALS_EVENT_TAG,
 } from "../../../shared/session-performance";
-import { isSlowRequest } from "../../../shared/slow-request";
+import {
+  isSlowRequest,
+  isWaitedActionResponse,
+} from "../../../shared/slow-request";
 import { extractReplayDiagnostics } from "./session-replay-devtools";
 import type { ReplayDevToolsDiagnostics } from "./session-replay-devtools";
 import {
@@ -2293,6 +2297,39 @@ function customReplayMarker(
     };
   }
 
+  if (tag === SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG) {
+    const durationMs = Number(payload.duration_ms);
+    // Mark exactly what the row's slow-request count counts: the same
+    // action.response timing, under the same rule.
+    if (
+      !options.performance ||
+      !isWaitedActionResponse(payload) ||
+      !isSlowRequest(durationMs)
+    ) {
+      return null;
+    }
+    const action =
+      typeof payload.action === "string" ? payload.action : undefined;
+    const status = Number(payload.status_code);
+    return {
+      id: `slow-${timestamp}-${index}`,
+      timestamp,
+      offsetMs,
+      kind: "event",
+      label: options.performance.slowRequest,
+      detail: [action, formatPerformanceValue("request", durationMs)]
+        .filter(Boolean)
+        .join(" · "),
+      severity: "warn",
+      fields: markerFields([
+        ["Action", action],
+        ["Method", payload.method],
+        ["Status", Number.isFinite(status) && status ? status : undefined],
+        ["Duration", formatPerformanceValue("request", durationMs)],
+      ]),
+    };
+  }
+
   if (tag === SESSION_REPLAY_NETWORK_EVENT_TAG) {
     const status = Number(payload.status ?? 0);
     const method =
@@ -2302,37 +2339,7 @@ function customReplayMarker(
       payload.ok !== false &&
       (!Number.isFinite(status) || !isFailedSessionReplayNetworkStatus(status))
     ) {
-      const durationMs = Number(payload.durationMs);
-      const slowAction = replayActionName(url);
-      // Mark only what the row's slow-request count counts: action requests
-      // made while the page was visible.
-      if (
-        !options.performance ||
-        !slowAction ||
-        payload.pageHidden === true ||
-        !isSlowRequest(durationMs)
-      ) {
-        return null;
-      }
-      return {
-        id: `slow-${timestamp}-${index}`,
-        timestamp,
-        offsetMs,
-        kind: "event",
-        label: options.performance.slowRequest,
-        detail: [
-          slowAction,
-          formatPerformanceValue("request", durationMs),
-        ].join(" · "),
-        severity: "warn",
-        fields: markerFields([
-          ["Action", slowAction],
-          ["Method", method],
-          ["URL", url],
-          ["Status", Number.isFinite(status) && status ? status : undefined],
-          ["Duration", formatPerformanceValue("request", durationMs)],
-        ]),
-      };
+      return null;
     }
     const error = typeof payload.error === "string" ? payload.error : undefined;
     const actionName = options.appEvents ? replayActionName(url) : null;

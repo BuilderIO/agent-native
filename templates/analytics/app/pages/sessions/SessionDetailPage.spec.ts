@@ -589,6 +589,75 @@ describe("session replay app event markers", () => {
         type: 5,
         timestamp: 3_000,
         data: {
+          tag: "agent-native.slow_request",
+          payload: {
+            action: "list-clips",
+            method: "POST",
+            duration_ms: 2_400,
+            status_code: 200,
+            outcome: "success",
+            page_hidden: false,
+          },
+        },
+      },
+      {
+        type: 5,
+        timestamp: 3_200,
+        data: {
+          tag: "agent-native.slow_request",
+          payload: {
+            action: "save-clip",
+            method: "POST",
+            duration_ms: 1_200,
+            status_code: 500,
+            outcome: "http-error",
+            page_hidden: false,
+          },
+        },
+      },
+      {
+        type: 5,
+        timestamp: 3_500,
+        data: {
+          tag: "agent-native.slow_request",
+          payload: {
+            action: "list-clips",
+            duration_ms: 999,
+            page_hidden: false,
+          },
+        },
+      },
+      {
+        type: 5,
+        timestamp: 3_600,
+        data: {
+          tag: "agent-native.slow_request",
+          payload: {
+            action: "list-clips",
+            duration_ms: 9_000,
+            page_hidden: true,
+          },
+        },
+      },
+      {
+        type: 5,
+        timestamp: 3_700,
+        data: {
+          tag: "agent-native.slow_request",
+          payload: {
+            action: "list-clips",
+            duration_ms: 5_000,
+            outcome: "cancelled",
+            page_hidden: false,
+          },
+        },
+      },
+      {
+        // A network event stops timing at the headers, so it never marks a
+        // slow request; the slow-request event carries the counted timing.
+        type: 5,
+        timestamp: 3_800,
+        data: {
           tag: "agent-native.network",
           payload: {
             api: "fetch",
@@ -597,52 +666,6 @@ describe("session replay app event markers", () => {
             status: 200,
             ok: true,
             durationMs: 2_400,
-          },
-        },
-      },
-      {
-        type: 5,
-        timestamp: 3_500,
-        data: {
-          tag: "agent-native.network",
-          payload: {
-            api: "fetch",
-            method: "GET",
-            url: "https://clips.example.test/assets/app.js",
-            status: 200,
-            ok: true,
-            durationMs: 999,
-          },
-        },
-      },
-      {
-        type: 5,
-        timestamp: 3_600,
-        data: {
-          tag: "agent-native.network",
-          payload: {
-            api: "fetch",
-            method: "GET",
-            url: "https://clips.example.test/assets/video.mp4",
-            status: 200,
-            ok: true,
-            durationMs: 8_000,
-          },
-        },
-      },
-      {
-        type: 5,
-        timestamp: 3_700,
-        data: {
-          tag: "agent-native.network",
-          payload: {
-            api: "fetch",
-            method: "POST",
-            url: "https://clips.example.test/_agent-native/actions/list-clips",
-            status: 200,
-            ok: true,
-            durationMs: 9_000,
-            pageHidden: true,
           },
         },
       },
@@ -682,6 +705,13 @@ describe("session replay app event markers", () => {
           detail: "list-clips · 2.4 s",
           severity: "warn",
           offsetMs: 2_000,
+        },
+        {
+          kind: "event",
+          label: "Slow request",
+          detail: "save-clip · 1.2 s",
+          severity: "warn",
+          offsetMs: 2_200,
         },
       ]);
     });

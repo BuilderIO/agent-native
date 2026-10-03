@@ -463,6 +463,49 @@ describe("session replay", () => {
     );
   });
 
+  it("marks a slow request on the replay with only its operational fields", async () => {
+    installBrowser("https://clips.agent-native.com/library");
+    const addCustomEvent = vi.fn();
+    (
+      recordMock as typeof recordMock & {
+        addCustomEvent: typeof addCustomEvent;
+      }
+    ).addCustomEvent = addCustomEvent;
+    recordMock.mockReturnValue(vi.fn());
+    const {
+      emitSessionReplaySlowRequest,
+      startSessionReplay,
+      SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG,
+    } = await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+    });
+    emitSessionReplaySlowRequest({
+      action: "save-clip",
+      method: "POST",
+      duration_ms: 1_307,
+      status_code: 500,
+      outcome: "error",
+      title: "Quarterly plan",
+    } as Parameters<typeof emitSessionReplaySlowRequest>[0]);
+    emitSessionReplaySlowRequest({ action: "list-clips" });
+
+    expect(addCustomEvent).toHaveBeenCalledTimes(1);
+    expect(addCustomEvent).toHaveBeenCalledWith(
+      SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG,
+      {
+        action: "save-clip",
+        method: "POST",
+        duration_ms: 1_307,
+        status_code: 500,
+        outcome: "error",
+        page_hidden: false,
+      },
+    );
+  });
+
   it("caps app event markers per replay, across restarts and reloads", async () => {
     const { storage, fetchMock } = installBrowser(
       "https://clips.agent-native.com/library",

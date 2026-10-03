@@ -348,6 +348,8 @@ export const SESSION_REPLAY_NETWORK_EVENT_TAG = "agent-native.network";
 export const SESSION_REPLAY_AGENT_CHAT_EVENT_TAG = "agent-native.chat";
 export const SESSION_REPLAY_ANALYTICS_EVENT_TAG = "agent-native.event";
 export const SESSION_REPLAY_VITALS_EVENT_TAG = "agent-native.vitals";
+export const SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG =
+  "agent-native.slow_request";
 const SESSION_REPLAY_LIFECYCLE_EVENT_TAG = "agent-native.session_replay";
 
 const DEFAULT_MAX_CONSOLE_EVENTS = 1000;
@@ -3731,6 +3733,46 @@ export function emitSessionReplayAnalyticsEvent(name: string): void {
   if (!bounded || !reserveAnalyticsMarker(state)) return;
   emitReplayCustomEvent(state, SESSION_REPLAY_ANALYTICS_EVENT_TAG, {
     name: bounded,
+  });
+}
+
+export type SessionReplaySlowRequest = {
+  action?: unknown;
+  method?: unknown;
+  duration_ms?: unknown;
+  status_code?: unknown;
+  outcome?: unknown;
+  page_hidden?: unknown;
+};
+
+/**
+ * Mark a slow `action.response` on the replay timeline with that event's own
+ * timing, which runs to the end of the body; a network event stops at the
+ * headers. Only these operational fields are recorded, and the marker shares
+ * the analytics marker budget.
+ */
+export function emitSessionReplaySlowRequest(
+  input: SessionReplaySlowRequest,
+): void {
+  const state = getState();
+  if (!state.active || !state.addCustomEvent) return;
+  if (typeof input.duration_ms !== "number") return;
+  if (!reserveAnalyticsMarker(state)) return;
+  emitReplayCustomEvent(state, SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG, {
+    ...(typeof input.action === "string"
+      ? { action: input.action.slice(0, MAX_ANALYTICS_EVENT_NAME_LENGTH) }
+      : {}),
+    ...(typeof input.method === "string"
+      ? { method: input.method.slice(0, 10) }
+      : {}),
+    duration_ms: input.duration_ms,
+    ...(typeof input.status_code === "number"
+      ? { status_code: input.status_code }
+      : {}),
+    ...(typeof input.outcome === "string"
+      ? { outcome: input.outcome.slice(0, 20) }
+      : {}),
+    page_hidden: input.page_hidden === true,
   });
 }
 

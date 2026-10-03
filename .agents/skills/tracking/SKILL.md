@@ -353,7 +353,10 @@ Other framework-level baseline events:
   browser-perceived duration and TTFB, response status/outcome, response size
   when known, and parsed `Server-Timing` phases for framework readiness and
   database work. Its `request_id` joins the exact browser and server events.
-  This separates server time from CDN/network/body overhead.
+  This separates server time from CDN/network/body overhead. One at or over
+  `SLOW_ACTION_RESPONSE_MS` (1 s) is never sampled, and is also marked on
+  the session replay (`agent-native.slow_request`) with its action, method,
+  duration, status, outcome, and `page_hidden`.
 - `web_vitals` once per page view, with the React Router `route` template
   (`/sessions/:id`, never the ids; omitted when no manifest route matches,
   because a normalized raw path still carries slugs and emails),

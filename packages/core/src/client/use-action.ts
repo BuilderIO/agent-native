@@ -9,6 +9,7 @@ import type {
   UseMutationOptions,
 } from "@tanstack/react-query";
 
+import { SLOW_ACTION_RESPONSE_MS } from "../shared/analytics-events.js";
 import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
 import {
   actionCircuitRemainingMs,
@@ -606,7 +607,7 @@ function getActionResponseSampling(
   durationMs: number,
   response: Response | undefined,
 ): ActionResponseSampling {
-  if (error || durationMs >= 1_000) {
+  if (error || durationMs >= SLOW_ACTION_RESPONSE_MS) {
     return { track: true, sampleRate: 1, sampled: false };
   }
   if (response && response.status >= 400 && response.status < 500) {

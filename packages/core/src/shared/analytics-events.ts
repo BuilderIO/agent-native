@@ -388,6 +388,12 @@ export function agentTroubleCauseForCode(
 export const AGENT_SIGNALS_PAGEVIEW_PROPERTY = "agent_signals";
 export const AGENT_SIGNALS_VERSION = 1;
 
+/**
+ * Action telemetry reports every `action.response` at least this slow
+ * unsampled, and marks it on the session replay with its own timing.
+ */
+export const SLOW_ACTION_RESPONSE_MS = 1_000;
+
 const MAX_AGENT_TROUBLE_MESSAGE_INPUT = 1_000;
 export const MAX_AGENT_TROUBLE_MESSAGE_LENGTH = 120;
 
