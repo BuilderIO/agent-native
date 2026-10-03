@@ -345,6 +345,12 @@ export const hitTestBridgeScript: string = `"use strict";
         width: Math.max(firstColumn.end, lastColumn.end) - Math.min(firstColumn.start, lastColumn.start),
         height: Math.max(firstRow.end, lastRow.end) - Math.min(firstRow.start, lastRow.start)
       };
+      for (var pseudo of ["::before", "::after"]) {
+        var pseudoStyles = window.getComputedStyle(container, pseudo);
+        if (pseudoStyles.content !== "none" && pseudoStyles.content !== "normal" && pseudoStyles.display !== "none" && pseudoStyles.position !== "absolute" && pseudoStyles.position !== "fixed") {
+          return null;
+        }
+      }
       var children = Array.prototype.slice.call(container.children);
       var childNodes = Array.prototype.slice.call(container.childNodes);
       for (var nodeIndex = 0; nodeIndex < childNodes.length; nodeIndex += 1) {

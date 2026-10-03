@@ -14296,6 +14296,50 @@ it(
 );
 
 it(
+  "editor chrome bridge declines grid-cell targets occupied by in-flow generated items",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html><html><head><style>
+        #grid::before { content: ""; grid-column: 2; grid-row: 1; width: 80px; height: 80px; }
+      </style></head><body style="margin:0">
+        <div id="grid" data-agent-native-node-id="grid" style="position:absolute;left:300px;top:80px;width:160px;height:80px;display:grid;grid-template-columns:80px 80px;grid-template-rows:80px;box-sizing:border-box">
+          <div id="occupied" data-agent-native-node-id="occupied" style="grid-column:1;grid-row:1;width:80px;height:80px"></div>
+        </div>
+      </body></html>`);
+      const bridgeScript = hydratedEditorChromeBridgeScript().replace(
+        "function nearestChildInsertionTarget(",
+        "window.__testGridCellInsertionTarget = gridCellInsertionTarget;\nfunction nearestChildInsertionTarget(",
+      );
+      await page.addScriptTag({ content: bridgeScript });
+
+      const target = await page.evaluate(() => {
+        const grid = document.querySelector<Element>("#grid")!;
+        const occupied = document.querySelector<Element>("#occupied")!;
+        return (window as any).__testGridCellInsertionTarget(
+          grid,
+          420,
+          120,
+          [occupied],
+          [],
+        );
+      });
+
+      expect(target).toBeNull();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "editor chrome bridge bounds RTL displaced guides to the occupied partial span",
   { timeout: 30_000 },
   async () => {

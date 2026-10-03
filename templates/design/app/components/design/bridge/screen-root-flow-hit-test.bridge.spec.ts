@@ -620,6 +620,51 @@ describe("grid hit-test placement", () => {
     }
   });
 
+  it("declines precise targeting for in-flow generated grid items", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 240, height: 120 },
+      });
+      await page.setContent(`<!doctype html><html><head><style>
+        #grid::before { content: ""; grid-column: 2; grid-row: 1; width: 80px; height: 80px; }
+      </style></head><body style="margin:0">
+        <div id="grid" data-agent-native-node-id="grid" style="position:absolute;left:0;top:0;box-sizing:border-box;width:160px;height:80px;display:grid;grid-template-columns:80px 80px;grid-template-rows:80px">
+          <div data-agent-native-node-id="occupied" style="grid-column:1;grid-row:1;width:80px;height:80px"></div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "generated-grid-item",
+            x: 120,
+            y: 30,
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+
+      const packet = await page.evaluate(
+        () => (window as any).__hitTestResults[0],
+      );
+      expect(packet.gridPlacement).toBeUndefined();
+      expect(packet.guideRect).toBeUndefined();
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("treats an underfilled spanning item's full grid area as occupied", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
