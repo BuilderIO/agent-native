@@ -220,7 +220,13 @@ function hasMatchingStylesheetValue(
   const aliases: Record<string, string[]> = {
     "align-items": ["place-items"],
     "align-self": ["place-self"],
-    "border-bottom-width": ["border-bottom", "border-width", "border"],
+    "border-bottom-width": [
+      "border-bottom",
+      "border-width",
+      "border",
+      "border-block",
+      "border-block-end",
+    ],
     "border-left-width": [
       "border-left",
       "border-width",
@@ -237,7 +243,15 @@ function hasMatchingStylesheetValue(
       "border-inline-start",
       "border-inline-end",
     ],
-    "border-top-width": ["border-top", "border-width", "border"],
+    "border-top-width": [
+      "border-top",
+      "border-width",
+      "border",
+      "border-block",
+      "border-block-start",
+    ],
+    height: ["block-size"],
+    width: ["inline-size"],
     "column-gap": ["gap"],
     "container-name": ["container"],
     "container-type": ["container"],

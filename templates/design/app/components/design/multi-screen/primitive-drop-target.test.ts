@@ -1832,12 +1832,70 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     },
   );
 
+  it("defers reverse-flex slots when stylesheet inline-size changes a row main axis", () => {
+    const screen = {
+      ...flexScreen,
+      id: "reverse-flex-stylesheet-inline-size-screen",
+      content: `<!doctype html><html><head><style>
+        .parent { inline-size: 100px !important; }
+      </style></head><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" class="parent" style="position:absolute;left:0;top:0;width:300px;height:100px;display:flex;flex-direction:row-reverse">
+          <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="width:30px;height:20px"></div>
+          <div data-agent-native-node-id="second" data-an-primitive="rectangle" style="width:30px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const parent = primitives.find(
+      (primitive) => primitive.nodeId === "parent",
+    )!;
+
+    expect(parent.autoLayoutOrderKnown).toBe(false);
+    expect(
+      findAutoLayoutInsertionAnchor(
+        parent,
+        primitives,
+        { x: 285, y: 10 },
+        null,
+      ),
+    ).toBeNull();
+  });
+
+  it("defers column-reverse slots when stylesheet border-block changes item extents", () => {
+    const screen = {
+      ...flexScreen,
+      id: "reverse-flex-stylesheet-border-block-screen",
+      content: `<!doctype html><html><head><style>
+        .child { border-block: 2px solid #111; }
+      </style></head><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:100px;height:300px;display:flex;flex-direction:column-reverse">
+          <div data-agent-native-node-id="first" data-an-primitive="rectangle" class="child" style="width:30px;height:20px"></div>
+          <div data-agent-native-node-id="second" data-an-primitive="rectangle" style="width:30px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const parent = primitives.find(
+      (primitive) => primitive.nodeId === "parent",
+    )!;
+
+    expect(parent.autoLayoutOrderKnown).toBe(false);
+    expect(
+      findAutoLayoutInsertionAnchor(
+        parent,
+        primitives,
+        { x: 10, y: 285 },
+        null,
+      ),
+    ).toBeNull();
+  });
+
   it("keeps inline box and gap values when lower-priority stylesheet rules disagree", () => {
     const screen = {
       ...flexScreen,
       id: "inline-reverse-flex-box-values-screen",
       content: `<!doctype html><html><head><style>
-        .parent { gap: 20px; padding-right: 40px; }
+        .parent { inline-size: 100px; gap: 20px; padding-right: 40px; }
         .child { padding-left: 20px; }
       </style></head><body>
         <div data-agent-native-node-id="parent" data-an-primitive="frame" class="parent" style="position:absolute;left:0;top:0;box-sizing:border-box;width:200px;height:100px;display:flex;flex-direction:row-reverse;gap:5px;padding-right:5px">
@@ -1870,12 +1928,12 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
       ...flexScreen,
       id: "inline-important-reverse-flex-box-values-screen",
       content: `<!doctype html><html><head><style>
-        .parent { gap: 20px !important; padding: 40px !important; }
-        .child { padding: 20px !important; }
+        .parent { inline-size: 100px !important; gap: 20px !important; padding: 40px !important; }
+        .child { padding: 20px !important; border-block: 20px solid #111 !important; }
       </style></head><body>
-        <div data-agent-native-node-id="parent" data-an-primitive="frame" class="parent" style="position:absolute;left:0;top:0;box-sizing:border-box;width:200px;height:100px;display:flex;flex-direction:row-reverse;gap:5px!important;padding:5px 5px 5px 0!important">
-          <div data-agent-native-node-id="first" data-an-primitive="rectangle" class="child" style="width:40px;height:20px;padding:0 0 0 2px!important"></div>
-          <div data-agent-native-node-id="second" data-an-primitive="rectangle" class="child" style="width:40px;height:20px;padding:0 0 0 2px!important"></div>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" class="parent" style="position:absolute;left:0;top:0;box-sizing:border-box;width:200px!important;height:100px;display:flex;flex-direction:row-reverse;gap:5px!important;padding:5px 5px 5px 0!important">
+          <div data-agent-native-node-id="first" data-an-primitive="rectangle" class="child" style="width:40px;height:20px;padding:0 0 0 2px!important;border-top-width:0!important;border-bottom-width:0!important"></div>
+          <div data-agent-native-node-id="second" data-an-primitive="rectangle" class="child" style="width:40px;height:20px;padding:0 0 0 2px!important;border-top-width:0!important;border-bottom-width:0!important"></div>
         </div>
       </body></html>`,
     };
