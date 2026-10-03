@@ -46,6 +46,7 @@ import {
   aggregateSessionFrictionEvents,
   getSessionFrictionCoverageStart,
   getSessionFrictionDetails,
+  listRecordingFriction,
   pruneSessionFriction,
   QUICK_BACK_WINDOW_MS,
   recordReplayFriction,
@@ -87,7 +88,9 @@ async function createBaseTables(client: PGliteClient) {
       org_id text,
       visibility text NOT NULL DEFAULT 'private',
       started_at text NOT NULL,
-      chunk_count integer NOT NULL DEFAULT 0
+      chunk_count integer NOT NULL DEFAULT 0,
+      error_count integer NOT NULL DEFAULT 0,
+      rage_click_count integer NOT NULL DEFAULT 0
     )
   `);
   await client.query(`
@@ -1114,6 +1117,27 @@ describe("session friction on Postgres", () => {
     expect(details.get("r-captured")?.errorIssues).toBeNull();
     expect(details.get("r-old")?.errorIssues).toBeNull();
     expect(details.get("r-behind")?.errorIssues).toBeNull();
+  });
+
+  it("lists friction only for the recordings the viewer can read", async () => {
+    await migrateFriction(client);
+    await addRecording("r1", "s1", at(0), 1);
+    await client.query(
+      `INSERT INTO session_recordings (id, client_recording_id, session_id, owner_email, org_id, started_at)
+       VALUES ('r-other', 'client-r-other', 's2', 'other@example.com', 'org_2', $1)`,
+      [at(0)],
+    );
+    await replayBatch("r1", "s1", 0, [serverError(1_000)]);
+
+    const friction = await listRecordingFriction(SCOPE, [
+      "r1",
+      "r1",
+      "r-other",
+      "r-missing",
+    ]);
+    expect(Object.keys(friction)).toEqual(["r1"]);
+    expect(friction.r1.replay?.http_5xx).toBe(1);
+    await expect(listRecordingFriction(SCOPE, [])).resolves.toEqual({});
   });
 
   it("reports when friction coverage began for the viewer's own tenants", async () => {

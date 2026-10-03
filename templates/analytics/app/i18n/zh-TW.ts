@@ -1316,6 +1316,7 @@ export default {
     frictionCoverageSince: "摩擦涵蓋 {{date}} 以來的工作階段。",
     frictionCoverageIncomplete: "此時間範圍內並非所有工作階段都已測量摩擦。",
     labStateUnavailable: "無法載入你的 Lab 設定，因此未套用此連結的篩選條件。",
+    frictionUnavailable: "無法載入這些工作階段的摩擦資料。",
     frictionSignalCount: "{{label}}：{{count}}",
     frictionFiltersNeedLab:
       "此連結依摩擦篩選或排序。請在設定中開啟「工作階段篩選」Lab 以套用。",

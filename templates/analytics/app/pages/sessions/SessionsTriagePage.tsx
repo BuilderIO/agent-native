@@ -114,6 +114,8 @@ type Page = {
   frictionCoverageStartedAt?: string | null;
 };
 
+type RowFriction = { friction: Record<string, SessionFriction> };
+
 const RANGES: Range[] = ["24h", "7d", "30d", "90d", "all"];
 const SORTS: Sort[] = ["newest", "longest", "errors", "events", "rage"];
 const DURATIONS = [0, 60_000, 5 * 60_000, 15 * 60_000, 30 * 60_000];
@@ -270,6 +272,8 @@ export function SessionsTriagePage() {
     : eventsLabEnabled && isSessionFrictionSort(requestedSort)
       ? requestedSort
       : "newest";
+  const frictionApplied =
+    frictionSignals.length > 0 || isSessionFrictionSort(sort);
   // A shared link with event or friction conditions waits briefly for the Lab
   // state instead of listing unfiltered sessions. Nothing else waits, and a
   // hung read stops holding the list and reads as failed.
@@ -405,7 +409,7 @@ export function SessionsTriagePage() {
           ? eventConditions.didNotEvents
           : undefined,
         frictionSignals: frictionSignals.length ? frictionSignals : undefined,
-        includeFriction: eventsLabEnabled || undefined,
+        includeFriction: frictionApplied || undefined,
         sort,
         offset: (page - 1) * SESSION_PAGE_SIZE,
         limit: SESSION_PAGE_SIZE,
@@ -413,12 +417,27 @@ export function SessionsTriagePage() {
       {
         staleTime: 30_000,
         enabled: !waitingForEventsLab,
-        // Rows stay put while the Lab's friction details load in; they dim
-        // until the new filters' rows arrive.
-        placeholderData: eventsLabEnabled ? (previous) => previous : undefined,
+        // Rows stay put while a friction filter or sort loads; they dim
+        // until its rows arrive.
+        placeholderData: frictionApplied ? (previous) => previous : undefined,
       },
     );
   const recordings = data?.recordings ?? [];
+  // Without a friction filter or sort, row friction loads beside the list,
+  // keyed on its rows, so a failed friction read leaves the list in place.
+  const {
+    data: rowFriction,
+    error: rowFrictionError,
+    isFetching: rowFrictionFetching,
+    refetch: refetchRowFriction,
+  } = useActionQuery<RowFriction>(
+    "list-session-friction",
+    { recordingIds: recordings.map((recording) => recording.id) },
+    {
+      staleTime: 30_000,
+      enabled: eventsLabEnabled && !frictionApplied && recordings.length > 0,
+    },
+  );
   const frictionCoverageStartedAt = data?.frictionCoverageStartedAt;
   const frictionCoverageNote =
     frictionCoverageStartedAt === undefined
@@ -797,6 +816,28 @@ export function SessionsTriagePage() {
           {t("sessions.frictionFiltersNeedLab")}
         </p>
       ) : null}
+      {eventsLabEnabled &&
+      !frictionApplied &&
+      rowFrictionError &&
+      !rowFriction ? (
+        <p
+          className="flex items-center gap-2 text-xs text-muted-foreground"
+          role="status"
+        >
+          {t("sessions.frictionUnavailable")}
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => void refetchRowFriction()}
+            disabled={rowFrictionFetching}
+          >
+            <IconRefresh
+              className={cn(rowFrictionFetching && "animate-spin")}
+            />
+            {t("sidebar.retry")}
+          </Button>
+        </p>
+      ) : null}
       {frictionCoverageStartedAt !== undefined &&
       recordings.length > 0 &&
       rangePredatesFrictionCoverage(
@@ -907,7 +948,11 @@ export function SessionsTriagePage() {
                     <SessionRow
                       key={recording.id}
                       friction={
-                        eventsLabEnabled ? recording.friction : undefined
+                        !eventsLabEnabled
+                          ? undefined
+                          : frictionApplied
+                            ? recording.friction
+                            : rowFriction?.friction[recording.id]
                       }
                       sortSignal={
                         isSessionFrictionSignal(sort) ? sort : undefined

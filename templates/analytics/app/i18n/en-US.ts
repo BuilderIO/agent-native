@@ -1377,6 +1377,7 @@ export default {
       "Friction isn't measured for every session in this range yet.",
     labStateUnavailable:
       "Couldn't load your Lab settings, so this link's filters aren't applied.",
+    frictionUnavailable: "Couldn't load friction for these sessions.",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:
       "This link filters or sorts by friction. Turn on the Sessions triage Lab in Settings to apply it.",

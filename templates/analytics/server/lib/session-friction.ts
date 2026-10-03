@@ -1062,6 +1062,39 @@ export async function getSessionFrictionDetails(
   return result;
 }
 
+/** Friction for specific recordings, such as one list page's rows. */
+export async function listRecordingFriction(
+  scope: ErrorReadScope,
+  recordingIds: readonly string[],
+): Promise<Record<string, SessionFriction>> {
+  const ids = [...new Set(recordingIds)];
+  if (!ids.length) return {};
+  const r = schema.sessionRecordings;
+  const recordings: SessionFrictionRecording[] = await (getDb() as any)
+    .select({
+      id: r.id,
+      clientRecordingId: r.clientRecordingId,
+      sessionId: r.sessionId,
+      chunkCount: r.chunkCount,
+      ownerEmail: r.ownerEmail,
+      orgId: r.orgId,
+      errorCount: r.errorCount,
+      rageClickCount: r.rageClickCount,
+    })
+    .from(r)
+    .where(
+      and(
+        accessFilter(r, schema.sessionRecordingShares, {
+          userEmail: scope.userEmail,
+          orgId: scope.orgId ?? undefined,
+        }),
+        inArray(r.id, ids),
+      ),
+    )
+    .limit(ids.length);
+  return Object.fromEntries(await getSessionFrictionDetails(scope, recordings));
+}
+
 export async function pruneSessionFriction(
   replayRetentionDays: number,
   now = new Date(),

@@ -15,26 +15,43 @@ const mocks = vi.hoisted(() => ({
   pending: false,
   placeholder: false,
   coverage: undefined as string | null | undefined,
+  recordings: [] as Record<string, unknown>[],
+  rowFriction: {} as Record<string, unknown>,
+  rowFrictionError: null as Error | null,
+  rowFrictionRefetch: vi.fn(),
   error: null as Error | null,
   refetch: vi.fn(),
-  useActionQuery: vi.fn(() => ({
-    data: mocks.pending
-      ? undefined
+  useActionQuery: vi.fn((name: string) =>
+    name === "list-session-friction"
+      ? {
+          data: mocks.rowFrictionError
+            ? undefined
+            : { friction: mocks.rowFriction },
+          error: mocks.rowFrictionError,
+          isPending: false,
+          isLoading: false,
+          isFetching: false,
+          refetch: mocks.rowFrictionRefetch,
+        }
       : {
-          recordings: [],
-          total: mocks.total,
-          appCounts: [],
-          ...(mocks.coverage !== undefined
-            ? { frictionCoverageStartedAt: mocks.coverage }
-            : {}),
+          data: mocks.pending
+            ? undefined
+            : {
+                recordings: mocks.recordings,
+                total: mocks.total,
+                appCounts: [],
+                ...(mocks.coverage !== undefined
+                  ? { frictionCoverageStartedAt: mocks.coverage }
+                  : {}),
+              },
+          error: mocks.error,
+          isPending: mocks.pending,
+          isLoading: false,
+          isFetching: false,
+          isPlaceholderData: mocks.placeholder,
+          refetch: mocks.refetch,
         },
-    error: mocks.error,
-    isPending: mocks.pending,
-    isLoading: false,
-    isFetching: false,
-    isPlaceholderData: mocks.placeholder,
-    refetch: mocks.refetch,
-  })),
+  ),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -102,6 +119,9 @@ describe("Sessions empty states", () => {
     mocks.pending = false;
     mocks.placeholder = false;
     mocks.coverage = undefined;
+    mocks.recordings = [];
+    mocks.rowFriction = {};
+    mocks.rowFrictionError = null;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -379,6 +399,100 @@ describe("Sessions empty states", () => {
         (button) => button.textContent === "sessions.frictionFiltersActive",
       ),
     ).toBe(true);
+  });
+
+  const recording = (id: string, friction?: unknown) => ({
+    id,
+    sessionId: `session-${id}`,
+    userId: `${id}@example.com`,
+    startedAt: "2026-09-29T10:00:00.000Z",
+    durationMs: 60_000,
+    eventCount: 4,
+    pageCount: 1,
+    errorCount: 0,
+    networkErrorCount: 0,
+    rageClickCount: 0,
+    ...(friction ? { friction } : {}),
+  });
+  const deadClicks = (count: number) => ({
+    score: count,
+    replay: null,
+    events: null,
+    topSignals: [{ signal: "dead_clicks", count }],
+    troubles: [],
+    errorIssues: [],
+  });
+
+  it("lists sessions without friction and loads row friction beside them", async () => {
+    mocks.labEnabled = true;
+    mocks.total = 2;
+    mocks.recordings = [recording("r1"), recording("r2")];
+    mocks.rowFriction = { r1: { ...deadClicks(3), replay: {} } };
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    const [, listArgs, listOptions] = listCalls()[0];
+    expect(listArgs.includeFriction).toBeUndefined();
+    expect(listOptions.placeholderData).toBeUndefined();
+    expect(mocks.useActionQuery).toHaveBeenCalledWith(
+      "list-session-friction",
+      { recordingIds: ["r1", "r2"] },
+      expect.objectContaining({ enabled: true }),
+    );
+    expect(container.textContent).toContain("sessions.frictionSignalCount");
+  });
+
+  it("keeps the list and offers a retry when row friction fails to load", async () => {
+    mocks.labEnabled = true;
+    mocks.total = 1;
+    mocks.recordings = [recording("r1")];
+    mocks.rowFrictionError = new Error("friction read failed");
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.textContent).toContain("r1@example.com");
+    expect(container.textContent).toContain("sessions.frictionUnavailable");
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "sidebar.retry")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(mocks.rowFrictionRefetch).toHaveBeenCalledOnce();
+  });
+
+  it("takes row friction from the list itself under a friction sort", async () => {
+    mocks.labEnabled = true;
+    mocks.total = 1;
+    mocks.recordings = [recording("r1", { ...deadClicks(2), replay: {} })];
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions?sort=dead_clicks"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(listCalls()[0][1]).toMatchObject({
+      includeFriction: true,
+      sort: "dead_clicks",
+    });
+    expect(mocks.useActionQuery).toHaveBeenCalledWith(
+      "list-session-friction",
+      expect.anything(),
+      expect.objectContaining({ enabled: false }),
+    );
+    expect(container.textContent).toContain("sessions.frictionSignalCount");
   });
 
   function listCalls() {
