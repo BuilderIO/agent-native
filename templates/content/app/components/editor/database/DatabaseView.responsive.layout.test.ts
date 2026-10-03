@@ -24,9 +24,9 @@ describe("collection layout at phone and tablet widths", () => {
     expect(databaseView).toContain('<ContentTableToolbar className="ms-auto">');
   });
 
-  it("leaves vertical scrolling to the page below md", () => {
+  it("leaves vertical scrolling to the page below lg", () => {
     expect(databaseView).toContain(
-      'className: "overflow-auto md:max-h-[70vh]"',
+      'className: "overflow-auto lg:max-h-[70vh]"',
     );
     expect(databaseView).not.toContain('"max-h-[70vh] overflow-auto"');
   });

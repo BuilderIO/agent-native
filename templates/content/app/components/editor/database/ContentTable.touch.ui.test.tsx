@@ -162,11 +162,17 @@ describe("touch long-press", () => {
   }) {
     const longPress = useContentTableLongPress(onLongPress);
     return (
-      <div data-row="" {...longPress}>
+      <>
         <button type="button" onClick={onOpen}>
-          Open row
+          Open column menu
         </button>
-      </div>
+        <div data-row="" {...longPress}>
+          <button type="button" onClick={onOpen}>
+            Open row
+          </button>
+          <input aria-label="Row title" />
+        </div>
+      </>
     );
   }
 
@@ -194,8 +200,17 @@ describe("touch long-press", () => {
         <LongPressHarness onLongPress={onLongPress} onOpen={onOpen} />,
       ),
     );
-    const button = host.querySelector("button")!;
-    return { onLongPress, onOpen, button };
+    const [outside, button] = host.querySelectorAll("button");
+    const input = host.querySelector("input")!;
+    return { onLongPress, onOpen, outside, button, input };
+  }
+
+  // A finger's click reports `detail` 1; `element.click()` reports 0, as a
+  // keyboard or assistive-technology activation does.
+  function tap(element: Element) {
+    element.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 }),
+    );
   }
 
   it("selects after a held touch and swallows the click that ends it", async () => {
@@ -210,12 +225,87 @@ describe("touch long-press", () => {
 
     await act(async () => {
       button.dispatchEvent(pointer("pointerup", "touch"));
-      button.click();
+      tap(button);
     });
     expect(onOpen).not.toHaveBeenCalled();
 
+    await act(async () => tap(button));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it("swallows the click that ends a held touch wherever the layout moved it", async () => {
+    vi.useFakeTimers();
+    const { onOpen, outside, button } = await renderHarness();
+
+    await act(async () => {
+      button.dispatchEvent(pointer("pointerdown", "touch"));
+      vi.advanceTimersByTime(500);
+      button.dispatchEvent(pointer("pointerup", "touch"));
+      tap(outside);
+    });
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it("lets the next tap through when a held touch ends without a click", async () => {
+    vi.useFakeTimers();
+    const { onOpen, outside, button } = await renderHarness();
+
+    await act(async () => {
+      button.dispatchEvent(pointer("pointerdown", "touch"));
+      vi.advanceTimersByTime(500);
+      button.dispatchEvent(pointer("pointerup", "touch"));
+    });
+    await act(async () => {
+      outside.dispatchEvent(pointer("pointerdown", "touch"));
+      outside.dispatchEvent(pointer("pointerup", "touch"));
+      tap(outside);
+    });
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it("never swallows a keyboard click, even right after a held touch", async () => {
+    vi.useFakeTimers();
+    const { onLongPress, onOpen, button } = await renderHarness();
+
+    await act(async () => {
+      button.dispatchEvent(pointer("pointerdown", "touch"));
+      vi.advanceTimersByTime(500);
+      button.dispatchEvent(pointer("pointercancel", "touch"));
+    });
+    expect(onLongPress).toHaveBeenCalledTimes(1);
+
     await act(async () => button.click());
     expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it("forgets a held touch the page cancelled by scrolling", async () => {
+    vi.useFakeTimers();
+    const { onOpen, button } = await renderHarness();
+
+    await act(async () => {
+      button.dispatchEvent(pointer("pointerdown", "touch"));
+      vi.advanceTimersByTime(500);
+      button.dispatchEvent(pointer("pointercancel", "touch"));
+    });
+    await act(async () => tap(button));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a held touch on an editable field to the field", async () => {
+    vi.useFakeTimers();
+    const { onLongPress, input } = await renderHarness();
+
+    await act(async () => {
+      input.dispatchEvent(pointer("pointerdown", "touch"));
+      vi.advanceTimersByTime(800);
+    });
+    const menu = new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => input.dispatchEvent(menu));
+    expect(onLongPress).not.toHaveBeenCalled();
+    expect(menu.defaultPrevented).toBe(false);
   });
 
   it("ignores mouse presses, short taps, and presses that turn into a scroll", async () => {
@@ -239,7 +329,7 @@ describe("touch long-press", () => {
     });
     expect(onLongPress).not.toHaveBeenCalled();
 
-    await act(async () => button.click());
+    await act(async () => tap(button));
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
 });

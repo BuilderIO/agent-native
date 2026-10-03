@@ -5896,10 +5896,10 @@ function DatabaseTableView({
               columns={dataGridColumns}
               getRowId={(item) => item.id}
               columnWidths={columnWidths}
-              // Below `md` the page owns vertical scrolling: a nested 70vh
+              // Below `lg` the page owns vertical scrolling: a nested 70vh
               // scroller traps the swipe and leaves the table a short window.
               scrollContainerProps={{
-                className: "overflow-auto md:max-h-[70vh]",
+                className: "overflow-auto lg:max-h-[70vh]",
               }}
               renderHeader={() => (
                 <DatabaseTableGrid

@@ -84,6 +84,10 @@ export function useContentTableSelectionGutter(selecting: boolean) {
 
 const LONG_PRESS_MS = 500;
 const LONG_PRESS_SLOP_PX = 10;
+// A long press on text the user is editing selects text and opens the native
+// copy/paste menu; it must not select the row instead.
+const LONG_PRESS_IGNORED_TARGET =
+  "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
 
 /**
  * Touch long-press, the platform gesture for entering selection mode where a
@@ -92,22 +96,56 @@ const LONG_PRESS_SLOP_PX = 10;
  */
 export function useContentTableLongPress(onLongPress: () => void) {
   const press = useRef<{ timer: number; x: number; y: number } | null>(null);
-  const fired = useRef(false);
+  const releaseClick = useRef<(() => void) | null>(null);
   const cancel = () => {
     if (press.current) window.clearTimeout(press.current.timer);
     press.current = null;
   };
+  const disarm = () => releaseClick.current?.();
   const fire = () => {
     cancel();
-    fired.current = true;
+    disarm();
+    // Selecting shows the selection bar above the table, so the click that
+    // ends this press lands on whatever moved under the finger, not the row.
+    const swallow = (event: MouseEvent) => {
+      // Keyboard and assistive-technology clicks report `detail` 0 and never
+      // end a press.
+      if (event.detail === 0) return;
+      release();
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    const release = () => {
+      window.removeEventListener("click", swallow, true);
+      window.removeEventListener("pointerdown", release, true);
+      releaseClick.current = null;
+    };
+    window.addEventListener("click", swallow, true);
+    // A press that ends without a click must not take the next tap's.
+    window.addEventListener("pointerdown", release, true);
+    releaseClick.current = release;
     onLongPress();
   };
-  useEffect(() => cancel, []);
+  useEffect(
+    () => () => {
+      cancel();
+      disarm();
+    },
+    [],
+  );
   return {
     onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
       cancel();
-      fired.current = false;
       if (event.pointerType !== "touch" || !event.isPrimary) return;
+      const target = event.target;
+      // React also delivers events from portals (property editors, menus)
+      // rendered outside the row's DOM.
+      if (
+        !(target instanceof Element) ||
+        !event.currentTarget.contains(target) ||
+        target.closest(LONG_PRESS_IGNORED_TARGET)
+      )
+        return;
       press.current = {
         timer: window.setTimeout(fire, LONG_PRESS_MS),
         x: event.clientX,
@@ -124,17 +162,16 @@ export function useContentTableLongPress(onLongPress: () => void) {
         cancel();
     },
     onPointerUp: cancel,
-    onPointerCancel: cancel,
+    // A cancelled press (the page started scrolling) never produces the
+    // click this would swallow.
+    onPointerCancel: () => {
+      cancel();
+      disarm();
+    },
     // Android reports the same gesture as a context menu before the timer.
     onContextMenu: (event: ReactMouseEvent<HTMLElement>) => {
       if (press.current) fire();
-      if (fired.current) event.preventDefault();
-    },
-    onClickCapture: (event: ReactMouseEvent<HTMLElement>) => {
-      if (!fired.current) return;
-      fired.current = false;
-      event.preventDefault();
-      event.stopPropagation();
+      if (releaseClick.current) event.preventDefault();
     },
   };
 }
