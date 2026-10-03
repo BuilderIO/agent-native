@@ -37,19 +37,27 @@ export function parseIngestBody(raw: unknown): unknown {
 }
 
 function postgresSafe(value: unknown): unknown {
-  if (typeof value === "string") {
-    return value.replace(NUL, "").replace(LONE_SURROGATE, "�");
-  }
+  if (typeof value === "string") return postgresSafeString(value);
   if (Array.isArray(value)) return value.map(postgresSafe);
   if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, entry]) => [
-        postgresSafe(key),
-        postgresSafe(entry),
-      ]),
-    );
+    const entries = Object.entries(value).map(([key, entry]) => [
+      postgresSafeString(key),
+      postgresSafe(entry),
+    ]);
+    // Two keys that clean to one would silently keep only one value.
+    if (new Set(entries.map(([key]) => key)).size < entries.length) {
+      throw requestError(
+        "Request body has keys that differ only by characters Postgres cannot store",
+        400,
+      );
+    }
+    return Object.fromEntries(entries);
   }
   return value;
+}
+
+function postgresSafeString(value: string): string {
+  return value.replace(NUL, "").replace(LONE_SURROGATE, "�");
 }
 
 export function errorReply(

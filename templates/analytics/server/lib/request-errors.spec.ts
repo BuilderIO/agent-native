@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { errorReply, parseJsonBody, requestError } from "./request-errors.js";
+import {
+  errorReply,
+  parseIngestBody,
+  parseJsonBody,
+  requestError,
+} from "./request-errors.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -43,6 +48,23 @@ describe("parseJsonBody", () => {
       expect.objectContaining({
         statusCode: 400,
         message: "Request body is not valid JSON",
+      }),
+    );
+  });
+});
+
+describe("parseIngestBody", () => {
+  it("rejects keys that would clean to the same key instead of dropping one", () => {
+    expect(
+      parseIngestBody('{"a":{"note\\u0000":1,"tag":2},"__proto__":{"x":1}}'),
+    ).toEqual(JSON.parse('{"a":{"note":1,"tag":2},"__proto__":{"x":1}}'));
+    expect(() =>
+      parseIngestBody('{"properties":{"note\\u0000":1,"note":2}}'),
+    ).toThrow(
+      expect.objectContaining({
+        statusCode: 400,
+        message:
+          "Request body has keys that differ only by characters Postgres cannot store",
       }),
     );
   });
