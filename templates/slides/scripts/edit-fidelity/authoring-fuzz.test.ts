@@ -61,7 +61,15 @@ it("gates outside style changes and unmodeled geometry changes", () => {
 
 it("tracks computed style properties beyond typography and box paint", () => {
   expect(AUTHORING_FUZZ_STYLE_PROPERTIES).toEqual(
-    expect.arrayContaining(["filter", "position", "transform"]),
+    expect.arrayContaining([
+      "filter",
+      "position",
+      "text-decoration-color",
+      "text-decoration-style",
+      "text-underline-offset",
+      "transform",
+      "vertical-align",
+    ]),
   );
 });
 
