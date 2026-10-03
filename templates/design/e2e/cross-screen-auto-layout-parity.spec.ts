@@ -910,6 +910,11 @@ test.describe("physical cross-screen auto-layout parity", () => {
       design.id,
       "destination.html",
     );
+    const sourceBeforeBox = await boxFor(
+      page,
+      design.sourceId,
+      "screen-source",
+    );
     const release = {
       x: fourth.x + fourth.width + 6,
       y: fourth.y + fourth.height / 2,
@@ -971,6 +976,30 @@ test.describe("physical cross-screen auto-layout parity", () => {
       )
       .toEqual({ position: "static", parent: "destination-flow" });
 
+    const expectSourceOnWrappedThirdRow = async () => {
+      await expect
+        .poll(async () => {
+          const [firstBox, sourceBox] = await Promise.all([
+            boxFor(page, design.destinationId, "wrapped-first"),
+            boxFor(page, design.destinationId, "screen-source"),
+          ]);
+          return Math.abs(sourceBox.x - firstBox.x);
+        })
+        .toBeLessThan(2);
+      await expect
+        .poll(async () => {
+          const [firstBox, thirdBox, sourceBox] = await Promise.all([
+            boxFor(page, design.destinationId, "wrapped-first"),
+            boxFor(page, design.destinationId, "wrapped-third"),
+            boxFor(page, design.destinationId, "screen-source"),
+          ]);
+          const rowStep = thirdBox.y - firstBox.y;
+          return Math.abs(sourceBox.y - (thirdBox.y + rowStep));
+        })
+        .toBeLessThan(2);
+    };
+    await expectSourceOnWrappedThirdRow();
+
     await page.keyboard.press(`${PRIMARY}+z`);
     await expect
       .poll(() =>
@@ -983,6 +1012,18 @@ test.describe("physical cross-screen auto-layout parity", () => {
         ),
       )
       .toEqual({ sourceHas: true, destinationHas: false });
+    await expect
+      .poll(async () => {
+        const sourceBox = await boxFor(page, design.sourceId, "screen-source");
+        return Math.abs(sourceBox.x - sourceBeforeBox.x);
+      })
+      .toBeLessThan(2);
+    await expect
+      .poll(async () => {
+        const sourceBox = await boxFor(page, design.sourceId, "screen-source");
+        return Math.abs(sourceBox.y - sourceBeforeBox.y);
+      })
+      .toBeLessThan(2);
     await page.keyboard.press(`${PRIMARY}+Shift+z`);
     await waitForMove(
       page,
@@ -991,6 +1032,7 @@ test.describe("physical cross-screen auto-layout parity", () => {
       "destination.html",
       "screen-source",
     );
+    await expectSourceOnWrappedThirdRow();
     await settleReload(page);
     await expect
       .poll(destinationOrder)
@@ -1001,6 +1043,7 @@ test.describe("physical cross-screen auto-layout parity", () => {
         "wrapped-fourth",
         "screen-source",
       ]);
+    await expectSourceOnWrappedThirdRow();
   });
 
   test("G1: physical drop selects the eligible inner auto-layout frame and its held insertion slot", async ({
