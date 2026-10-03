@@ -33,6 +33,7 @@ pub(crate) fn is_active(app: &AppHandle) -> bool {
 }
 
 struct ActiveRewindClip {
+    startup_id: String,
     activated: bool,
     lease_id: Option<String>,
     pin_id: String,
@@ -99,6 +100,7 @@ pub(crate) fn rewind_clip_status(
 pub(crate) fn rewind_clip_prepare(
     app: AppHandle,
     state: State<'_, RewindClipState>,
+    startup_id: String,
     artifact_label: String,
     server_url: Option<String>,
     recording_id: Option<String>,
@@ -202,6 +204,7 @@ pub(crate) fn rewind_clip_prepare(
         return Err("a Rewind-derived clip is already prepared or active".into());
     }
     *active = Some(ActiveRewindClip {
+        startup_id,
         activated: false,
         pin_id: format!("rewind-clip-{}", Utc::now().timestamp_micros()),
         lease_id: None,
@@ -1460,8 +1463,18 @@ pub(crate) async fn rewind_clip_stop_and_save(
 pub(crate) fn rewind_clip_cancel(
     app: AppHandle,
     state: State<'_, RewindClipState>,
+    startup_id: Option<String>,
 ) -> Result<(), String> {
-    let active = state.0.lock().map_err(|error| error.to_string())?.take();
+    let mut state = state.0.lock().map_err(|error| error.to_string())?;
+    if startup_id.as_deref().is_some_and(|startup_id| {
+        state
+            .as_ref()
+            .is_some_and(|active| active.startup_id.as_str() != startup_id)
+    }) {
+        return Ok(());
+    }
+    let active = state.take();
+    drop(state);
     if let Some(mut active) = active {
         if let Some(lease_id) = active.lease_id.as_deref() {
             let _ = app

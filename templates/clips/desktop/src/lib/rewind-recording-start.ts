@@ -9,14 +9,22 @@ export interface RewindRecordingStartPhases<TPrepared, TStarted> {
 export async function prepareRewindRecordingStart<TPrepared, TStarted>(
   phases: RewindRecordingStartPhases<TPrepared, TStarted>,
 ): Promise<TStarted> {
-  const preparedPromise = phases.prepare();
+  let preparationFailed = false;
+  const preparedPromise = phases.prepare().catch((err) => {
+    preparationFailed = true;
+    throw err;
+  });
   const countdownPromise = phases.countdown();
   let prepared: TPrepared;
   try {
     [prepared] = await Promise.all([preparedPromise, countdownPromise]);
   } catch (err) {
     phases.cancelCountdown();
-    await Promise.allSettled([preparedPromise, countdownPromise]);
+    if (preparationFailed) {
+      await Promise.allSettled([countdownPromise]);
+    } else {
+      void preparedPromise.catch(() => {});
+    }
     throw err;
   }
   await phases.beforeActivate?.();
