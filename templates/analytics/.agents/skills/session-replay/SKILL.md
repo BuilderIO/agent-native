@@ -243,9 +243,10 @@ agent answers about browser recordings in the Analytics template.
   route day, read as `incompleteDates`; a session id marks that session,
   read as `performance.incomplete` and kept by `slow: any` only, since
   missing data cannot rule it out; `vitals` and `requests` need a measured
-  slow value. The slow filter correlates on each recording's own tenant, so
-  a recording shared from another tenant is judged by that tenant's
-  aggregates. A summary's `slowRequests` is null when the session made no
+  slow value. The slow filter correlates on each recording's own tenant. As
+  with event friction, a share grants the recording, not its tenant's
+  events: a recording shared from another tenant has no speed summary (null)
+  and never matches a slow filter. A summary's `slowRequests` is null when the session made no
   measured request. Bucket edges are positional, so changing them needs a new
   `PERFORMANCE_HISTOGRAM_VERSION`.
 - Percentiles interpolate inside one bucket. Past the first bucket each edge
