@@ -1,7 +1,9 @@
 import {
   ANALYTICS_ANONYMOUS_ID_COOKIE_NAME,
+  ANALYTICS_ANONYMOUS_ID_MAX_LENGTH,
   normalizeAnalyticsAnonymousId,
 } from "../shared/analytics-anonymous-id.js";
+import { shareLandingSource } from "../shared/attribution-source.js";
 
 /**
  * First-touch referral attribution — server side.
@@ -12,6 +14,11 @@ import {
  * `client/analytics.ts`). On signup, the auth hook reads that cookie off the
  * request and enriches the canonical server-side `signup` event so we can
  * measure where new users came from and how apps spread (virality).
+ *
+ * The browser also keeps the visitor's *last* visit that had a source in an
+ * `an_lt` cookie. First touch answers "how did they find us?" and credits
+ * acquisition; last touch answers "what brought them to sign up?" and credits
+ * the post, video, or person that converted them.
  *
  * This module is intentionally pure and dependency-free so it is trivially
  * unit-testable and can never throw into the signup path. The single hard rule:
@@ -43,6 +50,20 @@ export interface FirstTouchAttribution {
   capture_truncated?: string;
 }
 
+/** The decoded `an_lt` cookie: the latest visit that had a source. */
+export interface LastTouchAttribution {
+  ref?: string;
+  via?: string;
+  utm_source?: string;
+  utm_medium?: string;
+  utm_campaign?: string;
+  utm_content?: string;
+  landing_referrer?: string;
+  site_referrer?: string;
+  landing_path?: string;
+  touched_at?: string;
+}
+
 export type SignupOrigin =
   | "browser_signup"
   /** The framework's Google OAuth callback owns this event. */
@@ -60,6 +81,7 @@ export const SIGNUP_ATTRIBUTION_HEADER_NAME =
 const SIGNUP_ATTRIBUTION_HEADER_MAX_LENGTH = 4096;
 
 export const FIRST_TOUCH_COOKIE_NAME = "an_ft";
+export const LAST_TOUCH_COOKIE_NAME = "an_lt";
 
 const STRING_FIELDS: Array<keyof FirstTouchAttribution> = [
   "ref",
@@ -78,6 +100,19 @@ const STRING_FIELDS: Array<keyof FirstTouchAttribution> = [
   "site_landing_path",
   "landed_at",
   "capture_truncated",
+];
+
+const LAST_TOUCH_STRING_FIELDS: Array<keyof LastTouchAttribution> = [
+  "ref",
+  "via",
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_content",
+  "landing_referrer",
+  "site_referrer",
+  "landing_path",
+  "touched_at",
 ];
 
 /**
@@ -105,6 +140,19 @@ export function parseCookieHeader(
 export function decodeFirstTouchValue(
   value: string | null | undefined,
 ): FirstTouchAttribution | null {
+  return decodeAttributionCookieValue(value, STRING_FIELDS);
+}
+
+export function decodeLastTouchValue(
+  value: string | null | undefined,
+): LastTouchAttribution | null {
+  return decodeAttributionCookieValue(value, LAST_TOUCH_STRING_FIELDS);
+}
+
+function decodeAttributionCookieValue<T extends object>(
+  value: string | null | undefined,
+  fields: ReadonlyArray<keyof T & string>,
+): T | null {
   if (!value || typeof value !== "string") return null;
   let decoded = value;
   try {
@@ -122,16 +170,16 @@ export function decodeFirstTouchValue(
     return null;
   }
   const source = parsed as Record<string, unknown>;
-  const result: FirstTouchAttribution = {};
+  const result: Record<string, string> = {};
   let any = false;
-  for (const field of STRING_FIELDS) {
+  for (const field of fields) {
     const raw = source[field];
     if (typeof raw === "string" && raw.length > 0) {
       result[field] = raw.slice(0, 120);
       any = true;
     }
   }
-  return any ? result : null;
+  return any ? (result as T) : null;
 }
 
 /**
@@ -147,6 +195,17 @@ export function readFirstTouchAttribution(
   } catch {
     return null;
   }
+}
+
+/**
+ * Read the `an_lt` last-touch attribution out of a raw `Cookie:` header.
+ * Returns `null` when the cookie is absent or unparseable. Never throws.
+ */
+export function readLastTouchAttribution(
+  cookieHeader: string | null | undefined,
+): LastTouchAttribution | null {
+  const cookies = parseCookieHeader(cookieHeader);
+  return decodeLastTouchValue(cookies[LAST_TOUCH_COOKIE_NAME]);
 }
 
 export function readAnalyticsAnonymousId(
@@ -166,19 +225,12 @@ function isExternalReferrerHost(host: string | undefined): boolean {
   return !!trimmed && trimmed.length > 0;
 }
 
-export function deriveReferralSource(ft: FirstTouchAttribution | null): string {
+export function deriveReferralSource(
+  ft: FirstTouchAttribution | LastTouchAttribution | null,
+): string {
   if (ft?.ref && ft.ref.trim()) return ft.ref.trim();
-  const path = ft?.landing_path ?? "";
-  if (path.startsWith("/share/")) return "clip_share";
-  if (
-    path.includes("/p/") ||
-    path.includes("/plan/") ||
-    path.includes("/plans/") ||
-    path.includes("/recaps/") ||
-    path.includes("/share-plan/")
-  ) {
-    return "plan_share";
-  }
+  const shareSource = shareLandingSource(ft?.landing_path);
+  if (shareSource) return shareSource;
   if (
     isExternalReferrerHost(ft?.landing_referrer) ||
     isExternalReferrerHost(ft?.site_referrer)
@@ -221,6 +273,50 @@ export function deriveSignupAttribution(
   return out;
 }
 
+export function deriveLastTouchAttribution(
+  lt: LastTouchAttribution | null,
+): Record<string, string> {
+  if (!lt) return {};
+  const out: Record<string, string> = {
+    last_touch_source: deriveReferralSource(lt),
+  };
+  const setIf = (key: string, value: string | undefined) => {
+    const trimmed = value?.trim();
+    if (trimmed) out[key] = trimmed;
+  };
+
+  setIf("last_touch_ref", lt.ref);
+  setIf("last_touch_utm_source", lt.utm_source);
+  setIf("last_touch_utm_medium", lt.utm_medium);
+  setIf("last_touch_utm_campaign", lt.utm_campaign);
+  setIf("last_touch_utm_content", lt.utm_content);
+  setIf("last_touch_referrer", lt.landing_referrer);
+  setIf("last_touch_site_referrer", lt.site_referrer);
+  setIf("last_touch_path", lt.landing_path);
+  setIf("last_touch_at", lt.touched_at);
+
+  return out;
+}
+
+/**
+ * Add last touch only while the handoff still fits its header. An oversized
+ * header is dropped whole, which would lose first touch with it.
+ */
+function withLastTouchAttribution(
+  attribution: Record<string, string>,
+  lt: LastTouchAttribution | null,
+): Record<string, string> {
+  const lastTouch = deriveLastTouchAttribution(lt);
+  if (Object.keys(lastTouch).length === 0) return attribution;
+  const merged = { ...attribution, ...lastTouch };
+  const largest = encodeSignupAttributionContext({
+    attribution: merged,
+    anonymousId: "a".repeat(ANALYTICS_ANONYMOUS_ID_MAX_LENGTH),
+  });
+  if (largest.length <= SIGNUP_ATTRIBUTION_HEADER_MAX_LENGTH) return merged;
+  return { ...attribution, last_touch_truncated: "true" };
+}
+
 /**
  * Convenience: read the cookie header and derive signup attribution in one
  * call. Never throws; falls back to `{ referral_source: "direct" }` on any
@@ -230,7 +326,10 @@ export function signupAttributionFromCookieHeader(
   cookieHeader: string | null | undefined,
 ): Record<string, string> {
   try {
-    return deriveSignupAttribution(readFirstTouchAttribution(cookieHeader));
+    return withLastTouchAttribution(
+      deriveSignupAttribution(readFirstTouchAttribution(cookieHeader)),
+      readLastTouchAttribution(cookieHeader),
+    );
   } catch {
     return { referral_source: "direct" };
   }
@@ -252,10 +351,14 @@ export function signupAttributionContextFromCookieHeader(
   cookieHeader: string | null | undefined,
 ): SignupAttributionContext | undefined {
   const firstTouch = readFirstTouchAttribution(cookieHeader);
+  const lastTouch = readLastTouchAttribution(cookieHeader);
   const anonymousId = readAnalyticsAnonymousId(cookieHeader);
-  if (!firstTouch && !anonymousId) return undefined;
+  if (!firstTouch && !lastTouch && !anonymousId) return undefined;
   return {
-    attribution: deriveSignupAttribution(firstTouch),
+    attribution: withLastTouchAttribution(
+      deriveSignupAttribution(firstTouch),
+      lastTouch,
+    ),
     ...(anonymousId ? { anonymousId } : {}),
   };
 }
