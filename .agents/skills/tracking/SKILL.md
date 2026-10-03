@@ -362,8 +362,9 @@ Other framework-level baseline events:
   outcome, and `page_hidden`.
 - `web_vitals` once per page view, with the React Router `route` template
   (`/sessions/:id`, never the ids; omitted when no manifest route matches,
-  because a normalized raw path still carries slugs and emails; the event
-  never carries the path, which the page's `pageview` already has),
+  because a normalized raw path still carries slugs and emails. Like every
+  tracked event it still has the page's `url`, origin and path without the
+  query; `route` is what speed aggregates key on, so they never hold a path),
   `navigation_type` (`load`, `client`, or `resume` after the tab was
   hidden, sent only when it saw an interaction or layout shift), and
   `ttfb_ms`, `lcp_ms`, `inp_ms`, and `cls`. TTFB and LCP exist only for

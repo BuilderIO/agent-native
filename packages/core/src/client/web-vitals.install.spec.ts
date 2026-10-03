@@ -53,4 +53,44 @@ describe("installWebVitals", () => {
       },
     ]);
   });
+  it("ends a load in a background tab, so the first visible stretch is a resume", () => {
+    const callbacks = new Map<string, ObserverCallback>();
+    class Observer {
+      static supportedEntryTypes = ["event", "layout-shift"];
+      constructor(private readonly callback: ObserverCallback) {}
+      observe(options: { type: string }) {
+        callbacks.set(options.type, this.callback);
+      }
+      takeRecords() {
+        return [];
+      }
+    }
+    vi.stubGlobal("PerformanceObserver", Observer);
+    const setVisibility = (state: "hidden" | "visible") => {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        value: state,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    };
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    const reports: PageViewVitals[] = [];
+
+    installWebVitals(
+      () => ({ route: "/r/:id", pathname: "/r/1" }),
+      (vitals) => reports.push(vitals),
+    );
+    setVisibility("visible");
+    callbacks.get("event")?.({
+      getEntries: () => [{ interactionId: 1, duration: 120 }],
+    });
+    setVisibility("hidden");
+
+    expect(reports).toEqual([
+      { route: "/r/:id", navigationType: "resume", inpMs: 120, cls: 0 },
+    ]);
+  });
 });
