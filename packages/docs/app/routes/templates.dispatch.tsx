@@ -1,9 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowUpRight } from "@tabler/icons-react";
-import type { MouseEvent } from "react";
 
 import { firstPartyAppUrl } from "../components/deployment-links";
-import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateHero } from "../components/template-landing";
 import { DispatchLandingMock } from "../components/template-landing/DispatchLandingMock";
 import { templates, trackEvent } from "../components/TemplateCard";
@@ -144,8 +142,7 @@ export default function DispatchTemplate() {
               rel="noopener noreferrer"
               className="primary-button"
               style={{ gap: "4px" }}
-              onClick={(event) => {
-                applyFirstTouchAttributionToLink(event.currentTarget);
+              onClick={() => {
                 trackEvent("try live demo", {
                   template: template.slug,
                   location: "landing_page_hero",
@@ -298,8 +295,7 @@ export default function DispatchTemplate() {
             target="_blank"
             rel="noopener noreferrer"
             style={{ gap: "3px", fontSize: "12px", textTransform: "uppercase" }}
-            onClick={(event: MouseEvent<HTMLAnchorElement>) => {
-              applyFirstTouchAttributionToLink(event.currentTarget);
+            onClick={() => {
               trackEvent("try live demo", {
                 template: template.slug,
                 location: "landing_page_final_cta",

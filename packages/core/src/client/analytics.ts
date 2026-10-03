@@ -244,6 +244,8 @@ const FIRST_TOUCH_QUERY_FIELDS = [
   "gclid",
   "msclkid",
   "vector_source",
+  "site_referrer",
+  "site_landing_path",
 ] as const;
 const FIRST_TOUCH_COOKIE_FIELD_PRIORITY = [
   "gclid",
@@ -258,6 +260,8 @@ const FIRST_TOUCH_COOKIE_FIELD_PRIORITY = [
   "utm_term",
   "landing_path",
   "landing_referrer",
+  "site_referrer",
+  "site_landing_path",
   "landed_at",
 ] as const satisfies readonly (keyof FirstTouchAttribution)[];
 
@@ -276,6 +280,8 @@ export interface FirstTouchAttribution {
   vector_source?: string;
   landing_path?: string;
   landing_referrer?: string;
+  site_referrer?: string;
+  site_landing_path?: string;
   landed_at?: string;
   capture_truncated?: string;
 }

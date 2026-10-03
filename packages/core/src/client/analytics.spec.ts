@@ -330,6 +330,30 @@ describe("browser analytics pageviews", () => {
     expect(getCookie()).toContain(`an_aid=${latestBody.anonymousId}`);
   });
 
+  it("captures the source forwarded by the marketing site", async () => {
+    const params = new URLSearchParams({
+      site_referrer: "github.com",
+      site_landing_path: "/apps/design",
+    });
+    const { getCookie } = installBrowser(
+      `https://design.agent-native.com/?${params}`,
+    );
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      llmConnectionStatus: false,
+      authSessionRefresh: false,
+      pageviewTracking: false,
+    });
+
+    const value = getCookie().slice("an_ft=".length).split(";", 1)[0]!;
+    expect(JSON.parse(decodeURIComponent(value))).toMatchObject({
+      site_referrer: "github.com",
+      site_landing_path: "/apps/design",
+      landing_path: "/",
+    });
+  });
+
   it("keeps high-value signup attribution when the cookie payload exceeds its budget", async () => {
     const params = new URLSearchParams({
       gclid: "click-id",
