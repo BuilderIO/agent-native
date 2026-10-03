@@ -1233,7 +1233,7 @@ export default {
     frictionCoverageSince: "摩擦涵盖 {{date}} 以来的会话。",
     frictionCoverageIncomplete: "此时间范围内并非所有会话都已测量摩擦。",
     labStateUnavailable: "无法加载你的 Lab 设置，因此未应用此链接的筛选条件。",
-    frictionUnavailable: "无法加载这些会话的摩擦数据。",
+    frictionUnavailable: "无法加载摩擦数据。",
     frictionSignalCount: "{{label}}：{{count}}",
     frictionFiltersNeedLab:
       "此链接按摩擦筛选或排序。请在设置中开启“会话筛选”Lab 以应用。",

@@ -217,9 +217,15 @@ export interface SessionFriction {
   troubles: SessionTroubleGroup[];
   /**
    * Null when the issue links are unknown: the lookup did not run, its read
-   * was truncated, or the recording has errors no stored issue links to
-   * while its owner has issues. An empty list means the recording has no
-   * issues, including when its owner has never captured one.
+   * was truncated, or the recording has errors Monitoring could capture that
+   * no stored issue links to while its owner has issues. An empty list means
+   * the recording has no issues, including when its owner has never captured
+   * one.
    */
   errorIssues: SessionErrorIssueLink[] | null;
+}
+
+/** Friction by recording id; a recording the caller cannot read is absent. */
+export interface SessionRecordingFriction {
+  friction: Record<string, SessionFriction>;
 }

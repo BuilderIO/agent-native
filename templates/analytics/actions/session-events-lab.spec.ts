@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const labEnabled = vi.hoisted(() => ({ value: false }));
 const getUserLabEnabled = vi.hoisted(() => vi.fn(async () => labEnabled.value));
 const listSessionRecordings = vi.hoisted(() => vi.fn(async () => []));
+const getSessionReplaySummary = vi.hoisted(() =>
+  vi.fn(async (id: string) => ({ id, sessionId: "s1" })),
+);
 const listSessionRecordingsPage = vi.hoisted(() =>
   vi.fn(async () => ({ recordings: [], total: 0, appCounts: [] })),
 );
@@ -62,6 +65,7 @@ vi.mock("@agent-native/core/settings", () => ({
   listSettingsByPrefix: vi.fn(async () => []),
 }));
 vi.mock("../server/lib/session-replay.js", () => ({
+  getSessionReplaySummary,
   listSessionRecordings,
   listSessionRecordingsPage,
 }));
@@ -74,6 +78,7 @@ const { default: listRecordings } = await import("./list-session-recordings");
 const { default: listEventNames } = await import("./list-session-event-names");
 const { default: listCatalog } = await import("./list-event-catalog");
 const { default: listFriction } = await import("./list-session-friction");
+const { default: getSummary } = await import("./get-session-replay-summary");
 
 describe("Sessions triage Lab guard on event actions", () => {
   beforeEach(() => {
@@ -222,6 +227,35 @@ describe("Sessions triage Lab guard on event actions", () => {
       }),
     );
     expect(page.recordings).toEqual([{ id: "r1", friction: { score: 4 } }]);
+  });
+
+  it("adds friction to a replay summary only with the Lab on, and says when it could not", async () => {
+    await expect(getSummary.run({ recordingId: "r1" })).resolves.toEqual({
+      id: "r1",
+      sessionId: "s1",
+    });
+    expect(listRecordingFriction).not.toHaveBeenCalled();
+
+    labEnabled.value = true;
+    await expect(getSummary.run({ recordingId: "r1" })).resolves.toEqual({
+      id: "r1",
+      sessionId: "s1",
+      friction: { score: 4 },
+    });
+
+    listRecordingFriction.mockRejectedValueOnce(new Error("friction down"));
+    await expect(getSummary.run({ recordingId: "r1" })).resolves.toEqual({
+      id: "r1",
+      sessionId: "s1",
+      frictionError: "friction down",
+    });
+
+    getUserLabEnabled.mockRejectedValueOnce(new Error("labs down"));
+    await expect(getSummary.run({ recordingId: "r1" })).resolves.toEqual({
+      id: "r1",
+      sessionId: "s1",
+      labStateError: "labs down",
+    });
   });
 
   it("rejects event range bounds that are not timestamps", () => {
