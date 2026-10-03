@@ -2057,16 +2057,15 @@ fn remembered_voice_target_bundle(app: &AppHandle) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        can_park_popover_offscreen, clamp_popover_logical_size, overlay_labels_to_hide,
-        strip_trailing_period_for_messaging, text_insertion_strategy, TextInsertionStrategy,
-        BUBBLE_LABEL, FINALIZING_LABEL,
+        clamp_popover_logical_size, overlay_labels_to_hide, strip_trailing_period_for_messaging,
+        text_insertion_strategy, TextInsertionStrategy, BUBBLE_LABEL, FINALIZING_LABEL,
     };
     use tauri::PhysicalSize;
 
     #[test]
     fn offscreen_popover_requires_supported_background_throttling() {
-        assert!(!can_park_popover_offscreen(13));
-        assert!(can_park_popover_offscreen(14));
+        assert!(!crate::util::supports_disabled_background_throttling(13));
+        assert!(crate::util::supports_disabled_background_throttling(14));
     }
 
     #[test]
@@ -2709,7 +2708,7 @@ pub async fn park_popover_offscreen(app: AppHandle) -> Result<(), String> {
             let major_version = NSProcessInfo::processInfo()
                 .operatingSystemVersion()
                 .majorVersion;
-            can_park_popover_offscreen(major_version)
+            crate::util::supports_disabled_background_throttling(major_version)
         };
         #[cfg(not(target_os = "macos"))]
         let can_park_offscreen = true;
@@ -2718,18 +2717,14 @@ pub async fn park_popover_offscreen(app: AppHandle) -> Result<(), String> {
             let _ = window.set_position(PhysicalPosition::new(-10_000_i32, -10_000_i32));
             set_window_opacity(&window, 0.0);
         } else {
-            // Disabled background throttling is supported from macOS 14; keep
-            // a visible pixel on macOS 13 so WKWebView timers keep running.
+            // Keep a visible pixel on older macOS versions so WKWebView timers keep
+            // running.
             let _ = window.set_position(PhysicalPosition::new(2_i32, 2_i32));
             let _ = window.set_size(tauri::Size::Physical(PhysicalSize::new(2, 2)));
             set_window_opacity(&window, 1.0);
         }
     }
     Ok(())
-}
-
-fn can_park_popover_offscreen(os_major_version: isize) -> bool {
-    os_major_version >= 14
 }
 
 fn clear_voice_wake_state(app: &AppHandle) {

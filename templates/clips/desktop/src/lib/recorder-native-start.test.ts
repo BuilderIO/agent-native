@@ -523,6 +523,38 @@ describe("native recording startup", () => {
     ).toHaveLength(1);
   });
 
+  it("cancels native Rewind preparation that resolves after startup abort", async () => {
+    const prepare = deferred<unknown>();
+    const controller = new AbortController();
+    nativeCommands.set("rewind_clip_status", async () => ({
+      compatibility: "compatible",
+      active: false,
+    }));
+    nativeCommands.set("rewind_clip_prepare", () => prepare.promise);
+
+    const pending = startRecording({
+      ...params,
+      source: "full-screen",
+      signal: controller.signal,
+    });
+    const failed = expect(pending).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await flush();
+    expect(calls("rewind_clip_prepare")).toHaveLength(1);
+
+    controller.abort();
+    await failed;
+    const cancelsBeforePrepareResolves = calls("rewind_clip_cancel").length;
+
+    prepare.resolve({ compatibility: "compatible", active: true });
+    await flush();
+
+    expect(calls("rewind_clip_cancel").length).toBeGreaterThan(
+      cancelsBeforePrepareResolves,
+    );
+  });
+
   it("cancels Rewind countdown while event listeners are still registering", async () => {
     const listenerRegistration = deferred<void>();
     mocks.listen.mockImplementation(async (name, callback) => {

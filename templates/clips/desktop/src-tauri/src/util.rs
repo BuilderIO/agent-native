@@ -3,6 +3,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(target_os = "windows")]
 use std::time::Duration;
 
+#[cfg(target_os = "macos")]
+use objc2_foundation::NSProcessInfo;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 use crate::dlog;
@@ -14,6 +16,10 @@ use crate::state::{
 static OAUTH_WINDOW_COUNTER: AtomicU64 = AtomicU64::new(0);
 const POPOVER_DEFAULT_WIDTH_LOGICAL: f64 = 320.0;
 const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
+
+pub(crate) fn supports_disabled_background_throttling(os_major_version: isize) -> bool {
+    os_major_version >= 14
+}
 
 // ---------------------------------------------------------------------------
 // Capture-sharing helpers (macOS only)
@@ -124,7 +130,23 @@ pub fn set_window_opacity(_window: &WebviewWindow, _opacity: f64) {}
 
 pub fn build_popover_window(app: &mut tauri::App) -> Result<WebviewWindow, tauri::Error> {
     let app_handle = app.handle().clone();
-    let builder = WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.html".into()))
+    let builder = WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.html".into()));
+    #[cfg(target_os = "macos")]
+    let builder = {
+        let major_version = NSProcessInfo::processInfo()
+            .operatingSystemVersion()
+            .majorVersion;
+        if supports_disabled_background_throttling(major_version) {
+            builder
+                .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
+        } else {
+            builder
+        }
+    };
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder
+        .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
+    let builder = builder
         .title("Clips")
         .inner_size(
             POPOVER_DEFAULT_WIDTH_LOGICAL,
@@ -137,15 +159,10 @@ pub fn build_popover_window(app: &mut tauri::App) -> Result<WebviewWindow, tauri
         .always_on_top(true)
         .visible_on_all_workspaces(true)
         .skip_taskbar(true)
-        .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
         .visible(false)
         .focused(true)
         .shadow(true)
         .accept_first_mouse(true);
-    #[cfg(target_os = "macos")]
-    // The offscreen capture popover still runs timers and audio-cue setup.
-    let builder =
-        builder.background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
     builder
         .on_new_window(move |url, features| {
             let label = format!(

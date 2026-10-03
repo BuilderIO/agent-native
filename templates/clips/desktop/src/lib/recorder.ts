@@ -3031,7 +3031,12 @@ async function tryStartRewindFullscreenRecording(
             includeSystemAudio,
             hasCamera: wantsCamera,
           }),
-          { signal: params.signal },
+          {
+            signal: countdownSignal,
+            onLateResolve: () => {
+              void invoke("rewind_clip_cancel").catch(() => {});
+            },
+          },
         );
         assertStartupActive();
         await startRewindTranscription();
