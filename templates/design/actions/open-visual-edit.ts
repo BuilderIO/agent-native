@@ -2,7 +2,10 @@ import crypto from "node:crypto";
 import path from "node:path";
 
 import { defineAction, embedApp, fail } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
+import {
+  readAppState,
+  writeAppState,
+} from "@agent-native/core/application-state";
 import {
   buildDeepLink,
   buildEmbedStartPath,
@@ -78,6 +81,11 @@ const capabilitySchema = z.object({
   operation: z.enum(DESIGN_BRIDGE_OPERATIONS),
   status: z.enum(["available", "planned", "disabled"]),
   reason: z.string().optional(),
+});
+
+const activeVisualEditStateSchema = z.object({
+  designId: z.string().min(1),
+  connectionId: z.string().min(1),
 });
 
 const VIEWPORT_PRESETS = {
@@ -479,7 +487,7 @@ function routeManifestFromScreens(args: {
 
 export default defineAction({
   description:
-    "Open or refresh a running localhost app in Design overview mode without requiring a Design account login. Registers the local bridge, creates or reuses a design, places URL-backed screens, stores the active visual-edit context, and navigates the current Design session to the canvas. Use this from the local /visual-edit skill and for follow-up requests like adding a mobile-size screen.",
+    "Open or refresh a running localhost app in Design overview mode without requiring a Design account login. Registers the local bridge, reuses the saved visual-edit project for the same localhost connection when available, places URL-backed screens, stores the active context, and navigates to the canvas. Set newDesign to true to start a separate project.",
   requiresAuth: false,
   capabilityScopes: ["visual-edit-bootstrap"],
   schema: z.object({
@@ -487,7 +495,13 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Existing Design project to update. Omit to create a new visual-edit design.",
+        "Existing Design project to update. When omitted, the saved visual-edit project for the same localhost connection is reused unless newDesign is true.",
+      ),
+    newDesign: z
+      .boolean()
+      .optional()
+      .describe(
+        "Start a separate visual-edit project instead of reusing the saved project for this localhost connection.",
       ),
     connectionId: z
       .string()
@@ -606,6 +620,12 @@ export default defineAction({
     }),
   },
   run: async (args, ctx) => {
+    if (args.newDesign && args.designId) {
+      fail("Choose an existing designId or newDesign, not both.", {
+        errorCode: "visual_edit_target_conflict",
+        statusCode: 400,
+      });
+    }
     const devServerUrl = normalizeBaseUrl(args.devServerUrl);
     const requestUserEmail = getRequestUserEmail();
     const authCapability = getRequestAuthCapability();
@@ -670,6 +690,25 @@ export default defineAction({
       });
 
       let designId = args.designId;
+      if (!designId && !args.newDesign) {
+        const activeVisualEdit = await readAppState("visual-edit");
+        if (activeVisualEdit) {
+          const parsed =
+            activeVisualEditStateSchema.safeParse(activeVisualEdit);
+          if (!parsed.success) {
+            fail(
+              "The saved Visual Edit context is unreadable. Inspect it or explicitly start a new project.",
+              {
+                errorCode: "visual_edit_context_invalid",
+                statusCode: 500,
+              },
+            );
+          }
+          if (parsed.data.connectionId === connection.id) {
+            designId = parsed.data.designId;
+          }
+        }
+      }
       let createdDesign = false;
       let publicReadOnly = false;
       if (!designId) {
