@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   navigateRun: vi.fn(),
   runWithRequestContext: vi.fn(),
   readAppState: vi.fn(),
+  resolveAccess: vi.fn(),
   writeAppState: vi.fn(),
   designData: null as string | null,
   designFiles: [] as Array<{ id: string; filename: string; fileType: string }>,
@@ -57,6 +58,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
+  resolveAccess: mocks.resolveAccess,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -186,6 +188,10 @@ describe("open-visual-edit", () => {
       },
     );
     mocks.readAppState.mockReset().mockResolvedValue(null);
+    mocks.resolveAccess.mockReset().mockResolvedValue({
+      role: "owner",
+      resource: { id: "design_existing" },
+    });
     mocks.writeAppState.mockReset();
     mocks.designData = null;
     mocks.designFiles = [];
@@ -269,6 +275,10 @@ describe("open-visual-edit", () => {
     });
 
     expect(mocks.readAppState).toHaveBeenCalledWith("visual-edit");
+    expect(mocks.resolveAccess).toHaveBeenCalledWith(
+      "design",
+      "design_existing",
+    );
     expect(mocks.createDesignRun).not.toHaveBeenCalled();
     expect(mocks.addLocalhostScreensRun).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -279,6 +289,39 @@ describe("open-visual-edit", () => {
     );
     expect(result.designId).toBe("design_existing");
     expect(result.createdDesign).toBe(false);
+  });
+
+  it("creates a new project when the saved design is no longer available", async () => {
+    mocks.readAppState.mockResolvedValue({
+      designId: "design_deleted",
+      connectionId: "localhost_canonical",
+      devServerUrl: "http://localhost:5173",
+    });
+    mocks.resolveAccess.mockResolvedValue(null);
+
+    const result = await action.run({
+      devServerUrl: "http://localhost:5173",
+      rootPath: "/tmp/app",
+      paths: ["/settings"],
+      navigate: false,
+    });
+
+    expect(mocks.resolveAccess).toHaveBeenCalledWith(
+      "design",
+      "design_deleted",
+    );
+    expect(mocks.createDesignRun).toHaveBeenCalledOnce();
+    expect(mocks.addLocalhostScreensRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        designId: "design_created",
+        connectionId: "localhost_canonical",
+      }),
+      undefined,
+    );
+    expect(result).toMatchObject({
+      designId: "design_created",
+      createdDesign: true,
+    });
   });
 
   it("creates a separate project when newDesign is explicit", async () => {

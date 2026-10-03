@@ -18,7 +18,7 @@ import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
+import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -696,6 +696,9 @@ export default defineAction({
         }
         savedVisualEdit = parsed.data;
       }
+      const savedDesignAccess = savedVisualEdit
+        ? await resolveAccess("design", savedVisualEdit.designId)
+        : null;
       const connection = await connectLocalhostAction.run({
         id: args.connectionId,
         name: args.name,
@@ -710,7 +713,10 @@ export default defineAction({
       });
 
       let designId = args.designId;
-      if (savedVisualEdit?.connectionId === connection.id) {
+      if (
+        savedVisualEdit?.connectionId === connection.id &&
+        savedDesignAccess
+      ) {
         designId = savedVisualEdit.designId;
       }
       let createdDesign = false;
