@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDbMock = vi.hoisted(() => vi.fn());
 const deletePrivateBlobMock = vi.hoisted(() => vi.fn());
+const finalizeReplayFrictionMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/index.js", async () => {
   const actual =
@@ -16,6 +17,11 @@ vi.mock("@agent-native/core/private-blob", () => ({
   deletePrivateBlob: deletePrivateBlobMock,
   putPrivateBlob: vi.fn(),
   readPrivateBlob: vi.fn(),
+}));
+
+vi.mock("./session-friction.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./session-friction.js")>()),
+  finalizeReplayFriction: finalizeReplayFrictionMock,
 }));
 
 import {
@@ -58,6 +64,8 @@ function createDbMock(selectResults: unknown[][]) {
 describe("session replay retention", () => {
   beforeEach(() => {
     getDbMock.mockReset();
+    finalizeReplayFrictionMock.mockReset();
+    finalizeReplayFrictionMock.mockResolvedValue(undefined);
     deletePrivateBlobMock.mockReset();
     deletePrivateBlobMock.mockResolvedValue({
       deleted: true,
@@ -94,6 +102,47 @@ describe("session replay retention", () => {
         updatedAt: "2026-01-01T01:00:00.000Z",
       },
     });
+    expect(finalizeReplayFrictionMock).toHaveBeenCalledWith({
+      recordingId: "rec_1",
+      errorCount: 0,
+      rageClickCount: 0,
+    });
+  });
+
+  it("leaves a recording active for the next sweep when its friction cannot be finalized", async () => {
+    const { db, updates } = createDbMock([
+      [
+        {
+          id: "rec_1",
+          status: "active",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:20:00.000Z",
+          lastIngestedAt: "2026-01-01T00:05:00.000Z",
+          errorCount: 2,
+          rageClickCount: 1,
+        },
+      ],
+    ]);
+    getDbMock.mockReturnValue(db);
+    finalizeReplayFrictionMock.mockRejectedValue(new Error("db down"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const result = await finalizeAbandonedSessionRecordings(
+      new Date("2026-01-01T01:00:00.000Z"),
+    );
+
+    expect(finalizeReplayFrictionMock).toHaveBeenCalledWith({
+      recordingId: "rec_1",
+      errorCount: 2,
+      rageClickCount: 1,
+    });
+    expect(result).toEqual({ finalized: 0 });
+    expect(updates).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("stays active until the next sweep"),
+      expect.any(Error),
+    );
+    warn.mockRestore();
   });
 
   it("expires old recordings after deleting private blob chunks", async () => {

@@ -55,6 +55,7 @@ import {
 } from "./session-event-index.js";
 import {
   detectReplayFriction,
+  endedSoonAfterError,
   parseReplayFrictionDetectorState,
 } from "./session-friction-detector.js";
 
@@ -190,6 +191,8 @@ export interface ReplayFrictionInput {
   /** The counts this batch wrote to the recording, so the score matches. */
   errorCount: number;
   rageClickCount: number;
+  /** Whether the recording has ended, so an error near its end means leaving. */
+  recordingEnded: boolean;
   ingestedAt: string;
 }
 
@@ -242,7 +245,7 @@ export async function recordReplayFriction(
       deadClicks: (existing?.deadClicks ?? 0) + delta.deadClicks,
       errorToasts: (existing?.errorToasts ?? 0) + delta.errorToasts,
       retryLoops: (existing?.retryLoops ?? 0) + delta.retryLoops,
-      errorThenLeave: errorThenLeave ? 1 : 0,
+      errorThenLeave: errorThenLeave && input.recordingEnded ? 1 : 0,
       stalledRequests: (existing?.stalledRequests ?? 0) + delta.stalledRequests,
       http4xx: (existing?.http4xx ?? 0) + delta.http4xx,
       http5xx: (existing?.http5xx ?? 0) + delta.http5xx,
@@ -298,6 +301,51 @@ export async function recordReplayFriction(
       error,
     );
   }
+}
+
+/**
+ * A recording that stopped uploading without a final flush ends when
+ * retention finalizes it, so that is when an error near its last event first
+ * counts as leaving. Throws, so retention can leave the recording active and
+ * try again rather than end it with leaving uncounted.
+ */
+export async function finalizeReplayFriction(input: {
+  recordingId: string;
+  errorCount: number;
+  rageClickCount: number;
+}): Promise<void> {
+  const db = getDb() as any;
+  if (!(await sessionFrictionReady(db))) return;
+  const t = schema.sessionRecordingFriction;
+  const [row] = await db
+    .select()
+    .from(t)
+    .where(eq(t.recordingId, input.recordingId))
+    .limit(1);
+  // A row whose state cannot be read is already unmeasured.
+  const state = row
+    ? parseReplayFrictionDetectorState(row.detectorState)
+    : null;
+  if (!row || !state) return;
+  const errorThenLeave = endedSoonAfterError(state) ? 1 : 0;
+  if (row.errorThenLeave === errorThenLeave) return;
+  const score = sessionFrictionScore(
+    {
+      ...replayCountsBySignal({ ...row, errorThenLeave }),
+      errors: input.errorCount,
+      rage_clicks: input.rageClickCount,
+    },
+    REPLAY_FRICTION_SCORE_INPUTS,
+  );
+  await db
+    .update(t)
+    .set({ errorThenLeave, score })
+    .where(
+      and(
+        eq(t.recordingId, input.recordingId),
+        eq(t.processedChunks, row.processedChunks),
+      ),
+    );
 }
 
 function replayCountsBySignal(
@@ -601,17 +649,20 @@ function mergedEventScoreSql(): SQL {
  * so a friction failure never costs the index its write. A failed friction
  * write leaves a friction gap marker for the batch's sessions instead; only a
  * failed marker throws, and the index then rolls back and marks its own gap.
+ * The readiness probe belongs inside the savepoint too: a failed query aborts
+ * the transaction it runs in.
  */
 export async function recordSessionEventFriction(
   tx: any,
   rows: readonly SessionEventIndexInputRow[],
   receivedAt: string,
 ): Promise<void> {
-  if (!(await sessionFrictionReady(tx))) return;
   try {
-    await tx.transaction((savepoint: any) =>
-      writeSessionEventFriction(savepoint, rows, receivedAt),
-    );
+    await tx.transaction(async (savepoint: any) => {
+      if (await sessionFrictionReady(savepoint)) {
+        await writeSessionEventFriction(savepoint, rows, receivedAt);
+      }
+    });
   } catch (error) {
     // A later batch can still write these sessions' friction, so without the
     // marker their counts would read as complete.
