@@ -883,6 +883,8 @@ export const AgentKitAssistantChat = forwardRef<
   scopeRef.current = props.contextScope;
   isolateHistoryByScopeRef.current = props.isolateHistoryByScope;
   createTransportRef.current = props.createTransport;
+  const autoContinueLabelRef = useRef("");
+  autoContinueLabelRef.current = t("agentChat.status.resuming");
   const transport = useMemo(() => {
     const operations: NonNullable<
       CreateAgentNativeAgentKitTransportOptions["operations"]
@@ -994,7 +996,12 @@ export const AgentKitAssistantChat = forwardRef<
       get isolateHistoryByScope() {
         return isolateHistoryByScopeRef.current;
       },
-      adapter: { textFormat: "markdown" },
+      adapter: {
+        textFormat: "markdown",
+        get autoContinueLabel() {
+          return autoContinueLabelRef.current;
+        },
+      },
       operations,
     });
     const getThreadSnapshot = builtTransport.getThreadSnapshot;
@@ -1684,7 +1691,11 @@ const AgentKitAssistantChatBody = forwardRef<
       if (
         !thread.messages.slice(0, index).some((item) => item.role === "user")
       ) {
-        props.onGenerateTitle?.(threadId, text);
+        const { engine, model } = message.metadata ?? {};
+        props.onGenerateTitle?.(threadId, text, {
+          ...(typeof engine === "string" ? { engine } : {}),
+          ...(typeof model === "string" ? { model } : {}),
+        });
       }
     }
     const terminalEvents = thread.events.filter(

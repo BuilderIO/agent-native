@@ -15,7 +15,7 @@ function resolveScope() {
 
 export default defineAction({
   description:
-    "List captured JavaScript error issues (Sentry-style groups) accessible to the current user/org. Each issue groups occurrences by fingerprint with counts, users affected, first/last seen, status, and a recent-volume sparkline.",
+    "List captured JavaScript error issues (Sentry-style groups) accessible to the current user/org. Each issue groups occurrences by fingerprint with counts, users affected, first/last seen, status, and a recent-volume sparkline. Users affected excludes test identities, and issues only test identities have hit are hidden unless includeTestIdentities is true.",
   schema: z.object({
     status: z
       .enum(["unresolved", "resolved", "ignored", "all"])
@@ -43,6 +43,12 @@ export default defineAction({
       .optional()
       .describe("Sort order; defaults to most recently seen."),
     limit: z.coerce.number().int().min(1).max(100).optional().default(50),
+    includeTestIdentities: z
+      .boolean()
+      .optional()
+      .describe(
+        "Debugging only. Also list issues that only QA/E2E test identities have hit; they are hidden by default and never alert.",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,

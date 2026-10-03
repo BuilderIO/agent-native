@@ -12,7 +12,10 @@ import {
 
 import "../authorization/check-action.js";
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
-import { actionCallEmitsChange } from "../action-call-classification.js";
+import {
+  actionCallEmitsChange,
+  actionChangeResource,
+} from "../action-call-classification.js";
 import {
   ActionContractError,
   isActionContractError,
@@ -980,6 +983,7 @@ function mountActionRoutesInternal(
                 try {
                   await notifyActionChange({
                     actionName: name,
+                    ...actionChangeResource(entry, params, result),
                     ...(userEmail ? { owner: userEmail } : {}),
                     ...(getHeader(event, "x-request-source")
                       ? {

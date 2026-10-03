@@ -19,7 +19,7 @@ import type {
   AuthView,
 } from "@agent-native/core/shared/auth-page-types";
 import { toPublicFrameworkPath } from "@agent-native/core/shared/framework-route-prefix";
-import { isQaTestEmail } from "@agent-native/core/shared/qa-test-email";
+import { isTestIdentityEmail } from "@agent-native/core/shared/qa-test-email";
 import { DEPLOY_SETTINGS_REQUIRED_CODE } from "@agent-native/core/shared/runtime-config";
 import {
   isVerificationLinkInvalid,
@@ -240,7 +240,7 @@ function trackAuth(
   properties: Record<string, unknown> = {},
   email: string,
 ): void {
-  if (!isValidEmail(email) || isQaTestEmail(email)) return;
+  if (!isValidEmail(email) || isTestIdentityEmail(email)) return;
   if (
     isSyntheticTrafficValue(
       (

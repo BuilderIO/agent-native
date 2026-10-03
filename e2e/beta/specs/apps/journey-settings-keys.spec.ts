@@ -16,7 +16,10 @@ import {
   probeFromPage,
   visibleText,
 } from "../../lib/journey-browser";
-import { builderConnectionDisagreements } from "../../lib/journey-checks";
+import {
+  builderConnectionDisagreements,
+  hasBuilderConnectionState,
+} from "../../lib/journey-checks";
 import {
   accountMenuTrigger,
   activeSettingsNavItem,
@@ -47,9 +50,6 @@ const sites = PREFERRED_APPS.flatMap((id) =>
 
 const APP_ERROR =
   /application error|something went wrong|internal server error|Couldn.t load your keys/i;
-const CONNECTION_STATE =
-  /\b(?:Connect|Disconnect|Reconnect|Connected)\b|Needs to be reconnected/;
-
 test.describe.configure({ mode: "parallel" });
 
 for (const site of sites) {
@@ -158,7 +158,7 @@ for (const site of sites) {
         `${site.host} /settings/integrations/builder did not open Settings > Integrations (landed on ${page.url()})`,
       ).toBeVisible({ timeout: 45_000 });
       await expect
-        .poll(async () => CONNECTION_STATE.test(await visibleText(page)), {
+        .poll(async () => hasBuilderConnectionState(await visibleText(page)), {
           message: `${site.host} Settings > Integrations > Builder.io never showed a connection state (Connect, Connected, Reconnect or Disconnect)`,
           timeout: 45_000,
         })

@@ -1,4 +1,5 @@
 import type { Extension, Node, Mark } from "@tiptap/core";
+import { Selection } from "@tiptap/pm/state";
 import { EditorContent, useEditor } from "@tiptap/react";
 import type { StarterKitOptions } from "@tiptap/starter-kit";
 import { useEffect, useMemo, useRef } from "react";
@@ -71,6 +72,10 @@ export interface SharedRichEditorProps {
     fragmentLength: number;
   }) => boolean;
   initialAppliedUpdatedAt?: string | null;
+  requestInitialSeed?: UseCollabReconcileOptions["requestInitialSeed"];
+  requestCollabSync?: UseCollabReconcileOptions["requestCollabSync"];
+  onRemoteSnapshotChange?: UseCollabReconcileOptions["onRemoteSnapshotChange"];
+  onInitialSeedError?: UseCollabReconcileOptions["onInitialSeedError"];
   wrapperClassName?: string;
   onEditorReady?: (editor: import("@tiptap/react").Editor) => void;
   unstyled?: boolean;
@@ -107,6 +112,10 @@ export function SharedRichEditor({
   normalizeValue,
   shouldSeed,
   initialAppliedUpdatedAt,
+  requestInitialSeed,
+  requestCollabSync,
+  onRemoteSnapshotChange,
+  onInitialSeedError,
   wrapperClassName,
   onEditorReady,
   unstyled = false,
@@ -178,7 +187,8 @@ export function SharedRichEditor({
     {
       extensions,
       content: collab || setContent ? null : value,
-      editable,
+      // A server-seeded document is read-only from creation until its seed lands.
+      editable: editable && !(requestInitialSeed && ydoc),
       editorProps: {
         attributes: {
           class: cn(
@@ -190,7 +200,11 @@ export function SharedRichEditor({
       },
       onUpdate: ({ editor, transaction }) => {
         const guards = guardsRef.current;
-        if (!guards || guards.shouldIgnoreUpdate(transaction)) return;
+        if (!guards) return;
+        if (guards.shouldIgnoreUpdate(transaction)) {
+          guards.reportRemoteUpdate(transaction);
+          return;
+        }
         try {
           const markdown = readMarkdown(editor);
           if (!guards.registerEmitted(markdown)) return;
@@ -225,13 +239,38 @@ export function SharedRichEditor({
     normalizeValue,
     shouldSeed,
     initialAppliedUpdatedAt,
+    requestInitialSeed,
+    quietSeedEditability: Boolean(requestInitialSeed),
+    requestCollabSync,
+    onRemoteSnapshotChange,
+    onInitialSeedError,
   });
   guardsRef.current = collabState;
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    editor.setEditable(editable);
-  }, [editable, editor]);
+    // Flipping editability around a server seed is not a content change, so it
+    // must not emit `update`, which would save the document.
+    editor.setEditable(
+      editable && !collabState.initialSeedPending,
+      !requestInitialSeed,
+    );
+  }, [editable, editor, collabState.initialSeedPending, requestInitialSeed]);
+
+  // A document seeded from empty starts with its caret at the very top, where
+  // setContent used to leave it at the end. Put it back so the first keystroke
+  // after the seed lands where it did, until the person clicks somewhere else.
+  const wasSeedPendingRef = useRef(false);
+  useEffect(() => {
+    const pending = collabState.initialSeedPending;
+    const justSeeded = wasSeedPendingRef.current && !pending;
+    wasSeedPendingRef.current = pending;
+    if (!justSeeded || !editor || editor.isDestroyed || editor.isFocused)
+      return;
+    editor.view.dispatch(
+      editor.state.tr.setSelection(Selection.atEnd(editor.state.doc)),
+    );
+  }, [editor, collabState.initialSeedPending]);
 
   useEffect(() => {
     if (editor) onEditorReady?.(editor);
