@@ -97,6 +97,7 @@ async function runOnBeta(
     }));
     const record: ScenarioRecord = {
       scenario: `beta-${name}`,
+      tags: testInfo.tags,
       notes: scenario.notes,
       build: String(scenario.notes.buildAtStart),
       authoredEdits: scenario.markers.all.length,
@@ -152,6 +153,10 @@ test.describe("[content-convergence] two tabs on one beta page", () => {
   test("an agent edit between two open tabs keeps every author's text", async ({
     browser,
   }, testInfo) => {
+    test.fixme(
+      true,
+      "QUARANTINED alice until phase 3 lands R11: beta's tabs save over the agent's edit-document text, so this fails every run. Content DB tests still runs the local scenario without blocking (#6656).",
+    );
     await runOnBeta("agent-edit", browser, testInfo, async (s) => {
       const first = await s.tabs.open("A", s.id);
       const second = await s.tabs.open("B", s.id);

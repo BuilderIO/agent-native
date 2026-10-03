@@ -881,6 +881,8 @@ export async function observeIntegrity(
 
 export interface ScenarioRecord {
   scenario: string;
+  /** Playwright tags, with the `@`; `@known-loss` marks a non-blocking scenario. */
+  tags: string[];
   notes: Record<string, unknown>;
   build: string;
   authoredEdits: number;

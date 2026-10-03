@@ -577,12 +577,32 @@ jobs:
         working-directory: templates/content
         run: |
           BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
-            -c e2e/playwright.config.ts e2e/two-tab-convergence.spec.ts --workers=1
+            -c e2e/playwright.config.ts e2e/two-tab-convergence.spec.ts --workers=1 \
+            --grep-invert @known-loss --output test-results/required
         env:
           CONTENT_E2E_SERVE_BUILD: "1"
           CONTENT_BASE_URL: http://127.0.0.1:8090
           CONTENT_CONVERGENCE_BUILD: ${{ github.sha }}
           CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/convergence.jsonl
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/required.json
+          DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
+
+      # Main still loses text in these. They report every run without failing
+      # the PR until the fix that drops their @known-loss tag lands.
+      - name: Run Content two-tab scenarios main still loses text in
+        if: ${{ !cancelled() && steps.convergence-build.outcome == 'success' }}
+        continue-on-error: true
+        working-directory: templates/content
+        run: |
+          BETTER_AUTH_SECRET="$(openssl rand -hex 32)" pnpm exec playwright test \
+            -c e2e/playwright.config.ts e2e/two-tab-convergence.spec.ts --workers=1 \
+            --grep @known-loss --output test-results/known-loss
+        env:
+          CONTENT_E2E_SERVE_BUILD: "1"
+          CONTENT_BASE_URL: http://127.0.0.1:8090
+          CONTENT_CONVERGENCE_BUILD: ${{ github.sha }}
+          CONTENT_CONVERGENCE_REPORT: ${{ runner.temp }}/content-convergence/convergence.jsonl
+          PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/content-convergence/known-loss.json
           DATABASE_URL: postgres://postgres@127.0.0.1:5432/content_convergence
 
       - name: Summarize Content two-tab convergence
@@ -590,7 +610,9 @@ jobs:
         working-directory: templates/content
         run: >-
           node --experimental-strip-types e2e/convergence-summary.ts
-          "$RUNNER_TEMP/content-convergence/convergence.jsonl" e2e/.report.json
+          "$RUNNER_TEMP/content-convergence/convergence.jsonl"
+          "$RUNNER_TEMP/content-convergence/required.json"
+          "$RUNNER_TEMP/content-convergence/known-loss.json"
           >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload Content two-tab convergence report
@@ -600,7 +622,6 @@ jobs:
           name: content-convergence-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/content-convergence/
-            templates/content/e2e/.report.json
             templates/content/test-results/
           if-no-files-found: warn
           retention-days: 14

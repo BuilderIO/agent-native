@@ -1,16 +1,19 @@
 // Renders the two-tab convergence report as a job summary:
-//   node --experimental-strip-types e2e/convergence-summary.ts <report.jsonl> [playwright-report.json]
+//   node --experimental-strip-types e2e/convergence-summary.ts <report.jsonl> [playwright-report.json...]
 import { existsSync, readFileSync } from "node:fs";
 
 import type { ScenarioRecord, TabRecord } from "./helpers";
 
+type PlaywrightSpec = { title: string; ok: boolean; tags: string[] };
 type PlaywrightSuite = {
   title: string;
-  specs?: { title: string; ok: boolean }[];
+  specs?: PlaywrightSpec[];
   suites?: PlaywrightSuite[];
 };
 
-const [reportPath, playwrightReportPath] = process.argv.slice(2);
+const KNOWN_LOSS = "known-loss";
+
+const [reportPath, ...playwrightReportPaths] = process.argv.slice(2);
 if (!reportPath || !existsSync(reportPath)) {
   // A missing report means the lane did not run, not that it found nothing.
   console.log(
@@ -52,13 +55,16 @@ const lines = [
   "",
   "Edits are typed markers. Lost and duplicated count distinct markers missing or repeated in any observation: the saved page and each tab at the deadline, after a refresh, and in a tab reopened alone.",
   "",
-  "| Scenario | Edits | Lost | Duplicated | Saves | Save answers | Codes | Recovery shown | Error toasts | Editor mounts | Seconds |",
-  "| --- | --: | --: | --: | --: | --- | --- | --: | --: | --: | --: |",
+  "| Scenario | Gate | Edits | Lost | Duplicated | Saves | Save answers | Codes | Recovery shown | Error toasts | Editor mounts | Seconds |",
+  "| --- | --- | --: | --: | --: | --: | --- | --- | --: | --: | --: | --: |",
 ];
 for (const record of records) {
   const tabs = record.tabs;
+  const gate = record.tags.includes(`@${KNOWN_LOSS}`)
+    ? "known loss"
+    : "required";
   lines.push(
-    `| ${record.scenario} | ${record.authoredEdits} | ${distinct(record, "lost")} | ${distinct(record, "duplicated")} | ${sum(tabs, (tab) => tab.saveRequests)} | ${tally(tabs, (tab) => tab.saveOutcomes)} | ${tally(tabs, (tab) => tab.saveCodes)} | ${sum(tabs, (tab) => tab.recovery.length)} | ${sum(tabs, (tab) => tab.errorToasts.length)} | ${sum(tabs, (tab) => tab.editorMounts)} | ${Math.round(record.durationMs / 1000)} |`,
+    `| ${record.scenario} | ${gate} | ${record.authoredEdits} | ${distinct(record, "lost")} | ${distinct(record, "duplicated")} | ${sum(tabs, (tab) => tab.saveRequests)} | ${tally(tabs, (tab) => tab.saveOutcomes)} | ${tally(tabs, (tab) => tab.saveCodes)} | ${sum(tabs, (tab) => tab.recovery.length)} | ${sum(tabs, (tab) => tab.errorToasts.length)} | ${sum(tabs, (tab) => tab.editorMounts)} | ${Math.round(record.durationMs / 1000)} |`,
   );
 }
 
@@ -84,27 +90,46 @@ if (notes.length)
     ),
   );
 
-if (playwrightReportPath && existsSync(playwrightReportPath)) {
-  const report = JSON.parse(readFileSync(playwrightReportPath, "utf8")) as {
+const specs: PlaywrightSpec[] = [];
+const missing = playwrightReportPaths.filter((file) => !existsSync(file));
+for (const file of playwrightReportPaths.filter(existsSync)) {
+  const report = JSON.parse(readFileSync(file, "utf8")) as {
     suites: PlaywrightSuite[];
   };
-  const specs: { title: string; ok: boolean }[] = [];
   const walk = (suite: PlaywrightSuite) => {
     specs.push(...(suite.specs ?? []));
     for (const child of suite.suites ?? []) walk(child);
   };
   for (const suite of report.suites) walk(suite);
-  const failed = specs.filter((spec) => !spec.ok);
+}
+// The JSON report strips the `@` from tags.
+const groups = [
+  ["Required", specs.filter((spec) => !spec.tags.includes(KNOWN_LOSS))],
+  [
+    "Known loss, not blocking",
+    specs.filter((spec) => spec.tags.includes(KNOWN_LOSS)),
+  ],
+] as const;
+if (playwrightReportPaths.length > missing.length) {
+  for (const [heading, group] of groups) {
+    const failed = group.filter((spec) => !spec.ok);
+    lines.push(
+      "",
+      `### ${heading}: ${group.length - failed.length} passed, ${failed.length} failed`,
+      ...(failed.length
+        ? ["", ...failed.map((spec) => `- ${spec.title}`)]
+        : []),
+    );
+  }
   lines.push(
     "",
-    `### Tests: ${specs.length - failed.length} passed, ${failed.length} failed, ${records.length} scenarios recorded`,
-    ...(failed.length ? ["", ...failed.map((spec) => `- ${spec.title}`)] : []),
-  );
-} else {
-  lines.push(
-    "",
-    `No Playwright report, so ${records.length} recorded scenarios may not be every test.`,
+    `${specs.length} tests reported, ${records.length} scenarios recorded.`,
   );
 }
+if (!playwrightReportPaths.length || missing.length)
+  lines.push(
+    "",
+    `No Playwright report${missing.length ? ` at ${missing.map((file) => `\`${file}\``).join(", ")}` : ""}, so the recorded scenarios may not be every test.`,
+  );
 
 console.log(`${lines.join("\n")}\n`);
