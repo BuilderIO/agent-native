@@ -5,6 +5,7 @@ import {
   COMPACT_CROSS_SCREEN_GHOST_PX,
   captureCrossScreenSourceHtmlSnapshot,
   getCrossScreenGhostStyle,
+  isCrossScreenGridPlacement,
   isPointerInsideSourceIframe,
   validateCrossScreenSourceHtmlSnapshot,
 } from "./cross-screen-drop";
@@ -121,6 +122,28 @@ describe("cross-screen source HTML snapshots", () => {
         "root",
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("cross-screen grid placements", () => {
+  it("accepts positive track ranges and rejects invalid message data", () => {
+    expect(
+      isCrossScreenGridPlacement({
+        column: 3,
+        columnEnd: 4,
+        row: 2,
+        rowEnd: 3,
+      }),
+    ).toBe(true);
+    expect(
+      isCrossScreenGridPlacement({
+        column: 3,
+        columnEnd: 3,
+        row: 2,
+        rowEnd: 3,
+      }),
+    ).toBe(false);
+    expect(isCrossScreenGridPlacement(null)).toBe(false);
   });
 });
 
