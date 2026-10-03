@@ -13,6 +13,25 @@ export async function isSessionsTriageLabEnabled(
   });
 }
 
+const READ_FAILURES = {
+  labState: "Couldn't read the Sessions triage Lab state.",
+  friction: "Couldn't read session friction.",
+  speed: "Couldn't read session speed data.",
+} as const;
+
+/**
+ * What a caller is told about a failed Lab state, friction, or speed read. The error
+ * itself can quote database details, so only the server log keeps it.
+ */
+export function sessionsTriageReadFailure(
+  read: keyof typeof READ_FAILURES,
+  logPrefix: string,
+  error: unknown,
+): string {
+  console.error(`${logPrefix} ${READ_FAILURES[read]}`, error);
+  return READ_FAILURES[read];
+}
+
 /** What a request asked the Lab for, named in its 403. */
 export type SessionsTriageLabFeature = "events" | "friction" | "speed";
 

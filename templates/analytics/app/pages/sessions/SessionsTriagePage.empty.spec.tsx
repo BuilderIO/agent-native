@@ -522,6 +522,72 @@ describe("Sessions empty states", () => {
     );
   }
 
+  it("says a Lab state that failed to load is why a link's filters are off", async () => {
+    mocks.labError = true;
+    await act(async () => {
+      root.render(
+        <MemoryRouter
+          initialEntries={["/sessions?signal=dead_clicks&event=clip_viewed"]}
+        >
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("sessions.labStateUnavailable");
+    expect(container.textContent).not.toContain(
+      "sessions.frictionFiltersNeedLab",
+    );
+    expect(container.textContent).not.toContain("sessions.eventFiltersNeedLab");
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "sidebar.retry")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(mocks.labRefetch).toHaveBeenCalledOnce();
+  });
+
+  it("stops holding a friction link when the Lab state hangs", async () => {
+    vi.useFakeTimers();
+    mocks.labLoading = true;
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions?sort=friction"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+    let calls = listCalls();
+    expect(calls[calls.length - 1][2].enabled).toBe(false);
+
+    await act(async () => {
+      vi.advanceTimersByTime(5_000);
+    });
+
+    calls = listCalls();
+    expect(calls[calls.length - 1][2].enabled).toBe(true);
+    expect(container.textContent).toContain("sessions.labStateUnavailable");
+
+    // A retry waits again rather than listing unfiltered sessions at once.
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "sidebar.retry")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(mocks.labRefetch).toHaveBeenCalledOnce();
+    calls = listCalls();
+    expect(calls[calls.length - 1][2].enabled).toBe(false);
+    expect(container.textContent).not.toContain("sessions.labStateUnavailable");
+
+    // And stops holding again if the retry hangs too.
+    await act(async () => {
+      vi.advanceTimersByTime(5_000);
+    });
+    calls = listCalls();
+    expect(calls[calls.length - 1][2].enabled).toBe(true);
+    expect(container.textContent).toContain("sessions.labStateUnavailable");
+  });
+
   it("says when friction coverage began in an empty friction match", async () => {
     mocks.labEnabled = true;
     mocks.coverage = null;

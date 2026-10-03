@@ -1457,6 +1457,26 @@ describe("session replay ingest parsing", () => {
     });
   });
 
+  it("keeps a recording active while the recorder says so, despite its end time", () => {
+    const payload = {
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      sequence: 0,
+      endedAt: "2026-01-01T00:00:04.500Z",
+      events: [{ type: 3, timestamp: Date.parse("2026-01-01T00:00:04.500Z") }],
+    };
+
+    expect(
+      parseSessionReplayIngestPayload({ ...payload, status: "active" }).status,
+    ).toBe("active");
+    expect(
+      parseSessionReplayIngestPayload({ ...payload, status: "completed" })
+        .status,
+    ).toBe("completed");
+    expect(parseSessionReplayIngestPayload(payload).status).toBe("completed");
+  });
+
   it("requires an Origin header when an allowlist is configured", async () => {
     await expect(
       assertReplayKeyBudget(
@@ -2096,17 +2116,24 @@ describe("session replay ingest parsing", () => {
   });
 
   it("measures friction for exactly the chunks a batch stored, after the ones before it", async () => {
-    putPrivateBlobMock.mockResolvedValue(null);
+    // Stored as a blob, the chunk row has no inline data; friction must still
+    // read the events the upload carried.
+    putPrivateBlobMock.mockResolvedValue({
+      opaque: "blob_1",
+      provider: "test",
+    });
     const input = parseSessionReplayIngestPayload({
       publicKey: "anpk_test",
       replayId: "recording_1",
       sessionId: "session_1",
       sequence: 1,
+      status: "active",
+      endedAt: 1,
       events: [{ type: 4, timestamp: 1 }],
     });
     const [key, bytes, requests, , , recording] =
       replayIngestKeyDbResults(null);
-    const { db } = createReplayDbMock([
+    const { db, inserts } = createReplayDbMock([
       key,
       bytes,
       requests,
@@ -2121,6 +2148,16 @@ describe("session replay ingest parsing", () => {
       origin: "https://app.example.com",
       requestBytes: 100,
     });
+    expect(
+      inserts.find((entry) => entry.table === schema.sessionReplayChunks)
+        ?.values,
+    ).toEqual([
+      expect.objectContaining({
+        seq: 1,
+        storageKind: "blob",
+        inlineData: null,
+      }),
+    ]);
     expect(recordReplayFrictionMock).toHaveBeenCalledTimes(1);
     expect(recordReplayFrictionMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2132,6 +2169,7 @@ describe("session replay ingest parsing", () => {
         newChunks: [{ seq: 1, inlineData: input.chunks[0]!.inlineData }],
         errorCount: 2,
         rageClickCount: 1,
+        recordingEnded: false,
       }),
     );
   });

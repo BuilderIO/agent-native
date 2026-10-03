@@ -44,6 +44,7 @@ import {
 import {
   __resetSessionFrictionForTests,
   aggregateSessionFrictionEvents,
+  finalizeReplayFriction,
   getSessionFrictionCoverageStart,
   getSessionFrictionDetails,
   listRecordingFriction,
@@ -128,6 +129,7 @@ async function createBaseTables(client: PGliteClient) {
       issue_id text NOT NULL,
       session_recording_id text,
       client_recording_id text,
+      session_id text,
       owner_email text NOT NULL,
       org_id text
     )
@@ -547,6 +549,7 @@ describe("session friction on Postgres", () => {
     sessionId: string,
     priorChunkCount: number,
     events: unknown[],
+    recordingEnded = true,
   ) {
     await recordReplayFriction({
       recordingId,
@@ -559,6 +562,7 @@ describe("session friction on Postgres", () => {
       ],
       errorCount: 0,
       rageClickCount: 0,
+      recordingEnded,
       ingestedAt: at(0),
     });
   }
@@ -581,14 +585,14 @@ describe("session friction on Postgres", () => {
     const rows = await db
       .select({ id: r.id })
       .from(r)
-      .where(and(...(await sessionFrictionFilterConditions(signals))))
+      .where(and(...(await sessionFrictionFilterConditions(SCOPE, signals))))
       .orderBy(asc(r.id));
     return rows.map((row: { id: string }) => row.id);
   }
 
   async function sorted(sort: SessionFrictionSort) {
     const r = schema.sessionRecordings;
-    const order = await sessionFrictionSortOrder(sort);
+    const order = await sessionFrictionSortOrder(SCOPE, sort);
     if (!order) return null;
     const rows = await db
       .select({ id: r.id })
@@ -685,6 +689,33 @@ describe("session friction on Postgres", () => {
     }
   });
 
+  it("leaves a session unmeasured when it was indexed before coverage began", async () => {
+    await index(
+      [actionResponse("s-early", 1, { action: "save", success: false })],
+      at(1),
+    );
+    await migrateFriction(client);
+    await index(
+      [
+        markedPageview("s-early", 11, "/a"),
+        markedPageview("s-fresh", 11, "/a"),
+      ],
+      at(10),
+    );
+    await addRecording("r-early", "s-early", at(11));
+    await addRecording("r-fresh", "s-fresh", at(11));
+
+    const details = await getSessionFrictionDetails(SCOPE, [
+      recordingInput("r-early", "s-early"),
+      recordingInput("r-fresh", "s-fresh"),
+    ]);
+    expect(details.get("r-early")).toMatchObject({ score: null, events: null });
+    expect(details.get("r-fresh")).toMatchObject({
+      score: 0,
+      events: { failed_actions: 0 },
+    });
+  });
+
   async function sessionIds(table: string) {
     const result = await client.query(
       `SELECT DISTINCT session_id FROM ${table} ORDER BY session_id`,
@@ -751,6 +782,40 @@ describe("session friction on Postgres", () => {
       recordingInput("r-gap", "s-gap"),
     ]);
     expect(details.get("r-gap")?.events).toBeNull();
+  });
+
+  it("costs only friction when its readiness probe fails", async () => {
+    await migrateFriction(client);
+    await client.query(
+      `CREATE FUNCTION public.to_regclass(name text) RETURNS regclass LANGUAGE plpgsql AS $$
+       BEGIN
+         IF name = 'analytics_session_friction_coverage' THEN
+           RAISE EXCEPTION 'probe failed';
+         END IF;
+         RETURN pg_catalog.to_regclass(name);
+       END $$`,
+    );
+    await client.query("SET search_path = public, pg_catalog");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await index(
+        [actionResponse("s-probe", 6, { action: "save", success: false })],
+        at(5),
+      );
+    } finally {
+      await client.query("RESET search_path");
+      await client.query("DROP FUNCTION public.to_regclass(text)");
+    }
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("Session friction write failed"),
+      expect.anything(),
+    );
+    warn.mockRestore();
+    expect(await sessionIds("analytics_session_events")).toEqual(["s-probe"]);
+    expect(await sessionIds("analytics_session_event_gaps")).toEqual([]);
+    expect(await sessionIds("analytics_session_friction_gaps")).toEqual([
+      "s-probe",
+    ]);
   });
 
   it("measures thumbs-down and cancelled runs only for sessions that carried the marker", async () => {
@@ -835,7 +900,7 @@ describe("session friction on Postgres", () => {
 
   it("leaves a recording unmeasured when a batch skips or reorders its chunks", async () => {
     await migrateFriction(client);
-    await addRecording("r-gap", "s1", at(0), 1);
+    await addRecording("r-gap", "s1", at(0), 3);
     await addRecording("r-late", "s2", at(0), 2);
     const write = (
       recordingId: string,
@@ -857,10 +922,15 @@ describe("session friction on Postgres", () => {
         })),
         errorCount: 0,
         rageClickCount: 0,
+        recordingEnded: false,
         ingestedAt: at(0),
       });
-    // Chunk 0 arrives after chunk 1, so this batch does not start the recording.
+    // Chunk 0 arrives after chunk 1, so this batch does not start the recording,
+    // and neither the late chunk 0 nor the next chunk, whose seq matches the
+    // stored count, can start it afterwards.
     await write("r-gap", "s1", 0, [1]);
+    await write("r-gap", "s1", 1, [0]);
+    await write("r-gap", "s1", 2, [2]);
     // Two chunks, but one of them is not the next one.
     await write("r-late", "s2", 0, [0, 2]);
     const rows = await client.query(
@@ -868,7 +938,7 @@ describe("session friction on Postgres", () => {
     );
     expect(rows.rows).toEqual([]);
     const details = await getSessionFrictionDetails(SCOPE, [
-      recordingInput("r-gap", "s1", 1),
+      recordingInput("r-gap", "s1", 3),
       recordingInput("r-late", "s2", 2),
     ]);
     expect(details.get("r-gap")?.replay).toBeNull();
@@ -881,6 +951,69 @@ describe("session friction on Postgres", () => {
       recordingInput("r-ok", "s3", 2),
     ]);
     expect(measured.get("r-ok")?.replay).toMatchObject({ dead_clicks: 2 });
+  });
+
+  it("counts leaving after an error only once the recording has ended", async () => {
+    await migrateFriction(client);
+    await addRecording("r1", "s1", at(0), 1);
+    await replayBatch("r1", "s1", 0, [serverError(5_000)], false);
+    let details = await getSessionFrictionDetails(SCOPE, [
+      recordingInput("r1", "s1", 1),
+    ]);
+    expect(details.get("r1")?.replay).toMatchObject({
+      http_5xx: 1,
+      error_then_leave: 0,
+    });
+
+    // Retention finalizes a recording that never sent its final upload.
+    await finalizeReplayFriction(recordingInput("r1", "s1", 1), at(60));
+    details = await getSessionFrictionDetails(SCOPE, [
+      recordingInput("r1", "s1", 1),
+    ]);
+    expect(details.get("r1")?.replay).toMatchObject({
+      http_5xx: 1,
+      error_then_leave: 1,
+    });
+    expect(details.get("r1")?.score).toBe(
+      sessionFrictionScore(
+        { http_5xx: 1, error_then_leave: 1 },
+        REPLAY_FRICTION_SCORE_INPUTS,
+      ),
+    );
+  });
+
+  it("rescores a recording from an upload that stored no new chunks", async () => {
+    await migrateFriction(client);
+    await addRecording("r1", "s1", at(0), 1);
+    await replayBatch("r1", "s1", 0, [serverError(5_000)], false);
+
+    // A retried final upload: every chunk is already stored, but the
+    // recording has now ended and its counts grew.
+    await recordReplayFriction({
+      recordingId: "r1",
+      sessionId: "s1",
+      ownerEmail: OWNER,
+      orgId: ORG,
+      priorChunkCount: 1,
+      newChunks: [],
+      errorCount: 2,
+      rageClickCount: 0,
+      recordingEnded: true,
+      ingestedAt: at(60),
+    });
+    const details = await getSessionFrictionDetails(SCOPE, [
+      { ...recordingInput("r1", "s1", 1), errorCount: 2 },
+    ]);
+    expect(details.get("r1")?.replay).toMatchObject({
+      http_5xx: 1,
+      error_then_leave: 1,
+    });
+    expect(details.get("r1")?.score).toBe(
+      sessionFrictionScore(
+        { http_5xx: 1, error_then_leave: 1, errors: 2 },
+        REPLAY_FRICTION_SCORE_INPUTS,
+      ),
+    );
   });
 
   it("measures replay batches in order and stops at a batch it missed", async () => {
@@ -1033,11 +1166,15 @@ describe("session friction on Postgres", () => {
         ('issue-other', 'Someone else''s issue', 'other@example.com', 'org_2')
     `);
     await client.query(`
-      INSERT INTO error_events (id, issue_id, session_recording_id, client_recording_id, owner_email, org_id) VALUES
-        ('e1', 'issue-a', 'r1', NULL, '${OWNER}', '${ORG}'),
-        ('e2', 'issue-a', NULL, 'client-r1', '${OWNER}', '${ORG}'),
-        ('e3', 'issue-b', 'r1', NULL, '${OWNER}', '${ORG}'),
-        ('e4', 'issue-other', 'r1', 'client-r1', 'other@example.com', 'org_2')
+      INSERT INTO error_events (id, issue_id, session_recording_id, client_recording_id, session_id, owner_email, org_id) VALUES
+        ('e1', 'issue-a', 'r1', NULL, 's1', '${OWNER}', '${ORG}'),
+        ('e2', 'issue-a', NULL, 'client-r1', 's1', '${OWNER}', '${ORG}'),
+        ('e3', 'issue-b', 'r1', NULL, NULL, '${OWNER}', '${ORG}'),
+        ('e4', 'issue-other', 'r1', 'client-r1', 's1', 'other@example.com', 'org_2'),
+        -- The same client recording id under another public key: one
+        -- occurrence was linked to that recording, one came from its session.
+        ('e5', 'issue-b', 'r-other-key', 'client-r1', 's1', '${OWNER}', '${ORG}'),
+        ('e6', 'issue-b', NULL, 'client-r1', 's-other-key', '${OWNER}', '${ORG}')
     `);
     const details = await getSessionFrictionDetails(SCOPE, [
       recordingInput("r1", "s1"),
@@ -1246,6 +1383,42 @@ describe("session friction on Postgres", () => {
       "s-new",
     ]);
     expect(await sessionIds("session_recording_friction")).toEqual([]);
+  });
+
+  it("shows a recording shared from another tenant only its replay friction", async () => {
+    await migrateFriction(client);
+    const other = { ownerEmail: "other@example.com", orgId: "org_2" };
+    await index(
+      [
+        {
+          ...actionResponse("s1", 1, { action: "save", success: false }),
+          ...other,
+        },
+      ],
+      at(0),
+    );
+    await client.query(
+      `INSERT INTO session_recordings (id, client_recording_id, session_id, owner_email, org_id, started_at, chunk_count)
+       VALUES ('r-shared', 'client-r-shared', 's1', $1, $2, $3, 1)`,
+      [other.ownerEmail, other.orgId, at(0)],
+    );
+    await replayBatch("r-shared", "s1", 0, [serverError(1_000)]);
+    const recording = { ...recordingInput("r-shared", "s1", 1), ...other };
+
+    const owner = await getSessionFrictionDetails(
+      { userEmail: other.ownerEmail, orgId: other.orgId },
+      [recording],
+    );
+    expect(owner.get("r-shared")?.events).toMatchObject({ failed_actions: 1 });
+
+    const shared = await getSessionFrictionDetails(SCOPE, [recording]);
+    expect(shared.get("r-shared")).toMatchObject({
+      replay: { http_5xx: 1 },
+      events: null,
+      troubles: [],
+    });
+    expect(await matching(["failed_actions"])).toEqual([]);
+    expect(await matching(["http_5xx"])).toEqual(["r-shared"]);
   });
 
   it("keys friction rows by tenant, never another tenant's session", async () => {

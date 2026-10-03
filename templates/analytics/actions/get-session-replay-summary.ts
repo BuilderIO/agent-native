@@ -10,16 +10,17 @@ import {
   getSessionRecordingPerformance,
   getSessionReplaySummary,
 } from "../server/lib/session-replay.js";
-import { isSessionsTriageLabEnabled } from "../server/lib/sessions-triage-lab.js";
+import {
+  isSessionsTriageLabEnabled,
+  sessionsTriageReadFailure,
+} from "../server/lib/sessions-triage-lab.js";
+
+const LOG_PREFIX = "[get-session-replay-summary]";
 
 function resolveScope() {
   const userEmail = getRequestUserEmail();
   if (!userEmail) throw new Error("no authenticated user");
   return { userEmail, orgId: getRequestOrgId() || null };
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export default defineAction({
@@ -43,7 +44,10 @@ export default defineAction({
         scope.orgId,
       );
     } catch (error) {
-      return { ...summary, labStateError: errorMessage(error) };
+      return {
+        ...summary,
+        labStateError: sessionsTriageReadFailure("labState", LOG_PREFIX, error),
+      };
     }
     if (!labEnabled) return summary;
     const [friction, speed] = await Promise.allSettled([
@@ -59,12 +63,24 @@ export default defineAction({
     return {
       ...summary,
       ...(friction.status === "rejected"
-        ? { frictionError: errorMessage(friction.reason) }
+        ? {
+            frictionError: sessionsTriageReadFailure(
+              "friction",
+              LOG_PREFIX,
+              friction.reason,
+            ),
+          }
         : recordingFriction
           ? { friction: recordingFriction }
           : { frictionError: "Friction read skipped this recording" }),
       ...(speed.status === "rejected"
-        ? { performanceError: errorMessage(speed.reason) }
+        ? {
+            performanceError: sessionsTriageReadFailure(
+              "speed",
+              LOG_PREFIX,
+              speed.reason,
+            ),
+          }
         : recordingSpeed !== undefined
           ? {
               performance: recordingSpeed,

@@ -87,7 +87,10 @@ vi.mock("../server/lib/session-friction.js", () => ({
 }));
 
 const isSessionsTriageLabEnabled = vi.fn(async () => false);
-vi.mock("../server/lib/sessions-triage-lab.js", () => ({
+vi.mock("../server/lib/sessions-triage-lab.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/lib/sessions-triage-lab.js")
+  >()),
   isSessionsTriageLabEnabled,
 }));
 
@@ -656,9 +659,9 @@ describe("view-screen Sessions context", () => {
   });
 
   it("keeps the base list and reports a Lab state that fails to load", async () => {
-    isSessionsTriageLabEnabled.mockRejectedValueOnce(
-      new Error("settings unavailable"),
-    );
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const failure = new Error('relation "settings" does not exist');
+    isSessionsTriageLabEnabled.mockRejectedValueOnce(failure);
     setScreen(
       { view: "sessions" },
       {
@@ -674,10 +677,15 @@ describe("view-screen Sessions context", () => {
     expect(out.sessionReplays).toHaveLength(25);
     expect(out.sessionReplayPage).toMatchObject({
       total: 137,
-      labStateError: "settings unavailable",
+      labStateError: "Couldn't read the Sessions triage Lab state.",
       frictionNotApplied: { signals: ["dead_clicks"], sort: null },
       slowFilterNotApplied: "vitals",
     });
+    expect(log).toHaveBeenCalledWith(
+      "[view-screen] Couldn't read the Sessions triage Lab state.",
+      failure,
+    );
+    log.mockRestore();
     expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
       expect.anything(),
       expect.not.objectContaining({ frictionSignals: expect.anything() }),
@@ -688,11 +696,46 @@ describe("view-screen Sessions context", () => {
     );
   });
 
+  it("drops trailing rows so the page metadata fits the agent's result limit", async () => {
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
+    getSessionFrictionDetails.mockImplementationOnce(
+      async (_scope: unknown, recordings: Array<{ id: string }>) =>
+        new Map(
+          recordings.map((recording) => [
+            recording.id,
+            {
+              score: 12,
+              troubles: Array.from({ length: 3 }, (_, index) => ({
+                label: `Trouble ${index} `.repeat(80),
+                count: 2,
+              })),
+            },
+          ]),
+        ),
+    );
+    setScreen({ view: "sessions" }, { pathname: "/sessions" });
+
+    const text = await viewScreenAction.run({} as never);
+    const out = JSON.parse(text);
+
+    expect(text.length).toBeLessThanOrEqual(45_000);
+    expect(out.sessionReplays.length).toBeLessThan(25);
+    expect(out.sessionReplays[0].id).toBe("recording-0");
+    expect(out.sessionReplayPage).toMatchObject({
+      total: 137,
+      returnedCount: out.sessionReplays.length,
+      truncated: true,
+      fullPageAction: { name: "list-session-recordings" },
+    });
+  });
+
   it("keeps the base list and reports row friction that fails to load", async () => {
     isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
-    getSessionFrictionDetails.mockRejectedValueOnce(
-      new Error("friction unavailable"),
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const failure = new Error(
+      'relation "analytics_session_friction" does not exist',
     );
+    getSessionFrictionDetails.mockRejectedValueOnce(failure);
     setScreen({ view: "sessions" }, { pathname: "/sessions" });
 
     const out = await runScreen();
@@ -703,15 +746,24 @@ describe("view-screen Sessions context", () => {
       id: "recording-0",
       performance: { slowRequests: 1 },
     });
-    expect(out.sessionReplayPage.frictionError).toBe("friction unavailable");
+    expect(out.sessionReplayPage.frictionError).toBe(
+      "Couldn't read session friction.",
+    );
+    expect(log).toHaveBeenCalledWith(
+      "[view-screen] Couldn't read session friction.",
+      failure,
+    );
+    log.mockRestore();
     expect(out.sessionReplayPage).not.toHaveProperty("performanceError");
   });
 
   it("keeps the base list and reports speed hints that fail to load", async () => {
     isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
-    getSessionRecordingPerformance.mockRejectedValueOnce(
-      new Error("speed unavailable"),
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const failure = new Error(
+      'relation "analytics_session_performance" does not exist',
     );
+    getSessionRecordingPerformance.mockRejectedValueOnce(failure);
     setScreen({ view: "sessions" }, { pathname: "/sessions" });
 
     const out = await runScreen();
@@ -722,7 +774,14 @@ describe("view-screen Sessions context", () => {
       id: "recording-0",
       friction: { score: 3 },
     });
-    expect(out.sessionReplayPage.performanceError).toBe("speed unavailable");
+    expect(out.sessionReplayPage.performanceError).toBe(
+      "Couldn't read session speed data.",
+    );
+    expect(log).toHaveBeenCalledWith(
+      "[view-screen] Couldn't read session speed data.",
+      failure,
+    );
+    log.mockRestore();
     expect(out.sessionReplayPage).not.toHaveProperty(
       "performanceCoverageStartedAt",
     );

@@ -65,6 +65,7 @@ import {
   sessionEventFilterConditions,
 } from "./session-event-index.js";
 import {
+  finalizeReplayFriction,
   getSessionFrictionCoverageStart,
   pruneSessionFriction,
   recordReplayFriction,
@@ -1110,10 +1111,14 @@ export function parseSessionReplayIngestPayload(
     : null;
   const durationMs =
     replayInteger(body.durationMs ?? body.duration_ms) ?? computedDuration;
+  // The recorder sends an end time with every upload, so an explicit status
+  // wins; an end time alone marks only an upload that names no status.
   const status =
-    body.status === "completed" || body.completed === true || endedAt
+    body.status === "completed" || body.completed === true
       ? "completed"
-      : "active";
+      : body.status === "active" || !endedAt
+        ? "active"
+        : "completed";
   const userEmail =
     replayEmail(body.userEmail ?? body.user_email) ||
     replayEmail(properties.userEmail ?? properties.user_email) ||
@@ -1705,6 +1710,8 @@ export async function recordSessionReplayChunks(
     Number(recording.rageClickCount ?? 0),
     clampedInput.rageClickCount,
   );
+  const recordingEnded =
+    clampedInput.status === "completed" || recording.status === "completed";
 
   await db
     .update(schema.sessionRecordings)
@@ -1740,10 +1747,7 @@ export async function recordSessionReplayChunks(
       referrer: clampedInput.referrer ?? recording.referrer ?? null,
       app: clampedInput.app ?? recording.app ?? null,
       template: clampedInput.template ?? recording.template ?? null,
-      status:
-        clampedInput.status === "completed" || recording.status === "completed"
-          ? "completed"
-          : "active",
+      status: recordingEnded ? "completed" : "active",
       metadata: JSON.stringify(metadata),
       updatedAt: ingestedAt,
       lastIngestedAt: ingestedAt,
@@ -1762,6 +1766,7 @@ export async function recordSessionReplayChunks(
       .map((chunk) => ({ seq: chunk.seq, inlineData: chunk.inlineData })),
     errorCount,
     rageClickCount,
+    recordingEnded,
     ingestedAt,
   });
 
@@ -2078,12 +2083,12 @@ export async function listSessionRecordingsPage(
   const search = replayListSearchCondition(filters.query);
   if (search) conditions.push(search);
   conditions.push(
-    ...(await sessionEventFilterConditions({
+    ...(await sessionEventFilterConditions(scope, {
       didEvents: filters.didEvents,
       didNotEvents: filters.didNotEvents,
     })),
     ...(await slowSessionConditions(filters.slow)),
-    ...(await sessionFrictionFilterConditions(filters.frictionSignals)),
+    ...(await sessionFrictionFilterConditions(scope, filters.frictionSignals)),
   );
   const appConditions = [...conditions];
   if (filters.app)
@@ -2094,7 +2099,7 @@ export async function listSessionRecordingsPage(
   // Before the friction migration nothing is measured, so friction sorts
   // fall back to newest rather than fail.
   const sortOrder = isSessionFrictionSort(sort)
-    ? ((await sessionFrictionSortOrder(sort)) ??
+    ? ((await sessionFrictionSortOrder(scope, sort)) ??
       desc(schema.sessionRecordings.startedAt))
     : sort === "longest"
       ? sql`${schema.sessionRecordings.durationMs} desc nulls last`
@@ -2827,6 +2832,26 @@ export async function finalizeAbandonedSessionRecordings(
 
   let finalized = 0;
   for (const row of rows) {
+    try {
+      await finalizeReplayFriction(
+        {
+          id: row.id,
+          sessionId: row.sessionId,
+          ownerEmail: row.ownerEmail,
+          orgId: row.orgId ?? null,
+          chunkCount: Number(row.chunkCount ?? 0),
+          errorCount: Number(row.errorCount ?? 0),
+          rageClickCount: Number(row.rageClickCount ?? 0),
+        },
+        now.toISOString(),
+      );
+    } catch (error) {
+      console.warn(
+        "[session-replay] Replay friction finalize failed; the recording stays active until the next sweep:",
+        error,
+      );
+      continue;
+    }
     const endedAt = row.lastIngestedAt ?? row.updatedAt ?? row.startedAt;
     const started = Date.parse(row.startedAt);
     const ended = Date.parse(endedAt);

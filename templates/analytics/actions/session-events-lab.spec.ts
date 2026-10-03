@@ -345,23 +345,28 @@ describe("Sessions triage Lab guard on event actions", () => {
       performanceCoverageStartedAt: "2026-09-20T00:00:00.000Z",
     });
 
-    listRecordingFriction.mockRejectedValueOnce(new Error("friction down"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const frictionFailure = new Error(
+      'relation "analytics_session_friction" does not exist',
+    );
+    listRecordingFriction.mockRejectedValueOnce(frictionFailure);
     await expect(getSummary.run({ recordingId: "r1" })).resolves.toEqual({
       id: "r1",
       sessionId: "s1",
-      frictionError: "friction down",
+      frictionError: "Couldn't read session friction.",
       performance: speed,
       performanceCoverageStartedAt: "2026-09-20T00:00:00.000Z",
     });
 
-    getSessionRecordingPerformance.mockRejectedValueOnce(
-      new Error("speed down"),
+    const speedFailure = new Error(
+      'relation "analytics_session_performance" does not exist',
     );
+    getSessionRecordingPerformance.mockRejectedValueOnce(speedFailure);
     await expect(getSummary.run({ recordingId: "r1" })).resolves.toEqual({
       id: "r1",
       sessionId: "s1",
       friction: { score: 4 },
-      performanceError: "speed down",
+      performanceError: "Couldn't read session speed data.",
     });
 
     getSessionRecordingPerformance.mockResolvedValueOnce({
@@ -376,12 +381,26 @@ describe("Sessions triage Lab guard on event actions", () => {
       performanceCoverageStartedAt: null,
     });
 
-    getUserLabEnabled.mockRejectedValueOnce(new Error("labs down"));
+    const labFailure = new Error('relation "settings" does not exist');
+    getUserLabEnabled.mockRejectedValueOnce(labFailure);
     await expect(getSummary.run({ recordingId: "r1" })).resolves.toEqual({
       id: "r1",
       sessionId: "s1",
-      labStateError: "labs down",
+      labStateError: "Couldn't read the Sessions triage Lab state.",
     });
+    expect(log).toHaveBeenCalledWith(
+      "[get-session-replay-summary] Couldn't read session friction.",
+      frictionFailure,
+    );
+    expect(log).toHaveBeenCalledWith(
+      "[get-session-replay-summary] Couldn't read the Sessions triage Lab state.",
+      labFailure,
+    );
+    expect(log).toHaveBeenCalledWith(
+      "[get-session-replay-summary] Couldn't read session speed data.",
+      speedFailure,
+    );
+    log.mockRestore();
     getSessionRecordingPerformance.mockReset();
     getSessionRecordingPerformance.mockResolvedValue({
       performance: {},
