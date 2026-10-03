@@ -18,7 +18,10 @@ import {
   type ReplayRange,
   type SessionReplayListFilters,
 } from "../server/lib/session-replay.js";
-import { isSessionsTriageLabEnabled } from "../server/lib/sessions-triage-lab.js";
+import {
+  isSessionsTriageLabEnabled,
+  sessionsTriageReadFailure,
+} from "../server/lib/sessions-triage-lab.js";
 import {
   getStatusPagePreview,
   listStatusPages,
@@ -305,8 +308,11 @@ export default defineAction({
                 scope.orgId,
               );
             } catch (error) {
-              labStateError =
-                error instanceof Error ? error.message : String(error);
+              labStateError = sessionsTriageReadFailure(
+                "labState",
+                "[view-screen]",
+                error,
+              );
             }
             if (triageLabEnabled) {
               if (urlEventConditions.didEvents.length) {
@@ -337,8 +343,11 @@ export default defineAction({
                   friction: friction.get(recording.id),
                 }));
               } catch (error) {
-                frictionError =
-                  error instanceof Error ? error.message : String(error);
+                frictionError = sessionsTriageReadFailure(
+                  "friction",
+                  "[view-screen]",
+                  error,
+                );
               }
             }
             // The URL's sort and Lab conditions are not what was applied

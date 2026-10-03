@@ -700,6 +700,10 @@ async function writeSessionEventFriction(
       ]),
     );
   }
+  // Only a batch that upserted a session's pageview index row earlier in
+  // this transaction writes its nav state. That row lock makes a concurrent
+  // batch for the session wait for this one to commit before it reads here,
+  // so friction must keep running after the index, inside its transaction.
   const navStates = new Map<string, string | null>();
   if (navIds.size) {
     const existing: Array<{ id: string; navState: string | null }> =

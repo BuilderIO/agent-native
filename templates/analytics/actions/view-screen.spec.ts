@@ -78,7 +78,10 @@ vi.mock("../server/lib/session-friction.js", () => ({
 }));
 
 const isSessionsTriageLabEnabled = vi.fn(async () => false);
-vi.mock("../server/lib/sessions-triage-lab.js", () => ({
+vi.mock("../server/lib/sessions-triage-lab.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/lib/sessions-triage-lab.js")
+  >()),
   isSessionsTriageLabEnabled,
 }));
 
@@ -575,9 +578,9 @@ describe("view-screen Sessions context", () => {
   });
 
   it("keeps the base list and reports a Lab state that fails to load", async () => {
-    isSessionsTriageLabEnabled.mockRejectedValueOnce(
-      new Error("settings unavailable"),
-    );
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const failure = new Error('relation "settings" does not exist');
+    isSessionsTriageLabEnabled.mockRejectedValueOnce(failure);
     setScreen(
       { view: "sessions" },
       {
@@ -593,9 +596,14 @@ describe("view-screen Sessions context", () => {
     expect(out.sessionReplays).toHaveLength(25);
     expect(out.sessionReplayPage).toMatchObject({
       total: 137,
-      labStateError: "settings unavailable",
+      labStateError: "Couldn't read the Sessions triage Lab state.",
       frictionNotApplied: { signals: ["dead_clicks"], sort: null },
     });
+    expect(log).toHaveBeenCalledWith(
+      "[view-screen] Couldn't read the Sessions triage Lab state.",
+      failure,
+    );
+    log.mockRestore();
     expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
       expect.anything(),
       expect.not.objectContaining({ frictionSignals: expect.anything() }),
@@ -604,9 +612,11 @@ describe("view-screen Sessions context", () => {
 
   it("keeps the base list and reports row friction that fails to load", async () => {
     isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
-    getSessionFrictionDetails.mockRejectedValueOnce(
-      new Error("friction unavailable"),
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const failure = new Error(
+      'relation "analytics_session_friction" does not exist',
     );
+    getSessionFrictionDetails.mockRejectedValueOnce(failure);
     setScreen({ view: "sessions" }, { pathname: "/sessions" });
 
     const out = await runScreen();
@@ -614,7 +624,14 @@ describe("view-screen Sessions context", () => {
     expect(out.sessionReplayError).toBeUndefined();
     expect(out.sessionReplays).toHaveLength(25);
     expect(out.sessionReplays[0]).toEqual({ id: "recording-0" });
-    expect(out.sessionReplayPage.frictionError).toBe("friction unavailable");
+    expect(out.sessionReplayPage.frictionError).toBe(
+      "Couldn't read session friction.",
+    );
+    expect(log).toHaveBeenCalledWith(
+      "[view-screen] Couldn't read session friction.",
+      failure,
+    );
+    log.mockRestore();
   });
 
   it("carries friction coverage so an empty friction match is not read as zero", async () => {

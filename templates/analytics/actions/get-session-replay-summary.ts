@@ -7,16 +7,17 @@ import { z } from "zod";
 
 import { listRecordingFriction } from "../server/lib/session-friction.js";
 import { getSessionReplaySummary } from "../server/lib/session-replay.js";
-import { isSessionsTriageLabEnabled } from "../server/lib/sessions-triage-lab.js";
+import {
+  isSessionsTriageLabEnabled,
+  sessionsTriageReadFailure,
+} from "../server/lib/sessions-triage-lab.js";
+
+const LOG_PREFIX = "[get-session-replay-summary]";
 
 function resolveScope() {
   const userEmail = getRequestUserEmail();
   if (!userEmail) throw new Error("no authenticated user");
   return { userEmail, orgId: getRequestOrgId() || null };
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 export default defineAction({
@@ -40,7 +41,10 @@ export default defineAction({
         scope.orgId,
       );
     } catch (error) {
-      return { ...summary, labStateError: errorMessage(error) };
+      return {
+        ...summary,
+        labStateError: sessionsTriageReadFailure("labState", LOG_PREFIX, error),
+      };
     }
     if (!labEnabled) return summary;
     try {
@@ -51,7 +55,10 @@ export default defineAction({
         ? { ...summary, friction }
         : { ...summary, frictionError: "Friction read skipped this recording" };
     } catch (error) {
-      return { ...summary, frictionError: errorMessage(error) };
+      return {
+        ...summary,
+        frictionError: sessionsTriageReadFailure("friction", LOG_PREFIX, error),
+      };
     }
   },
 });
