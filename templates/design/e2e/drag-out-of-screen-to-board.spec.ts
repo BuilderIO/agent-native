@@ -44,6 +44,31 @@ async function designRecord(page: Page, designId: string) {
   return response.json();
 }
 
+async function boardLayerPosition(page: Page, designId: string) {
+  const record = (await designRecord(page, designId)) as {
+    files?: Array<{ filename: string; content?: string }>;
+  };
+  const board = record.files?.find(
+    (file) => file.filename === "__board__.html",
+  );
+  if (!board?.content) throw new Error("board file has no content");
+  return page.evaluate(
+    ({ html, nodeId }) => {
+      const parsed = new DOMParser().parseFromString(html, "text/html");
+      const node = parsed.querySelector<HTMLElement>(
+        `[data-agent-native-node-id="${nodeId}"]`,
+      );
+      if (!node) throw new Error("dropped layer is missing from the board");
+      return {
+        position: node.style.position,
+        left: Number.parseFloat(node.style.left),
+        top: Number.parseFloat(node.style.top),
+      };
+    },
+    { html: board.content, nodeId: NODE_ID },
+  );
+}
+
 function designData(record: { data?: unknown }): Record<string, any> {
   return typeof record.data === "string"
     ? JSON.parse(record.data || "{}")
@@ -54,6 +79,9 @@ test("a layer dragged below the rendered Screen card moves to the board", async 
   page,
 }) => {
   test.setTimeout(120_000);
+  await page.addInitScript(() => {
+    (window as unknown as { __DESIGN_TRACE?: boolean }).__DESIGN_TRACE = true;
+  });
   const design = await action(page, "create-design", {
     title: `Drag out of screen ${Date.now()}`,
     projectType: "prototype",
@@ -107,6 +135,40 @@ test("a layer dragged below the rendered Screen card moves to the board", async 
     await expect
       .poll(() => filesContaining(page, designId), { timeout: 20_000 })
       .toEqual(["__board__.html"]);
+
+    const commitPoint = await page.evaluate(() => {
+      const entries = (window as any).__designTrace?.entries?.() ?? [];
+      return entries
+        .filter(
+          (entry: any) =>
+            entry.area === "drop" && entry.event === "board-commit-point",
+        )
+        .at(-1)?.data;
+    });
+    expect(commitPoint.hasAnchor).toBe(false);
+    expect(commitPoint.boardSurfaceRenderOrigin).toMatchObject({
+      x: expect.any(Number),
+      y: expect.any(Number),
+    });
+    expect(commitPoint.targetLocalPoint.x).toBeCloseTo(
+      commitPoint.targetCanvasPoint.x - commitPoint.boardSurfaceRenderOrigin.x,
+      4,
+    );
+    expect(commitPoint.targetLocalPoint.y).toBeCloseTo(
+      commitPoint.targetCanvasPoint.y - commitPoint.boardSurfaceRenderOrigin.y,
+      4,
+    );
+    expect(commitPoint.sourcePointerOffset).toBeTruthy();
+    const persistedPosition = await boardLayerPosition(page, designId);
+    expect(persistedPosition.position).toBe("absolute");
+    expect(persistedPosition.left).toBeCloseTo(
+      commitPoint.targetLocalPoint.x - commitPoint.sourcePointerOffset.x,
+      0,
+    );
+    expect(persistedPosition.top).toBeCloseTo(
+      commitPoint.targetLocalPoint.y - commitPoint.sourcePointerOffset.y,
+      0,
+    );
   } finally {
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }
