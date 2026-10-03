@@ -11608,12 +11608,18 @@ export const editorChromeBridgeScript: string = `"use strict";
       });
       return normalized;
     }
-    function radiusDragMaximums(corner, radii, width, height) {
+    function radiusDragMaximums(corner, radii, width, height, minimumRadius) {
       var horizontalNeighbor = corner === "nw" ? radii.ne.x : corner === "ne" ? radii.nw.x : corner === "se" ? radii.sw.x : radii.se.x;
       var verticalNeighbor = corner === "nw" ? radii.sw.y : corner === "ne" ? radii.se.y : corner === "se" ? radii.ne.y : radii.nw.y;
       return {
-        x: Math.max(0, Math.min(width / 2, width - horizontalNeighbor)),
-        y: Math.max(0, Math.min(height / 2, height - verticalNeighbor))
+        x: Math.max(
+          minimumRadius ? minimumRadius.x : 0,
+          Math.max(0, Math.min(width / 2, width - horizontalNeighbor))
+        ),
+        y: Math.max(
+          minimumRadius ? minimumRadius.y : 0,
+          Math.max(0, Math.min(height / 2, height - verticalNeighbor))
+        )
       };
     }
     var CORNER_RADIUS_PROPERTY_BY_HANDLE = {
@@ -19311,16 +19317,20 @@ export const editorChromeBridgeScript: string = `"use strict";
       var borderBox = borderBoxDimensions(cs);
       var elWidthPx = borderBox.width;
       var elHeightPx = borderBox.height;
-      var radii = normalizeCornerRadiusMap(
-        cornerRadiusMap(cs, elWidthPx, elHeightPx),
-        elWidthPx,
-        elHeightPx
-      );
+      var authoredRadii = cornerRadiusMap(cs, elWidthPx, elHeightPx);
+      var radii = normalizeCornerRadiusMap(authoredRadii, elWidthPx, elHeightPx);
+      var radiiWereNormalized = radii !== authoredRadii;
       var originRadius = radii[corner] || { x: 0, y: 0 };
-      var maxRadius = radiusDragMaximums(corner, radii, elWidthPx, elHeightPx);
+      var wholeShape = radiusPrimitiveKind(radiusEl) === "rectangle" && !e.altKey;
+      var maxRadius = radiusDragMaximums(
+        corner,
+        radii,
+        elWidthPx,
+        elHeightPx,
+        wholeShape ? null : originRadius
+      );
       var maxRadiusX = maxRadius.x;
       var maxRadiusY = maxRadius.y;
-      var wholeShape = radiusPrimitiveKind(radiusEl) === "rectangle" && !e.altKey;
       var radiusStyleProperties = [
         "border-radius",
         "border-top-left-radius",
@@ -19365,6 +19375,14 @@ export const editorChromeBridgeScript: string = `"use strict";
         var value = x === y ? x + "px" : x + "px " + y + "px";
         if (wholeShape) {
           radiusEl.style.borderRadius = x === y ? value : x + "px / " + y + "px";
+        } else if (radiiWereNormalized) {
+          Object.keys(CORNER_RADIUS_PROPERTY_BY_HANDLE).forEach(
+            function(radiusCorner) {
+              var radius = radiusCorner === corner ? { x, y } : radii[radiusCorner];
+              var radiusValue = radius.x === radius.y ? radius.x + "px" : radius.x + "px " + radius.y + "px";
+              radiusEl.style[CORNER_RADIUS_PROPERTY_BY_HANDLE[radiusCorner]] = radiusValue;
+            }
+          );
         } else {
           radiusEl.style[cornerProperty] = value;
         }
@@ -19438,6 +19456,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         var styles = {};
         if (wholeShape) {
           styles.borderRadius = radiusEl.style.borderRadius;
+        } else if (radiiWereNormalized) {
+          Object.keys(CORNER_RADIUS_PROPERTY_BY_HANDLE).forEach(
+            function(radiusCorner) {
+              var property = CORNER_RADIUS_PROPERTY_BY_HANDLE[radiusCorner];
+              styles[property] = radiusEl.style[property];
+            }
+          );
         } else {
           styles[cornerProperty] = radiusEl.style[cornerProperty];
         }

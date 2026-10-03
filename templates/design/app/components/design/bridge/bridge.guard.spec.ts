@@ -7517,6 +7517,152 @@ it.each(["200px", "20000px"])(
 );
 
 it(
+  "keeps untouched normalized corners stable during an Alt radius drag",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 700, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-radius:200px"></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.mouse.move(94, 94);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(
+        () => {
+          const handle = document.querySelector<HTMLElement>(
+            '[data-agent-native-radius-handle="nw"]',
+          );
+          return handle && getComputedStyle(handle).visibility === "visible";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      const centers = () =>
+        page.evaluate(() =>
+          ["nw", "ne", "se", "sw"].map((corner) => {
+            const handle = document.querySelector<HTMLElement>(
+              `[data-agent-native-radius-handle="${corner}"]`,
+            );
+            if (!handle) throw new Error(`${corner} radius handle is missing`);
+            const rect = handle.getBoundingClientRect();
+            return {
+              x: rect.x + rect.width / 2,
+              y: rect.y + rect.height / 2,
+            };
+          }),
+        );
+      const before = await centers();
+      await page.mouse.move(before[0].x, before[0].y);
+      await page.keyboard.down("Alt");
+      await page.mouse.down();
+      await page.mouse.move(before[0].x - 1, before[0].y - 1, { steps: 2 });
+      const during = await centers();
+      await page.mouse.up();
+      await page.keyboard.up("Alt");
+
+      expect(during[0].x).toBeLessThan(before[0].x);
+      expect(during[0].y).toBeLessThan(before[0].y);
+      expect(
+        Math.hypot(during[0].x - before[0].x, during[0].y - before[0].y),
+      ).toBeLessThan(2);
+      for (const index of [1, 2, 3]) {
+        expect(
+          Math.hypot(
+            during[index].x - before[index].x,
+            during[index].y - before[index].y,
+          ),
+        ).toBeLessThan(1);
+      }
+
+      const styleChange = (await readBridgeMessages(page)).find(
+        (message) => message.type === "visual-style-change",
+      );
+      expect(styleChange?.styles).toMatchObject({
+        borderTopLeftRadius: "49px",
+        borderTopRightRadius: "50px",
+        borderBottomRightRadius: "50px",
+        borderBottomLeftRadius: "50px",
+      });
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "does not snap a lone oversized corner below its rendered radius during Alt drag",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 700, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-top-left-radius:200px"></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.mouse.move(144, 144);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(
+        () => {
+          const handle = document.querySelector<HTMLElement>(
+            '[data-agent-native-radius-handle="nw"]',
+          );
+          return handle && getComputedStyle(handle).visibility === "visible";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      const before = await handle.boundingBox();
+      if (!before) throw new Error("nw radius handle is not visible");
+      const start = {
+        x: before.x + before.width / 2,
+        y: before.y + before.height / 2,
+      };
+      await page.mouse.move(start.x, start.y);
+      await page.keyboard.down("Alt");
+      await page.mouse.down();
+      await page.mouse.move(start.x - 1, start.y - 1, { steps: 2 });
+      const during = await handle.boundingBox();
+      if (!during) throw new Error("nw radius handle disappeared during drag");
+      await page.mouse.up();
+      await page.keyboard.up("Alt");
+
+      const moved = {
+        x: during.x + during.width / 2,
+        y: during.y + during.height / 2,
+      };
+      expect(Math.abs(moved.x - (start.x - 1))).toBeLessThan(1.5);
+      expect(Math.abs(moved.y - (start.y - 1))).toBeLessThan(1.5);
+      const styleChange = (await readBridgeMessages(page)).find(
+        (message) => message.type === "visual-style-change",
+      );
+      expect(styleChange?.styles).toMatchObject({
+        borderTopLeftRadius: "99px",
+        borderTopRightRadius: "0px",
+        borderBottomRightRadius: "0px",
+        borderBottomLeftRadius: "0px",
+      });
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "shows the radius handle when selection changes under a stationary pointer",
   { timeout: 30_000 },
   async () => {

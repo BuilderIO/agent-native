@@ -422,6 +422,7 @@ const radiusDragMaximums =
       radii: Record<string, { x: number; y: number }>,
       width: number,
       height: number,
+      minimumRadius?: { x: number; y: number },
     ) => { x: number; y: number }
   >("radiusDragMaximums");
 
@@ -1149,6 +1150,23 @@ describe("editor-chrome bridge — corner radius math", () => {
         100,
       ),
     ).toEqual({ x: 60, y: 30 });
+  });
+
+  it("does not clamp an individual corner below its rendered radius", () => {
+    expect(
+      radiusDragMaximums(
+        "nw",
+        {
+          nw: { x: 100, y: 100 },
+          ne: { x: 0, y: 0 },
+          se: { x: 0, y: 0 },
+          sw: { x: 0, y: 0 },
+        },
+        200,
+        100,
+        { x: 100, y: 100 },
+      ),
+    ).toEqual({ x: 100, y: 100 });
   });
 });
 
