@@ -165,7 +165,7 @@ function getCellAtAddress(
   return getCells(row)[address.columnIndex] ?? null;
 }
 
-function getSelectionOverlayRect(rects: DOMRect[]) {
+function getSelectionOverlayRect(table: HTMLElement, rects: DOMRect[]) {
   if (rects.length === 0) return null;
 
   const left = Math.min(...rects.map((rect) => rect.left));
@@ -173,12 +173,32 @@ function getSelectionOverlayRect(rects: DOMRect[]) {
   const top = Math.min(...rects.map((rect) => rect.top));
   const bottom = Math.max(...rects.map((rect) => rect.bottom));
 
+  return clampToScrollport(
+    { height: bottom - top, left, top, width: right - left },
+    getTableScrollport(table),
+  );
+}
+
+// Tables scroll sideways inside `.tableWrapper`, but these controls render
+// beside the editor, outside its clipping, so they clip themselves to it.
+function getTableScrollport(table: HTMLElement) {
+  return (table.closest(".tableWrapper") ?? table).getBoundingClientRect();
+}
+
+function clampToScrollport(
+  rect: SelectionOverlayRect,
+  scrollport: DOMRect,
+): SelectionOverlayRect {
+  const clamp = (x: number) =>
+    Math.min(Math.max(x, scrollport.left), scrollport.right);
+  const left = clamp(rect.left);
+
   return {
-    height: bottom - top,
+    height: rect.height,
     left,
-    top,
-    width: right - left,
-  } satisfies SelectionOverlayRect;
+    top: rect.top,
+    width: clamp(rect.left + rect.width) - left,
+  };
 }
 
 function getRowSelectionOverlayRect(
@@ -188,6 +208,7 @@ function getRowSelectionOverlayRect(
   if (!address) return null;
 
   return getSelectionOverlayRect(
+    table,
     getCells(getRows(table)[address.rowIndex]).map((cell) =>
       cell.getBoundingClientRect(),
     ),
@@ -201,6 +222,7 @@ function getColumnSelectionOverlayRect(
   if (!address) return null;
 
   return getSelectionOverlayRect(
+    table,
     getRows(table)
       .map((row) => getCells(row)[address.columnIndex])
       .filter((cell): cell is HTMLElement => Boolean(cell))
@@ -1045,6 +1067,13 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       : null);
   const selectedTableRect =
     selectedTable?.getBoundingClientRect() ?? selectedTableRectRef.current;
+  const selectedScrollport = selectedTable
+    ? getTableScrollport(selectedTable)
+    : null;
+  const visibleSelectedRect =
+    selectedRect && selectedScrollport
+      ? clampToScrollport(selectedRect, selectedScrollport)
+      : null;
   const selectedDimensions = selectedTable
     ? getTableDimensions(selectedTable)
     : { rowCount: 0, columnCount: 0 };
@@ -1075,9 +1104,9 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     typeof window === "undefined"
       ? Number.POSITIVE_INFINITY
       : window.innerHeight;
-  const columnMenuWouldOverflowRight = selectedRect
-    ? selectedRect.left +
-        selectedRect.width / 2 +
+  const columnMenuWouldOverflowRight = visibleSelectedRect
+    ? visibleSelectedRect.left +
+        visibleSelectedRect.width / 2 +
         COLUMN_OPTIONS_MENU_ALIGN_OFFSET +
         COLUMN_OPTIONS_MENU_WIDTH >
       viewportWidth - MENU_COLLISION_PADDING
@@ -1109,9 +1138,12 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
 
   return (
     <>
-      {selectedRect && selectedTable && selectedTableRect ? (
+      {visibleSelectedRect &&
+      selectedScrollport &&
+      selectedTable &&
+      selectedTableRect ? (
         <>
-          {selectedColumnOverlayRect ? (
+          {selectedColumnOverlayRect?.width ? (
             <div
               className="pointer-events-none absolute z-20 rounded-[3px] border-2 border-primary/60 bg-primary/10"
               data-testid="table-selected-column"
@@ -1124,7 +1156,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
             />
           ) : null}
 
-          {selectedRowOverlayRect ? (
+          {selectedRowOverlayRect?.width ? (
             <div
               className="pointer-events-none absolute z-20 rounded-[3px] border-2 border-primary/60 bg-primary/10"
               data-testid="table-selected-row"
@@ -1137,22 +1169,27 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
             />
           ) : null}
 
-          <div
-            className="pointer-events-none absolute z-30 rounded-[3px] border-2 border-primary/75 bg-primary/10"
-            data-testid="table-selected-cell"
-            style={{
-              left: selectedRect.left - wrapperRect.left,
-              top: selectedRect.top - wrapperRect.top,
-              width: selectedRect.width,
-              height: selectedRect.height,
-            }}
-          />
+          {visibleSelectedRect.width ? (
+            <div
+              className="pointer-events-none absolute z-30 rounded-[3px] border-2 border-primary/75 bg-primary/10"
+              data-testid="table-selected-cell"
+              style={{
+                left: visibleSelectedRect.left - wrapperRect.left,
+                top: visibleSelectedRect.top - wrapperRect.top,
+                width: visibleSelectedRect.width,
+                height: visibleSelectedRect.height,
+              }}
+            />
+          ) : null}
 
           <DropdownMenu open={columnMenuOpen} onOpenChange={setColumnMenuOpen}>
             <DropdownMenuTrigger asChild>
               <button
                 aria-label={t("database.columnOptions")}
-                className={lineButtonClass}
+                className={cn(
+                  lineButtonClass,
+                  !visibleSelectedRect.width && "invisible",
+                )}
                 data-testid="table-column-options"
                 onClickCapture={(event) => {
                   event.preventDefault();
@@ -1171,9 +1208,9 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 }}
                 style={{
                   left:
-                    selectedRect.left -
+                    visibleSelectedRect.left -
                     wrapperRect.left +
-                    selectedRect.width / 2,
+                    visibleSelectedRect.width / 2,
                   top:
                     selectedTableRect.top -
                     wrapperRect.top -
@@ -1315,13 +1352,13 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 }}
                 style={{
                   left:
-                    selectedTableRect.left -
+                    Math.max(selectedTableRect.left, selectedScrollport.left) -
                     wrapperRect.left -
                     ROW_OPTIONS_HIT_WIDTH / 2,
                   top:
-                    selectedRect.top -
+                    visibleSelectedRect.top -
                     wrapperRect.top +
-                    selectedRect.height / 2,
+                    visibleSelectedRect.height / 2,
                   height: ROW_OPTIONS_HIT_HEIGHT,
                   transform: "translateY(-50%)",
                   width: ROW_OPTIONS_HIT_WIDTH,
@@ -1441,17 +1478,9 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
 
         const tableId = getTableOverlayId(table);
         const rect = table.getBoundingClientRect();
-        const scrollportRect = table
-          .closest(".tableWrapper")
-          ?.getBoundingClientRect();
-        const visibleLeft = Math.max(
-          rect.left,
-          scrollportRect?.left ?? rect.left,
-        );
-        const visibleRight = Math.min(
-          rect.right,
-          scrollportRect?.right ?? rect.right,
-        );
+        const scrollportRect = getTableScrollport(table);
+        const visibleLeft = Math.max(rect.left, scrollportRect.left);
+        const visibleRight = Math.min(rect.right, scrollportRect.right);
         const isTableEndVisible = rect.right <= visibleRight + 1;
         const top = rect.top - wrapperRect.top;
         const right = rect.right - wrapperRect.left;

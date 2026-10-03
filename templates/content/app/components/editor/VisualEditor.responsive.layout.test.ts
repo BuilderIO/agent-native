@@ -17,9 +17,10 @@ describe("page body containment", () => {
     expect(source).not.toMatch(/className="grid(?:\s[^"]*)?"/);
   });
 
-  it("wraps inline code while code blocks keep scrolling", () => {
+  it("wraps inline code without collapsing its spaces, while code blocks keep scrolling", () => {
     expect(css).not.toMatch(/\bpre,\s*code\s*\{[^}]*white-space:\s*pre;/);
-    expect(css).toMatch(/\n\s*pre\s*\{[^}]*white-space:\s*pre;/);
+    expect(css).toMatch(/\n\s*pre,\s*pre code\s*\{[^}]*white-space:\s*pre;/);
+    expect(css).toMatch(/\n\s*code\s*\{[^}]*white-space:\s*pre-wrap;/);
     expect(css).toMatch(
       /\.notion-editor pre code\s*\{[^}]*white-space:\s*pre;/,
     );

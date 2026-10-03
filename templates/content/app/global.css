@@ -120,9 +120,14 @@
     word-break: break-word;
   }
 
-  pre {
+  pre,
+  pre code {
     overflow-x: auto;
     white-space: pre;
+  }
+
+  code {
+    white-space: pre-wrap;
   }
 }
 

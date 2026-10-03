@@ -12,28 +12,28 @@ export const READABLE_TABLE_COLUMN_MIN_WIDTH = 96;
 // floor lives in a custom property that the stylesheet enforces instead.
 export const READABLE_TABLE_MIN_WIDTH_PROPERTY = "--content-table-min-width";
 
-export function readableTableMinWidth(node: ProseMirrorNode): number | null {
-  const row = node.firstChild;
-  if (!row) return null;
+export function readableTableMinWidth(colgroup: HTMLElement): number | null {
   let total = 0;
   let hasUnsizedColumn = false;
-  row.forEach((cell) => {
-    const colspan: number = cell.attrs.colspan ?? 1;
-    const colwidth: number[] | null = cell.attrs.colwidth ?? null;
-    for (let index = 0; index < colspan; index += 1) {
-      const width = colwidth?.[index];
-      if (width) {
-        total += width;
-      } else {
-        total += READABLE_TABLE_COLUMN_MIN_WIDTH;
-        hasUnsizedColumn = true;
-      }
+  for (const col of Array.from(colgroup.children)) {
+    const width = Number.parseFloat((col as HTMLElement).style.width);
+    if (width > 0) {
+      total += width;
+    } else {
+      total += READABLE_TABLE_COLUMN_MIN_WIDTH;
+      hasUnsizedColumn = true;
     }
-  });
+  }
   return hasUnsizedColumn ? total : null;
 }
 
 export class ContentTableView extends TableView {
+  // A column drag restyles the <col>s on every frame but writes the new width
+  // to the document only on release, so the floor follows the <col>s.
+  private readonly columnObserver = new MutationObserver(() =>
+    this.applyReadableMinWidth(),
+  );
+
   constructor(
     node: ProseMirrorNode,
     cellMinWidth: number,
@@ -42,6 +42,11 @@ export class ContentTableView extends TableView {
   ) {
     super(node, cellMinWidth, view, HTMLAttributes);
     this.applyReadableMinWidth();
+    this.columnObserver.observe(this.colgroup, {
+      attributeFilter: ["style"],
+      childList: true,
+      subtree: true,
+    });
   }
 
   override update(node: ProseMirrorNode) {
@@ -50,8 +55,12 @@ export class ContentTableView extends TableView {
     return true;
   }
 
+  destroy() {
+    this.columnObserver.disconnect();
+  }
+
   private applyReadableMinWidth() {
-    const minWidth = readableTableMinWidth(this.node);
+    const minWidth = readableTableMinWidth(this.colgroup);
     if (minWidth === null) {
       this.table.style.removeProperty(READABLE_TABLE_MIN_WIDTH_PROPERTY);
     } else {

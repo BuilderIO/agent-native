@@ -60,21 +60,34 @@ async function runAction(
 }
 
 async function setAgentPanel(page: Page, open: boolean) {
-  await page.evaluate(
-    (eventName) => {
-      window.dispatchEvent(new CustomEvent(eventName));
-    },
-    open ? "agent-panel:open" : "agent-panel:close",
+  const openPanel = page.locator(
+    '.agent-sidebar-panel[data-agent-sidebar-state="open"]',
   );
-  // The shell may refuse to open the panel at a width it cannot fit; the
-  // sweep checks whichever state the shell settles on.
+  // Crossing into the compact layout can close the panel right after a resize,
+  // so the request repeats until the panel reports the requested state.
+  await expect(async () => {
+    await page.evaluate(
+      (eventName) => {
+        window.dispatchEvent(new CustomEvent(eventName));
+      },
+      open ? "agent-panel:open" : "agent-panel:close",
+    );
+    if (open) {
+      await expect(openPanel.first()).toBeVisible({ timeout: 1_000 });
+    } else {
+      await expect(openPanel).toHaveCount(0, { timeout: 1_000 });
+    }
+  }).toPass({ timeout: 10_000 });
+  // Measure after the panel's width transition, not partway through it.
   await page.waitForTimeout(400);
-  return (
-    (await page
-      .locator('[data-agent-sidebar-state="open"]')
-      .count()
-      .catch(() => 0)) > 0
-  );
+}
+
+async function dockedSidebarWidth(page: Page) {
+  const sidebar = page.locator(".agent-layout-left-drawer").first();
+  await expect(sidebar).toBeVisible();
+  const box = await sidebar.boundingBox();
+  expect(box, "docked sidebar has a layout box").not.toBeNull();
+  return box!.width;
 }
 
 async function measureOverflow(page: Page) {
@@ -163,15 +176,27 @@ test.describe("Content page responsive layout", () => {
       await page.setViewportSize({ width: WIDTHS.at(-1)!, height: HEIGHT });
       await page.goto(`/page/${documentId}`, { waitUntil: "domcontentloaded" });
       await expect(page.locator(EDITOR_TABLE)).toBeVisible();
+      const sidebarWidth = await dockedSidebarWidth(page);
+      if (sidebarCollapsed) {
+        expect(
+          sidebarWidth,
+          "collapsed sidebar renders as a rail",
+        ).toBeLessThan(80);
+      } else {
+        expect(
+          sidebarWidth,
+          "expanded sidebar renders docked",
+        ).toBeGreaterThanOrEqual(160);
+      }
 
       for (const agentOpen of [false, true]) {
         for (const width of WIDTHS) {
           await page.setViewportSize({ width, height: HEIGHT });
-          const agentIsOpen = await setAgentPanel(page, agentOpen);
+          await setAgentPanel(page, agentOpen);
           // Crossing the compact breakpoint remounts the editor.
           await expect(page.locator(EDITOR_TABLE)).toBeVisible();
           const label = `sidebar-${sidebarCollapsed ? "collapsed" : "expanded"} agent-${
-            agentIsOpen ? "open" : "closed"
+            agentOpen ? "open" : "closed"
           } ${width}px`;
 
           const measured = await measureOverflow(page);
