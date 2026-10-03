@@ -46,7 +46,11 @@ export const handleAnalyticsTrack = defineEventHandler(async (event) => {
     );
     const result = await recordAnalyticsEvents(parsed.publicKey, parsed.events);
     setResponseStatus(event, 202);
-    return { success: true, accepted: result.accepted };
+    return {
+      success: true,
+      accepted: result.accepted,
+      suppressedTestIdentity: result.suppressedTestIdentity,
+    };
   } catch (err) {
     const reply = errorReply(err, "[first-party-analytics]");
     setResponseStatus(event, reply.statusCode);

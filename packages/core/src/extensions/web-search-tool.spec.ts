@@ -154,7 +154,7 @@ describe("createWebSearchToolEntry", () => {
     ).toEqual(expect.objectContaining({ query: "current docs", limit: 3 }));
   });
 
-  it("suggests Builder Connect when no backend is configured", async () => {
+  it("suggests Builder.io when no backend is configured", async () => {
     const tool = createWebSearchToolEntry({
       resolveSecret: vi.fn().mockResolvedValue(null),
       resolveBuilderCredentials: vi.fn().mockResolvedValue(null),
@@ -163,7 +163,7 @@ describe("createWebSearchToolEntry", () => {
     const result = await tool.run({ query: "current docs" });
 
     expect(result).toContain("No web-search backend configured");
-    expect(result).toContain("Connect Builder.io");
+    expect(result).toContain("Use Builder.io");
     expect(result).toContain("BRAVE_SEARCH_API_KEY");
   });
 

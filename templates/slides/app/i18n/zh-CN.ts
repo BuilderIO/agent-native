@@ -429,7 +429,8 @@ const messages = {
     resolveThread: "解决讨论",
     reopenThread: "重新打开讨论",
     hideReplies: "隐藏回复",
-    replyCount: "{{count}} 条回复",
+    replyCount_one: "{{count}} 条回复",
+    replyCount_other: "{{count}} 条回复",
     title: "评论",
     addComment: "添加评论",
     close: "关闭",
@@ -934,8 +935,8 @@ const messages = {
           "阅读提供的公司网站并创建公司介绍演示文稿。访问失败时请报告错误，不要编造事实。",
       },
     },
-    connectBuilderIo: "连接 Builder.io",
-    connectingBuilder: "正在连接 Builder.io…",
+    connectBuilderIo: "使用 Builder.io",
+    connectingBuilder: "正在设置 Builder.io…",
     recent: "最近",
     starters: {
       pitch: {

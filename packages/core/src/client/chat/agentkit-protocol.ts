@@ -41,6 +41,12 @@ import {
 } from "@agent-native/agentkit/protocol";
 
 import {
+  AUTO_CONTINUE_OF_RUN_METADATA_KEY,
+  AUTO_CONTINUE_PROMPT,
+  AUTO_CONTINUE_REFUSAL_CODES,
+  type AutoContinueRefusalCode,
+} from "../../agent/auto-continue.js";
+import {
   emitChatFirstOpenApp,
   emitChatFirstOpenBrowser,
 } from "../chat-first-state.js";
@@ -109,6 +115,11 @@ export interface CreateAgentKitProtocolAdapterOptions {
    */
   readonly retainedRunTtlMs?: number;
   readonly metadata?: Record<string, unknown>;
+  /**
+   * Localized label of the status shown while a turn the server stopped at its
+   * time limit is being continued. Read each time it is shown.
+   */
+  readonly autoContinueLabel?: string;
 }
 
 export interface AgentKitProtocolAdapter extends AgentTransport {
@@ -148,6 +159,8 @@ interface ProtocolRun {
   terminalDrain?: TerminalDrain;
   readingTerminalDrain?: boolean;
   successorWaitStartedAtMs?: number;
+  /** Time-limit stops already sent for continuation, with any refusal. */
+  autoContinueAsked?: Map<string, AutoContinueRefusalCode | null>;
   /** How the terminal event was established; absent means the stream's own. */
   terminalSource?: RunTerminalSource;
   /** A stream of this run closed with no terminal event at least once. */
@@ -2693,11 +2706,19 @@ export function createAgentKitProtocolAdapter(
         quietReads: run.quietAuthorityReads ?? 0,
         subscribeFailures: run.subscribeFailures ?? 0,
         nowMs: Date.now(),
+        ...(run.session.continueTurn
+          ? { autoContinue: { asked: (run.autoContinueAsked ??= new Map()) } }
+          : {}),
       });
       run.quietAuthorityReads = (run.quietAuthorityReads ?? 0) + 1;
       if (decision.type === "terminal") {
         appendAuthorityTerminal(run, decision);
         return null;
+      }
+      if (decision.type === "continue") {
+        const continued = await continueAfterTimeLimit(run, decision);
+        if (continued || stopped()) return continued;
+        continue;
       }
       if (decision.type === "wait") {
         if (read.kind === "read") run.successorWaitStartedAtMs ??= Date.now();
@@ -2764,6 +2785,59 @@ export function createAgentKitProtocolAdapter(
       };
     }
     return null;
+  }
+
+  /**
+   * Asks the server to continue a turn it stopped at its time limit. The run
+   * stays in the same turn, so the turn's journal of finished steps and its
+   * cross-app idempotency keys keep applying. A refusal is recorded for the
+   * next decision; any other failure falls back to waiting like before.
+   */
+  async function continueAfterTimeLimit(
+    run: ProtocolRun,
+    decision: Extract<StreamClosedDecision, { type: "continue" }>,
+  ): Promise<AgentChatRuntimeTurn | null> {
+    const asked = (run.autoContinueAsked ??= new Map());
+    asked.set(decision.runId, null);
+    const label = options.autoContinueLabel;
+    const activity: AgentActivity | undefined = label
+      ? {
+          id: `auto-continue:${decision.runId}`,
+          kind: "status",
+          label,
+          status: "running",
+          startedAt: now(),
+        }
+      : undefined;
+    if (activity) append(run, { type: "activity.started", activity });
+    let next: AgentChatRuntimeTurn | null = null;
+    try {
+      next = await run.session.continueTurn!({
+        turnId: decision.turnId,
+        prompt: AUTO_CONTINUE_PROMPT,
+        metadata: { [AUTO_CONTINUE_OF_RUN_METADATA_KEY]: decision.runId },
+        abortSignal: readers.signal,
+      });
+    } catch (error) {
+      const code = asRecord(error)?.code;
+      const refusal = AUTO_CONTINUE_REFUSAL_CODES.find(
+        (known) => known === code,
+      );
+      if (refusal) asked.set(decision.runId, refusal);
+    }
+    if (activity && !run.terminal) {
+      append(run, {
+        type: "activity.completed",
+        activity: {
+          ...activity,
+          status: next ? "completed" : "failed",
+          completedAt: now(),
+        },
+      });
+    }
+    // A Stop that landed while the request was in flight stopped the whole
+    // turn server-side, including the run this request started.
+    return run.terminal || run.streamClosed ? null : next;
   }
 
   function appendAuthorityTerminal(

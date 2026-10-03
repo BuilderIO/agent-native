@@ -442,7 +442,9 @@ const messages = {
     resolveThread: "Resolver conversa",
     reopenThread: "Reabrir conversa",
     hideReplies: "Ocultar respostas",
-    replyCount: "{{count}} respostas",
+    replyCount_one: "{{count}} resposta",
+    replyCount_many: "{{count}} respostas",
+    replyCount_other: "{{count}} respostas",
     title: "Comentários",
     addComment: "Adicionar comentário",
     close: "Fechar",
@@ -985,8 +987,8 @@ const messages = {
           "Leia o site da empresa fornecido e crie uma apresentação sobre ela. Informe falhas de acesso em vez de inventar fatos.",
       },
     },
-    connectBuilderIo: "Conectar o Builder.io",
-    connectingBuilder: "Conectando ao Builder.io…",
+    connectBuilderIo: "Usar Builder.io",
+    connectingBuilder: "Configurando o Builder.io…",
     recent: "Recentes",
     starters: {
       pitch: {

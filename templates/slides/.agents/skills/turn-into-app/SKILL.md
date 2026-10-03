@@ -364,7 +364,7 @@ optimistic action patterns. Do not add a parallel CRUD API route for an action.
 ## 4. Keep onboarding shared
 
 Use the framework's existing setup experience. The app should offer the normal
-“Connect Builder” and “Add your own keys” paths for AI setup. Do not create a
+“Use Builder.io” and “Add your own keys” paths for AI setup. Do not create a
 second credential form or hardcode a provider key.
 
 In local-development instructions, add a brief note that a developer can set
@@ -388,7 +388,7 @@ plain `pnpm dev` has the right first-run behavior without extra flags:
 }
 ```
 
-Either value keeps the shared Connect Builder / Add your own keys choice
+Either value keeps the shared Use Builder.io / Add your own keys choice
 visible; only `"off"` disables first-run onboarding entirely. Do not replace
 this with a local credential form or remove the shared onboarding.
 

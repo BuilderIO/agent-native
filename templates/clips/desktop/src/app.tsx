@@ -111,6 +111,7 @@ import {
   startBubbleWebrtc,
   type BubbleWebrtcHandle,
 } from "./lib/bubble-webrtc";
+import { connectBuilderForVoiceCleanup } from "./lib/builder-connection";
 import {
   captureSetupForCamera,
   captureSetupForMode,
@@ -6342,6 +6343,13 @@ function Setup({
   const [providerStatus, setProviderStatus] =
     useState<VoiceProviderStatus | null>(null);
   const [providerStatusLoading, setProviderStatusLoading] = useState(true);
+  const [providerStatusRefreshVersion, setProviderStatusRefreshVersion] =
+    useState(0);
+  const [builderConnecting, setBuilderConnecting] = useState(false);
+  const [builderConnectMessage, setBuilderConnectMessage] = useState<{
+    kind: "ok" | "error";
+    text: string;
+  } | null>(null);
   const [apiKeyValue, setApiKeyValue] = useState("");
   const [apiKeySaving, setApiKeySaving] = useState(false);
   const [apiKeyMessage, setApiKeyMessage] = useState<{
@@ -6837,7 +6845,14 @@ function Setup({
     return () => {
       cancelled = true;
     };
-  }, [serverUrl, initial]);
+  }, [providerStatusRefreshVersion, serverUrl, initial]);
+
+  useEffect(() => {
+    const refreshOnFocus = () =>
+      setProviderStatusRefreshVersion((version) => version + 1);
+    window.addEventListener("focus", refreshOnFocus);
+    return () => window.removeEventListener("focus", refreshOnFocus);
+  }, []);
 
   const [serverUrlError, setServerUrlError] = useState<string | null>(null);
 
@@ -6879,6 +6894,7 @@ function Setup({
 
   function selectProviderMode(mode: VoiceProviderMode) {
     setApiKeyMessage(null);
+    setBuilderConnectMessage(null);
     if (mode === "native") {
       onVoiceProviderChange(nativeVoiceProvider());
     } else if (mode === "whisper") {
@@ -6958,14 +6974,48 @@ function Setup({
     }
   }
 
-  function connectBuilder() {
+  async function connectBuilder() {
+    if (builderConnecting) return;
     const base = (serverUrl ?? initial ?? DEFAULT_URL).replace(/\/+$/, "");
-    openExternal(`${base}/_agent-native/builder/connect`).catch((err) => {
-      setApiKeyMessage({
-        kind: "error",
-        text: (err as Error)?.message ?? "Couldn't open Builder.io. Try again.",
+    setBuilderConnecting(true);
+    setBuilderConnectMessage(null);
+    try {
+      const result = await connectBuilderForVoiceCleanup(base, {
+        openExternal,
       });
-    });
+      if (result === "activated") {
+        setProviderStatus((previous) =>
+          previous
+            ? { ...previous, builder: true }
+            : {
+                browser: true,
+                "macos-native": false,
+                builder: true,
+                gemini: false,
+                groq: false,
+              },
+        );
+        setBuilderConnectMessage({
+          kind: "ok",
+          text: "Builder.io is ready for voice cleanup.",
+        });
+      } else {
+        setBuilderConnectMessage({
+          kind: "ok",
+          text: "Continue in your browser to use your Builder.io account.",
+        });
+      }
+    } catch (err) {
+      setBuilderConnectMessage({
+        kind: "error",
+        text:
+          err instanceof Error
+            ? err.message
+            : "Couldn't use Builder.io. Try again.",
+      });
+    } finally {
+      setBuilderConnecting(false);
+    }
   }
 
   const providerWarning: string | null = (() => {
@@ -6975,7 +7025,7 @@ function Setup({
     if (selectedMode === "builder") {
       return providerStatus.builder
         ? null
-        : "Cleanup is off until Builder.io is connected.";
+        : "Use Builder.io to turn on cleanup.";
     }
     if (providerStatus[byokProvider]) return null;
     return `Cleanup is off until you add ${keyForByokProvider(byokProvider)}.`;
@@ -7815,17 +7865,30 @@ function Setup({
             }
           >
             {providerWarning ||
-            (selectedMode === "builder" && !providerStatus?.builder) ? (
+            (selectedMode === "builder" && !providerStatus?.builder) ||
+            builderConnectMessage ? (
               <>
                 {providerWarning ? (
                   <p className="text-xs text-destructive">{providerWarning}</p>
                 ) : null}
+                {builderConnectMessage ? (
+                  <p
+                    className={
+                      builderConnectMessage.kind === "ok"
+                        ? "text-xs text-success"
+                        : "text-xs text-destructive"
+                    }
+                  >
+                    {builderConnectMessage.text}
+                  </p>
+                ) : null}
                 {selectedMode === "builder" && !providerStatus?.builder ? (
                   <SettingsActionButton
                     className="w-fit"
-                    onClick={connectBuilder}
+                    onClick={() => void connectBuilder()}
+                    disabled={builderConnecting}
                   >
-                    Use Builder.io
+                    {builderConnecting ? "Setting up…" : "Use Builder.io"}
                   </SettingsActionButton>
                 ) : null}
               </>

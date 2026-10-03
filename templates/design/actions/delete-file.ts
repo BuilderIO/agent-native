@@ -13,6 +13,7 @@ import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { designChangeResource } from "../server/lib/design-change-resource.js";
 import {
   snapshotDesignBeforeAgentEditInVersionLock,
   withDesignVersionLock,
@@ -615,11 +616,17 @@ export default defineAction({
 
     if (requestedIds.length === 1) {
       return deletion.deletedIds.includes(id)
-        ? { id, deleted: true, deletedFiles: deletion.deletedFiles }
+        ? {
+            id,
+            designId: file.designId,
+            deleted: true,
+            deletedFiles: deletion.deletedFiles,
+          }
         : { id, deleted: false, alreadyMissing: true };
     }
     return {
       id,
+      designId: file.designId,
       deleted: deletion.deletedIds.includes(id),
       deletedIds: deletion.deletedIds,
       ...(deletion.deletedIds.includes(id)
@@ -627,4 +634,6 @@ export default defineAction({
         : { alreadyMissing: true }),
     };
   },
+  changeResource: (_p, result) =>
+    designChangeResource(result?.designId, result),
 });

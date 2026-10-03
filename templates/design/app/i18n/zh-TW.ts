@@ -816,7 +816,7 @@ export default {
     makeItRealCard: {
       open: "開啟",
       choose: "選擇",
-      connect: "連接",
+      connect: "使用 Builder.io",
       generating: "生成中",
       generate: "生成",
       migrationFailed: "遷移失敗，請再試一次。",
@@ -1299,6 +1299,14 @@ export default {
       pngReadOnlyUnavailable: "唯讀預覽不支援 PNG 擷取",
       pngSaveError: "無法儲存 PNG",
       pngExportError: "無法匯出 PNG",
+      exportTooLarge:
+        "匯出內容過大。請求上限為 5 MB；請減少內嵌資源或點陣尺寸後再試一次。",
+      exportResourcesUnavailable:
+        "由於一個或多個圖片、字型或樣式表無法使用，因此無法準確轉譯匯出內容。請檢查這些資源後再試一次。",
+      exportTimedOut: "匯出逾時。請重試，或縮小設計尺寸。",
+      exportBusy: "另一個匯出正在轉譯。請稍候片刻再試一次。",
+      exportChromiumUnavailable:
+        "由於轉譯器無法啟動，匯出暫時無法使用。請稍後再試一次。",
       pdfExportError: "無法匯出 PDF",
       pdfDownloaded: "PDF 已下載",
       pdfAllScreensDownloaded: "PDF 已下載（所有畫面）",
@@ -1773,8 +1781,8 @@ export default {
     designPromptTitle: "讓我們建立你的第一個設計",
     recent: "最近",
     browseAllTemplates: "瀏覽全部",
-    connectBuilderIo: "連線 Builder.io",
-    connectingBuilder: "正在連線 Builder.io…",
+    connectBuilderIo: "使用 Builder.io",
+    connectingBuilder: "正在設定 Builder.io…",
     pageTitle: "Design",
     searchPlaceholder: "搜尋設計...",
     newDesign: "新Design",

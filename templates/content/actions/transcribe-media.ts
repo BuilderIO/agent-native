@@ -1,7 +1,7 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { resolveCredential } from "@agent-native/core/credentials";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { readAppSecret } from "@agent-native/core/secrets";
@@ -355,8 +355,9 @@ async function transcribeMedia(media: AudioOnlyTranscriptionMedia) {
         `Builder transcription failed: ${builderError}. Groq fallback failed: ${groqError}`,
       );
     }
-    throw new Error(
-      `No media transcription provider is available. Connect Builder.io (free tier available) in Settings -> File uploads or configure GROQ_API_KEY. ${groqError}`,
+    fail(
+      `No media transcription provider is available. Use Builder.io (free tier available) in Settings -> File uploads or configure GROQ_API_KEY. ${groqError}`,
+      { errorCode: "transcription_provider_unavailable", statusCode: 424 },
     );
   }
 }
