@@ -186,6 +186,7 @@ function mergeAttribute(
   const b = parseStyle(base);
   const l = parseStyle(local);
   const r = parseStyle(remote);
+  if (!b || !l || !r) return undefined;
   const merged = new Map(r);
   for (const property of new Set([...b.keys(), ...l.keys(), ...r.keys()])) {
     const value = mergeAttribute(
@@ -203,15 +204,92 @@ function mergeAttribute(
     .concat(merged.size > 0 ? ";" : "");
 }
 
-function parseStyle(style: string): Map<string, string> {
+function parseStyle(style: string): Map<string, string> | null {
   const declarations = new Map<string, string>();
-  for (const declaration of style.split(";")) {
-    const separator = declaration.indexOf(":");
-    if (separator < 0) continue;
-    declarations.set(
-      declaration.slice(0, separator).trim().toLowerCase(),
-      declaration.slice(separator + 1).trim(),
-    );
+  const parts = splitCssAtTopLevel(style, ";");
+  if (!parts) return null;
+  for (const declaration of parts) {
+    if (!declaration.trim()) continue;
+    const values = splitCssAtTopLevel(declaration, ":");
+    if (!values || values.length < 2) return null;
+    const rawProperty = values.shift()!.trim();
+    const property = rawProperty.startsWith("--")
+      ? rawProperty
+      : rawProperty.toLowerCase();
+    const value = values.join(":").trim();
+    if (
+      !/^--[A-Za-z_][A-Za-z0-9_-]*$/.test(property) &&
+      !/^-?[A-Za-z_][A-Za-z0-9_-]*$/.test(property)
+    ) {
+      return null;
+    }
+    if (declarations.has(property)) return null;
+    if (!value && !property.startsWith("--")) return null;
+    declarations.set(property, value);
   }
   return declarations;
+}
+
+function splitCssAtTopLevel(input: string, separator: string): string[] | null {
+  const matchingOpen: Record<string, string> = {
+    ")": "(",
+    "]": "[",
+    "}": "{",
+  };
+  const stack: string[] = [];
+  const parts: string[] = [];
+  let start = 0;
+  let quote = "";
+  let escaped = false;
+  let comment = false;
+
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index]!;
+    const next = input[index + 1];
+
+    if (comment) {
+      if (char === "*" && next === "/") {
+        comment = false;
+        index += 1;
+      }
+      continue;
+    }
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = "";
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      comment = true;
+      index += 1;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (char === "(" || char === "[" || char === "{") {
+      stack.push(char);
+      continue;
+    }
+    if (char in matchingOpen) {
+      if (stack.pop() !== matchingOpen[char]) return null;
+      continue;
+    }
+    if (char === separator && stack.length === 0) {
+      parts.push(input.slice(start, index));
+      start = index + 1;
+    }
+  }
+
+  if (quote || escaped || comment || stack.length > 0) return null;
+  parts.push(input.slice(start));
+  return parts;
 }

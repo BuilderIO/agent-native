@@ -84,7 +84,7 @@ let collabBoostActivityAt = 0;
 // one doc per screen or slide: two people editing different ones never see each
 // other. A resource-scoped action event that another tab or an agent caused
 // proves someone is editing the resource right now, so it boosts on its own.
-let collabActivityUntil = 0;
+const collabActivityUntilByResource = new Map<string, number>();
 const openCollabResources = new Map<string, number>();
 
 function collabResourceKey(resourceType: string, resourceId: string): string {
@@ -103,33 +103,46 @@ export function registerCollabActivityResource(resource: {
     released = true;
     const remaining = (openCollabResources.get(key) ?? 1) - 1;
     if (remaining > 0) openCollabResources.set(key, remaining);
-    else openCollabResources.delete(key);
+    else {
+      openCollabResources.delete(key);
+      collabActivityUntilByResource.delete(key);
+    }
+    notifyCollabBoostChange();
   };
 }
 
 function collabBoostWanted(): boolean {
+  const now = Date.now();
+  let hasRecentResourceActivity = false;
+  for (const [key, until] of collabActivityUntilByResource) {
+    if (until <= now || !openCollabResources.has(key)) {
+      collabActivityUntilByResource.delete(key);
+    } else {
+      hasRecentResourceActivity = true;
+    }
+  }
   return (
-    (collabBoostLeases > 0 && collabBoostFresh()) ||
-    Date.now() < collabActivityUntil
+    (collabBoostLeases > 0 && collabBoostFresh()) || hasRecentResourceActivity
   );
 }
 
 function noteCollaboratorActivity(events: SyncEvent[]): void {
   const ownSource = getBrowserTabId();
-  if (
-    events.some(
-      (event) =>
-        event.source === "action" &&
-        typeof event.resourceType === "string" &&
-        event.resourceType !== "" &&
-        typeof event.resourceId === "string" &&
-        openCollabResources.has(
-          collabResourceKey(event.resourceType, event.resourceId),
-        ) &&
-        event.requestSource !== ownSource,
-    )
-  ) {
-    collabActivityUntil = Date.now() + COLLAB_ACTIVITY_WINDOW_MS;
+  const until = Date.now() + COLLAB_ACTIVITY_WINDOW_MS;
+  for (const event of events) {
+    if (
+      event.source !== "action" ||
+      typeof event.resourceType !== "string" ||
+      event.resourceType === "" ||
+      typeof event.resourceId !== "string" ||
+      event.requestSource === ownSource
+    ) {
+      continue;
+    }
+    const key = collabResourceKey(event.resourceType, event.resourceId);
+    if (openCollabResources.has(key)) {
+      collabActivityUntilByResource.set(key, until);
+    }
   }
 }
 
@@ -1309,7 +1322,7 @@ export function _resetSyncTransportRegistryForTests(): void {
   transportRegistry.clear();
   collabBoostLeases = 0;
   collabBoostActivityAt = 0;
-  collabActivityUntil = 0;
+  collabActivityUntilByResource.clear();
   openCollabResources.clear();
 }
 

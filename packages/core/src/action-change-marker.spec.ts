@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   actionChangeDedupeKey,
+  actionChangeMarkerSession,
   actionChangeMarkerValue,
   parseActionChangeMarker,
 } from "./action-change-marker.js";
@@ -56,6 +57,33 @@ describe("action change markers", () => {
     ).toEqual(expect.objectContaining(target));
     expect(actionChangeDedupeKey(target, "action|n")).toBe(
       "action|n|update-document|owner@example.com||document|doc-1",
+    );
+  });
+
+  it("stores pending resource markers in distinct actor slots", () => {
+    const target = {
+      actionName: "update-document",
+      owner: "owner@example.com",
+      requestSource: "browser-tab-1",
+      resourceType: "document",
+      resourceId: "doc-1",
+    };
+    const session = actionChangeMarkerSession(target);
+
+    expect(session).not.toBe(
+      actionChangeMarkerSession({ ...target, resourceId: "doc-2" }),
+    );
+    expect(session).not.toBe(
+      actionChangeMarkerSession({ ...target, requestSource: "browser-tab-2" }),
+    );
+    expect(actionChangeMarkerSession(target)).toBe(session);
+    expect(
+      parseActionChangeMarker(session, { actionName: "update-document" }),
+    ).toEqual(
+      expect.objectContaining({
+        actionName: "update-document",
+        owner: "owner@example.com",
+      }),
     );
   });
 

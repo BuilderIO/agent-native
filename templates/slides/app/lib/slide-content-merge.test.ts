@@ -45,6 +45,33 @@ describe("mergeSlideContent", () => {
     expect(merged).toBe(slide(title("Title", "font-size: 72px; color: blue;")));
   });
 
+  it("preserves semicolons inside quoted and functional style values", () => {
+    const baseStyle =
+      "content: 'a;b'; background-image: url(data:image/svg+xml;base64,aa;bb); left: 10px; color: red;";
+    const localStyle = baseStyle.replace("left: 10px", "left: 20px");
+    const remoteStyle = baseStyle.replace("color: red", "color: blue");
+    const merged = mergeSlideContent(
+      slide(title("Title", baseStyle)),
+      slide(title("Title", localStyle)),
+      slide(title("Title", remoteStyle)),
+    );
+
+    expect(merged).toContain("content: 'a;b'");
+    expect(merged).toContain("url(data:image/svg+xml;base64,aa;bb)");
+    expect(merged).toContain("left: 20px");
+    expect(merged).toContain("color: blue");
+  });
+
+  it("declines style merging when declarations cannot be parsed losslessly", () => {
+    const base = slide(title("Title", "left: 10px; color: red;"));
+    const local = slide(title("Title", "left: 20px; color: red;"));
+    const remote = slide(
+      title("Title", "left: 10px; color: blue; color: green;"),
+    );
+
+    expect(mergeSlideContent(base, local, remote)).toBeNull();
+  });
+
   it("merges a text edit with a move of the same object", () => {
     const base = slide(title("Title", "left: 10px;"));
     const merged = mergeSlideContent(

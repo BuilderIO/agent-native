@@ -196,6 +196,31 @@ describe("collab poll boost", () => {
       ).toBeLessThanOrEqual(1);
     });
 
+    it("drops activity for a closed resource before another resource opens", async () => {
+      const unsub = await subscribeRefused();
+      const releaseD1 = registerCollabActivityResource({
+        resourceType: "design",
+        resourceId: "d1",
+      });
+      nextEvents = [{ ...action("other-tab"), version: 1 }];
+      await advance(70_000);
+      const beforeBoost = polls;
+      await advance(5_000);
+      expect(polls - beforeBoost).toBeGreaterThanOrEqual(1);
+
+      releaseD1();
+      const releaseD2 = registerCollabActivityResource({
+        resourceType: "design",
+        resourceId: "d2",
+      });
+      const afterNavigation = polls;
+      await advance(15_000);
+      expect(polls - afterNavigation).toBeLessThanOrEqual(1);
+
+      releaseD2();
+      unsub();
+    });
+
     it("stays idle for this tab's own action events and for events naming no resource", async () => {
       expect(
         await pollsAfterFirstEvent(action(getBrowserTabId())),

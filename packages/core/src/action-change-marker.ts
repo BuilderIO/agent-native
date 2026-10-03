@@ -1,5 +1,6 @@
 export const ACTION_CHANGE_MARKER_KEY = "__action_change__";
 export const ACTION_CHANGE_MARKER_ORG_PREFIX = "__org__:";
+const ACTION_CHANGE_MARKER_RESOURCE_SCOPE_SUFFIX = "|resource:";
 
 export interface ActionChangeTarget {
   actionName?: string;
@@ -27,9 +28,23 @@ export function actionChangeDedupeKey(
 export function actionChangeMarkerSession(
   target: ActionChangeTarget,
 ): string | null {
-  if (target.owner) return target.owner;
-  if (target.orgId) return `${ACTION_CHANGE_MARKER_ORG_PREFIX}${target.orgId}`;
-  return null;
+  const actorSession = target.owner
+    ? target.owner
+    : target.orgId
+      ? `${ACTION_CHANGE_MARKER_ORG_PREFIX}${target.orgId}`
+      : null;
+  if (!actorSession) return null;
+  if (!target.resourceType || !target.resourceId) return actorSession;
+
+  const scope = encodeURIComponent(
+    JSON.stringify([
+      target.actionName ?? "",
+      target.requestSource ?? "",
+      target.resourceType,
+      target.resourceId,
+    ]),
+  );
+  return `${actorSession}${ACTION_CHANGE_MARKER_RESOURCE_SCOPE_SUFFIX}${scope}`;
 }
 
 export function actionChangeMarkerValue(
@@ -90,13 +105,18 @@ export function parseActionChangeMarker(
   }
 
   if (!owner && !orgId && typeof sessionId === "string" && sessionId) {
-    if (sessionId.startsWith(ACTION_CHANGE_MARKER_ORG_PREFIX)) {
-      const parsedOrgId = sessionId.slice(
+    const scopeStart = sessionId.indexOf(
+      ACTION_CHANGE_MARKER_RESOURCE_SCOPE_SUFFIX,
+    );
+    const actorSession =
+      scopeStart < 0 ? sessionId : sessionId.slice(0, scopeStart);
+    if (actorSession.startsWith(ACTION_CHANGE_MARKER_ORG_PREFIX)) {
+      const parsedOrgId = actorSession.slice(
         ACTION_CHANGE_MARKER_ORG_PREFIX.length,
       );
       if (parsedOrgId) orgId = parsedOrgId;
     } else {
-      owner = sessionId;
+      owner = actorSession;
     }
   }
 
