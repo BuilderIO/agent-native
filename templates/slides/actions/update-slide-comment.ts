@@ -27,6 +27,10 @@ export default defineAction({
         path: ["content"],
       },
     ),
+  changeResource: ({ deckId }) => ({
+    resourceType: "deck",
+    resourceId: deckId,
+  }),
   run: async (args) => {
     const hasContent = args.content !== undefined;
     const hasResolved = args.resolved !== undefined;

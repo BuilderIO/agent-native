@@ -185,6 +185,8 @@ const messages = {
       changeStatistics: "变更统计",
       untitledPlan: "未命名计划",
       saveFailed: "无法保存",
+      openFailed:
+        "この計画を編集用に開けませんでした。ページを再読み込みして、もう一度お試しください。",
     },
     imageViewer: {
       actualSize: "实际大小",

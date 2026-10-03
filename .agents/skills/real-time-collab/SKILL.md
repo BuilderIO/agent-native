@@ -28,8 +28,19 @@ conflicts. Always choose an explicit `access` mode on `createCollabPlugin`.
 - **SSE fast-path** — `/_agent-native/poll-events` `EventSource` delivers collab
   events push-style; while SSE is healthy the collab poll interval relaxes to
   ~12 s
-- **Polling fallback** — `/_agent-native/poll` is polled every 2 s when SSE is
-  unavailable; this is the universal serverless fallback
+- **Polling fallback** — `/_agent-native/poll` is polled every 2 s when SSE
+  drops mid-session. On serverless, `/events` answers 204 up front (poll-live)
+  and this client relaxes to ~12 s, because `/poll` is the only channel.
+- **Collab poll boost** — while the awareness set shows another visible human
+  on the doc (agent and hidden tabs do not count), the connection holds
+  `acquireCollabPollBoost()` and the shared transport polls every 2.5 s
+  whenever no stream is connected: a no-op while SSE or the hosted gateway is
+  live. A joiner is noticed on the existing user's next ~12 s collab poll
+  (the joiner sees them at once), a leaver within one poll plus the 30 s
+  awareness TTL. The boost lapses after 3 minutes with no input and no remote
+  events. Lone tabs pay nothing extra. A read-only viewer must join the doc too (Design's
+  `useViewerPresence`; it never uses the `ydoc`), or it never sees an editor
+  and stays on the idle cadence.
 - **Update batching** — local Yjs updates are debounced ~80 ms and coalesced
   with `Y.mergeUpdates` before sending; flushed immediately on
   `visibilitychange` / `pagehide`
@@ -375,6 +386,17 @@ the whole history — external/agent edits must not wipe the user's undo stack.
   sanctioned `setContent` is gated by `updatedAt` and guarded by
   `isReconcileLeadClient`. Calling it from elsewhere duplicates content across
   the CRDT or re-applies stale snapshots.
+- **Save to SQL only after the edit reached the document** — a client that
+  saves the same text to SQL while its Yjs update is still queued (offline,
+  backoff) lets peers adopt the saved copy and then apply the late update
+  again, duplicating the text. Await `flushUpdates()` from
+  `useCollaborativeDoc` before the save; `false` means delivery failed, so retry
+  later instead of saving. Build the saved value from the live document at that
+  moment, not from a snapshot taken at the last keystroke.
+- **Seed an empty document on the server** — two editors opening a new doc each
+  seed it locally and the copies merge into duplicated text. Pass
+  `requestInitialSeed` (backed by `seedXmlFragmentIfEmpty`) so the server seeds
+  once and every editor adopts that copy.
 - **Add packages to `optimizeDeps`** — Vite won't pre-bundle Yjs correctly
   otherwise, causing runtime errors in dev.
 - **One `Y.Doc` per document** — Don't create multiple Y.Doc instances for the

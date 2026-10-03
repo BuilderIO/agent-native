@@ -2708,8 +2708,12 @@ export function MultiTabAssistantChat({
   }, [chatCommandVersion, switchThread]);
 
   const handleGenerateTitle = useCallback(
-    (threadId: string, message: string) => {
-      void generateTitle(threadId, message).then((title) => {
+    (
+      threadId: string,
+      message: string,
+      selection: { engine?: string; model?: string },
+    ) => {
+      void generateTitle(threadId, message, selection).then((title) => {
         if (title) {
           // Persist the generated title to the server
           void saveThreadData(threadId, {

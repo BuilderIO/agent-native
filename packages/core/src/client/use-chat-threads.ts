@@ -1478,12 +1478,20 @@ export function useChatThreads(
   );
 
   const generateTitle = useCallback(
-    async (threadId: string, message: string): Promise<string | null> => {
+    async (
+      threadId: string,
+      message: string,
+      selection: { engine?: string; model?: string } = {},
+    ): Promise<string | null> => {
       try {
         const res = await fetch(`${apiUrl}/generate-title`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message }),
+          body: JSON.stringify({
+            message,
+            ...(selection.engine ? { engine: selection.engine } : {}),
+            ...(selection.model ? { model: selection.model } : {}),
+          }),
         });
         if (!res.ok) return null;
         const data = await res.json();

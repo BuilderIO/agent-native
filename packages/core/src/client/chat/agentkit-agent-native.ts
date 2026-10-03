@@ -2224,6 +2224,10 @@ export function createAgentNativeAgentKitTransport(
   const protocolTransport = createAgentKitProtocolAdapter(runtime, {
     onRunOutcome: trackRunOutcome,
     ...options.adapter,
+    // A spread would freeze the host's label at its locale when this was built.
+    get autoContinueLabel() {
+      return options.adapter?.autoContinueLabel;
+    },
     metadata: adapterMetadata(options),
     capabilities: {
       ...options.adapter?.capabilities,

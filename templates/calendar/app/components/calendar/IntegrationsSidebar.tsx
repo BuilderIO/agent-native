@@ -1,12 +1,16 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { useSendToAgentChat } from "@agent-native/toolkit/app/chat/composer";
 import {
+  useCredentialSaveScope,
+  WhoField,
+} from "@agent-native/toolkit/app/settings";
+import {
   IconPlus,
   IconCheck,
   IconSettings,
   IconChevronLeft,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import {
   DropdownMenu,
@@ -442,6 +446,8 @@ function IntegrationKeyEntry({
   const t = useT();
   const [apiKey, setApiKey] = useState("");
   const { connect } = useIntegration(def.id);
+  const { scope, canChoose, setScope } = useCredentialSaveScope();
+  const whoId = useId();
 
   return (
     <div className="px-4 py-3">
@@ -471,16 +477,31 @@ function IntegrationKeyEntry({
         />
         <button
           onClick={() => {
-            if (apiKey.trim()) {
-              connect.mutate(apiKey.trim(), { onSuccess: onBack });
+            if (apiKey.trim() && scope) {
+              connect.mutate(
+                { apiKey: apiKey.trim(), scope },
+                { onSuccess: onBack },
+              );
             }
           }}
-          disabled={!apiKey.trim() || connect.isPending}
+          disabled={!apiKey.trim() || !scope || connect.isPending}
           className="shrink-0 rounded-md bg-primary px-2.5 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
         >
           {connect.isPending ? "..." : t("eventForm.save")}
         </button>
       </div>
+
+      {canChoose && scope ? (
+        <div className="mb-3">
+          <WhoField
+            id={whoId}
+            choice
+            scope={scope}
+            disabled={connect.isPending}
+            onChange={setScope}
+          />
+        </div>
+      ) : null}
 
       {/* Instructions always visible */}
       <div className="rounded-md bg-accent/30 px-2.5 py-2">
