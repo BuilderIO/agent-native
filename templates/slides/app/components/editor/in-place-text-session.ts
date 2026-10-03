@@ -1142,7 +1142,7 @@ export function startInPlaceTextSession(
     }
     el.style.setProperty(
       "contain-intrinsic-size",
-      `${initialLayout.width}px ${initialLayout.height}px`,
+      reservedIntrinsicSize,
       initialLayout.intrinsicSizePriority,
     );
     layoutReservationApplied = true;
