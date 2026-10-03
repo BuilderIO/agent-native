@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { SURFACE_PADDING } from "../app/components/design/multi-screen/overview-layout";
 import { e2eBaseURL } from "./base-url";
 import {
   appPath,
@@ -317,6 +318,103 @@ async function emptyBoardPoint(page: Page) {
   });
   if (!point) throw new Error("no empty canvas point found at this viewport");
   return point;
+}
+
+async function emptyPointOutsideBoardRenderGeometry(page: Page) {
+  const geometry = await page.evaluate((surfacePadding) => {
+    const world = document.querySelector<HTMLElement>(
+      "[data-multi-screen-canvas-world]",
+    );
+    const surface = (world?.parentElement ?? world) as HTMLElement | null;
+    const boardLayer = document.querySelector<HTMLElement>(
+      "[data-board-surface-layer]",
+    );
+    const boardIframe = boardLayer?.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    );
+    if (!surface || !world || !boardLayer || !boardIframe) {
+      return {
+        reason:
+          "canvas world, rendered board layer, or board iframe is missing",
+        zoom: null,
+        surface: surface?.getBoundingClientRect().toJSON() ?? null,
+        boardLayer: boardLayer?.getBoundingClientRect().toJSON() ?? null,
+        boardIframe: boardIframe?.getBoundingClientRect().toJSON() ?? null,
+      };
+    }
+
+    const surfaceRect = surface.getBoundingClientRect();
+    const boardLayerRect = boardLayer.getBoundingClientRect();
+    const boardIframeRect = boardIframe.getBoundingClientRect();
+    const worldTransform = new DOMMatrixReadOnly(
+      getComputedStyle(world).transform,
+    );
+    const zoom = worldTransform.a;
+    if (!Number.isFinite(zoom) || zoom <= 0) {
+      return {
+        reason: "canvas world transform has no usable zoom",
+        zoom,
+        surface: surfaceRect.toJSON(),
+        boardLayer: boardLayerRect.toJSON(),
+        boardIframe: boardIframeRect.toJSON(),
+      };
+    }
+    const screenRects = Array.from(
+      document.querySelectorAll<HTMLElement>("[data-screen-iframe-id]"),
+    ).map((screen) => screen.getBoundingClientRect());
+    const minX = Math.max(0, surfaceRect.left + 32);
+    const maxX = Math.min(window.innerWidth, surfaceRect.right - 32);
+    const minY = Math.max(0, surfaceRect.top + 32);
+    const maxY = Math.min(window.innerHeight, surfaceRect.bottom - 32);
+    const outside = (x: number, y: number, rect: DOMRect, margin = 16) =>
+      x < rect.left - margin ||
+      x > rect.right + margin ||
+      y < rect.top - margin ||
+      y > rect.bottom + margin;
+
+    for (let y = minY; y <= maxY; y += 16) {
+      for (let x = minX; x <= maxX; x += 16) {
+        if (
+          !outside(x, y, boardLayerRect) ||
+          !outside(x, y, boardIframeRect) ||
+          screenRects.some((rect) => !outside(x, y, rect, 24))
+        ) {
+          continue;
+        }
+        const hit = document.elementFromPoint(x, y);
+        if (!hit || !surface.contains(hit)) continue;
+        return {
+          point: { x, y },
+          world: {
+            x:
+              (x - surfaceRect.left - worldTransform.e) / zoom - surfacePadding,
+            y: (y - surfaceRect.top - worldTransform.f) / zoom - surfacePadding,
+          },
+          zoom,
+          surface: surfaceRect.toJSON(),
+          boardLayer: boardLayerRect.toJSON(),
+          boardIframe: boardIframeRect.toJSON(),
+        };
+      }
+    }
+
+    return {
+      reason:
+        "no visible empty canvas point lies outside the rendered board geometry",
+      zoom,
+      surface: surfaceRect.toJSON(),
+      boardLayer: boardLayerRect.toJSON(),
+      boardIframe: boardIframeRect.toJSON(),
+      screens: screenRects.map((rect) => rect.toJSON()),
+    };
+  }, SURFACE_PADDING);
+
+  if (!("point" in geometry) || !geometry.point) {
+    throw new Error(
+      `off-render-window precondition failed: ${JSON.stringify(geometry)}`,
+    );
+  }
+  return geometry;
 }
 
 async function boxFor(page: Page, screenId: string, nodeId: string) {
@@ -865,6 +963,208 @@ test.describe("drag reparent parity", () => {
         );
       })
       .toBe(true);
+  });
+
+  test("a held screen child dropped beyond the rendered board window persists at that canvas point", async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    const id = await newTwoScreenDesign(page);
+    await gotoEditor(page, id);
+
+    const screenId = await fileIdFor(page, id, "index.html");
+    const initialWidget = await boxFor(page, screenId, "widget");
+    const deepSelectModifier =
+      process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.down(deepSelectModifier);
+    await page.mouse.click(
+      initialWidget.x + initialWidget.width / 2,
+      initialWidget.y + initialWidget.height / 2,
+    );
+    await page.keyboard.up(deepSelectModifier);
+    await expect
+      .poll(
+        async () =>
+          (await selectionContext(page)).selectedElement?.sourceId ?? null,
+      )
+      .toBe("widget");
+
+    const zoomReadout = page.getByRole("button", { name: /^\d+%$/ }).first();
+    await zoomReadout.click();
+    const zoomInput = page.getByRole("textbox", {
+      name: "Zoom percentage",
+    });
+    await zoomInput.fill("3%");
+    await zoomInput.press("Enter");
+    await expect
+      .poll(() => canvasZoom(page), {
+        message:
+          "the canvas must reach the low zoom needed to expose the render-window edge",
+      })
+      .toBeGreaterThan(0.02);
+    await expect.poll(() => canvasZoom(page)).toBeLessThan(0.04);
+
+    const widget = await boxFor(page, screenId, "widget");
+    expect(
+      widget.width,
+      "Widget must remain pointer-targetable at the test zoom",
+    ).toBeGreaterThan(1);
+    const start = {
+      x: widget.x + widget.width / 2,
+      y: widget.y + widget.height / 2,
+    };
+    await expect
+      .poll(
+        async () =>
+          (await selectionContext(page)).selectedElement?.sourceId ?? null,
+      )
+      .toBe("widget");
+
+    const sourceHtml = await fileContent(page, id, "index.html");
+    const sourceStyle = styleOf(sourceHtml, "widget");
+    const sourceWidth = styleNum(sourceStyle, "width");
+    const sourceHeight = styleNum(sourceStyle, "height");
+    expect(Number.isFinite(sourceWidth) && Number.isFinite(sourceHeight)).toBe(
+      true,
+    );
+
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(start.x + 20, start.y, { steps: 5 });
+    const boardIframe = page.locator(
+      "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+    );
+    await expect(boardIframe).toBeVisible({ timeout: 5_000 });
+    const offRenderPoint = await emptyPointOutsideBoardRenderGeometry(page);
+    const trace = await dumpTrace(page);
+
+    await page.mouse.move(offRenderPoint.point.x, offRenderPoint.point.y, {
+      steps: 30,
+    });
+    const releaseStillOutsideRenderGeometry = await page.evaluate(
+      ({ x, y }) => {
+        const surface = document.querySelector(
+          "[data-multi-screen-canvas-world]",
+        )?.parentElement;
+        const boardLayer = document
+          .querySelector("[data-board-surface-layer]")
+          ?.getBoundingClientRect();
+        const boardIframe = document
+          .querySelector(
+            "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+          )
+          ?.getBoundingClientRect();
+        const surfaceRect = surface?.getBoundingClientRect();
+        const contains = (rect: DOMRect | undefined) =>
+          !!rect &&
+          x >= rect.left &&
+          x <= rect.right &&
+          y >= rect.top &&
+          y <= rect.bottom;
+        return {
+          visibleCanvasPoint:
+            !!surfaceRect &&
+            x >= Math.max(0, surfaceRect.left) &&
+            x <= Math.min(window.innerWidth, surfaceRect.right) &&
+            y >= Math.max(0, surfaceRect.top) &&
+            y <= Math.min(window.innerHeight, surfaceRect.bottom),
+          outsideBoardRenderGeometry:
+            !contains(boardLayer) && !contains(boardIframe),
+          boardLayer: boardLayer?.toJSON() ?? null,
+          boardIframe: boardIframe?.toJSON() ?? null,
+        };
+      },
+      offRenderPoint.point,
+    );
+    expect(
+      releaseStillOutsideRenderGeometry.visibleCanvasPoint,
+      `the release point must stay inside the canvas viewport: ${JSON.stringify(releaseStillOutsideRenderGeometry)}`,
+    ).toBe(true);
+    expect(
+      releaseStillOutsideRenderGeometry.outsideBoardRenderGeometry,
+      `the release point must stay outside the mounted board render window: ${JSON.stringify(releaseStillOutsideRenderGeometry)}`,
+    ).toBe(true);
+    const ghost = page.locator("[data-cross-screen-drag-ghost]");
+    await expect(ghost).toBeVisible({ timeout: 5_000 });
+    const ghostBox = await ghost.boundingBox();
+    expect(
+      ghostBox,
+      `held drag ghost geometry missing at the off-render point. Trace: ${trace.slice(-800)}`,
+    ).not.toBeNull();
+    expect(ghostBox!.x + ghostBox!.width / 2).toBeCloseTo(
+      offRenderPoint.point.x,
+      0,
+    );
+    expect(ghostBox!.y + ghostBox!.height / 2).toBeCloseTo(
+      offRenderPoint.point.y,
+      0,
+    );
+    expect(await fileContent(page, id, "index.html")).toBe(sourceHtml);
+
+    await page.mouse.up();
+
+    let boardHtml = "";
+    let indexHtml = "";
+    await expect
+      .poll(
+        async () => {
+          [indexHtml, boardHtml] = await Promise.all([
+            fileContent(page, id, "index.html"),
+            fileContent(page, id, "__board__.html"),
+          ]);
+          return (
+            !indexHtml.includes('data-agent-native-node-id="widget"') &&
+            boardHtml.includes('data-agent-native-node-id="widget"')
+          );
+        },
+        {
+          timeout: 10_000,
+          message:
+            `releasing outside boardSurfaceRenderGeometry must still reparent Widget into __board__.html. ` +
+            `Point=${JSON.stringify(offRenderPoint)}. Trace: ${trace.slice(-800)}`,
+        },
+      )
+      .toBe(true);
+
+    const boardStyle = styleOf(boardHtml, "widget");
+    const boardLeft = styleNum(boardStyle, "left");
+    const boardTop = styleNum(boardStyle, "top");
+    const worldTolerance = 1 / offRenderPoint.zoom;
+    expect(
+      Math.abs(boardLeft - (offRenderPoint.world.x - sourceWidth / 2)),
+      `persisted board x must match the held canvas point within one canvas pixel; ` +
+        `expected=${offRenderPoint.world.x - sourceWidth / 2}, actual=${boardLeft}, ` +
+        `point=${JSON.stringify(offRenderPoint)}. Trace: ${trace.slice(-800)}`,
+    ).toBeLessThanOrEqual(worldTolerance);
+    expect(
+      Math.abs(boardTop - (offRenderPoint.world.y - sourceHeight / 2)),
+      `persisted board y must match the held canvas point within one canvas pixel; ` +
+        `expected=${offRenderPoint.world.y - sourceHeight / 2}, actual=${boardTop}, ` +
+        `point=${JSON.stringify(offRenderPoint)}. Trace: ${trace.slice(-800)}`,
+    ).toBeLessThanOrEqual(worldTolerance);
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.locator("[data-design-editor]")).toBeVisible({
+      timeout: 30_000,
+    });
+    let reloadedBoardHtml = "";
+    await expect
+      .poll(async () => {
+        [indexHtml, reloadedBoardHtml] = await Promise.all([
+          fileContent(page, id, "index.html"),
+          fileContent(page, id, "__board__.html"),
+        ]);
+        return {
+          screenContainsWidget: indexHtml.includes(
+            'data-agent-native-node-id="widget"',
+          ),
+          boardContainsWidget: reloadedBoardHtml.includes(
+            'data-agent-native-node-id="widget"',
+          ),
+        };
+      })
+      .toEqual({ screenContainsWidget: false, boardContainsWidget: true });
+    expect(styleOf(reloadedBoardHtml, "widget")).toBe(boardStyle);
   });
 
   test("dragging a board rectangle into a screen inserts it into that screen at the drop position", async ({

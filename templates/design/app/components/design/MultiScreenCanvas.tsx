@@ -379,6 +379,7 @@ import {
 } from "./multi-screen/coordinate-transforms";
 import {
   captureCrossScreenSourceHtmlSnapshot,
+  getBoardDropRoute,
   getCrossScreenDropGuideForHitTest,
   getCrossScreenDropGuideStyle,
   getCrossScreenGhostStyle,
@@ -2771,6 +2772,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         timeoutMs?: number;
         previewGeneration?: number;
         previewRequestSeq?: number;
+        sourceScreenId?: string;
         sourceElementSize?: { width: number; height: number };
         sourceGridSpan?: { columns: number; rows: number };
         modifiers?: {
@@ -2786,7 +2788,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       );
       const targetIsBoard = candidate.id === boardFileId;
       if (!targetScreen && !targetIsBoard) return Promise.resolve({});
-      if (targetIsBoard && !boardSurfaceRenderGeometry) {
+      if (
+        targetIsBoard &&
+        getBoardDropRoute({
+          point: boardPoint,
+          viewportGeometry: boardViewportGeometry,
+          renderGeometry: boardSurfaceRenderGeometry,
+          sourceScreenGeometry:
+            options.sourceScreenId && options.sourceScreenId !== boardFileId
+              ? frameGeometryRef.current[options.sourceScreenId]
+              : undefined,
+        }) !== "board-hit-test"
+      ) {
         return Promise.resolve({});
       }
       const targetIframe = targetIsBoard
@@ -2967,6 +2980,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         preview: true,
         previewGeneration,
         previewRequestSeq: requestSeq,
+        sourceScreenId: crossScreenDragMsgRef.current?.sourceScreenId,
         sourceElementSize: crossScreenDragMsgRef.current?.sourceElementSize,
         sourceGridSpan: crossScreenDragMsgRef.current?.sourceGridSpan,
         modifiers: crossScreenDragMsgRef.current?.modifiers,
@@ -3155,6 +3169,21 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const target = getFrameEntryAtPoint(boardPoint, {
         excludeId: sourceScreenId,
       });
+      const boardDropRoute =
+        (sourceScreenId !== boardFileId ||
+          crossScreenDragMsgRef.current?.duplicate === true) &&
+        boardFileId &&
+        boardFrameGeometry
+          ? getBoardDropRoute({
+              point: boardPoint,
+              viewportGeometry: boardViewportGeometry,
+              renderGeometry: boardSurfaceRenderGeometry,
+              sourceScreenGeometry:
+                sourceScreenId === boardFileId
+                  ? undefined
+                  : frameGeometryRef.current[sourceScreenId],
+            })
+          : null;
       traceOnce(
         crossScreenResolveTraceRef,
         "drop",
@@ -3190,8 +3219,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           crossScreenDragMsgRef.current?.duplicate === true) &&
         boardFileId &&
         boardFrameGeometry &&
-        boardSurfaceRenderGeometry &&
-        geometryContainsPoint(boardSurfaceRenderGeometry, boardPoint)
+        boardDropRoute
       ) {
         const nextTarget = { id: boardFileId, geometry: boardFrameGeometry };
         if (crossScreenTargetRef.current?.id !== boardFileId) {
@@ -3315,16 +3343,27 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         return;
       }
       const sourceFrameGeometry = frameGeometryRef.current?.[sourceScreenId];
-      const boardSurfaceHit =
-        !!boardFileId &&
+      const boardDropRoute =
+        boardFileId &&
         (sourceScreenId !== boardFileId || payload.duplicate) &&
-        !!boardFrameGeometry &&
-        !!boardSurfaceRenderGeometry &&
-        geometryContainsPoint(boardSurfaceRenderGeometry, lastBoardPoint);
+        boardFrameGeometry
+          ? getBoardDropRoute({
+              point: lastBoardPoint,
+              viewportGeometry: boardViewportGeometry,
+              renderGeometry: boardSurfaceRenderGeometry,
+              sourceScreenGeometry:
+                sourceScreenId === boardFileId
+                  ? undefined
+                  : frameGeometryRef.current[sourceScreenId],
+            })
+          : null;
+      const boardCanvasHit = boardDropRoute !== null;
       const sameBoardDuplicateHit =
-        sourceScreenId === boardFileId && payload.duplicate && boardSurfaceHit;
+        sourceScreenId === boardFileId && payload.duplicate && boardCanvasHit;
+      const resolvedCandidate =
+        candidate?.id === boardFileId && !boardCanvasHit ? null : candidate;
       const droppedInsideSourceScreen =
-        !candidate &&
+        !resolvedCandidate &&
         !sameBoardDuplicateHit &&
         !!sourceFrameGeometry &&
         lastBoardPoint.x >= sourceFrameGeometry.x &&
@@ -3338,18 +3377,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         return;
       }
       trace("drop", "finalize", {
-        candidate: candidate?.id ?? null,
+        candidate: resolvedCandidate?.id ?? null,
         sourceScreen: sourceScreenId,
         droppedInsideSourceScreen,
         outcome: droppedInsideSourceScreen
           ? "discarded — pointer never left the source screen"
-          : candidate
+          : resolvedCandidate
             ? "moving into candidate"
             : "no candidate — refused unless over the board surface",
       });
       const targetCandidate =
-        candidate ??
-        (boardSurfaceHit && boardFileId && boardFrameGeometry
+        resolvedCandidate ??
+        (boardCanvasHit && boardFileId && boardFrameGeometry
           ? { id: boardFileId, geometry: boardFrameGeometry }
           : null);
       if (!targetCandidate) {
@@ -3377,6 +3416,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       if (targetCandidate.id === boardFileId) {
         void runHitTest(targetCandidate, lastBoardPoint, {
           timeoutMs: HIT_TEST_COMMIT_TIMEOUT_MS,
+          sourceScreenId,
           sourceElementSize: payload.sourceElementSize,
           sourceGridSpan: payload.sourceGridSpan,
           modifiers: payload.modifiers,
@@ -4362,6 +4402,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     activeId,
     boardFileId,
     boardFrameGeometry,
+    boardViewportGeometry,
     boardSurfaceRenderGeometry,
     finishBoardCrossScreenDrop,
     getFrameEntryAtPoint,
