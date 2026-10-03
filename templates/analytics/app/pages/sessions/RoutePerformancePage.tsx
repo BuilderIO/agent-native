@@ -72,11 +72,8 @@ export default function RoutePerformancePage() {
       { enabled: lab.enabled, staleTime: 60_000 },
     );
   const apps = useMemo(
-    () =>
-      [...new Set([...(data?.routes ?? []).map((row) => row.app), app])]
-        .filter(Boolean)
-        .sort(),
-    [data?.routes, app],
+    () => [...new Set([...(data?.apps ?? []), app])].filter(Boolean).sort(),
+    [data?.apps, app],
   );
   const sessionsParams = new URLSearchParams();
   if (range !== "30d") sessionsParams.set("range", range);

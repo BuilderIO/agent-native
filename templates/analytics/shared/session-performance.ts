@@ -213,6 +213,8 @@ export interface RoutePerformanceRow {
 
 export interface RoutePerformanceResult {
   routes: RoutePerformanceRow[];
+  /** Every app with measured routes in range, whatever the app filter. */
+  apps: string[];
   /** When the viewer's performance aggregates began; null when they have not. */
   coverageStartedAt: string | null;
   /** Days in range whose aggregates are missing some events. */

@@ -318,6 +318,32 @@ describe("performance aggregates on Postgres", () => {
     expect(route.ttfb).toBeNull();
   });
 
+  it("lists every app in range, even one whose routes rank below the limit", async () => {
+    await ingest([
+      vitals("s1", { lcp_ms: 1_000 }),
+      vitals("s1", { lcp_ms: 1_000 }),
+      vitals("s2", { route: "/home", lcp_ms: 1_000 }, { app: "mail" }),
+      vitals("s3", { lcp_ms: 1_000 }, { app: "" }),
+    ]);
+
+    const top = await listRoutePerformance(scope, {
+      from: DAY,
+      to: DAY,
+      limit: 1,
+    });
+    expect(top.routes.map((row) => row.app)).toEqual(["clips"]);
+    expect(top.truncated).toBe(true);
+    expect(top.apps).toEqual(["clips", "mail"]);
+    // The app filter narrows routes, not the apps there are to choose from.
+    const mail = await listRoutePerformance(scope, {
+      from: DAY,
+      to: DAY,
+      app: "mail",
+    });
+    expect(mail.routes.map((row) => row.route)).toEqual(["/home"]);
+    expect(mail.apps).toEqual(["clips", "mail"]);
+  });
+
   it("finds sessions by poor vitals or slow requests, per recording tenant", async () => {
     await ingest([
       vitals("s-poor-lcp", { lcp_ms: 4_200 }),
