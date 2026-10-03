@@ -7569,6 +7569,400 @@ it(
   },
 );
 
+it.each(["200px", "20000px"])(
+  "positions oversized CSS radius handles at the rendered corner (%s)",
+  { timeout: 30_000 },
+  async (borderRadius) => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 700, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-radius:${borderRadius}"></div>
+  <div id="effective-reference" style="position:absolute;left:300px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-radius:50px"></div>
+</body></html>`);
+
+      const renderedTarget = await page.locator("#target").screenshot();
+      const renderedReference = await page
+        .locator("#effective-reference")
+        .screenshot();
+      expect(renderedTarget).toEqual(renderedReference);
+
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.mouse.move(94, 94);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(
+        () => {
+          const handle = document.querySelector<HTMLElement>(
+            '[data-agent-native-radius-handle="nw"]',
+          );
+          return handle && getComputedStyle(handle).visibility === "visible";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      const handleBox = await handle.boundingBox();
+      if (!handleBox) throw new Error("nw radius handle is not visible");
+      const targetBox = await page.locator("#target").boundingBox();
+      if (!targetBox) throw new Error("target is not visible");
+      expect(
+        Math.abs(handleBox.x + handleBox.width / 2 - (targetBox.x + 54)),
+      ).toBeLessThan(1.5);
+      expect(
+        Math.abs(handleBox.y + handleBox.height / 2 - (targetBox.y + 54)),
+      ).toBeLessThan(1.5);
+
+      const radiusValues = await page.locator("#target").evaluate((element) => {
+        const target = element as HTMLElement;
+        return {
+          inline: target.style.borderRadius,
+          computed: getComputedStyle(target).borderTopLeftRadius,
+        };
+      });
+      expect(radiusValues).toEqual({
+        inline: borderRadius,
+        computed: borderRadius,
+      });
+
+      await page.mouse.move(
+        handleBox.x + handleBox.width / 2,
+        handleBox.y + handleBox.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        handleBox.x + handleBox.width / 2 + 1,
+        handleBox.y + handleBox.height / 2 + 1,
+        { steps: 2 },
+      );
+      const readRadius = () =>
+        page.locator("#target").evaluate((element) => {
+          const target = element as HTMLElement;
+          return {
+            inline: target.style.borderRadius,
+            computed: getComputedStyle(target).borderTopLeftRadius,
+          };
+        });
+      const duringTinyDrag = await readRadius();
+      await page.mouse.up();
+      const afterTinyDrag = await readRadius();
+      for (const radiusValues of [duringTinyDrag, afterTinyDrag]) {
+        const [draggedRadiusX, draggedRadiusY] = radiusValues.computed
+          .split(/\s+/)
+          .map(Number.parseFloat);
+        expect(draggedRadiusX).toBeGreaterThanOrEqual(50);
+        expect(draggedRadiusX).toBeLessThan(55);
+        expect(draggedRadiusY).toBeGreaterThanOrEqual(49);
+        expect(draggedRadiusY).toBeLessThanOrEqual(50);
+        expect(radiusValues.inline).not.toBe("0px");
+      }
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "keeps untouched normalized corners stable during an Alt radius drag",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 700, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-radius:200px"></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.mouse.move(94, 94);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(
+        () => {
+          const handle = document.querySelector<HTMLElement>(
+            '[data-agent-native-radius-handle="nw"]',
+          );
+          return handle && getComputedStyle(handle).visibility === "visible";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      const centers = () =>
+        page.evaluate(() =>
+          ["nw", "ne", "se", "sw"].map((corner) => {
+            const handle = document.querySelector<HTMLElement>(
+              `[data-agent-native-radius-handle="${corner}"]`,
+            );
+            if (!handle) throw new Error(`${corner} radius handle is missing`);
+            const rect = handle.getBoundingClientRect();
+            return {
+              x: rect.x + rect.width / 2,
+              y: rect.y + rect.height / 2,
+            };
+          }),
+        );
+      const before = await centers();
+      await page.mouse.move(before[0].x, before[0].y);
+      await page.keyboard.down("Alt");
+      await page.mouse.down();
+      await page.mouse.move(before[0].x - 1, before[0].y - 1, { steps: 2 });
+      const during = await centers();
+      await page.mouse.up();
+      await page.keyboard.up("Alt");
+
+      expect(during[0].x).toBeLessThan(before[0].x);
+      expect(during[0].y).toBeLessThan(before[0].y);
+      expect(
+        Math.hypot(during[0].x - before[0].x, during[0].y - before[0].y),
+      ).toBeLessThan(2);
+      for (const index of [1, 2, 3]) {
+        expect(
+          Math.hypot(
+            during[index].x - before[index].x,
+            during[index].y - before[index].y,
+          ),
+        ).toBeLessThan(1);
+      }
+
+      const styleChange = (await readBridgeMessages(page)).find(
+        (message) => message.type === "visual-style-change",
+      );
+      expect(styleChange?.styles).toMatchObject({
+        borderTopLeftRadius: "49px",
+        borderTopRightRadius: "50px",
+        borderBottomRightRadius: "50px",
+        borderBottomLeftRadius: "50px",
+      });
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "does not snap a lone oversized corner below its rendered radius during Alt drag",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 700, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-top-left-radius:200px"></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.mouse.move(144, 144);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(
+        () => {
+          const handle = document.querySelector<HTMLElement>(
+            '[data-agent-native-radius-handle="nw"]',
+          );
+          return handle && getComputedStyle(handle).visibility === "visible";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      const before = await handle.boundingBox();
+      if (!before) throw new Error("nw radius handle is not visible");
+      const start = {
+        x: before.x + before.width / 2,
+        y: before.y + before.height / 2,
+      };
+      await page.mouse.move(start.x, start.y);
+      await page.keyboard.down("Alt");
+      await page.mouse.down();
+      await page.mouse.move(start.x - 1, start.y - 1, { steps: 2 });
+      const during = await handle.boundingBox();
+      if (!during) throw new Error("nw radius handle disappeared during drag");
+      await page.mouse.up();
+      await page.keyboard.up("Alt");
+
+      const moved = {
+        x: during.x + during.width / 2,
+        y: during.y + during.height / 2,
+      };
+      expect(Math.abs(moved.x - (start.x - 1))).toBeLessThan(1.5);
+      expect(Math.abs(moved.y - (start.y - 1))).toBeLessThan(1.5);
+      const styleChange = (await readBridgeMessages(page)).find(
+        (message) => message.type === "visual-style-change",
+      );
+      expect(styleChange?.styles).toMatchObject({
+        borderTopLeftRadius: "99px",
+        borderTopRightRadius: "0px",
+        borderBottomRightRadius: "0px",
+        borderBottomLeftRadius: "0px",
+      });
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "keeps a lone asymmetric oversized corner editable from its normalized rendered origin",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 700, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-top-left-radius:300px 200px"></div>
+  <div id="effective-reference" style="position:absolute;left:300px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-top-left-radius:150px 100px"></div>
+</body></html>`);
+
+      expect(await page.locator("#target").screenshot()).toEqual(
+        await page.locator("#effective-reference").screenshot(),
+      );
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.mouse.move(194, 144);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(
+        () => {
+          const handle = document.querySelector<HTMLElement>(
+            '[data-agent-native-radius-handle="nw"]',
+          );
+          return handle && getComputedStyle(handle).visibility === "visible";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      const before = await handle.boundingBox();
+      if (!before) throw new Error("nw radius handle is not visible");
+      const start = {
+        x: before.x + before.width / 2,
+        y: before.y + before.height / 2,
+      };
+      expect(Math.abs(start.x - 194)).toBeLessThan(1.5);
+      expect(Math.abs(start.y - 144)).toBeLessThan(1.5);
+
+      await page.mouse.move(start.x, start.y);
+      await page.keyboard.down("Alt");
+      await page.mouse.down();
+      await page.mouse.move(start.x - 1, start.y - 1, { steps: 2 });
+      const during = await handle.boundingBox();
+      if (!during) throw new Error("nw radius handle disappeared during drag");
+      const moved = {
+        x: during.x + during.width / 2,
+        y: during.y + during.height / 2,
+      };
+      expect(Math.abs(moved.x - (start.x - 1))).toBeLessThan(1.5);
+      expect(Math.abs(moved.y - (start.y - 1))).toBeLessThan(1.5);
+      await page.mouse.up();
+      await page.keyboard.up("Alt");
+
+      const styleChange = (await readBridgeMessages(page)).find(
+        (message) => message.type === "visual-style-change",
+      );
+      expect(styleChange?.styles).toMatchObject({
+        borderTopLeftRadius: "149px 99px",
+        borderTopRightRadius: "0px",
+        borderBottomRightRadius: "0px",
+        borderBottomLeftRadius: "0px",
+      });
+      const persisted = await page.locator("#target").evaluate((element) => {
+        const target = element as HTMLElement;
+        return {
+          inline: target.style.borderTopLeftRadius,
+          computed: getComputedStyle(target).borderTopLeftRadius,
+        };
+      });
+      expect(persisted).toEqual({
+        inline: "149px 99px",
+        computed: "149px 99px",
+      });
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "keeps a lone asymmetric oversized corner under the pointer during a whole-shape drag",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 700, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-top-left-radius:300px 200px"></div>
+</body></html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.mouse.move(194, 144);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(
+        () => {
+          const handle = document.querySelector<HTMLElement>(
+            '[data-agent-native-radius-handle="nw"]',
+          );
+          return handle && getComputedStyle(handle).visibility === "visible";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      const initialBox = await handle.boundingBox();
+      if (!initialBox) throw new Error("nw radius handle is not visible");
+      const start = {
+        x: initialBox.x + initialBox.width / 2,
+        y: initialBox.y + initialBox.height / 2,
+      };
+      expect(Math.abs(start.x - 194)).toBeLessThan(1.5);
+      expect(Math.abs(start.y - 144)).toBeLessThan(1.5);
+
+      await page.mouse.move(start.x, start.y);
+      await page.mouse.down();
+      await page.mouse.move(start.x - 1, start.y - 1, { steps: 2 });
+      const duringBox = await handle.boundingBox();
+      if (!duringBox)
+        throw new Error("nw radius handle disappeared during drag");
+      expect(
+        Math.abs(duringBox.x + duringBox.width / 2 - (start.x - 1)),
+      ).toBeLessThan(1.5);
+      expect(
+        Math.abs(duringBox.y + duringBox.height / 2 - (start.y - 1)),
+      ).toBeLessThan(1.5);
+      await page.mouse.up();
+
+      const styleChange = (await readBridgeMessages(page)).find(
+        (message) => message.type === "visual-style-change",
+      );
+      expect(styleChange?.styles).toMatchObject({
+        borderTopLeftRadius: "149px 99px",
+        borderTopRightRadius: "0px",
+        borderBottomRightRadius: "0px",
+        borderBottomLeftRadius: "0px",
+      });
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 it(
   "shows the radius handle when selection changes under a stationary pointer",
   { timeout: 30_000 },
