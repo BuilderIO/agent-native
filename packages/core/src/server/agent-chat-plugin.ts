@@ -6802,8 +6802,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       );
 
       // ─── Thread management endpoints ──────────────────────────────────────
-      // Single handler for /threads and /threads/:id — h3's use() does prefix
-      // matching so we can't reliably split them into separate handlers.
+      // Single handler for /threads and /threads/:id. H3 2 matches mounted
+      // paths exactly, so register both the collection path and its subtree.
       const parseScopeFromQuery = (
         q: Record<string, unknown>,
       ): ChatThreadScope | null => {
@@ -6874,9 +6874,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       };
       const buildShareUrl = (event: H3Event, token: string) =>
         `${getOrigin(event)}${routePath}/shared/${encodeURIComponent(token)}`;
-      getH3App(nitroApp).use(
+      const threadRouteHandler = withTransientDatabaseFallback(
         `${routePath}/threads`,
-        withTransientDatabaseFallback(`${routePath}/threads`, async (event) => {
+        async (event) => {
           const owner = await getOwnerFromEvent(event);
           const orgId = await getOrgIdFromEvent(event);
           const method = getMethod(event);
@@ -7101,10 +7101,27 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   requireAgentChatAiSetup(),
                 );
               }
-              const result = await mutateThreadQueuedMessages(
-                threadId,
-                mutation,
-              );
+              let result: Awaited<
+                ReturnType<typeof mutateThreadQueuedMessages>
+              >;
+              try {
+                result = await mutateThreadQueuedMessages(threadId, mutation);
+              } catch (error) {
+                if (
+                  mutation.type === "claim" &&
+                  error instanceof Error &&
+                  error.message ===
+                    `Unknown queued message: ${mutation.messageId}`
+                ) {
+                  setResponseStatus(event, 409);
+                  return {
+                    error: error.message,
+                    code: "queued_message_missing",
+                    retryable: false,
+                  };
+                }
+                throw error;
+              }
               if (!result) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
@@ -7431,8 +7448,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
-        }),
+        },
       );
+      const threadRouteApp = getH3App(nitroApp);
+      threadRouteApp.use(`${routePath}/threads`, threadRouteHandler);
+      threadRouteApp.use(`${routePath}/threads/**`, threadRouteHandler);
 
       // Shared per-request invocation: resolve auth/org/timezone context, then
       // pick the dev/prod/anonymous handler and run it inside the request
