@@ -1528,9 +1528,10 @@ const MAX_RECORDING_ISSUE_ROWS = 500;
  * only the client recording id, which matches only within the same session. `error_events` keeps only each
  * issue's newest occurrences, so a recording with none left falls back to the
  * issues whose last recording it is, with no count. A recording still without
- * an issue maps to null when the read was truncated, or when it has errors
- * Monitoring could have made an issue of and its owner scope has issues they
- * could belong to; never to "no issues". A plain `console.error` never
+ * an issue maps to null when it has errors Monitoring could have made an
+ * issue of and the read was truncated, the viewer can't read every issue in
+ * its owner scope, or that scope has issues they could belong to; never to
+ * "no issues". A plain `console.error` never
  * becomes an issue, and an owner scope without a single issue does not
  * capture errors as issues, so such recordings truly have none.
  */
@@ -1690,12 +1691,16 @@ export async function listRecordingErrorIssues(
       result.set(recording.id, lastRecordingIssues);
       continue;
     }
-    if (truncated || lastRecordingTruncated) {
-      result.set(recording.id, null);
-    } else if ((recording.issueErrorCount ?? recording.errorCount) > 0) {
-      erroringWithoutIssue.push(recording);
-    } else {
+    if ((recording.issueErrorCount ?? recording.errorCount) === 0) {
       result.set(recording.id, []);
+    } else if (
+      truncated ||
+      lastRecordingTruncated ||
+      !readsWholeScope(scope, recording)
+    ) {
+      result.set(recording.id, null);
+    } else {
+      erroringWithoutIssue.push(recording);
     }
   }
   const scopeKey = (row: { ownerEmail: string; orgId: string | null }) =>
@@ -1730,6 +1735,20 @@ export async function listRecordingErrorIssues(
     result.set(recording.id, hasIssues.has(scopeKey(recording)) ? null : []);
   }
   return result;
+}
+
+/**
+ * Whether the viewer can read every issue in the recording's owner scope:
+ * issues are org-visible in an org and private otherwise. Elsewhere, such as
+ * on a recording shared from another scope, finding no issue proves nothing.
+ */
+function readsWholeScope(
+  scope: ErrorReadScope,
+  recording: { ownerEmail: string; orgId: string | null },
+): boolean {
+  return recording.orgId
+    ? recording.orgId === scope.orgId
+    : recording.ownerEmail === scope.userEmail;
 }
 
 export async function listErrorIssues(
