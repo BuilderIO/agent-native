@@ -127,8 +127,11 @@ agent answers about browser recordings in the Analytics template.
   plus `analytics_session_trouble`.
 - A request the page aborted itself (status 0 with an error `isBenignAbort`
   in core recognizes, or the recorder's `XMLHttpRequest aborted`) is not a
-  failure: it never feeds retry loops or leaving after an error. Any other
-  status-0 failure does.
+  failure: it never feeds retry loops or leaving after an error. Neither is
+  one the recorder marked `pageLeaving`: the browser cancels in-flight
+  requests when the page navigates or reloads, with the same "Failed to
+  fetch" as a network failure, so only the recorder can tell them apart. It
+  still counts as a stalled request. Any other status-0 failure counts.
 - Never store page text or URLs: detector state keeps timestamps, rrweb node
   ids, and hashed request keys; quick backs compare hashed paths.
 - A replay row counts only while `processed_chunks` equals the recording's
