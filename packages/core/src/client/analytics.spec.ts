@@ -1543,7 +1543,7 @@ describe("browser analytics pageviews", () => {
     expect(marked).not.toContain("session_replay_upload_rejected");
   });
 
-  it("marks a slow action response on the replay with its own timing", async () => {
+  it("marks a slow action response someone waited for on the replay with its own timing", async () => {
     installBrowser("https://clips.agent-native.com/library");
     installFetch({
       session: { email: "dev@example.com", userId: "auth-user-1" },
@@ -1570,6 +1570,8 @@ describe("browser analytics pageviews", () => {
     };
     trackEvent("action.response", slow);
     trackEvent("action.response", { ...slow, duration_ms: 999 });
+    trackEvent("action.response", { ...slow, page_hidden: true });
+    trackEvent("action.response", { ...slow, outcome: "cancelled" });
     await tick();
 
     expect(replayMock.emitSessionReplaySlowRequest).toHaveBeenCalledTimes(1);

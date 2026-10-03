@@ -5,14 +5,14 @@
  * hidden, and a page that becomes visible again starts a new one. TTFB and
  * LCP belong to the document load only; INP and CLS are measured within each
  * page view. A metric the browser cannot measure is left out, never zero, and
- * a page view the manifest has no route for carries no route.
+ * a page view the manifest has no route for carries no route. No report
+ * carries the page's path, which can hold slugs and emails; `pageview` has it.
  */
 
 export type WebVitalsNavigationType = "load" | "client" | "resume";
 
 export interface PageViewVitals {
   route?: string;
-  url: string;
   navigationType: WebVitalsNavigationType;
   ttfbMs?: number;
   lcpMs?: number;
@@ -22,7 +22,6 @@ export interface PageViewVitals {
 
 export interface WebVitalsLocation {
   route: string | null;
-  url: string;
   pathname: string;
 }
 
@@ -124,10 +123,7 @@ export function createWebVitalsTracker(options: WebVitalsTrackerOptions) {
     ) {
       return;
     }
-    const vitals: PageViewVitals = {
-      url: view.location.url,
-      navigationType: view.navigationType,
-    };
+    const vitals: PageViewVitals = { navigationType: view.navigationType };
     if (view.location.route) vitals.route = view.location.route;
     if (view.ttfbMs !== undefined) vitals.ttfbMs = view.ttfbMs;
     if (view.lcpMs !== undefined) vitals.lcpMs = view.lcpMs;

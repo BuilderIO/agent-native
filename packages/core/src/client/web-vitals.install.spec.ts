@@ -32,7 +32,6 @@ describe("installWebVitals", () => {
     installWebVitals(
       () => ({
         route: "/r/:id",
-        url: "https://app.example.test/r/1",
         pathname: "/r/1",
       }),
       (vitals) => reports.push(vitals),
@@ -49,7 +48,6 @@ describe("installWebVitals", () => {
     expect(reports).toEqual([
       {
         route: "/r/:id",
-        url: "https://app.example.test/r/1",
         navigationType: "load",
         lcpMs: 1_200,
       },

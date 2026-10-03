@@ -356,12 +356,15 @@ Other framework-level baseline events:
   when known, and parsed `Server-Timing` phases for framework readiness and
   database work. Its `request_id` joins the exact browser and server events.
   This separates server time from CDN/network/body overhead. One at or over
-  `SLOW_ACTION_RESPONSE_MS` (1 s) is never sampled, and is also marked on
-  the session replay (`agent-native.slow_request`) with its action, method,
-  duration, status, outcome, and `page_hidden`.
+  `SLOW_ACTION_RESPONSE_MS` (1 s) is never sampled. When someone waited for
+  it (`isWaitedActionResponse`: the page stayed visible and the request was
+  not cancelled), it is also marked on the session replay
+  (`agent-native.slow_request`) with its action, method, duration, status,
+  outcome, and `page_hidden`.
 - `web_vitals` once per page view, with the React Router `route` template
   (`/sessions/:id`, never the ids; omitted when no manifest route matches,
-  because a normalized raw path still carries slugs and emails),
+  because a normalized raw path still carries slugs and emails; the event
+  never carries the path, which the page's `pageview` already has),
   `navigation_type` (`load`, `client`, or `resume` after the tab was
   hidden, sent only when it saw an interaction or layout shift), and
   `ttfb_ms`, `lcp_ms`, `inp_ms`, and `cls`. TTFB and LCP exist only for
