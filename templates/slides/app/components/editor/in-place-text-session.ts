@@ -1644,14 +1644,13 @@ export function startInPlaceTextSession(
     if (boundaryOffset !== undefined && node instanceof HTMLElement) {
       const adjacentNodes =
         boundaryDirection === "forward"
-          ? [
-              node.childNodes[boundaryOffset],
-              node.childNodes[boundaryOffset - 1],
-            ]
-          : [
-              node.childNodes[boundaryOffset - 1],
-              node.childNodes[boundaryOffset],
-            ];
+          ? [node.childNodes[boundaryOffset]]
+          : boundaryDirection === "backward"
+            ? [node.childNodes[boundaryOffset - 1]]
+            : [
+                node.childNodes[boundaryOffset - 1],
+                node.childNodes[boundaryOffset],
+              ];
       for (const adjacent of adjacentNodes) {
         if (
           adjacent instanceof HTMLElement &&
@@ -2074,6 +2073,8 @@ export function startInPlaceTextSession(
     if (direction === "backward" && !row.hasAttribute("data-slide-plain-row")) {
       rowMarker(row)?.remove();
       row.setAttribute("data-slide-plain-row", "true");
+      const text = rowTextRange(row, null);
+      placeCaret(text.startContainer, text.startOffset);
       return true;
     }
     if (direction === "backward" && index === 0) {
@@ -4491,6 +4492,26 @@ export function startInPlaceTextSession(
       return;
     }
     const key = event.key.toLowerCase();
+    if (
+      event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.shiftKey &&
+      (key === "arrowleft" || key === "arrowright")
+    ) {
+      const range = selectionRange();
+      const row = range && legacyRowAt(range.startContainer);
+      if (range && row) {
+        event.preventDefault();
+        const text = rowTextRange(row, rowMarker(row));
+        if (key === "arrowleft") {
+          placeCaret(text.startContainer, text.startOffset);
+        } else {
+          placeCaret(text.endContainer, text.endOffset);
+        }
+        return;
+      }
+    }
     const macControl =
       event.ctrlKey &&
       !event.metaKey &&

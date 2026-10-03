@@ -1092,6 +1092,58 @@ describe("in-place text session: Enter", () => {
     expect(modify).toHaveBeenCalledWith("extend", "forward", "character");
   });
 
+  it("does not delete the previous styled row at a paragraph boundary", () => {
+    const row = (text: string) =>
+      `<div style="display: flex; gap: 12px"><span>●</span><span>${text}</span></div>`;
+    const el = mount(`<div id="t">${row("Alpha")}<p>Following text</p></div>`);
+    session = startInPlaceTextSession(el);
+    caret(el, 1);
+    const modify = vi.spyOn(window.getSelection()!, "modify");
+    modify.mockImplementation(() => {
+      const paragraphText = el.querySelector("p")?.firstChild as Text;
+      const range = document.createRange();
+      range.setStart(paragraphText, 0);
+      range.setEnd(paragraphText, 1);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+
+    const event = beforeInput(el, "deleteContentForward");
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(el.children).toHaveLength(2);
+    expect(el.children[0]?.textContent).toBe("●Alpha");
+    expect(el.children[1]?.textContent).toBe("ollowing text");
+    expect(modify).toHaveBeenCalledWith("extend", "forward", "character");
+  });
+
+  it("does not delete the next styled row at a paragraph boundary", () => {
+    const row = (text: string) =>
+      `<div style="display: flex; gap: 12px"><span>●</span><span>${text}</span></div>`;
+    const el = mount(`<div id="t"><p>Previous text</p>${row("Beta")}</div>`);
+    session = startInPlaceTextSession(el);
+    caret(el, 1);
+    const modify = vi.spyOn(window.getSelection()!, "modify");
+    modify.mockImplementation(() => {
+      const paragraphText = el.querySelector("p")?.firstChild as Text;
+      const range = document.createRange();
+      range.setStart(paragraphText, paragraphText.length - 1);
+      range.setEnd(paragraphText, paragraphText.length);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+
+    const event = beforeInput(el, "deleteContentBackward");
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(el.children).toHaveLength(2);
+    expect(el.children[0]?.textContent).toBe("Previous tex");
+    expect(el.children[1]?.textContent).toBe("●Beta");
+    expect(modify).toHaveBeenCalledWith("extend", "backward", "character");
+  });
+
   it("uses the previous empty styled row for Backspace at a mixed-content boundary", () => {
     const row = (text: string) =>
       `<div style="display: flex; gap: 12px"><span>●</span><span>${text}</span></div>`;
@@ -1109,6 +1161,35 @@ describe("in-place text session: Enter", () => {
     expect(el.children[0]?.textContent).toBe("●Alpha");
     expect(el.children[1]?.textContent).toBe("Following text");
     expect(modify).not.toHaveBeenCalled();
+  });
+
+  it("keeps a shape-marker row through first Backspace and joins on the second", () => {
+    const row = (text: string) =>
+      `<div style="display:flex;gap:12px"><span style="display:inline-block;width:8px;height:8px;border:1px solid red;border-radius:50%"></span><span>${text}</span></div>`;
+    const el = mount(`<div id="t">${row("Alpha")}${row("Beta")}</div>`);
+    session = startInPlaceTextSession(el);
+    const beta = textOf(el, "Beta");
+    caret(beta, beta.length);
+    key(el, { key: "Tab" });
+    key(el, { key: "Tab", shiftKey: true });
+    expect(key(el, { key: "ArrowLeft", metaKey: true }).defaultPrevented).toBe(
+      true,
+    );
+    expect(window.getSelection()?.anchorNode).toBe(el.children[1]);
+    expect(window.getSelection()?.anchorOffset).toBe(1);
+
+    expect(beforeInput(el, "deleteContentBackward").defaultPrevented).toBe(
+      true,
+    );
+    expect(el.children).toHaveLength(2);
+    expect(el.children[1]?.textContent).toContain("Beta");
+    expect(el.children[1]?.hasAttribute("data-slide-plain-row")).toBe(true);
+
+    expect(beforeInput(el, "deleteContentBackward").defaultPrevented).toBe(
+      true,
+    );
+    expect(el.children).toHaveLength(1);
+    expect(el.textContent).toContain("AlphaBeta");
   });
 
   it("inserts a line break for Shift+Enter even in a list item", () => {
