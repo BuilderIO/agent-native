@@ -83,6 +83,9 @@ type ScreenStub = {
   filename: string;
   content: string;
   codeLayerSource?: CodeLayerSource;
+  activeBreakpointWidth?: number;
+  width?: number;
+  height?: number;
 };
 
 describe("isApplePlatform", () => {
@@ -152,15 +155,7 @@ function hashString(s: string): string {
 }
 
 function seedCache(screen: ScreenStub, prims: ParsedScreenPrimitive[]) {
-  const source =
-    screen.codeLayerSource ??
-    ({ kind: "design-file", fileId: screen.id } as const);
-  const sourceKey = Object.entries(source)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, value]) => `${key}=${String(value)}`)
-    .join("\u0000");
-  const key = `${screen.id}:${sourceKey}:${screen.content.length}:${hashString(screen.content)}`;
-  primitiveParseCache.set(key, prims);
+  primitiveParseCache.set(makeCacheKey(screen), prims);
 }
 
 beforeEach(() => {
@@ -816,11 +811,37 @@ describe("getCrossScreenDropGuideForHitTest", () => {
   });
 });
 
-function makeCacheKey(screen: { id: string; content: string }): string {
-  return `${screen.id}:${screen.content.length}:${hashString(screen.content)}`;
+function makeCacheKey(screen: ScreenStub): string {
+  const source =
+    screen.codeLayerSource ??
+    ({ kind: "design-file", fileId: screen.id } as const);
+  const sourceKey = Object.entries(source)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${String(value)}`)
+    .join("\u0000");
+  const viewportKey = [
+    screen.activeBreakpointWidth ?? "",
+    screen.width ?? "",
+    screen.height ?? "",
+  ].join(":");
+  return `${screen.id}:${sourceKey}:${viewportKey}:${screen.content.length}:${hashString(screen.content)}`;
 }
 
 describe("parsePrimitivesFromScreen cache key", () => {
+  it("includes destination viewport dimensions in the cache key", () => {
+    const screen = {
+      id: "viewport-cache-key",
+      filename: "f.html",
+      content: "<div>",
+      width: 320,
+      height: 640,
+    };
+
+    expect(makeCacheKey(screen)).not.toBe(
+      makeCacheKey({ ...screen, width: 640 }),
+    );
+  });
+
   it("uses a different cache key when content changes with equal length, prefix differs", () => {
     const screenId = "cache-test";
     const contentA = "A".repeat(80);

@@ -296,6 +296,25 @@ function flexDirectionIsSupported(value: string) {
   );
 }
 
+function hasUnresolvedInlineFlexFlow(element: Element) {
+  const style = (element as HTMLElement).style;
+  const shorthand = style.flexFlow.trim().toLowerCase();
+  if (!shorthand) return false;
+  if (
+    /\b(?:var|env|attr)\s*\(|\b(?:initial|inherit|unset|revert(?:-layer)?)\b/.test(
+      shorthand,
+    )
+  ) {
+    return true;
+  }
+  return (
+    !flexDirectionIsSupported(style.flexDirection) ||
+    !["", "nowrap", "wrap", "wrap-reverse"].includes(
+      style.flexWrap.trim().toLowerCase(),
+    )
+  );
+}
+
 function hasMatchingStylesheetValue(
   doc: Document,
   element: Element,
@@ -1246,6 +1265,11 @@ function hasUnknownInlineFlexSizing(element: Element, axis: AuthoredSizeAxis) {
     axis === "x" ? "max-width" : "max-height",
   );
   const normalizedDimension = dimension.trim().toLowerCase();
+  const flex = style.flex.trim().toLowerCase();
+  const dynamicFlexValue =
+    /\b(?:var|env|attr|calc|min|max|clamp)\s*\(|\b(?:initial|inherit|unset|revert(?:-layer)?)\b/;
+  const literalFlexShorthand =
+    /^(?:none|(?:\d+(?:\.\d+)?)(?:\s+\d+(?:\.\d+)?(?:\s+(?:\d+(?:\.\d+)?(?:px|%)?|auto))?)?)$/;
   const authoredDimensionIsModeled =
     !normalizedDimension ||
     ["auto", "fit-content"].includes(normalizedDimension) ||
@@ -1254,6 +1278,10 @@ function hasUnknownInlineFlexSizing(element: Element, axis: AuthoredSizeAxis) {
 
   return (
     !authoredDimensionIsModeled ||
+    (flex !== "" && !literalFlexShorthand.test(flex)) ||
+    dynamicFlexValue.test(style.flexGrow) ||
+    dynamicFlexValue.test(style.flexShrink) ||
+    dynamicFlexValue.test(style.flexBasis) ||
     (!!minimum.trim() && !isZeroCssLength(minimum)) ||
     (!!maximum.trim() && maximum.trim().toLowerCase() !== "none")
   );
@@ -1301,6 +1329,12 @@ function flexFlowChildren(parent: Element) {
         left.order - right.order || left.domIndex - right.domIndex,
     )
     .map(({ child }) => child);
+}
+
+function hasAnonymousFlexItems(parent: Element) {
+  return Array.from(parent.childNodes).some(
+    (node) => node.nodeType === 3 && Boolean(node.textContent?.trim()),
+  );
 }
 
 function elementBoxDecorationSize(element: Element, axis: AuthoredSizeAxis) {
@@ -1403,6 +1437,22 @@ function flexGrow(element: Element) {
   const shorthand = (style.flex || "").trim().split(/\s+/)[0];
   const parsed = Number.parseFloat(shorthand || "");
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+}
+
+function flexGrowIsPreciselyModeled(
+  element: Element,
+  axis: AuthoredSizeAxis,
+  reference: number,
+) {
+  const style = (element as HTMLElement).style;
+  const growToken = style.flexGrow.trim() || style.flex.trim().split(/\s+/)[0];
+  const grow = Number(growToken);
+  if (!Number.isFinite(grow) || grow <= 0) return false;
+  return (
+    flexBasis(element, reference) !== null ||
+    parseAuthoredLength(style[axis === "x" ? "width" : "height"], reference) !==
+      null
+  );
 }
 
 function flexMainAxis(parent: Element): AuthoredSizeAxis | null {
@@ -2143,6 +2193,7 @@ export function parsePrimitivesFromScreen(
       const flexDirectionKnown =
         !isFlexContainer ||
         (!hasMatchingStylesheetValue(doc, element, "flex-direction") &&
+          !hasUnresolvedInlineFlexFlow(element) &&
           flexDirectionIsSupported(style.flexDirection));
       const flexAxisKnown =
         flexDirectionKnown &&
@@ -2167,6 +2218,9 @@ export function parsePrimitivesFromScreen(
       if (isFlexContainer && autoLayoutAxis) {
         const justifyContent = style.justifyContent.trim().toLowerCase();
         const alignItems = style.alignItems.trim().toLowerCase();
+        const reverseFlow =
+          (autoLayoutFlexDirection?.endsWith("-reverse") ?? false) !==
+          (autoLayoutAxis === "x" && autoLayoutDirection === "rtl");
         const flowChildren = flexFlowChildren(element);
         const gap = flexMainAxisGap(element, autoLayoutAxis);
         const containerGeometryProperties = [
@@ -2250,6 +2304,7 @@ export function parsePrimitivesFromScreen(
           ) +
           Math.max(0, flowChildren.length - 1) * gap;
         flexPositioningKnown =
+          !hasAnonymousFlexItems(element) &&
           !hasStylesheetGeometryOverride(
             element,
             containerGeometryProperties,
@@ -2270,7 +2325,18 @@ export function parsePrimitivesFromScreen(
               !hasUnknownInlineBoxGeometry(child) &&
               !hasUnknownInlineFlexSizing(child, autoLayoutAxis) &&
               !hasMatchingStylesheetValue(doc, child, "order") &&
-              flexGrow(child) === 0 &&
+              (flexGrow(child) === 0 ||
+                (!reverseFlow &&
+                  flexGrowIsPreciselyModeled(
+                    child,
+                    autoLayoutAxis,
+                    parentContentSize(
+                      element,
+                      autoLayoutAxis,
+                      sizeCache,
+                      new Set(),
+                    ),
+                  ))) &&
               !hasMatchingStylesheetValue(doc, child, "flex-grow") &&
               !hasMatchingStylesheetValue(doc, child, "flex") &&
               !hasAutoMainAxisMargin(child, autoLayoutAxis) &&
@@ -2591,7 +2657,6 @@ export function getPrimitiveDropTargetForPoint(
       primitives.some(
         (primitive) =>
           primitive.autoLayoutOrderKnown === false &&
-          (!primitive.autoLayoutAxis || isReverseFlexFlow(primitive)) &&
           isPrimitiveAncestor(primitive, containerPrimitive, primitives),
       )
     ) {

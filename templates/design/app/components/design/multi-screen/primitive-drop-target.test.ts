@@ -277,6 +277,10 @@ describe("primitive drop target authored layout fallback", () => {
     const fill = parsePrimitivesFromScreen(screen).find(
       (primitive) => primitive.nodeId === "fill",
     );
+    const parent = parsePrimitivesFromScreen(screen).find(
+      (primitive) => primitive.nodeId === "parent",
+    );
+    expect(parent?.autoLayoutOrderKnown).toBe(true);
     expect(fill).toMatchObject({
       localLeft: 90,
       localTop: 0,
@@ -1556,6 +1560,51 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     ).toBeNull();
   });
 
+  it("defers reverse flex ordering for an unresolved flex-flow shorthand", () => {
+    const screen = {
+      ...flexScreen,
+      id: "unresolved-flex-flow-shorthand-screen",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:100px;display:flex;flex-flow:var(--flow);--flow:row-reverse wrap">
+          <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="width:40px;height:20px"></div>
+          <div data-agent-native-node-id="second" data-an-primitive="rectangle" style="width:40px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const parent = primitives.find(
+      (primitive) => primitive.nodeId === "parent",
+    )!;
+
+    expect(parent.autoLayoutOrderKnown).toBe(false);
+    expect(
+      findAutoLayoutInsertionAnchor(parent, primitives, { x: 10, y: 10 }, null),
+    ).toBeNull();
+  });
+
+  it("defers flex ordering when direct text creates an anonymous flex item", () => {
+    const screen = {
+      ...flexScreen,
+      id: "anonymous-flex-text-item-screen",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:100px;display:flex;flex-direction:row-reverse">
+          <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="width:40px;height:20px"></div>
+          anonymous flex item
+          <div data-agent-native-node-id="second" data-an-primitive="rectangle" style="width:40px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const parent = primitives.find(
+      (primitive) => primitive.nodeId === "parent",
+    )!;
+
+    expect(parent.autoLayoutOrderKnown).toBe(false);
+    expect(
+      findAutoLayoutInsertionAnchor(parent, primitives, { x: 10, y: 10 }, null),
+    ).toBeNull();
+  });
+
   it.each([
     {
       id: "row-calc-width",
@@ -1722,7 +1771,30 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
         .reverse { flex-direction: row-reverse; }
       </style></head><body>
         <div data-agent-native-node-id="parent" data-an-primitive="frame" class="reverse" style="position:absolute;left:0;top:0;width:200px;height:100px;display:flex">
-          <div data-agent-native-node-id="nested" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:80px;height:60px">
+          <div data-agent-native-node-id="nested" data-an-primitive="frame" style="width:80px;height:60px">
+            <div data-agent-native-node-id="child" data-an-primitive="rectangle" style="width:20px;height:20px"></div>
+          </div>
+        </div>
+      </body></html>`,
+    };
+    const target = getPrimitiveDropTargetForPoint(
+      { x: 10, y: 10 },
+      null,
+      [screen],
+      { [screen.id]: { x: 0, y: 0, width: 200, height: 100 } },
+      () => ({ width: 200, height: 100 }),
+    );
+
+    expect(target).toBeNull();
+  });
+
+  it("blocks nested targets under forward flex with unknown ordering geometry", () => {
+    const screen = {
+      ...flexScreen,
+      id: "unknown-forward-flex-ancestor-screen",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:100px;display:flex;flex-direction:row;justify-content:center">
+          <div data-agent-native-node-id="nested" data-an-primitive="frame" style="width:80px;height:60px">
             <div data-agent-native-node-id="child" data-an-primitive="rectangle" style="width:20px;height:20px"></div>
           </div>
         </div>

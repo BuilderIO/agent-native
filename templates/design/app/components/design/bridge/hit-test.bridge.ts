@@ -259,10 +259,11 @@
   function parentFlowAxis(parent: Element): string {
     var cs = window.getComputedStyle(parent);
     if (cs.display === "flex" || cs.display === "inline-flex") {
-      var isRow = cs.flexDirection && cs.flexDirection.indexOf("row") === 0;
+      var mainAxis = flexMainAxis(cs);
       var wraps = cs.flexWrap === "wrap" || cs.flexWrap === "wrap-reverse";
-      if (isRow && !wraps) return "x";
-      return "y";
+      if (!mainAxis) return "y";
+      if (!wraps) return mainAxis;
+      return mainAxis === "x" ? "y" : "x";
     }
     if (cs.display === "grid" || cs.display === "inline-grid") {
       var cols = (cs.gridTemplateColumns || "")
@@ -276,15 +277,60 @@
   function isReverseFlow(parent: Element, axis: string): boolean {
     var cs = window.getComputedStyle(parent);
     if (cs.display !== "flex" && cs.display !== "inline-flex") return false;
-    if (axis === "x") {
-      var isRow =
-        cs.flexDirection === "row" || cs.flexDirection === "row-reverse";
+    return isReverseFlexFlow(cs, axis);
+  }
+
+  function flexMainAxis(styles: CSSStyleDeclaration): string | null {
+    var writingMode = styles.writingMode || "horizontal-tb";
+    if (
+      writingMode !== "horizontal-tb" &&
+      writingMode !== "vertical-rl" &&
+      writingMode !== "vertical-lr"
+    ) {
+      return null;
+    }
+    if (
+      styles.flexDirection === "row" ||
+      styles.flexDirection === "row-reverse"
+    ) {
+      return writingMode === "horizontal-tb" ? "x" : "y";
+    }
+    if (
+      styles.flexDirection === "column" ||
+      styles.flexDirection === "column-reverse"
+    ) {
+      return writingMode === "horizontal-tb" ? "y" : "x";
+    }
+    return null;
+  }
+
+  function isFlexContainer(el: Element) {
+    var display = window.getComputedStyle(el).display;
+    return display === "flex" || display === "inline-flex";
+  }
+
+  function hasKnownFlexMainAxis(el: Element) {
+    return (
+      !isFlexContainer(el) || flexMainAxis(window.getComputedStyle(el)) !== null
+    );
+  }
+
+  function isReverseFlexFlow(styles: CSSStyleDeclaration, axis: string) {
+    var mainAxis = flexMainAxis(styles);
+    if (!mainAxis || axis !== mainAxis) return false;
+    if (
+      styles.flexDirection === "row" ||
+      styles.flexDirection === "row-reverse"
+    ) {
       return (
-        isRow &&
-        (cs.flexDirection === "row-reverse") !== (cs.direction === "rtl")
+        (styles.flexDirection === "row-reverse") !==
+        (styles.direction === "rtl")
       );
     }
-    return axis === "y" && cs.flexDirection === "column-reverse";
+    return (
+      (styles.flexDirection === "column-reverse") !==
+      ((styles.writingMode || "horizontal-tb") === "vertical-rl")
+    );
   }
 
   function flowPlacementsForSide(
@@ -311,20 +357,7 @@
     if (cs.flexWrap !== "wrap" && cs.flexWrap !== "wrap-reverse") {
       return null;
     }
-    return cs.flexDirection && cs.flexDirection.indexOf("row") === 0
-      ? "x"
-      : "y";
-  }
-
-  function isReverseFlexFlow(styles: CSSStyleDeclaration, axis: string) {
-    return (
-      (axis === "x" &&
-        (styles.flexDirection === "row" ||
-          styles.flexDirection === "row-reverse") &&
-        (styles.flexDirection === "row-reverse") !==
-          (styles.direction === "rtl")) ||
-      (axis === "y" && styles.flexDirection === "column-reverse")
-    );
+    return flexMainAxis(cs);
   }
 
   function isAutoLayoutElement(el: Element | null): boolean {
@@ -727,6 +760,13 @@
     var wrappedFlexAxis = wrappedFlexMainAxis(container);
     var axis = wrappedFlexAxis || parentFlowAxis(container);
     var containerStyles = window.getComputedStyle(container);
+    if (
+      (containerStyles.display === "flex" ||
+        containerStyles.display === "inline-flex") &&
+      !flexMainAxis(containerStyles)
+    ) {
+      return null;
+    }
     var multiTrackGrid = isMultiTrackGrid(container);
     var reverseFlow =
       !multiTrackGrid && isReverseFlexFlow(containerStyles, axis);
@@ -807,6 +847,7 @@
           return null;
         }
         if (isAutoLayoutElement(cursor) && isContainerDropTarget(cursor)) {
+          if (!hasKnownFlexMainAxis(cursor)) return null;
           return (
             nearestChildInsertionTarget(cursor, clientX, clientY) || {
               anchor: cursor,
@@ -824,6 +865,7 @@
       if (isLayerInteractionBlocked(cursor)) return null;
       var parent: Element | null = cursor.parentElement;
       if (parent && isAutoLayoutElement(parent)) {
+        if (!hasKnownFlexMainAxis(parent)) return null;
         if (isTransientCloneElement(cursor)) {
           var cloneFallback = nearestChildInsertionTarget(
             parent,
@@ -869,6 +911,7 @@
         };
       }
       if (isAutoLayoutElement(cursor) && isContainerDropTarget(cursor)) {
+        if (!hasKnownFlexMainAxis(cursor)) return null;
         var containerRect = cursor.getBoundingClientRect();
         var edgeAxis = parent ? parentFlowAxis(parent) : parentFlowAxis(cursor);
         var edgePlacement = edgePlacementForRect(
@@ -1036,6 +1079,7 @@
         parent !== container &&
         (parentIsFlow || parentIsAbsolute)
       ) {
+        if (parentIsFlow && !hasKnownFlexMainAxis(parent)) return null;
         if (
           dropFitsContainer(
             parent,

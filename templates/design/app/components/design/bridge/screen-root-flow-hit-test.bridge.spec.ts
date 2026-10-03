@@ -104,6 +104,50 @@ const REVERSE_FLOW_CASES = [
     placement: "after",
     guidePlacement: "after",
   },
+  {
+    name: "row in vertical-rl writing mode",
+    flexDirection: "row",
+    direction: "ltr",
+    writingMode: "vertical-rl",
+    axis: "y",
+    gapPoint: { x: 150, y: 90 },
+    childPoint: { x: 150, y: 60 },
+    placement: "after",
+    guidePlacement: "after",
+  },
+  {
+    name: "row in vertical-lr writing mode",
+    flexDirection: "row",
+    direction: "ltr",
+    writingMode: "vertical-lr",
+    axis: "y",
+    gapPoint: { x: 150, y: 90 },
+    childPoint: { x: 150, y: 60 },
+    placement: "after",
+    guidePlacement: "after",
+  },
+  {
+    name: "column in vertical-rl writing mode",
+    flexDirection: "column",
+    direction: "ltr",
+    writingMode: "vertical-rl",
+    axis: "x",
+    gapPoint: { x: 230, y: 50 },
+    childPoint: { x: 260, y: 50 },
+    placement: "after",
+    guidePlacement: "before",
+  },
+  {
+    name: "column in vertical-lr writing mode",
+    flexDirection: "column",
+    direction: "ltr",
+    writingMode: "vertical-lr",
+    axis: "x",
+    gapPoint: { x: 90, y: 50 },
+    childPoint: { x: 60, y: 50 },
+    placement: "after",
+    guidePlacement: "after",
+  },
 ] as const;
 
 describe("Screen-root auto-layout hit testing", () => {
@@ -975,10 +1019,12 @@ describe("Screen-root auto-layout hit testing", () => {
         const page = await browser.newPage({
           viewport: { width: 320, height: 260 },
         });
+        const writingMode =
+          "writingMode" in flow ? flow.writingMode : "horizontal-tb";
         const isRow = flow.axis === "x";
         const childWidth = isRow ? 80 : 280;
         const childHeight = isRow ? 100 : 80;
-        await page.setContent(`<!doctype html><html><body style="margin:0;display:flex;flex-direction:${flow.flexDirection};direction:${flow.direction};gap:20px;width:320px;height:260px">
+        await page.setContent(`<!doctype html><html><body style="margin:0;display:flex;flex-direction:${flow.flexDirection};direction:${flow.direction};writing-mode:${writingMode};gap:20px;width:320px;height:260px">
           <section data-agent-native-node-id="first" style="flex:none;width:${childWidth}px;height:${childHeight}px">First</section>
           <section data-agent-native-node-id="second" style="flex:none;width:${childWidth}px;height:${childHeight}px">Second</section>
         </body></html>`);
