@@ -15,5 +15,17 @@ export async function setUserExperiment(
   if (!getLabDefinition(key)) {
     throw new Error(`Unknown experiment: ${key}`);
   }
-  return setUserLab(email, key, enabled);
+  const states = await setUserLab(email, key, enabled);
+  return Object.fromEntries(
+    Object.entries(states).map(([labKey, state]) => {
+      if ("error" in state) {
+        throw new Error(
+          state.error === "invalid-choice"
+            ? `Invalid saved lab choice: ${labKey}`
+            : `Could not resolve saved lab state: ${labKey}`,
+        );
+      }
+      return [labKey, state.enabled];
+    }),
+  );
 }

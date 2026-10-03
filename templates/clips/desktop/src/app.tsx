@@ -1207,7 +1207,7 @@ export function App({
   const [authStatus, setAuthStatus] = useState<
     "unknown" | "authed" | "anon" | "unavailable"
   >("unknown");
-  const [labValues, setLabValues] = useState<Record<string, boolean>>({});
+  const [labValues, setLabValues] = useState<Record<string, unknown>>({});
   const [serverReachable, setServerReachable] = useState(true);
   const serverHostForSignIn = serverUrl
     .replace(/^https?:\/\//, "")
@@ -1667,8 +1667,8 @@ export function App({
       }
 
       try {
-        const values = await callClipsAction<Record<string, boolean>>(
-          "get-labs",
+        const values = await callClipsAction<Record<string, unknown>>(
+          "get-lab-states",
           {},
           { method: "GET" },
         );

@@ -68,6 +68,13 @@ export default defineAction({
       if (!lab) continue;
       const state = labStates[lab.key];
       if (!state) throw new Error(`Missing migrated lab state: ${lab.key}`);
+      if ("error" in state) {
+        throw new Error(
+          state.error === "invalid-choice"
+            ? `Invalid saved lab choice: ${lab.key}`
+            : `Could not resolve saved lab state: ${lab.key}`,
+        );
+      }
       values[key] =
         state.source === "choice"
           ? state.enabled

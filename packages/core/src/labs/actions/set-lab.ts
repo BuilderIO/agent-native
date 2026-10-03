@@ -23,6 +23,13 @@ export default defineAction({
     const values = await setUserLab(email, args.key, args.enabled, {
       orgId: ctx?.orgId,
     });
-    return { key: args.key, enabled: values[args.key] === true, values };
+    const state = values[args.key];
+    if (!state || "error" in state) {
+      // guard:allow-bare-error — invariant: a successful setter must return its valid target state
+      throw new Error(
+        `Could not read saved lab state after updating ${args.key}`,
+      );
+    }
+    return { key: args.key, enabled: state.enabled, values };
   },
 });

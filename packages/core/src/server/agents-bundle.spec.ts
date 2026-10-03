@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-const labsMock = vi.hoisted(() => ({ getUserLabs: vi.fn() }));
+const labsMock = vi.hoisted(() => ({ getUserLabStates: vi.fn() }));
 
 vi.mock("../labs/store.js", () => labsMock);
 
@@ -300,10 +300,23 @@ describe("generateDevelopmentSkillsPromptBlock scope filtering", () => {
 
 describe("per-user Labs skill visibility", () => {
   it("filters gated skills per user without mutating the shared bundle", async () => {
-    labsMock.getUserLabs.mockImplementation(async (email: string) =>
+    labsMock.getUserLabStates.mockImplementation(async (email: string) =>
       email === "enabled@example.test"
-        ? { "creative-context.library": true }
-        : { "creative-context.library": false },
+        ? {
+            "creative-context.library": {
+              enabled: true,
+              source: "choice",
+              mixed: false,
+            },
+            "unrelated.corrupt": { error: "invalid-choice" },
+          }
+        : {
+            "creative-context.library": {
+              enabled: false,
+              source: "choice",
+              mixed: false,
+            },
+          },
     );
     const bundle = bundleWith([
       skill("ordinary", "both"),

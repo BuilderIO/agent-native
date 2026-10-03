@@ -314,6 +314,8 @@ export interface AssistantChatProps {
   }>;
   /** Whether the model list is still being resolved. */
   modelListLoading?: boolean;
+  /** Whether the model list failed to load. */
+  modelListError?: boolean;
   /** Callback when user picks a model from the picker */
   onModelChange?: (model: string, engine: string) => void;
   /** Callback when user picks an effort from the picker */

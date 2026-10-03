@@ -4,5 +4,7 @@ export {
   getUserLabState,
   getUserLabStates,
   getUserLabs,
+  type UserLabStateError,
   type UserLabState,
+  type UserLabStateValue,
 } from "./store.js";

@@ -501,6 +501,7 @@ interface AgentKitSurfaceContextValue {
   canChat: boolean;
   setupMissing: boolean;
   providerStatus: AgentEngineConfiguredState;
+  modelListUnavailable: boolean;
   retryProviderStatus: () => void;
   fileStorageConfigured: boolean;
   fileStorageMissing: boolean;
@@ -1147,11 +1148,23 @@ const AgentKitAssistantChatBody = forwardRef<
     tabId: props.tabId,
     threadId,
   });
+  const modelCatalogPending =
+    props.showModelSelector !== false && props.modelListLoading === true;
+  const modelListUnavailable =
+    props.showModelSelector !== false && props.modelListError === true;
   const canChat = !providerChecksEnabled || readiness.canChat;
-  const setupMissing = providerChecksEnabled && readiness.missing;
-  const providerStatus: AgentEngineConfiguredState = providerChecksEnabled
-    ? readiness.state
-    : "configured";
+  const setupMissing =
+    providerChecksEnabled &&
+    readiness.missing &&
+    !modelCatalogPending &&
+    !modelListUnavailable;
+  const providerStatus: AgentEngineConfiguredState = modelListUnavailable
+    ? "unavailable"
+    : modelCatalogPending
+      ? "unknown"
+      : providerChecksEnabled
+        ? readiness.state
+        : "configured";
   const providerSubmissionPending =
     !canChat &&
     !setupMissing &&
@@ -2806,6 +2819,7 @@ const AgentKitAssistantChatBody = forwardRef<
     canChat,
     setupMissing,
     providerStatus,
+    modelListUnavailable,
     retryProviderStatus,
     fileStorageConfigured,
     fileStorageMissing,
@@ -3318,6 +3332,7 @@ function AgentKitTranscript({ children, threadId }: AgentKitRegionRenderProps) {
             isSubmitting={guided.isSubmitting}
             isSubmissionBlocked={!surface.canChat}
             providerStatus={surface.providerStatus}
+            modelListUnavailable={surface.modelListUnavailable}
             onRetryProviderStatus={surface.retryProviderStatus}
             {...(guided.title ? { title: guided.title } : {})}
             {...(guided.description ? { description: guided.description } : {})}
@@ -3439,6 +3454,7 @@ function AgentKitComposerSurface({
   canChat,
   setupMissing,
   providerStatus,
+  modelListUnavailable,
   retryProviderStatus,
   fileStorageConfigured,
   fileStorageMissing,
@@ -3477,6 +3493,7 @@ function AgentKitComposerSurface({
   canChat: boolean;
   setupMissing: boolean;
   providerStatus: AgentEngineConfiguredState;
+  modelListUnavailable: boolean;
   retryProviderStatus: () => void;
   fileStorageConfigured: boolean;
   fileStorageMissing: boolean;
@@ -3760,9 +3777,11 @@ function AgentKitComposerSurface({
           }
         />
       ) : null}
-      {!canChat && !setupMissing && providerStatus !== "configured" ? (
+      {modelListUnavailable ||
+      (!canChat && !setupMissing && providerStatus !== "configured") ? (
         <GuidedQuestionProviderGate
           providerStatus={providerStatus}
+          modelListUnavailable={modelListUnavailable}
           onRetry={retryProviderStatus}
         />
       ) : null}
