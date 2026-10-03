@@ -721,4 +721,186 @@ test.describe("clipboard + duplicate (overview / board objects, cross-screen)", 
       await action(request, "delete-design", { id: designId }).catch(() => {});
     }
   });
+
+  test("repeated cmd+D uses the next free board slot, stacks above the source, and selects the latest copy", async ({
+    page,
+    request,
+  }) => {
+    const { designId, fileIds } = await createDesign(
+      request,
+      BOARD_OBJECT_HTML,
+      2,
+    );
+    const designGap = 56; // Design's board-wide Screen gap remains distinct from Figma's.
+
+    const readFrames = async () => {
+      const response = await request.get(
+        `${BASE_URL}/_agent-native/actions/get-design`,
+        { params: { id: designId, includeFileContent: "false" } },
+      );
+      if (!response.ok()) {
+        throw new Error(`get-design: ${response.status()}`);
+      }
+      const design = await response.json();
+      const data =
+        typeof design.data === "string" ? JSON.parse(design.data) : design.data;
+      if (!data || typeof data !== "object" || !data.canvasFrames) {
+        throw new Error("get-design returned no canvas frame geometry");
+      }
+      return data.canvasFrames as Record<
+        string,
+        { x: number; y: number; width: number; height: number; z: number }
+      >;
+    };
+    const selectedScreenIds = () =>
+      page
+        .getByRole("tree", { name: "Layers" })
+        .locator(
+          '[role="treeitem"][aria-level="1"][aria-selected="true"] [data-layer-row-button][data-layer-node-id]',
+        )
+        .evaluateAll((buttons) =>
+          buttons.map((button) => button.getAttribute("data-layer-node-id")),
+        );
+
+    try {
+      const originalId = fileIds[0]!;
+      const occupiedId = fileIds[1]!;
+      await action(request, "update-design", {
+        id: designId,
+        dataOperations: [
+          {
+            op: "set",
+            path: ["canvasFrames", occupiedId],
+            value: {
+              x: 1280 + designGap,
+              y: 0,
+              width: 1280,
+              height: 900,
+              z: 1,
+            },
+          },
+        ],
+      });
+      await page.goto(appPath(`/design/${designId}?view=overview`), {
+        waitUntil: "domcontentloaded",
+      });
+      await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
+        timeout: 30_000,
+      });
+      await expect
+        .poll(async () => (await readFrames())[occupiedId]?.x)
+        .toBe(1280 + designGap);
+
+      await page
+        .locator(`[data-frame-id="${originalId}"] [data-frame-label]`)
+        .click({ force: true });
+      await page.keyboard.press("ControlOrMeta+d");
+
+      let frames = await readFrames();
+      await expect
+        .poll(async () => {
+          frames = await readFrames();
+          const copyId = Object.keys(frames).find(
+            (id) => !fileIds.includes(id),
+          );
+          const original = frames[originalId];
+          const occupied = frames[occupiedId];
+          const copy = copyId ? frames[copyId] : undefined;
+          return Boolean(
+            Object.keys(frames).length === 3 &&
+            original &&
+            occupied &&
+            copy &&
+            copy.x === occupied.x + occupied.width + designGap &&
+            copy.z === original.z + 1,
+          );
+        })
+        .toBe(true);
+      const firstCopyId = Object.keys(frames).find(
+        (id) => !fileIds.includes(id),
+      );
+      expect(firstCopyId).toBeTruthy();
+      const firstCopy = frames[firstCopyId!]!;
+      expect(firstCopy).toMatchObject({
+        x: frames[occupiedId]!.x + frames[occupiedId]!.width + designGap,
+        y: frames[originalId]!.y,
+        width: frames[originalId]!.width,
+        height: frames[originalId]!.height,
+        z: frames[originalId]!.z + 1,
+      });
+      expect(frames[occupiedId]!.z).toBeGreaterThan(firstCopy.z);
+      await expect.poll(selectedScreenIds).toEqual([firstCopyId]);
+
+      await page
+        .locator(`[data-frame-id="${originalId}"] [data-frame-label]`)
+        .click({ force: true });
+      await page.keyboard.press("ControlOrMeta+d");
+
+      await expect
+        .poll(async () => {
+          frames = await readFrames();
+          const copyId = Object.keys(frames).find(
+            (id) => !fileIds.includes(id) && id !== firstCopyId,
+          );
+          const original = frames[originalId];
+          const first = frames[firstCopyId!];
+          const copy = copyId ? frames[copyId] : undefined;
+          return Boolean(
+            Object.keys(frames).length === 4 &&
+            original &&
+            first &&
+            copy &&
+            copy.x === first.x + first.width + designGap &&
+            copy.z === original.z + 1 &&
+            first.z > copy.z,
+          );
+        })
+        .toBe(true);
+      const secondCopyId = Object.keys(frames).find(
+        (id) => !fileIds.includes(id) && id !== firstCopyId,
+      );
+      expect(secondCopyId).toBeTruthy();
+      const secondCopy = frames[secondCopyId!]!;
+      expect(secondCopy).toMatchObject({
+        x: firstCopy.x + firstCopy.width + designGap,
+        y: frames[originalId]!.y,
+        width: frames[originalId]!.width,
+        height: frames[originalId]!.height,
+        z: frames[originalId]!.z + 1,
+      });
+      const restackedFirstCopy = frames[firstCopyId!]!;
+      expect(
+        restackedFirstCopy.z,
+        JSON.stringify({ originalId, firstCopyId, secondCopyId, frames }),
+      ).toBeGreaterThan(secondCopy.z);
+      expect(frames[occupiedId]!.z).toBeGreaterThan(restackedFirstCopy.z);
+      await expect.poll(selectedScreenIds).toEqual([secondCopyId]);
+
+      const finalFrames = Object.values(frames);
+      for (let index = 0; index < finalFrames.length; index += 1) {
+        for (
+          let otherIndex = index + 1;
+          otherIndex < finalFrames.length;
+          otherIndex += 1
+        ) {
+          const left = finalFrames[index]!;
+          const right = finalFrames[otherIndex]!;
+          expect(
+            left.x + left.width <= right.x ||
+              right.x + right.width <= left.x ||
+              left.y + left.height <= right.y ||
+              right.y + right.height <= left.y,
+          ).toBe(true);
+        }
+      }
+
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(page.locator("[data-screen-shell]")).toHaveCount(4, {
+        timeout: 30_000,
+      });
+      await expect.poll(readFrames).toEqual(frames);
+    } finally {
+      await action(request, "delete-design", { id: designId }).catch(() => {});
+    }
+  });
 });
