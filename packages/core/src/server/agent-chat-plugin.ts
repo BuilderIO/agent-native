@@ -6219,15 +6219,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const titleOwnerContext = await resolveOwnerContext(event);
           if (titleOwnerContext.anonymous) return { title: "" };
           const ownerEmail = titleOwnerContext.owner;
-          const request = chatTitleRequestFromBody(await readBody(event));
-          if (!request) {
-            setResponseStatus(event, 400);
-            return { error: "message is required" };
-          }
-          const orgId = await getOrgIdFromEvent(event);
-          await runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
-            requireAgentChatAiSetup(),
-          );
 
           // Per-user rate limit: 10 calls / 60s. Prevents an authenticated
           // user from spamming the endpoint to exhaust shared Anthropic
@@ -6257,6 +6248,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
             }
           }
+
+          const request = chatTitleRequestFromBody(await readBody(event));
+          if (!request) {
+            setResponseStatus(event, 400);
+            return { error: "message is required" };
+          }
+          const orgId = await getOrgIdFromEvent(event);
+          await runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
+            requireAgentChatAiSetup(),
+          );
 
           try {
             const title = await runWithRequestContext(
