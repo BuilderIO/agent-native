@@ -162,6 +162,21 @@ function isExternalReferrerHost(host: string | undefined): boolean {
   return !!trimmed && trimmed.length > 0;
 }
 
+const CAMPAIGN_TAG_FIELDS = [
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_content",
+  "utm_term",
+  "gclid",
+  "msclkid",
+  "vector_source",
+] as const satisfies ReadonlyArray<keyof FirstTouchAttribution>;
+
+function hasCampaignTag(ft: FirstTouchAttribution | null): boolean {
+  return CAMPAIGN_TAG_FIELDS.some((field) => !!ft?.[field]?.trim());
+}
+
 export function deriveReferralSource(ft: FirstTouchAttribution | null): string {
   if (ft?.ref && ft.ref.trim()) return ft.ref.trim();
   const path = ft?.landing_path ?? "";
@@ -176,6 +191,9 @@ export function deriveReferralSource(ft: FirstTouchAttribution | null): string {
     return "plan_share";
   }
   if (isExternalReferrerHost(ft?.landing_referrer)) return "external";
+  // A tagged link with no referrer (a mobile app, an email client, or a
+  // `noreferrer` hop) still says where the visitor came from.
+  if (hasCampaignTag(ft)) return "campaign";
   return "direct";
 }
 

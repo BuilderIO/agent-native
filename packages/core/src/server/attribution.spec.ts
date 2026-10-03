@@ -148,6 +148,25 @@ describe("deriveReferralSource", () => {
     ).toBe("external");
   });
 
+  it("campaign tags without a referrer derive campaign", () => {
+    expect(
+      deriveReferralSource({ utm_source: "builder.io", utm_content: "x" }),
+    ).toBe("campaign");
+    expect(deriveReferralSource({ utm_content: "ma" })).toBe("campaign");
+    expect(deriveReferralSource({ gclid: "google-click-1" })).toBe("campaign");
+    expect(deriveReferralSource({ utm_source: "  " })).toBe("direct");
+  });
+
+  it("a referrer still outranks campaign tags", () => {
+    expect(
+      deriveReferralSource({
+        utm_source: "google",
+        utm_medium: "display",
+        landing_referrer: "www.youtube.com",
+      }),
+    ).toBe("external");
+  });
+
   it("nothing derives direct", () => {
     expect(deriveReferralSource(null)).toBe("direct");
     expect(deriveReferralSource({})).toBe("direct");
