@@ -1054,9 +1054,22 @@ export function startInPlaceTextSession(
     ]),
   );
   const computedStyle = window.getComputedStyle(el);
+  const cssPixels = (value: string) => Number.parseFloat(value) || 0;
   const initialLayout = {
-    width: el.offsetWidth,
-    height: el.offsetHeight,
+    width: Math.max(
+      0,
+      el.clientWidth -
+        cssPixels(computedStyle.paddingLeft) -
+        cssPixels(computedStyle.paddingRight),
+    ),
+    height: Math.max(
+      0,
+      el.clientHeight -
+        cssPixels(computedStyle.paddingTop) -
+        cssPixels(computedStyle.paddingBottom),
+    ),
+    renderedWidth: el.offsetWidth,
+    renderedHeight: el.offsetHeight,
     contain: el.style.getPropertyValue("contain"),
     containPriority: el.style.getPropertyPriority("contain"),
     intrinsicSize: el.style.getPropertyValue("contain-intrinsic-size"),
@@ -1068,8 +1081,8 @@ export function startInPlaceTextSession(
     position: computedStyle.position || "static",
   };
   const reservationEnabled =
-    initialLayout.width > 0 &&
-    initialLayout.height > 0 &&
+    initialLayout.renderedWidth > 0 &&
+    initialLayout.renderedHeight > 0 &&
     typeof CSS !== "undefined" &&
     CSS.supports("contain-intrinsic-size", "1px 1px") &&
     !["inline", "contents", "none"].includes(initialLayout.display) &&

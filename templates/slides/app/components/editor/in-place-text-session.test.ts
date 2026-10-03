@@ -220,6 +220,8 @@ describe("in-place text session: entering and ending", () => {
     vi.stubGlobal("CSS", { supports: () => true });
     vi.spyOn(el, "offsetWidth", "get").mockReturnValue(240);
     vi.spyOn(el, "offsetHeight", "get").mockReturnValue(48);
+    vi.spyOn(el, "clientWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "clientHeight", "get").mockReturnValue(48);
     session = startInPlaceTextSession(el);
     const text = el.firstChild as Text;
     caret(text, text.length);
@@ -244,12 +246,39 @@ describe("in-place text session: entering and ending", () => {
     expect(el.style.getPropertyValue("contain")).toBe("size");
   });
 
+  it.each(["content-box", "border-box"] as const)(
+    "reserves only the %s element's content box",
+    (boxSizing) => {
+      const width = boxSizing === "content-box" ? "240px" : "270px";
+      const height = boxSizing === "content-box" ? "48px" : "70px";
+      const el = mount(
+        `<div id="t" style="box-sizing: ${boxSizing}; width: ${width}; height: ${height}; padding: 8px 12px; border: 3px solid">Alpha</div>`,
+      );
+      vi.stubGlobal("CSS", { supports: () => true });
+      vi.spyOn(el, "offsetWidth", "get").mockReturnValue(270);
+      vi.spyOn(el, "offsetHeight", "get").mockReturnValue(70);
+      vi.spyOn(el, "clientWidth", "get").mockReturnValue(264);
+      vi.spyOn(el, "clientHeight", "get").mockReturnValue(64);
+      session = startInPlaceTextSession(el);
+      const text = el.firstChild as Text;
+      caret(text, text.length);
+
+      type(el, "beta");
+
+      expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe(
+        "240px 48px",
+      );
+    },
+  );
+
   it("replaces inline-size containment when reserving the edited size", () => {
     const el = mount('<div id="t" style="contain: inline-size">Alpha</div>');
     const supports = vi.fn(() => true);
     vi.stubGlobal("CSS", { supports });
     vi.spyOn(el, "offsetWidth", "get").mockReturnValue(240);
     vi.spyOn(el, "offsetHeight", "get").mockReturnValue(48);
+    vi.spyOn(el, "clientWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "clientHeight", "get").mockReturnValue(48);
     const getComputedStyle = window.getComputedStyle.bind(window);
     vi.spyOn(window, "getComputedStyle").mockImplementation(
       (element, pseudo) => {
