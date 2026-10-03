@@ -207,7 +207,10 @@ providers build it.
   text. That replaces quoted text, emails, URLs, file paths, hostnames (any
   dotted name), and numbers or ids, and shows a cause that only repeats its
   message once; other words remain, so an unquoted name in a message still
-  leaves with it. A provider error is `provider_error` only when its code
+  leaves with it. That is why `error_message` goes only to first-party
+  Analytics: `FIRST_PARTY_ONLY_PROPERTIES` in `client/analytics.ts` keeps it
+  out of Google Analytics and Amplitude. A new free-text property belongs
+  there too. A provider error is `provider_error` only when its code
   came from a structured HTTP status (`http_5xx`, including a status on a
   wrapped cause); a status that appears only in message text is not read. `agent_feedback_submitted` (`sentiment`,
   `run_id`, `thread_id`) is the browser's copy of a thumbs rating, because
