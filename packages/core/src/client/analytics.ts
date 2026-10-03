@@ -9,6 +9,7 @@ import {
   canonicalTrackingEvent,
   legacyLifecycleEvent,
   normalizeTrackingDimension,
+  PAGE_LOAD_PAGEVIEW_PROPERTY,
   SLOW_ACTION_RESPONSE_MS,
   withCanonicalTrackingProperties,
   type AgentNativeLifecycleEventName,
@@ -31,6 +32,7 @@ import { isSyntheticTrafficValue } from "../shared/test-traffic.js";
 import { toPostHogExceptionProperties } from "../tracking/posthog-exception.js";
 import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import {
+  getAnalyticsPageLoadId,
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
@@ -1876,6 +1878,7 @@ function pageviewProperties(reason: string): Record<string, unknown> {
     hostname: window.location.hostname,
     navigation_type: reason,
     [AGENT_SIGNALS_PAGEVIEW_PROPERTY]: AGENT_SIGNALS_VERSION,
+    [PAGE_LOAD_PAGEVIEW_PROPERTY]: getAnalyticsPageLoadId(),
   };
   if (_trackingContentCaptureEnabled && window.location.search) {
     properties.search = scrubUrl(window.location.search);

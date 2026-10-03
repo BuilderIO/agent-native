@@ -311,6 +311,7 @@ describe("browser analytics pageviews", () => {
         title: "Inbox",
         navigation_type: "load",
         agent_signals: 1,
+        page_load_id: expect.any(String),
         client_platform: "web",
         llm_connection: "builder",
         llm_connection_configured: true,
@@ -1389,6 +1390,9 @@ describe("browser analytics pageviews", () => {
       "/sent",
     ]);
     expect(events[1].properties.navigation_type).toBe("pushState");
+    expect(events[1].properties.page_load_id).toBe(
+      events[0].properties.page_load_id,
+    );
   });
 
   it("drops a queued pageview when the browser environment is gone", async () => {

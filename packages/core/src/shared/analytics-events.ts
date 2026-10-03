@@ -389,6 +389,14 @@ export const AGENT_SIGNALS_PAGEVIEW_PROPERTY = "agent_signals";
 export const AGENT_SIGNALS_VERSION = 1;
 
 /**
+ * Every pageview carries an id that stays the same for one page load. One
+ * analytics session spans every tab, so Analytics follows each page load's
+ * navigation on its own to tell a return to the previous page from a page
+ * another tab opened.
+ */
+export const PAGE_LOAD_PAGEVIEW_PROPERTY = "page_load_id";
+
+/**
  * Action telemetry reports every `action.response` at least this slow
  * unsampled, and marks it on the session replay with its own timing.
  */
