@@ -16,6 +16,7 @@ afterEach(() => {
   session?.end();
   session = null;
   document.body.innerHTML = "";
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -212,6 +213,35 @@ describe("in-place text session: entering and ending", () => {
     textOf(el, "betax").deleteData(4, 1);
     session.end();
     expect(el.outerHTML).toBe(before);
+  });
+
+  it("reserves the initial flow size with the edited text in undo history", () => {
+    const el = mount('<div id="t">Alpha</div>');
+    vi.stubGlobal("CSS", { supports: () => true });
+    vi.spyOn(el, "offsetWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "offsetHeight", "get").mockReturnValue(48);
+    session = startInPlaceTextSession(el);
+    const text = el.firstChild as Text;
+    caret(text, text.length);
+
+    type(el, "beta");
+
+    expect(el.style.getPropertyValue("contain")).toBe("size");
+    expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe(
+      "240px 48px",
+    );
+    expect(beforeInput(el, "historyUndo").defaultPrevented).toBe(true);
+    expect(el.innerHTML).toBe("Alpha");
+    expect(el.style.getPropertyValue("contain")).toBe("");
+    expect(beforeInput(el, "historyRedo").defaultPrevented).toBe(true);
+    expect(el.innerHTML).toBe("Alphabeta");
+    expect(el.style.getPropertyValue("contain")).toBe("size");
+    expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe(
+      "240px 48px",
+    );
+
+    session.end();
+    expect(el.style.getPropertyValue("contain")).toBe("size");
   });
 
   it("counts a root style patch as a visible edit", () => {
@@ -1040,6 +1070,45 @@ describe("in-place text session: Enter", () => {
       "Following text",
       "More text",
     ]);
+  });
+
+  it("uses the next styled row for Delete at a mixed-content boundary", () => {
+    const row = (text: string) =>
+      `<div style="display: flex; gap: 12px"><span>●</span><span>${text}</span></div>`;
+    const el = mount(
+      `<div id="t">${row("Alpha")}${row("Beta")}<p>Following text</p></div>`,
+    );
+    session = startInPlaceTextSession(el);
+    caret(el, 1);
+    const modify = vi.spyOn(window.getSelection()!, "modify");
+
+    const event = beforeInput(el, "deleteContentForward");
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(el.children).toHaveLength(3);
+    expect(el.children[0]?.textContent).toBe("●Alpha");
+    expect(el.children[1]?.textContent).toBe("●eta");
+    expect(el.children[2]?.textContent).toBe("Following text");
+    expect(modify).toHaveBeenCalledWith("extend", "forward", "character");
+  });
+
+  it("uses the previous empty styled row for Backspace at a mixed-content boundary", () => {
+    const row = (text: string) =>
+      `<div style="display: flex; gap: 12px"><span>●</span><span>${text}</span></div>`;
+    const el = mount(
+      `<div id="t">${row("Alpha")}${row(ZWSP)}<p>Following text</p></div>`,
+    );
+    session = startInPlaceTextSession(el);
+    caret(el, 2);
+    const modify = vi.spyOn(window.getSelection()!, "modify");
+
+    const event = beforeInput(el, "deleteContentBackward");
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(el.children).toHaveLength(2);
+    expect(el.children[0]?.textContent).toBe("●Alpha");
+    expect(el.children[1]?.textContent).toBe("Following text");
+    expect(modify).not.toHaveBeenCalled();
   });
 
   it("inserts a line break for Shift+Enter even in a list item", () => {

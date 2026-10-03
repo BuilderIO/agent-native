@@ -2159,6 +2159,14 @@ async function runAuthoringParityQa(page: Page, base: string, outRoot: string) {
     { id: "authoring-list-ul", kind: "ul-flow" as const },
     { id: "authoring-list-ol", kind: "ol-flow" as const },
     { id: "authoring-list-styled", kind: "styled-flow" as const },
+    {
+      id: "authoring-list-boundary-delete",
+      kind: "styled-boundary-delete" as const,
+    },
+    {
+      id: "authoring-list-boundary-backspace",
+      kind: "styled-boundary-backspace" as const,
+    },
     { id: "authoring-soft-break-slash", kind: "soft-break-slash" as const },
   ];
   const cases = allCases;
@@ -2187,6 +2195,17 @@ async function runAuthoringParityQa(page: Page, base: string, outRoot: string) {
           id: test.id,
           content:
             '<div class="fmd-slide"><div class="fmd-text-box"><p style="color: red">Before</p></div></div>',
+        };
+      }
+      if (
+        test.kind === "styled-boundary-delete" ||
+        test.kind === "styled-boundary-backspace"
+      ) {
+        const adjacentText =
+          test.kind === "styled-boundary-backspace" ? "\u200b" : "Beta";
+        return {
+          id: test.id,
+          content: `<div class="fmd-slide"><div class="fmd-text-box" style="display: flex; flex-direction: column"><div style="display: flex; gap: 12px"><span>●</span><span>Alpha</span></div><div style="display: flex; gap: 12px"><span>●</span><span>${adjacentText}</span></div><p>Following text</p></div></div>`,
         };
       }
       const tag = "initialTag" in test ? test.initialTag : "div";
@@ -2435,6 +2454,15 @@ async function runAuthoringParityQa(page: Page, base: string, outRoot: string) {
     );
     if (!found) throw new Error("empty list Enter did not create a plain line");
   };
+  const setCaretAtChildBoundary = async (editor: any, offset: number) => {
+    await editor.evaluate((element: HTMLElement, childOffset: number) => {
+      const range = document.createRange();
+      range.setStart(element, childOffset);
+      range.collapse(true);
+      window.getSelection()?.removeAllRanges();
+      window.getSelection()?.addRange(range);
+    }, offset);
+  };
 
   try {
     for (let index = 0; index < cases.length; index += 1) {
@@ -2554,6 +2582,45 @@ async function runAuthoringParityQa(page: Page, base: string, outRoot: string) {
           ) {
             throw new Error(
               `slash heading did not isolate the soft-break line: ${JSON.stringify(lines.blocks)}`,
+            );
+          }
+        });
+      } else if (test.kind === "styled-boundary-delete") {
+        await setCaretAtChildBoundary(editor, 1);
+        await editor.press("Delete");
+        await finish(index, async () => {
+          const children = await editor.evaluate((element: HTMLElement) =>
+            Array.from(element.children, (child) =>
+              child.textContent?.replaceAll("\u200b", ""),
+            ),
+          );
+          if (
+            children.length !== 3 ||
+            children[0] !== "●Alpha" ||
+            children[1] !== "●eta" ||
+            children[2] !== "Following text"
+          ) {
+            throw new Error(
+              `Delete at the mixed-content boundary changed the wrong row: ${JSON.stringify(children)}`,
+            );
+          }
+        });
+      } else if (test.kind === "styled-boundary-backspace") {
+        await setCaretAtChildBoundary(editor, 2);
+        await editor.press("Backspace");
+        await finish(index, async () => {
+          const children = await editor.evaluate((element: HTMLElement) =>
+            Array.from(element.children, (child) =>
+              child.textContent?.replaceAll("\u200b", ""),
+            ),
+          );
+          if (
+            children.length !== 2 ||
+            children[0] !== "●Alpha" ||
+            children[1] !== "Following text"
+          ) {
+            throw new Error(
+              `Backspace at the mixed-content boundary lost a row: ${JSON.stringify(children)}`,
             );
           }
         });
