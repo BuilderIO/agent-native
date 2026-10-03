@@ -45,6 +45,10 @@ const MAX_TRACKED_TOAST_IDS = 50;
 
 export interface ReplayFrictionDetectorState {
   v: 1;
+  /**
+   * Never counted when the recording ends with it still pending: the click
+   * that ends a recording is usually the one that left the page.
+   */
   pendingClickAt: number | null;
   lastFocus: { id: number; at: number } | null;
   lastEventAt: number | null;
@@ -334,9 +338,20 @@ export function detectReplayFriction(
     trimFailures(state);
   }
 
-  const errorThenLeave =
+  return { state, delta, errorThenLeave: endedSoonAfterError(state) };
+}
+
+/**
+ * Whether the last event so far came soon after an error. It means the person
+ * left only once the recording has ended; before that, it is just the latest
+ * upload.
+ */
+export function endedSoonAfterError(
+  state: ReplayFrictionDetectorState,
+): boolean {
+  return (
     state.lastErrorAt !== null &&
     state.lastEventAt !== null &&
-    state.lastEventAt - state.lastErrorAt <= ERROR_THEN_LEAVE_WINDOW_MS;
-  return { state, delta, errorThenLeave };
+    state.lastEventAt - state.lastErrorAt <= ERROR_THEN_LEAVE_WINDOW_MS
+  );
 }
