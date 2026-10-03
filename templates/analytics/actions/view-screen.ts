@@ -25,10 +25,15 @@ import {
 } from "../server/lib/status-pages.js";
 import { getMonitor, listMonitors } from "../server/lib/uptime-monitors.js";
 import { sessionDateBound } from "../shared/session-date-bounds";
-import { readSessionEventFilters } from "../shared/session-events";
+import {
+  readSessionEventFilters,
+  SESSION_DID_EVENT_PARAM,
+  SESSION_DID_NOT_EVENT_PARAM,
+} from "../shared/session-events";
 import {
   isSessionFrictionSort,
   readSessionFrictionSignals,
+  SESSION_FRICTION_SIGNAL_PARAM,
 } from "../shared/session-friction";
 import { readSessionPage, SESSION_PAGE_SIZE } from "../shared/session-page";
 
@@ -290,11 +295,19 @@ export default defineAction({
               ? params.sort
               : null;
             // Match the page: event conditions, friction filters and sorts,
-            // and row friction apply only with the Lab on.
-            const triageLabEnabled = await isSessionsTriageLabEnabled(
-              email,
-              scope.orgId,
-            );
+            // and row friction apply only with the Lab on. A failed Lab read
+            // is reported, and the base list is still read without them.
+            let triageLabEnabled = false;
+            let labStateError: string | undefined;
+            try {
+              triageLabEnabled = await isSessionsTriageLabEnabled(
+                email,
+                scope.orgId,
+              );
+            } catch (error) {
+              labStateError =
+                error instanceof Error ? error.message : String(error);
+            }
             if (triageLabEnabled) {
               if (urlEventConditions.didEvents.length) {
                 filters.didEvents = urlEventConditions.didEvents;
@@ -311,17 +324,41 @@ export default defineAction({
               ...filters,
               limit: SESSION_EXCERPT_SIZE,
             });
+            screen.sessionReplays = result.recordings;
+            let frictionError: string | undefined;
             if (triageLabEnabled) {
-              const friction = await getSessionFrictionDetails(
-                scope,
-                result.recordings,
-              );
-              screen.sessionReplays = result.recordings.map((recording) => ({
-                ...recording,
-                friction: friction.get(recording.id),
-              }));
-            } else {
-              screen.sessionReplays = result.recordings;
+              try {
+                const friction = await getSessionFrictionDetails(
+                  scope,
+                  result.recordings,
+                );
+                screen.sessionReplays = result.recordings.map((recording) => ({
+                  ...recording,
+                  friction: friction.get(recording.id),
+                }));
+              } catch (error) {
+                frictionError =
+                  error instanceof Error ? error.message : String(error);
+              }
+            }
+            // The URL's sort and Lab conditions are not what was applied
+            // while the Lab is off, so echo the list's own filters.
+            const activeFilters: Record<string, string | string[]> = {
+              ...(screen.activeFilters as Record<string, string> | undefined),
+            };
+            if (params.sort) activeFilters.sort = filters.sort ?? "newest";
+            if (filters.didEvents?.length) {
+              activeFilters[SESSION_DID_EVENT_PARAM] = filters.didEvents;
+            }
+            if (filters.didNotEvents?.length) {
+              activeFilters[SESSION_DID_NOT_EVENT_PARAM] = filters.didNotEvents;
+            }
+            if (filters.frictionSignals?.length) {
+              activeFilters[SESSION_FRICTION_SIGNAL_PARAM] =
+                filters.frictionSignals;
+            }
+            if (Object.keys(activeFilters).length > 0) {
+              screen.activeFilters = activeFilters;
             }
             screen.sessionReplayPage = {
               filters: {
@@ -334,6 +371,8 @@ export default defineAction({
               total: result.total,
               returnedCount: result.recordings.length,
               excerptLimit: SESSION_EXCERPT_SIZE,
+              ...(labStateError ? { labStateError } : {}),
+              ...(frictionError ? { frictionError } : {}),
               ...(result.frictionCoverageStartedAt !== undefined
                 ? {
                     frictionCoverageStartedAt: result.frictionCoverageStartedAt,
