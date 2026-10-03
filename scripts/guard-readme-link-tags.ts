@@ -272,6 +272,7 @@ function agentNativeUrl(raw: string): URL | undefined {
       "https://relative.invalid",
     );
   } catch {
+    // coercion-ok: text that doesn't parse as a URL isn't a link to check.
     return undefined;
   }
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
