@@ -291,7 +291,7 @@ describe("bridge oversized-drop receiver guards", () => {
     },
     {
       bridgeFilename: "hit-test.bridge.ts",
-      nextFunction: "elementFromEditorPoint",
+      nextFunction: "isFlexContainer",
       style: {
         display: "inline-flex",
         flexDirection: "column",
