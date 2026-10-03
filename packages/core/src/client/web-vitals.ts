@@ -5,8 +5,7 @@
  * hidden, and a page that becomes visible again starts a new one. TTFB and
  * LCP belong to the document load only; INP and CLS are measured within each
  * page view. A metric the browser cannot measure is left out, never zero, and
- * a page view the manifest has no route for carries no route. No report
- * carries the page's path, which can hold slugs and emails; `pageview` has it.
+ * a page view the manifest has no route for carries no route.
  */
 
 export type WebVitalsNavigationType = "load" | "client" | "resume";
@@ -303,6 +302,9 @@ export function installWebVitals(
   };
 
   tracker.startLoad(locate(), timeToFirstByte());
+  // A page loaded in a background tab: no visibilitychange will end its load,
+  // and what happens once someone switches to it is a resume like any other.
+  if (firstHiddenAt === 0) tracker.hidden();
 
   const handleLcp = (entries: PerformanceEntryList) => {
     const start = activationStart();
