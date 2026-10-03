@@ -48,11 +48,9 @@ function compileBridgeFunction<T extends (...args: any[]) => any>(
   name: string,
   nextFunction: string,
   globals: Record<string, unknown>,
+  bridgeFilename = "editor-chrome.bridge.ts",
 ): T {
-  const source = readFileSync(
-    join(bridgeDir, "editor-chrome.bridge.ts"),
-    "utf8",
-  );
+  const source = readFileSync(join(bridgeDir, bridgeFilename), "utf8");
   const start = source.indexOf(`function ${name}(`);
   const next = source.indexOf(`function ${nextFunction}(`, start);
   const end = source.lastIndexOf("\n", next);
@@ -205,8 +203,8 @@ describe("editor drop-container primitive eligibility", () => {
   });
 });
 
-describe("editor oversized-drop receiver guards", () => {
-  it("uses the main axis for non-wrapping column receivers", () => {
+describe("bridge oversized-drop receiver guards", () => {
+  it("requires both dimensions for non-wrapping column receivers", () => {
     const dropFitsContainer = compileBridgeFunction<
       (container: Element, sourceWidth: number, sourceHeight: number) => boolean
     >("dropFitsContainer", "isOutsideIframeViewport", {
@@ -220,7 +218,158 @@ describe("editor oversized-drop receiver guards", () => {
       },
     });
 
-    expect(dropFitsContainer({} as Element, 220, 96)).toBe(true);
+    expect(dropFitsContainer({} as Element, 220, 96)).toBe(false);
+  });
+
+  it.each([
+    {
+      bridgeFilename: "editor-chrome.bridge.ts",
+      nextFunction: "isOutsideIframeViewport",
+      flexDirection: "row",
+      containerSize: { width: 236, height: 64 },
+      sourceSize: { width: 100, height: 80 },
+    },
+    {
+      bridgeFilename: "hit-test.bridge.ts",
+      nextFunction: "elementFromEditorPoint",
+      flexDirection: "row",
+      containerSize: { width: 236, height: 64 },
+      sourceSize: { width: 100, height: 80 },
+    },
+    {
+      bridgeFilename: "hit-test.bridge.ts",
+      nextFunction: "elementFromEditorPoint",
+      flexDirection: "column",
+      containerSize: { width: 180, height: 160 },
+      sourceSize: { width: 220, height: 96 },
+    },
+  ])(
+    "rejects cross-axis overflow in $bridgeFilename $flexDirection flex receivers",
+    ({
+      bridgeFilename,
+      nextFunction,
+      flexDirection,
+      containerSize,
+      sourceSize,
+    }) => {
+      const dropFitsContainer = compileBridgeFunction<
+        (
+          container: Element,
+          sourceWidth: number,
+          sourceHeight: number,
+        ) => boolean
+      >(
+        "dropFitsContainer",
+        nextFunction,
+        {
+          dropContentSize: () => containerSize,
+          window: {
+            getComputedStyle: () => ({
+              display: "flex",
+              flexDirection,
+              flexWrap: "nowrap",
+            }),
+          },
+        },
+        bridgeFilename,
+      );
+
+      expect(
+        dropFitsContainer({} as Element, sourceSize.width, sourceSize.height),
+      ).toBe(false);
+    },
+  );
+
+  it.each([
+    {
+      bridgeFilename: "editor-chrome.bridge.ts",
+      nextFunction: "isOutsideIframeViewport",
+      style: { display: "flex", flexDirection: "row", flexWrap: "nowrap" },
+      containerSize: { width: 300, height: 124 },
+      sourceSize: { width: 80, height: 140 },
+      expected: true,
+    },
+    {
+      bridgeFilename: "hit-test.bridge.ts",
+      nextFunction: "elementFromEditorPoint",
+      style: {
+        display: "inline-flex",
+        flexDirection: "column",
+        flexWrap: "nowrap",
+      },
+      containerSize: { width: 124, height: 300 },
+      sourceSize: { width: 140, height: 80 },
+      expected: true,
+    },
+    {
+      bridgeFilename: "editor-chrome.bridge.ts",
+      nextFunction: "isOutsideIframeViewport",
+      style: { display: "flex", flexDirection: "row", flexWrap: "wrap" },
+      containerSize: { width: 300, height: 124 },
+      sourceSize: { width: 80, height: 140 },
+      expected: false,
+    },
+    {
+      bridgeFilename: "hit-test.bridge.ts",
+      nextFunction: "elementFromEditorPoint",
+      style: { display: "grid", flexDirection: "row", flexWrap: "nowrap" },
+      containerSize: { width: 300, height: 124 },
+      sourceSize: { width: 80, height: 140 },
+      expected: false,
+    },
+  ])(
+    "uses main-axis fit only for single-line auto-layout fallback in $bridgeFilename",
+    ({
+      bridgeFilename,
+      nextFunction,
+      style,
+      containerSize,
+      sourceSize,
+      expected,
+    }) => {
+      const dropFitsAutoLayoutFallback = compileBridgeFunction<
+        (
+          container: Element,
+          sourceWidth: number,
+          sourceHeight: number,
+        ) => boolean
+      >(
+        "dropFitsAutoLayoutFallback",
+        nextFunction,
+        {
+          dropFitsContainer: () => false,
+          dropContentSize: () => containerSize,
+          window: { getComputedStyle: () => style },
+        },
+        bridgeFilename,
+      );
+
+      expect(
+        dropFitsAutoLayoutFallback(
+          {} as Element,
+          sourceSize.width,
+          sourceSize.height,
+        ),
+      ).toBe(expected);
+    },
+  );
+
+  it("keeps the two-dimensional fit check for static receivers", () => {
+    const dropFitsContainer = compileBridgeFunction<
+      (container: Element, sourceWidth: number, sourceHeight: number) => boolean
+    >("dropFitsContainer", "isOutsideIframeViewport", {
+      dropContentSize: () => ({ width: 180, height: 160 }),
+      window: {
+        getComputedStyle: () => ({
+          display: "block",
+          flexDirection: "row",
+          flexWrap: "nowrap",
+        }),
+      },
+    });
+
+    expect(dropFitsContainer({} as Element, 220, 96)).toBe(false);
+    expect(dropFitsContainer({} as Element, 180, 160)).toBe(true);
   });
 
   it("does not promote an oversized drop beyond the top-level receiver to body", () => {
@@ -274,6 +423,7 @@ describe("editor oversized-drop receiver guards", () => {
       isAbsolutePrimitiveContainer: () => false,
       isFreeformRelativeContainer: () => false,
       dropFitsContainer: (element: Element) => element === body,
+      dropFitsAutoLayoutFallback: () => false,
       parentFlowAxis: () => "y",
       nearestChildInsertionTarget,
     });

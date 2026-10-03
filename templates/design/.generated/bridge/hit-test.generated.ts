@@ -136,15 +136,21 @@ export const hitTestBridgeScript: string = `"use strict";
     }
     function dropFitsContainer(container, sourceWidth, sourceHeight) {
       var size = dropContentSize(container);
+      return size.width >= sourceWidth && size.height >= sourceHeight;
+    }
+    function dropFitsAutoLayoutFallback(container, sourceWidth, sourceHeight) {
+      if (dropFitsContainer(container, sourceWidth, sourceHeight)) return true;
       var style = window.getComputedStyle(container);
       var singleLineFlex = (style.display === "flex" || style.display === "inline-flex") && style.flexWrap !== "wrap" && style.flexWrap !== "wrap-reverse";
-      if (singleLineFlex && style.flexDirection.indexOf("row") === 0) {
+      if (!singleLineFlex) return false;
+      var size = dropContentSize(container);
+      if (style.flexDirection.indexOf("row") === 0) {
         return size.width >= sourceWidth;
       }
-      if (singleLineFlex && style.flexDirection.indexOf("column") === 0) {
+      if (style.flexDirection.indexOf("column") === 0) {
         return size.height >= sourceHeight;
       }
-      return size.width >= sourceWidth && size.height >= sourceHeight;
+      return false;
     }
     function elementFromEditorPoint(clientX, clientY) {
       var targets = document.elementsFromPoint ? document.elementsFromPoint(clientX, clientY) : [document.elementFromPoint(clientX, clientY)];
@@ -953,11 +959,16 @@ export const hitTestBridgeScript: string = `"use strict";
         var parentIsFlow = isAutoLayoutElement(parent);
         var parentIsAbsolute = isAbsolutePrimitiveContainer(parent) || isFreeformRelativeContainer(parent);
         if (isContainerDropTarget(parent) && parent !== container && (parentIsFlow || parentIsAbsolute)) {
-          if (dropFitsContainer(
+          var parentFits = parentIsFlow ? dropFitsAutoLayoutFallback(
             parent,
             sourceElementSize.width,
             sourceElementSize.height
-          )) {
+          ) : dropFitsContainer(
+            parent,
+            sourceElementSize.width,
+            sourceElementSize.height
+          );
+          if (parentFits) {
             if (parentIsFlow) {
               if (isMultiTrackGrid(parent)) {
                 var gridAwareInsertionTarget = window.__agentNativeDesignNearestChildInsertionTarget;

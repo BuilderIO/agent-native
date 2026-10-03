@@ -187,6 +187,60 @@ describe("Screen-root auto-layout hit testing", () => {
     }
   });
 
+  it("falls back from a non-empty horizontal auto-layout frame that is too short", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 640, height: 480 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0;width:640px;height:480px">
+        <section data-agent-native-node-id="outer" data-an-primitive="frame" style="position:relative;width:420px;height:320px">
+          <section data-agent-native-node-id="auto" style="box-sizing:border-box;width:236px;height:64px;padding:12px;display:flex;flex-direction:row;flex-wrap:nowrap;gap:12px">
+            <div data-agent-native-node-id="first" style="flex:0 0 100px;width:100px;height:40px"></div>
+            <div data-agent-native-node-id="second" style="flex:0 0 100px;width:100px;height:40px"></div>
+          </section>
+        </section>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        const first = document.querySelector(
+          '[data-agent-native-node-id="first"]',
+        )!;
+        const rect = first.getBoundingClientRect();
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "cross-axis-auto-frame-fallback",
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+            sourceElementSize: { width: 100, height: 80 },
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+
+      expect(
+        await page.evaluate(() => (window as any).__hitTestResults[0]),
+      ).toMatchObject({
+        correlationId: "cross-axis-auto-frame-fallback",
+        anchorNodeId: "outer",
+        placement: "inside",
+        dropMode: "absolute-container",
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("uses a fitting legacy-marked plain frame as an absolute container, not a flow slot", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
@@ -244,7 +298,7 @@ describe("Screen-root auto-layout hit testing", () => {
     }
   });
 
-  it("keeps flow slots and measures ancestor content space during size fallback", async () => {
+  it("uses two-dimensional direct fit and main-axis ancestor fallback sizing", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
       const page = await browser.newPage({
@@ -365,7 +419,8 @@ describe("Screen-root auto-layout hit testing", () => {
       });
       expect(packets[3]).toMatchObject({
         correlationId: "column-main-axis-fallback",
-        anchorNodeId: "column-nested",
+        anchorNodeId: "column",
+        placement: "before",
         axis: "y",
         dropMode: "flow-insert",
       });
