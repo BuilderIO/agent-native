@@ -19,6 +19,7 @@ vi.mock("../db/index.js", async () => {
 });
 
 import {
+  histogramBucket,
   histogramEdges,
   performanceCeiling,
 } from "../../shared/session-performance";
@@ -158,7 +159,11 @@ describe("aggregatePerformanceRows", () => {
       expect.arrayContaining([
         { metric: "lcp", bucket: histogramEdges("lcp").length - 1, weight: 1 },
         { metric: "cls", bucket: histogramEdges("cls").length - 1, weight: 1 },
-        { metric: "request", bucket: 18, weight: 10_000 },
+        {
+          metric: "request",
+          bucket: histogramBucket("request", 400),
+          weight: 10_000,
+        },
       ]),
     );
   });
@@ -177,8 +182,17 @@ describe("aggregatePerformanceRows", () => {
       })),
     ).toEqual(
       expect.arrayContaining([
-        { metric: "request", bucket: 12, weight: 20 },
-        { metric: "request", bucket: 26, weight: 1 },
+        // 110 and 120 ms share the [100, 125) bucket.
+        {
+          metric: "request",
+          bucket: histogramBucket("request", 110),
+          weight: 20,
+        },
+        {
+          metric: "request",
+          bucket: histogramBucket("request", 2_100),
+          weight: 1,
+        },
       ]),
     );
     expect(routeBuckets).toHaveLength(2);

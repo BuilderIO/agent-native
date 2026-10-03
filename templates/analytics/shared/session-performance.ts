@@ -89,21 +89,24 @@ export function isSlowSessionFilter(
 
 /**
  * Fixed histogram bucket lower edges. Bucket `i` holds values in
- * `[edges[i], edges[i + 1])`; the last bucket is open-ended. From 16 ms to
- * 64 s each edge is at most 28% above the previous one, and every rating
- * threshold and the slow-request threshold is an edge, so counts above a
- * threshold are exact. Changing these edges needs a new
+ * `[edges[i], edges[i + 1])`; the last bucket is open-ended. Past the first
+ * bucket each edge is at most 28% above the previous one, so a percentile
+ * interpolated inside a bucket is within 28% of the exact value, and one in
+ * the first bucket is within its width (1 ms, CLS 0.001), finer than the UI
+ * shows. Every rating threshold and the slow-request threshold is an edge,
+ * so counts above a threshold are exact. Changing these edges needs a new
  * `PERFORMANCE_HISTOGRAM_VERSION`, since stored buckets are positional.
  */
 const DURATION_EDGES_MS = [
-  0, 4, 8, 12, 16, 20, 25, 32, 40, 50, 64, 80, 100, 125, 160, 200, 250, 320,
-  400, 500, 640, 800, 1_000, 1_250, 1_600, 1_800, 2_000, 2_500, 3_200, 4_000,
-  5_000, 6_400, 8_000, 10_000, 12_500, 16_000, 20_000, 25_000, 32_000, 40_000,
-  50_000, 64_000,
+  0, 1, 1.25, 1.6, 2, 2.5, 3.2, 4, 5, 6.4, 8, 10, 12.5, 16, 20, 25, 32, 40, 50,
+  64, 80, 100, 125, 160, 200, 250, 320, 400, 500, 640, 800, 1_000, 1_250, 1_600,
+  1_800, 2_000, 2_500, 3_200, 4_000, 5_000, 6_400, 8_000, 10_000, 12_500,
+  16_000, 20_000, 25_000, 32_000, 40_000, 50_000, 64_000,
 ] as const;
 const CLS_EDGES = [
-  0, 0.001, 0.01, 0.025, 0.05, 0.075, 0.1, 0.125, 0.15, 0.2, 0.25, 0.3, 0.4,
-  0.5, 0.65, 0.8, 1, 1.5, 2, 3, 5,
+  0, 0.001, 0.00125, 0.0016, 0.002, 0.0025, 0.0032, 0.004, 0.005, 0.0064, 0.008,
+  0.01, 0.0125, 0.016, 0.02, 0.025, 0.032, 0.04, 0.05, 0.064, 0.08, 0.1, 0.125,
+  0.16, 0.2, 0.25, 0.32, 0.4, 0.5, 0.64, 0.8, 1, 1.25, 1.6, 2, 2.5, 3.2, 4, 5,
 ] as const;
 
 export const PERFORMANCE_HISTOGRAM_VERSION = 1;
