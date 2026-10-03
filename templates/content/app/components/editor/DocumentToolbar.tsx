@@ -137,6 +137,7 @@ import {
 } from "@/hooks/use-content-action-mutation";
 import { useContentDatabasePersonalView } from "@/hooks/use-content-database";
 import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
+import { useElementWidthValue } from "@/hooks/use-element-width-value";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   useNotionConnection,
@@ -287,9 +288,16 @@ export function ToolbarBreadcrumb({
   untitledLabel: string;
   onOpen: ToolbarBreadcrumbOpen;
 }) {
-  const visibleItems = compactToolbarBreadcrumbItems(items);
+  const navRef = useRef<HTMLElement>(null);
+  const foldWidth = useElementWidthValue<number | undefined>(
+    navRef,
+    breadcrumbFoldWidth,
+    undefined,
+  );
+  const visibleItems = compactToolbarBreadcrumbItems(items, foldWidth);
   return (
     <nav
+      ref={navRef}
       aria-label={ariaLabel}
       className="flex min-w-0 flex-1 items-center gap-1 text-sm text-foreground"
     >
@@ -371,7 +379,12 @@ function ToolbarBreadcrumbSegmentView({
   ) : null;
 
   return (
-    <div className="flex min-w-0 items-center gap-1">
+    <div
+      className={cn(
+        "flex min-w-0 items-center gap-1",
+        isLast && "min-w-[min(6rem,100%)]",
+      )}
+    >
       {hasMenu ? (
         <>
           {pageButton}
@@ -439,13 +452,59 @@ interface ToolbarBreadcrumbMenuItem {
   filesDatabaseId?: string | null;
 }
 
+// The current page keeps `min-w-[min(6rem,100%)]`; ancestors and the "…"
+// menu take the rest of the breadcrumb, at about these widths.
+const BREADCRUMB_CURRENT_MIN_WIDTH = 96;
+const BREADCRUMB_ANCESTOR_WIDTH = 120;
+const BREADCRUMB_FOLD_WIDTH = 44;
+const BREADCRUMB_MAX_NAMED_ANCESTORS = 2;
+
+// The breadcrumb widths where `compactToolbarBreadcrumbItems` folds
+// differently. Between two of them it shows the same items, so the nav
+// re-renders only when it crosses one.
+const BREADCRUMB_FOLD_WIDTHS = Array.from(
+  { length: BREADCRUMB_MAX_NAMED_ANCESTORS + 1 },
+  (_, named) => [
+    BREADCRUMB_CURRENT_MIN_WIDTH + named * BREADCRUMB_ANCESTOR_WIDTH,
+    BREADCRUMB_CURRENT_MIN_WIDTH +
+      BREADCRUMB_FOLD_WIDTH +
+      named * BREADCRUMB_ANCESTOR_WIDTH,
+  ],
+)
+  .flat()
+  .sort((left, right) => left - right);
+
+export function breadcrumbFoldWidth(width: number) {
+  return Math.max(0, ...BREADCRUMB_FOLD_WIDTHS.filter((step) => width >= step));
+}
+
+/**
+ * The breadcrumb items that fit in `width`. Ancestors fold into a "…" menu,
+ * the workspace first and the parent last, before the current page drops
+ * below its readable width; with no room for the menu, only the current page
+ * shows. Without a width, it shows the workspace, the parent, and the page.
+ */
 export function compactToolbarBreadcrumbItems(
   items: ToolbarBreadcrumbItem[],
+  width = Number.POSITIVE_INFINITY,
 ): ToolbarBreadcrumbItem[] {
-  if (items.length <= 3) return items;
-  const hidden = items.slice(1, -2);
+  if (items.length === 0) return items;
+  const current = items[items.length - 1];
+  const ancestors = items.slice(0, -1);
+  const room = width - BREADCRUMB_CURRENT_MIN_WIDTH;
+  const namedAncestors = (space: number) =>
+    Math.min(
+      BREADCRUMB_MAX_NAMED_ANCESTORS,
+      Math.floor(space / BREADCRUMB_ANCESTOR_WIDTH),
+    );
+  if (ancestors.length <= namedAncestors(room)) return items;
+  if (room < BREADCRUMB_FOLD_WIDTH) return [current];
+  const named = namedAncestors(room - BREADCRUMB_FOLD_WIDTH);
+  const tail = Math.min(named, 1);
+  const head = named - tail;
+  const hidden = ancestors.slice(head, ancestors.length - tail);
   return [
-    items[0],
+    ...ancestors.slice(0, head),
     {
       title: "…",
       menuItems: hidden.flatMap((item) =>
@@ -462,7 +521,8 @@ export function compactToolbarBreadcrumbItems(
           : [],
       ),
     },
-    ...items.slice(-2),
+    ...ancestors.slice(ancestors.length - tail),
+    current,
   ];
 }
 
@@ -838,6 +898,14 @@ interface DocumentToolbarProps {
   editorEscapeTargetRef?: Ref<HTMLButtonElement>;
 }
 
+// PresenceBar's default; a toolbar under 36rem shows fewer, and under 28rem
+// none.
+const TOOLBAR_PRESENCE_AVATARS = 5;
+
+function presenceAvatarsForToolbarWidth(width: number) {
+  return width >= 576 ? TOOLBAR_PRESENCE_AVATARS : 2;
+}
+
 export function DocumentToolbar({
   compact = false,
   documentId,
@@ -882,6 +950,12 @@ export function DocumentToolbar({
 }: DocumentToolbarProps) {
   const sidebarTrigger = useSidebarTrigger();
   const t = useT();
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const maxVisiblePresence = useElementWidthValue(
+    toolbarRef,
+    presenceAvatarsForToolbarWidth,
+    TOOLBAR_PRESENCE_AVATARS,
+  );
   const navigate = useNavigate();
   const location = useLocation();
   const creativeContextEnabled = useCreativeContextLab();
@@ -1321,6 +1395,11 @@ export function DocumentToolbar({
     [documentContent, documentId, documentTitle, exportDocument, t],
   );
 
+  const shareLabel = (
+    <span className="hidden @min-[40rem]/toolbar:inline">
+      {t("editor.toolbar.share")}
+    </span>
+  );
   const unopenedShareControl = (
     <JoinedShareControl
       trigger={
@@ -1330,7 +1409,7 @@ export function DocumentToolbar({
           label={
             <span className="flex items-center gap-2">
               <IconUserPlus aria-hidden="true" />
-              <span>{t("editor.toolbar.share")}</span>
+              {shareLabel}
             </span>
           }
           intent="primary"
@@ -1352,8 +1431,12 @@ export function DocumentToolbar({
 
   return (
     <>
+      {/* As the toolbar narrows, the Edited label goes first, then the Share
+          and Suggesting labels, then presence avatars; the breadcrumb folds
+          its ancestors before the page title drops below a readable width. */}
       <div
-        className="relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4"
+        ref={toolbarRef}
+        className="relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4 @container/toolbar"
         data-editor-selection-continuation=""
       >
         {sidebarTrigger}
@@ -1378,19 +1461,22 @@ export function DocumentToolbar({
         ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
           {editedLabel && !compact ? (
-            <span className="hidden shrink-0 px-2 text-sm text-muted-foreground lg:inline">
+            <span className="hidden shrink-0 px-2 text-sm text-muted-foreground @min-[48rem]/toolbar:inline">
               {editedLabel}
             </span>
           ) : null}
 
           {/* Presence — shared PresenceBar (agent + collaborator avatars) */}
-          <PresenceBar
-            activeUsers={activeUsers ?? []}
-            agentPresent={agentPresent}
-            agentActive={agentActive}
-            currentUserEmail={currentUserEmail}
-            className="mr-1"
-          />
+          <div className="hidden @min-[28rem]/toolbar:contents">
+            <PresenceBar
+              activeUsers={activeUsers ?? []}
+              agentPresent={agentPresent}
+              agentActive={agentActive}
+              currentUserEmail={currentUserEmail}
+              maxVisible={maxVisiblePresence}
+              className="mr-1"
+            />
+          </div>
           {isLocalFileDocument ? (
             <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
@@ -1422,6 +1508,10 @@ export function DocumentToolbar({
                   resourceTitle={documentTitle}
                   shareUrl={shareUrl}
                   mobileSheet
+                  triggerContent={shareLabel}
+                  // ShareButton wraps the label in a span gapped from its
+                  // icon; the gap goes with the label.
+                  triggerClassName="[&>span]:gap-0 @min-[40rem]/toolbar:[&>span]:gap-2"
                   agentShareLabel={t("editor.toolbar.temporaryAgentLink")}
                   showShareLinks={false}
                   quickCopy={{
@@ -1526,7 +1616,9 @@ export function DocumentToolbar({
           {suggesting ? (
             <div className="flex h-8 items-center gap-1 rounded-md bg-primary/10 ps-2 text-sm text-primary">
               <IconPencil aria-hidden="true" className="size-3.5" />
-              <span>{t("editor.toolbar.suggesting")}</span>
+              <span className="sr-only @min-[40rem]/toolbar:not-sr-only">
+                {t("editor.toolbar.suggesting")}
+              </span>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button

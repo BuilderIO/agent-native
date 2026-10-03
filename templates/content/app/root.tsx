@@ -55,8 +55,8 @@ import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
 import changelog from "../CHANGELOG.md?raw";
 import { ContentCommandSearchResults } from "./components/ContentCommandSearch";
+import { CONTENT_STARTUP_SIDEBAR_SCRIPT } from "./components/layout/content-layout";
 import { ContentStartupShell } from "./components/layout/ContentStartupShell";
-import { CONTENT_STARTUP_SIDEBAR_SCRIPT } from "./components/layout/sidebar-preferences";
 import { LocalFolderLiveSync } from "./components/LocalFolderLiveSync";
 import { useDbSync } from "./hooks/use-db-sync";
 import { startPageOpenDocumentReads } from "./hooks/use-documents";
