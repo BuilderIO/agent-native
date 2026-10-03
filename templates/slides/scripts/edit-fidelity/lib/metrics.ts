@@ -294,12 +294,16 @@ export function diffSnapshots(
       ...Object.keys(ra.props),
       ...Object.keys(rb.props),
     ])) {
-      if (ra.props[prop] !== rb.props[prop]) {
+      const beforeValue =
+        ra.props[prop] ?? (prop.startsWith("--") ? "" : undefined);
+      const afterValue =
+        rb.props[prop] ?? (prop.startsWith("--") ? "" : undefined);
+      if (beforeValue !== afterValue) {
         deltas.push({
           key: ra.key,
           prop,
-          a: ra.props[prop] ?? "(absent)",
-          b: rb.props[prop] ?? "(absent)",
+          a: beforeValue ?? "(absent)",
+          b: afterValue ?? "(absent)",
           inside,
         });
       }

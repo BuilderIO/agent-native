@@ -246,6 +246,34 @@ describe("in-place text session: entering and ending", () => {
     expect(el.style.getPropertyValue("contain")).toBe("size");
   });
 
+  it("restores temporary containment after undoing and redoing root style", () => {
+    const el = mount('<div id="t">Alpha</div>');
+    vi.stubGlobal("CSS", { supports: () => true });
+    vi.spyOn(el, "offsetWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "offsetHeight", "get").mockReturnValue(48);
+    vi.spyOn(el, "clientWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "clientHeight", "get").mockReturnValue(48);
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, el.firstChild!.textContent!.length);
+    type(el, "beta");
+
+    expect(session.undo()).toBe(true);
+    expect(el.innerHTML).toBe("Alpha");
+    expect(el.style.getPropertyValue("contain")).toBe("");
+    expect(session.commands.align("center")).toBe(true);
+    expect(el.style.getPropertyValue("text-align")).toBe("center");
+    expect(el.style.getPropertyValue("contain")).toBe("size");
+    expect(session.undo()).toBe(true);
+    expect(el.style.getPropertyValue("text-align")).toBe("");
+    expect(session.redo()).toBe(true);
+    expect(el.getAttribute("style")).toContain("text-align: center");
+
+    session.end();
+
+    expect(el.getAttribute("style")).toContain("text-align: center");
+    expect(el.getAttribute("style")).not.toContain("contain");
+  });
+
   it.each(["content-box", "border-box"] as const)(
     "reserves only the %s element's content box",
     (boxSizing) => {

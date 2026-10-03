@@ -350,6 +350,8 @@ interface Snapshot extends TextOffsets {
   attributes: [string, string][];
   html: string;
   byteSize: number;
+  /** Whether the session's temporary layout reservation is applied. */
+  layoutReservationApplied: boolean;
   /** Which of the element's zero-width spaces, in text order, are the author's. */
   authorZwsp: number[];
 }
@@ -1094,6 +1096,7 @@ export function startInPlaceTextSession(
   let restoringHistory = false;
   const restoreLayoutReservation = () => {
     if (!layoutReservationApplied) return;
+    el.style.cssText = el.getAttribute("style") ?? "";
     if (el.style.getPropertyValue("contain") !== initialLayout.contain) {
       if (initialLayout.contain) {
         el.style.setProperty(
@@ -1466,7 +1469,8 @@ export function startInPlaceTextSession(
             size + utf8ByteLength(name) + utf8ByteLength(value),
           0,
         ) +
-        64,
+        65,
+      layoutReservationApplied,
       authorZwsp: Array.from(authorZwspOrdinals()),
       ...selection,
     };
@@ -1524,12 +1528,11 @@ export function startInPlaceTextSession(
 
   function restoreHistory(state: Snapshot) {
     restore(state);
+    if (reservationEnabled && state.layoutReservationApplied) {
+      el.style.cssText = el.getAttribute("style") ?? "";
+    }
     layoutReservationApplied =
-      reservationEnabled &&
-      state.html !== startHtml &&
-      el.style.getPropertyValue("contain-intrinsic-size") ===
-        reservedIntrinsicSize &&
-      el.style.getPropertyValue("contain").split(/\s+/u).includes("size");
+      reservationEnabled && state.layoutReservationApplied;
     if (reservationEnabled && state.html !== startHtml) {
       preserveLayoutReservation();
     }

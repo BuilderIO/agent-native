@@ -933,13 +933,12 @@ export async function runAuthoringFuzz(
         const scope = window as Window & {
           __authoringFuzzSiblingSnapshot?: {
             root: HTMLElement;
-            stylePropertyNames: string[];
             records: Array<{
               node: Element | Text;
               parent: Node;
               index: number;
               order?: number;
-              styleValues: string[];
+              styleValues: Record<string, string>;
               attributes: string;
               attributeNames: string;
               contentSignature: string;
@@ -1035,55 +1034,50 @@ export async function runAuthoringFuzz(
         const propertyCache =
           scope.__authoringFuzzStyleProperties ??
           (scope.__authoringFuzzStyleProperties = new WeakMap());
-        let stylePropertyNames = propertyCache.get(root);
-        if (!stylePropertyNames) {
-          const names = new Set(styleProperties);
-          for (const element of [root, ...root.querySelectorAll("*")]) {
-            const style = getComputedStyle(element);
-            for (let index = 0; index < style.length; index++) {
-              const property = style[index];
-              // The resolved properties below catch visual changes; these utility tokens do not paint.
-              if (
-                property &&
-                property.startsWith("--") &&
-                !property.startsWith("--tw-")
-              ) {
-                names.add(property);
-              }
+        const names = new Set(propertyCache.get(root) ?? styleProperties);
+        for (const element of [root, ...root.querySelectorAll("*")]) {
+          const style = getComputedStyle(element);
+          for (let index = 0; index < style.length; index++) {
+            const property = style[index];
+            // The resolved properties below catch visual changes; these utility tokens do not paint.
+            if (
+              property &&
+              property.startsWith("--") &&
+              !property.startsWith("--tw-")
+            ) {
+              names.add(property);
             }
           }
-          stylePropertyNames = [...names].sort();
-          propertyCache.set(root, stylePropertyNames);
         }
+        const stylePropertyNames = [...names].sort();
+        propertyCache.set(root, stylePropertyNames);
         const styleValues = (element: Element) => {
           const style = getComputedStyle(element);
-          const values = new Array<string>(stylePropertyNames.length);
-          for (let index = 0; index < stylePropertyNames.length; index++) {
-            values[index] = style.getPropertyValue(stylePropertyNames[index]!);
-          }
-          return values;
+          return Object.fromEntries(
+            stylePropertyNames.map((property) => [
+              property,
+              style.getPropertyValue(property),
+            ]),
+          ) as Record<string, string>;
         };
-        const changedStyleProperties = (element: Element, before: string[]) => {
+        const changedStyleProperties = (
+          element: Element,
+          before: Record<string, string>,
+        ) => {
           const style = getComputedStyle(element);
           const changes: string[] = [];
-          for (let index = 0; index < stylePropertyNames.length; index++) {
-            const property = stylePropertyNames[index]!;
+          for (const property of stylePropertyNames) {
             if (
               property === "transform-origin" &&
               ["transform", "translate", "rotate", "scale"].every(
-                (transformProperty) => {
-                  const transformIndex =
-                    stylePropertyNames.indexOf(transformProperty);
-                  return (
-                    before[transformIndex] === "none" &&
-                    style.getPropertyValue(transformProperty) === "none"
-                  );
-                },
+                (transformProperty) =>
+                  before[transformProperty] === "none" &&
+                  style.getPropertyValue(transformProperty) === "none",
               )
             ) {
               continue;
             }
-            if (before[index] !== style.getPropertyValue(property)) {
+            if ((before[property] ?? "") !== style.getPropertyValue(property)) {
               changes.push(property);
             }
           }
@@ -1209,7 +1203,6 @@ export async function runAuthoringFuzz(
         if (phase === "capture") {
           scope.__authoringFuzzSiblingSnapshot = {
             root,
-            stylePropertyNames,
             records,
           };
           return [];
@@ -1358,16 +1351,14 @@ export async function runAuthoringFuzz(
                 : contentSignature(record.node).length;
             const currentStyle = getComputedStyle(styleNode);
             const styleDetails = changedStyle.slice(0, 6).map((property) => {
-              const propertyIndex = stylePropertyNames.indexOf(property);
-              return `${property}=${record.styleValues[propertyIndex]}->${currentStyle.getPropertyValue(property)}`;
+              return `${property}=${record.styleValues[property] ?? ""}->${currentStyle.getPropertyValue(property)}`;
             });
             if (
               changedStyle.includes("transform-origin") &&
               !changedStyle.includes("transform")
             ) {
-              const transformIndex = stylePropertyNames.indexOf("transform");
               styleDetails.push(
-                `transform=${record.styleValues[transformIndex]}->${currentStyle.getPropertyValue("transform")}`,
+                `transform=${record.styleValues.transform}->${currentStyle.getPropertyValue("transform")}`,
               );
             }
             failures.push(

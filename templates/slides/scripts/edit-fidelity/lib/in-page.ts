@@ -384,9 +384,7 @@ export function installInPageHelpers(chromeSelector: string) {
     return out;
   };
   const customPropertiesFor = (root: Element) => {
-    let properties = customStylePropertiesByRoot.get(root);
-    if (properties) return properties;
-    const names = new Set<string>();
+    const names = new Set(customStylePropertiesByRoot.get(root));
     for (const element of [root, ...root.querySelectorAll("*")]) {
       const style = getComputedStyle(element);
       for (let i = 0; i < style.length; i++) {
@@ -396,7 +394,7 @@ export function installInPageHelpers(chromeSelector: string) {
         }
       }
     }
-    properties = [...names].sort();
+    const properties = [...names].sort();
     customStylePropertiesByRoot.set(root, properties);
     return properties;
   };
