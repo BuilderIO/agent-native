@@ -603,6 +603,8 @@ export default defineAction({
   description:
     "Update an Agent-Native Plan's structured content blocks, prototype screens, visual fidelity, sections, comments, or status. For an existing plan, use small contentPatches such as append-block, update-rich-text, or a text patch; do not resend the full document for an incremental edit. When a user asks for higher fidelity on an existing plan, update that same plan in place: use set-visual-render-mode with design and provide polished screen HTML/CSS in the same call instead of creating a duplicate plan or only toggling the viewer-local clean style. Use a full replacement only for an explicit broad rebuild. Works on plans and recaps alike when you have editor access; with viewer access (common on PR recaps published by CI) only comment-only calls succeed - to change a recap you cannot edit, publish a replacement with create-visual-recap instead of retrying this call.",
   schema: updateVisualPlanSchema,
+  changeResource: (input) =>
+    input.planId ? { resourceType: "plan", resourceId: input.planId } : null,
   agentInputSchema: agentUpdateVisualPlanSchema,
   publicAgent: {
     expose: true,

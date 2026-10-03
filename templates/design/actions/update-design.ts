@@ -4,6 +4,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { designChangeResource } from "../server/lib/design-change-resource.js";
 import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { numericDesignDataWriteError } from "../shared/canvas-frames.js";
 import { tweakDefinitionsSchema } from "../shared/tweak-definition-schema.js";
@@ -577,4 +578,5 @@ export default defineAction({
       "Design data changed while this snapshot was being saved. Re-read the design and retry, or use dataOperations for path-addressed map edits.",
     );
   },
+  changeResource: (p, result) => designChangeResource(p.id, result),
 });

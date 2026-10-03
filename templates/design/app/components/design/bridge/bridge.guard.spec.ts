@@ -6546,6 +6546,14 @@ describe("editor chrome bridge — text editing session", () => {
           }
         }, keystrokeCount);
 
+        // The coalesced post is sent from a requestAnimationFrame, which a
+        // loaded CI runner can delay past a fixed wait. Wait for the first post,
+        // then give any uncoalesced extras time to land before counting.
+        await page.waitForFunction(
+          () => (window as any).__textEditingStateCount > 0,
+          undefined,
+          { timeout: 5_000 },
+        );
         await page.waitForTimeout(80);
 
         const postedCount = await page.evaluate(

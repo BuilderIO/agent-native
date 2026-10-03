@@ -957,7 +957,7 @@ import { runObserveCollabText } from "./design-editor/effects/observe-collab-tex
 import { runPublishAgentSelectionContext } from "./design-editor/effects/publish-agent-selection-context";
 import { runResumePendingGeneration } from "./design-editor/effects/resume-pending-generation";
 import { runSeedCollabContent } from "./design-editor/effects/seed-collab-content";
-import { syncLatestActiveContentFromRender } from "./design-editor/effects/sync-latest-active-content";
+import { useSyncLatestActiveContent } from "./design-editor/effects/sync-latest-active-content";
 import { isCurrentRuntimeLayerSnapshot } from "./design-editor/export-snapshot-frame";
 import { resolveFigmaPasteScene } from "./design-editor/figma-paste-scene";
 import {
@@ -1122,6 +1122,7 @@ import {
   PngCaptureError,
   type PngCaptureScope,
 } from "./design-editor/png-export-render";
+import { mergePresenceUsers } from "./design-editor/presence-users";
 import { openPreviewUrl } from "./design-editor/preview-navigation";
 import {
   computeInteractZoomToFit,
@@ -1192,6 +1193,7 @@ import {
   SHOW_DESIGN_CODE_LEFT_PANEL,
   SHOW_DESIGN_SECONDARY_LEFT_PANELS,
 } from "./design-editor/types";
+import { useViewerPresence } from "./design-editor/use-viewer-presence";
 import {
   VisualEditWebMcp,
   hasNativeWebMcpHost,
@@ -4608,6 +4610,18 @@ function DesignEditor() {
           latestFileSaveForUnloadRef,
           rollbackPendingLocalFileContent,
           markPendingLocalFileContent,
+          getPendingBaseContent: (fileId) =>
+            pendingLocalFileContentsRef.current.get(fileId)?.baseContent,
+          readLiveFileContent: id
+            ? async (fileId) =>
+                (
+                  await callAction<{ content: string }>(
+                    "read-source-file",
+                    { designId: id, fileId },
+                    { method: "GET" },
+                  )
+                ).content
+            : undefined,
           queryClient,
           setPatchProof,
           t,
@@ -4620,6 +4634,7 @@ function DesignEditor() {
     [
       acknowledgeOutboxEntry,
       createFileSaveOutboxEntry,
+      id,
       journalOutboxEntry,
       rollbackPendingLocalFileContent,
       markPendingLocalFileContent,
@@ -7181,6 +7196,9 @@ function DesignEditor() {
         isSignedIn && canEditDesign && viewMode === "single"
           ? activeFileId
           : null,
+      activityResource: id
+        ? { resourceType: "design", resourceId: id }
+        : undefined,
       requestSource: TAB_ID,
       user: currentUser,
     });
@@ -7193,11 +7211,27 @@ function DesignEditor() {
     awareness: overviewAwareness,
     ydoc: overviewYdoc,
     isSynced: overviewIsSynced,
+    activeUsers: overviewActiveUsers,
+    agentPresent: overviewAgentPresent,
+    agentActive: overviewAgentActive,
   } = useCollaborativeDoc({
     docId:
       isSignedIn && canEditDesign && overviewPresenceFileId
         ? overviewPresenceFileId
         : null,
+    activityResource: id
+      ? { resourceType: "design", resourceId: id }
+      : undefined,
+    requestSource: TAB_ID,
+    user: currentUser,
+  });
+
+  useViewerPresence({
+    designId: id ?? null,
+    isSignedIn,
+    canEditDesign,
+    accessRole: designAccessRole,
+    fileId: viewMode === "single" ? activeFileId : overviewPresenceFileId,
     requestSource: TAB_ID,
     user: currentUser,
   });
@@ -8174,14 +8208,12 @@ function DesignEditor() {
       hasActiveCanvasContent: Boolean(activeFile && activeContent.trim()),
       pendingGenerationActive,
     });
-  useLayoutEffect(() => {
-    syncLatestActiveContentFromRender({
-      activeContent,
-      activeFile,
-      latestActiveContentRef,
-      pendingLocalFileContents: pendingLocalFileContentsRef.current,
-    });
-  }, [activeContent, activeFile?.id, activeFile?.fileType]);
+  useSyncLatestActiveContent({
+    activeContent,
+    activeFile,
+    latestActiveContentRef,
+    pendingLocalFileContents: pendingLocalFileContentsRef.current,
+  });
   useEffect(() => {
     if (!initialGenerationChromeLimited) return;
     setActiveLeftPanel("agent");
@@ -26364,12 +26396,13 @@ function DesignEditor() {
           {hostEmbeddedEditor ? null : (
             <>
               <PresenceBar
-                activeUsers={[
-                  ...(currentUser ? [currentUser] : []),
-                  ...(activeUsers ?? []),
-                ]}
-                agentPresent={agentPresent}
-                agentActive={agentActive}
+                activeUsers={mergePresenceUsers(
+                  currentUser ? [currentUser] : [],
+                  activeUsers,
+                  overviewActiveUsers,
+                )}
+                agentPresent={agentPresent || overviewAgentPresent}
+                agentActive={agentActive || overviewAgentActive}
                 currentUserEmail={currentUser?.email}
                 showCurrentUser
                 followingEmail={followingEmail}

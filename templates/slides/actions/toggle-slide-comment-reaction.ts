@@ -26,6 +26,10 @@ export default defineAction({
       .max(64)
       .describe("Emoji character or sequence (for example, 👍 or 🎉)"),
   }),
+  changeResource: ({ deckId }) => ({
+    resourceType: "deck",
+    resourceId: deckId,
+  }),
   run: async ({ commentId, deckId, emoji }) => {
     const viewerEmail = getRequestUserEmail()?.trim().toLowerCase();
     if (!viewerEmail) {
