@@ -38,9 +38,14 @@ const getSessionFrictionDetails = vi.hoisted(() =>
   }),
 );
 
+const listRecordingFriction = vi.hoisted(() =>
+  vi.fn(async () => ({ r1: { score: 4 } })),
+);
+
 vi.mock("@agent-native/core/labs/server", () => ({ getUserLabEnabled }));
 vi.mock("../server/lib/session-friction.js", () => ({
   getSessionFrictionDetails,
+  listRecordingFriction,
 }));
 vi.mock("@agent-native/core/server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/server")>()),
@@ -68,6 +73,7 @@ vi.mock("../server/lib/session-event-index.js", () => ({
 const { default: listRecordings } = await import("./list-session-recordings");
 const { default: listEventNames } = await import("./list-session-event-names");
 const { default: listCatalog } = await import("./list-event-catalog");
+const { default: listFriction } = await import("./list-session-friction");
 
 describe("Sessions triage Lab guard on event actions", () => {
   beforeEach(() => {
@@ -76,6 +82,7 @@ describe("Sessions triage Lab guard on event actions", () => {
     listSessionRecordings.mockClear();
     listSessionRecordingsPage.mockClear();
     getSessionFrictionDetails.mockClear();
+    listRecordingFriction.mockClear();
   });
 
   it("keeps plain session lists working with the Lab off", async () => {
@@ -133,8 +140,29 @@ describe("Sessions triage Lab guard on event actions", () => {
         listRecordings.run({ paginated: true, ...args } as never),
       ).rejects.toMatchObject({ statusCode: 403 });
     }
+    await expect(
+      listFriction.run({ recordingIds: ["r1"] } as never),
+    ).rejects.toThrow("Session friction is part of");
     expect(listSessionRecordingsPage).not.toHaveBeenCalled();
     expect(getSessionFrictionDetails).not.toHaveBeenCalled();
+    expect(listRecordingFriction).not.toHaveBeenCalled();
+  });
+
+  it("serves row friction for one page of recordings with the Lab on", async () => {
+    labEnabled.value = true;
+    await expect(
+      listFriction.run({ recordingIds: ["r1"] } as never),
+    ).resolves.toEqual({ friction: { r1: { score: 4 } } });
+    expect(listRecordingFriction).toHaveBeenCalledWith(
+      { userEmail: "user@example.test", orgId: "org-1" },
+      ["r1"],
+    );
+    expect(listFriction.schema.parse({})).toEqual({ recordingIds: [] });
+    expect(
+      listFriction.schema.safeParse({
+        recordingIds: Array.from({ length: 101 }, (_, index) => `r${index}`),
+      }).success,
+    ).toBe(false);
   });
 
   it("names what the Lab gates in its 403", async () => {

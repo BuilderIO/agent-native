@@ -1311,6 +1311,7 @@ export default {
       "O atrito ainda não é medido em todas as sessões deste período.",
     labStateUnavailable:
       "Não foi possível carregar suas configurações de Lab, então os filtros deste link não foram aplicados.",
+    frictionUnavailable: "Não foi possível carregar o atrito destas sessões.",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:
       "Este link filtra ou ordena por atrito. Ative o Lab Triagem de sessões em Configurações para aplicá-lo.",
