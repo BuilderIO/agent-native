@@ -21,19 +21,30 @@ describe("app layout", () => {
     expect(source).toContain("sidebarCollapsed");
   });
 
-  it("uses overlay navigation through compact widths and settles it on route commit", () => {
+  it("sizes the sidebar from the shared width budget and settles overlay navigation on route commit", () => {
     const source = readLayoutSource();
 
+    expect(source).toContain("useContentShellLayout({");
     expect(source).toContain(
-      'export const COMPACT_LAYOUT_QUERY = "(max-width: 1099.98px)"',
+      'const isCompactLayout = shellLayout.sidebar === "drawer"',
     );
-    expect(source).toContain("const isCompactLayout = useIsCompactLayout()");
+    expect(source).toContain(
+      'const sidebarCollapsed = shellLayout.sidebar === "rail"',
+    );
+    expect(source).toContain(
+      "<ContentLayoutContext.Provider value={shellLayout}>",
+    );
     expect(source).toContain("{isCompactLayout ? (");
     expect(source).toContain("}, [location.key])");
     expect(source).toContain(
       'className="w-[85vw] max-w-80 border-sidebar-border bg-sidebar p-0 text-sidebar-foreground"',
     );
     expect(source).not.toContain("md:hidden");
+    expect(source).not.toContain("matchMedia");
+  });
+
+  it("never closes the agent panel to make room for the page", () => {
+    expect(readLayoutSource()).not.toContain("agent-panel:close");
   });
 
   it("persists the desktop sidebar collapse preference through the shared app shell", () => {

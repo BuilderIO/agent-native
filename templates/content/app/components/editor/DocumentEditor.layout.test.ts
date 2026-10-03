@@ -69,6 +69,7 @@ import {
   visualEditorInstanceKey,
 } from "./DocumentEditor";
 import {
+  breadcrumbFoldWidth,
   compactToolbarBreadcrumbItems,
   firstSelectableBreadcrumbMenuItemId,
 } from "./DocumentToolbar";
@@ -302,8 +303,12 @@ describe("document editor layout", () => {
     expect(source).not.toContain('"mx-auto max-w-5xl"');
     expect(source).toContain('showDesktopInfoPanel ? "flex-1" : "w-full"');
     expect(source).toContain('className="absolute right-0 top-0 w-80"');
-    expect(source).toContain("useElementMinWidth(documentLayoutRef, 960)");
-    expect(source).toContain("useElementMinWidth(documentLayoutRef, 1088)");
+    expect(source).toContain(
+      'const hasUtilityRailSpace = commentSurfaces.list === "rail";',
+    );
+    expect(source).toContain(
+      'const hasInlineCommentSpace = commentSurfaces.margin === "lane";',
+    );
     expect(source).toContain('reserveInlineReviewSpace && "pr-80"');
     expect(source).toContain(
       "observeCommentLane(container, lane, setCommentLaneOffset)",
@@ -3224,6 +3229,50 @@ describe("document editor layout", () => {
         { id: "draft", title: "Draft" },
       ]).map((item) => item.title),
     ).toEqual(["Personal", "…", "Page 2", "Draft"]);
+  });
+
+  it("folds breadcrumb ancestors by width before the page title loses its readable width", () => {
+    const deep = [
+      { id: "files", title: "Personal" },
+      { id: "one", title: "Page 1" },
+      { id: "two", title: "Page 2" },
+      { id: "draft", title: "Draft" },
+    ];
+    const shallow = [
+      { id: "files", title: "Personal" },
+      { id: "draft", title: "Draft" },
+    ];
+    const titles = (items: typeof deep, width: number) =>
+      compactToolbarBreadcrumbItems(items, width).map((item) => item.title);
+
+    expect(titles(deep, 380)).toEqual(["Personal", "…", "Page 2", "Draft"]);
+    expect(titles(deep, 300)).toEqual(["…", "Page 2", "Draft"]);
+    expect(
+      compactToolbarBreadcrumbItems(deep, 300)[0].menuItems?.map(
+        (item) => item.title,
+      ),
+    ).toEqual(["Personal", "Page 1"]);
+    expect(titles(deep, 200)).toEqual(["…", "Draft"]);
+    expect(titles(deep, 120)).toEqual(["Draft"]);
+    expect(titles(shallow, 216)).toEqual(["Personal", "Draft"]);
+    expect(titles(shallow, 200)).toEqual(["…", "Draft"]);
+    expect(titles(shallow, 120)).toEqual(["Draft"]);
+  });
+
+  it("folds the same at a breadcrumb's fold width as at its measured width", () => {
+    const deep = [
+      { id: "files", title: "Personal" },
+      { id: "one", title: "Page 1" },
+      { id: "two", title: "Page 2" },
+      { id: "draft", title: "Draft" },
+    ];
+    for (let width = 0; width <= 600; width += 1) {
+      for (const items of [deep, deep.slice(1), deep.slice(2)]) {
+        expect(
+          compactToolbarBreadcrumbItems(items, breadcrumbFoldWidth(width)),
+        ).toEqual(compactToolbarBreadcrumbItems(items, width));
+      }
+    }
   });
 
   it("focuses the first real breadcrumb destination on keyboard open", () => {
