@@ -63,6 +63,18 @@ function primitiveMatchesNodeId(
   );
 }
 
+function isReverseFlexFlow(primitive: ParsedScreenPrimitive) {
+  const direction = primitive.autoLayoutFlexDirection || "row";
+  if (primitive.autoLayoutAxis === "x" && !primitive.autoLayoutDirection) {
+    return true;
+  }
+  return (
+    direction.endsWith("-reverse") !==
+    (primitive.autoLayoutAxis === "x" &&
+      primitive.autoLayoutDirection === "rtl")
+  );
+}
+
 function isPrimitiveAncestor(
   ancestor: ParsedScreenPrimitive,
   descendant: ParsedScreenPrimitive,
@@ -89,18 +101,6 @@ function isPrimitiveAncestor(
     parentId = parent.parentProjectionNodeId ?? parent.parentNodeId;
   }
   return false;
-}
-
-function isReverseFlexFlow(primitive: ParsedScreenPrimitive) {
-  const direction = primitive.autoLayoutFlexDirection || "row";
-  if (primitive.autoLayoutAxis === "x" && !primitive.autoLayoutDirection) {
-    return true;
-  }
-  return (
-    direction.endsWith("-reverse") !==
-    (primitive.autoLayoutAxis === "x" &&
-      primitive.autoLayoutDirection === "rtl")
-  );
 }
 
 function createsAuthoredStackingContext(
@@ -192,9 +192,10 @@ function computeAutoLayoutAxis(style: {
   gridAutoFlow: string;
 }): CrossScreenDropAxis | undefined {
   if (style.display === "flex" || style.display === "inline-flex") {
-    const direction = style.flexDirection || "row";
-    const isRow = direction.startsWith("row");
-    return isRow ? "x" : "y";
+    const direction = style.flexDirection.trim().toLowerCase() || "row";
+    if (direction === "row" || direction === "row-reverse") return "x";
+    if (direction === "column" || direction === "column-reverse") return "y";
+    return undefined;
   }
   if (style.display === "grid" || style.display === "inline-grid") {
     if (
@@ -207,6 +208,92 @@ function computeAutoLayoutAxis(style: {
     return columns > 1 ? "x" : "y";
   }
   return undefined;
+}
+
+interface DestinationViewport {
+  width?: number;
+  height?: number;
+}
+
+const destinationViewportByDocument = new WeakMap<
+  Document,
+  DestinationViewport
+>();
+
+function destinationViewportForScreen(screen: ScreenFile): DestinationViewport {
+  const width = screen.activeBreakpointWidth ?? screen.width;
+  return {
+    ...(width !== undefined && Number.isFinite(width) && width > 0
+      ? { width }
+      : {}),
+    ...(screen.height !== undefined &&
+    Number.isFinite(screen.height) &&
+    screen.height > 0
+      ? { height: screen.height }
+      : {}),
+  };
+}
+
+function destinationViewportKey(screen: ScreenFile): string {
+  return [
+    screen.activeBreakpointWidth ?? "",
+    screen.width ?? "",
+    screen.height ?? "",
+  ].join(":");
+}
+
+function destinationMediaQueryMatches(
+  condition: string,
+  viewport: DestinationViewport | undefined,
+): boolean | null {
+  const alternatives = condition.split(",");
+  let hasUnknownAlternative = false;
+  for (const alternative of alternatives) {
+    let matches = true;
+    let unknown = false;
+    for (const rawTerm of alternative.split(/\s+and\s+/i)) {
+      const term = rawTerm.trim();
+      if (!term || /^(?:all|screen)$/i.test(term)) continue;
+      if (/^print$/i.test(term)) {
+        matches = false;
+        break;
+      }
+      const dimension = term.match(
+        /^\(?\s*(?:(min|max)-)?(width|height)\s*:\s*([+-]?(?:(?:\d+(?:\.\d*)?|\.\d+)px|0(?:\.0+)?))\s*\)?$/i,
+      );
+      if (!dimension?.[2] || !dimension[3]) {
+        unknown = true;
+        continue;
+      }
+      const actual =
+        viewport?.[dimension[2].toLowerCase() as "width" | "height"];
+      if (actual === undefined || !Number.isFinite(actual)) {
+        unknown = true;
+        continue;
+      }
+      const threshold = Number.parseFloat(dimension[3]);
+      const comparison = dimension[1]?.toLowerCase();
+      const termMatches =
+        comparison === "min"
+          ? actual >= threshold
+          : comparison === "max"
+            ? actual <= threshold
+            : Math.abs(actual - threshold) < 0.5;
+      if (!termMatches) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches && !unknown) return true;
+    if (matches && unknown) hasUnknownAlternative = true;
+  }
+  return hasUnknownAlternative ? null : false;
+}
+
+function flexDirectionIsSupported(value: string) {
+  return ["", "row", "row-reverse", "column", "column-reverse"].includes(
+    value.trim().toLowerCase(),
+  );
 }
 
 function hasMatchingStylesheetValue(
@@ -329,6 +416,19 @@ function hasMatchingStylesheetValue(
   ): CssConditionResult => {
     if (!condition.trim()) return { kind: "known", matches: true };
     if (kind === "media") {
+      if (
+        /\b(?:(?:min|max)-)?(?:width|height|aspect-ratio|orientation|resolution)|device-(?:width|height|aspect-ratio|resolution)|viewport-segment-(?:width|height)\b/i.test(
+          condition,
+        )
+      ) {
+        const matches = destinationMediaQueryMatches(
+          condition,
+          destinationViewportByDocument.get(doc),
+        );
+        return matches === null
+          ? { kind: "unknown" }
+          : { kind: "known", matches };
+      }
       const matchMedia = view?.matchMedia;
       if (typeof matchMedia !== "function") return { kind: "unknown" };
       try {
@@ -937,13 +1037,19 @@ const PRIMITIVE_PARSE_CACHE_MAX = 64;
 const PRIMITIVE_IDENTITY_CACHE_MAX = 64;
 const primitiveParseIdentityCache = new Map<
   string,
-  { content: string; sourceKey: string; result: ParsedScreenPrimitive[] }
+  {
+    content: string;
+    sourceKey: string;
+    viewportKey: string;
+    result: ParsedScreenPrimitive[];
+  }
 >();
 
 function rememberPrimitiveIdentity(
   screenId: string,
   content: string,
   sourceKey: string,
+  viewportKey: string,
   result: ParsedScreenPrimitive[],
 ) {
   primitiveParseIdentityCache.delete(screenId);
@@ -951,7 +1057,12 @@ function rememberPrimitiveIdentity(
     const oldestId = primitiveParseIdentityCache.keys().next().value;
     if (oldestId !== undefined) primitiveParseIdentityCache.delete(oldestId);
   }
-  primitiveParseIdentityCache.set(screenId, { content, sourceKey, result });
+  primitiveParseIdentityCache.set(screenId, {
+    content,
+    sourceKey,
+    viewportKey,
+    result,
+  });
 }
 
 export function __clearPrimitiveParseCachesForTests() {
@@ -1105,18 +1216,70 @@ function mainAxisMarginsAreKnown(element: Element, axis: AuthoredSizeAxis) {
   );
 }
 
-function hasUnknownInlineBoxLengths(element: Element) {
+function hasUnknownInlineBoxGeometry(element: Element) {
   const style = (element as HTMLElement).style;
-  return [
-    "padding-top",
-    "padding-right",
-    "padding-bottom",
-    "padding-left",
-    "border-top-width",
-    "border-right-width",
-    "border-bottom-width",
-    "border-left-width",
-  ].some((property) => !isKnownPixelLength(style.getPropertyValue(property)));
+  const boxSizing = style.boxSizing.trim().toLowerCase();
+  return (
+    [
+      "padding-top",
+      "padding-right",
+      "padding-bottom",
+      "padding-left",
+      "border-top-width",
+      "border-right-width",
+      "border-bottom-width",
+      "border-left-width",
+    ].some(
+      (property) => !isKnownPixelLength(style.getPropertyValue(property)),
+    ) ||
+    (!!boxSizing && !["content-box", "border-box"].includes(boxSizing))
+  );
+}
+
+function hasUnknownInlineFlexSizing(element: Element, axis: AuthoredSizeAxis) {
+  const style = (element as HTMLElement).style;
+  const dimension = style.getPropertyValue(axis === "x" ? "width" : "height");
+  const minimum = style.getPropertyValue(
+    axis === "x" ? "min-width" : "min-height",
+  );
+  const maximum = style.getPropertyValue(
+    axis === "x" ? "max-width" : "max-height",
+  );
+  const normalizedDimension = dimension.trim().toLowerCase();
+  const authoredDimensionIsModeled =
+    !normalizedDimension ||
+    ["auto", "fit-content"].includes(normalizedDimension) ||
+    normalizedDimension.startsWith("fit-content(") ||
+    parseAuthoredLength(normalizedDimension, 1) !== null;
+
+  return (
+    !authoredDimensionIsModeled ||
+    (!!minimum.trim() && !isZeroCssLength(minimum)) ||
+    (!!maximum.trim() && maximum.trim().toLowerCase() !== "none")
+  );
+}
+
+function hasUnsupportedFlexWritingMode(doc: Document, element: Element) {
+  let current: Element | null = element;
+  while (current) {
+    const writingMode = (current as HTMLElement).style.writingMode
+      .trim()
+      .toLowerCase();
+    if (writingMode && writingMode !== "horizontal-tb") return true;
+    if (
+      hasMatchingStylesheetValue(
+        doc,
+        current,
+        "writing-mode",
+        true,
+        (value) => value.trim().toLowerCase() !== "horizontal-tb",
+      )
+    ) {
+      return true;
+    }
+    current = current.parentElement;
+  }
+  return false;
 }
 
 function isOutOfFlow(element: Element) {
@@ -1882,19 +2045,27 @@ export function parsePrimitivesFromScreen(
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, value]) => `${key}=${String(value)}`)
     .join("\u0000");
+  const viewportKey = destinationViewportKey(screen);
   const identityEntry = primitiveParseIdentityCache.get(screen.id);
   if (
     identityEntry &&
     identityEntry.content === screen.content &&
-    identityEntry.sourceKey === sourceKey
+    identityEntry.sourceKey === sourceKey &&
+    identityEntry.viewportKey === viewportKey
   ) {
     return identityEntry.result;
   }
 
-  const cacheKey = `${screen.id}:${sourceKey}:${screen.content.length}:${hashString(screen.content)}`;
+  const cacheKey = `${screen.id}:${sourceKey}:${viewportKey}:${screen.content.length}:${hashString(screen.content)}`;
   const cached = primitiveParseCache.get(cacheKey);
   if (cached) {
-    rememberPrimitiveIdentity(screen.id, screen.content, sourceKey, cached);
+    rememberPrimitiveIdentity(
+      screen.id,
+      screen.content,
+      sourceKey,
+      viewportKey,
+      cached,
+    );
     return cached;
   }
 
@@ -1905,6 +2076,10 @@ export function parsePrimitivesFromScreen(
 
   try {
     const doc = new DOMParser().parseFromString(screen.content, "text/html");
+    destinationViewportByDocument.set(
+      doc,
+      destinationViewportForScreen(screen),
+    );
     const sizeCache: AuthoredSizeCache = new Map();
     const projection = buildCodeLayerProjection(screen.content, { source });
     const projectionParentIdByNodeId = new Map(
@@ -1967,8 +2142,12 @@ export function parsePrimitivesFromScreen(
         style.display === "flex" || style.display === "inline-flex";
       const flexDirectionKnown =
         !isFlexContainer ||
-        !hasMatchingStylesheetValue(doc, element, "flex-direction");
-      const autoLayoutAxis = flexDirectionKnown
+        (!hasMatchingStylesheetValue(doc, element, "flex-direction") &&
+          flexDirectionIsSupported(style.flexDirection));
+      const flexAxisKnown =
+        flexDirectionKnown &&
+        (!isFlexContainer || !hasUnsupportedFlexWritingMode(doc, element));
+      const autoLayoutAxis = flexAxisKnown
         ? computeAutoLayoutAxis({
             display: style.display,
             flexDirection: style.flexDirection,
@@ -1979,7 +2158,7 @@ export function parsePrimitivesFromScreen(
         : undefined;
       const autoLayoutFlexDirection =
         isFlexContainer && flexDirectionKnown
-          ? style.flexDirection || "row"
+          ? style.flexDirection.trim().toLowerCase() || "row"
           : undefined;
       const autoLayoutDirection = autoLayoutFlexDirection
         ? resolveAuthoredDirection(element, doc)
@@ -2075,7 +2254,8 @@ export function parsePrimitivesFromScreen(
             element,
             containerGeometryProperties,
           ) &&
-          !hasUnknownInlineBoxLengths(element) &&
+          !hasUnknownInlineBoxGeometry(element) &&
+          !hasUnknownInlineFlexSizing(element, autoLayoutAxis) &&
           mainAxisGapIsKnown(element, autoLayoutAxis) &&
           ["", "normal", "stretch", "flex-start", "start"].includes(
             alignItems,
@@ -2087,7 +2267,8 @@ export function parsePrimitivesFromScreen(
           flowChildren.every(
             (child) =>
               !hasStylesheetGeometryOverride(child, itemGeometryProperties) &&
-              !hasUnknownInlineBoxLengths(child) &&
+              !hasUnknownInlineBoxGeometry(child) &&
+              !hasUnknownInlineFlexSizing(child, autoLayoutAxis) &&
               !hasMatchingStylesheetValue(doc, child, "order") &&
               flexGrow(child) === 0 &&
               !hasMatchingStylesheetValue(doc, child, "flex-grow") &&
@@ -2132,7 +2313,7 @@ export function parsePrimitivesFromScreen(
       }
       const autoLayoutOrderKnown =
         !isFlexContainer ||
-        (flexDirectionKnown &&
+        (flexAxisKnown &&
           (autoLayoutAxis === "y" || autoLayoutDirection !== undefined) &&
           flexPositioningKnown);
       const autoLayoutWrapped =
@@ -2228,7 +2409,13 @@ export function parsePrimitivesFromScreen(
     if (firstKey !== undefined) primitiveParseCache.delete(firstKey);
   }
   primitiveParseCache.set(cacheKey, result);
-  rememberPrimitiveIdentity(screen.id, screen.content, sourceKey, result);
+  rememberPrimitiveIdentity(
+    screen.id,
+    screen.content,
+    sourceKey,
+    viewportKey,
+    result,
+  );
   return result;
 }
 
@@ -2403,9 +2590,8 @@ export function getPrimitiveDropTargetForPoint(
       containerPrimitive &&
       primitives.some(
         (primitive) =>
-          primitive.autoLayoutAxis &&
           primitive.autoLayoutOrderKnown === false &&
-          isReverseFlexFlow(primitive) &&
+          (!primitive.autoLayoutAxis || isReverseFlexFlow(primitive)) &&
           isPrimitiveAncestor(primitive, containerPrimitive, primitives),
       )
     ) {
