@@ -227,6 +227,31 @@ describe("detectReplayFriction", () => {
     expect(delta.retryLoops).toBe(0);
   });
 
+  it("counts errors Monitoring could make an issue of, never a plain console error", () => {
+    const consoleEvent = (payload: Record<string, unknown>) => ({
+      type: 5,
+      timestamp: 1_000,
+      data: {
+        tag: SESSION_REPLAY_CONSOLE_EVENT_TAG,
+        payload: { level: "error", message: "boom", ...payload },
+      },
+    });
+    const { delta } = detectReplayFriction(
+      [
+        consoleEvent({ source: "console", exception: false }),
+        consoleEvent({ source: "console", exception: false, repeat: 4 }),
+        consoleEvent({ source: "console", exception: true }),
+        // An older recorder does not say, so it may have been an exception.
+        consoleEvent({ source: "console" }),
+        consoleEvent({ source: "window-error" }),
+        consoleEvent({ source: "unhandledrejection", repeat: 2 }),
+        consoleEvent({ source: "window-error", level: "warn" }),
+      ],
+      null,
+    );
+    expect(delta.issueErrors).toBe(5);
+  });
+
   it("flags leaving soon after an error, and not once the person carried on", () => {
     expect(
       detectReplayFriction([mouseMove(1_000), consoleError(2_000)], null)

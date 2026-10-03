@@ -392,6 +392,8 @@ export const sessionRecordingFriction = table(
     slowRequests: integer("slow_requests").notNull().default(0),
     http4xx: integer("http_4xx").notNull().default(0),
     http5xx: integer("http_5xx").notNull().default(0),
+    // Null on a row measured before this was counted: unknown, not zero.
+    issueErrors: integer("issue_errors"),
     score: integer("score").notNull().default(0),
     detectorState: text("detector_state").notNull().default("{}"),
     updatedAt: text("updated_at").notNull(),
