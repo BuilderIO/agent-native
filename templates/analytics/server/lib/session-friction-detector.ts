@@ -87,7 +87,10 @@ function record(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function isAbortedRequest(error: unknown): boolean {
+/** Cancelled by the page or by the page leaving, not failed by the network. */
+function isAbortedRequest(payload: Record<string, unknown>): boolean {
+  if (payload.pageLeaving === true) return true;
+  const error = payload.error;
   if (typeof error !== "string") return false;
   return error === XHR_ABORTED || isBenignAbort("", error);
 }
@@ -308,7 +311,7 @@ export function detectReplayFriction(
     if (status >= 400 && status < 500) delta.http4xx += 1;
     if (status >= 500) delta.http5xx += 1;
     // Status 0 is also a real network failure, which still counts.
-    if (status === 0 && isAbortedRequest(payload.error)) continue;
+    if (status === 0 && isAbortedRequest(payload)) continue;
     if (status === 0 || status >= 500) state.lastErrorAt = at;
 
     const key = requestKey(payload.method, payload.url);
