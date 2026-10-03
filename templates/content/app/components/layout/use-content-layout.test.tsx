@@ -32,6 +32,19 @@ function agentPanel(state: "open" | "closed", width = 380) {
   return panel;
 }
 
+// The toolkit's desktop panel transitions its width; a test DOM computes only
+// the longhands.
+function animateWidth(panel: HTMLElement, duration: string) {
+  panel.style.transitionProperty = "width";
+  panel.style.transitionDuration = duration;
+}
+
+function transitionEnd(propertyName: string) {
+  const event = new Event("transitionend", { bubbles: true });
+  Object.defineProperty(event, "propertyName", { value: propertyName });
+  return event;
+}
+
 describe("useContentShellLayout", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -109,6 +122,86 @@ describe("useContentShellLayout", () => {
     expect(closeAgentPanel).not.toHaveBeenCalled();
     expect(localStorage.getItem(SIDEBAR_COLLAPSED_KEY)).toBe("false");
     window.removeEventListener("agent-panel:close", closeAgentPanel);
+  });
+
+  it("budgets a closing panel's width until its width transition ends", async () => {
+    await act(async () => setViewportWidth(1200));
+    const panel = agentPanel("open");
+    animateWidth(panel, "260ms");
+    const inner = document.createElement("div");
+    panel.append(inner);
+    await act(async () => agentShell().append(panel));
+    const besidePanel = {
+      sidebar: "docked",
+      agentPanel: "docked",
+      comments: { margin: "anchored", list: "region-list" },
+    };
+    expect(latestLayout()).toMatchObject(besidePanel);
+
+    await act(async () => {
+      panel.dataset.agentSidebarState = "closed";
+    });
+    expect(latestLayout()).toMatchObject(besidePanel);
+
+    await act(async () => inner.dispatchEvent(transitionEnd("transform")));
+    expect(latestLayout()).toMatchObject(besidePanel);
+
+    await act(async () => panel.dispatchEvent(transitionEnd("width")));
+    expect(latestLayout()).toMatchObject({
+      sidebar: "docked",
+      agentPanel: "closed",
+      comments: { margin: "lane", list: "rail" },
+    });
+  });
+
+  it("releases a closing panel's width without a transitionend", async () => {
+    await act(async () => setViewportWidth(1200));
+    const panel = agentPanel("open");
+    animateWidth(panel, "20ms");
+    await act(async () => agentShell().append(panel));
+
+    await act(async () => {
+      panel.dataset.agentSidebarState = "closed";
+    });
+    expect(latestLayout().agentPanel).toBe("docked");
+    await act(() => new Promise((resolve) => setTimeout(resolve, 120)));
+    expect(latestLayout().agentPanel).toBe("closed");
+
+    await act(async () => {
+      panel.dataset.agentSidebarState = "open";
+    });
+    expect(latestLayout().agentPanel).toBe("docked");
+    await act(async () => {
+      panel.dataset.agentSidebarState = "closed";
+    });
+    expect(latestLayout().agentPanel).toBe("docked");
+    await act(async () => panel.remove());
+    expect(latestLayout().agentPanel).toBe("closed");
+  });
+
+  it("releases at once when the panel draws no closing width", async () => {
+    await act(async () => setViewportWidth(1200));
+    const reducedMotion = agentPanel("open");
+    reducedMotion.style.transitionProperty = "none";
+    await act(async () => agentShell().append(reducedMotion));
+    await act(async () => {
+      reducedMotion.dataset.agentSidebarState = "closed";
+    });
+    expect(latestLayout().agentPanel).toBe("closed");
+
+    const drawer = agentPanel("open");
+    drawer.dataset.agentSidebarLayout = "drawer";
+    animateWidth(drawer, "260ms");
+    const placeholder = document.createElement("div");
+    placeholder.setAttribute("data-agent-sidebar-placeholder", "");
+    placeholder.style.width = "380px";
+    await act(async () => agentShell().replaceChildren(drawer, placeholder));
+    expect(latestLayout().agentPanel).toBe("docked");
+    await act(async () => {
+      drawer.dataset.agentSidebarState = "closed";
+      placeholder.remove();
+    });
+    expect(latestLayout().agentPanel).toBe("closed");
   });
 
   it("re-renders only when a mode changes", async () => {

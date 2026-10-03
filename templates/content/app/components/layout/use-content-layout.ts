@@ -28,10 +28,40 @@ type AgentPanelDock = ContentLayoutInput["agentPanel"];
 type ShellMeasurements = Omit<ContentLayoutInput, "previous">;
 
 const CLOSED_AGENT_PANEL: AgentPanelDock = { open: false, width: 0 };
+// The fallback release waits this much past the panel's close transition, in
+// case its `transitionend` never arrives.
+const AGENT_PANEL_CLOSE_SLACK_MS = 50;
 
 function pixels(value: string) {
   const width = Number.parseFloat(value);
   return Number.isFinite(width) ? width : null;
+}
+
+function milliseconds(time: string) {
+  const value = Number.parseFloat(time);
+  // A DOM that computes no transition times, like a test DOM, animates none.
+  if (!Number.isFinite(value)) return 0;
+  return time.trim().endsWith("ms") ? value : value * 1000;
+}
+
+// How long the element's drawn width animates after a style change, from its
+// computed transition: 0 when reduced motion or a non-animating layout turns
+// the transition off.
+function widthTransitionMs(element: Element) {
+  const style = getComputedStyle(element);
+  const durations = style.transitionDuration.split(",");
+  const delays = style.transitionDelay.split(",");
+  return Math.max(
+    0,
+    ...style.transitionProperty
+      .split(",")
+      .map((property, index) =>
+        ["width", "all"].includes(property.trim())
+          ? milliseconds(durations[index % durations.length]) +
+            milliseconds(delays[index % delays.length])
+          : 0,
+      ),
+  );
 }
 
 function agentPanelElements(shell: Element) {
@@ -44,8 +74,8 @@ function agentPanelElements(shell: Element) {
 }
 
 // The page settles on where the agent panel ends up: its inline
-// `--agent-sidebar-width`, or the wide drawer's placeholder. Its drawn width
-// animates for 260ms after it opens or closes.
+// `--agent-sidebar-width`, or the wide drawer's placeholder, not the width it
+// draws while it animates open or closed.
 export function readAgentPanelDock(shell: Element | null): AgentPanelDock {
   if (!shell) return CLOSED_AGENT_PANEL;
   const elements = agentPanelElements(shell);
@@ -125,7 +155,57 @@ export function useContentShellLayout({
       child.classList.contains("agent-sidebar-shell"),
     );
     if (!shell) return;
-    const read = () => measure({ agentPanel: readAgentPanelDock(shell) });
+    let budgeted = CLOSED_AGENT_PANEL;
+    let closing: { panel: HTMLElement; release: () => void } | null = null;
+    const apply = (dock: AgentPanelDock) => {
+      closing?.release();
+      budgeted = dock;
+      measure({ agentPanel: dock });
+    };
+    // Opening budgets the target width at once. A docked panel that closes
+    // keeps drawing its width until its transition ends, so the page keeps
+    // budgeting it until then; releasing early hands comments a margin the
+    // text column does not have yet.
+    const holdClosingPanel = () => {
+      const panel = agentPanelElements(shell).find(
+        (element) =>
+          element.classList.contains("agent-sidebar-panel") &&
+          element.dataset.agentSidebarLayout === "desktop",
+      );
+      const duration = panel ? widthTransitionMs(panel) : 0;
+      if (!panel || duration <= 0) return false;
+      const onTransitionEnd = (event: TransitionEvent) => {
+        if (event.target === panel && event.propertyName === "width") {
+          apply(readAgentPanelDock(shell));
+        }
+      };
+      const timer = window.setTimeout(
+        () => apply(readAgentPanelDock(shell)),
+        duration + AGENT_PANEL_CLOSE_SLACK_MS,
+      );
+      panel.addEventListener("transitionend", onTransitionEnd);
+      panel.addEventListener("transitioncancel", onTransitionEnd);
+      closing = {
+        panel,
+        release: () => {
+          window.clearTimeout(timer);
+          panel.removeEventListener("transitionend", onTransitionEnd);
+          panel.removeEventListener("transitioncancel", onTransitionEnd);
+          closing = null;
+        },
+      };
+      return true;
+    };
+    const read = () => {
+      const dock = readAgentPanelDock(shell);
+      if (dock.open || !budgeted.open) {
+        apply(dock);
+      } else if (closing) {
+        if (!agentPanelElements(shell).includes(closing.panel)) apply(dock);
+      } else if (!holdClosingPanel()) {
+        apply(dock);
+      }
+    };
     const panelObserver = new MutationObserver(read);
     const watch = () => {
       panelObserver.disconnect();
@@ -147,6 +227,7 @@ export function useContentShellLayout({
     return () => {
       shellObserver.disconnect();
       panelObserver.disconnect();
+      closing?.release();
     };
   }, [measure, shellRef]);
 

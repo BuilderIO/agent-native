@@ -4,14 +4,17 @@ import { type RefObject, useLayoutEffect, useRef, useState } from "react";
  * A value derived from an element's width, kept as state only when it
  * changes, so a resize re-renders the owner at thresholds, not every frame.
  * `fromWidth` receives the current value to hold a threshold with
- * hysteresis. The value stays `initial` until the element has a laid-out
- * width: a box with no width has not been measured yet.
+ * hysteresis, and `inputs` names anything else it reads, so a change
+ * re-derives the value without waiting for a resize. The value stays
+ * `initial` until the element has a laid-out width: a box with no width has
+ * not been measured yet.
  */
 export function useElementWidthValue<T>(
   ref: RefObject<HTMLElement | null>,
   fromWidth: (width: number, current: T) => T,
   initial: T,
   enabled = true,
+  inputs?: string | number,
 ) {
   const [value, setValue] = useState(initial);
   const fromWidthRef = useRef(fromWidth);
@@ -40,7 +43,7 @@ export function useElementWidthValue<T>(
       observer.disconnect();
       window.removeEventListener("resize", update);
     };
-  }, [enabled, ref]);
+  }, [enabled, inputs, ref]);
 
   return value;
 }
