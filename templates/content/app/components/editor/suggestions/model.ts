@@ -84,6 +84,19 @@ export const SUPPORTED_SUGGESTION_BLOCKS = new Set([
   "horizontalRule",
 ]);
 
+const SUPPORTED_SUGGESTION_INLINE_NODES = new Set(["hardBreak"]);
+
+// A suggestion must leave every other node unchanged: the server refuses a
+// proposal that edits one, so the suggesting editor keeps them read-only.
+export function supportsSuggestionNode(type: string): boolean {
+  return (
+    type === "doc" ||
+    type === "text" ||
+    SUPPORTED_SUGGESTION_BLOCKS.has(type) ||
+    SUPPORTED_SUGGESTION_INLINE_NODES.has(type)
+  );
+}
+
 export const SUPPORTED_SUGGESTION_MARKS = new Set<SuggestionMark>([
   "bold",
   "italic",
