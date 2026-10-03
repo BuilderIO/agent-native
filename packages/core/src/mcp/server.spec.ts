@@ -199,6 +199,7 @@ vi.mock("./oauth-store.js", () => ({
 }));
 
 const { handleMcpRequest } = await import("./server.js");
+const { handleMcpFetchRequest } = await import("./fetch-handler.js");
 
 interface MakeEventOpts {
   method?: string;
@@ -5475,6 +5476,46 @@ describe("handleMcpRequest — Node request objects use the v2 web handler", () 
     expect(event._handled).toBeUndefined();
     expect((res as Response).status).toBe(200);
     expect(event.node.res.headersSent).toBe(false);
+  });
+
+  it("returns the same protocol envelope through H3 and the Fetch adapter", async () => {
+    const rpc = {
+      jsonrpc: "2.0",
+      id: 77,
+      method: "tools/list",
+      params: {},
+    };
+    const event = makeWebEvent({ method: "POST", body: rpc });
+    const h3Response = (await handleMcpRequest(
+      event,
+      config as any,
+    )) as Response;
+    const fetchRequest = new Request("https://mail.agent-native.com/mcp", {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(rpc),
+    });
+    const fetchResponse = await handleMcpFetchRequest(
+      fetchRequest,
+      config as any,
+      {
+        requestMeta: {
+          origin: "https://mail.agent-native.com",
+          transport: "http",
+          fullSurface: true,
+        },
+        parsedBody: rpc,
+      },
+    );
+
+    expect(fetchResponse.status).toBe(h3Response.status);
+    expect(fetchResponse.headers.get("content-type")).toBe(
+      h3Response.headers.get("content-type"),
+    );
+    expect(await fetchResponse.text()).toBe(await h3Response.text());
   });
 });
 
