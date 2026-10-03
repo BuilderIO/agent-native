@@ -15,6 +15,13 @@ import type {
   Point,
 } from "./types";
 
+export function getCrossScreenSourceGeometry(args: {
+  renderedGeometry?: FrameGeometry;
+  persistedGeometry?: FrameGeometry;
+}): FrameGeometry | undefined {
+  return args.renderedGeometry ?? args.persistedGeometry;
+}
+
 export function getBoardDropRoute(args: {
   point: Point;
   viewportGeometry?: FrameGeometry;
