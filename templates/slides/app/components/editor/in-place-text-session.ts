@@ -350,6 +350,8 @@ interface Snapshot extends TextOffsets {
   attributes: [string, string][];
   html: string;
   byteSize: number;
+  /** Whether the session's temporary layout reservation is applied. */
+  layoutReservationApplied: boolean;
   /** Which of the element's zero-width spaces, in text order, are the author's. */
   authorZwsp: number[];
 }
@@ -1029,9 +1031,9 @@ function pastedLists(lines: PastedLine[]): DocumentFragment {
 }
 
 /**
- * Makes `element` editable in place and returns the session that owns every
- * edit to it until `end()`. Only `contenteditable` and `data-editing-block`
- * change on the element; with no input, `end()` leaves its markup identical.
+ * Makes element editable in place and returns the session that owns every
+ * edit to it until end(). Changed content reserves its original intrinsic
+ * size so the surrounding slide layout stays in place.
  */
 export function startInPlaceTextSession(
   element: HTMLElement,
@@ -1053,6 +1055,98 @@ export function startInPlaceTextSession(
       attribute.value,
     ]),
   );
+  const computedStyle = window.getComputedStyle(el);
+  const cssPixels = (value: string) => Number.parseFloat(value) || 0;
+  const initialLayout = {
+    width: Math.max(
+      0,
+      el.clientWidth -
+        cssPixels(computedStyle.paddingLeft) -
+        cssPixels(computedStyle.paddingRight),
+    ),
+    height: Math.max(
+      0,
+      el.clientHeight -
+        cssPixels(computedStyle.paddingTop) -
+        cssPixels(computedStyle.paddingBottom),
+    ),
+    renderedWidth: el.offsetWidth,
+    renderedHeight: el.offsetHeight,
+    contain: el.style.getPropertyValue("contain"),
+    containPriority: el.style.getPropertyPriority("contain"),
+    intrinsicSize: el.style.getPropertyValue("contain-intrinsic-size"),
+    intrinsicSizePriority: el.style.getPropertyPriority(
+      "contain-intrinsic-size",
+    ),
+    computedContain: computedStyle.contain || "none",
+    display: computedStyle.display || "block",
+    position: computedStyle.position || "static",
+  };
+  const reservationEnabled =
+    initialLayout.renderedWidth > 0 &&
+    initialLayout.renderedHeight > 0 &&
+    typeof CSS !== "undefined" &&
+    CSS.supports("contain-intrinsic-size", "1px 1px") &&
+    !["inline", "contents", "none"].includes(initialLayout.display) &&
+    initialLayout.position !== "absolute" &&
+    !/(^|\s)(size|strict|content)(\s|$)/u.test(initialLayout.computedContain);
+  const reservedIntrinsicSize =
+    String(initialLayout.width) + "px " + String(initialLayout.height) + "px";
+  let layoutReservationApplied = false;
+  let restoringHistory = false;
+  const restoreLayoutReservation = () => {
+    if (!layoutReservationApplied) return;
+    el.style.cssText = el.getAttribute("style") ?? "";
+    if (el.style.getPropertyValue("contain") !== initialLayout.contain) {
+      if (initialLayout.contain) {
+        el.style.setProperty(
+          "contain",
+          initialLayout.contain,
+          initialLayout.containPriority,
+        );
+      } else {
+        el.style.removeProperty("contain");
+      }
+    }
+    if (
+      el.style.getPropertyValue("contain-intrinsic-size") !==
+      initialLayout.intrinsicSize
+    ) {
+      if (initialLayout.intrinsicSize) {
+        el.style.setProperty(
+          "contain-intrinsic-size",
+          initialLayout.intrinsicSize,
+          initialLayout.intrinsicSizePriority,
+        );
+      } else {
+        el.style.removeProperty("contain-intrinsic-size");
+      }
+    }
+    layoutReservationApplied = false;
+  };
+  const preserveLayoutReservation = () => {
+    if (!reservationEnabled || layoutReservationApplied) return;
+    const contain = initialLayout.computedContain
+      .split(/\s+/u)
+      .filter((value) => value && value !== "none")
+      .map((value) => (value === "inline-size" ? "size" : value));
+    const reservedContain = [...new Set([...contain, "size"])].join(" ");
+    if (!CSS.supports("contain", reservedContain)) return;
+    el.style.setProperty(
+      "contain",
+      reservedContain,
+      initialLayout.containPriority,
+    );
+    if (!el.style.getPropertyValue("contain").split(/\s+/u).includes("size")) {
+      return;
+    }
+    el.style.setProperty(
+      "contain-intrinsic-size",
+      reservedIntrinsicSize,
+      initialLayout.intrinsicSizePriority,
+    );
+    layoutReservationApplied = true;
+  };
   const restoreSessionMenuAria = () => {
     for (const name of SESSION_MENU_ATTRIBUTES) {
       const value = startAttributes.get(name);
@@ -1229,6 +1323,7 @@ export function startInPlaceTextSession(
 
   const notify = () => {
     authorZwspOrdinals();
+    if (edited && !restoringHistory) preserveLayoutReservation();
     unscroll();
     focusSelection = selectionOffsets(true);
     if (lastEdit) lastEdit.after = focusSelection;
@@ -1374,7 +1469,8 @@ export function startInPlaceTextSession(
             size + utf8ByteLength(name) + utf8ByteLength(value),
           0,
         ) +
-        64,
+        65,
+      layoutReservationApplied,
       authorZwsp: Array.from(authorZwspOrdinals()),
       ...selection,
     };
@@ -1428,6 +1524,18 @@ export function startInPlaceTextSession(
     authorZwsp = new Set(state.authorZwsp);
     zwspText = el.textContent!;
     selectOffsets(state, true);
+  }
+
+  function restoreHistory(state: Snapshot) {
+    restore(state);
+    if (reservationEnabled && state.layoutReservationApplied) {
+      el.style.cssText = el.getAttribute("style") ?? "";
+    }
+    layoutReservationApplied =
+      reservationEnabled && state.layoutReservationApplied;
+    if (reservationEnabled && state.html !== startHtml) {
+      preserveLayoutReservation();
+    }
   }
 
   /** Records the pre-change state; a run of typing or deleting is one step. */
@@ -1488,9 +1596,14 @@ export function startInPlaceTextSession(
     if (!state) return false;
     redoStack.push(snapshot());
     trimHistory();
-    restore(state);
-    lastEdit = null;
-    notify();
+    restoringHistory = true;
+    try {
+      restoreHistory(state);
+      lastEdit = null;
+      notify();
+    } finally {
+      restoringHistory = false;
+    }
     return true;
   }
 
@@ -1499,9 +1612,14 @@ export function startInPlaceTextSession(
     if (!state) return false;
     undoStack.push(snapshot());
     trimHistory();
-    restore(state);
-    lastEdit = null;
-    notify();
+    restoringHistory = true;
+    try {
+      restoreHistory(state);
+      lastEdit = null;
+      notify();
+    } finally {
+      restoringHistory = false;
+    }
     return true;
   }
 
@@ -1522,7 +1640,11 @@ export function startInPlaceTextSession(
   }
 
   /** A styled bullet row (marker span + text) whose list lies inside `el`. */
-  function legacyRowAt(node: Node): HTMLElement | null {
+  function legacyRowAt(
+    node: Node,
+    boundaryOffset?: number,
+    boundaryDirection?: DeleteDirection,
+  ): HTMLElement | null {
     const start = node instanceof HTMLElement ? node : node.parentElement;
     if (!start) return null;
     for (
@@ -1531,6 +1653,37 @@ export function startInPlaceTextSession(
       row = row.parentElement
     ) {
       if (row.hasAttribute("data-slide-plain-row")) return row;
+      if (
+        row !== el &&
+        row.parentElement &&
+        el.contains(row.parentElement) &&
+        isBulletRow(row) &&
+        !["UL", "OL"].includes(row.parentElement.tagName)
+      ) {
+        return row;
+      }
+    }
+    if (boundaryOffset !== undefined && node instanceof HTMLElement) {
+      const adjacentNodes =
+        boundaryDirection === "forward"
+          ? [node.childNodes[boundaryOffset]]
+          : boundaryDirection === "backward"
+            ? [node.childNodes[boundaryOffset - 1]]
+            : [
+                node.childNodes[boundaryOffset - 1],
+                node.childNodes[boundaryOffset],
+              ];
+      for (const adjacent of adjacentNodes) {
+        if (
+          adjacent instanceof HTMLElement &&
+          el.contains(adjacent) &&
+          (adjacent.hasAttribute("data-slide-plain-row") ||
+            (isBulletRow(adjacent) &&
+              !["UL", "OL"].includes(adjacent.parentElement?.tagName ?? "")))
+        ) {
+          return adjacent;
+        }
+      }
     }
     const list = findEnclosingList(start, el);
     if (
@@ -1898,8 +2051,27 @@ export function startInPlaceTextSession(
    * the previous row; Delete at its end still pulls the next one in.
    */
   function deleteAtRowEdge(caret: Range, direction: DeleteDirection) {
-    const row = legacyRowAt(caret.startContainer);
+    const row = legacyRowAt(caret.startContainer, caret.startOffset, direction);
     if (!row) return false;
+    if (!row.contains(caret.startContainer)) {
+      const content = rowTextRange(row, rowMarker(row));
+      const contentStart = textOffset(
+        row,
+        content.startContainer,
+        content.startOffset,
+      );
+      const contentEnd = textOffset(
+        row,
+        content.endContainer,
+        content.endOffset,
+      );
+      const point =
+        direction === "backward"
+          ? textPoint(row, contentEnd, true)
+          : textPoint(row, contentStart);
+      placeCaret(point[0], point[1]);
+      caret = selectionRange() ?? caret;
+    }
     const list = row.parentElement!;
     const rows = legacyRows(list);
     if (
@@ -1923,6 +2095,8 @@ export function startInPlaceTextSession(
     if (direction === "backward" && !row.hasAttribute("data-slide-plain-row")) {
       rowMarker(row)?.remove();
       row.setAttribute("data-slide-plain-row", "true");
+      const text = rowTextRange(row, null);
+      placeCaret(text.startContainer, text.startOffset);
       return true;
     }
     if (direction === "backward" && index === 0) {
@@ -2268,6 +2442,13 @@ export function startInPlaceTextSession(
       return;
     }
     // Typing on the new line continues the inline style the caret was in.
+    if (!hasRenderedContent(clone)) {
+      for (const link of Array.from(clone.querySelectorAll("a"))) {
+        if (!hasRenderedContent(link)) {
+          link.removeAttribute("href");
+        }
+      }
+    }
     let target: Element = clone;
     for (
       let child = target.firstElementChild;
@@ -2790,8 +2971,18 @@ export function startInPlaceTextSession(
         return;
       }
     }
-    const row = legacyRowAt(caret.startContainer);
+    const row = legacyRowAt(caret.startContainer, caret.startOffset);
     if (row) {
+      if (!row.contains(caret.startContainer)) {
+        const atRowStart =
+          row.parentNode === caret.startContainer &&
+          caret.startContainer.childNodes[caret.startOffset] === row;
+        const content = rowTextRange(row, rowMarker(row));
+        const point: [Node, number] = atRowStart
+          ? [content.startContainer, content.startOffset]
+          : [content.endContainer, content.endOffset];
+        placeCaret(point[0], point[1]);
+      }
       const list = row.parentElement!;
       const rows = legacyRows(list);
       if (row === rows[rows.length - 1] && isEmptyRow(row)) {
@@ -4323,6 +4514,26 @@ export function startInPlaceTextSession(
       return;
     }
     const key = event.key.toLowerCase();
+    if (
+      event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.shiftKey &&
+      (key === "arrowleft" || key === "arrowright")
+    ) {
+      const range = selectionRange();
+      const row = range && legacyRowAt(range.startContainer);
+      if (range && row) {
+        event.preventDefault();
+        const text = rowTextRange(row, rowMarker(row));
+        if (key === "arrowleft") {
+          placeCaret(text.startContainer, text.startOffset);
+        } else {
+          placeCaret(text.endContainer, text.endOffset);
+        }
+        return;
+      }
+    }
     const macControl =
       event.ctrlKey &&
       !event.metaKey &&
@@ -4707,6 +4918,9 @@ export function startInPlaceTextSession(
       // reshapeAtCaret); the markup stays identical.
       el.normalize();
       for (const text of textNodesIn(el)) text.replaceWith(text.cloneNode());
+    }
+    if (el.tagName === initialRootTagName && el.innerHTML === startHtml) {
+      restoreLayoutReservation();
     }
     if (initialContentEditable === null) el.removeAttribute("contenteditable");
     else el.setAttribute("contenteditable", initialContentEditable);
