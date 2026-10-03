@@ -719,6 +719,7 @@ test("overview screen creation and duplicate undo/redo keep screens selected and
     );
     await expect(page.locator("[data-screen-shell]")).toHaveCount(5);
     const redoneId = await createdScreenId(beforeIds);
+    expect(redoneId).not.toBe(duplicatedId);
     await expect
       .poll(async () => (await designFileIds(request, designId)).sort())
       .toEqual([...beforeIds, redoneId].sort());
