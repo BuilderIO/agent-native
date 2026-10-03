@@ -546,6 +546,77 @@ describe("view-screen Sessions context", () => {
     });
   });
 
+  it("reports the filters it applied as the screen's active filters", async () => {
+    const url = {
+      pathname: "/sessions",
+      search:
+        "?app=clips&event=clip_viewed&signal=dead_clicks&signal=http_5xx&sort=friction",
+      searchParams: {
+        app: "clips",
+        event: "clip_viewed",
+        signal: "dead_clicks",
+        sort: "friction",
+      },
+    };
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
+    setScreen({ view: "sessions" }, url);
+
+    const on = await runScreen();
+    expect(on.activeFilters).toEqual({
+      app: "clips",
+      sort: "friction",
+      event: ["clip_viewed"],
+      signal: ["dead_clicks", "http_5xx"],
+    });
+
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(false);
+    const off = await runScreen();
+    expect(off.activeFilters).toEqual({ app: "clips", sort: "newest" });
+  });
+
+  it("keeps the base list and reports a Lab state that fails to load", async () => {
+    isSessionsTriageLabEnabled.mockRejectedValueOnce(
+      new Error("settings unavailable"),
+    );
+    setScreen(
+      { view: "sessions" },
+      {
+        pathname: "/sessions",
+        search: "?signal=dead_clicks",
+        searchParams: { signal: "dead_clicks" },
+      },
+    );
+
+    const out = await runScreen();
+
+    expect(out.sessionReplayError).toBeUndefined();
+    expect(out.sessionReplays).toHaveLength(25);
+    expect(out.sessionReplayPage).toMatchObject({
+      total: 137,
+      labStateError: "settings unavailable",
+      frictionNotApplied: { signals: ["dead_clicks"], sort: null },
+    });
+    expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.not.objectContaining({ frictionSignals: expect.anything() }),
+    );
+  });
+
+  it("keeps the base list and reports row friction that fails to load", async () => {
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
+    getSessionFrictionDetails.mockRejectedValueOnce(
+      new Error("friction unavailable"),
+    );
+    setScreen({ view: "sessions" }, { pathname: "/sessions" });
+
+    const out = await runScreen();
+
+    expect(out.sessionReplayError).toBeUndefined();
+    expect(out.sessionReplays).toHaveLength(25);
+    expect(out.sessionReplays[0]).toEqual({ id: "recording-0" });
+    expect(out.sessionReplayPage.frictionError).toBe("friction unavailable");
+  });
+
   it("carries friction coverage so an empty friction match is not read as zero", async () => {
     isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
     listSessionRecordingsPage.mockResolvedValueOnce({
