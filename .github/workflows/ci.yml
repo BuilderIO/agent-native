@@ -1104,6 +1104,9 @@ jobs:
       - name: Test mobile build path guard
         run: pnpm test:mobile-build-paths
 
+      - name: Test source-reading tests guard
+        run: pnpm test:no-source-reading-tests
+
       - name: Test Neon transfer alert and offline backtest
         run: pnpm test:neon-transfer-alert
 
