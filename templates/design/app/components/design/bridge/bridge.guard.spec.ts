@@ -172,7 +172,6 @@ describe("cross-screen grid source span resolution", () => {
   });
 });
 
-
 describe("editor drop-container primitive eligibility", () => {
   it("accepts both rectangle primitive markers and rejects non-containers", () => {
     const isContainerDropTarget = compileBridgeFunction<

@@ -655,7 +655,6 @@
     };
   }
 
-
   function isReverseFlexFlow(styles: CSSStyleDeclaration, axis: string) {
     return (
       (axis === "x" &&
