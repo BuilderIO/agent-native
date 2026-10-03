@@ -16,6 +16,7 @@ afterEach(() => {
   session?.end();
   session = null;
   document.body.innerHTML = "";
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -212,6 +213,134 @@ describe("in-place text session: entering and ending", () => {
     textOf(el, "betax").deleteData(4, 1);
     session.end();
     expect(el.outerHTML).toBe(before);
+  });
+
+  it("reserves the initial flow size with the edited text in undo history", () => {
+    const el = mount('<div id="t">Alpha</div>');
+    vi.stubGlobal("CSS", { supports: () => true });
+    vi.spyOn(el, "offsetWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "offsetHeight", "get").mockReturnValue(48);
+    vi.spyOn(el, "clientWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "clientHeight", "get").mockReturnValue(48);
+    session = startInPlaceTextSession(el);
+    const text = el.firstChild as Text;
+    caret(text, text.length);
+
+    type(el, "beta");
+
+    expect(el.style.getPropertyValue("contain")).toBe("size");
+    expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe(
+      "240px 48px",
+    );
+    expect(beforeInput(el, "historyUndo").defaultPrevented).toBe(true);
+    expect(el.innerHTML).toBe("Alpha");
+    expect(el.style.getPropertyValue("contain")).toBe("");
+    expect(beforeInput(el, "historyRedo").defaultPrevented).toBe(true);
+    expect(el.innerHTML).toBe("Alphabeta");
+    expect(el.style.getPropertyValue("contain")).toBe("size");
+    expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe(
+      "240px 48px",
+    );
+
+    session.end();
+    expect(el.style.getPropertyValue("contain")).toBe("size");
+  });
+
+  it("restores temporary containment after undoing and redoing root style", () => {
+    const el = mount('<div id="t">Alpha</div>');
+    vi.stubGlobal("CSS", { supports: () => true });
+    vi.spyOn(el, "offsetWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "offsetHeight", "get").mockReturnValue(48);
+    vi.spyOn(el, "clientWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "clientHeight", "get").mockReturnValue(48);
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, el.firstChild!.textContent!.length);
+    type(el, "beta");
+
+    expect(session.undo()).toBe(true);
+    expect(el.innerHTML).toBe("Alpha");
+    expect(el.style.getPropertyValue("contain")).toBe("");
+    expect(session.commands.align("center")).toBe(true);
+    expect(el.style.getPropertyValue("text-align")).toBe("center");
+    expect(el.style.getPropertyValue("contain")).toBe("size");
+    expect(session.undo()).toBe(true);
+    expect(el.style.getPropertyValue("text-align")).toBe("");
+    expect(session.redo()).toBe(true);
+    expect(el.getAttribute("style")).toContain("text-align: center");
+
+    session.end();
+
+    expect(el.getAttribute("style")).toContain("text-align: center");
+    expect(el.getAttribute("style")).not.toContain("contain");
+  });
+
+  it.each(["content-box", "border-box"] as const)(
+    "reserves only the %s element's content box",
+    (boxSizing) => {
+      const width = boxSizing === "content-box" ? "240px" : "270px";
+      const height = boxSizing === "content-box" ? "48px" : "70px";
+      const el = mount(
+        `<div id="t" style="box-sizing: ${boxSizing}; width: ${width}; height: ${height}; padding: 8px 12px; border: 3px solid">Alpha</div>`,
+      );
+      vi.stubGlobal("CSS", { supports: () => true });
+      vi.spyOn(el, "offsetWidth", "get").mockReturnValue(270);
+      vi.spyOn(el, "offsetHeight", "get").mockReturnValue(70);
+      vi.spyOn(el, "clientWidth", "get").mockReturnValue(264);
+      vi.spyOn(el, "clientHeight", "get").mockReturnValue(64);
+      session = startInPlaceTextSession(el);
+      const text = el.firstChild as Text;
+      caret(text, text.length);
+
+      type(el, "beta");
+
+      expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe(
+        "240px 48px",
+      );
+    },
+  );
+
+  it("replaces inline-size containment when reserving the edited size", () => {
+    const el = mount('<div id="t" style="contain: inline-size">Alpha</div>');
+    const supports = vi.fn(() => true);
+    vi.stubGlobal("CSS", { supports });
+    vi.spyOn(el, "offsetWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "offsetHeight", "get").mockReturnValue(48);
+    vi.spyOn(el, "clientWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "clientHeight", "get").mockReturnValue(48);
+    const getComputedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (element, pseudo) => {
+        const computed = getComputedStyle(element, pseudo);
+        if (element !== el) return computed;
+        return new Proxy(computed, {
+          get(target, property) {
+            return property === "contain"
+              ? "inline-size"
+              : Reflect.get(target, property, target);
+          },
+        });
+      },
+    );
+    session = startInPlaceTextSession(el);
+    const text = el.firstChild as Text;
+    caret(text, text.length);
+
+    type(el, "beta");
+
+    expect(supports).toHaveBeenCalledWith("contain", "size");
+    expect(el.style.getPropertyValue("contain")).toBe("size");
+    expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe(
+      "240px 48px",
+    );
+    expect(beforeInput(el, "historyUndo").defaultPrevented).toBe(true);
+    expect(el.innerHTML).toBe("Alpha");
+    expect(el.style.getPropertyValue("contain")).toBe("inline-size");
+    expect(beforeInput(el, "historyRedo").defaultPrevented).toBe(true);
+    expect(el.innerHTML).toBe("Alphabeta");
+    expect(el.style.getPropertyValue("contain")).toBe("size");
+
+    session.end();
+    expect(el.style.getPropertyValue("contain")).toBe("size");
   });
 
   it("counts a root style patch as a visible edit", () => {
@@ -731,6 +860,29 @@ describe("in-place text session: Enter", () => {
     expect(el.innerHTML).toBe("Text<br><br><br>new line");
   });
 
+  it("keeps link styling without carrying its link into a new paragraph", () => {
+    const el = mount(
+      '<div id="t"><p><a href="https://example.com" class="accent" style="color: rgb(4, 128, 64); font-weight: 600">Linked text</a></p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const linkedText = textOf(el, "Linked text");
+    caret(linkedText, linkedText.length);
+
+    beforeInput(el, "insertParagraph");
+    type(el, "plain text");
+
+    const paragraphs = Array.from(el.querySelectorAll(":scope > p"));
+    expect(paragraphs.map((paragraph) => paragraph.textContent)).toEqual([
+      "Linked text",
+      "plain text",
+    ]);
+    const continuation = paragraphs[1]?.querySelector("a");
+    expect(continuation?.hasAttribute("href")).toBe(false);
+    expect(continuation?.className).toBe("accent");
+    expect(continuation?.style.color).toBe("rgb(4, 128, 64)");
+    expect(continuation?.style.fontWeight).toBe("600");
+  });
+
   it("breaks the line mid-text without a placeholder", () => {
     const el = mount('<p id="t">Heading</p>');
     session = startInPlaceTextSession(el);
@@ -979,6 +1131,164 @@ describe("in-place text session: Enter", () => {
     const savedRows = Array.from(el.children, (child) => child.textContent);
     expect(savedRows.slice(0, 3)).toEqual(["●Alpha", "●Beta", "●Gamma"]);
     expect(savedRows[3]).toBe("");
+  });
+
+  it("continues a styled bullet row inside a mixed text box", () => {
+    const el = mount(
+      '<div id="t"><div style="display: flex; gap: 12px"><span>●</span><span>Alpha</span></div><p>Following text</p><p>More text</p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const alpha = textOf(el, "Alpha");
+    caret(alpha, alpha.length);
+
+    beforeInput(el, "insertParagraph");
+    type(el, "Beta");
+
+    const rows = Array.from(el.children).filter(
+      (child) =>
+        child.querySelector(":scope > span:first-child")?.textContent === "●",
+    );
+    expect(rows.map((row) => row.textContent)).toEqual(["●Alpha", "●Beta"]);
+    expect(el.children[2]?.textContent).toBe("Following text");
+    expect(el.children[3]?.textContent).toBe("More text");
+  });
+
+  it("continues a styled bullet when the caret is at the row boundary", () => {
+    const el = mount(
+      '<div id="t"><div style="display: flex; gap: 12px"><span>●</span><span>Alpha</span></div><p>Following text</p><p>More text</p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    caret(el, 1);
+
+    beforeInput(el, "insertParagraph");
+    type(el, "Beta");
+
+    expect(Array.from(el.children, (child) => child.textContent)).toEqual([
+      "●Alpha",
+      "●Beta",
+      "Following text",
+      "More text",
+    ]);
+  });
+
+  it("uses the next styled row for Delete at a mixed-content boundary", () => {
+    const row = (text: string) =>
+      `<div style="display: flex; gap: 12px"><span>●</span><span>${text}</span></div>`;
+    const el = mount(
+      `<div id="t">${row("Alpha")}${row("Beta")}<p>Following text</p></div>`,
+    );
+    session = startInPlaceTextSession(el);
+    caret(el, 1);
+    const modify = vi.spyOn(window.getSelection()!, "modify");
+
+    const event = beforeInput(el, "deleteContentForward");
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(el.children).toHaveLength(3);
+    expect(el.children[0]?.textContent).toBe("●Alpha");
+    expect(el.children[1]?.textContent).toBe("●eta");
+    expect(el.children[2]?.textContent).toBe("Following text");
+    expect(modify).toHaveBeenCalledWith("extend", "forward", "character");
+  });
+
+  it("does not delete the previous styled row at a paragraph boundary", () => {
+    const row = (text: string) =>
+      `<div style="display: flex; gap: 12px"><span>●</span><span>${text}</span></div>`;
+    const el = mount(`<div id="t">${row("Alpha")}<p>Following text</p></div>`);
+    session = startInPlaceTextSession(el);
+    caret(el, 1);
+    const modify = vi.spyOn(window.getSelection()!, "modify");
+    modify.mockImplementation(() => {
+      const paragraphText = el.querySelector("p")?.firstChild as Text;
+      const range = document.createRange();
+      range.setStart(paragraphText, 0);
+      range.setEnd(paragraphText, 1);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+
+    const event = beforeInput(el, "deleteContentForward");
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(el.children).toHaveLength(2);
+    expect(el.children[0]?.textContent).toBe("●Alpha");
+    expect(el.children[1]?.textContent).toBe("ollowing text");
+    expect(modify).toHaveBeenCalledWith("extend", "forward", "character");
+  });
+
+  it("does not delete the next styled row at a paragraph boundary", () => {
+    const row = (text: string) =>
+      `<div style="display: flex; gap: 12px"><span>●</span><span>${text}</span></div>`;
+    const el = mount(`<div id="t"><p>Previous text</p>${row("Beta")}</div>`);
+    session = startInPlaceTextSession(el);
+    caret(el, 1);
+    const modify = vi.spyOn(window.getSelection()!, "modify");
+    modify.mockImplementation(() => {
+      const paragraphText = el.querySelector("p")?.firstChild as Text;
+      const range = document.createRange();
+      range.setStart(paragraphText, paragraphText.length - 1);
+      range.setEnd(paragraphText, paragraphText.length);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+    });
+
+    const event = beforeInput(el, "deleteContentBackward");
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(el.children).toHaveLength(2);
+    expect(el.children[0]?.textContent).toBe("Previous tex");
+    expect(el.children[1]?.textContent).toBe("●Beta");
+    expect(modify).toHaveBeenCalledWith("extend", "backward", "character");
+  });
+
+  it("uses the previous empty styled row for Backspace at a mixed-content boundary", () => {
+    const row = (text: string) =>
+      `<div style="display: flex; gap: 12px"><span>●</span><span>${text}</span></div>`;
+    const el = mount(
+      `<div id="t">${row("Alpha")}${row(ZWSP)}<p>Following text</p></div>`,
+    );
+    session = startInPlaceTextSession(el);
+    caret(el, 2);
+    const modify = vi.spyOn(window.getSelection()!, "modify");
+
+    const event = beforeInput(el, "deleteContentBackward");
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(el.children).toHaveLength(2);
+    expect(el.children[0]?.textContent).toBe("●Alpha");
+    expect(el.children[1]?.textContent).toBe("Following text");
+    expect(modify).not.toHaveBeenCalled();
+  });
+
+  it("keeps a shape-marker row through first Backspace and joins on the second", () => {
+    const row = (text: string) =>
+      `<div style="display:flex;gap:12px"><span style="display:inline-block;width:8px;height:8px;border:1px solid red;border-radius:50%"></span><span>${text}</span></div>`;
+    const el = mount(`<div id="t">${row("Alpha")}${row("Beta")}</div>`);
+    session = startInPlaceTextSession(el);
+    const beta = textOf(el, "Beta");
+    caret(beta, beta.length);
+    key(el, { key: "Tab" });
+    key(el, { key: "Tab", shiftKey: true });
+    expect(key(el, { key: "ArrowLeft", metaKey: true }).defaultPrevented).toBe(
+      true,
+    );
+    expect(window.getSelection()?.anchorNode).toBe(el.children[1]);
+    expect(window.getSelection()?.anchorOffset).toBe(1);
+
+    expect(beforeInput(el, "deleteContentBackward").defaultPrevented).toBe(
+      true,
+    );
+    expect(el.children).toHaveLength(2);
+    expect(el.children[1]?.textContent).toContain("Beta");
+    expect(el.children[1]?.hasAttribute("data-slide-plain-row")).toBe(true);
+
+    expect(beforeInput(el, "deleteContentBackward").defaultPrevented).toBe(
+      true,
+    );
+    expect(el.children).toHaveLength(1);
+    expect(el.textContent).toContain("AlphaBeta");
   });
 
   it("inserts a line break for Shift+Enter even in a list item", () => {
@@ -1863,6 +2173,49 @@ describe("in-place text session: paste", () => {
     );
   });
 
+  it("pastes a safe URL across an existing link boundary", () => {
+    const el = mount(
+      '<div id="t"><p><a href="https://old.example">u</a>rl478</p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const first = textOf(el, "u");
+    const rest = textOf(el, "rl478");
+    select(first, 0, rest, rest.length);
+
+    paste(el, { "text/plain": "https://example.com/path" });
+
+    const links = Array.from(el.querySelectorAll("a"));
+    expect(window.getSelection()?.toString()).toBe("url478");
+    expect(links.map((link) => link.textContent).join("")).toBe("url478");
+    expect(
+      links.every(
+        (link) => link.getAttribute("href") === "https://example.com/path",
+      ),
+    ).toBe(true);
+  });
+
+  it("changes only selected text when pasting a URL across link boundaries", () => {
+    const el = mount(
+      '<p id="t"><a href="https://old.example">prefix url</a>478 suffix</p>',
+    );
+    session = startInPlaceTextSession(el);
+    const linked = textOf(el, "url");
+    const plain = textOf(el, "478");
+    select(linked, 7, plain, 3);
+
+    paste(el, { "text/plain": "https://example.com/path" });
+
+    const links = Array.from(el.querySelectorAll("a"));
+    expect(el.textContent).toBe("prefix url478 suffix");
+    expect(window.getSelection()?.toString()).toBe("url478");
+    expect(links.map((link) => link.textContent).join("")).toBe(
+      "prefix url478",
+    );
+    expect(links[0]?.getAttribute("href")).toBe("https://old.example");
+    expect(links[1]?.getAttribute("href")).toBe("https://example.com/path");
+    expect(el.lastChild?.textContent).toBe(" suffix");
+  });
+
   it("auto-links a typed URL on the trailing space and undoes to plain text", () => {
     const el = mount('<p id="t">See </p>');
     session = startInPlaceTextSession(el);
@@ -2328,6 +2681,30 @@ describe("in-place text session: commands", () => {
       root.querySelectorAll<HTMLElement>("[style]"),
     ).find((element) => element.style.color === "red");
     expect(styledText?.textContent).toContain("First line");
+  });
+
+  it("converts a dash prefix when a trailing space follows an inherited link", () => {
+    const el = mount(
+      '<p id="t"><a href="https://example.test">-</a>&nbsp;</p>',
+    );
+    session = startInPlaceTextSession(el);
+    const space = textOf(el, "\u00a0");
+    caret(space, space.length);
+
+    el.dispatchEvent(
+      new InputEvent("input", {
+        inputType: "insertText",
+        data: " ",
+        bubbles: true,
+      }),
+    );
+
+    const row = session.element.querySelector(
+      ':scope > div[style*="display: flex"]',
+    );
+    expect(row?.firstElementChild?.textContent).toBe("●");
+    expect(row?.lastElementChild?.textContent?.replaceAll(ZWSP, "")).toBe("");
+    expect(row?.contains(window.getSelection()?.anchorNode ?? null)).toBe(true);
   });
 
   it("turns '---' into a divider without requiring a trailing space", () => {
@@ -3001,6 +3378,11 @@ describe("in-place text session: dock changes", () => {
       expect(el.innerHTML).toBe(
         'Hello <code data-slide-authoring-format="code">world</code>',
       );
+      const selection = window.getSelection();
+      expect(selection?.toString()).toBe("world");
+      expect(selection?.isCollapsed).toBe(false);
+      expect(el.contains(selection?.anchorNode ?? null)).toBe(true);
+      expect(el.contains(selection?.focusNode ?? null)).toBe(true);
     },
   );
 
