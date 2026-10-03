@@ -447,7 +447,8 @@ jobs:
             e2e/cross-screen-auto-layout-parity.spec.ts \
             e2e/corner-radius-handle-drag.spec.ts \
             e2e/parity-vector-endpoints.spec.ts \
-            --grep "physical|reparenting rules|canvas corner-radius handle follows the drag and persists the radius|vector endpoint controls|endpoint marker references unique" \
+            e2e/responsive-overview-regressions.spec.ts \
+            --grep "physical|reparenting rules|canvas corner-radius handle follows the drag and persists the radius|vector endpoint controls|endpoint marker references unique|overview screen creation and duplicate undo/redo keep screens selected and visible" \
             --workers=1
 
   fast-tests:

@@ -397,6 +397,7 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     "templates/design/e2e/global-teardown.ts",
     "templates/design/e2e/parity-vector-endpoints.spec.ts",
     "templates/design/e2e/corner-radius-handle-drag.spec.ts",
+    "templates/design/e2e/responsive-overview-regressions.spec.ts",
     "templates/design/e2e/helpers.ts",
     "templates/design/e2e/drag-and-drop.shared.ts",
     "templates/design/e2e/drag-and-drop.reparenting-rules.spec.ts",
