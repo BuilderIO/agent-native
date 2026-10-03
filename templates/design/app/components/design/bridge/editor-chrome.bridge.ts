@@ -17004,19 +17004,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function isAutoLayoutFlowTarget(el: Element | null): boolean {
-    if (!el) return false;
-    if (isAutoLayoutElement(el)) return true;
-    if (
-      el.getAttribute("data-an-primitive") !== "frame" ||
-      !isAutoLayoutElement(el.parentElement)
-    ) {
-      return false;
-    }
-    var position = window.getComputedStyle(el).position;
-    return position !== "absolute" && position !== "fixed";
-  }
-
   var BRIDGE_REPLACED_TAGS: Record<string, boolean> = {
     img: true,
     video: true,
@@ -17205,6 +17192,46 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return target.placement === "inside"
       ? target.anchor
       : target.anchor.parentElement;
+  }
+
+  function dropContentSize(el: Element): { width: number; height: number } {
+    var html = el as HTMLElement;
+    var style = window.getComputedStyle(el);
+    var rect = el.getBoundingClientRect();
+    var scaleX = html.offsetWidth ? rect.width / html.offsetWidth : 1;
+    var scaleY = html.offsetHeight ? rect.height / html.offsetHeight : 1;
+    return {
+      width:
+        (html.clientWidth -
+          readPx(style.paddingLeft) -
+          readPx(style.paddingRight)) *
+        scaleX,
+      height:
+        (html.clientHeight -
+          readPx(style.paddingTop) -
+          readPx(style.paddingBottom)) *
+        scaleY,
+    };
+  }
+
+  function dropFitsContainer(
+    container: Element,
+    sourceWidth: number,
+    sourceHeight: number,
+  ): boolean {
+    var size = dropContentSize(container);
+    var style = window.getComputedStyle(container);
+    var singleLineFlex =
+      (style.display === "flex" || style.display === "inline-flex") &&
+      style.flexWrap !== "wrap" &&
+      style.flexWrap !== "wrap-reverse";
+    if (singleLineFlex && style.flexDirection.indexOf("row") === 0) {
+      return size.width >= sourceWidth;
+    }
+    if (singleLineFlex && style.flexDirection.indexOf("column") === 0) {
+      return size.height >= sourceHeight;
+    }
+    return size.width >= sourceWidth && size.height >= sourceHeight;
   }
 
   function isOutsideIframeViewport(clientX: number, clientY: number): boolean {
@@ -17581,8 +17608,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!el || el === document.documentElement) return false;
     if (isOverlayElement(el) || isLayerInteractionBlocked(el)) return false;
     if (el === document.body) return true;
-    var primitiveKind = el.getAttribute("data-an-primitive");
-    if (primitiveKind && primitiveKind !== "frame") return false;
+    var primitiveKind = (
+      el.getAttribute("data-an-primitive") ||
+      el.getAttribute("data-agent-native-primitive") ||
+      ""
+    ).toLowerCase();
+    if (primitiveKind && !BRIDGE_ADOPTING_PRIMITIVES[primitiveKind]) {
+      return false;
+    }
     var tag = (el.tagName || "").toLowerCase();
     if (
       BRIDGE_LEAF_TAGS.indexOf(tag) !== -1 ||
@@ -18152,14 +18185,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         containerStyles.display === "inline-grid") &&
       (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean)
         .length > 1;
-    var reverseFlow =
-      !multiTrackGrid &&
-      ((axis === "x" &&
-        (containerStyles.flexDirection === "row" ||
-          containerStyles.flexDirection === "row-reverse") &&
-        (containerStyles.flexDirection === "row-reverse") !==
-          (containerStyles.direction === "rtl")) ||
-        (axis === "y" && containerStyles.flexDirection === "column-reverse"));
+    var reverseFlow = isReverseFlexFlow(containerStyles, axis);
     var best: Element | null = null;
     var bestDistance = Infinity;
     var placement = "after";
@@ -18194,6 +18220,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
+  (
+    window as Window & {
+      __agentNativeDesignNearestChildInsertionTarget?: (
+        container: Element,
+        clientX: number,
+        clientY: number,
+      ) => {
+        anchor: Element;
+        placement: string;
+        axis: string;
+        dropMode: string;
+      } | null;
+    }
+  ).__agentNativeDesignNearestChildInsertionTarget =
+    nearestChildInsertionTarget;
+
   function screenRootFlowInsertionTargetForPoint(
     clientX: number,
     clientY: number,
@@ -18216,6 +18258,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       clientX,
       clientY,
       excludeEls,
+    );
+  }
+
+  function isReverseFlexFlow(styles: CSSStyleDeclaration, axis: string) {
+    var multiTrackGrid =
+      (styles.display === "grid" || styles.display === "inline-grid") &&
+      (styles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
+    return (
+      !multiTrackGrid &&
+      ((axis === "x" &&
+        (styles.flexDirection === "row" ||
+          styles.flexDirection === "row-reverse") &&
+        (styles.flexDirection === "row-reverse") !==
+          (styles.direction === "rtl")) ||
+        (axis === "y" && styles.flexDirection === "column-reverse"))
     );
   }
 
@@ -18921,9 +18978,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             ? childRect.left + childRect.width / 2
             : childRect.top + childRect.height / 2;
         var childPointer = parentAxis === "x" ? clientX : clientY;
+        var before = childPointer < childCenter;
+        if (isReverseFlexFlow(window.getComputedStyle(parent), parentAxis)) {
+          before = !before;
+        }
         return {
           anchor: cursor,
-          placement: childPointer < childCenter ? "before" : "after",
+          placement: before ? "before" : "after",
           axis: parentAxis,
           dropMode: "flow-insert",
         };
@@ -22604,8 +22665,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     function applyFreeDropSizeGuard(target, ev) {
       if (
         !target ||
-        target.placement !== "inside" ||
-        target.dropMode !== "flow-insert"
+        (target.dropMode !== "flow-insert" &&
+          target.dropMode !== "absolute-container")
       ) {
         return target;
       }
@@ -22618,23 +22679,89 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         container === dragEl ||
         container === document.body ||
         container === document.documentElement ||
-        !isAutoLayoutFlowTarget(container)
+        !isContainerDropTarget(container)
       ) {
         return target;
       }
       var crect = container.getBoundingClientRect();
       if (
-        crect.width >= dragElStartRect.width &&
-        crect.height >= dragElStartRect.height
+        dropFitsContainer(
+          container,
+          dragElStartRect.width,
+          dragElStartRect.height,
+        )
       ) {
         return target;
       }
-      var parent = container.parentElement;
-      if (!parent) return null;
       var pointerX = ev ? ev.clientX : crect.left + crect.width / 2;
       var pointerY = ev ? ev.clientY : crect.top + crect.height / 2;
       var excluded = [dragEl].concat(groupOthers || []);
-      return nearestChildInsertionTarget(parent, pointerX, pointerY, excluded);
+      var parent = container.parentElement;
+      // A screen's body is the board boundary, not another fitting ancestor.
+      while (
+        parent &&
+        parent !== document.documentElement &&
+        parent !== document.body
+      ) {
+        var parentIsFlow = isAutoLayoutElement(parent);
+        var parentIsAbsolute =
+          isAbsolutePrimitiveContainer(parent) ||
+          isFreeformRelativeContainer(parent);
+        if (
+          isContainerDropTarget(parent) &&
+          parent !== dragEl &&
+          (parentIsFlow || parentIsAbsolute)
+        ) {
+          if (
+            dropFitsContainer(
+              parent,
+              dragElStartRect.width,
+              dragElStartRect.height,
+            )
+          ) {
+            if (parentIsFlow) {
+              return (
+                nearestChildInsertionTarget(
+                  parent,
+                  pointerX,
+                  pointerY,
+                  excluded,
+                ) || {
+                  anchor: parent,
+                  placement: "inside",
+                  axis: parentFlowAxis(parent),
+                  dropMode: "flow-insert",
+                }
+              );
+            }
+            return {
+              anchor: parent,
+              placement: "inside",
+              axis: "y",
+              dropMode: "absolute-container",
+            };
+          }
+        }
+        parent = parent.parentElement;
+      }
+      var containerPrimitive = (
+        container.getAttribute("data-an-primitive") ||
+        container.getAttribute("data-agent-native-primitive") ||
+        ""
+      ).toLowerCase();
+      if (
+        isAutoLayoutElement(container) &&
+        container.parentElement === document.body &&
+        containerPrimitive !== "frame"
+      ) {
+        return nearestChildInsertionTarget(
+          document.body,
+          pointerX,
+          pointerY,
+          excluded,
+        );
+      }
+      return null;
     }
     function cancelAutoLayoutTargetResolution(): void {
       pendingAutoLayoutTargetPoint = null;

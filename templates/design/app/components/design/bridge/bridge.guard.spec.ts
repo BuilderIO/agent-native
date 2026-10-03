@@ -53,8 +53,9 @@ function compileBridgeFunction<T extends (...args: any[]) => any>(
     join(bridgeDir, "editor-chrome.bridge.ts"),
     "utf8",
   );
-  const start = source.indexOf(`  function ${name}(`);
-  const end = source.indexOf(`\n  function ${nextFunction}(`, start);
+  const start = source.indexOf(`function ${name}(`);
+  const next = source.indexOf(`function ${nextFunction}(`, start);
+  const end = source.lastIndexOf("\n", next);
   if (start < 0 || end < 0) {
     throw new Error(`Could not isolate ${name} from the bridge source`);
   }
@@ -63,6 +64,119 @@ function compileBridgeFunction<T extends (...args: any[]) => any>(
     `${ts.transpile(source.slice(start, end), { target: ts.ScriptTarget.ES2020 })}; return ${name};`,
   )(...Object.values(globals)) as T;
 }
+
+describe("editor drop-container primitive eligibility", () => {
+  it("accepts both rectangle primitive markers and rejects non-containers", () => {
+    const isContainerDropTarget = compileBridgeFunction<
+      (element: unknown) => boolean
+    >("isContainerDropTarget", "edgePlacementForRect", {
+      BRIDGE_ADOPTING_PRIMITIVES: {
+        frame: true,
+        rectangle: true,
+        rect: true,
+      },
+      BRIDGE_CONTAINER_TAGS: ["div"],
+      BRIDGE_INTERACTIVE_LEAF_TAGS: [],
+      BRIDGE_LEAF_TAGS: [],
+      BRIDGE_TEXT_TAGS: [],
+      document: { body: {}, documentElement: {} },
+      hasOnlyLeafContent: () => false,
+      isLayerInteractionBlocked: () => false,
+      isOverlayElement: () => false,
+      window: { getComputedStyle: () => ({ display: "block" }) },
+    });
+    const primitive = (kind: string, attribute = "data-an-primitive") => ({
+      tagName: "DIV",
+      getAttribute: (name: string) => (name === attribute ? kind : null),
+    });
+
+    expect(isContainerDropTarget(primitive("rectangle"))).toBe(true);
+    expect(
+      isContainerDropTarget(primitive("rect", "data-agent-native-primitive")),
+    ).toBe(true);
+    expect(isContainerDropTarget(primitive("text"))).toBe(false);
+  });
+});
+
+describe("editor oversized-drop receiver guards", () => {
+  it("uses the main axis for non-wrapping column receivers", () => {
+    const dropFitsContainer = compileBridgeFunction<
+      (container: Element, sourceWidth: number, sourceHeight: number) => boolean
+    >("dropFitsContainer", "isOutsideIframeViewport", {
+      dropContentSize: () => ({ width: 180, height: 160 }),
+      window: {
+        getComputedStyle: () => ({
+          display: "flex",
+          flexDirection: "column",
+          flexWrap: "nowrap",
+        }),
+      },
+    });
+
+    expect(dropFitsContainer({} as Element, 220, 96)).toBe(true);
+  });
+
+  it("does not promote an oversized drop beyond the top-level receiver to body", () => {
+    const body = { parentElement: null } as unknown as Element;
+    const root = {
+      parentElement: body,
+      getBoundingClientRect: () => ({
+        left: 0,
+        top: 0,
+        width: 160,
+        height: 120,
+      }),
+    } as unknown as Element;
+    const nested = {
+      parentElement: root,
+      getAttribute: () => null,
+      getBoundingClientRect: () => ({
+        left: 0,
+        top: 0,
+        width: 100,
+        height: 80,
+      }),
+    } as unknown as Element;
+    const dragEl = {} as Element;
+    const target = {
+      anchor: nested,
+      placement: "inside",
+      dropMode: "flow-insert",
+    };
+    const nearestChildInsertionTarget = vi.fn(() => ({
+      anchor: body,
+      placement: "after",
+      dropMode: "flow-insert",
+    }));
+    const applyFreeDropSizeGuard = compileBridgeFunction<
+      (
+        dropTarget: typeof target,
+        ev: { clientX: number; clientY: number },
+      ) => unknown
+    >("applyFreeDropSizeGuard", "cancelAutoLayoutTargetResolution", {
+      ignoreAutoLayoutHeld: () => false,
+      isPlatformPrimaryChord: () => false,
+      dropContainerForTarget: (value: typeof target) => value.anchor,
+      dragEl,
+      groupOthers: [],
+      dragElStartRect: { width: 220, height: 96 },
+      document: { body, documentElement: {} },
+      isContainerDropTarget: () => true,
+      isAutoLayoutElement: (element: Element) => element === root,
+      isAutoLayoutFlowTarget: () => true,
+      isAbsolutePrimitiveContainer: () => false,
+      isFreeformRelativeContainer: () => false,
+      dropFitsContainer: (element: Element) => element === body,
+      parentFlowAxis: () => "y",
+      nearestChildInsertionTarget,
+    });
+
+    expect(applyFreeDropSizeGuard(target, { clientX: 80, clientY: 80 })).toBe(
+      null,
+    );
+    expect(nearestChildInsertionTarget).not.toHaveBeenCalled();
+  });
+});
 
 describe("source vector stroke overlay reconciliation", () => {
   type FakeNode = {
@@ -12288,6 +12402,11 @@ it.each([
     >("nearestChildInsertionTarget", "screenRootFlowInsertionTargetForPoint", {
       draggableElementChildren: () => [first, second],
       gridCellInsertionTarget: () => null,
+      isReverseFlexFlow: compileBridgeFunction(
+        "isReverseFlexFlow",
+        "reorderTargetForPoint",
+        {},
+      ),
       parentFlowAxis: () => axis,
       window: {
         getComputedStyle: () => ({
@@ -12306,6 +12425,116 @@ it.each([
       anchor: first,
       placement: "after",
       axis,
+    });
+  },
+);
+
+it.each([
+  {
+    axis: "x",
+    flexDirection: "row-reverse",
+    direction: "ltr",
+    x: 120,
+    y: 140,
+    placement: "after",
+  },
+  {
+    axis: "y",
+    flexDirection: "column-reverse",
+    direction: "ltr",
+    x: 140,
+    y: 120,
+    placement: "after",
+  },
+  {
+    axis: "x",
+    flexDirection: "row",
+    direction: "rtl",
+    x: 120,
+    y: 140,
+    placement: "after",
+  },
+  {
+    axis: "x",
+    flexDirection: "row",
+    direction: "ltr",
+    x: 120,
+    y: 140,
+    placement: "before",
+  },
+])(
+  "editor chrome bridge applies reverse-flow order to a direct-child fallback",
+  ({ axis, flexDirection, direction, x, y, placement }) => {
+    const body = { parentElement: null } as unknown as Element;
+    const container = {
+      parentElement: body,
+    } as unknown as Element;
+    const child = {
+      parentElement: container,
+      closest: () => null,
+      getAttribute: () => null,
+      getBoundingClientRect: () => ({
+        left: 100,
+        top: 100,
+        right: 200,
+        bottom: 180,
+        width: 100,
+        height: 80,
+      }),
+    } as unknown as Element;
+    const dragged = { parentElement: body } as unknown as Element;
+    const document = {
+      body,
+      documentElement: { parentElement: null },
+    } as unknown as Document;
+    const isReverseFlexFlow = compileBridgeFunction(
+      "isReverseFlexFlow",
+      "reorderTargetForPoint",
+      {},
+    );
+    const autoLayoutInsertionTargetForPoint = compileBridgeFunction<
+      (
+        el: Element,
+        clientX: number,
+        clientY: number,
+      ) => {
+        anchor: Element;
+        placement: string;
+        axis: string;
+        dropMode: string;
+      } | null
+    >("autoLayoutInsertionTargetForPoint", "unnestAbsoluteToScreenRoot", {
+      document,
+      window: {
+        getComputedStyle: () => ({
+          display: "flex",
+          flexDirection,
+          direction,
+          gridTemplateColumns: "",
+        }),
+      },
+      elementFromEditorPointIgnoring: () => child,
+      isOverlayElement: () => false,
+      isLayerInteractionBlocked: () => false,
+      isAutoLayoutElement: (element: Element) => element === container,
+      isContainerDropTarget: (element: Element) => element === container,
+      isTextBearingLeaf: (element: Element) => element === container,
+      isTemplateCloneElement: () => false,
+      isAbsolutePrimitiveContainer: () => false,
+      isFreeformRelativeContainer: () => false,
+      wrappedFlexMainAxis: () => null,
+      parentFlowAxis: () => axis,
+      nearestChildInsertionTarget: () => null,
+      screenRootFlowInsertionTargetForPoint: () => null,
+      unnestAbsoluteToScreenRoot: () => null,
+      isReverseFlexFlow,
+    });
+
+    expect(autoLayoutInsertionTargetForPoint(dragged, x, y)).toMatchObject({
+      anchor: child,
+      placement,
+      axis,
+      dropMode: "flow-insert",
     });
   },
 );

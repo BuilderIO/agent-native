@@ -13482,15 +13482,6 @@ export const editorChromeBridgeScript: string = `"use strict";
       var cs = window.getComputedStyle(el);
       return cs.display === "flex" || cs.display === "inline-flex" || cs.display === "grid" || cs.display === "inline-grid";
     }
-    function isAutoLayoutFlowTarget(el) {
-      if (!el) return false;
-      if (isAutoLayoutElement(el)) return true;
-      if (el.getAttribute("data-an-primitive") !== "frame" || !isAutoLayoutElement(el.parentElement)) {
-        return false;
-      }
-      var position = window.getComputedStyle(el).position;
-      return position !== "absolute" && position !== "fixed";
-    }
     var BRIDGE_REPLACED_TAGS = {
       img: true,
       video: true,
@@ -13647,6 +13638,29 @@ export const editorChromeBridgeScript: string = `"use strict";
     function dropContainerForTarget(target) {
       if (!target || !target.anchor) return null;
       return target.placement === "inside" ? target.anchor : target.anchor.parentElement;
+    }
+    function dropContentSize(el) {
+      var html = el;
+      var style = window.getComputedStyle(el);
+      var rect = el.getBoundingClientRect();
+      var scaleX = html.offsetWidth ? rect.width / html.offsetWidth : 1;
+      var scaleY = html.offsetHeight ? rect.height / html.offsetHeight : 1;
+      return {
+        width: (html.clientWidth - readPx(style.paddingLeft) - readPx(style.paddingRight)) * scaleX,
+        height: (html.clientHeight - readPx(style.paddingTop) - readPx(style.paddingBottom)) * scaleY
+      };
+    }
+    function dropFitsContainer(container, sourceWidth, sourceHeight) {
+      var size = dropContentSize(container);
+      var style = window.getComputedStyle(container);
+      var singleLineFlex = (style.display === "flex" || style.display === "inline-flex") && style.flexWrap !== "wrap" && style.flexWrap !== "wrap-reverse";
+      if (singleLineFlex && style.flexDirection.indexOf("row") === 0) {
+        return size.width >= sourceWidth;
+      }
+      if (singleLineFlex && style.flexDirection.indexOf("column") === 0) {
+        return size.height >= sourceHeight;
+      }
+      return size.width >= sourceWidth && size.height >= sourceHeight;
     }
     function isOutsideIframeViewport(clientX, clientY) {
       return clientX < 0 || clientY < 0 || clientX > window.innerWidth || clientY > window.innerHeight;
@@ -13923,8 +13937,10 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!el || el === document.documentElement) return false;
       if (isOverlayElement(el) || isLayerInteractionBlocked(el)) return false;
       if (el === document.body) return true;
-      var primitiveKind = el.getAttribute("data-an-primitive");
-      if (primitiveKind && primitiveKind !== "frame") return false;
+      var primitiveKind = (el.getAttribute("data-an-primitive") || el.getAttribute("data-agent-native-primitive") || "").toLowerCase();
+      if (primitiveKind && !BRIDGE_ADOPTING_PRIMITIVES[primitiveKind]) {
+        return false;
+      }
       var tag = (el.tagName || "").toLowerCase();
       if (BRIDGE_LEAF_TAGS.indexOf(tag) !== -1 || BRIDGE_TEXT_TAGS.indexOf(tag) !== -1)
         return false;
@@ -14296,7 +14312,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       var wrappedFlexAxis = wrappedFlexMainAxis(container);
       var axis = wrappedFlexAxis || parentFlowAxis(container);
       var multiTrackGrid = (containerStyles.display === "grid" || containerStyles.display === "inline-grid") && (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
-      var reverseFlow = !multiTrackGrid && (axis === "x" && (containerStyles.flexDirection === "row" || containerStyles.flexDirection === "row-reverse") && containerStyles.flexDirection === "row-reverse" !== (containerStyles.direction === "rtl") || axis === "y" && containerStyles.flexDirection === "column-reverse");
+      var reverseFlow = isReverseFlexFlow(containerStyles, axis);
       var best = null;
       var bestDistance = Infinity;
       var placement = "after";
@@ -14326,6 +14342,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         dropMode: "flow-insert"
       };
     }
+    window.__agentNativeDesignNearestChildInsertionTarget = nearestChildInsertionTarget;
     function screenRootFlowInsertionTargetForPoint(clientX, clientY, excludeEls) {
       if (!isAutoLayoutElement(document.body)) return null;
       var bodyRect = document.body.getBoundingClientRect();
@@ -14339,6 +14356,10 @@ export const editorChromeBridgeScript: string = `"use strict";
         clientY,
         excludeEls
       );
+    }
+    function isReverseFlexFlow(styles, axis) {
+      var multiTrackGrid = (styles.display === "grid" || styles.display === "inline-grid") && (styles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
+      return !multiTrackGrid && (axis === "x" && (styles.flexDirection === "row" || styles.flexDirection === "row-reverse") && styles.flexDirection === "row-reverse" !== (styles.direction === "rtl") || axis === "y" && styles.flexDirection === "column-reverse");
     }
     function reorderTargetForPoint(el, clientX, clientY, excludeEls) {
       if (!el || !el.parentElement) return null;
@@ -14797,9 +14818,13 @@ export const editorChromeBridgeScript: string = `"use strict";
           var childRect = cursor.getBoundingClientRect();
           var childCenter = parentAxis === "x" ? childRect.left + childRect.width / 2 : childRect.top + childRect.height / 2;
           var childPointer = parentAxis === "x" ? clientX : clientY;
+          var before = childPointer < childCenter;
+          if (isReverseFlexFlow(window.getComputedStyle(parent), parentAxis)) {
+            before = !before;
+          }
           return {
             anchor: cursor,
-            placement: childPointer < childCenter ? "before" : "after",
+            placement: before ? "before" : "after",
             axis: parentAxis,
             dropMode: "flow-insert"
           };
@@ -17496,26 +17521,70 @@ export const editorChromeBridgeScript: string = `"use strict";
       var dragElStartWidth = dragElStartRect.width;
       var dragElStartHeight = dragElStartRect.height;
       function applyFreeDropSizeGuard(target, ev) {
-        if (!target || target.placement !== "inside" || target.dropMode !== "flow-insert") {
+        if (!target || target.dropMode !== "flow-insert" && target.dropMode !== "absolute-container") {
           return target;
         }
         if (ev && (ignoreAutoLayoutHeld(ev) || isPlatformPrimaryChord(ev))) {
           return target;
         }
         var container = dropContainerForTarget(target);
-        if (!container || container === dragEl || container === document.body || container === document.documentElement || !isAutoLayoutFlowTarget(container)) {
+        if (!container || container === dragEl || container === document.body || container === document.documentElement || !isContainerDropTarget(container)) {
           return target;
         }
         var crect = container.getBoundingClientRect();
-        if (crect.width >= dragElStartRect.width && crect.height >= dragElStartRect.height) {
+        if (dropFitsContainer(
+          container,
+          dragElStartRect.width,
+          dragElStartRect.height
+        )) {
           return target;
         }
-        var parent = container.parentElement;
-        if (!parent) return null;
         var pointerX = ev ? ev.clientX : crect.left + crect.width / 2;
         var pointerY = ev ? ev.clientY : crect.top + crect.height / 2;
         var excluded = [dragEl].concat(groupOthers || []);
-        return nearestChildInsertionTarget(parent, pointerX, pointerY, excluded);
+        var parent = container.parentElement;
+        while (parent && parent !== document.documentElement && parent !== document.body) {
+          var parentIsFlow = isAutoLayoutElement(parent);
+          var parentIsAbsolute = isAbsolutePrimitiveContainer(parent) || isFreeformRelativeContainer(parent);
+          if (isContainerDropTarget(parent) && parent !== dragEl && (parentIsFlow || parentIsAbsolute)) {
+            if (dropFitsContainer(
+              parent,
+              dragElStartRect.width,
+              dragElStartRect.height
+            )) {
+              if (parentIsFlow) {
+                return nearestChildInsertionTarget(
+                  parent,
+                  pointerX,
+                  pointerY,
+                  excluded
+                ) || {
+                  anchor: parent,
+                  placement: "inside",
+                  axis: parentFlowAxis(parent),
+                  dropMode: "flow-insert"
+                };
+              }
+              return {
+                anchor: parent,
+                placement: "inside",
+                axis: "y",
+                dropMode: "absolute-container"
+              };
+            }
+          }
+          parent = parent.parentElement;
+        }
+        var containerPrimitive = (container.getAttribute("data-an-primitive") || container.getAttribute("data-agent-native-primitive") || "").toLowerCase();
+        if (isAutoLayoutElement(container) && container.parentElement === document.body && containerPrimitive !== "frame") {
+          return nearestChildInsertionTarget(
+            document.body,
+            pointerX,
+            pointerY,
+            excluded
+          );
+        }
+        return null;
       }
       function cancelAutoLayoutTargetResolution() {
         pendingAutoLayoutTargetPoint = null;
