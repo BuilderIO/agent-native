@@ -3,6 +3,7 @@ import { withFailureContext } from "../observability/failure-context.js";
 import type { FailureContext } from "../shared/failure-report.js";
 import { classifyError } from "./error-noise-filter.js";
 import { getRequestContext } from "./request-context.js";
+import { isTestIdentity } from "./test-identity.js";
 
 export interface CaptureErrorContext {
   route?: string;
@@ -375,10 +376,17 @@ function withPacket(
 
 export function captureError(
   error: unknown,
-  context: CaptureErrorContext = {},
+  callerContext: CaptureErrorContext = {},
 ): string | undefined {
-  if (getRequestContext()?.isSyntheticTraffic) return undefined;
+  const requestContext = getRequestContext();
+  if (requestContext?.isSyntheticTraffic) return undefined;
 
+  const context = isTestIdentity(requestContext?.userEmail)
+    ? {
+        ...callerContext,
+        tags: { ...callerContext.tags, test_identity: "true" },
+      }
+    : callerContext;
   let outgoing = context;
   try {
     const verdict = classifyError(error, { tags: context.tags });

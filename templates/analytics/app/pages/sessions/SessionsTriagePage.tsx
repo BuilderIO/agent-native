@@ -9,7 +9,13 @@ import {
   IconRefresh,
   IconX,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -26,7 +32,9 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -45,6 +53,17 @@ import {
   SESSION_DID_NOT_EVENT_PARAM,
 } from "../../../shared/session-events";
 import {
+  isSessionFrictionSignal,
+  isSessionFrictionSort,
+  readSessionFrictionSignals,
+  SESSION_FRICTION_SIGNAL_PARAM,
+  SESSION_FRICTION_SIGNALS,
+  type SessionFriction,
+  type SessionFrictionSignal,
+  type SessionFrictionSort,
+  type SessionRecordingFriction,
+} from "../../../shared/session-friction";
+import {
   readSessionPage,
   SESSION_PAGE_SIZE,
 } from "../../../shared/session-page";
@@ -62,6 +81,11 @@ import {
   type SessionEventConditions,
 } from "./SessionEventFilter";
 import {
+  frictionSignalLabel,
+  SessionFrictionFilter,
+  SessionFrictionStrip,
+} from "./SessionFriction";
+import {
   EmptySessionsState,
   formatSessionDuration,
   shouldShowZeroMinuteRecoveryAction,
@@ -70,6 +94,7 @@ import {
 
 type Range = "24h" | "7d" | "30d" | "90d" | "all" | "custom";
 type Sort = "newest" | "longest" | "errors" | "events" | "rage";
+type AnySort = Sort | SessionFrictionSort;
 type VisitorType = "internal" | "work" | "personal";
 
 type Recording = {
@@ -89,12 +114,15 @@ type Recording = {
   template: string | null;
   path: string | null;
   hostname: string | null;
+  friction?: SessionFriction;
 };
 
 type Page = {
   recordings: Recording[];
   total: number;
   appCounts: { app: string; count: number }[];
+  /** Present when a friction filter or sort applied; null: part uncovered. */
+  frictionCoverageStartedAt?: string | null;
 };
 
 const RANGES: Range[] = ["24h", "7d", "30d", "90d", "all"];
@@ -180,6 +208,31 @@ export function withSessionEventConditions(
   return next;
 }
 
+/**
+ * True when part of the range predates friction coverage, so a friction
+ * filter there can miss sessions that were never measured.
+ */
+export function rangePredatesFrictionCoverage(
+  from: string | undefined,
+  coverageStartedAt: string | null,
+): boolean {
+  if (coverageStartedAt === null) return true;
+  return !from || Date.parse(from) < Date.parse(coverageStartedAt);
+}
+
+export function withSessionFrictionSignals(
+  current: URLSearchParams,
+  signals: readonly SessionFrictionSignal[],
+): URLSearchParams {
+  const next = new URLSearchParams(current);
+  next.delete(SESSION_FRICTION_SIGNAL_PARAM);
+  for (const signal of signals) {
+    next.append(SESSION_FRICTION_SIGNAL_PARAM, signal);
+  }
+  next.delete("page");
+  return next;
+}
+
 export function SessionsTriagePage() {
   const t = useT();
   const [params, setParams] = useSearchParams();
@@ -190,9 +243,7 @@ export function SessionsTriagePage() {
   const app = params.get("app") ?? "";
   const query = params.get("q") ?? "";
   const domain = params.get("emailDomain") ?? "";
-  const sort = SORTS.includes(params.get("sort") as Sort)
-    ? (params.get("sort") as Sort)
-    : "newest";
+  const requestedSort = params.get("sort");
   const visitorType = (["internal", "work", "personal"] as VisitorType[]).find(
     (value) => value === params.get("visitorType"),
   );
@@ -220,14 +271,27 @@ export function SessionsTriagePage() {
   const urlHasEventConditions =
     urlEventConditions.didEvents.length > 0 ||
     urlEventConditions.didNotEvents.length > 0;
+  const urlFrictionSignals = readSessionFrictionSignals(params);
+  const frictionSignals = eventsLabEnabled ? urlFrictionSignals : [];
+  const urlHasFrictionParams =
+    urlFrictionSignals.length > 0 || isSessionFrictionSort(requestedSort);
+  // Friction sorts, like friction filters, apply only while the Lab is on.
+  const sort: AnySort = SORTS.includes(requestedSort as Sort)
+    ? (requestedSort as Sort)
+    : eventsLabEnabled && isSessionFrictionSort(requestedSort)
+      ? requestedSort
+      : "newest";
+  const frictionApplied =
+    frictionSignals.length > 0 || isSessionFrictionSort(sort);
   const urlSlow = params.get("slow");
   const slow: SlowSessionFilter | undefined =
     eventsLabEnabled && isSlowSessionFilter(urlSlow) ? urlSlow : undefined;
   const urlHasSlowFilter = isSlowSessionFilter(urlSlow);
-  // A shared link with event or slow conditions waits briefly for the Lab
-  // state instead of listing unfiltered sessions. Nothing else waits, and a
-  // hung read stops holding the list and reads as failed.
-  const urlHasLabFilters = urlHasEventConditions || urlHasSlowFilter;
+  // A shared link with event, friction, or slow conditions waits briefly for
+  // the Lab state instead of listing unfiltered sessions. Nothing else waits,
+  // and a hung read stops holding the list and reads as failed.
+  const urlHasLabFilters =
+    urlHasEventConditions || urlHasFrictionParams || urlHasSlowFilter;
   const [labWaitExpired, setLabWaitExpired] = useState(false);
   const waitsForLab = urlHasLabFilters && eventsLab.isLoading;
   useEffect(() => {
@@ -265,6 +329,15 @@ export function SessionsTriagePage() {
   const setEventConditions = useCallback(
     (conditions: SessionEventConditions) => {
       setParams((current) => withSessionEventConditions(current, conditions), {
+        replace: true,
+      });
+    },
+    [setParams],
+  );
+
+  const setFrictionSignals = useCallback(
+    (signals: SessionFrictionSignal[]) => {
+      setParams((current) => withSessionFrictionSignals(current, signals), {
         replace: true,
       });
     },
@@ -327,35 +400,68 @@ export function SessionsTriagePage() {
     [range, fromDate, toDate, params],
   );
 
-  const { data, error, isPending, isFetching, refetch } = useActionQuery<Page>(
-    "list-session-recordings",
-    {
-      paginated: true,
-      ...dateBounds,
-      app: app || undefined,
-      query: query || undefined,
-      emailDomain: domain || undefined,
-      visitorType,
-      hideInternal: hideInternal || undefined,
-      minDurationMs: minDurationMs || undefined,
-      hideEmpty: hideEmpty || undefined,
-      hasErrors: hasErrors || undefined,
-      hasNetworkErrors: hasNetworkErrors || undefined,
-      hasRageClicks: hasRageClicks || undefined,
-      didEvents: eventConditions.didEvents.length
-        ? eventConditions.didEvents
-        : undefined,
-      didNotEvents: eventConditions.didNotEvents.length
-        ? eventConditions.didNotEvents
-        : undefined,
-      slow,
-      sort,
-      offset: (page - 1) * SESSION_PAGE_SIZE,
-      limit: SESSION_PAGE_SIZE,
-    },
-    { staleTime: 30_000, enabled: !waitingForEventsLab },
-  );
+  const { data, error, isPending, isFetching, isPlaceholderData, refetch } =
+    useActionQuery<Page>(
+      "list-session-recordings",
+      {
+        paginated: true,
+        ...dateBounds,
+        app: app || undefined,
+        query: query || undefined,
+        emailDomain: domain || undefined,
+        visitorType,
+        hideInternal: hideInternal || undefined,
+        minDurationMs: minDurationMs || undefined,
+        hideEmpty: hideEmpty || undefined,
+        hasErrors: hasErrors || undefined,
+        hasNetworkErrors: hasNetworkErrors || undefined,
+        hasRageClicks: hasRageClicks || undefined,
+        didEvents: eventConditions.didEvents.length
+          ? eventConditions.didEvents
+          : undefined,
+        didNotEvents: eventConditions.didNotEvents.length
+          ? eventConditions.didNotEvents
+          : undefined,
+        frictionSignals: frictionSignals.length ? frictionSignals : undefined,
+        includeFriction: frictionApplied || undefined,
+        slow,
+        sort,
+        offset: (page - 1) * SESSION_PAGE_SIZE,
+        limit: SESSION_PAGE_SIZE,
+      },
+      {
+        staleTime: 30_000,
+        enabled: !waitingForEventsLab,
+        // Rows stay put while a friction filter or sort loads; they dim
+        // until its rows arrive.
+        placeholderData: frictionApplied ? (previous) => previous : undefined,
+      },
+    );
   const recordings = data?.recordings ?? [];
+  // Without a friction filter or sort, row friction loads beside the list,
+  // keyed on its rows, so a failed friction read leaves the list in place.
+  const {
+    data: rowFriction,
+    error: rowFrictionError,
+    isFetching: rowFrictionFetching,
+    refetch: refetchRowFriction,
+  } = useActionQuery<SessionRecordingFriction>(
+    "list-session-friction",
+    { recordingIds: recordings.map((recording) => recording.id) },
+    {
+      staleTime: 30_000,
+      enabled: eventsLabEnabled && !frictionApplied && recordings.length > 0,
+    },
+  );
+  const frictionCoverageStartedAt = data?.frictionCoverageStartedAt;
+  const frictionCoverageNote =
+    frictionCoverageStartedAt === undefined
+      ? null
+      : frictionCoverageStartedAt === null
+        ? t("sessions.frictionCoverageIncomplete")
+        : t("sessions.frictionCoverageSince", {
+            date: new Date(frictionCoverageStartedAt).toLocaleDateString(),
+          });
   const total = data?.total ?? 0;
   // Speed hints load beside the list, keyed on its rows, so turning the Lab
   // on adds them without fetching the list again.
@@ -402,6 +508,7 @@ export function SessionsTriagePage() {
       didNotEvents: eventConditions.didNotEvents.length
         ? eventConditions.didNotEvents
         : undefined,
+      frictionSignals: frictionSignals.length ? frictionSignals : undefined,
       slow,
       sort,
       limit: 1,
@@ -692,6 +799,12 @@ export function SessionsTriagePage() {
           />
         ) : null}
         {eventsLabEnabled ? (
+          <SessionFrictionFilter
+            signals={frictionSignals}
+            onChange={setFrictionSignals}
+          />
+        ) : null}
+        {eventsLabEnabled ? (
           <Popover>
             <PopoverTrigger asChild>
               <Button
@@ -782,12 +895,42 @@ export function SessionsTriagePage() {
           {t("sessions.eventFiltersNeedLab")}
         </p>
       ) : null}
+      {urlHasFrictionParams &&
+      !eventsLabEnabled &&
+      !eventsLab.isLoading &&
+      !eventsLab.isError ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          {t("sessions.frictionFiltersNeedLab")}
+        </p>
+      ) : null}
       {urlHasSlowFilter &&
       !eventsLabEnabled &&
       !eventsLab.isLoading &&
       !eventsLab.isError ? (
         <p className="text-xs text-muted-foreground" role="status">
           {t("sessions.speedFilterNeedsLab")}
+        </p>
+      ) : null}
+      {eventsLabEnabled &&
+      !frictionApplied &&
+      rowFrictionError &&
+      !rowFriction ? (
+        <p
+          className="flex items-center gap-2 text-xs text-muted-foreground"
+          role="status"
+        >
+          {t("sessions.frictionUnavailable")}
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => void refetchRowFriction()}
+            disabled={rowFrictionFetching}
+          >
+            <IconRefresh
+              className={cn(rowFrictionFetching && "animate-spin")}
+            />
+            {t("sidebar.retry")}
+          </Button>
         </p>
       ) : null}
       {eventsLabEnabled && speedError && !speed ? (
@@ -805,6 +948,16 @@ export function SessionsTriagePage() {
             <IconRefresh className={cn(speedFetching && "animate-spin")} />
             {t("sidebar.retry")}
           </Button>
+        </p>
+      ) : null}
+      {frictionCoverageStartedAt !== undefined &&
+      recordings.length > 0 &&
+      rangePredatesFrictionCoverage(
+        dateBounds.from,
+        frictionCoverageStartedAt,
+      ) ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          {frictionCoverageNote}
         </p>
       ) : null}
       <Card>
@@ -837,6 +990,19 @@ export function SessionsTriagePage() {
                     {sortLabel(value, t)}
                   </SelectItem>
                 ))}
+                {eventsLabEnabled ? (
+                  <SelectGroup>
+                    <SelectLabel>{t("sessions.friction")}</SelectLabel>
+                    <SelectItem value="friction">
+                      {t("sessions.sortFriction")}
+                    </SelectItem>
+                    {SESSION_FRICTION_SIGNALS.map((signal) => (
+                      <SelectItem key={signal} value={signal}>
+                        {frictionSignalLabel(signal, t)}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ) : null}
               </SelectContent>
             </Select>
             <Button
@@ -852,7 +1018,10 @@ export function SessionsTriagePage() {
             </Button>
           </div>
         </div>
-        <div>
+        <div
+          className={cn(isPlaceholderData && "opacity-60")}
+          aria-busy={isPlaceholderData || undefined}
+        >
           {error ? (
             <div className="p-6 text-sm text-destructive" role="alert">
               {t("sessions.loadFailed", { message: error.message })}
@@ -871,6 +1040,9 @@ export function SessionsTriagePage() {
               ) : recordings.length === 0 ? (
                 <div className="p-10 text-center text-sm text-muted-foreground">
                   <p>{t("sessions.noSessions")}</p>
+                  {frictionCoverageNote ? (
+                    <p className="mt-1 text-xs">{frictionCoverageNote}</p>
+                  ) : null}
                   {showEmptySessionRecovery ? (
                     <Button
                       variant="outline"
@@ -885,83 +1057,102 @@ export function SessionsTriagePage() {
               ) : (
                 <div className="divide-y">
                   {recordings.map((recording) => (
-                    <Link
+                    <SessionRow
                       key={recording.id}
-                      to={`/sessions/${encodeURIComponent(recording.id)}`}
-                      className="grid gap-2 px-4 py-3 hover:bg-muted/35 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary sm:grid-cols-4"
-                      aria-label={`${t("sessions.watchReplay")}: ${recording.userId || recording.userKey || recording.anonymousId || t("sessions.anonymous")}`}
+                      friction={
+                        !eventsLabEnabled
+                          ? undefined
+                          : frictionApplied
+                            ? recording.friction
+                            : rowFriction?.friction[recording.id]
+                      }
+                      sortSignal={
+                        isSessionFrictionSignal(sort) ? sort : undefined
+                      }
                     >
-                      <span className="font-medium text-primary">
-                        {formatSessionDuration(recording.durationMs)}
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium">
-                          {recording.userId ||
-                            recording.userKey ||
-                            recording.anonymousId ||
-                            t("sessions.anonymous")}
+                      <Link
+                        to={`/sessions/${encodeURIComponent(recording.id)}`}
+                        className="grid gap-2 px-4 py-3 hover:bg-muted/35 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary sm:grid-cols-4"
+                        aria-label={`${t("sessions.watchReplay")}: ${recording.userId || recording.userKey || recording.anonymousId || t("sessions.anonymous")}`}
+                      >
+                        <span className="font-medium text-primary">
+                          {formatSessionDuration(recording.durationMs)}
                         </span>
-                        <span className="block text-xs text-muted-foreground">
-                          {new Date(recording.startedAt).toLocaleString()}
-                        </span>
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-sm text-primary">
-                          {recording.path ||
-                            recording.hostname ||
-                            recording.sessionId}
-                        </span>
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {recording.app ||
-                            recording.template ||
-                            t("sessions.unknownApp")}
-                        </span>
-                      </span>
-                      <span className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                        <span>
-                          {t("sessions.eventCountCompact", {
-                            count: recording.eventCount.toLocaleString(),
-                          })}
-                        </span>
-                        {recording.errorCount > 0 && (
-                          <span className="text-destructive">
-                            {t(
-                              recording.errorCount === 1
-                                ? "sessions.errorCountSingular"
-                                : "sessions.errorCount",
-                              { count: recording.errorCount.toLocaleString() },
-                            )}
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium">
+                            {recording.userId ||
+                              recording.userKey ||
+                              recording.anonymousId ||
+                              t("sessions.anonymous")}
                           </span>
-                        )}
-                        <span>
-                          {t(
-                            recording.networkErrorCount === 1
-                              ? "sessions.networkErrorCountSingular"
-                              : "sessions.networkErrorCount",
-                            {
-                              count:
-                                recording.networkErrorCount.toLocaleString(),
-                            },
-                          )}
+                          <span className="block text-xs text-muted-foreground">
+                            {new Date(recording.startedAt).toLocaleString()}
+                          </span>
                         </span>
-                        {recording.rageClickCount > 0 && (
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm text-primary">
+                            {recording.path ||
+                              recording.hostname ||
+                              recording.sessionId}
+                          </span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {recording.app ||
+                              recording.template ||
+                              t("sessions.unknownApp")}
+                          </span>
+                        </span>
+                        <span className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                          <span>
+                            {t("sessions.eventCountCompact", {
+                              count: recording.eventCount.toLocaleString(),
+                            })}
+                          </span>
+                          {recording.errorCount > 0 && (
+                            <span className="text-destructive">
+                              {t(
+                                recording.errorCount === 1
+                                  ? "sessions.errorCountSingular"
+                                  : "sessions.errorCount",
+                                {
+                                  count: recording.errorCount.toLocaleString(),
+                                },
+                              )}
+                            </span>
+                          )}
                           <span>
                             {t(
-                              recording.rageClickCount === 1
-                                ? "sessions.rageClickCountSingular"
-                                : "sessions.rageClicks",
+                              recording.networkErrorCount === 1
+                                ? "sessions.networkErrorCountSingular"
+                                : "sessions.networkErrorCount",
                               {
                                 count:
-                                  recording.rageClickCount.toLocaleString(),
+                                  recording.networkErrorCount.toLocaleString(),
                               },
                             )}
                           </span>
-                        )}
-                        <PerformanceHints
-                          performance={speed?.performance[recording.id]}
-                        />
-                      </span>
-                    </Link>
+                          {recording.rageClickCount > 0 && (
+                            <span>
+                              {t(
+                                recording.rageClickCount === 1
+                                  ? "sessions.rageClickCountSingular"
+                                  : "sessions.rageClicks",
+                                {
+                                  count:
+                                    recording.rageClickCount.toLocaleString(),
+                                },
+                              )}
+                            </span>
+                          )}
+                          <PerformanceHints
+                            performance={
+                              eventsLabEnabled
+                                ? speed?.performance[recording.id]
+                                : undefined
+                            }
+                          />
+                        </span>
+                      </Link>
+                    </SessionRow>
                   ))}
                 </div>
               )}
@@ -1075,6 +1266,28 @@ function eventCatalogHref(range: Range, app: string): string {
   if (app) next.set("app", app);
   const query = next.toString();
   return `/sessions/events${query ? `?${query}` : ""}`;
+}
+
+/**
+ * The row as it always was, plus the Lab's friction strip below it. The
+ * strip holds issue links, so it sits beside the row link, not inside it.
+ */
+function SessionRow({
+  friction,
+  sortSignal,
+  children,
+}: {
+  friction: SessionFriction | undefined;
+  sortSignal: SessionFrictionSignal | undefined;
+  children: ReactNode;
+}) {
+  if (!friction) return <>{children}</>;
+  return (
+    <div>
+      {children}
+      <SessionFrictionStrip friction={friction} sortSignal={sortSignal} />
+    </div>
+  );
 }
 
 function CheckFilter({

@@ -13,13 +13,29 @@ export async function isSessionsTriageLabEnabled(
   });
 }
 
+/** What a request asked the Lab for, named in its 403. */
+export type SessionsTriageLabFeature = "events" | "friction" | "speed";
+
+function labFeatureSubject(
+  features: readonly SessionsTriageLabFeature[],
+): string {
+  const nouns = [...new Set(features)];
+  const list =
+    nouns.length < 3
+      ? nouns.join(" and ")
+      : `${nouns.slice(0, -1).join(", ")}, and ${nouns[nouns.length - 1]}`;
+  const plural = nouns.length > 1 || nouns[0] === "events";
+  return `Session ${list} ${plural ? "are" : "is"}`;
+}
+
 export async function assertSessionsTriageLabEnabled(
   userEmail: string | undefined,
   orgId?: string | null,
+  features: readonly SessionsTriageLabFeature[] = ["events"],
 ): Promise<void> {
   if (await isSessionsTriageLabEnabled(userEmail, orgId)) return;
   fail(
-    "Session events are part of the Sessions triage Lab. Turn it on in Settings > Labs.",
+    `${labFeatureSubject(features)} part of the Sessions triage Lab. Turn it on in Settings > Labs.`,
     { errorCode: "sessions_triage_lab_disabled", statusCode: 403 },
   );
 }

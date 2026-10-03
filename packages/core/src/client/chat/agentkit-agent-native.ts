@@ -38,7 +38,8 @@ import {
   type AgentKitProtocolAdapter,
   type CreateAgentKitProtocolAdapterOptions,
 } from "./agentkit-protocol.js";
-import { trackRunOutcome } from "./run-outcome-telemetry.js";
+import { trackRunFeedback, trackRunOutcome } from "./run-outcome-telemetry.js";
+import { runOutcomeForCode } from "./run-outcome.js";
 import {
   createAgentNativeChatRuntime,
   isAgentNativeChatRuntime,
@@ -1691,8 +1692,12 @@ export function createAgentNativeAgentKitTransport(
   ): Promise<AgentRunSnapshot | null | undefined> {
     const value = await activeRunStatus(threadId);
     const status = value.status;
-    if (value.active === false) return null;
-    if (value.active !== true) return undefined;
+    if (typeof value.active !== "boolean") return undefined;
+    // An idle thread has no run; a run that just finished keeps its id and
+    // status for replay even though it is no longer `active`.
+    if (value.active === false && (status === "idle" || !value.runId)) {
+      return null;
+    }
     if (typeof value.runId !== "string" || !value.runId) {
       throw new TypeError(
         "Agent chat active-run response must include an active run ID.",
@@ -2100,17 +2105,24 @@ export function createAgentNativeAgentKitTransport(
     };
   }
 
-  function runSlotIsClear(status: ActiveRunStatus): boolean {
+  // A server that predates `active` meaning "in flight" reports a run inside
+  // its reconnect window as `active` with a terminal status.
+  function runIsInFlight(status: ActiveRunStatus): boolean {
     return (
-      status.awaitingRedispatch !== true &&
-      (status.active !== true ||
-        status.status === "completed" ||
-        status.status === "complete" ||
-        status.status === "failed" ||
-        status.status === "cancelled" ||
-        status.status === "errored" ||
-        status.status === "aborted")
+      status.active === true &&
+      ![
+        "completed",
+        "complete",
+        "failed",
+        "cancelled",
+        "errored",
+        "aborted",
+      ].includes(String(status.status ?? ""))
     );
+  }
+
+  function runSlotIsClear(status: ActiveRunStatus): boolean {
+    return status.awaitingRedispatch !== true && !runIsInFlight(status);
   }
 
   async function waitForRunSlot(
@@ -2210,9 +2222,14 @@ export function createAgentNativeAgentKitTransport(
   const feedbackUrl =
     options.feedbackUrl ??
     agentNativePath("/_agent-native/observability/feedback");
+  const onRunOutcome = options.adapter?.onRunOutcome ?? trackRunOutcome;
   const protocolTransport = createAgentKitProtocolAdapter(runtime, {
-    onRunOutcome: trackRunOutcome,
     ...options.adapter,
+    onRunOutcome,
+    // A spread would freeze the host's label at its locale when this was built.
+    get autoContinueLabel() {
+      return options.adapter?.autoContinueLabel;
+    },
     metadata: adapterMetadata(options),
     capabilities: {
       ...options.adapter?.capabilities,
@@ -2336,11 +2353,16 @@ export function createAgentNativeAgentKitTransport(
             throw new TypeError("Agent chat queue claim response is invalid.");
           }
           if (interruptActiveRun) {
-            const activeRun = await activeRunSnapshot(threadId);
-            if (activeRun) {
+            const activeRun = await activeRunStatus(threadId);
+            if (runIsInFlight(activeRun)) {
+              if (typeof activeRun.runId !== "string" || !activeRun.runId) {
+                throw new TypeError(
+                  "Agent chat active-run response must include an active run ID.",
+                );
+              }
               await transport.cancelRun({
                 threadId,
-                runId: activeRun.id,
+                runId: activeRun.runId,
               });
               await waitForRunSlot(threadId, RUN_SLOT_STABLE_POLLS * 4);
             }
@@ -2527,11 +2549,42 @@ export function createAgentNativeAgentKitTransport(
           }),
         });
         if (!response.ok) throw await responseError(response);
+        trackRunFeedback({ runId, threadId, positive: value === "positive" });
       },
       ...options.operations,
     },
   });
   const protocolStartRun = protocolTransport.startRun.bind(protocolTransport);
+  // The adapter reports a run once it has started. A turn refused at its
+  // start, such as a chat with no model connected, would go unreported.
+  const reportStartFailure = (threadId: string, error: unknown) => {
+    const record = asRecord(error);
+    if (typeof record?.turnId !== "string" || record.name === "AbortError") {
+      return;
+    }
+    const code = typeof record.code === "string" ? record.code : undefined;
+    try {
+      onRunOutcome({
+        runId: record.turnId,
+        threadId,
+        outcome: runOutcomeForCode(code),
+        ...(code ? { code } : {}),
+        ...(error instanceof Error && error.message
+          ? { message: error.message }
+          : {}),
+        ...(typeof record.retryable === "boolean"
+          ? { retryable: record.retryable }
+          : {}),
+        terminalSource: "local",
+        verifiedAfterPipeClosed: false,
+        resumeAttempts: 0,
+        quietReads: 0,
+        drainAttempts: 0,
+      });
+    } catch {
+      // coercion-ok: telemetry must never change how a start fails.
+    }
+  };
   const startRun: typeof protocolTransport.startRun = async (
     input,
     context,
@@ -2557,6 +2610,7 @@ export function createAgentNativeAgentKitTransport(
         Object.assign(busy, { status: 409 });
         throw busy;
       }
+      reportStartFailure(input.threadId, error);
       throw error;
     }
   };

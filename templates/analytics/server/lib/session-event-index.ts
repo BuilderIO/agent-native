@@ -23,6 +23,7 @@ import {
   type SessionEventNameCount,
 } from "../../shared/session-events.js";
 import { getDb, schema } from "../db/index.js";
+import { recordSessionEventFriction } from "./session-friction.js";
 
 /**
  * Session event index.
@@ -246,7 +247,9 @@ export function aggregateSessionEventIndexRows(
   };
 }
 
-function sessionEventGapRows(
+/** One gap marker per session in the batch; friction gaps share the shape. */
+export function sessionGapRows(
+  idPrefix: "aseg" | "asfg",
   rows: readonly SessionEventIndexInputRow[],
   receivedAt: string,
 ): SessionGapRow[] {
@@ -256,7 +259,7 @@ function sessionEventGapRows(
     if (!sessionId || !row.ownerEmail) continue;
     const orgId = row.orgId || null;
     const tenantKey = sessionEventTenantKey(row.ownerEmail, orgId);
-    const id = stableId("aseg", [tenantKey, sessionId]);
+    const id = stableId(idPrefix, [tenantKey, sessionId]);
     if (gaps.has(id)) continue;
     gaps.set(id, {
       id,
@@ -351,6 +354,7 @@ export async function recordSessionEventIndex(
           })),
         )
         .onConflictDoNothing();
+      await recordSessionEventFriction(savepoint, rows, receivedAt);
     });
   } catch (error) {
     // Deploys ship code before the scheduled migration creates these tables.
@@ -367,7 +371,7 @@ export async function recordSessionEventIndex(
     // recorded or "didn't" would read their missing events as absence.
     await tx
       .insert(schema.analyticsSessionEventGaps)
-      .values(sessionEventGapRows(rows, receivedAt))
+      .values(sessionGapRows("aseg", rows, receivedAt))
       .onConflictDoNothing();
     warnIndexFailure(
       "Session event index write failed; its sessions are marked incomplete:",

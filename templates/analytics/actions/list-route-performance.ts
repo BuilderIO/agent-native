@@ -47,7 +47,7 @@ export default defineAction({
       });
     }
     const orgId = getRequestOrgId() || null;
-    await assertSessionsTriageLabEnabled(userEmail, orgId);
+    await assertSessionsTriageLabEnabled(userEmail, orgId, ["speed"]);
     return listRoutePerformance({ userEmail, orgId }, args);
   },
 });

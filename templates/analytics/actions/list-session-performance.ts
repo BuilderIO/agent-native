@@ -31,7 +31,7 @@ export default defineAction({
       });
     }
     const orgId = getRequestOrgId() || null;
-    await assertSessionsTriageLabEnabled(userEmail, orgId);
+    await assertSessionsTriageLabEnabled(userEmail, orgId, ["speed"]);
     return getSessionRecordingPerformance({ userEmail, orgId }, recordingIds);
   },
 });

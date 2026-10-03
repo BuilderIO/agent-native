@@ -8,7 +8,9 @@ import {
   mergeThreadDataForClientSave,
   upsertUserMessage,
 } from "../../agent/thread-data-builder.js";
+import { agentTroubleCauseForCode } from "../../shared/analytics-events.js";
 import { createAgentNativeAgentKitTransport } from "./agentkit-agent-native.js";
+import type { RunOutcomeReport } from "./run-outcome.js";
 import {
   createAgentNativeChatRuntime,
   createHttpAgentChatRuntime,
@@ -1209,6 +1211,67 @@ describe("createAgentNativeAgentKitTransport", () => {
     await transport.dispose();
   });
 
+  it("reports a turn refused at its start under the id the server recorded", async () => {
+    const sentTurnIds: string[] = [];
+    let respond: () => Response | Promise<Response> = () =>
+      json(
+        {
+          statusCode: 403,
+          statusMessage:
+            "Connect Builder AI or a provider API key before chatting.",
+          data: { code: "AGENT_CHAT_AI_SETUP_REQUIRED" },
+        },
+        403,
+      );
+    const fetcher = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      sentTurnIds.push(JSON.parse(String(init?.body)).turnId);
+      return respond();
+    });
+    const reports: RunOutcomeReport[] = [];
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+      adapter: { onRunOutcome: (report) => reports.push(report) },
+    });
+    const start = () =>
+      transport.startRun({
+        threadId: "thread-1",
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Hello" }],
+          },
+        ],
+      });
+
+    await expect(start()).rejects.toMatchObject({
+      code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+      status: 403,
+    });
+    expect(reports).toEqual([
+      expect.objectContaining({
+        runId: sentTurnIds[0],
+        threadId: "thread-1",
+        outcome: "failed",
+        code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+        terminalSource: "local",
+      }),
+    ]);
+    expect(agentTroubleCauseForCode(reports[0]!.code)).toBe(
+      "no_model_connected",
+    );
+
+    respond = () => {
+      throw new DOMException("signal is aborted without reason", "AbortError");
+    };
+    await expect(start()).rejects.toMatchObject({ name: "AbortError" });
+    respond = () => json({ code: "run_slot_busy" }, 409);
+    await expect(start()).rejects.toMatchObject({ status: 409 });
+    expect(reports).toHaveLength(1);
+    await transport.dispose();
+  });
+
   describe("a prompt the server refused before its run started", () => {
     const reference = {
       type: "file",
@@ -1504,27 +1567,77 @@ describe("createAgentNativeAgentKitTransport", () => {
     parts: [{ type: "text", text: "Write forty lines" }],
   };
 
-  it("restores a finished run's reply the reloaded page never saved into the AgentKit snapshot", async () => {
+  // `active` is false once the run is no longer in flight; the finished run's
+  // id and status still come back inside the reconnect window for replay.
+  it.each([true, false])(
+    "restores a finished run's reply the reloaded page never saved into the AgentKit snapshot (active: %s)",
+    async (active) => {
+      const transport = createAgentNativeAgentKitTransport({
+        fetch: vi.fn(async (input: string | URL | Request) =>
+          String(input).includes("/runs/active")
+            ? json({ active, status: "completed", runId: "run-1" })
+            : json(reloadedMidRunThread([reloadedPrompt])),
+        ) as typeof fetch,
+      });
+
+      const snapshot = await transport.getThreadSnapshot?.({
+        threadId: "thread-reloaded",
+      });
+
+      expect(snapshot?.messages).toMatchObject([
+        { id: "user-1", role: "user" },
+        {
+          id: "server-run-1",
+          role: "assistant",
+          parts: [{ type: "text", text: "L1: one\nL40: forty" }],
+        },
+      ]);
+      expect(snapshot?.runs?.find((run) => run.id === "run-1")?.status).toBe(
+        "completed",
+      );
+      expect(snapshot?.activeRunIds ?? []).toEqual([]);
+      await transport.dispose();
+    },
+  );
+
+  it("reports a finished run's failure after the server stops calling it active", async () => {
     const transport = createAgentNativeAgentKitTransport({
       fetch: vi.fn(async (input: string | URL | Request) =>
         String(input).includes("/runs/active")
-          ? json({ active: true, status: "completed", runId: "run-1" })
-          : json(reloadedMidRunThread([reloadedPrompt])),
+          ? json({
+              active: false,
+              status: "completed",
+              runId: "run-timeout",
+              terminalReason: "run_timeout",
+            })
+          : json({
+              id: "thread-timeout",
+              threadData: JSON.stringify({
+                messages: [],
+                agentKit: {
+                  messages: [],
+                  runs: [
+                    {
+                      id: "run-timeout",
+                      threadId: "thread-timeout",
+                      status: "running",
+                      lastSequence: 0,
+                    },
+                  ],
+                  activeRunIds: ["run-timeout"],
+                },
+              }),
+            }),
       ) as typeof fetch,
     });
 
     const snapshot = await transport.getThreadSnapshot?.({
-      threadId: "thread-reloaded",
+      threadId: "thread-timeout",
     });
 
-    expect(snapshot?.messages).toMatchObject([
-      { id: "user-1", role: "user" },
-      {
-        id: "server-run-1",
-        role: "assistant",
-        parts: [{ type: "text", text: "L1: one\nL40: forty" }],
-      },
-    ]);
+    expect(
+      snapshot?.runs?.find((run) => run.id === "run-timeout")?.error,
+    ).toMatchObject({ code: "run_timeout", retryable: true });
     expect(snapshot?.activeRunIds ?? []).toEqual([]);
     await transport.dispose();
   });
@@ -4413,6 +4526,82 @@ describe("createAgentNativeAgentKitTransport", () => {
     ]);
     expect(queueWrites[1]?.claimId).toBe(queueWrites[0]?.claimId);
     expect(queuedMessages[0]).not.toHaveProperty("promotionClaim");
+    await transport.dispose();
+  });
+
+  it("does not cancel a finished run an older server still reports as active", async () => {
+    const threadId = "thread-old-server";
+    const queuedMessages: Array<Record<string, unknown>> = [
+      {
+        id: "queued-old",
+        threadId,
+        text: "Send after the finished run",
+        createdAt: "2026-09-01T00:00:00.000Z",
+      },
+    ];
+    let startRequests = 0;
+    const requests: string[] = [];
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        requests.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.includes("/runs/active")) {
+          // Before `active` meant in flight: a run inside the reconnect window.
+          return json({
+            active: true,
+            runId: "run-done",
+            status: "completed",
+          });
+        }
+        if (url.endsWith(`/threads/${threadId}/queued`)) {
+          const mutation = JSON.parse(String(init?.body)).mutation;
+          if (mutation.type === "claim") {
+            const claimedMessage = {
+              ...queuedMessages[0],
+              promotionClaim: {
+                id: mutation.claimId,
+                expiresAt: Date.now() + 10_000,
+              },
+            };
+            queuedMessages[0] = claimedMessage;
+            return json({ queuedMessages, claimedMessage });
+          }
+          return json({ queuedMessages });
+        }
+        if (url.endsWith(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({ queuedMessages }),
+          });
+        }
+        if (
+          url.endsWith("/_agent-native/agent-chat") &&
+          init?.method === "POST"
+        ) {
+          startRequests += 1;
+          return json(
+            { error: "busy", code: "run_slot_busy", retryable: true },
+            409,
+          );
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await expect(
+      transport.steerQueuedMessage?.({
+        threadId,
+        messageId: "queued-old",
+        interruptActiveRun: true,
+      }),
+    ).rejects.toMatchObject({ code: "run_slot_busy" });
+
+    expect(startRequests).toBe(1);
+    expect(requests.some((request) => /cancel/i.test(request))).toBe(false);
     await transport.dispose();
   });
 

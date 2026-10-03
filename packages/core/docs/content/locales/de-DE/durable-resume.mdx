@@ -100,6 +100,12 @@ Together the two layers mean an interrupted run that already had a real side eff
 
 </Callout>
 
+## Automatisches Fortsetzen nach einem Zeitlimit {#auto-continue}
+
+Wenn der Server einen Turn an seinem Laufzeitlimit stoppt und serverseitig nichts ihn übernimmt, setzt der Chat ihn selbst fort, im **selben Turn**. Der fortgesetzte Lauf erhält die Tool-Aufrufe und Ergebnisse des Threads sowie die obige Journalnotiz, sodass abgeschlossene Schritte wiederverwendet werden. Eine identische Wiederholung eines Schreibvorgangs – auch einer App-übergreifenden `call-agent`-Delegation, deren Idempotenzschlüssel aus dem Turn abgeleitet wird – liefert das aufgezeichnete Ergebnis, statt erneut gesendet zu werden. Der Chat zeigt den Status _Wird fortgesetzt_, und Stopp funktioniert weiterhin.
+
+Ein Turn wird **höchstens dreimal** automatisch fortgesetzt. Der Zähler wird mit den Läufen des Turns gespeichert, sodass ein Neuladen der Seite ihn nicht zurücksetzt und ein zweiter Tab ihn nicht verdoppeln kann. Danach, oder nach einem Fehler, Stopp, Abbruch oder einem Zugangsdaten- oder Ratenlimit, endet der Turn mit verfügbarem **Fortsetzen** und wartet auf dich.
+
 ## Verwandt
 
 - [**Real-Time Sync**](/docs/real-time-collaboration) – wie das dauerhafte Laufbuch zum Client streamt und bei erneuter Verbindung wiedergibt.

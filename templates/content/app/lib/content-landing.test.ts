@@ -10,6 +10,7 @@ vi.mock("@agent-native/core/client/application-state", () => ({
 
 import {
   contentLandingRecoveryTarget,
+  isPersonalLanding,
   readContentLandingRecovery,
   rememberContentLandingDocument,
 } from "./content-landing";
@@ -167,5 +168,19 @@ describe("readContentLandingRecovery", () => {
     ]) {
       expect(readContentLandingRecovery(state)).toBeNull();
     }
+  });
+});
+
+describe("isPersonalLanding", () => {
+  it("is /home without a space or a page to explain", () => {
+    const home = { pathname: "/home", search: "", state: null };
+    expect(isPersonalLanding(home)).toBe(true);
+    expect(isPersonalLanding({ ...home, search: "?spaceId=space-1" })).toBe(
+      false,
+    );
+    expect(
+      isPersonalLanding({ ...home, state: { unavailableDocumentId: "inbox" } }),
+    ).toBe(false);
+    expect(isPersonalLanding({ ...home, pathname: "/page/inbox" })).toBe(false);
   });
 });

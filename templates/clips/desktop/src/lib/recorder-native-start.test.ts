@@ -438,13 +438,19 @@ describe("native recording startup", () => {
 
   it("fails cleanly when native countdown presentation stalls", async () => {
     const overlay = deferred<number>();
+    const createResponse = deferred<Response>();
     nativeCommands.set("show_countdown", () => overlay.promise);
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/create-recording")) return createResponse.promise;
+      return new Response("{}", { status: 200 });
+    });
 
     const pending = startRecording(params);
     const failed = expect(pending).rejects.toMatchObject({
       name: "TimeoutError",
     });
     await flush();
+    const id = createdRecordingId();
     await vi.advanceTimersByTimeAsync(10_000);
     await failed;
 
@@ -453,12 +459,102 @@ describe("native recording startup", () => {
       0,
     );
 
+    createResponse.resolve(
+      new Response(
+        JSON.stringify({ result: { id, uploadMode: "streaming" } }),
+        { status: 200 },
+      ),
+    );
+    await flush();
+    const abortCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes(`/api/uploads/${id}/abort`),
+    );
+    expect(abortCalls).toHaveLength(1);
+    expect(String(abortCalls[0][1]?.body)).toContain(
+      '"failureCode":"upload_failed"',
+    );
+    expect(calls("native_fullscreen_recording_warm")).toHaveLength(0);
+    expect(mocks.transcribe).not.toHaveBeenCalled();
+
     overlay.resolve(1);
     await flush();
     expect(calls("finish_countdown_shortcuts")).toContainEqual([
       "finish_countdown_shortcuts",
       { generation: 1 },
     ]);
+  });
+
+  it("does not prepare Rewind after its concurrent countdown fails", async () => {
+    const overlay = deferred<number>();
+    const createResponse = deferred<Response>();
+    nativeCommands.set("rewind_clip_status", async () => ({
+      compatibility: "compatible",
+      active: false,
+    }));
+    nativeCommands.set("show_countdown", () => overlay.promise);
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/create-recording")) return createResponse.promise;
+      return new Response("{}", { status: 200 });
+    });
+
+    const pending = startRecording({ ...params, source: "full-screen" });
+    const failed = expect(pending).rejects.toMatchObject({
+      name: "TimeoutError",
+    });
+    await flush();
+    const id = createdRecordingId();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await failed;
+
+    createResponse.resolve(
+      new Response(
+        JSON.stringify({ result: { id, uploadMode: "streaming" } }),
+        { status: 200 },
+      ),
+    );
+    await flush();
+
+    expect(calls("rewind_clip_prepare")).toHaveLength(0);
+    expect(mocks.transcribe).not.toHaveBeenCalled();
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes(`/api/uploads/${id}/abort`),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("cancels Rewind countdown while event listeners are still registering", async () => {
+    const listenerRegistration = deferred<void>();
+    mocks.listen.mockImplementation(async (name, callback) => {
+      if (
+        name === "clips:countdown-done" ||
+        name === "clips:countdown-cancel"
+      ) {
+        await listenerRegistration.promise;
+      }
+      const callbacks = handlers.get(name) ?? new Set();
+      callbacks.add(callback);
+      handlers.set(name, callbacks);
+      return () => callbacks.delete(callback);
+    });
+    nativeCommands.set("rewind_clip_status", async () => ({
+      compatibility: "compatible",
+      active: false,
+    }));
+    fetchMock.mockImplementation(async (url: string) =>
+      url.endsWith("/create-recording")
+        ? new Response("Unavailable", { status: 503 })
+        : new Response("{}", { status: 200 }),
+    );
+
+    const pending = startRecording({ ...params, source: "full-screen" });
+    const failed = expect(pending).rejects.toThrow("SERVER_UNAVAILABLE");
+    await flush();
+
+    listenerRegistration.resolve();
+    await failed;
+
+    expect(calls("show_countdown")).toHaveLength(0);
   });
 
   it("fails startup when the visible countdown never completes", async () => {
@@ -624,18 +720,18 @@ describe("native recording startup", () => {
     expect(getUserMedia).not.toHaveBeenCalled();
   });
 
-  it("waits to show the countdown until the native warm invoke completes", async () => {
+  it("runs the countdown while native warm completes, then begins capture", async () => {
     const warm = deferred<void>();
     nativeCommands.set("native_fullscreen_recording_warm", () => warm.promise);
     const pending = startRecording(params);
-    await vi.advanceTimersByTimeAsync(10_000);
-    expect(calls("show_countdown")).toHaveLength(0);
-    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
-    expect(mocks.transcribe).not.toHaveBeenCalled();
-    warm.resolve();
     await flush();
     expect(calls("show_countdown")).toHaveLength(1);
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+    expect(mocks.transcribe).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(3_600);
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+    warm.resolve();
+    await flush();
     const handle = await pending;
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
     await handle.cancel();
@@ -655,18 +751,17 @@ describe("native recording startup", () => {
     expect(mocks.emit).not.toHaveBeenCalledWith("clips:toolbar-enabled", true);
   });
 
-  it("waits for slow transcription and retains the capture instead of late-cancelling it", async () => {
+  it("runs the countdown during transcription startup and retains the capture", async () => {
     const transcription = deferred<TranscriptionCapture>();
     const transcript = capture();
     mocks.transcribe.mockReturnValueOnce(transcription.promise);
     const pending = startRecording(params);
+    await flush();
+    expect(calls("show_countdown")).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(10_000);
-    expect(calls("show_countdown")).toHaveLength(0);
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
     transcription.resolve(transcript);
     await flush();
-    expect(calls("show_countdown")).toHaveLength(1);
-    await vi.advanceTimersByTimeAsync(3_600);
     const handle = await pending;
     expect(transcript.cancel).not.toHaveBeenCalled();
     expect(transcript.resetTimeline).toHaveBeenCalledOnce();
@@ -683,7 +778,7 @@ describe("native recording startup", () => {
       name: "AbortError",
     });
     await flush();
-    expect(calls("show_countdown")).toHaveLength(0);
+    expect(calls("show_countdown")).toHaveLength(1);
     controller.abort();
     await flush();
     warm.resolve();

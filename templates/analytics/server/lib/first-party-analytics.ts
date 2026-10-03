@@ -1,5 +1,10 @@
 import { getDbExec } from "@agent-native/core/db";
-import { runWithRequestContext } from "@agent-native/core/server";
+import {
+  isTestIdentity,
+  runWithRequestContext,
+  testIdentitySql,
+} from "@agent-native/core/server";
+import { testIdentityEmailSql } from "@agent-native/core/shared";
 import { and, eq, isNull, lt, or, sql } from "drizzle-orm";
 
 import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
@@ -69,6 +74,8 @@ export interface AnalyticsQueryResult {
 export interface AnalyticsQueryOptions {
   cache?: boolean;
   timeoutMs?: number;
+  /** Debugging only: metrics exclude test identities by default. */
+  includeTestIdentities?: boolean;
 }
 
 const MAX_EVENTS_PER_REQUEST = 100;
@@ -113,14 +120,17 @@ const SAFE_ANALYTICS_SQL_FUNCTIONS = new Set([
   "floor",
   "greatest",
   "least",
+  "left",
   "lower",
   "max",
   "min",
   "nullif",
+  "right",
   "round",
   "row_number",
   "split_part",
   "string_to_array",
+  "strpos",
   "substr",
   "sum",
   "to_char",
@@ -655,10 +665,47 @@ export function parseAnalyticsTrackPayload(raw: unknown): {
   return { publicKey, events };
 }
 
+export interface RecordAnalyticsEventsResult {
+  accepted: number;
+  /**
+   * Test-identity events kept out of analytics tables. Their `$exception`
+   * events still reach error issues, flagged as test-identity occurrences.
+   */
+  suppressedTestIdentity: number;
+  keyId: string;
+}
+
+const IDENTITY_EMAIL_FIELDS = [
+  "user_email",
+  "userEmail",
+  "email",
+  "test_identity_email",
+] as const;
+
+// Senders drop most test-identity events, but a browser only knows the
+// built-in rule, so ingest re-checks every identity an event carries, its
+// context included, with the deployment's configured identities. Only an
+// identity counts: anyone holding the public write key can set a
+// `test_identity` flag on a real user's event to hide it and its alerts.
+function isTestIdentityEvent(
+  userId: string | null,
+  properties: Record<string, unknown>,
+  context: Record<string, unknown>,
+): boolean {
+  return [
+    userId,
+    ...IDENTITY_EMAIL_FIELDS.flatMap((field) => [
+      properties[field],
+      context[field],
+    ]),
+    asRecord(context.traits).email,
+  ].some(isTestIdentity);
+}
+
 export async function recordAnalyticsEvents(
   publicKey: string,
   events: IncomingAnalyticsEvent[],
-): Promise<{ accepted: number; keyId: string }> {
+): Promise<RecordAnalyticsEventsResult> {
   const db = getDb() as any;
   // guard:allow-unscoped -- public ingestion must resolve the owning tenant from the submitted write key before it can scope inserts.
   const [key] = await db
@@ -680,7 +727,8 @@ export async function recordAnalyticsEvents(
     properties: Record<string, unknown>;
     derived: DerivedExceptionFields;
   }> = [];
-  const rows = events.map((event) => {
+  let suppressedTestIdentity = 0;
+  const rows = events.flatMap((event) => {
     const properties = event.properties ?? {};
     const context = event.context ?? {};
     const url =
@@ -724,6 +772,7 @@ export async function recordAnalyticsEvents(
     })
       ? "false"
       : reportedSignedIn;
+    const testIdentity = isTestIdentityEvent(userId, properties, context);
 
     if (event.event === EXCEPTION_EVENT_NAME) {
       exceptionSources.push({
@@ -737,8 +786,13 @@ export async function recordAnalyticsEvents(
           userKey,
           sessionId,
           timestamp,
+          testIdentity,
         },
       });
+    }
+    if (testIdentity) {
+      suppressedTestIdentity += 1;
+      return [];
     }
 
     return {
@@ -850,7 +904,7 @@ export async function recordAnalyticsEvents(
 
   if (persistenceError) throw persistenceError;
 
-  return { accepted: rows.length, keyId: key.id };
+  return { accepted: rows.length, suppressedTestIdentity, keyId: key.id };
 }
 
 function stripSqlLiterals(sql: string): string {
@@ -1288,15 +1342,29 @@ export function validateFirstPartyAnalyticsSql(sql: string): void {
   validateAnalyticsSqlFunctions(sql);
 }
 
+// The identity column each source can be filtered on. Daily event rollups
+// carry no identity, so ingest keeps test identities out of them instead.
+const TEST_IDENTITY_COLUMNS: Record<string, string> = {
+  analytics_events: "user_id",
+  analytics_user_days: "user_key",
+  session_recordings: "user_id",
+};
+
 function scopedTableSource(
   tableName: string,
   scope: AnalyticsScope,
   today: string,
   parameterOffset: number,
+  includeTestIdentities: boolean,
 ): {
   sql: string;
   args: Array<string | null>;
 } {
+  const identityColumn = TEST_IDENTITY_COLUMNS[tableName];
+  const testIdentityFilter =
+    identityColumn && !includeTestIdentities
+      ? ` AND NOT ${testIdentitySql(identityColumn)}`
+      : "";
   if (FIRST_PARTY_ROLLUP_TABLES.has(tableName)) {
     if (scope.credentialScope === "org" && !scope.orgId) {
       return {
@@ -1316,7 +1384,7 @@ function scopedTableSource(
         : [`user:${scope.userEmail}`];
     const branches = tenantKeys.map((_, index) => {
       const tenantKeyParameter = parameterOffset + index * 2 + 1;
-      return `SELECT * FROM ${tableName} WHERE tenant_key = $${tenantKeyParameter} AND event_date <= $${tenantKeyParameter + 1}`;
+      return `SELECT * FROM ${tableName} WHERE tenant_key = $${tenantKeyParameter} AND event_date <= $${tenantKeyParameter + 1}${testIdentityFilter}`;
     });
     return {
       sql: `(${branches.join(" UNION ALL ")})`,
@@ -1329,13 +1397,13 @@ function scopedTableSource(
     const orgParameter = parameterOffset + 1;
     if (scope.credentialScope === "org") {
       return {
-        sql: `(SELECT * FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)})`,
+        sql: `(SELECT * FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${testIdentityFilter})`,
         args: [scope.orgId, today],
       };
     }
     const ownerParameter = parameterOffset + 3;
     return {
-      sql: `(SELECT * FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)} UNION ALL SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${ownerParameter} AND ${freshnessClause(tableName, ownerParameter + 1)})`,
+      sql: `(SELECT * FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${testIdentityFilter} UNION ALL SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${ownerParameter} AND ${freshnessClause(tableName, ownerParameter + 1)}${testIdentityFilter})`,
       args: [scope.orgId, today, ownerEmail, today],
     };
   }
@@ -1343,7 +1411,7 @@ function scopedTableSource(
     return { sql: `(SELECT * FROM ${tableName} WHERE 1 = 0)`, args: [] };
   }
   return {
-    sql: `(SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${parameterOffset + 1} AND ${freshnessClause(tableName, parameterOffset + 2)})`,
+    sql: `(SELECT * FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${parameterOffset + 1} AND ${freshnessClause(tableName, parameterOffset + 2)}${testIdentityFilter})`,
     args: [ownerEmail, today],
   };
 }
@@ -1355,17 +1423,37 @@ function freshnessClause(tableName: string, parameter: number): string {
   return `(substr(started_at, 1, 10) <= $${parameter})`;
 }
 
+/**
+ * Dashboard SQL is stored and interpolated outside the server, so it can only
+ * carry the built-in matcher (`testIdentityEmailSql`). Widen each one to this
+ * deployment's configured identities, so a stored panel excludes the same
+ * people as every other query.
+ */
+function withConfiguredTestIdentities(sql: string): string {
+  const marker = "an_test_identity_column";
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const [head, ...rest] = testIdentityEmailSql(marker).split(marker);
+  const builtIn = new RegExp(
+    `${escape(head!)}([A-Za-z_][\\w.]*)${rest.map(escape).join("\\1")}`,
+    "g",
+  );
+  return sql.replace(builtIn, (_match, column: string) =>
+    testIdentitySql(column),
+  );
+}
+
 export function scopedAnalyticsSql(
   sql: string,
   scope: AnalyticsScope,
   today = todayIsoDate(),
+  { includeTestIdentities = false }: { includeTestIdentities?: boolean } = {},
 ): { sql: string; args: Array<string | null> } {
   const args: Array<string | null> = [];
   const aliasRe = new RegExp(
     `\\b(from|join)\\s+(${FIRST_PARTY_QUERY_TABLE_PATTERN})\\b(\\s+(?:as\\s+)?(?!where\\b|on\\b|group\\b|order\\b|limit\\b|join\\b|left\\b|right\\b|inner\\b|outer\\b|cross\\b|full\\b|having\\b|union\\b)([a-zA-Z_][a-zA-Z0-9_]*))?`,
     "gi",
   );
-  const rewritten = sql.replace(
+  const rewritten = withConfiguredTestIdentities(sql).replace(
     aliasRe,
     (full, keyword, tableName, aliasPart, alias) => {
       const normalizedTable = String(tableName).toLowerCase();
@@ -1382,6 +1470,7 @@ export function scopedAnalyticsSql(
         scope,
         today,
         args.length,
+        includeTestIdentities,
       );
       args.push(...scopedSource.args);
       return `${keyword} ${scopedSource.sql}${usableAlias}`;
@@ -1446,13 +1535,16 @@ export async function queryFirstPartyAnalytics(
 ): Promise<AnalyticsQueryResult> {
   validateFirstPartyAnalyticsSqlShape(sql);
   const backend = await getFirstPartyAnalyticsBackend(scope);
+  const scopeOptions = {
+    includeTestIdentities: options.includeTestIdentities === true,
+  };
   if (firstPartyAnalyticsQueryTarget(sql, backend.sink) === "bigquery") {
     const table = await getFirstPartyAnalyticsTable(backend.table);
-    const scoped = scopedAnalyticsSql(sql, scope);
+    const scoped = scopedAnalyticsSql(sql, scope, undefined, scopeOptions);
     return queryFirstPartyAnalyticsInBigQuery(scoped.sql, scoped.args, table);
   }
   validateAnalyticsSqlFunctions(sql);
-  const scoped = scopedAnalyticsSql(sql, scope);
+  const scoped = scopedAnalyticsSql(sql, scope, undefined, scopeOptions);
   const scopedSql = scoped.sql;
   const wrappedSql = `SELECT * FROM (${scopedSql}) AS first_party_analytics_query LIMIT ${MAX_QUERY_ROWS + 1}`;
   const timeoutMs = Math.max(

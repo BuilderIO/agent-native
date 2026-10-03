@@ -113,6 +113,90 @@ agent answers about browser recordings in the Analytics template.
   them are two days past replay retention, and its gap marker after that. The
   BigQuery-cutover purge leaves these tables alone.
 
+## Friction Signals
+
+- Friction is derived at ingest into Analytics' own tables and read only
+  from them, in every sink mode. Replay signals (dead clicks, Sonner error
+  toasts, retry loops, leaving within 30 seconds of an error, stalled
+  requests over `STALLED_REQUEST_THRESHOLD_MS`, 4xx and 5xx responses) come from the
+  rrweb chunks in `recordSessionReplayChunks`, one row per recording in
+  `session_recording_friction`. Event signals (failed actions, agent
+  failures, stuck chats, thumbs-down, quick backs, cancelled runs) and their
+  trouble groups come from tracked events in a savepoint nested inside the
+  event index savepoint, one row per session in `analytics_session_friction`
+  plus `analytics_session_trouble`.
+- A request the page aborted itself (status 0 with an error `isBenignAbort`
+  in core recognizes, or the recorder's `XMLHttpRequest aborted`) is not a
+  failure: it never feeds retry loops or leaving after an error. Any other
+  status-0 failure does.
+- Never store page text or URLs: detector state keeps timestamps, rrweb node
+  ids, and hashed request keys; quick backs compare hashed paths.
+- A replay row counts only while `processed_chunks` equals the recording's
+  `chunk_count`. Each batch must continue from the stored detector state and
+  its chunk seqs must start exactly at `processed_chunks`, so a batch that
+  cannot be measured, or arrives out of order, leaves the row behind and the
+  recording reads as unmeasured; never restart from fresh state. An event row
+  counts only when the tenant's friction coverage began before every
+  recording of the session and the session has neither an event index gap
+  nor a friction gap (`analytics_session_friction_gaps`). A friction write
+  failure rolls back only friction and records a friction gap; the index
+  write stays. Only a failed friction gap insert fails the index savepoint.
+- Thumbs-down and cancelled runs are measured only for sessions whose
+  pageviews carried `agent_signals` (`AGENT_SIGNALS_PAGEVIEW_PROPERTY` in
+  core): older clients sampled stops and sent no ratings. One session id
+  spans every tab, so an old tab can share a session with a new one: any
+  unmarked pageview or sampled stop sets `agent_signals_missing`, and both
+  flags are OR-merged. Unless `agent_signals_measured` is set and
+  `agent_signals_missing` is not, both counts read as null, stay out of the
+  score, never match a filter, and sort last. A stop counts only when sent
+  unsampled (`sample_rate` absent or 1).
+- Reads must keep "unmeasured" (null) apart from "measured, no friction" (0).
+  Until the migration creates `analytics_session_friction_coverage` (created
+  last), ingest skips friction, filters match nothing, friction sorts fall
+  back to newest, and details report every part as null. A friction filter or
+  sort always returns the paginated shape with `frictionCoverageStartedAt`,
+  and `view-screen` passes it on, so an empty match is read against coverage,
+  never as zero. It covers the viewer's own org and personal tenants: the
+  latest start among those with coverage, or null when one without coverage
+  has recordings the viewer sees in the range. Recordings shared from other
+  tenants read unmeasured on their own rows.
+- `errorIssues` links occurrences in `error_events`, which keeps only each
+  issue's newest ones, then falls back to issues whose
+  `last_session_recording_id` is the recording, with a null count. A
+  recording with errors Monitoring could capture and still no issue reads
+  null (unknown), never [], unless its owner scope has no issues at all: it
+  does not capture errors as issues, so [] is the truth there. Only captured
+  exceptions can become issues, and a plain `console.error` never does: the
+  recorder marks console errors `exception: false` or `true`, and the replay
+  row counts the others in `issue_errors`, so a recording whose only errors
+  were plain console errors reads []. A row measured before that column, or
+  not measured from its start, falls back to the recording's `errorCount`.
+- Agent failures group by a named cause from `AGENT_TROUBLE_CAUSES` in core
+  (`no_model_connected`, `rate_limit`, `context_overflow`, `provider_error`),
+  else by the normalized message. Failed actions group by action and status.
+  New causes need product approval; add them to that one list.
+- The score is a weighted sum with each signal capped at
+  `SESSION_FRICTION_SIGNAL_CAP`, computed per part at ingest and summed at
+  read. Change weights only in `SESSION_FRICTION_WEIGHTS`.
+- Every friction surface is behind the Sessions triage Lab, in the UI and in
+  `list-session-recordings`, `list-session-friction`, `view-screen`, and
+  `get-session-replay-summary`; a 403 names what the Lab gates
+  (`assertSessionsTriageLabEnabled` takes every feature the request used).
+  With the Lab off, Sessions looks and behaves exactly as before; ingest
+  still records friction. Waiting on the Lab state is shared with the speed
+  filter; see "Performance In Sessions".
+- Without a friction filter or sort, the list loads without friction and its
+  rows read friction from `list-session-friction`, one page of ids at most,
+  through the recordings' access filter. A failed friction read then leaves
+  the list in place with a retry. With a friction filter or sort, friction
+  comes with the list and a failure is a list error.
+- The replay's dev tools show a Friction tab with every signal's count, its
+  trouble groups, and its issue links. `get-session-replay-summary` returns
+  the same `friction` for the agent. A failed Lab state or friction read is
+  reported as `labStateError` or `frictionError`, never as no friction; on
+  the list, `view-screen` reports them beside the base list, and its
+  `activeFilters` echo the filters it applied, not the URL's.
+
 ## Performance In Sessions
 
 - Core's tracker sends one `web_vitals` event per page view (`route`,
@@ -126,7 +210,11 @@ agent answers about browser recordings in the Analytics template.
   are sampled at 10% with `sample_weight: 10`; slow, failed, and 4xx responses
   always send with weight 1, so slow-request counts are exact. Use that
   constant for every "slow request" rule. Requests made while the page was
-  hidden or cancelled are not counted.
+  hidden or cancelled are not counted. Slow requests (the app's own actions,
+  1 s, counted from events) are not friction's stalled requests (any captured
+  replay request, `STALLED_REQUEST_THRESHOLD_MS`, 3 s): keep their names,
+  fields, columns, and copy apart, and never show one number under the
+  other's label.
 - Ingest strips NUL and replaces lone surrogates in `route`, `app`, and the
   session id before hashing, as Postgres would store them; otherwise two
   values that store alike collide in one upsert and fail the batch.
@@ -165,14 +253,15 @@ agent answers about browser recordings in the Analytics template.
   on; `view-screen` then passes `includePerformance` so the agent reads the
   same rows as the page.
 - Lab state never holds up the base list. The page waits for it only when the
-  URL carries Lab-only conditions (`slow`, did/didn't events), and for at
-  most 5 s; a failed or hung read lists sessions without them and says so,
-  with a retry, rather than telling the user to turn on a Lab that may be on.
+  URL carries Lab-only conditions (did/didn't events, friction signals or
+  sorts, `slow`), with one wait for all of them, and for at most 5 s; a
+  failed or hung read lists sessions without them and says so once, with a
+  retry, rather than telling the user to turn on a Lab that may be on.
   Row speed hints load beside the list through `list-session-performance`,
-  keyed on the visible recording ids; when they fail the page says speed data
-  could not load instead of showing no hints. `view-screen` reads Lab state
-  in its own `try` and reports a failure as `labStateError` beside the
-  base list.
+  like row friction, keyed on the visible recording ids; when they fail the
+  page says speed data could not load instead of showing no hints, apart
+  from any friction failure. `view-screen` reads Lab state in its own `try`
+  and reports a failure as `labStateError` beside the base list.
 
 ## Agent Diagnostics Surface
 

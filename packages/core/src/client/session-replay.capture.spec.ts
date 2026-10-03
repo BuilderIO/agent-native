@@ -340,6 +340,32 @@ describe("session replay console/network capture", () => {
     });
   });
 
+  it("tells a plain console error from an exception Monitoring captured", async () => {
+    installBrowser();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    recordMock.mockReturnValue(vi.fn());
+    const mod = await startCapture();
+
+    console.error("logged only");
+    console.warn("warned");
+    mod.emitSessionReplayException({ type: "TypeError", message: "boom" });
+
+    const events = consoleEvents();
+    expect(events[0]).toMatchObject({
+      level: "error",
+      source: "console",
+      exception: false,
+    });
+    expect(events[1]).not.toHaveProperty("exception");
+    expect(events[2]).toMatchObject({
+      level: "error",
+      source: "console",
+      message: "TypeError: boom",
+      exception: true,
+    });
+  });
+
   it("captures window error and unhandledrejection events", async () => {
     const { fireWindowEvent } = installBrowser();
     recordMock.mockReturnValue(vi.fn());

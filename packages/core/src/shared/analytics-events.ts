@@ -323,3 +323,132 @@ export function legacyLifecycleEvent(
 
   return null;
 }
+
+/**
+ * The named reasons an agent run fails, recorded as `cause` on the browser's
+ * `agent_run_outcome` event. Analytics groups agent trouble by these and by
+ * normalized message for everything else, so a new name here is a product
+ * decision, not a refactor.
+ */
+export const AGENT_TROUBLE_CAUSES = [
+  "no_model_connected",
+  "rate_limit",
+  "context_overflow",
+  "provider_error",
+] as const;
+
+export type AgentTroubleCause = (typeof AGENT_TROUBLE_CAUSES)[number];
+
+export function isAgentTroubleCause(
+  value: unknown,
+): value is AgentTroubleCause {
+  return (
+    typeof value === "string" &&
+    (AGENT_TROUBLE_CAUSES as readonly string[]).includes(value)
+  );
+}
+
+/** The named cause of a run error code, or null when no name fits it. */
+export function agentTroubleCauseForCode(
+  code: string | null | undefined,
+): AgentTroubleCause | null {
+  const normalized = code?.trim().toLowerCase();
+  if (!normalized) return null;
+  if (
+    normalized === "missing_credentials" ||
+    normalized === "missing_api_key" ||
+    normalized === "agent_chat_ai_setup_required"
+  )
+    return "no_model_connected";
+  if (normalized === "http_429" || normalized.includes("rate_limit"))
+    return "rate_limit";
+  if (
+    normalized.includes("context_length") ||
+    normalized.includes("input_too_long")
+  )
+    return "context_overflow";
+  if (
+    normalized.startsWith("provider_") ||
+    normalized.startsWith("builder_gateway_") ||
+    normalized === "overloaded_error" ||
+    normalized === "authentication_error" ||
+    /^http_5\d\d$/.test(normalized)
+  )
+    return "provider_error";
+  return null;
+}
+
+/**
+ * Every pageview carries `agent_signals: AGENT_SIGNALS_VERSION` from a client
+ * that reports each stopped run unsampled and each thumbs rating as
+ * `agent_feedback_submitted`. Older clients sampled stops and sent no
+ * ratings, so Analytics counts a session's cancelled runs and thumbs-down as
+ * measured only once it has seen the marker.
+ */
+export const AGENT_SIGNALS_PAGEVIEW_PROPERTY = "agent_signals";
+export const AGENT_SIGNALS_VERSION = 1;
+
+const MAX_AGENT_TROUBLE_MESSAGE_INPUT = 1_000;
+export const MAX_AGENT_TROUBLE_MESSAGE_LENGTH = 120;
+
+const CAUSE_CHAIN_START = " (cause: ";
+
+/**
+ * A provider error often wraps a cause with its own message, and the engine
+ * describes it as `message (cause: a <- b)`. A link whose shape is already
+ * shown adds nothing, so it is dropped.
+ */
+function withoutRepeatedCauses(message: string): string {
+  const start = message.indexOf(CAUSE_CHAIN_START);
+  if (start < 0) return message;
+  const head = message.slice(0, start);
+  const shown = [head];
+  for (const link of message
+    .slice(start + CAUSE_CHAIN_START.length)
+    .replace(/\)$/, "")
+    .split(" <- ")) {
+    const text = link.trim();
+    if (text && !shown.some((earlier) => earlier.includes(text))) {
+      shown.push(text);
+    }
+  }
+  return shown.length > 1
+    ? `${head}${CAUSE_CHAIN_START}${shown.slice(1).join(" <- ")})`
+    : head;
+}
+
+/**
+ * An error message reduced to its shape, so the same failure groups together:
+ * quoted text, emails, URLs, file paths, hostnames (any dotted name), and
+ * numbers or ids become placeholders. Every other word stays, so a message
+ * that names something without quoting it still carries that name.
+ */
+export function normalizeAgentTroubleMessage(
+  message: string | null | undefined,
+): string {
+  if (!message) return "";
+  const shape = message
+    .slice(0, MAX_AGENT_TROUBLE_MESSAGE_INPUT)
+    .replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, "<url>")
+    .replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, "<email>")
+    .replace(
+      /"[^"\n]{0,300}"|`[^`\n]{0,300}`|(?<!\w)'[^'\n]{0,300}'(?!\w)/g,
+      "<text>",
+    )
+    .replace(/(?<!\w)[a-z]:[\\/][^\s"'`<>|,;()]*/gi, "<path>")
+    .replace(/\\\\[^\s"'`<>|,;()]+/g, "<path>")
+    .replace(/(?<![\w<>.~/-])(?:~|\.{1,2})?\/[^\s"'`<>|,;()]+/g, "<path>")
+    .replace(
+      /(?<![\w.@<-])(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}(?![\w-]|\.\w)/gi,
+      "<host>",
+    )
+    .replace(/[\w-]*\d[\w-]*/g, "<n>")
+    .replace(/\s+/g, " ")
+    .trim();
+  const normalized = withoutRepeatedCauses(shape)
+    .slice(0, MAX_AGENT_TROUBLE_MESSAGE_LENGTH)
+    .trim();
+  return /[\uD800-\uDBFF]$/.test(normalized)
+    ? normalized.slice(0, -1)
+    : normalized;
+}

@@ -197,12 +197,34 @@ providers build it.
 - **Browser outcomes are bounded, too.** `agent_run_outcome` is one event per
   run (`outcome`, legacy `code`, `terminal_source`,
   `verified_after_pipe_closed`, `resume_attempts`, `run_id`, `thread_id`):
-  every `interrupted` / `failed` / `unverified` run up to 30 per page, and
-  `succeeded` / `stopped` sampled at 10% with `sample_weight`.
+  every `interrupted` / `failed` / `unverified` run up to 30 per page, every
+  `stopped` run up to its own 30 (so stops never crowd out failures), and
+  `succeeded` sampled at 10% with `sample_weight`. A turn the server refuses
+  at its start (no model connected, a 5xx) is a `failed` run too, with
+  `terminal_source: local` and the refused turn's id. A failed or
+  interrupted run adds its `cause` from `AGENT_TROUBLE_CAUSES`, or else an
+  `error_message` reduced by `normalizeAgentTroubleMessage`, never the raw
+  text. That replaces quoted text, emails, URLs, file paths, hostnames (any
+  dotted name), and numbers or ids, and shows a cause that only repeats its
+  message once; other words remain, so an unquoted name in a message still
+  leaves with it. A provider error is `provider_error` only when its code
+  came from a structured HTTP status (`http_5xx`, including a status on a
+  wrapped cause); a status that appears only in message text is not read. `agent_feedback_submitted` (`sentiment`,
+  `run_id`, `thread_id`) is the browser's copy of a thumbs rating, because
+  `$ai_feedback` has no browser session. Every `pageview` carries
+  `agent_signals: 1` (`AGENT_SIGNALS_PAGEVIEW_PROPERTY`): clients before it
+  sampled stops at 10% and sent no ratings, so Analytics reads a session's
+  cancelled runs and thumbs-down as measured only after seeing the marker
+  and while no unmarked pageview or sampled stop shares the session (tabs
+  share one session id), and counts only stops sent unsampled. Keep both
+  guarantees while the marker ships.
   `session_navigation` is one event per document that left because of the
   session (`reason`, and for `signed_out` the `evidence`: `signed_out_body` or
   `http_401`), never the destination. Both are emitted from the single place
-  that decides (`agentkit-protocol.ts`, `navigateForSession`), not the callers.
+  that decides (`agentkit-protocol.ts`, `navigateForSession`; a refused
+  start from the transport's start-run catch), not the callers.
+  `agent_chat_stuck_detected` fires once per run and only while the stuck
+  banner shows, so Analytics' stuck chats are ones the person saw.
 
 Symbolication is per-backend and not automatic: the framework uploads no source
 maps to PostHog, so minified browser stacks stay minified there. Known gap, not
@@ -280,7 +302,7 @@ Template roots call `configureTracking()` once during app startup. That installs
 - Event: `pageview`
 - Fires on initial load, `history.pushState`, `history.replaceState`, and `popstate`
 - De-dupes repeated events for the same URL
-- Includes `url`, `path`, `hostname`, `referrer`, `title`, `navigation_type`, `app`, and inferred `template`
+- Includes `url`, `path`, `hostname`, `referrer`, `title`, `navigation_type`, `agent_signals`, `app`, and inferred `template`
 - Includes LLM connection context on browser events when known: `llm_connection` (`builder`, `anthropic`, `openai`, etc.), `llm_engine`, `llm_model`, `llm_connection_source`, and `llm_connection_configured`
 - Does not send first-party events from localhost/local dev
 
@@ -356,7 +378,7 @@ Other framework-level baseline events:
   `AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE` on the server and
   `VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE` in the browser.
 - `signup` from Better Auth user creation, with `auth_provider`, `auth_user_id`, and first-touch referral attribution (`referral_source`, `referrer_user`, `referral_medium`, `referral_campaign`, `utm_*`, `first_touch_path`, `landing_referrer` — see "Referral / viral attribution" above)
-- `builder connect clicked` and `builder connect popup blocked` from browser Connect Builder CTAs
+- `builder connect clicked` and `builder connect popup blocked` from browser Use Builder.io CTAs
 - `builder connect started`, `builder connect succeeded`, `builder connect failed`, `builder disconnect succeeded`, and `builder disconnect failed` from the Builder connection routes, with LLM connection context when resolvable
 - `$ai_generation` from instrumented agent loops, with PostHog AI Observability fields such as `$ai_trace_id`, `$ai_session_id`, `$ai_model`, `$ai_provider`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_total_cost_usd`, and mirrored Agent-Native query fields such as `run_id`, `thread_id`, `cost_cents_x100`, `duration_ms`, `tool_calls`, and `status`. A bounded `tools` array contains names, start offsets, durations, statuses, and coarse error classes only; interrupted tools and failed runs remain visible, and delegated runs include protocol/task/parent-run/parent-turn correlation. Prompt, tool argument, result, and output content is excluded unless `captureToolResults` is opted in (see the `observability` skill), in which case each failed tool call also carries a `error_message` string truncated to 500 characters and already scrubbed of bearer tokens, API keys, and key/value secret patterns.
 

@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { notifyWithDelivery } from "@agent-native/core/notifications";
-import { recordChange } from "@agent-native/core/server";
+import { isTestIdentity, recordChange } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import {
   classifyErrorNoise,
@@ -580,6 +580,8 @@ export interface DerivedExceptionFields {
   userKey: string | null;
   sessionId: string | null;
   timestamp: string;
+  /** Occurrence came from a QA/E2E identity: kept, but never alerted or listed by default. */
+  testIdentity: boolean;
 }
 
 export interface RawExceptionInput {
@@ -755,6 +757,7 @@ async function pruneAndCountUsers(
     .where(
       and(
         eq(schema.errorEvents.issueId, issueId),
+        eq(schema.errorEvents.testIdentity, false),
         eq(schema.errorEvents.ownerEmail, scope.ownerEmail),
         scope.orgId
           ? eq(schema.errorEvents.orgId, scope.orgId)
@@ -915,6 +918,27 @@ async function findIssueForFingerprint(
   return issue;
 }
 
+/**
+ * Flip a test-identity-only issue to a real one. Conditional, so concurrent
+ * real occurrences race for one alert instead of each sending one.
+ */
+async function claimFirstRealOccurrence(
+  db: any,
+  issueId: string,
+): Promise<boolean> {
+  const claimed = await db
+    .update(schema.errorIssues)
+    .set({ testIdentityOnly: false })
+    .where(
+      and(
+        eq(schema.errorIssues.id, issueId),
+        eq(schema.errorIssues.testIdentityOnly, true),
+      ),
+    )
+    .returning({ id: schema.errorIssues.id });
+  return claimed.length > 0;
+}
+
 async function updateIssueForOccurrence(
   db: any,
   existing: any,
@@ -1000,11 +1024,13 @@ export async function ingestException(
   const now = nowIso();
 
   const existing = await findIssueForFingerprint(db, scope, fp);
+  const testIdentity = derived.testIdentity;
 
   const samplerKey = `${scope.ownerEmail}|${scope.orgId ?? ""}|${fp}`;
   const storeSample =
     options.forceStore === true ||
     !existing ||
+    (existing.testIdentityOnly === true && !testIdentity) ||
     Number(existing.eventCount ?? 0) < FULL_CAPTURE_EVENTS ||
     shouldStoreSample(samplerKey, derived.userKey, Date.now());
   if (existing && !storeSample) {
@@ -1047,6 +1073,8 @@ export async function ingestException(
   const eventId = newId("errev");
   let isNewIssue = !existing;
   let issueId: string;
+  // The issue as it stood before this occurrence, for the first-real-user alert.
+  let priorIssue = existing;
 
   if (existing) {
     issueId = await updateIssueForOccurrence(db, existing, {
@@ -1079,6 +1107,7 @@ export async function ingestException(
         assignee: null,
         app: derived.app,
         template: derived.template,
+        testIdentityOnly: testIdentity,
         createdAt: now,
         updatedAt: now,
         ownerEmail: scope.ownerEmail,
@@ -1089,6 +1118,7 @@ export async function ingestException(
       const racedIssue = await findIssueForFingerprint(db, scope, fp);
       if (!racedIssue) throw err;
       isNewIssue = false;
+      priorIssue = racedIssue;
       issueId = await updateIssueForOccurrence(db, racedIssue, {
         raw,
         derived,
@@ -1126,10 +1156,17 @@ export async function ingestException(
     extra: JSON.stringify(raw.extra ?? {}),
     breadcrumbs: JSON.stringify(raw.breadcrumbs ?? []),
     occurredAt,
+    testIdentity,
     createdAt: now,
     ownerEmail: scope.ownerEmail,
     orgId: scope.orgId,
   });
+
+  const firstRealOccurrence =
+    !testIdentity &&
+    (isNewIssue ||
+      (priorIssue?.testIdentityOnly === true &&
+        (await claimFirstRealOccurrence(db, issueId))));
 
   const { usersAffected } = await pruneAndCountUsers(issueId, scope);
   await db
@@ -1144,7 +1181,7 @@ export async function ingestException(
     ...changeScope(scope),
   });
 
-  if (isNewIssue) {
+  if (firstRealOccurrence) {
     const emailEnabled = await errorEmailNotificationsEnabled(scope);
     await notifyNewIssue(
       scope,
@@ -1363,6 +1400,11 @@ export interface ListErrorIssuesFilters {
   userId?: string;
   sort?: "lastSeen" | "eventCount" | "firstSeen";
   limit?: number;
+  /**
+   * Include issues only test identities have hit. Defaults to false, except
+   * for a test-identity viewer, whose own QA flows must see their errors.
+   */
+  includeTestIdentities?: boolean;
 }
 
 export interface ErrorIssueSummary {
@@ -1382,6 +1424,7 @@ export interface ErrorIssueSummary {
   assignee: string | null;
   app: string | null;
   template: string | null;
+  testIdentityOnly: boolean;
   sparkline: number[];
 }
 
@@ -1454,6 +1497,236 @@ async function sparklinesForIssues(
   return result;
 }
 
+export interface RecordingErrorIssueInput {
+  id: string;
+  clientRecordingId: string;
+  ownerEmail: string;
+  orgId: string | null;
+  errorCount: number;
+  /**
+   * Of those errors, the ones Monitoring could have made an issue of. Null
+   * when not measured, so every error counts.
+   */
+  issueErrorCount?: number | null;
+}
+
+export interface RecordingErrorIssue {
+  id: string;
+  title: string;
+  /** Null when the recording's occurrences of the issue are no longer kept. */
+  count: number | null;
+}
+
+const MAX_RECORDING_ISSUE_ROWS = 500;
+
+/**
+ * The Monitoring issues each recording's captured errors belong to, most
+ * frequent first. An occurrence matches by recording id or client recording
+ * id, within the recording's own owner scope. `error_events` keeps only each
+ * issue's newest occurrences, so a recording with none left falls back to the
+ * issues whose last recording it is, with no count. A recording still without
+ * an issue maps to null when the read was truncated, or when it has errors
+ * Monitoring could have made an issue of and its owner scope has issues they
+ * could belong to; never to "no issues". A plain `console.error` never
+ * becomes an issue, and an owner scope without a single issue does not
+ * capture errors as issues, so such recordings truly have none.
+ */
+export async function listRecordingErrorIssues(
+  scope: ErrorReadScope,
+  recordings: readonly RecordingErrorIssueInput[],
+  perRecording = 2,
+): Promise<Map<string, RecordingErrorIssue[] | null>> {
+  const result = new Map<string, RecordingErrorIssue[] | null>();
+  if (!recordings.length) return result;
+  const db = getDb() as any;
+  const e = schema.errorEvents;
+  const i = schema.errorIssues;
+  const rows: Array<{
+    sessionRecordingId: string | null;
+    clientRecordingId: string | null;
+    ownerEmail: string;
+    orgId: string | null;
+    issueId: string;
+    title: string;
+    count: number | string;
+  }> = await db
+    .select({
+      sessionRecordingId: e.sessionRecordingId,
+      clientRecordingId: e.clientRecordingId,
+      ownerEmail: e.ownerEmail,
+      orgId: e.orgId,
+      issueId: i.id,
+      title: i.title,
+      count: sql<number>`count(*)`,
+    })
+    .from(e)
+    .innerJoin(
+      i,
+      and(
+        eq(e.issueId, i.id),
+        eq(e.ownerEmail, i.ownerEmail),
+        or(eq(e.orgId, i.orgId), and(isNull(e.orgId), isNull(i.orgId))),
+      ),
+    )
+    .where(
+      and(
+        issuesAccessFilter(scope),
+        or(
+          inArray(
+            e.sessionRecordingId,
+            recordings.map((recording) => recording.id),
+          ),
+          inArray(
+            e.clientRecordingId,
+            recordings.map((recording) => recording.clientRecordingId),
+          ),
+        ),
+      ),
+    )
+    .groupBy(
+      e.sessionRecordingId,
+      e.clientRecordingId,
+      e.ownerEmail,
+      e.orgId,
+      i.id,
+      i.title,
+    )
+    .orderBy(desc(sql`count(*)`), i.id)
+    .limit(MAX_RECORDING_ISSUE_ROWS);
+  const truncated = rows.length >= MAX_RECORDING_ISSUE_ROWS;
+  const sameScope = (
+    row: { ownerEmail: string; orgId: string | null },
+    recording: RecordingErrorIssueInput,
+  ) =>
+    row.ownerEmail === recording.ownerEmail &&
+    (row.orgId ?? null) === (recording.orgId ?? null);
+  const unlinked = truncated
+    ? []
+    : recordings.filter(
+        (recording) =>
+          !rows.some(
+            (row) =>
+              sameScope(row, recording) &&
+              (row.sessionRecordingId === recording.id ||
+                row.clientRecordingId === recording.clientRecordingId),
+          ),
+      );
+  const lastRecordingRows: Array<{
+    id: string;
+    title: string;
+    lastSessionRecordingId: string;
+    ownerEmail: string;
+    orgId: string | null;
+  }> = unlinked.length
+    ? await db
+        .select({
+          id: i.id,
+          title: i.title,
+          lastSessionRecordingId: i.lastSessionRecordingId,
+          ownerEmail: i.ownerEmail,
+          orgId: i.orgId,
+        })
+        .from(i)
+        .where(
+          and(
+            issuesAccessFilter(scope),
+            inArray(
+              i.lastSessionRecordingId,
+              unlinked.map((recording) => recording.id),
+            ),
+          ),
+        )
+        .orderBy(desc(i.lastSeenAt), i.id)
+        .limit(MAX_RECORDING_ISSUE_ROWS)
+    : [];
+  const lastRecordingTruncated =
+    lastRecordingRows.length >= MAX_RECORDING_ISSUE_ROWS;
+  const erroringWithoutIssue: RecordingErrorIssueInput[] = [];
+  for (const recording of recordings) {
+    const issues = new Map<string, RecordingErrorIssue & { count: number }>();
+    for (const row of rows) {
+      if (
+        !sameScope(row, recording) ||
+        (row.sessionRecordingId !== recording.id &&
+          row.clientRecordingId !== recording.clientRecordingId)
+      ) {
+        continue;
+      }
+      const existing = issues.get(row.issueId);
+      if (existing) existing.count += Number(row.count);
+      else
+        issues.set(row.issueId, {
+          id: row.issueId,
+          title: row.title,
+          count: Number(row.count),
+        });
+    }
+    if (issues.size) {
+      result.set(
+        recording.id,
+        [...issues.values()]
+          .sort((a, b) => b.count - a.count || a.id.localeCompare(b.id))
+          .slice(0, perRecording),
+      );
+      continue;
+    }
+    const lastRecordingIssues = lastRecordingRows
+      .filter(
+        (row) =>
+          row.lastSessionRecordingId === recording.id &&
+          sameScope(row, recording),
+      )
+      .slice(0, perRecording)
+      .map((row) => ({ id: row.id, title: row.title, count: null }));
+    if (lastRecordingIssues.length) {
+      result.set(recording.id, lastRecordingIssues);
+      continue;
+    }
+    if (truncated || lastRecordingTruncated) {
+      result.set(recording.id, null);
+    } else if ((recording.issueErrorCount ?? recording.errorCount) > 0) {
+      erroringWithoutIssue.push(recording);
+    } else {
+      result.set(recording.id, []);
+    }
+  }
+  const scopes = new Map<string, RecordingErrorIssueInput>();
+  for (const recording of erroringWithoutIssue) {
+    scopes.set(
+      JSON.stringify([recording.ownerEmail, recording.orgId ?? null]),
+      recording,
+    );
+  }
+  const scopesWithIssues = new Set<string>();
+  await Promise.all(
+    [...scopes].map(async ([key, recording]) => {
+      const [issue] = await db
+        .select({ id: i.id })
+        .from(i)
+        .where(
+          and(
+            issuesAccessFilter(scope),
+            eq(i.ownerEmail, recording.ownerEmail),
+            recording.orgId ? eq(i.orgId, recording.orgId) : isNull(i.orgId),
+          ),
+        )
+        .limit(1);
+      if (issue) scopesWithIssues.add(key);
+    }),
+  );
+  for (const recording of erroringWithoutIssue) {
+    result.set(
+      recording.id,
+      scopesWithIssues.has(
+        JSON.stringify([recording.ownerEmail, recording.orgId ?? null]),
+      )
+        ? null
+        : [],
+    );
+  }
+  return result;
+}
+
 export async function listErrorIssues(
   scope: ErrorReadScope,
   filters: ListErrorIssuesFilters = {},
@@ -1464,6 +1737,9 @@ export async function listErrorIssues(
     Math.max(1, filters.limit ?? DEFAULT_ISSUE_LIMIT),
   );
   const conditions: any[] = [issuesAccessFilter(scope)];
+  if (!(filters.includeTestIdentities ?? isTestIdentity(scope.userEmail))) {
+    conditions.push(eq(schema.errorIssues.testIdentityOnly, false));
+  }
   if (filters.status && filters.status !== "all") {
     conditions.push(eq(schema.errorIssues.status, filters.status));
   }
@@ -1570,6 +1846,7 @@ export async function listErrorIssues(
     assignee: row.assignee ?? null,
     app: row.app ?? null,
     template: row.template ?? null,
+    testIdentityOnly: row.testIdentityOnly === true,
     sparkline: sparklines.get(row.id) ?? new Array(SPARKLINE_DAYS).fill(0),
   }));
   return issues;
@@ -1597,6 +1874,7 @@ export interface ErrorEventDetail {
   extra: Record<string, unknown>;
   breadcrumbs: unknown[];
   occurredAt: string;
+  testIdentity: boolean;
 }
 
 export interface ErrorIssueDetail {
@@ -1764,6 +2042,7 @@ export async function getErrorIssue(
           extra: parseJson<Record<string, unknown>>(row.extra, {}),
           breadcrumbs: parseJson<unknown[]>(row.breadcrumbs, []),
           occurredAt: row.occurredAt,
+          testIdentity: row.testIdentity === true,
         };
       },
     ),
@@ -1796,6 +2075,7 @@ export async function getErrorIssue(
     assignee: issueRow.assignee ?? null,
     app: issueRow.app ?? null,
     template: issueRow.template ?? null,
+    testIdentityOnly: issueRow.testIdentityOnly === true,
     sparkline: sparklines.get(issueId) ?? new Array(SPARKLINE_DAYS).fill(0),
   };
 
@@ -1901,6 +2181,7 @@ export async function captureTestError(
       userKey: scope.userEmail,
       sessionId: null,
       timestamp: nowIso(),
+      testIdentity: isTestIdentity(scope.userEmail),
     },
     { forceStore: true },
   );

@@ -212,7 +212,7 @@ vi.mock(
       <div data-testid="builder-setup-card" data-bounce-pulse={bouncePulse}>
         <h3>Connect AI</h3>
         <button type="button" onClick={onConnected}>
-          Connect Builder.io
+          Use Builder.io
         </button>
         <a href="/settings/keys">Custom keys</a>
       </div>
@@ -1158,9 +1158,7 @@ describe("Slides prompt-led home", () => {
       name: "Presentation prompt",
     });
     expect(screen.getByRole("heading", { name: "Connect AI" })).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Connect Builder.io" }),
-    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Use Builder.io" })).toBeTruthy();
     expect(
       screen.getByRole("link", { name: "Custom keys" }).getAttribute("href"),
     ).toBe("/settings/keys");

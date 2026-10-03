@@ -2,6 +2,7 @@ import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
 import type { AgentSuggestion } from "@agent-native/agentkit/protocol";
 
 import type { ActionChatUIConfig } from "../../action-ui.js";
+import { AUTO_CONTINUE_OF_RUN_METADATA_KEY } from "../../agent/auto-continue.js";
 import type { AgentChatStructuredMessage } from "../../agent/types.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
@@ -1335,6 +1336,17 @@ async function readHttpRuntimeError(response: Response): Promise<Error> {
   return error;
 }
 
+/**
+ * A turn that failed to start keeps its id: the server records a turn it
+ * refused under that id, and the client reports the failure with it.
+ */
+function withTurnId(error: unknown, turnId: string): unknown {
+  if (error !== null && typeof error === "object" && !("turnId" in error)) {
+    Object.assign(error, { turnId });
+  }
+  return error;
+}
+
 export function createHttpAgentChatRuntime<
   TEvent extends AgentChatRuntimeEventBase = AgentChatRuntimeKnownEvent,
 >(
@@ -1390,20 +1402,26 @@ export function createHttpAgentChatRuntime<
       });
       if (!headers.has("Content-Type"))
         headers.set("Content-Type", "application/json");
-      const response = await fetchImpl(normalizeEndpoint(endpoint), {
-        method: options.method ?? "POST",
-        headers,
-        credentials: options.credentials,
-        body: JSON.stringify(
-          options.mapRequest
-            ? options.mapRequest({ session: summary, turn, turnId })
-            : defaultHttpRuntimeRequest({ session: summary, turn, turnId }),
-        ),
-        signal: controller.signal,
-      });
+      let response: Response;
+      try {
+        response = await fetchImpl(normalizeEndpoint(endpoint), {
+          method: options.method ?? "POST",
+          headers,
+          credentials: options.credentials,
+          body: JSON.stringify(
+            options.mapRequest
+              ? options.mapRequest({ session: summary, turn, turnId })
+              : defaultHttpRuntimeRequest({ session: summary, turn, turnId }),
+          ),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        cleanup();
+        throw withTurnId(error, turnId);
+      }
       if (!response.ok) {
         cleanup();
-        throw await readHttpRuntimeError(response);
+        throw withTurnId(await readHttpRuntimeError(response), turnId);
       }
 
       const runId = response.headers.get("X-Run-Id") ?? undefined;
@@ -2672,6 +2690,10 @@ export function createAgentNativeChatRuntime(
         turn.metadata,
         AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY,
       );
+      const autoContinueOfRunId = metadataString(
+        turn.metadata,
+        AUTO_CONTINUE_OF_RUN_METADATA_KEY,
+      );
       const continuationMessageState = continuationTurnId
         ? messageStates.get(continuationTurnId)
         : undefined;
@@ -2713,6 +2735,7 @@ export function createAgentNativeChatRuntime(
         true
           ? { internalContinuation: true }
           : {}),
+        ...(autoContinueOfRunId ? { autoContinueOfRunId } : {}),
         ...(turn.metadata?.agentNativeSkipPendingSelectionContext === true
           ? { skipPendingSelectionContext: true }
           : {}),
@@ -2768,6 +2791,12 @@ export function createAgentNativeChatRuntime(
       return mapped;
     },
     continueTurn: ({ session, continuation, previousTurn, startTurn }) => {
+      // Only the continuation that names a stopped run continues it; an approval
+      // or connection answered later is not another automatic continuation.
+      const {
+        [AUTO_CONTINUE_OF_RUN_METADATA_KEY]: _autoContinueOf,
+        ...previousMetadata
+      } = previousTurn?.metadata ?? {};
       const approval = continuation.approval;
       const connection = continuation.connection;
       const messageStateKey = continuation.turnId ?? session.id;
@@ -2788,7 +2817,7 @@ export function createAgentNativeChatRuntime(
             continuation.prompt ??
             `The ${connection.id} connection is now available. Continue the requested work.`,
           metadata: {
-            ...previousTurn?.metadata,
+            ...previousMetadata,
             ...continuation.metadata,
             [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]:
               continuation.turnId,
@@ -2809,7 +2838,7 @@ export function createAgentNativeChatRuntime(
           ...previousTurn,
           prompt: continuation.prompt,
           metadata: {
-            ...previousTurn?.metadata,
+            ...previousMetadata,
             ...continuation.metadata,
             [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]:
               continuation.turnId,
@@ -2834,7 +2863,7 @@ export function createAgentNativeChatRuntime(
           continuation.prompt ??
           "Approved. Go ahead and run the requested action.",
         metadata: {
-          ...previousTurn?.metadata,
+          ...previousMetadata,
           ...continuation.metadata,
           [AGENT_NATIVE_APPROVED_TOOL_CALLS_METADATA_KEY]: [approval.id],
           [AGENT_NATIVE_CONTINUATION_TURN_ID_METADATA_KEY]: continuation.turnId,

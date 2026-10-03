@@ -1,6 +1,10 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { appApiPath } from "@agent-native/core/client/api-path";
-import { callAction, useActionMutation } from "@agent-native/core/client/hooks";
+import {
+  callAction,
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
 import {
@@ -76,6 +80,7 @@ import { cn } from "@/lib/utils";
 
 import { ANALYTICS_SESSIONS_TRIAGE_LAB } from "../../../shared/labs";
 import { SESSION_REPLAY_ANALYTICS_EVENT_TAG } from "../../../shared/session-events";
+import type { SessionRecordingFriction } from "../../../shared/session-friction";
 import {
   formatPerformanceValue,
   rateWebVital,
@@ -88,6 +93,7 @@ import {
   type SessionIssueMatch,
   SessionDevToolsPanel,
 } from "./SessionDevToolsPanel";
+import { SessionFrictionPanel } from "./SessionFriction";
 
 type SessionRecordingSummary = {
   id: string;
@@ -507,6 +513,7 @@ function ReplayWorkbench({
         initialSeekMs={initialSeekMs}
         onTimeUpdate={setCurrentTime}
         registerSeek={registerSeek}
+        frictionLab={appEvents}
       />
       <ReplayTimeline
         markers={markers}
@@ -533,6 +540,7 @@ function ReplayPlayer({
   initialSeekMs,
   onTimeUpdate,
   registerSeek,
+  frictionLab,
 }: {
   events: AnyReplayEvent[];
   markers: ReplayMarker[];
@@ -540,6 +548,7 @@ function ReplayPlayer({
   initialSeekMs: number;
   onTimeUpdate: (ms: number) => void;
   registerSeek: (seek: (ms: number, autoplay?: boolean) => void) => void;
+  frictionLab: boolean;
 }) {
   const t = useT();
   const stageAreaRef = useRef<HTMLDivElement>(null);
@@ -630,6 +639,12 @@ function ReplayPlayer({
     enabled: devToolsOpen && errorSignatures.length > 0,
     staleTime: 60_000,
   });
+  const frictionQuery = useActionQuery<SessionRecordingFriction>(
+    "list-session-friction",
+    { recordingIds: [recordingId] },
+    { enabled: frictionLab && devToolsOpen, staleTime: 30_000 },
+  );
+  const friction = frictionQuery.data?.friction[recordingId];
   const issueMatches = useMemo(() => {
     const map = new Map<string, SessionIssueMatch>();
     const data = issueMatchQuery.data;
@@ -1215,6 +1230,19 @@ function ReplayPlayer({
                 onSeek={(ms) => seek(ms, true)}
                 issueMatches={issueMatches}
                 issueMatching={issueMatchQuery.isFetching}
+                friction={
+                  frictionLab ? (
+                    <SessionFrictionPanel
+                      friction={friction}
+                      failed={
+                        frictionQuery.isError ||
+                        (frictionQuery.data !== undefined && !friction)
+                      }
+                      fetching={frictionQuery.isFetching}
+                      onRetry={() => void frictionQuery.refetch()}
+                    />
+                  ) : undefined
+                }
               />
             ) : null}
 

@@ -592,6 +592,275 @@ describe("sendEmail", () => {
   });
 });
 
+describe("sendEmail to test identities", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    recordEmailSend.mockClear();
+  });
+
+  function stubProvider() {
+    vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent-Native <reports@example.com>");
+    const fetchMock = vi.fn(async () =>
+      Response.json({ id: "email_123" }, { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("suppresses non-auth mail with a typed, logged outcome", async () => {
+    const fetchMock = stubProvider();
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+
+    const result = await sendEmail({
+      to: "qa-owner@example.test",
+      subject: "Weekly digest",
+      html: "<p>Digest</p>",
+      templateId: "clips.weekly-digest",
+    });
+
+    expect(result).toEqual({ status: "suppressed", reason: "test-identity" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(recordEmailSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "suppressed",
+        recipient: "qa-owner@example.test",
+        provider: "none",
+        error: "suppressed: test identity",
+        templateId: "clips.weekly-digest",
+      }),
+    );
+    expect(String(info.mock.calls[0]?.[0])).toContain(
+      "suppressed: test identity",
+    );
+  });
+
+  it("suppresses identities declared by the deployment", async () => {
+    const fetchMock = stubProvider();
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.stubEnv("AGENT_NATIVE_TEST_IDENTITY_EMAILS", "@example.com");
+
+    const result = await sendEmail({
+      to: "reader@example.com",
+      subject: "Reminder",
+      html: "<p>Soon</p>",
+    });
+
+    expect(result.status).toBe("suppressed");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("still delivers auth-critical mail so test identities can sign in", async () => {
+    const fetchMock = stubProvider();
+
+    const result = await sendEmail({
+      to: "signup+autoz-run@inbox.example.test",
+      subject: "Your sign-in link",
+      html: "<p>Sign in</p>",
+      authCritical: true,
+    });
+
+    expect(result).toEqual({ status: "sent", provider: "resend" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("delivers to real recipients unchanged", async () => {
+    const fetchMock = stubProvider();
+
+    const result = await sendEmail({
+      to: "reader@example.com",
+      subject: "Weekly digest",
+      html: "<p>Digest</p>",
+    });
+
+    expect(result).toEqual({ status: "sent", provider: "resend" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("strips test identities from cc and bcc and logs each one", async () => {
+    const fetchMock = stubProvider();
+    vi.spyOn(console, "info").mockImplementation(() => {});
+
+    const result = await sendEmail({
+      to: "reader@example.com",
+      cc: ["qa-owner@example.test", "teammate@example.com"],
+      bcc: ["qa-auditor@example.test", "auditor@example.com"],
+      subject: "Weekly digest",
+      html: "<p>Digest</p>",
+    });
+
+    expect(result).toEqual({
+      status: "sent",
+      provider: "resend",
+      suppressed: ["qa-owner@example.test", "qa-auditor@example.test"],
+    });
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body).toMatchObject({
+      to: "reader@example.com",
+      cc: ["teammate@example.com"],
+      bcc: ["auditor@example.com"],
+    });
+    const rows = recordEmailSend.mock.calls.map(([row]: any) => [
+      row.status,
+      row.recipient,
+    ]);
+    expect(rows).toEqual([
+      ["suppressed", "qa-owner@example.test"],
+      ["suppressed", "qa-auditor@example.test"],
+      ["sent", "reader@example.com"],
+    ]);
+  });
+
+  it("delivers to the remaining recipients when only `to` is a test identity", async () => {
+    const fetchMock = stubProvider();
+    vi.spyOn(console, "info").mockImplementation(() => {});
+
+    const result = await sendEmail({
+      to: "qa-owner@example.test",
+      cc: "teammate@example.com",
+      subject: "Weekly digest",
+      html: "<p>Digest</p>",
+    });
+
+    expect(result.status).toBe("sent");
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.to).toBe("teammate@example.com");
+    expect(body.cc).toBeUndefined();
+  });
+
+  it("never promotes a bcc recipient into the visible lines", async () => {
+    const fetchMock = stubProvider();
+    vi.spyOn(console, "info").mockImplementation(() => {});
+
+    const result = await sendEmail({
+      to: "qa-owner@example.test",
+      cc: "teammate@example.com",
+      bcc: ["auditor@example.com", "counsel@example.com"],
+      subject: "Weekly digest",
+      html: "<p>Digest</p>",
+    });
+
+    expect(result.status).toBe("sent");
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body).toMatchObject({
+      to: "teammate@example.com",
+      bcc: ["auditor@example.com", "counsel@example.com"],
+    });
+    expect(body.cc).toBeUndefined();
+  });
+
+  it("suppresses the whole send when only bcc recipients are left", async () => {
+    const fetchMock = stubProvider();
+    vi.spyOn(console, "info").mockImplementation(() => {});
+
+    const result = await sendEmail({
+      to: "qa-owner@example.test",
+      cc: "qa-admin@example.test",
+      bcc: ["auditor@example.com", "counsel@example.com"],
+      subject: "Weekly digest",
+      html: "<p>Digest</p>",
+    });
+
+    expect(result).toEqual({ status: "suppressed", reason: "test-identity" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(
+      recordEmailSend.mock.calls.map(([row]: any) => [
+        row.status,
+        row.recipient,
+        row.error,
+      ]),
+    ).toEqual([
+      ["suppressed", "qa-owner@example.test", "suppressed: test identity"],
+      ["suppressed", "qa-admin@example.test", "suppressed: test identity"],
+      [
+        "suppressed",
+        "auditor@example.com",
+        "suppressed: no recipient left outside bcc",
+      ],
+      [
+        "suppressed",
+        "counsel@example.com",
+        "suppressed: no recipient left outside bcc",
+      ],
+    ]);
+  });
+
+  it("suppresses the whole send when every recipient is a test identity", async () => {
+    const fetchMock = stubProvider();
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    vi.stubEnv("AGENT_NATIVE_TEST_IDENTITY_EMAILS", "reader@example.com");
+
+    const suppressed = await sendEmail({
+      to: "reader@example.com",
+      cc: "qa-owner@example.test",
+      bcc: "qa-auditor@example.test",
+      subject: "Reminder",
+      html: "<p>Soon</p>",
+    });
+
+    expect(suppressed).toEqual({
+      status: "suppressed",
+      reason: "test-identity",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(
+      recordEmailSend.mock.calls.map(([row]: any) => [
+        row.status,
+        row.recipient,
+      ]),
+    ).toEqual([
+      ["suppressed", "reader@example.com"],
+      ["suppressed", "qa-owner@example.test"],
+      ["suppressed", "qa-auditor@example.test"],
+    ]);
+  });
+
+  it("keeps test identities on every line of auth-critical mail", async () => {
+    const fetchMock = stubProvider();
+
+    await sendEmail({
+      to: "qa-owner@example.test",
+      cc: "qa-admin@example.test",
+      subject: "You're invited",
+      html: "<p>Join</p>",
+      authCritical: true,
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body).toMatchObject({
+      to: "qa-owner@example.test",
+      cc: ["qa-admin@example.test"],
+    });
+  });
+
+  it("strips test identities from SendGrid cc and bcc too", async () => {
+    vi.stubEnv("SENDGRID_API_KEY", "sendgrid-example-key");
+    vi.stubEnv("EMAIL_FROM", "Agent-Native <reports@example.com>");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "info").mockImplementation(() => {});
+
+    await sendEmail({
+      to: "reader@example.com",
+      cc: ["qa-owner@example.test", "teammate@example.com"],
+      bcc: ["auditor@example.com", "qa-auditor@example.test"],
+      subject: "Weekly digest",
+      html: "<p>Digest</p>",
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.personalizations).toEqual([
+      {
+        to: [{ email: "reader@example.com" }],
+        cc: [{ email: "teammate@example.com" }],
+        bcc: [{ email: "auditor@example.com" }],
+      },
+    ]);
+  });
+});
+
 describe("sendEmail audit logging", () => {
   afterEach(() => {
     vi.restoreAllMocks();

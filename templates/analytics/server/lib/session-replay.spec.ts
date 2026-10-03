@@ -7,6 +7,7 @@ const putPrivateBlobMock = vi.hoisted(() => vi.fn());
 const deletePrivateBlobMock = vi.hoisted(() => vi.fn());
 const readPrivateBlobMock = vi.hoisted(() => vi.fn());
 const resolveAccessMock = vi.hoisted(() => vi.fn());
+const recordReplayFrictionMock = vi.hoisted(() => vi.fn());
 const performanceMocks = vi.hoisted(() => ({
   getSessionPerformanceSummaries: vi.fn(),
   getPerformanceCoverageStart: vi.fn(),
@@ -32,6 +33,11 @@ vi.mock("@agent-native/core/private-blob", () => ({
   deletePrivateBlob: deletePrivateBlobMock,
   putPrivateBlob: putPrivateBlobMock,
   readPrivateBlob: readPrivateBlobMock,
+}));
+
+vi.mock("./session-friction.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./session-friction.js")>()),
+  recordReplayFriction: recordReplayFrictionMock,
 }));
 
 vi.mock("@agent-native/core/sharing", async (importOriginal) => {
@@ -423,6 +429,7 @@ describe("session replay ingest parsing", () => {
     deletePrivateBlobMock.mockReset();
     readPrivateBlobMock.mockReset();
     resolveAccessMock.mockReset();
+    recordReplayFrictionMock.mockReset();
   });
 
   it("normalizes recorder payloads into session recording chunks", () => {
@@ -1729,6 +1736,43 @@ describe("session replay ingest parsing", () => {
     expect(inserts).toHaveLength(0);
   });
 
+  it("stores nothing for a test identity's replay and says why", async () => {
+    const { db, inserts } = createReplayDbMock([
+      [
+        {
+          id: "key_1",
+          publicKey: "anpk_test",
+          ownerEmail: "owner@example.com",
+          orgId: "org_123",
+          replayAllowedOrigins: "[]",
+          replayMaxBytesPerDay: 100_000,
+          replayMaxRequestsPerMinute: 120,
+        },
+      ],
+      [{ bytes: 0 }],
+      [{ requests: 0 }],
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      recordSessionReplayChunks(
+        parseSessionReplayIngestPayload({
+          publicKey: "anpk_test",
+          replayId: "recording_1",
+          sessionId: "session_1",
+          userEmail: "qa+autoz@builder.io",
+          sequence: 0,
+          events: [{ type: 4, timestamp: 1 }],
+        }),
+        { origin: "https://app.example.com", requestBytes: 100 },
+      ),
+    ).resolves.toEqual({ skipped: "test-identity", acceptedChunks: 0 });
+
+    expect(db.select).toHaveBeenCalledTimes(3);
+    expect(inserts).toHaveLength(0);
+    expect(putPrivateBlobMock).not.toHaveBeenCalled();
+  });
+
   it("removes a new recording's placeholder when the usage reservation fails", async () => {
     const recording = {
       id: "sr_new",
@@ -2048,6 +2092,47 @@ describe("session replay ingest parsing", () => {
     );
     expect((recordingInsert?.values as { visibility: string }).visibility).toBe(
       "private",
+    );
+  });
+
+  it("measures friction for exactly the chunks a batch stored, after the ones before it", async () => {
+    putPrivateBlobMock.mockResolvedValue(null);
+    const input = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      sequence: 1,
+      events: [{ type: 4, timestamp: 1 }],
+    });
+    const [key, bytes, requests, , , recording] =
+      replayIngestKeyDbResults(null);
+    const { db } = createReplayDbMock([
+      key,
+      bytes,
+      requests,
+      [{ ...recording[0], chunkCount: 1, errorCount: 2, rageClickCount: 1 }],
+      [{ seq: 0, checksum: "earlier", eventCount: 1, byteLength: 10 }],
+    ]);
+    const update = vi.fn(() => ({
+      set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+    }));
+    getDbMock.mockReturnValue({ ...db, update });
+    await recordSessionReplayChunks(input, {
+      origin: "https://app.example.com",
+      requestBytes: 100,
+    });
+    expect(recordReplayFrictionMock).toHaveBeenCalledTimes(1);
+    expect(recordReplayFrictionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingId: "sr_new",
+        sessionId: "session_1",
+        ownerEmail: "owner@example.com",
+        orgId: null,
+        priorChunkCount: 1,
+        newChunks: [{ seq: 1, inlineData: input.chunks[0]!.inlineData }],
+        errorCount: 2,
+        rageClickCount: 1,
+      }),
     );
   });
 

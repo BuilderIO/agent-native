@@ -10,6 +10,7 @@ import { listAnalyticsAlertRules } from "../server/lib/analytics-alerts";
 import { getAnalysis, getDashboard } from "../server/lib/dashboards-store";
 import { getErrorIssue, listErrorIssues } from "../server/lib/error-capture.js";
 import { listAnalyticsPublicKeys } from "../server/lib/first-party-analytics.js";
+import { getSessionFrictionDetails } from "../server/lib/session-friction.js";
 import {
   getSessionReplaySummary,
   listSessionRecordingsPage,
@@ -24,7 +25,16 @@ import {
 } from "../server/lib/status-pages.js";
 import { getMonitor, listMonitors } from "../server/lib/uptime-monitors.js";
 import { sessionDateBound } from "../shared/session-date-bounds";
-import { readSessionEventFilters } from "../shared/session-events";
+import {
+  readSessionEventFilters,
+  SESSION_DID_EVENT_PARAM,
+  SESSION_DID_NOT_EVENT_PARAM,
+} from "../shared/session-events";
+import {
+  isSessionFrictionSort,
+  readSessionFrictionSignals,
+  SESSION_FRICTION_SIGNAL_PARAM,
+} from "../shared/session-friction";
 import { readSessionPage, SESSION_PAGE_SIZE } from "../shared/session-page";
 import {
   isSlowSessionFilter,
@@ -280,42 +290,86 @@ export default defineAction({
                 : ("newest" as const),
               offset,
             };
-            const urlEventConditions = readSessionEventFilters(
-              new URLSearchParams(url?.search ?? ""),
-            );
+            const urlSearch = new URLSearchParams(url?.search ?? "");
+            const urlEventConditions = readSessionEventFilters(urlSearch);
             const urlHasEventConditions =
               urlEventConditions.didEvents.length > 0 ||
               urlEventConditions.didNotEvents.length > 0;
+            const urlFrictionSignals = readSessionFrictionSignals(urlSearch);
+            const urlFrictionSort = isSessionFrictionSort(params.sort)
+              ? params.sort
+              : null;
             const urlSlow = isSlowSessionFilter(params.slow)
               ? params.slow
               : undefined;
-            // Match the page: event and slow conditions, and the speed hints
-            // on each row, apply only with the Lab on. A failed Lab read is
-            // reported, and the base list is still read without them.
-            let labEnabled = false;
+            // Match the page: event conditions, friction filters and sorts,
+            // the slow filter, and row friction and speed hints apply only
+            // with the Lab on. A failed Lab read is reported, and the base
+            // list is still read without them.
+            let triageLabEnabled = false;
             let labStateError: string | undefined;
             try {
-              labEnabled = await isSessionsTriageLabEnabled(email, scope.orgId);
+              triageLabEnabled = await isSessionsTriageLabEnabled(
+                email,
+                scope.orgId,
+              );
             } catch (error) {
-              labStateError =
-                error instanceof Error ? error.message : String(error);
+              labStateError = errorMessage(error);
             }
-            const eventsLabEnabled = urlHasEventConditions && labEnabled;
-            if (labEnabled) filters.includePerformance = true;
-            if (urlSlow && labEnabled) filters.slow = urlSlow;
-            if (eventsLabEnabled) {
+            if (triageLabEnabled) {
               if (urlEventConditions.didEvents.length) {
                 filters.didEvents = urlEventConditions.didEvents;
               }
               if (urlEventConditions.didNotEvents.length) {
                 filters.didNotEvents = urlEventConditions.didNotEvents;
               }
+              if (urlFrictionSignals.length) {
+                filters.frictionSignals = urlFrictionSignals;
+              }
+              if (urlFrictionSort) filters.sort = urlFrictionSort;
+              if (urlSlow) filters.slow = urlSlow;
+              filters.includePerformance = true;
             }
             const result = await listSessionRecordingsPage(scope, {
               ...filters,
               limit: SESSION_EXCERPT_SIZE,
             });
             screen.sessionReplays = result.recordings;
+            let frictionError: string | undefined;
+            if (triageLabEnabled) {
+              try {
+                const friction = await getSessionFrictionDetails(
+                  scope,
+                  result.recordings,
+                );
+                screen.sessionReplays = result.recordings.map((recording) => ({
+                  ...recording,
+                  friction: friction.get(recording.id),
+                }));
+              } catch (error) {
+                frictionError = errorMessage(error);
+              }
+            }
+            // The URL's sort and Lab conditions are not what was applied
+            // while the Lab is off, so echo the list's own filters.
+            const activeFilters: Record<string, string | string[]> = {
+              ...(screen.activeFilters as Record<string, string> | undefined),
+            };
+            if (params.sort) activeFilters.sort = filters.sort ?? "newest";
+            if (filters.didEvents?.length) {
+              activeFilters[SESSION_DID_EVENT_PARAM] = filters.didEvents;
+            }
+            if (filters.didNotEvents?.length) {
+              activeFilters[SESSION_DID_NOT_EVENT_PARAM] = filters.didNotEvents;
+            }
+            if (filters.frictionSignals?.length) {
+              activeFilters[SESSION_FRICTION_SIGNAL_PARAM] =
+                filters.frictionSignals;
+            }
+            if (filters.slow) activeFilters.slow = filters.slow;
+            if (Object.keys(activeFilters).length > 0) {
+              screen.activeFilters = activeFilters;
+            }
             screen.sessionReplayPage = {
               filters: {
                 range: customRange ? "custom" : readReplayRange(params.range),
@@ -328,17 +382,32 @@ export default defineAction({
               returnedCount: result.recordings.length,
               excerptLimit: SESSION_EXCERPT_SIZE,
               ...(labStateError ? { labStateError } : {}),
-              ...(urlHasEventConditions && !eventsLabEnabled
-                ? { eventConditionsNotApplied: urlEventConditions }
+              ...(frictionError ? { frictionError } : {}),
+              ...(result.frictionCoverageStartedAt !== undefined
+                ? {
+                    frictionCoverageStartedAt: result.frictionCoverageStartedAt,
+                  }
                 : {}),
-              ...(urlSlow && !labEnabled
-                ? { slowFilterNotApplied: urlSlow }
-                : {}),
-              ...(labEnabled
+              ...(triageLabEnabled
                 ? {
                     performanceCoverageStartedAt:
                       result.performanceCoverageStartedAt ?? null,
                   }
+                : {}),
+              ...(urlHasEventConditions && !triageLabEnabled
+                ? { eventConditionsNotApplied: urlEventConditions }
+                : {}),
+              ...((urlFrictionSignals.length || urlFrictionSort) &&
+              !triageLabEnabled
+                ? {
+                    frictionNotApplied: {
+                      signals: urlFrictionSignals,
+                      sort: urlFrictionSort,
+                    },
+                  }
+                : {}),
+              ...(urlSlow && !triageLabEnabled
+                ? { slowFilterNotApplied: urlSlow }
                 : {}),
               truncated:
                 result.recordings.length <
@@ -348,6 +417,7 @@ export default defineAction({
                 args: {
                   paginated: true,
                   ...filters,
+                  ...(triageLabEnabled ? { includeFriction: true } : {}),
                   limit: SESSION_PAGE_SIZE,
                 },
               },
@@ -748,6 +818,10 @@ export default defineAction({
     return JSON.stringify(screen, null, 2);
   },
 });
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 function readReplayRange(value: unknown): ReplayRange {
   return typeof value === "string" && REPLAY_RANGES.has(value)
