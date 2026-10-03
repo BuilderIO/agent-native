@@ -19,8 +19,10 @@ import {
   type ReplayFrictionSignal,
   type ScoredFrictionInput,
   SESSION_FRICTION_SIGNALS,
+  SESSION_FRICTION_TOP_SIGNAL_LIMIT,
   type SessionFriction,
   type SessionFrictionSignal,
+  type SessionFrictionSignalCount,
   type SessionTroubleGroup,
 } from "../../../shared/session-friction";
 import { issueDetailPath } from "./SessionDevToolsPanel";
@@ -160,6 +162,28 @@ function signalCount(
   return friction.events ? friction.events[signal] : null;
 }
 
+/**
+ * The row's heaviest signals, led by the ones the list is filtered or sorted
+ * by: a row that matched on a light signal would otherwise hide why it is
+ * there.
+ */
+function shownSignals(
+  friction: SessionFriction,
+  pinned: readonly SessionFrictionSignal[],
+): SessionFrictionSignalCount[] {
+  const pinnedCounts = [...new Set(pinned)].flatMap((signal) => {
+    const count = signalCount(friction, signal);
+    return count ? [{ signal, count }] : [];
+  });
+  const rest = friction.topSignals.filter(
+    ({ signal }) => !pinnedCounts.some((entry) => entry.signal === signal),
+  );
+  return [...pinnedCounts, ...rest].slice(
+    0,
+    Math.max(SESSION_FRICTION_TOP_SIGNAL_LIMIT, pinnedCounts.length),
+  );
+}
+
 function ErrorIssueLinks({
   issues,
 }: {
@@ -198,9 +222,11 @@ function ErrorIssueLinks({
 export function SessionFrictionStrip({
   friction,
   sortSignal,
+  filterSignals = [],
 }: {
   friction: SessionFriction | undefined;
   sortSignal?: SessionFrictionSignal;
+  filterSignals?: readonly SessionFrictionSignal[];
 }) {
   const t = useT();
   if (!friction) return null;
@@ -210,9 +236,13 @@ export function SessionFrictionStrip({
     measured && sortSignal && signalCount(friction, sortSignal) === null
       ? sortSignal
       : null;
+  const signals = shownSignals(friction, [
+    ...filterSignals,
+    ...(sortSignal ? [sortSignal] : []),
+  ]);
   if (
     measured &&
-    !friction.topSignals.length &&
+    !signals.length &&
     issues?.length === 0 &&
     !unmeasuredSortSignal
   ) {
@@ -222,7 +252,7 @@ export function SessionFrictionStrip({
     <div className="flex flex-wrap items-center gap-1.5 px-4 pb-3 text-xs">
       {measured ? (
         <>
-          {friction.topSignals.map(({ signal, count }) => (
+          {signals.map(({ signal, count }) => (
             <Badge key={signal} variant="secondary" className="font-normal">
               {signal === "error_then_leave"
                 ? frictionSignalLabel(signal, t)

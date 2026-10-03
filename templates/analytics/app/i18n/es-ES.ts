@@ -1316,6 +1316,8 @@ export default {
       "La fricción aún no se mide en todas las sesiones de este periodo.",
     labStateUnavailable:
       "No se pudieron cargar tus ajustes de Lab, así que los filtros de este enlace no se aplican.",
+    labFeaturesUnavailable:
+      "No se pudieron cargar tus ajustes de Lab, así que las funciones de Lab están ocultas.",
     frictionUnavailable: "No se pudo cargar la fricción.",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:

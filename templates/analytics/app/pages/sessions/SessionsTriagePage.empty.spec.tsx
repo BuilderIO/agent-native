@@ -531,6 +531,26 @@ describe("Sessions empty states", () => {
     expect(mocks.labRefetch).toHaveBeenCalledOnce();
   });
 
+  it("says a failed Lab state hid Lab features on a plain link", async () => {
+    mocks.labError = true;
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(container.textContent).toContain("sessions.labFeaturesUnavailable");
+    expect(container.textContent).not.toContain("sessions.labStateUnavailable");
+    await act(async () => {
+      Array.from(container.querySelectorAll("button"))
+        .find((button) => button.textContent === "sidebar.retry")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(mocks.labRefetch).toHaveBeenCalledOnce();
+  });
+
   it("stops holding a friction link when the Lab state hangs", async () => {
     vi.useFakeTimers();
     mocks.labLoading = true;
