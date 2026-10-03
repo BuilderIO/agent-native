@@ -329,6 +329,14 @@ export const hitTestBridgeScript: string = `"use strict";
         height: Math.max(firstRow.end, lastRow.end) - Math.min(firstRow.start, lastRow.start)
       };
       var children = Array.prototype.slice.call(container.children);
+      var childNodes = Array.prototype.slice.call(container.childNodes);
+      for (var nodeIndex = 0; nodeIndex < childNodes.length; nodeIndex += 1) {
+        var node = childNodes[nodeIndex];
+        if (node.nodeType === 3 && node.textContent?.trim()) return null;
+        if (node.nodeType === 1 && window.getComputedStyle(node).display === "contents") {
+          return null;
+        }
+      }
       for (var childIndex = 0; childIndex < children.length; childIndex += 1) {
         var child = children[childIndex];
         if (isOverlayElement(child) || isTransientCloneElement(child)) continue;
@@ -346,6 +354,7 @@ export const hitTestBridgeScript: string = `"use strict";
         if (!childColumnRange || !childRowRange) {
           var hasUnresolvedPlacement = childStyles.gridColumnStart !== "auto" && !childColumnRange || childStyles.gridColumnEnd !== "auto" && !childColumnRange || childStyles.gridRowStart !== "auto" && !childRowRange || childStyles.gridRowEnd !== "auto" && !childRowRange;
           if (hasUnresolvedPlacement) return null;
+          if (childRect.width <= 0 || childRect.height <= 0) return null;
           if (childRect.left < cell.left + cell.width && childRect.right > cell.left && // i18n-ignore non-user-facing pointer geometry condition
           childRect.top < cell.top + cell.height && childRect.bottom > cell.top) {
             return null;

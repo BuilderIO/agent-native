@@ -14151,6 +14151,60 @@ it(
 );
 
 it(
+  "editor chrome bridge bounds RTL displaced guides to the occupied partial span",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="source" data-agent-native-node-id="source"
+          style="position:absolute;left:40px;top:400px;width:80px;height:44px;background:#6366f1">Source</div>
+        <div id="grid" data-agent-native-node-id="grid"
+          style="position:absolute;left:300px;top:80px;width:320px;height:80px;display:grid;direction:rtl;grid-template-columns:repeat(4,80px);grid-template-rows:80px;box-sizing:border-box">
+          <div id="span" data-agent-native-node-id="span" style="grid-column:1 / 3;grid-row:1;background:#a855f7">Span</div>
+        </div>
+      </body></html>`);
+      const bridgeScript = hydratedEditorChromeBridgeScript().replace(
+        "function nearestChildInsertionTarget(",
+        "window.__testGridCellInsertionTarget = gridCellInsertionTarget;\nfunction nearestChildInsertionTarget(",
+      );
+      expect(bridgeScript).not.toBe(hydratedEditorChromeBridgeScript());
+      await page.addScriptTag({ content: bridgeScript });
+
+      const target = await page.locator("#span").boundingBox();
+      expect(target).toMatchObject({ x: 460, y: 80, width: 160, height: 80 });
+      const targetResult = await page.evaluate(() => {
+        const grid = document.querySelector<Element>("#grid")!;
+        const occupant = document.querySelector<Element>("#span")!;
+        const source = document.querySelector<Element>("#source")!;
+        return (window as any).__testGridCellInsertionTarget(
+          grid,
+          600,
+          120,
+          [occupant],
+          [source],
+        );
+      });
+      expect(targetResult.guideRect).toEqual({
+        left: target!.x,
+        top: target!.y,
+        width: target!.width,
+        height: target!.height,
+      });
+      expect(targetResult.persistencePlacement).toBe("after");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "editor chrome bridge posts element-hover only when the hovered element actually changes, not on every raw pointermove",
   { timeout: 30_000 },
   async () => {
@@ -14546,6 +14600,75 @@ it(
       expect(start).toBeDefined();
       expect(start?.sourceGridSpan).toEqual({
         columns: 4,
+        rows: 1,
+      });
+      await page.mouse.up();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge preserves reversed explicit source grid spans on drag start",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #grid { position: absolute; left: 100px; top: 100px; width: 320px; height: 80px; display: grid; grid-template-columns: repeat(4, 80px); grid-template-rows: 80px; }
+      #target { grid-column: 4 / 2; grid-row: 1; justify-self: start; align-self: start; width: 40px; height: 40px; background: #6366f1; }
+    </style>
+  </head>
+  <body>
+    <div id="grid"><div id="target" data-agent-native-node-id="target">Target</div></div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        window.postMessage = ((message: unknown) => {
+          (window as any).__bridgeMessages.push(message);
+        }) as typeof window.postMessage;
+      });
+
+      const sourceBox = await page.locator("#target").boundingBox();
+      expect(sourceBox).not.toBeNull();
+      await page.mouse.move(
+        sourceBox!.x + sourceBox!.width / 2,
+        sourceBox!.y + sourceBox!.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        sourceBox!.x + sourceBox!.width / 2 + 40,
+        sourceBox!.y + sourceBox!.height / 2 + 40,
+        { steps: 4 },
+      );
+
+      const start = await page.evaluate(() => {
+        const starts = (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).filter(
+          (message) =>
+            message.type === "agent-native:cross-screen-drag" &&
+            message.phase === "start",
+        );
+        return starts[starts.length - 1];
+      });
+      expect(start).toBeDefined();
+      expect(start?.sourceGridSpan).toEqual({
+        columns: 2,
         rows: 1,
       });
       await page.mouse.up();

@@ -13619,8 +13619,9 @@ export const editorChromeBridgeScript: string = `"use strict";
               trackLayout,
               "row"
             );
-            var firstDisplacedColumn = displacedColumn.start !== null ? trackLayout.columnBounds[displacedColumn.start - 1] : null;
-            var lastDisplacedColumn = displacedColumn.start !== null ? trackLayout.columnBounds[displacedColumn.start + displacedColumn.span - 2] : null;
+            var displacedColumnIndex = displacedColumn.start !== null ? styles.direction === "rtl" ? trackLayout.columnBounds.length - displacedColumn.start - displacedColumn.span + 1 : displacedColumn.start - 1 : null;
+            var firstDisplacedColumn = displacedColumnIndex !== null && displacedColumnIndex >= 0 ? trackLayout.columnBounds[displacedColumnIndex] : null;
+            var lastDisplacedColumn = displacedColumnIndex !== null && displacedColumnIndex >= 0 ? trackLayout.columnBounds[displacedColumnIndex + displacedColumn.span - 1] : null;
             var firstDisplacedRow = displacedRow.start !== null ? trackLayout.rowBounds[displacedRow.start - 1] : null;
             var lastDisplacedRow = displacedRow.start !== null ? trackLayout.rowBounds[displacedRow.start + displacedRow.span - 2] : null;
             if (firstDisplacedColumn && lastDisplacedColumn && firstDisplacedRow && lastDisplacedRow) {
@@ -14600,13 +14601,14 @@ export const editorChromeBridgeScript: string = `"use strict";
         axis === "column" ? layout.columnBounds : layout.rowBounds,
         axis
       ) : null;
-      var span = authoredSpan ? Number(authoredSpan[1]) : start !== null && end !== null ? end - start : geometricRange ? geometricRange.end - geometricRange.start : 1;
+      var span = authoredSpan ? Number(authoredSpan[1]) : start !== null && end !== null ? Math.abs(end - start) : geometricRange ? geometricRange.end - geometricRange.start : 1;
       span = Math.max(1, span);
       if (start === null && end !== null && authoredSpan) start = end - span;
+      var areaStart = start !== null && end !== null ? Math.min(start, end) : start;
       return {
         authoredStart: start,
         hasAuthoredPlacement,
-        start: start ?? (geometricRange ? geometricRange.start + 1 : null),
+        start: areaStart ?? (geometricRange ? geometricRange.start + 1 : null),
         span
       };
     }

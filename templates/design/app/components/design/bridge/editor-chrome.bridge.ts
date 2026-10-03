@@ -17263,14 +17263,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             trackLayout,
             "row",
           );
-          var firstDisplacedColumn =
+          var displacedColumnIndex =
             displacedColumn.start !== null
-              ? trackLayout.columnBounds[displacedColumn.start - 1]
+              ? styles.direction === "rtl"
+                ? trackLayout.columnBounds.length -
+                  displacedColumn.start -
+                  displacedColumn.span +
+                  1
+                : displacedColumn.start - 1
+              : null;
+          var firstDisplacedColumn =
+            displacedColumnIndex !== null && displacedColumnIndex >= 0
+              ? trackLayout.columnBounds[displacedColumnIndex]
               : null;
           var lastDisplacedColumn =
-            displacedColumn.start !== null
+            displacedColumnIndex !== null && displacedColumnIndex >= 0
               ? trackLayout.columnBounds[
-                  displacedColumn.start + displacedColumn.span - 2
+                  displacedColumnIndex + displacedColumn.span - 1
                 ]
               : null;
           var firstDisplacedRow =
@@ -18685,16 +18694,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var span = authoredSpan
       ? Number(authoredSpan[1])
       : start !== null && end !== null
-        ? end - start
+        ? Math.abs(end - start)
         : geometricRange
           ? geometricRange.end - geometricRange.start
           : 1;
     span = Math.max(1, span);
     if (start === null && end !== null && authoredSpan) start = end - span;
+    var areaStart =
+      start !== null && end !== null ? Math.min(start, end) : start;
     return {
       authoredStart: start,
       hasAuthoredPlacement: hasAuthoredPlacement,
-      start: start ?? (geometricRange ? geometricRange.start + 1 : null),
+      start: areaStart ?? (geometricRange ? geometricRange.start + 1 : null),
       span,
     };
   }
