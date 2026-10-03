@@ -202,6 +202,59 @@ function textOf(key: string): string | null {
 
 const baseOf = (key: string) => key.replace(/#\d+$/, "");
 
+const CSS_PIXEL_QUANTIZATION = 1 / 64;
+// Computed CSS pixels are serialized to thousandths, so two rounded samples
+// can differ by one layout quantum plus at most a thousandth.
+const CSS_PIXEL_SERIALIZATION_TOLERANCE = 0.001;
+const PX_VALUE = /^(-?\d+(?:\.\d+)?)px$/u;
+
+function sameComputedPosition(prop: string, before: string, after: string) {
+  const closePixels = (a: string, b: string) => {
+    const left = PX_VALUE.exec(a);
+    const right = PX_VALUE.exec(b);
+    return Boolean(
+      left &&
+      right &&
+      Math.abs(Number(left[1]) - Number(right[1])) <=
+        CSS_PIXEL_QUANTIZATION + CSS_PIXEL_SERIALIZATION_TOLERANCE,
+    );
+  };
+  if (["top", "right", "bottom", "left"].includes(prop)) {
+    return closePixels(before, after);
+  }
+  if (prop === "transform-origin") {
+    const left = before.split(/\s+/u);
+    const right = after.split(/\s+/u);
+    return (
+      left.length === right.length &&
+      left.every(
+        (value, index) =>
+          value === right[index] || closePixels(value, right[index]!),
+      )
+    );
+  }
+  if (prop === "transform") {
+    const matrix = (value: string) => {
+      const match = /^matrix\(([^)]+)\)$/u.exec(value);
+      return match ? match[1]!.split(/,\s*/u).map(Number) : null;
+    };
+    const left = matrix(before);
+    const right = matrix(after);
+    return Boolean(
+      left &&
+      right &&
+      left.length === 6 &&
+      right.length === 6 &&
+      left.slice(0, 4).every((value, index) => value === right[index]) &&
+      Math.abs(left[4]! - right[4]!) <=
+        CSS_PIXEL_QUANTIZATION + CSS_PIXEL_SERIALIZATION_TOLERANCE &&
+      Math.abs(left[5]! - right[5]!) <=
+        CSS_PIXEL_QUANTIZATION + CSS_PIXEL_SERIALIZATION_TOLERANCE,
+    );
+  }
+  return false;
+}
+
 /**
  * Pairs the unchanged head and tail of the record sequence by position, the
  * middle by key, then leftover text records whose text only grew or shrank at
@@ -274,20 +327,30 @@ export function diffSnapshots(
       pairs.push([r, leftB[idx]]);
       leftB.splice(idx, 1);
     } else {
-      missing.push({ key: r.key, inside: r.inside });
+      missing.push({
+        key: r.key,
+        inside: r.inside && !r.protectedStructure,
+      });
     }
   }
   const deltas: StyleDelta[] = [];
   const geometry: StyleDelta[] = [];
   for (const [ra, rb] of pairs) {
     const inside = ra.inside || rb.inside;
+    const protectedInside = inside && !(ra.protectedStyle || rb.protectedStyle);
     // Computed values can change with intrinsic layout; authored attrs cannot.
     for (const [prop, before, after] of [
       ["class", ra.className, rb.className],
       ["style", ra.inlineStyle, rb.inlineStyle],
     ] as const) {
       if (before !== undefined && after !== undefined && before !== after) {
-        deltas.push({ key: ra.key, prop, a: "changed", b: "changed", inside });
+        deltas.push({
+          key: ra.key,
+          prop,
+          a: "changed",
+          b: "changed",
+          inside: protectedInside,
+        });
       }
     }
     for (const prop of new Set([
@@ -298,13 +361,20 @@ export function diffSnapshots(
         ra.props[prop] ?? (prop.startsWith("--") ? "" : undefined);
       const afterValue =
         rb.props[prop] ?? (prop.startsWith("--") ? "" : undefined);
-      if (beforeValue !== afterValue) {
+      if (
+        beforeValue !== afterValue &&
+        !(
+          beforeValue &&
+          afterValue &&
+          sameComputedPosition(prop, beforeValue, afterValue)
+        )
+      ) {
         deltas.push({
           key: ra.key,
           prop,
           a: beforeValue ?? "(absent)",
           b: afterValue ?? "(absent)",
-          inside,
+          inside: protectedInside,
         });
       }
     }
@@ -315,7 +385,7 @@ export function diffSnapshots(
           prop,
           a: String(ra.rect[prop]),
           b: String(rb.rect[prop]),
-          inside,
+          inside: protectedInside,
         });
       }
     }
@@ -324,7 +394,10 @@ export function diffSnapshots(
     deltas,
     geometry,
     missing,
-    added: leftB.map((r) => ({ key: r.key, inside: r.inside })),
+    added: leftB.map((r) => ({
+      key: r.key,
+      inside: r.inside && !r.protectedStructure,
+    })),
   };
 }
 

@@ -246,6 +246,208 @@ describe("in-place text session: entering and ending", () => {
     expect(el.style.getPropertyValue("contain")).toBe("size");
   });
 
+  it("keeps an auto-sized parent fixed when list margins stop contributing", async () => {
+    const parent = mount(
+      '<div id="parent" style="transform: rotate(30deg)"><ul id="t"><li style="margin-bottom: 12px">Alpha</li></ul></div>',
+      "#parent",
+    );
+    const el = parent.querySelector<HTMLElement>("#t")!;
+    vi.stubGlobal("CSS", { supports: () => true });
+    vi.spyOn(el, "offsetWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "offsetHeight", "get").mockReturnValue(48);
+    vi.spyOn(el, "clientWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "clientHeight", "get").mockReturnValue(48);
+    const localParentHeight = () => {
+      const intrinsicHeight = Number.parseFloat(
+        el.style.getPropertyValue("contain-intrinsic-size").split(/\s+/u)[1] ??
+          "",
+      );
+      return Number.isNaN(intrinsicHeight)
+        ? 200
+        : intrinsicHeight === 54
+          ? 200
+          : 194;
+    };
+    const getComputedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (element, pseudo) => {
+        const computed = getComputedStyle(element, pseudo);
+        if (element !== parent) return computed;
+        return new Proxy(computed, {
+          get(target, property) {
+            if (property === "height") return "auto";
+            return Reflect.get(target, property, target);
+          },
+        });
+      },
+    );
+    vi.spyOn(parent, "getBoundingClientRect").mockImplementation(() => {
+      const localHeight = localParentHeight();
+      return new DOMRect(
+        0,
+        0,
+        (320 * Math.sqrt(3)) / 2 + localHeight / 2,
+        320 / 2 + (localHeight * Math.sqrt(3)) / 2,
+      );
+    });
+    const parentOffsetHeight = vi
+      .spyOn(parent, "offsetHeight", "get")
+      .mockImplementation(localParentHeight);
+    session = startInPlaceTextSession(el);
+    const text = el.querySelector("li")!.firstChild!;
+    caret(text, text.textContent!.length);
+
+    type(el, " beta");
+    await new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    });
+
+    expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe(
+      "240px 54px",
+    );
+    expect(localParentHeight()).toBe(200);
+
+    parentOffsetHeight.mockClear();
+    type(el, " more");
+    await new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    });
+
+    expect(parentOffsetHeight).not.toHaveBeenCalled();
+    expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe(
+      "240px 54px",
+    );
+  });
+
+  it("checks an auto-sized parent again after a markdown list conversion", async () => {
+    const parent = mount(
+      '<div id="parent" style="transform: rotate(30deg)"><p id="t">Alpha</p></div>',
+      "#parent",
+    );
+    const el = parent.querySelector<HTMLElement>("#t")!;
+    const target = () => parent.querySelector<HTMLElement>("#t")!;
+    vi.stubGlobal("CSS", { supports: () => true });
+    vi.spyOn(el, "offsetWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "offsetHeight", "get").mockReturnValue(48);
+    vi.spyOn(el, "clientWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "clientHeight", "get").mockReturnValue(48);
+    let parentHeightIntrinsicTarget = 54;
+    const parentHeight = () => {
+      const intrinsicHeight = Number.parseFloat(
+        target()
+          .style.getPropertyValue("contain-intrinsic-size")
+          .split(/\s+/u)[1] ?? "",
+      );
+      return target().tagName === "P" ||
+        intrinsicHeight === parentHeightIntrinsicTarget
+        ? 200
+        : 194;
+    };
+    const getComputedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (element, pseudo) => {
+        const computed = getComputedStyle(element, pseudo);
+        if (element !== parent) return computed;
+        return new Proxy(computed, {
+          get(target, property) {
+            if (property === "height") return "auto";
+            return Reflect.get(target, property, target);
+          },
+        });
+      },
+    );
+    vi.spyOn(parent, "offsetHeight", "get").mockImplementation(parentHeight);
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, el.firstChild!.textContent!.length);
+
+    type(el, "x");
+    await new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    });
+    expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe(
+      "240px 48px",
+    );
+
+    caret(el.firstChild!, 0);
+    type(el, "- ");
+    await new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    });
+
+    expect(session.element.tagName).toBe("DIV");
+    expect(session.element.textContent).toContain("●Alpha");
+    expect(
+      session.element.style.getPropertyValue("contain-intrinsic-size"),
+    ).toBe("240px 54px");
+    expect(parentHeight()).toBe(200);
+
+    parentHeightIntrinsicTarget = 60;
+    expect(parentHeight()).toBe(194);
+    expect(session.commands.toggleList("ordered")).toBe(true);
+    await new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    });
+
+    expect(
+      session.element.style.getPropertyValue("contain-intrinsic-size"),
+    ).toBe("240px 60px");
+    expect(parentHeight()).toBe(200);
+  });
+
+  it("reserves fractional computed dimensions without rounding to client size", () => {
+    const el = mount(
+      '<div id="t" style="box-sizing: content-box; width: 240.25px; height: 52.25px; padding: 6px 8px; border: 2px solid">Alpha</div>',
+    );
+    vi.stubGlobal("CSS", { supports: () => true });
+    vi.spyOn(el, "offsetWidth", "get").mockReturnValue(260);
+    vi.spyOn(el, "offsetHeight", "get").mockReturnValue(68);
+    vi.spyOn(el, "clientWidth", "get").mockReturnValue(256);
+    vi.spyOn(el, "clientHeight", "get").mockReturnValue(64);
+    const getComputedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (element, pseudo) => {
+        const computed = getComputedStyle(element, pseudo);
+        if (element !== el) return computed;
+        return new Proxy(computed, {
+          get(target, property) {
+            if (property === "width") return "240.25px";
+            if (property === "height") return "52.25px";
+            return Reflect.get(target, property, target);
+          },
+        });
+      },
+    );
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, el.firstChild!.textContent!.length);
+
+    type(el, "beta");
+
+    expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe(
+      "240.25px 52.25px",
+    );
+  });
+
+  it("reserves the initial size of an absolutely positioned text box", () => {
+    const el = mount(
+      '<div id="t" style="position: absolute; left: 10px; top: 20px; width: 240px; height: 48px">Alpha</div>',
+    );
+    vi.stubGlobal("CSS", { supports: () => true });
+    vi.spyOn(el, "offsetWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "offsetHeight", "get").mockReturnValue(48);
+    vi.spyOn(el, "clientWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "clientHeight", "get").mockReturnValue(48);
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, el.firstChild!.textContent!.length);
+
+    type(el, "beta");
+
+    expect(el.style.getPropertyValue("contain")).toBe("size");
+    expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe(
+      "240px 48px",
+    );
+    expect(el.style.position).toBe("absolute");
+  });
+
   it("restores temporary containment after undoing and redoing root style", () => {
     const el = mount('<div id="t">Alpha</div>');
     vi.stubGlobal("CSS", { supports: () => true });
@@ -1861,6 +2063,21 @@ describe("in-place text session: undo", () => {
     let undone = 0;
     while (session.undo()) undone++;
     expect(undone).toBe(IN_PLACE_TEXT_UNDO_LIMIT);
+  });
+
+  it("retains enough undo steps for a 500-operation authoring session", () => {
+    const el = mount('<p id="t">x</p>');
+    session = startInPlaceTextSession(el);
+    caret(el.firstChild!, 1);
+    const original = el.innerHTML;
+
+    for (let i = 0; i < 1500; i++)
+      session.commands.align(i % 2 === 0 ? "left" : "right");
+
+    let undone = 0;
+    while (session.undo()) undone++;
+    expect(undone).toBe(1500);
+    expect(el.innerHTML).toBe(original);
   });
 
   it("keeps redo available after a no-op Tab command", () => {

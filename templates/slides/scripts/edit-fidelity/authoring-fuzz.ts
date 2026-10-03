@@ -945,7 +945,6 @@ export async function runAuthoringFuzz(
               childShape: string;
             }>;
           };
-          __authoringFuzzStyleProperties?: WeakMap<Element, string[]>;
         };
         const block =
           /^(ADDRESS|ARTICLE|ASIDE|BLOCKQUOTE|DD|DIV|DL|DT|FIGCAPTION|FIGURE|FOOTER|H[1-6]|HEADER|LI|OL|P|PRE|SECTION|TABLE|TBODY|TD|TFOOT|TH|THEAD|TR|UL)$/;
@@ -1031,26 +1030,11 @@ export async function runAuthoringFuzz(
             current = parent;
           }
         }
-        const propertyCache =
-          scope.__authoringFuzzStyleProperties ??
-          (scope.__authoringFuzzStyleProperties = new WeakMap());
-        const names = new Set(propertyCache.get(root) ?? styleProperties);
-        for (const element of [root, ...root.querySelectorAll("*")]) {
-          const style = getComputedStyle(element);
-          for (let index = 0; index < style.length; index++) {
-            const property = style[index];
-            // The resolved properties below catch visual changes; these utility tokens do not paint.
-            if (
-              property &&
-              property.startsWith("--") &&
-              !property.startsWith("--tw-")
-            ) {
-              names.add(property);
-            }
-          }
-        }
+        const names = new Set([
+          ...styleProperties,
+          ...window.__editFidelity.customStyleProperties(root),
+        ]);
         const stylePropertyNames = [...names].sort();
-        propertyCache.set(root, stylePropertyNames);
         const styleValues = (element: Element) => {
           const style = getComputedStyle(element);
           return Object.fromEntries(
@@ -1143,6 +1127,24 @@ export async function runAuthoringFuzz(
         const isListItem = (node: Node) =>
           node instanceof Element &&
           (node.tagName === "LI" || isListGroup(node));
+        const originalListRows = new Set<Element>();
+        if (listShortcut) {
+          for (const target of targets) {
+            let candidate = target.parentElement;
+            while (candidate && candidate !== root) {
+              if (isListContainer(candidate)) {
+                const rows = Array.from(candidate.children).filter(isListItem);
+                if (
+                  rows.some((row) => row === target || row.contains(target))
+                ) {
+                  rows.forEach((row) => originalListRows.add(row));
+                  break;
+                }
+              }
+              candidate = candidate.parentElement;
+            }
+          }
+        }
         const isEmptyAuthorStyleSpan = (element: Element): boolean =>
           element.tagName === "SPAN" &&
           element.getAttribute("data-slide-inline-style") === "true" &&
@@ -1280,7 +1282,8 @@ export async function runAuthoringFuzz(
             !(
               promotedHeadingLine ||
               (listShortcut &&
-                isListItem(record.node) &&
+                record.node instanceof Element &&
+                originalListRows.has(record.node) &&
                 isListContainer(record.parent) &&
                 record.node.parentNode &&
                 isListContainer(record.node.parentNode))
@@ -3565,6 +3568,11 @@ export async function runAuthoringFuzz(
         );
       }
       await assertOutsideUnchanged();
+      if ((activeIndex + 1) % 100 === 0) {
+        console.log(
+          `[edit-fidelity] fuzz seed=${seed} checked ${activeIndex + 1}/${plan.length} steps`,
+        );
+      }
     }
 
     const finalHtml = await editor.innerHTML();

@@ -65,10 +65,15 @@ pnpm exec tsx scripts/edit-fidelity/run.ts --authoring --browser firefox
 
 Run slash, Markdown, list, and Docs-shaped paste with undo/redo against
 representative source slides from the selected corpus. The gate requires
-absolute positioning, flex/grid, styled list rows, and a viewport-scaled slide;
-it saves and reloads each result and compares canonical markup plus
-outside-block style/geometry. On the largest corpus slide, it reports Event
-Timing keydown-to-paint p95 and warns when it exceeds 16 ms. Since Event Timing
+absolute positioning, flex/grid, styled list rows, and a viewport-scaled slide.
+It also checks fractional-height lists inside transformed, bottom-anchored
+absolute wrappers and roots, so subpixel size reservation cannot move the
+surrounding layout; the wrapper rect is checked within one 1/64 CSS-pixel step
+after each flow. Styled bullet-row markers keep a separate style check when the
+surrounding row is treated as the edited visual block. It saves and reloads
+each result and compares canonical markup plus outside-block style/geometry. On
+the largest corpus slide, it reports Event Timing keydown-to-paint p95 and warns
+when it exceeds 16 ms. Since Event Timing
 omits entries below 16 ms, the report uses all keydowns and shows a `<=16 ms`
 bound when the p95 is below that threshold. It gates the p95 time from keydown
 through the first animation frame and forced layout at 16 ms only when Event

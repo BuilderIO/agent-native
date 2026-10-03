@@ -39,6 +39,7 @@ const snap = (records: SnapRecord[]): Snapshot => ({
   inventory: { elements: 0, visible: 0, hidden: 0, svg: 0, img: 0, style: 0 },
   text: "",
   editedRect: null,
+  editedBoxRect: null,
   editedText: null,
 });
 
@@ -150,6 +151,51 @@ describe("diffSnapshots", () => {
         a: "changed",
         b: "changed",
         inside: false,
+      },
+    ]);
+  });
+
+  it.each(["before", "after"] as const)(
+    "classifies protected marker geometry changes outside when marked on %s",
+    (protectedSide) => {
+      const before = {
+        ...rec("box:li.marker#0", {}, true),
+        stableKey: "marker-node",
+        ...(protectedSide === "before" ? { protectedStyle: true } : {}),
+      };
+      const after = {
+        ...rec("box:li.marker#0", {}, true),
+        stableKey: "marker-node",
+        rect: { ...rect, x: 3 },
+        ...(protectedSide === "after" ? { protectedStyle: true } : {}),
+      };
+
+      expect(diffSnapshots(snap([before]), snap([after])).geometry).toEqual([
+        {
+          key: before.key,
+          prop: "x",
+          a: "0",
+          b: "3",
+          inside: false,
+        },
+      ]);
+    },
+  );
+
+  it("keeps unprotected in-block geometry changes inside", () => {
+    const before = rec("box:li.marker#0", {}, true);
+    const after = {
+      ...rec("box:li.marker#0", {}, true),
+      rect: { ...rect, x: 3 },
+    };
+
+    expect(diffSnapshots(snap([before]), snap([after])).geometry).toEqual([
+      {
+        key: before.key,
+        prop: "x",
+        a: "0",
+        b: "3",
+        inside: true,
       },
     ]);
   });

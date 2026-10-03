@@ -227,6 +227,8 @@ interface CorpusAuthoringSource {
   id: string;
   kind:
     | "absolute"
+    | "fractional-absolute-wrapper"
+    | "fractional-absolute-root"
     | "flex-grid"
     | "styled-list"
     | "styled-flex-bullet-row"
@@ -436,6 +438,36 @@ function corpusAuthoringSources(cases: CorpusCase[]): CorpusAuthoringSource[] {
         },
       }
     : undefined;
+  const fractionalWrapperSlide: CorpusSlide = {
+    id: "fractional-absolute-wrapper",
+    content:
+      '<div data-authoring-layout-wrapper="fractional" style="position:absolute;left:48px;bottom:3.3125px;width:270px;transform:translateY(-50%);transform-origin:50% 50%"><div style="height:42px;margin-bottom:26px">Anchored label</div><div style="position:absolute;left:0;top:0;width:220px;height:42px">Decorative text</div><ul class="fmd-pptx-text" style="margin:0;padding:0 0 0 18px;font-size:16px;line-height:19.25px;list-style-type:disc"><li style="margin-bottom:12px">Anchored root row<ul><li>Anchored nested alpha</li><li>Anchored nested beta</li></ul></li></ul></div><div style="position:absolute;left:420px;top:160px;width:220px;height:30px">Stationary sibling</div>',
+  };
+  const fractionalWrapperCase: CorpusCase = {
+    id: "fractional-absolute-wrapper",
+    title: "Fractional absolute wrapper authoring regression",
+    aspectRatio: "16:9",
+    slides: [fractionalWrapperSlide],
+  };
+  const fractionalWrapper = {
+    corpusCase: fractionalWrapperCase,
+    slide: fractionalWrapperSlide,
+  };
+  const fractionalRootSlide: CorpusSlide = {
+    id: "fractional-absolute-root",
+    content:
+      '<ul class="fmd-pptx-text" style="position:absolute;left:48px;bottom:3.3125px;width:270px;margin:0;padding:0 0 0 18px;font-size:16px;line-height:19.25px;list-style-type:disc;transform:rotate(2deg);transform-origin:50% 50%"><li style="margin-bottom:12px">Anchored root row<ul><li>Anchored nested alpha</li><li>Anchored nested beta</li></ul></li></ul><div style="position:absolute;left:420px;top:160px;width:220px;height:30px">Stationary sibling</div>',
+  };
+  const fractionalRootCase: CorpusCase = {
+    id: "fractional-absolute-root",
+    title: "Fractional absolute text root authoring regression",
+    aspectRatio: "16:9",
+    slides: [fractionalRootSlide],
+  };
+  const fractionalRoot = {
+    corpusCase: fractionalRootCase,
+    slide: fractionalRootSlide,
+  };
   const required: Array<
     [
       CorpusAuthoringSource["kind"],
@@ -444,6 +476,8 @@ function corpusAuthoringSources(cases: CorpusCase[]): CorpusAuthoringSource[] {
     ]
   > = [
     ["absolute", "absolute", absolute],
+    ["fractional-absolute-wrapper", "list", fractionalWrapper],
+    ["fractional-absolute-root", "absolute", fractionalRoot],
     ["flex-grid", "flex-grid", flexGrid],
     ["styled-list", "list", styledList],
     ["styled-flex-bullet-row", "bullet-row", styledFlexBulletRow],
@@ -3078,6 +3112,10 @@ async function runAuthoringCorpusQa(
       const originalCanonical = await canonicalMarkup(original);
       for (const flow of ["slash", "shortcut", "list", "paste"] as const) {
         const scaled = source.kind === "scaled";
+        const preserveStyledBulletMarker =
+          source.testTarget === "bullet-row" &&
+          flow !== "list" &&
+          flow !== "slash";
         await page.setViewportSize(
           scaled ? { width: 850, height: 650 } : { width: 1600, height: 1000 },
         );
@@ -3106,6 +3144,7 @@ async function runAuthoringCorpusQa(
           const viewBefore = await snapshot(page, slideId, {
             targetIndex: target.index,
             targetBuilderId: target.builderId ?? undefined,
+            preserveStyledBulletMarker,
           });
           if (!(await enterEdit(page, slideId, target.point, []))) {
             throw new Error("could not enter in-place text editing");
@@ -3118,7 +3157,20 @@ async function runAuthoringCorpusQa(
           const before = await snapshot(page, slideId, {
             targetIndex: target.index,
             targetBuilderId: editedBuilderId,
+            preserveStyledBulletMarker,
           });
+          const wrapperRectBefore =
+            source.kind === "fractional-absolute-wrapper"
+              ? await editor.evaluate((element: HTMLElement) => {
+                  const wrapper = element.closest<HTMLElement>(
+                    '[data-authoring-layout-wrapper="fractional"]',
+                  );
+                  if (!wrapper) throw new Error("anchored wrapper disappeared");
+                  const { x, y, width, height } =
+                    wrapper.getBoundingClientRect();
+                  return { x, y, width, height };
+                })
+              : null;
           if (flow === "shortcut") {
             await editor.press(lineStartKey);
             await editor.pressSequentially("**bold** next");
@@ -3130,11 +3182,12 @@ async function runAuthoringCorpusQa(
                   ),
                 ).filter((mark) => mark.textContent === "bold");
                 const mark = marks[0];
-                const next = mark?.nextSibling;
-                const nextText =
-                  next?.nodeType === Node.TEXT_NODE
-                    ? (next.textContent ?? "")
-                    : "";
+                const following = document.createRange();
+                following.selectNodeContents(element);
+                if (mark) following.setStartAfter(mark);
+                const followingText = following
+                  .toString()
+                  .replaceAll("\u00a0", " ");
                 return {
                   markCount: marks.length,
                   computedBold:
@@ -3142,18 +3195,15 @@ async function runAuthoringCorpusQa(
                       mark ? getComputedStyle(mark).fontWeight : "",
                       10,
                     ) >= 600,
-                  nextText,
-                  nextIsOutside: Boolean(mark && next && !mark.contains(next)),
+                  followingTextStartsAfterMark:
+                    followingText.startsWith(" next"),
                 };
               },
             );
             if (
               shortcutState.markCount !== 1 ||
               !shortcutState.computedBold ||
-              !shortcutState.nextIsOutside ||
-              !shortcutState.nextText
-                .replaceAll("\u00a0", " ")
-                .startsWith(" next")
+              !shortcutState.followingTextStartsAfterMark
             ) {
               throw new Error(
                 `the strong Markdown shortcut did not bold the inserted run and leave following text outside it: ${JSON.stringify(shortcutState)}`,
@@ -3416,14 +3466,61 @@ async function runAuthoringCorpusQa(
               );
             }
           }
+          await editor.evaluate(
+            () =>
+              new Promise<void>((resolve) =>
+                requestAnimationFrame(() =>
+                  requestAnimationFrame(() => resolve()),
+                ),
+              ),
+          );
           const authoredText = await editorText(editor);
           const authoredTarget = {
             text: authoredText,
             targetBuilderId: editedBuilderId,
+            preserveStyledBulletMarker,
           };
           const editingAfter = await snapshot(page, slideId, {
             ...authoredTarget,
           });
+          if (wrapperRectBefore) {
+            const wrapperRectAfter = await editor.evaluate(
+              (element: HTMLElement) => {
+                const wrapper = element.closest<HTMLElement>(
+                  '[data-authoring-layout-wrapper="fractional"]',
+                );
+                if (!wrapper) throw new Error("anchored wrapper disappeared");
+                const { x, y, width, height } = wrapper.getBoundingClientRect();
+                return { x, y, width, height };
+              },
+            );
+            if (
+              (["x", "y", "width", "height"] as const).some(
+                (key) =>
+                  Math.abs(wrapperRectBefore[key] - wrapperRectAfter[key]) >
+                  1 / 64,
+              )
+            ) {
+              throw new Error(
+                `anchored wrapper moved while editing: ${JSON.stringify({ before: wrapperRectBefore, after: wrapperRectAfter })}`,
+              );
+            }
+          }
+          if (source.kind === "fractional-absolute-root") {
+            const beforeRect = before.editedBoxRect;
+            const afterRect = editingAfter.editedBoxRect;
+            if (
+              !beforeRect ||
+              !afterRect ||
+              (["x", "y", "width", "height"] as const).some(
+                (key) => Math.abs(beforeRect[key] - afterRect[key]) > 0.5,
+              )
+            ) {
+              throw new Error(
+                `absolute text root moved or resized while editing: ${JSON.stringify({ before: beforeRect, after: afterRect })}`,
+              );
+            }
+          }
           if (!(await exitEdit(page, slideId, "escape"))) {
             throw new Error("Escape did not leave in-place text editing");
           }
@@ -3579,8 +3676,6 @@ async function runAuthoringCorpusQa(
                     afterRect: afterRecord?.rect,
                     beforeFlex: beforeRecord?.flexCrossAlignment,
                     afterFlex: afterRecord?.flexCrossAlignment,
-                    beforeLayout: beforeRecord?.layoutPath?.slice(0, 5),
-                    afterLayout: afterRecord?.layoutPath?.slice(0, 5),
                   };
                 }),
               ...outside.deltas
@@ -3601,7 +3696,7 @@ async function runAuthoringCorpusQa(
                 .map(() => ({ kind: "added" })),
             ].slice(0, 12);
             phaseProblems.push(
-              `${outsideChanges.length} style/geometry records changed outside the edited block (target ${JSON.stringify({ before: before.editedRect, after: after.editedRect, beforeInFlow: before.editedInFlow, afterInFlow: after.editedInFlow, beforeLayout: before.editedLayoutPath?.slice(0, 5), afterLayout: after.editedLayoutPath?.slice(0, 5) })}): ${JSON.stringify(outsideSamples)}`,
+              `${outsideChanges.length} style/geometry records changed outside the edited block (target ${JSON.stringify({ before: before.editedRect, after: after.editedRect, beforeInFlow: before.editedInFlow, afterInFlow: after.editedInFlow })}): ${JSON.stringify(outsideSamples)}`,
             );
           }
           if (phaseProblems.length) throw new Error(phaseProblems.join("; "));
@@ -4261,6 +4356,7 @@ async function snapshot(
     text?: string;
     marker?: string;
     targetBuilderId?: string;
+    preserveStyledBulletMarker?: boolean;
   },
 ): Promise<Snapshot> {
   return page.evaluate(
