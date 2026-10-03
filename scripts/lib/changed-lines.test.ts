@@ -21,7 +21,7 @@ describe("parseUnifiedDiff", () => {
     expect(result?.get(path.resolve(CWD, "src/a.ts"))).toEqual(new Set([3]));
   });
 
-  it("keys files so a path.join lookup finds them", () => {
+  it("keys files so a Windows path.join lookup finds them", () => {
     const diff = [
       "diff --git a/templates/app/en.ts b/templates/app/en.ts",
       "+++ b/templates/app/en.ts",
@@ -29,11 +29,11 @@ describe("parseUnifiedDiff", () => {
       "+export const en = {};",
     ].join("\n");
 
-    const cwd = path.resolve(CWD);
-    const result = parseUnifiedDiff(diff, cwd);
-    expect(result?.get(path.join(cwd, "templates", "app", "en.ts"))).toEqual(
-      new Set([1]),
-    );
+    const cwd = "C:\\repo";
+    const result = parseUnifiedDiff(diff, cwd, path.win32);
+    expect(
+      result?.get(path.win32.join(cwd, "templates", "app", "en.ts")),
+    ).toEqual(new Set([1]));
   });
 
   it("refuses to scope when a source file diffs as binary", () => {

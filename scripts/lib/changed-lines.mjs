@@ -67,7 +67,7 @@ export function requireAddedLines(cwd, guardName, options) {
 const SOURCE_EXTENSIONS =
   /\.(?:tsx?|jsx?|mjs|cjs|mdx?|css|scss|json|ya?ml|html|sh)$/i;
 
-export function parseUnifiedDiff(diff, cwd) {
+export function parseUnifiedDiff(diff, cwd, pathApi = path) {
   const result = new Map();
   let file = null;
   let line = 0;
@@ -93,7 +93,7 @@ export function parseUnifiedDiff(diff, cwd) {
       file =
         target === "/dev/null"
           ? null
-          : path.resolve(cwd, target.replace(/^b\//, ""));
+          : pathApi.resolve(cwd, target.replace(/^b\//, ""));
       continue;
     }
     const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(raw);
