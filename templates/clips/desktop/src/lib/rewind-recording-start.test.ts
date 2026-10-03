@@ -11,7 +11,7 @@ function deferred<T = void>() {
 }
 
 describe("prepareRewindRecordingStart", () => {
-  it("overlaps preparation and countdown, then cues before activation", async () => {
+  it("runs preparation with the countdown and activates after both", async () => {
     const events: string[] = [];
     const prepareGate = deferred();
     const countdownGate = deferred();
@@ -28,9 +28,6 @@ describe("prepareRewindRecordingStart", () => {
         await countdownGate.promise;
         events.push("countdown-done");
       },
-      cancelCountdown() {
-        events.push("countdown-cancel");
-      },
       async beforeActivate() {
         events.push("play-cue");
       },
@@ -45,11 +42,6 @@ describe("prepareRewindRecordingStart", () => {
 
     countdownGate.resolve();
     await Promise.resolve();
-    expect(events).toEqual([
-      "prepare-start",
-      "countdown-start",
-      "countdown-done",
-    ]);
     expect(events).not.toContain("activate:prepared");
 
     prepareGate.resolve();
@@ -68,26 +60,27 @@ describe("prepareRewindRecordingStart", () => {
     const events: string[] = [];
     const countdownGate = deferred();
 
-    const startPromise = prepareRewindRecordingStart({
-      async prepare() {
-        throw new Error("create recording failed");
-      },
-      async countdown() {
-        events.push("countdown-start");
-        await countdownGate.promise;
-      },
-      cancelCountdown() {
-        events.push("countdown-cancel");
-        countdownGate.resolve();
-      },
-      async activate() {
-        events.push("activate");
-        return "started";
-      },
-    });
+    await expect(
+      prepareRewindRecordingStart({
+        async prepare() {
+          throw new Error("create recording failed");
+        },
+        async countdown() {
+          events.push("countdown-start");
+          await countdownGate.promise;
+        },
+        cancelCountdown() {
+          events.push("cancel-countdown");
+          countdownGate.resolve();
+        },
+        async activate() {
+          events.push("activate");
+          return "started";
+        },
+      }),
+    ).rejects.toThrow("create recording failed");
 
-    await expect(startPromise).rejects.toThrow("create recording failed");
-    expect(events).toEqual(["countdown-start", "countdown-cancel"]);
+    expect(events).toEqual(["countdown-start", "cancel-countdown"]);
   });
 
   it("waits for preparation to finish before surfacing countdown cancellation", async () => {
@@ -105,7 +98,7 @@ describe("prepareRewindRecordingStart", () => {
         throw new Error("Recording cancelled during countdown");
       },
       cancelCountdown() {
-        events.push("countdown-cancel");
+        events.push("cancel-countdown");
         countdownCancelled.resolve();
       },
       async activate() {
@@ -125,7 +118,7 @@ describe("prepareRewindRecordingStart", () => {
     );
 
     await countdownCancelled.promise;
-    expect(events).toEqual(["countdown-cancel"]);
+    expect(events).toEqual(["cancel-countdown"]);
     expect(settled).toBe(false);
 
     prepareGate.resolve();
@@ -133,7 +126,7 @@ describe("prepareRewindRecordingStart", () => {
       "Recording cancelled during countdown",
     );
     await observeSettlement;
-    expect(events).toEqual(["countdown-cancel", "prepare-done"]);
+    expect(events).toEqual(["cancel-countdown", "prepare-done"]);
   });
 
   it("surfaces activation failure after playing the cue", async () => {

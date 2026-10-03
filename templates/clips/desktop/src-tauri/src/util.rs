@@ -124,7 +124,7 @@ pub fn set_window_opacity(_window: &WebviewWindow, _opacity: f64) {}
 
 pub fn build_popover_window(app: &mut tauri::App) -> Result<WebviewWindow, tauri::Error> {
     let app_handle = app.handle().clone();
-    WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.html".into()))
+    let builder = WebviewWindowBuilder::new(app, "popover", WebviewUrl::App("index.html".into()))
         .title("Clips")
         .inner_size(
             POPOVER_DEFAULT_WIDTH_LOGICAL,
@@ -141,7 +141,12 @@ pub fn build_popover_window(app: &mut tauri::App) -> Result<WebviewWindow, tauri
         .visible(false)
         .focused(true)
         .shadow(true)
-        .accept_first_mouse(true)
+        .accept_first_mouse(true);
+    #[cfg(target_os = "macos")]
+    // The offscreen capture popover still runs timers and audio-cue setup.
+    let builder =
+        builder.background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
+    builder
         .on_new_window(move |url, features| {
             let label = format!(
                 "google-oauth-{}",
