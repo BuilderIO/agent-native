@@ -336,6 +336,19 @@ describe("performance aggregates on Postgres", () => {
       );
     }
 
+    // A batch for s-live failed long ago, but its later events keep its row.
+    await ingest([vitals("s-live", { lcp_ms: 1_000 })]);
+    const [{ tenant_key: tenantKey }] = (
+      await client.query(
+        "SELECT tenant_key FROM analytics_session_performance WHERE session_id = 's-live'",
+      )
+    ).rows;
+    await client.query(
+      `INSERT INTO analytics_performance_gaps (id, tenant_key, owner_email, org_id, event_date, session_id, recorded_at)
+       VALUES ('session-live', $1, $2, $3, $4, 's-live', $5)`,
+      [tenantKey, OWNER, ORG, daysAgo(100), now.toISOString()],
+    );
+
     await prunePerformanceAggregates(30, now);
 
     const kept = await client.query(
@@ -344,6 +357,7 @@ describe("performance aggregates on Postgres", () => {
     // Sessions last as long as their replays; route days last 180 days.
     expect(kept.rows.map((row: { id: string }) => row.id)).toEqual([
       "route-old",
+      "session-live",
       "session-recent",
     ]);
   });

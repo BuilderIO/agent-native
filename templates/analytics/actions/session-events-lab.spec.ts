@@ -285,6 +285,21 @@ describe("Sessions triage Lab guard on event actions", () => {
     expect(result).toMatchObject({ frictionCoverageStartedAt: null });
   });
 
+  it("answers a slow filter or speed summaries with the paginated shape, so coverage can travel with it", async () => {
+    labEnabled.value = true;
+    for (const args of [{ slow: "any" }, { includePerformance: true }]) {
+      listSessionRecordingsPage.mockResolvedValueOnce({
+        recordings: [],
+        total: 0,
+        appCounts: [],
+        performanceCoverageStartedAt: null,
+      } as never);
+      const result = await listRecordings.run(args as never);
+      expect(result).toMatchObject({ performanceCoverageStartedAt: null });
+    }
+    expect(listSessionRecordings).not.toHaveBeenCalled();
+  });
+
   it("keeps the plain sorts working with the Lab off", async () => {
     await listRecordings.run({ paginated: true, sort: "errors" } as never);
     expect(getUserLabEnabled).not.toHaveBeenCalled();
