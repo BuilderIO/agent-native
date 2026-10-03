@@ -76,6 +76,30 @@ describe("server captureError", () => {
     expect(result).toBeUndefined();
     expect(provider).not.toHaveBeenCalled();
   });
+
+  it("keeps a test identity's errors, tagged so alert rules can skip them", () => {
+    const provider = vi.fn(() => "evt_test");
+    const unregister = registerErrorCaptureProvider("test-identity", provider);
+
+    runWithRequestContext({ userEmail: "qa-owner@example.test" }, () =>
+      captureError(
+        Object.assign(new Error("qa failure"), { errorCode: "qa" }),
+        {
+          tags: { source: "action" },
+        },
+      ),
+    );
+    runWithRequestContext({ userEmail: "reader@example.com" }, () =>
+      captureError(new Error("real failure")),
+    );
+
+    unregister();
+
+    expect(provider.mock.calls[0]?.[1]).toMatchObject({
+      tags: { source: "action", errorCode: "qa", test_identity: "true" },
+    });
+    expect(provider.mock.calls[1]?.[1]?.tags?.test_identity).toBeUndefined();
+  });
 });
 
 function named(name: string, message: string, extra: object = {}): Error {

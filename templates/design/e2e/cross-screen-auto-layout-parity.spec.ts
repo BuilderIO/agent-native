@@ -24,7 +24,7 @@ const DESTINATION_SCREEN = `<!doctype html>
   <head><meta charset="utf-8" /><title>Auto layout destination</title></head>
   <body style="margin:0;position:relative;min-height:780px;width:1000px;height:780px;background:#111827;color:#fff;font-family:system-ui,sans-serif">
     <section data-agent-native-node-id="destination-flow" data-agent-native-layer-name="Destination Flow" data-an-primitive="frame"
-      style="position:absolute;left:80px;top:100px;width:360px;min-height:180px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;padding:16px;background:#334155">
+      style="position:absolute;left:80px;top:100px;width:360px;min-height:260px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;padding:16px;background:#334155">
       <div data-agent-native-node-id="destination-anchor" data-agent-native-layer-name="Destination Anchor"
         style="box-sizing:border-box;flex:0 0 56px;width:180px;height:56px;background:#94a3b8;color:#0f172a">Anchor</div>
     </section>

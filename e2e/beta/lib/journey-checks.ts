@@ -164,6 +164,12 @@ export interface BuilderConnectionEvidence {
   creditExhausted: boolean | null;
 }
 
+export function hasBuilderConnectionState(settingsText: string): boolean {
+  return /\b(?:Connect|Disconnect|Reconnect|Connected|Not connected)\b|Needs to be reconnected/i.test(
+    settingsText,
+  );
+}
+
 /**
  * Where the Builder connection section, the account chrome, and the server's
  * own status disagree. Empty means they tell one story.

@@ -957,7 +957,7 @@ import { runObserveCollabText } from "./design-editor/effects/observe-collab-tex
 import { runPublishAgentSelectionContext } from "./design-editor/effects/publish-agent-selection-context";
 import { runResumePendingGeneration } from "./design-editor/effects/resume-pending-generation";
 import { runSeedCollabContent } from "./design-editor/effects/seed-collab-content";
-import { syncLatestActiveContentFromRender } from "./design-editor/effects/sync-latest-active-content";
+import { useSyncLatestActiveContent } from "./design-editor/effects/sync-latest-active-content";
 import { isCurrentRuntimeLayerSnapshot } from "./design-editor/export-snapshot-frame";
 import { resolveFigmaPasteScene } from "./design-editor/figma-paste-scene";
 import {
@@ -1038,6 +1038,7 @@ import {
   type MotionTimelineQueryResult,
   motionTimelineFingerprint,
 } from "./design-editor/motion-state";
+import { NativeExportRenderError } from "./design-editor/native-export-render";
 import {
   clampOverviewDisplayZoom,
   clampZoom,
@@ -1121,6 +1122,7 @@ import {
   PngCaptureError,
   type PngCaptureScope,
 } from "./design-editor/png-export-render";
+import { mergePresenceUsers } from "./design-editor/presence-users";
 import { openPreviewUrl } from "./design-editor/preview-navigation";
 import {
   computeInteractZoomToFit,
@@ -1191,6 +1193,7 @@ import {
   SHOW_DESIGN_CODE_LEFT_PANEL,
   SHOW_DESIGN_SECONDARY_LEFT_PANELS,
 } from "./design-editor/types";
+import { useViewerPresence } from "./design-editor/use-viewer-presence";
 import {
   VisualEditWebMcp,
   hasNativeWebMcpHost,
@@ -4607,6 +4610,18 @@ function DesignEditor() {
           latestFileSaveForUnloadRef,
           rollbackPendingLocalFileContent,
           markPendingLocalFileContent,
+          getPendingBaseContent: (fileId) =>
+            pendingLocalFileContentsRef.current.get(fileId)?.baseContent,
+          readLiveFileContent: id
+            ? async (fileId) =>
+                (
+                  await callAction<{ content: string }>(
+                    "read-source-file",
+                    { designId: id, fileId },
+                    { method: "GET" },
+                  )
+                ).content
+            : undefined,
           queryClient,
           setPatchProof,
           t,
@@ -4619,6 +4634,7 @@ function DesignEditor() {
     [
       acknowledgeOutboxEntry,
       createFileSaveOutboxEntry,
+      id,
       journalOutboxEntry,
       rollbackPendingLocalFileContent,
       markPendingLocalFileContent,
@@ -7180,6 +7196,9 @@ function DesignEditor() {
         isSignedIn && canEditDesign && viewMode === "single"
           ? activeFileId
           : null,
+      activityResource: id
+        ? { resourceType: "design", resourceId: id }
+        : undefined,
       requestSource: TAB_ID,
       user: currentUser,
     });
@@ -7192,11 +7211,27 @@ function DesignEditor() {
     awareness: overviewAwareness,
     ydoc: overviewYdoc,
     isSynced: overviewIsSynced,
+    activeUsers: overviewActiveUsers,
+    agentPresent: overviewAgentPresent,
+    agentActive: overviewAgentActive,
   } = useCollaborativeDoc({
     docId:
       isSignedIn && canEditDesign && overviewPresenceFileId
         ? overviewPresenceFileId
         : null,
+    activityResource: id
+      ? { resourceType: "design", resourceId: id }
+      : undefined,
+    requestSource: TAB_ID,
+    user: currentUser,
+  });
+
+  useViewerPresence({
+    designId: id ?? null,
+    isSignedIn,
+    canEditDesign,
+    accessRole: designAccessRole,
+    fileId: viewMode === "single" ? activeFileId : overviewPresenceFileId,
     requestSource: TAB_ID,
     user: currentUser,
   });
@@ -8173,14 +8208,12 @@ function DesignEditor() {
       hasActiveCanvasContent: Boolean(activeFile && activeContent.trim()),
       pendingGenerationActive,
     });
-  useLayoutEffect(() => {
-    syncLatestActiveContentFromRender({
-      activeContent,
-      activeFile,
-      latestActiveContentRef,
-      pendingLocalFileContents: pendingLocalFileContentsRef.current,
-    });
-  }, [activeContent, activeFile?.id, activeFile?.fileType]);
+  useSyncLatestActiveContent({
+    activeContent,
+    activeFile,
+    latestActiveContentRef,
+    pendingLocalFileContents: pendingLocalFileContentsRef.current,
+  });
   useEffect(() => {
     if (!initialGenerationChromeLimited) return;
     setActiveLeftPanel("agent");
@@ -19663,10 +19696,13 @@ function DesignEditor() {
   );
   const markScreenForExport = useCallback(
     (screenId: string) => {
-      if (activeRuntimeLayerReadinessScreenIdRef.current !== screenId) {
+      if (exportPreviewScreenIdRef.current !== screenId) {
         runtimeLayerSnapshotReadinessByIdRef.current[screenId] = {
           status: "loading",
         };
+        if (activeRuntimeLayerReadinessScreenIdRef.current === screenId) {
+          setRuntimeLayerSnapshotRequest(Date.now() + Math.random());
+        }
       }
       exportPreviewScreenIdRef.current = screenId;
       setExportPreviewScreenId(screenId);
@@ -19680,9 +19716,9 @@ function DesignEditor() {
       );
       const sourceType =
         normalizeDesignSourceType(screen?.sourceType) ?? activeCanvasSourceType;
-      if (sourceType === "inline") return;
+      if (sourceType === "inline") return null;
       markScreenForExport(screenId);
-      await resolveSnapshotExportSource(screenId);
+      return await resolveSnapshotExportSource(screenId);
     },
     [
       activeCanvasSourceType,
@@ -19697,7 +19733,7 @@ function DesignEditor() {
   }, [setExportPreviewScreenId]);
 
   const resolvePngCaptureTarget = useCallback(
-    (scope: PngCaptureScope, requestedScreenId?: string) => {
+    async (scope: PngCaptureScope, requestedScreenId?: string) => {
       let iframe = canvasIframeRef.current;
       let cropSelection: ElementInfo | readonly ElementInfo[] | null =
         viewMode === "single" || scope === "element"
@@ -19753,34 +19789,18 @@ function DesignEditor() {
             selectedElement?.sourceLayerIdentity?.screenId ??
             (selectedScreenIds.length === 1 ? selectedScreenIds[0] : null) ??
             activeFile?.id;
-          const snapshot = screenId
-            ? runtimeLayerSnapshotsByIdRef.current[screenId]
-            : undefined;
+          const snapshotSource = screenId
+            ? await prepareSelectedScreenForExport(screenId)
+            : null;
           const screen = screenId
             ? overviewScreens.find((candidate) => candidate.id === screenId)
             : undefined;
-          const baseUrl = screenId
-            ? (liveScreenSnapshotsById[screenId]?.url ??
-              previewUrlAtLiveRoute(
-                screen?.url ?? screen?.previewUrl,
-                liveRoutePathsByScreenIdRef.current[screenId],
-              ))
-            : undefined;
-          if (
-            snapshot?.html &&
-            baseUrl &&
-            isCurrentRuntimeLayerSnapshot(
-              snapshot,
-              screenId
-                ? runtimeLayerSnapshotReadinessByIdRef.current[screenId]
-                : undefined,
-            )
-          ) {
+          if (snapshotSource) {
             return {
               cropSelection,
               doc: null,
               iframe,
-              snapshotSource: { html: snapshot.html, baseUrl },
+              snapshotSource,
               snapshotWidth: screen?.width ?? iframe.clientWidth,
               snapshotHeight: screen?.height ?? iframe.clientHeight,
             };
@@ -19801,8 +19821,8 @@ function DesignEditor() {
       canvasIframeRef,
       activeFile?.id,
       boardFileId,
-      liveScreenSnapshotsById,
       overviewScreens,
+      prepareSelectedScreenForExport,
       pngSelectedElements,
       selectedElement,
       selectedScreenIds,
@@ -19852,7 +19872,6 @@ function DesignEditor() {
           canEditDesign,
           canvasFrameGeometryById: exportCanvasFrameGeometryById,
           overviewScreens,
-          prepareScreenForExport: prepareSelectedScreenForExport,
           releaseScreenFromExport,
           resolvePngCaptureTarget,
           selectedScreenIds,
@@ -19876,6 +19895,7 @@ function DesignEditor() {
   const showRasterCaptureError = useCallback(
     (error: unknown, format: "png" | "pdf" = "png") => {
       if (error instanceof PngCaptureError) {
+        console.error(`${format.toUpperCase()} capture failed:`, error);
         if (format === "pdf") {
           toast.error(t("designEditor.toasts.pdfExportError"));
           return;
@@ -19902,15 +19922,24 @@ function DesignEditor() {
         return;
       }
       console.error(`${format.toUpperCase()} capture failed:`, error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t(
-              format === "pdf"
-                ? "designEditor.toasts.pdfExportError"
-                : "designEditor.toasts.pngExportError",
-            ),
-      );
+      const exportErrorToastKeys = {
+        export_too_large: "designEditor.toasts.exportTooLarge",
+        export_resources_unavailable:
+          "designEditor.toasts.exportResourcesUnavailable",
+        export_render_timeout: "designEditor.toasts.exportTimedOut",
+        export_render_busy: "designEditor.toasts.exportBusy",
+        export_chromium_unavailable:
+          "designEditor.toasts.exportChromiumUnavailable",
+      } as const;
+      const errorCode =
+        error instanceof NativeExportRenderError ? error.code : undefined;
+      const errorKey =
+        errorCode && errorCode in exportErrorToastKeys
+          ? exportErrorToastKeys[errorCode as keyof typeof exportErrorToastKeys]
+          : format === "pdf"
+            ? "designEditor.toasts.pdfExportError"
+            : "designEditor.toasts.pngExportError";
+      toast.error(t(errorKey));
     },
     [t],
   );
@@ -19960,6 +19989,7 @@ function DesignEditor() {
           renderPngBlob,
           resolveSelectedScreensBounds,
           resolvePngCaptureTarget,
+          releaseScreenFromExport,
           setPngExporting,
           showRasterCaptureError,
           t,
@@ -19973,6 +20003,7 @@ function DesignEditor() {
       renderPngBlob,
       resolveSelectedScreensBounds,
       resolvePngCaptureTarget,
+      releaseScreenFromExport,
       t,
       triggerBlobDownload,
     ],
@@ -26365,12 +26396,13 @@ function DesignEditor() {
           {hostEmbeddedEditor ? null : (
             <>
               <PresenceBar
-                activeUsers={[
-                  ...(currentUser ? [currentUser] : []),
-                  ...(activeUsers ?? []),
-                ]}
-                agentPresent={agentPresent}
-                agentActive={agentActive}
+                activeUsers={mergePresenceUsers(
+                  currentUser ? [currentUser] : [],
+                  activeUsers,
+                  overviewActiveUsers,
+                )}
+                agentPresent={agentPresent || overviewAgentPresent}
+                agentActive={agentActive || overviewAgentActive}
                 currentUserEmail={currentUser?.email}
                 showCurrentUser
                 followingEmail={followingEmail}

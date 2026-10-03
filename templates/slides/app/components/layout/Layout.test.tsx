@@ -287,6 +287,22 @@ describe("Slides Layout", () => {
     expect(toastErrorMock).toHaveBeenCalledWith("settings.saveFailed");
   });
 
+  it("lets deck chat proceed after a terminal typed save failure", async () => {
+    flushDeckSaveMock.mockRejectedValueOnce(
+      Object.assign(new Error("Failed to save deck deck-1"), {
+        status: 400,
+        errorCode: "slide_content_hash_required",
+      }),
+    );
+    renderLayout("/deck/deck-1");
+
+    const history = agentSidebarMock.mock.lastCall![0].chatHistory as {
+      beforeStart: () => Promise<void>;
+    };
+    await expect(history.beforeStart()).resolves.toBeUndefined();
+    expect(toastErrorMock).toHaveBeenCalledWith("settings.saveFailed");
+  });
+
   it("keeps malformed chat history distinct from an empty version list", () => {
     renderLayout("/deck/deck-1");
 
