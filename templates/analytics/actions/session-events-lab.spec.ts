@@ -243,19 +243,33 @@ describe("Sessions triage Lab guard on event actions", () => {
       friction: { score: 4 },
     });
 
-    listRecordingFriction.mockRejectedValueOnce(new Error("friction down"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const frictionFailure = new Error(
+      'relation "analytics_session_friction" does not exist',
+    );
+    listRecordingFriction.mockRejectedValueOnce(frictionFailure);
     await expect(getSummary.run({ recordingId: "r1" })).resolves.toEqual({
       id: "r1",
       sessionId: "s1",
-      frictionError: "friction down",
+      frictionError: "Couldn't read session friction.",
     });
 
-    getUserLabEnabled.mockRejectedValueOnce(new Error("labs down"));
+    const labFailure = new Error('relation "settings" does not exist');
+    getUserLabEnabled.mockRejectedValueOnce(labFailure);
     await expect(getSummary.run({ recordingId: "r1" })).resolves.toEqual({
       id: "r1",
       sessionId: "s1",
-      labStateError: "labs down",
+      labStateError: "Couldn't read the Sessions triage Lab state.",
     });
+    expect(log).toHaveBeenCalledWith(
+      "[get-session-replay-summary] Couldn't read session friction.",
+      frictionFailure,
+    );
+    expect(log).toHaveBeenCalledWith(
+      "[get-session-replay-summary] Couldn't read the Sessions triage Lab state.",
+      labFailure,
+    );
+    log.mockRestore();
   });
 
   it("rejects event range bounds that are not timestamps", () => {
