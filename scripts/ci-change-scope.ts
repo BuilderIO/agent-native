@@ -78,6 +78,7 @@ const DESIGN_CANVAS_E2E_FILES = new Set([
   "templates/design/e2e/global-teardown.ts",
   "templates/design/e2e/helpers.ts",
   "templates/design/e2e/parity-vector-endpoints.spec.ts",
+  "templates/design/e2e/z-order-parity.spec.ts",
   "templates/design/playwright.config.ts",
 ]);
 
