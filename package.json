@@ -75,6 +75,7 @@
     "dev:cli": "tsx packages/core/src/cli/index.ts",
     "guard:hooks-registered": "node scripts/guard-hooks-registered.mjs",
     "guard:agent-native-brand": "tsx scripts/guard-agent-native-brand.ts",
+    "guard:readme-link-tags": "tsx scripts/guard-readme-link-tags.ts",
     "guard:no-drizzle-push": "node scripts/guard-no-drizzle-push.mjs",
     "guard:mcp-registry": "node --experimental-strip-types scripts/mcp-registry.ts --check",
     "guard:no-pnpm-patches": "tsx scripts/guard-no-pnpm-patches.ts",

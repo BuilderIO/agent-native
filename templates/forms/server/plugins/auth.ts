@@ -4,7 +4,8 @@ export default createAuthPlugin({
   workspaceAppPublicPaths: ["/"],
   marketing: {
     appName: "Forms",
-    learnMoreUrl: "https://agent-native.com/apps/forms",
+    learnMoreUrl:
+      "https://agent-native.com/apps/forms?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline:
       "Your AI agent builds, publishes, and analyzes forms alongside you.",
     features: [

@@ -47,7 +47,10 @@ export default function HomePage() {
 
         <div className="grid grid-cols-2 gap-3 text-left">
           <a
-            href={docsUrl("getting-started")}
+            href={docsUrl("getting-started", {
+              source: "app",
+              content: "docs-card",
+            })}
             target="_blank"
             rel="noopener noreferrer"
             className="group rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50 transition-colors"

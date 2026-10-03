@@ -4,7 +4,7 @@ Open-source Obsidian for MDX — an agent-native, local-file document workspace 
 a self-hostable alternative to Notion and Obsidian. Edit local Markdown/MDX files,
 build Notion-style collections, and write with an AI agent.
 
-**Live app: [content.agent-native.com](https://content.agent-native.com)**
+**Live app: [content.agent-native.com](https://content.agent-native.com?utm_source=github&utm_medium=referral&utm_content=content-readme)**
 
 Open a doc and ask "rewrite this paragraph to be more concise" or "create a page
 called Q4 Planning with sub-pages for Goals, Metrics, and Risks" — the same result
@@ -31,4 +31,4 @@ pnpm install
 pnpm dev
 ```
 
-Full docs: [agent-native.com/docs/template-content](https://agent-native.com/docs/template-content).
+Full docs: [agent-native.com/docs/template-content](https://agent-native.com/docs/template-content?utm_source=github&utm_medium=referral&utm_content=content-readme).

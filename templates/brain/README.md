@@ -4,7 +4,7 @@ An open-source, agent-native alternative to Glean — clean company chat backed 
 cited institutional knowledge. Ask a plain-English question and get an answer
 from approved company knowledge, with links back to the source.
 
-**Live app: [brain.agent-native.com](https://brain.agent-native.com)**
+**Live app: [brain.agent-native.com](https://brain.agent-native.com?utm_source=github&utm_medium=referral&utm_content=brain-readme)**
 
 Brain ingests approved Slack channels, meetings, transcripts, GitHub issues/PRs,
 and webhook captures, distills them into reviewable knowledge, and answers with
@@ -63,4 +63,4 @@ pnpm install
 pnpm dev
 ```
 
-Full docs: [agent-native.com/docs/template-brain](https://agent-native.com/docs/template-brain).
+Full docs: [agent-native.com/docs/template-brain](https://agent-native.com/docs/template-brain?utm_source=github&utm_medium=referral&utm_content=brain-readme).

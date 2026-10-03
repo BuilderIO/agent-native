@@ -24,6 +24,15 @@ describe("docsUrl", () => {
       `${AGENT_NATIVE_DOCS_ORIGIN}/docs/deployment?utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=deployment_settings`,
     );
     expect(
+      docsUrl("getting-started", {
+        source: "app",
+        content: "docs-card",
+        hash: "quick-start",
+      }),
+    ).toBe(
+      `${AGENT_NATIVE_DOCS_ORIGIN}/docs?utm_source=app&utm_medium=product&utm_content=docs-card#quick-start`,
+    );
+    expect(
       docsUrl("template-clips-features", {
         hash: "chrome-extension-browser-logs",
       }),
