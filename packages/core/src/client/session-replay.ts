@@ -1719,15 +1719,6 @@ function mergePendingFlushReason(
     : current;
 }
 
-function shouldReserveSequenceBeforeKeepalive(reason: string): boolean {
-  return (
-    reason === "pagehide" ||
-    reason === "pagehide-persisted" ||
-    reason === "beforeunload" ||
-    reason === "visibility-hidden"
-  );
-}
-
 function hasFullSnapshot(events: QueuedReplayEvent[]): boolean {
   return events.some((event) => event.type === RRWEB_FULL_SNAPSHOT_EVENT_TYPE);
 }
@@ -2057,13 +2048,15 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
   let pausedForQuota = false;
   let quotaRetryAfterSeconds: number | null = null;
   try {
+    // A keepalive upload of any reason can be stored after a navigation has
+    // destroyed this page and its response handler. Persist the next index
+    // first, or the next page resends this chunk number with different
+    // content and the server rejects it (HTTP 409).
     await sendReplayUpload(state.options, payload.body, {
-      beforeKeepaliveUpload: shouldReserveSequenceBeforeKeepalive(reason)
-        ? () => {
-            advanceReplaySequence(state, payload);
-            reservedSequence = true;
-          }
-        : undefined,
+      beforeKeepaliveUpload: () => {
+        advanceReplaySequence(state, payload);
+        reservedSequence = true;
+      },
     });
     if (!reservedSequence) advanceReplaySequence(state, payload);
     state.automaticConflictRestartAttempted = false;
