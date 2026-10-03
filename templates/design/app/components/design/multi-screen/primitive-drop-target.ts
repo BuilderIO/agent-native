@@ -63,18 +63,6 @@ function primitiveMatchesNodeId(
   );
 }
 
-function isReverseFlexFlow(primitive: ParsedScreenPrimitive) {
-  const direction = primitive.autoLayoutFlexDirection || "row";
-  if (primitive.autoLayoutAxis === "x" && !primitive.autoLayoutDirection) {
-    return true;
-  }
-  return (
-    direction.endsWith("-reverse") !==
-    (primitive.autoLayoutAxis === "x" &&
-      primitive.autoLayoutDirection === "rtl")
-  );
-}
-
 function isPrimitiveAncestor(
   ancestor: ParsedScreenPrimitive,
   descendant: ParsedScreenPrimitive,
