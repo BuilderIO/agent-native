@@ -51,7 +51,47 @@ function membership(orgId: string, orgName: string) {
 
 const tokenRows: any[] = [];
 const deviceRows: any[] = [];
+let issuanceFailure: "not-member" | "unavailable" | null = null;
+const issuanceTransaction = {
+  execute: vi.fn(async () => {
+    if (issuanceFailure === "unavailable")
+      throw new Error("test membership query unavailable");
+    return {
+      rows: issuanceFailure === "not-member" ? [] : [{ id: "member-1" }],
+      rowsAffected: 0,
+    };
+  }),
+};
+vi.mock("../db/client.js", () => ({
+  getDbExec: () => ({
+    transaction: async (
+      run: (tx: typeof issuanceTransaction) => Promise<unknown>,
+    ) => {
+      const previousTokens = structuredClone(tokenRows);
+      const previousDevices = structuredClone(deviceRows);
+      try {
+        return await run(issuanceTransaction);
+      } catch (err) {
+        tokenRows.splice(0, tokenRows.length, ...previousTokens);
+        deviceRows.splice(0, deviceRows.length, ...previousDevices);
+        throw err;
+      }
+    },
+  }),
+}));
+vi.mock("./credential-membership.js", () => ({
+  checkCredentialOrgMembership: vi.fn(async () => "member"),
+}));
+vi.mock("./credential-issuance.js", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("./credential-issuance.js")>();
+  return {
+    ...original,
+    withMcpCredentialIssuance: vi.fn(original.withMcpCredentialIssuance),
+  };
+});
 vi.mock("./connect-store.js", () => ({
+  ensureConnectTables: vi.fn(async () => {}),
   MCP_CONNECT_SCOPE: "mcp-connect",
   MCP_CONNECT_OAUTH_CLIENT_ID: "agent-native-connect",
   DEFAULT_TOKEN_TTL_DAYS: 365,
@@ -149,6 +189,8 @@ vi.mock("./connect-store.js", () => ({
   expireDeviceCode: vi.fn(async () => {}),
 }));
 
+const { withMcpCredentialIssuance } = await import("./credential-issuance.js");
+const withMcpCredentialIssuanceMock = vi.mocked(withMcpCredentialIssuance);
 const { handleMcpConnect } = await import("./connect-route.js");
 const { defineAppConfig, resetAppConfigForTests } =
   await import("../app-config/index.js");
@@ -179,6 +221,9 @@ const SECRET = "test-a2a-secret";
 
 describe("handleMcpConnect", () => {
   beforeEach(() => {
+    issuanceTransaction.execute.mockClear();
+    issuanceFailure = null;
+    withMcpCredentialIssuanceMock.mockClear();
     tokenRows.length = 0;
     deviceRows.length = 0;
     getSessionMock.mockReset();
@@ -193,6 +238,53 @@ describe("handleMcpConnect", () => {
     delete process.env.A2A_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
   });
+
+  it.each(["mint", "approve", "poll"] as const)(
+    "returns retryable unavailable when Connect table preflight fails for %s",
+    async (operation) => {
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-1",
+      });
+      if (operation !== "mint") {
+        await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      }
+      if (operation === "poll") {
+        await handleMcpConnect(
+          ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+          "/device/authorize",
+        );
+      }
+      const previousDevices = structuredClone(deviceRows);
+      const { ensureConnectTables } = await import("./connect-store.js");
+      vi.mocked(ensureConnectTables).mockRejectedValueOnce(
+        new Error("test preflight database unavailable"),
+      );
+      withMcpCredentialIssuanceMock.mockClear();
+      const response = await handleMcpConnect(
+        ev({
+          method: "POST",
+          body:
+            operation === "poll"
+              ? { device_code: deviceRows[0].deviceCode }
+              : { user_code: "ABCD-2345" },
+        }),
+        operation === "mint"
+          ? "/token"
+          : operation === "approve"
+            ? "/device/authorize"
+            : "/device/poll",
+      );
+      expect(response.status).toBe(503);
+      expect(response.headers.get("Retry-After")).toBe("5");
+      expect(await response.json()).toEqual({
+        error: "Organization membership could not be verified. Retry shortly.",
+      });
+      expect(withMcpCredentialIssuanceMock).not.toHaveBeenCalled();
+      expect(tokenRows).toHaveLength(0);
+      expect(deviceRows).toEqual(previousDevices);
+    },
+  );
 
   describe("connect page", () => {
     it("serves the configured login HTML when unauthenticated", async () => {
@@ -383,6 +475,63 @@ describe("handleMcpConnect", () => {
         label: "laptop",
         jti: payload.jti,
       });
+    });
+
+    it.each(["not-member", "unavailable"] as const)(
+      "refuses a stale personal mint when the issuance boundary returns %s",
+      async (reason) => {
+        getSessionMock.mockResolvedValue({
+          email: "u@example.com",
+          orgId: "org-1",
+        });
+        issuanceFailure = reason;
+        const response = await handleMcpConnect(
+          ev({ method: "POST" }),
+          "/token",
+        );
+        expect(response.status).toBe(reason === "not-member" ? 403 : 503);
+        expect(tokenRows).toHaveLength(0);
+        expect(withMcpCredentialIssuanceMock).toHaveBeenCalledWith(
+          {
+            email: "u@example.com",
+            orgId: "org-1",
+            requestOrigin: "https://mail.agent-native.com",
+          },
+          expect.any(Function),
+        );
+      },
+    );
+
+    it("returns retryable unavailable without exposing a token when recording a personal mint fails", async () => {
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-1",
+      });
+      const { recordMintedToken } = await import("./connect-store.js");
+      vi.mocked(recordMintedToken).mockRejectedValueOnce(
+        new Error(
+          "Unexpected affected row count for MCP connect token insert.",
+        ),
+      );
+      const response = await handleMcpConnect(ev({ method: "POST" }), "/token");
+      expect(response.status).toBe(503);
+      expect(response.headers.get("Retry-After")).toBe("5");
+      expect(await response.json()).not.toHaveProperty("token");
+      expect(tokenRows).toHaveLength(0);
+    });
+
+    it("records a personal mint through the issuance transaction", async () => {
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-1",
+      });
+      const response = await handleMcpConnect(ev({ method: "POST" }), "/token");
+      expect(response.status).toBe(200);
+      const { recordMintedToken } = await import("./connect-store.js");
+      expect(recordMintedToken).toHaveBeenLastCalledWith(
+        expect.objectContaining({ orgId: "org-1" }),
+        issuanceTransaction,
+      );
     });
 
     it("binds a new token to the default org of an account without one", async () => {
@@ -735,6 +884,179 @@ describe("handleMcpConnect", () => {
         "/device/authorize",
       );
       expect(res.status).toBe(400);
+    });
+
+    it.each(["not-member", "unavailable"] as const)(
+      "refuses stale device approval when issuance returns %s",
+      async (reason) => {
+        await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+        getSessionMock.mockResolvedValue({
+          email: "u@example.com",
+          orgId: "org-1",
+        });
+        issuanceFailure = reason;
+        const response = await handleMcpConnect(
+          ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+          "/device/authorize",
+        );
+        expect(response.status).toBe(reason === "not-member" ? 403 : 503);
+        expect(deviceRows[0].status).toBe("pending");
+        expect(deviceRows[0].ownerEmail).toBeNull();
+      },
+    );
+
+    it.each(["not-member", "unavailable"] as const)(
+      "refuses polling a previously approved device when issuance returns %s",
+      async (reason) => {
+        await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+        getSessionMock.mockResolvedValue({
+          email: "u@example.com",
+          orgId: "org-1",
+        });
+        await handleMcpConnect(
+          ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+          "/device/authorize",
+        );
+        issuanceFailure = reason;
+        const response = await handleMcpConnect(
+          ev({
+            method: "POST",
+            body: { device_code: deviceRows[0].deviceCode },
+          }),
+          "/device/poll",
+        );
+        expect(response.status).toBe(reason === "not-member" ? 403 : 503);
+        expect(tokenRows).toHaveLength(0);
+        expect(deviceRows[0].status).toBe("approved");
+      },
+    );
+
+    it("rechecks device status after the membership lock even when the poll preloaded an approved row", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-1",
+      });
+      await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+        "/device/authorize",
+      );
+      issuanceTransaction.execute.mockImplementationOnce(async () => {
+        deviceRows[0].status = "expired";
+        return { rows: [{ id: "member-1" }], rowsAffected: 0 };
+      });
+      const response = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code: deviceRows[0].deviceCode } }),
+        "/device/poll",
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ status: "expired" });
+      expect(tokenRows).toHaveLength(0);
+    });
+
+    it("uses one issuance transaction for device approval and claim, record, finish", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-1",
+      });
+      await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+        "/device/authorize",
+      );
+      const dc = deviceRows[0].deviceCode;
+      const response = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code: dc } }),
+        "/device/poll",
+      );
+      expect(response.status).toBe(200);
+      const {
+        approveDeviceCode,
+        claimDeviceCodeForMint,
+        recordMintedToken,
+        finishDeviceCodeMint,
+      } = await import("./connect-store.js");
+      expect(approveDeviceCode).toHaveBeenLastCalledWith(
+        "ABCD-2345",
+        "u@example.com",
+        "org-1",
+        issuanceTransaction,
+      );
+      expect(claimDeviceCodeForMint).toHaveBeenLastCalledWith(
+        dc,
+        expect.any(String),
+        issuanceTransaction,
+      );
+      expect(recordMintedToken).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          ownerEmail: "u@example.com",
+          orgId: "org-1",
+        }),
+        issuanceTransaction,
+      );
+      expect(finishDeviceCodeMint).toHaveBeenLastCalledWith(
+        dc,
+        tokenRows[0].jti,
+        issuanceTransaction,
+      );
+    });
+
+    it("rolls back the device claim when recording fails and allows a retry", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-1",
+      });
+      await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+        "/device/authorize",
+      );
+      const dc = deviceRows[0].deviceCode;
+      const { recordMintedToken } = await import("./connect-store.js");
+      vi.mocked(recordMintedToken).mockRejectedValueOnce(
+        new Error("test write failure"),
+      );
+      const response = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code: dc } }),
+        "/device/poll",
+      );
+      expect(response.status).toBe(503);
+      expect(deviceRows[0]).toMatchObject({
+        status: "approved",
+        tokenJti: null,
+      });
+      expect(tokenRows).toHaveLength(0);
+      const retried = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code: dc } }),
+        "/device/poll",
+      );
+      expect(retried.status).toBe(200);
+      expect((await retried.json()).status).toBe("approved");
+      expect(tokenRows).toHaveLength(1);
+    });
+
+    it("rolls back the token record when finishing the device fails", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue({
+        email: "u@example.com",
+        orgId: "org-1",
+      });
+      await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+        "/device/authorize",
+      );
+      const { finishDeviceCodeMint } = await import("./connect-store.js");
+      vi.mocked(finishDeviceCodeMint).mockResolvedValueOnce(false);
+      const response = await handleMcpConnect(
+        ev({ method: "POST", body: { device_code: deviceRows[0].deviceCode } }),
+        "/device/poll",
+      );
+      expect(response.status).toBe(503);
+      expect(tokenRows).toHaveLength(0);
+      expect(deviceRows[0]).toMatchObject({
+        status: "approved",
+        tokenJti: null,
+      });
     });
 
     it("poll: pending → approved (mints once) → consumed", async () => {

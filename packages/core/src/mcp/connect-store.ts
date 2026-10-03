@@ -19,7 +19,7 @@
 
 import { randomBytes, randomUUID } from "node:crypto";
 
-import { getDbExec, isConnectionError } from "../db/client.js";
+import { getDbExec, isConnectionError, type DbExec } from "../db/client.js";
 import { ensureTableExists, ensureColumnExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -100,6 +100,10 @@ export async function ensureTable(): Promise<void> {
   return _initPromise;
 }
 
+export async function ensureConnectTables(): Promise<void> {
+  await ensureTable();
+}
+
 export interface MintedTokenRow {
   id: string;
   jti: string;
@@ -143,19 +147,22 @@ export function normalizeServiceName(raw: string): string {
  * Persist a record of a minted token. The token value itself (a signed JWT)
  * is NEVER stored — only its `jti`, so revocation is a cheap SQL lookup.
  */
-export async function recordMintedToken(params: {
-  jti: string;
-  ownerEmail: string;
-  orgId?: string | null;
-  label?: string | null;
-  kind?: "personal" | "service";
-  serviceName?: string | null;
-  createdBy?: string | null;
-}): Promise<string> {
-  await ensureTable();
-  const client = getDbExec();
+export async function recordMintedToken(
+  params: {
+    jti: string;
+    ownerEmail: string;
+    orgId?: string | null;
+    label?: string | null;
+    kind?: "personal" | "service";
+    serviceName?: string | null;
+    createdBy?: string | null;
+  },
+  exec?: DbExec,
+): Promise<string> {
+  if (!exec) await ensureTable();
+  const client = exec ?? getDbExec();
   const id = randomUUID();
-  await client.execute({
+  const result = await client.execute({
     sql: `INSERT INTO mcp_connect_tokens (id, jti, owner_email, org_id, label, kind, service_name, created_by, created_at, last_used_at, revoked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
@@ -171,6 +178,11 @@ export async function recordMintedToken(params: {
       null,
     ],
   });
+  if (result.rowsAffected !== 1) {
+    throw new Error(
+      "Unexpected affected row count for MCP connect token insert.",
+    );
+  }
   return id;
 }
 
@@ -199,8 +211,13 @@ export async function isJtiRevoked(jti: string): Promise<boolean> {
   }
 }
 
+export type StoredConnectTokenIdentity = Pick<
+  MintedTokenRow,
+  "kind" | "ownerEmail" | "orgId"
+>;
+
 export type ConnectTokenOrgLookup =
-  | { status: "found"; orgId: string | null }
+  | ({ status: "found" } & StoredConnectTokenIdentity)
   | { status: "missing" }
   | { status: "unavailable" };
 
@@ -211,13 +228,25 @@ export async function lookupConnectTokenOrg(
     await ensureTable();
     const client = getDbExec();
     const { rows } = await client.execute({
-      sql: `SELECT org_id FROM mcp_connect_tokens WHERE jti = ?`,
+      sql: `SELECT org_id, owner_email, kind FROM mcp_connect_tokens WHERE jti = ?`,
       args: [jti],
     });
     if (rows.length === 0) return { status: "missing" };
     const rawOrgId = rows[0].org_id ?? rows[0].orgId;
+    const ownerEmail = rows[0].owner_email ?? rows[0].ownerEmail;
+    const kind = rows[0].kind;
+    if (
+      typeof ownerEmail !== "string" ||
+      !ownerEmail.trim() ||
+      (kind !== "personal" && kind !== "service") ||
+      (rawOrgId != null && (typeof rawOrgId !== "string" || !rawOrgId.trim()))
+    ) {
+      return { status: "unavailable" };
+    }
     return {
       status: "found",
+      ownerEmail,
+      kind,
       orgId:
         typeof rawOrgId === "string" && rawOrgId.trim()
           ? rawOrgId.trim()
@@ -435,9 +464,10 @@ function mapDeviceRow(r: any): DeviceCodeRow {
 
 export async function getDeviceCode(
   deviceCode: string,
+  exec?: DbExec,
 ): Promise<DeviceCodeRow | null> {
-  await ensureTable();
-  const client = getDbExec();
+  if (!exec) await ensureTable();
+  const client = exec ?? getDbExec();
   const { rows } = await client.execute({
     sql: `SELECT * FROM mcp_device_codes WHERE device_code = ?`,
     args: [deviceCode],
@@ -448,9 +478,10 @@ export async function getDeviceCode(
 
 export async function getDeviceCodeByUserCode(
   userCode: string,
+  exec?: DbExec,
 ): Promise<DeviceCodeRow | null> {
-  await ensureTable();
-  const client = getDbExec();
+  if (!exec) await ensureTable();
+  const client = exec ?? getDbExec();
   const { rows } = await client.execute({
     sql: `SELECT * FROM mcp_device_codes WHERE user_code = ?`,
     args: [userCode],
@@ -459,24 +490,34 @@ export async function getDeviceCodeByUserCode(
   return mapDeviceRow(rows[0]);
 }
 
+function deviceCodeMutationSucceeded(rowsAffected: unknown): boolean {
+  if (rowsAffected === 1) return true;
+  if (rowsAffected === 0) return false;
+  throw new Error(
+    "Unexpected affected row count for MCP device code mutation.",
+  );
+}
+
 export async function approveDeviceCode(
   userCode: string,
   ownerEmail: string,
   orgId: string | null,
+  exec?: DbExec,
 ): Promise<DeviceCodeRow | "not_found" | "expired" | "already"> {
-  await ensureTable();
-  const client = getDbExec();
-  const row = await getDeviceCodeByUserCode(userCode);
+  if (!exec) await ensureTable();
+  const client = exec ?? getDbExec();
+  const row = await getDeviceCodeByUserCode(userCode, client);
   if (!row) return "not_found";
   if ((row.expiresAt ?? 0) < Date.now()) return "expired";
   if (row.status !== "pending") return "already";
 
   const result = await client.execute({
-    sql: `UPDATE mcp_device_codes SET status = 'approved', owner_email = ?, org_id = ? WHERE user_code = ? AND status = 'pending'`,
-    args: [ownerEmail, orgId, userCode],
+    sql: `UPDATE mcp_device_codes SET status = 'approved', owner_email = ?, org_id = ? WHERE user_code = ? AND status = 'pending' AND expires_at >= ?`,
+    args: [ownerEmail, orgId, userCode, Date.now()],
   });
-  if (result.rowsAffected === 0) {
-    const fresh = await getDeviceCodeByUserCode(userCode);
+  if (!deviceCodeMutationSucceeded(result.rowsAffected)) {
+    const fresh = await getDeviceCodeByUserCode(userCode, client);
+    if (fresh && (fresh.expiresAt ?? 0) < Date.now()) return "expired";
     return fresh && fresh.status !== "pending" ? "already" : "not_found";
   }
   return {
@@ -490,56 +531,62 @@ export async function approveDeviceCode(
 export async function consumeDeviceCode(
   deviceCode: string,
   tokenJti: string,
+  exec?: DbExec,
 ): Promise<DeviceCodeRow | null> {
-  await ensureTable();
-  const client = getDbExec();
-  const row = await getDeviceCode(deviceCode);
+  if (!exec) await ensureTable();
+  const client = exec ?? getDbExec();
+  const row = await getDeviceCode(deviceCode, client);
   if (!row) return null;
-  if (row.status !== "approved") return null;
+  if (row.status !== "approved" || (row.expiresAt ?? 0) < Date.now())
+    return null;
   const result = await client.execute({
-    sql: `UPDATE mcp_device_codes SET status = 'consumed', token_jti = ?, consumed_at = ? WHERE device_code = ? AND status = 'approved'`,
-    args: [tokenJti, Date.now(), deviceCode],
+    sql: `UPDATE mcp_device_codes SET status = 'consumed', token_jti = ?, consumed_at = ? WHERE device_code = ? AND status = 'approved' AND expires_at >= ?`,
+    args: [tokenJti, Date.now(), deviceCode, Date.now()],
   });
-  if (result.rowsAffected === 0) return null;
+  if (!deviceCodeMutationSucceeded(result.rowsAffected)) return null;
   return row;
 }
 
 export async function claimDeviceCodeForMint(
   deviceCode: string,
   tokenJti: string,
+  exec?: DbExec,
 ): Promise<DeviceCodeRow | null> {
-  await ensureTable();
-  const client = getDbExec();
-  const row = await getDeviceCode(deviceCode);
-  if (!row || row.status !== "approved") return null;
+  if (!exec) await ensureTable();
+  const client = exec ?? getDbExec();
+  const row = await getDeviceCode(deviceCode, client);
+  if (!row || row.status !== "approved" || (row.expiresAt ?? 0) < Date.now())
+    return null;
   const result = await client.execute({
-    sql: `UPDATE mcp_device_codes SET status = 'minting', token_jti = ?, consumed_at = ? WHERE device_code = ? AND status = 'approved'`,
-    args: [tokenJti, Date.now(), deviceCode],
+    sql: `UPDATE mcp_device_codes SET status = 'minting', token_jti = ?, consumed_at = ? WHERE device_code = ? AND status = 'approved' AND expires_at >= ?`,
+    args: [tokenJti, Date.now(), deviceCode, Date.now()],
   });
-  if (result.rowsAffected === 0) return null;
+  if (!deviceCodeMutationSucceeded(result.rowsAffected)) return null;
   return row;
 }
 
 export async function finishDeviceCodeMint(
   deviceCode: string,
   tokenJti: string,
+  exec?: DbExec,
 ): Promise<boolean> {
-  await ensureTable();
-  const client = getDbExec();
+  if (!exec) await ensureTable();
+  const client = exec ?? getDbExec();
   const result = await client.execute({
     sql: `UPDATE mcp_device_codes SET status = 'consumed' WHERE device_code = ? AND status = 'minting' AND token_jti = ?`,
     args: [deviceCode, tokenJti],
   });
-  return result.rowsAffected > 0;
+  return deviceCodeMutationSucceeded(result.rowsAffected);
 }
 
 export async function releaseDeviceCodeMint(
   deviceCode: string,
   tokenJti: string,
+  exec?: DbExec,
 ): Promise<void> {
   try {
-    await ensureTable();
-    const client = getDbExec();
+    if (!exec) await ensureTable();
+    const client = exec ?? getDbExec();
     await client.execute({
       sql: `UPDATE mcp_device_codes SET status = 'approved', token_jti = NULL, consumed_at = NULL WHERE device_code = ? AND status = 'minting' AND token_jti = ?`,
       args: [deviceCode, tokenJti],

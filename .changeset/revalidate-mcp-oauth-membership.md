@@ -1,0 +1,19 @@
+---
+"@agent-native/core": patch
+---
+
+Removed organization members lose org access through MCP OAuth and connect tokens on their next request. The MCP endpoint, the MCP OAuth token endpoint (code exchange and refresh), and bearer-authenticated framework action routes and recap uploads re-check that the token's user still belongs to its organization. If that check, or the stored-org lookup for a connect token, cannot run, they answer a retryable 503 with `Retry-After` instead of a 401. `@agent-native/core/server` exports `isCredentialMembershipUnavailable` so app routes that resolve bearer sessions themselves can give the same answer. The A2A endpoint no longer accepts MCP connect or OAuth tokens. A connect token with no stored row now runs Personal instead of taking its `org_domain` organization. `registerIdentityColumns` accepts a new `offboard: "revoke"` policy, and offboarding uses it to revoke a member's MCP refresh and connect tokens, and deletes their MCP authorization and device codes, instead of transferring them to the successor.
+
+Membership checks require readable organization metadata. The service-identity exemption requires an authenticated connect credential with a matching stored service kind, owner, and organization; human OAuth subjects with service-shaped email addresses still require live membership.
+
+New MCP authorization codes and refresh tokens retain their issuance owner binding in additive nullable columns. Unbound legacy grants and owner-binding mismatches fail with `invalid_grant`, without backfilling legacy owners. Intentional email rekeys update the issuance identity, while offboarding revokes or deletes grants and preserves the issuance binding. OAuth access tokens must carry `credential_version: 2`, so old OAuth access tokens are refused on rollout. Every existing OAuth connection must reconnect once, and pending old authorization codes must restart consent. Newly issued access tokens use their configured lifetime and live membership checks. Legacy A2A-format `mcp-connect` credentials and cross-app A2A tokens are unchanged by this cutover. Connections using old OAuth-format Connect tokens must reconnect too.
+
+Failed refresh-renewal writes return retryable HTTP 503 with `Retry-After: 5`. Renewals of revoked or deleted grants return `invalid_grant` when no row is updated. Neither failure mints an access token. The cutover uses additive schema preparation without a bulk grant revoke or delete.
+
+Human organization-bound OAuth and Connect issuance now shares a transactional membership lock with local offboarding. Authorization-code consumption and refresh-token creation commit together, and failed writes roll back consumption. Connect and device approval use the same boundary, so completed local offboarding cannot leave a newly issued grant behind. Personal credentials, service-credential creation rules, and remote membership-authority contracts are unchanged.
+
+Account-email rekeying acquires organization membership locks before scanning credentials, matching issuance and offboarding lock order. This prevents missed organization-bound grants and opposing grant/member lock acquisition during concurrent rekeying and issuance.
+
+Offboarding reads its credential-table catalog after acquiring membership locks, so the sweep includes first-time lazy table preparation completed by earlier issuance.
+
+Refresh renewal and access-token signing use the same issuance transaction. Signing errors roll back renewal, and a failed transaction returns no access token. Membership-denial cleanup pins the validated owner/binding pair, preserving valid grants renamed concurrently; unavailable revocation counts return a retryable failure.
