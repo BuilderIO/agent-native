@@ -5606,7 +5606,10 @@ async function main() {
     const warm = await context.newPage();
     // `/` serves the sign-in shell to a cookieless request and the client,
     // already signed in, keeps replacing it with itself; `/home` is stable.
-    await warm.goto(`${base}/home`, { waitUntil: "domcontentloaded" });
+    await warm.goto(`${base}/home`, {
+      waitUntil: "domcontentloaded",
+      timeout: 120_000,
+    });
     await ensureSignedIn(warm);
     await warmUp(warm, base);
     await warm.close();
