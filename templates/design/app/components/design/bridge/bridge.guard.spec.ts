@@ -7419,6 +7419,103 @@ it(
   },
 );
 
+it.each(["200px", "20000px"])(
+  "positions oversized CSS radius handles at the rendered corner (%s)",
+  { timeout: 30_000 },
+  async (borderRadius) => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 700, height: 300 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+  <div id="target" data-agent-native-primitive="rectangle" style="position:absolute;left:40px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-radius:${borderRadius}"></div>
+  <div id="effective-reference" style="position:absolute;left:300px;top:40px;width:200px;height:100px;box-sizing:border-box;background:#369;border-radius:50px"></div>
+</body></html>`);
+
+      const renderedTarget = await page.locator("#target").screenshot();
+      const renderedReference = await page
+        .locator("#effective-reference")
+        .screenshot();
+      expect(renderedTarget).toEqual(renderedReference);
+
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await collectBridgeMessages(page);
+      await page.mouse.move(94, 94);
+      await selectElementDirect(page, "#target");
+
+      const handle = page.locator('[data-agent-native-radius-handle="nw"]');
+      await page.waitForFunction(
+        () => {
+          const handle = document.querySelector<HTMLElement>(
+            '[data-agent-native-radius-handle="nw"]',
+          );
+          return handle && getComputedStyle(handle).visibility === "visible";
+        },
+        undefined,
+        { timeout: 2_000 },
+      );
+      const handleBox = await handle.boundingBox();
+      if (!handleBox) throw new Error("nw radius handle is not visible");
+      const targetBox = await page.locator("#target").boundingBox();
+      if (!targetBox) throw new Error("target is not visible");
+      expect(
+        Math.abs(handleBox.x + handleBox.width / 2 - (targetBox.x + 54)),
+      ).toBeLessThan(1.5);
+      expect(
+        Math.abs(handleBox.y + handleBox.height / 2 - (targetBox.y + 54)),
+      ).toBeLessThan(1.5);
+
+      const radiusValues = await page.locator("#target").evaluate((element) => {
+        const target = element as HTMLElement;
+        return {
+          inline: target.style.borderRadius,
+          computed: getComputedStyle(target).borderTopLeftRadius,
+        };
+      });
+      expect(radiusValues).toEqual({
+        inline: borderRadius,
+        computed: borderRadius,
+      });
+
+      await page.mouse.move(
+        handleBox.x + handleBox.width / 2,
+        handleBox.y + handleBox.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        handleBox.x + handleBox.width / 2 + 1,
+        handleBox.y + handleBox.height / 2 + 1,
+        { steps: 2 },
+      );
+      const readRadius = () =>
+        page.locator("#target").evaluate((element) => {
+          const target = element as HTMLElement;
+          return {
+            inline: target.style.borderRadius,
+            computed: getComputedStyle(target).borderTopLeftRadius,
+          };
+        });
+      const duringTinyDrag = await readRadius();
+      await page.mouse.up();
+      const afterTinyDrag = await readRadius();
+      for (const radiusValues of [duringTinyDrag, afterTinyDrag]) {
+        const [draggedRadiusX, draggedRadiusY] = radiusValues.computed
+          .split(/\s+/)
+          .map(Number.parseFloat);
+        expect(draggedRadiusX).toBeGreaterThanOrEqual(50);
+        expect(draggedRadiusX).toBeLessThan(55);
+        expect(draggedRadiusY).toBeGreaterThanOrEqual(49);
+        expect(draggedRadiusY).toBeLessThanOrEqual(50);
+        expect(radiusValues.inline).not.toBe("0px");
+      }
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 it(
   "shows the radius handle when selection changes under a stationary pointer",
   { timeout: 30_000 },

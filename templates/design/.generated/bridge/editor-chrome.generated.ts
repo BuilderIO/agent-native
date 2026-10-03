@@ -8689,10 +8689,11 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
         var cs = window.getComputedStyle(el);
         var box = borderBoxDimensions(cs);
-        var radii = cornerRadiusMap(cs, box.width, box.height)[pos] || {
-          x: 0,
-          y: 0
-        };
+        var radii = normalizeCornerRadiusMap(
+          cornerRadiusMap(cs, box.width, box.height),
+          box.width,
+          box.height
+        )[pos] || { x: 0, y: 0 };
         var west = pos.indexOf("w") !== -1;
         var north = pos.indexOf("n") !== -1;
         var targetGeometry = radiusViewportBoxGeometry(
@@ -11218,14 +11219,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         )
       };
     }
-    function isDirectCornerRadiusValue(value) {
-      var trimmed = typeof value === "string" ? value.trim() : "";
-      if (!trimmed) return false;
-      var parts = trimmed.split(/\\s+/);
-      return parts.length <= 2 && parts.every(function(part) {
-        return /^[-+]?(?:\\d*\\.\\d+|\\d+\\.?\\d*)(?:px|%)$/i.test(part) || /^[-+]?0(?:\\.0*)?$/.test(part);
-      });
-    }
     function borderBoxDimensions(cs) {
       var width = readPx(cs.width);
       var height = readPx(cs.height);
@@ -11592,6 +11585,28 @@ export const editorChromeBridgeScript: string = `"use strict";
         se: resolveCornerRadiusXY(cs.borderBottomRightRadius, width, height),
         sw: resolveCornerRadiusXY(cs.borderBottomLeftRadius, width, height)
       };
+    }
+    function normalizeCornerRadiusMap(radii, width, height) {
+      var scale = 1;
+      [
+        { size: width, sum: radii.nw.x + radii.ne.x },
+        { size: width, sum: radii.sw.x + radii.se.x },
+        { size: height, sum: radii.nw.y + radii.sw.y },
+        { size: height, sum: radii.ne.y + radii.se.y }
+      ].forEach(function(side) {
+        if (side.sum > side.size && side.sum > 0) {
+          scale = Math.min(scale, side.size / side.sum);
+        }
+      });
+      if (scale === 1) return radii;
+      var normalized = {};
+      Object.keys(radii).forEach(function(corner) {
+        normalized[corner] = {
+          x: radii[corner].x * scale,
+          y: radii[corner].y * scale
+        };
+      });
+      return normalized;
     }
     function radiusDragMaximums(corner, radii, width, height) {
       var horizontalNeighbor = corner === "nw" ? radii.ne.x : corner === "ne" ? radii.nw.x : corner === "se" ? radii.sw.x : radii.se.x;
@@ -19296,18 +19311,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       var borderBox = borderBoxDimensions(cs);
       var elWidthPx = borderBox.width;
       var elHeightPx = borderBox.height;
-      var authoredRadiusValue = radiusEl.style[cornerProperty];
-      var originRadius = resolveCornerRadiusXY(
-        isDirectCornerRadiusValue(authoredRadiusValue) ? authoredRadiusValue : cs[cornerProperty],
-        elWidthPx,
-        elHeightPx
-      );
-      var maxRadius = radiusDragMaximums(
-        corner,
+      var radii = normalizeCornerRadiusMap(
         cornerRadiusMap(cs, elWidthPx, elHeightPx),
         elWidthPx,
         elHeightPx
       );
+      var originRadius = radii[corner] || { x: 0, y: 0 };
+      var maxRadius = radiusDragMaximums(corner, radii, elWidthPx, elHeightPx);
       var maxRadiusX = maxRadius.x;
       var maxRadiusY = maxRadius.y;
       var wholeShape = radiusPrimitiveKind(radiusEl) === "rectangle" && !e.altKey;
