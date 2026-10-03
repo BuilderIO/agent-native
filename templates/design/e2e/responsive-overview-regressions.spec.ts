@@ -486,21 +486,7 @@ test("adding a breakpoint reflows screen rows before their previews overlap", as
   }
 });
 
-// Redo does not restore the screen undo removed: after Cmd+Shift+Z the
-// overview still shows 2 shells instead of 3. The frame-draw half of this
-// test now passes; this is the remaining defect, same family as
-// canvas-tools' "overview undo skips deleted screen content history".
-//
-// Lead: only redoFileCreation (commands/redo.ts) can recreate a screen, and
-// it pops fileCreationRedoStackRef — which only undoFileCreation fills.
-// undoFileCreation resolves the created file by FILENAME
-// (files.find(f => f.filename === entry.filename)) and bails when that misses,
-// so a duplicate — whose filename differs from the recorded entry — can be
-// removed by another undo path that never fills the redo stack, leaving redo
-// with nothing to pop. The skipFileCreationRedoPrune comment right there
-// documents an earlier bug in the same stack, so filename-keyed history is
-// the fragile part worth fixing rather than the symptom.
-test.fixme("add duplicate undo and redo keep the created screen selected and visible", async ({
+test("overview screen creation and duplicate undo/redo keep screens selected and visible", async ({
   page,
   request,
 }) => {
@@ -622,28 +608,6 @@ test.fixme("add duplicate undo and redo keep the created screen selected and vis
       ).toBeLessThanOrEqual(1);
     };
 
-    let beforeIds = await designFileIds(request, designId);
-    resetCameraProbe();
-    await page.keyboard.press(
-      process.platform === "darwin" ? "Meta+D" : "Control+D",
-    );
-    await expect(page.locator("[data-screen-shell]")).toHaveCount(3);
-    const duplicatedId = await createdScreenId(beforeIds);
-    await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(
-      duplicatedId,
-    );
-    await page.keyboard.press(
-      process.platform === "darwin" ? "Meta+Z" : "Control+Z",
-    );
-    await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
-    resetCameraProbe();
-    await page.keyboard.press(
-      process.platform === "darwin" ? "Meta+Shift+Z" : "Control+Shift+Z",
-    );
-    await expect(page.locator("[data-screen-shell]")).toHaveCount(3);
-    const redoneId = await createdScreenId(beforeIds);
-    await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(redoneId);
-
     const findEmptyCanvasPoint = async () => {
       await expect(surface).toBeVisible();
       const canvas = await surface.boundingBox();
@@ -682,6 +646,21 @@ test.fixme("add duplicate undo and redo keep the created screen selected and vis
       }
       throw new Error("no empty canvas point");
     };
+    let beforeIds = await designFileIds(request, designId);
+    resetCameraProbe();
+    await frameToolButton(page).click();
+    const phoneGroup = page
+      .locator(".design-inspector-scroll > section")
+      .nth(1);
+    await phoneGroup.locator(":scope > button").click();
+    await phoneGroup
+      .getByRole("button", { name: /iPhone 17/ })
+      .first()
+      .click();
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(3);
+    const presetId = await createdScreenId(beforeIds);
+    await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(presetId);
+
     beforeIds = await designFileIds(request, designId);
     resetCameraProbe();
     await pickFrameMode(page, "Screen");
@@ -696,14 +675,25 @@ test.fixme("add duplicate undo and redo keep the created screen selected and vis
 
     beforeIds = await designFileIds(request, designId);
     resetCameraProbe();
-    await frameToolButton(page).click();
-    await page
-      .getByRole("button", { name: /iPhone 17/ })
-      .first()
-      .click();
+    await page.keyboard.press(
+      process.platform === "darwin" ? "Meta+D" : "Control+D",
+    );
     await expect(page.locator("[data-screen-shell]")).toHaveCount(5);
-    const presetId = await createdScreenId(beforeIds);
-    await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(presetId);
+    const duplicatedId = await createdScreenId(beforeIds);
+    await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(
+      duplicatedId,
+    );
+    await page.keyboard.press(
+      process.platform === "darwin" ? "Meta+Z" : "Control+Z",
+    );
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(4);
+    resetCameraProbe();
+    await page.keyboard.press(
+      process.platform === "darwin" ? "Meta+Shift+Z" : "Control+Shift+Z",
+    );
+    await expect(page.locator("[data-screen-shell]")).toHaveCount(5);
+    const redoneId = await createdScreenId(beforeIds);
+    await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(redoneId);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
