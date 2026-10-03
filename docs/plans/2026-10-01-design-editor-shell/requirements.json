@@ -444,7 +444,7 @@
         {
           "id": "TOK-02",
           "status": "decided",
-          "change": "Tokens ships behind a `design.tokens` lab in `shared/labs.ts` (like `DESIGN_TWEAKS`), read with `useLab` for the rail item and listed in Settings › Labs. It leaves the build switch; Assets, Tools, and Code keep it.",
+          "change": "Tokens ships behind a `design.tokens` lab in `shared/labs.ts` (like `DESIGN_TWEAKS`), read with `useLab` for the rail item and listed in Settings › Labs. It leaves the build switch; Assets and Tools keep it, and Code gets its own lab (CODE-05).",
           "prototype": "Toggle “Labs: Tokens” in the review strip or Settings › Labs."
         },
         {
@@ -1213,7 +1213,7 @@
         {
           "id": "CODE-02",
           "status": "proposed",
-          "change": "Code becomes the third mode in the top bar: Interact | Design | Code. It puts the workbench where the canvas is and hides the inspector, the floating toolbar, and zoom. The File panel lists Files instead of Screens and Layers: one root for the design's own files and one for the connected app, named like the top bar's route control. The top bar's center holds Go to file… with ⌘P, the workbench's quick open, and ⌘P opens it anywhere in Code. The rail's other panels (Agents, Tokens, Threads) work as in the other modes.",
+          "change": "With its Labs flag on (CODE-05), Code becomes the third mode in the top bar: Interact | Design | Code. It puts the workbench where the canvas is and hides the inspector, the floating toolbar, and zoom. The File panel lists Files instead of Screens and Layers: one root for the design's own files and one for the connected app, named like the top bar's route control. The top bar's center holds Go to file… with ⌘P, the workbench's quick open, and ⌘P opens it anywhere in Code. The rail's other panels (Agents, Tokens, Threads) work as in the other modes.",
           "prototype": "Choose Code in the top bar. Scenario: Local app screen adds the app's files."
         },
         {
@@ -1229,8 +1229,9 @@
         },
         {
           "id": "CODE-05",
-          "status": "question",
-          "change": "Does Code ship to everyone, or start behind a Labs flag like Tokens?"
+          "status": "decided",
+          "change": "Code ships behind a `design.code` lab in `shared/labs.ts`, like Tokens (TOK-02): read with `useLab`, listed in Settings › Labs as Code, and leaving the build switch. With it off, Code isn't in the mode switch, and turning it off while in Code returns to Design.",
+          "prototype": "Review strip › Labs: Code, or Settings › Labs › Code."
         }
       ]
     }

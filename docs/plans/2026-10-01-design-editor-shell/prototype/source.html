@@ -1005,6 +1005,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
   <span class="grow"></span>
   <button class="chip" id="labs-btn" aria-pressed="false" title="Annotate mode moves behind a Labs flag">Labs: Annotate</button>
   <button class="chip" id="labs-tokens" aria-pressed="true" title="Tokens ships behind a Labs flag">Labs: Tokens</button>
+  <button class="chip" id="labs-code" aria-pressed="true" title="Code mode ships behind a Labs flag">Labs: Code</button>
   <label class="chip" title="Compare history as a mode (timeline in the inspector) or today's sheet">History <select id="hist-style"><option value="mode">Mode</option><option value="sheet">Sheet (today)</option></select></label>
   <label class="chip" title="Show the controls that only appear in some states">Scenario <select id="scenario-sel"><option value="none">Default</option><option value="feedback">Feedback queued</option><option value="rewrite">Changes to review</option><option value="local">Local app screen</option><option value="local-off">Local app stopped</option><option value="local-unsaved">Local app, unsaved changes</option></select></label>
   <button class="chip" id="spec-grid-btn" aria-pressed="false" title="Show the indent spacers and the inspector's 88 / 8 / 88 / 8 / 32 grid">Spacing <span class="k">G</span></button>
@@ -1070,7 +1071,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const app = $("#app");
 const S = {
   mode: "design", tool: "select", route: "/home", device: "MacBook Pro 13″", zoom: 67, screenSel: false,
-  selected: "hero-title", tab: "inspector", screens: true, layers: true, panel: "file", labs: false, intInsp: "comments", chat: null, scenario: "none", labsTokens: true, scheme: "light", layoutGrids: false,
+  selected: "hero-title", tab: "inspector", screens: true, layers: true, panel: "file", labs: false, intInsp: "comments", chat: null, scenario: "none", labsTokens: true, labsCode: true, scheme: "light", layoutGrids: false,
   collapsed: new Set(), sections: new Set(), history: ["/home"], hIndex: 0, spec: false, grid: false,
 };
 try { const t = localStorage.getItem("des-theme"); if (t) document.documentElement.dataset.theme = t; } catch {}
@@ -1489,7 +1490,7 @@ function renderTopbar() {
       <div class="seg" role="group" aria-label="Mode">
         <button data-mode="interact" aria-pressed="${interact}" title="Interact">Interact</button>
         <button data-mode="design" aria-pressed="${S.mode === "design"}" title="Design">Design</button>
-        <button data-mode="code" aria-pressed="${S.mode === "code"}" title="Code">Code</button>
+        ${S.labsCode ? `<button data-mode="code" aria-pressed="${S.mode === "code"}" title="Code (Labs)">Code</button>` : ""}
         ${S.labs ? `<button data-mode="annotate" aria-pressed="${S.mode === "annotate"}" title="Annotate (Labs)">Annotate</button>` : ""}
       </div>
       ${interact ? `<span class="tb-zone tb-left-extra"><button class="select" id="device-btn" aria-haspopup="menu" title="${S.device}"><span class="nar">${ic(DEVICES.find(d => d.name === S.device)?.icon || "device-desktop")}</span><span class="v">${S.device}</span>${ic("chevron-down", "chev")}</button>
@@ -2162,6 +2163,7 @@ document.addEventListener("click", e => {
   if (id === "new-chat") { S.chat = null; renderAgents(); $("#ask")?.focus(); return; }
   if (id === "rail-panel-toggle") { app.classList.toggle("no-panel"); return; }
   if (id === "send") return sendAsk();
+  if (id === "labs-code") { setLabCode(!S.labsCode); return toast(S.labsCode ? "Labs: Code on. Code joins the mode switch." : "Labs: Code off"); }
   if (id === "labs-tokens") { S.labsTokens = !S.labsTokens; t.closest("button").setAttribute("aria-pressed", S.labsTokens); $('.rail-item[data-panel="tokens"]').hidden = !S.labsTokens; if (!S.labsTokens && S.panel === "tokens") setPanel("file"); toast(S.labsTokens ? "Labs: Tokens on. Tokens joins the rail." : "Labs: Tokens off"); return; }
   if (id === "labs-btn") { S.labs = !S.labs; t.closest("button").setAttribute("aria-pressed", S.labs); if (!S.labs && S.mode === "annotate") S.mode = "design"; render(); toast(S.labs ? "Labs: Annotate on. Annotate joins the mode switch and Draw joins the Pen menu." : "Labs: Annotate off"); return; }
   if (id === "cm-filter") { const set = (k, v) => () => { CM[k] = v; renderComments(); }; return openMenu(t.closest("button"), [{ label: "Filter comments" },
@@ -2432,7 +2434,7 @@ function stIndex() {
 }
 function stControl(r) {
   const c = r.c;
-  if (c.sw !== undefined) { const on = c.lab === "tokens" ? !!S.labsTokens : c.lab === "annotate" ? !!S.labs : c.lab === "creative" ? !!S.labCreative : (ST[`sw:${ST.page}:${r.l}`] ?? c.sw); return `<button class="st-sw" role="switch" aria-checked="${on}" data-st-sw="${r.l}" data-lab="${c.lab || ""}" aria-label="${r.l}"></button>`; }
+  if (c.sw !== undefined) { const on = c.lab === "tokens" ? !!S.labsTokens : c.lab === "code" ? !!S.labsCode : c.lab === "annotate" ? !!S.labs : c.lab === "creative" ? !!S.labCreative : (ST[`sw:${ST.page}:${r.l}`] ?? c.sw); return `<button class="st-sw" role="switch" aria-checked="${on}" data-st-sw="${r.l}" data-lab="${c.lab || ""}" aria-label="${r.l}"></button>`; }
   if (c.sel !== undefined) return `<button class="st-sel" data-st-sel="${r.l}"><span>${ST[`sel:${ST.page}:${r.l}`] || c.sel}</span>${ic("chevron-down", "s14")}</button>`;
   if (c.btn) return `<button class="st-btn ${c.v || ""}" data-st-toast="${c.btn}">${c.btn}${c.ext ? ic("external-link", "s14") : ""}</button>`;
   if (c.input !== undefined) return `<input class="st-in ${c.num ? "num" : ""}" value="${c.val || ""}" placeholder="${c.input}" aria-label="${r.l}">`;
@@ -2499,6 +2501,7 @@ document.addEventListener("click", e => {
     const on = sw.getAttribute("aria-checked") !== "true", lab = sw.dataset.lab;
     if (lab === "tokens") { S.labsTokens = on; $('.rail-item[data-panel="tokens"]').hidden = !on; $("#labs-tokens")?.setAttribute("aria-pressed", on); if (!on && S.panel === "tokens") setPanel("file"); }
     else if (lab === "annotate") { S.labs = on; renderTopbar(); }
+    else if (lab === "code") setLabCode(on);
     else if (lab === "creative") S.labCreative = on;
     else ST[`sw:${ST.page}:${sw.dataset.stSw}`] = on;
     return renderSettings();
@@ -3339,6 +3342,8 @@ document.addEventListener("click", e => {
   const tab = t.closest?.("[data-tab]"); if (tab) { CODE.active = tab.dataset.tab; CODE.flash = null; renderTree(); return renderCode(); }
   if (t.closest?.("[data-cv-review]")) return syncDialog();
 });
+// Code is a Labs feature (design.code): off, the mode leaves the switch and anyone in it lands back in Design.
+function setLabCode(on) { S.labsCode = on; $("#labs-code")?.setAttribute("aria-pressed", on); if (!on && S.mode === "code") S.mode = "design"; render(); }
 document.addEventListener("keydown", e => { if (S.mode === "code" && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "p") { e.preventDefault(); gotoFile($("#goto-file")); } });
 
 /* spec drawer */

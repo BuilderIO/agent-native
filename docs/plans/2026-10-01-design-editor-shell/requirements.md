@@ -170,7 +170,7 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
 - **TOK-01** · context
   - Today: `TokensPanel.tsx` uses `index-design-tokens`, `apply-design-token-edit`, `preview-design-token-edit`, and `import-design-tokens`. It's hidden by the build-time switch `VITE_SHOW_DESIGN_SECONDARY_LEFT_PANELS`, which also hides Assets, Tools, and Code. Its strings are raw literals.
 - **TOK-02** · decided
-  - Change: Tokens ships behind a `design.tokens` lab in `shared/labs.ts` (like `DESIGN_TWEAKS`), read with `useLab` for the rail item and listed in Settings › Labs. It leaves the build switch; Assets, Tools, and Code keep it.
+  - Change: Tokens ships behind a `design.tokens` lab in `shared/labs.ts` (like `DESIGN_TWEAKS`), read with `useLab` for the rail item and listed in Settings › Labs. It leaves the build switch; Assets and Tools keep it, and Code gets its own lab (CODE-05).
   - Prototype: Toggle “Labs: Tokens” in the review strip or Settings › Labs.
 - **TOK-03** · proposed
   - Change: Tokens is a rail item (after Agents) and a left panel on the shared 16px row strip: groups Colors, Typography, Spacing & Layout, Radius, Shadows & Effects, Other, each collapsible. A row is swatch or type glyph, name, and value; hovering shows the source.
@@ -452,12 +452,13 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
 - **CODE-01** · context
   - Today: Design already has a code workbench: a Monaco editor with tabs, breadcrumbs, and a status bar, a file Explorer, project search, quick open, and format on open. It reads two workspaces, the design's own files and each connected localhost app's repo. It's a left panel ("code") behind the build-time `SHOW_DESIGN_CODE_LEFT_PANEL`, the same switch that hides Tokens, so nobody sees it today.
 - **CODE-02** · proposed
-  - Change: Code becomes the third mode in the top bar: Interact | Design | Code. It puts the workbench where the canvas is and hides the inspector, the floating toolbar, and zoom. The File panel lists Files instead of Screens and Layers: one root for the design's own files and one for the connected app, named like the top bar's route control. The top bar's center holds Go to file… with ⌘P, the workbench's quick open, and ⌘P opens it anywhere in Code. The rail's other panels (Agents, Tokens, Threads) work as in the other modes.
+  - Change: With its Labs flag on (CODE-05), Code becomes the third mode in the top bar: Interact | Design | Code. It puts the workbench where the canvas is and hides the inspector, the floating toolbar, and zoom. The File panel lists Files instead of Screens and Layers: one root for the design's own files and one for the connected app, named like the top bar's route control. The top bar's center holds Go to file… with ⌘P, the workbench's quick open, and ⌘P opens it anywhere in Code. The rail's other panels (Agents, Tokens, Threads) work as in the other modes.
   - Prototype: Choose Code in the top bar. Scenario: Local app screen adds the app's files.
 - **CODE-03** · proposed
   - Change: Restyle the workbench to the app's density instead of VS Code's: the file tree uses the Layers row (32px, 24px per level, the same disclosure chevrons and icons), tabs are 40px with the underline the share popover's tabs use, breadcrumbs and the status bar are 24px with 11px text, and code is 12/20 mono with line numbers in the muted color. Monaco's theme takes its colors from the app's tokens (`monaco-theme-palette.ts`).
 - **CODE-04** · proposed
   - Change: Code shows unsaved Design edits (SAVE-03) where they'll land: an amber mark in the gutter on each unsaved line, the amber dot on the file's tab and its tree row, and a status bar item (3 changes not in your code) that opens Review changes. Review changes' View file opens the file in Code at its first changed line.
   - Prototype: Scenario: Local app, unsaved changes, then Code; or Review changes › View file.
-- **CODE-05** · question
-  - Change: Does Code ship to everyone, or start behind a Labs flag like Tokens?
+- **CODE-05** · decided
+  - Change: Code ships behind a `design.code` lab in `shared/labs.ts`, like Tokens (TOK-02): read with `useLab`, listed in Settings › Labs as Code, and leaving the build switch. With it off, Code isn't in the mode switch, and turning it off while in Code returns to Design.
+  - Prototype: Review strip › Labs: Code, or Settings › Labs › Code.

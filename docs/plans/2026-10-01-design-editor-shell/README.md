@@ -245,7 +245,7 @@ no-consent, and changed-on-disk cases with tests before the UI.
 Not started · CODE · PR —
 
 Move the existing code workbench out from behind `SHOW_DESIGN_CODE_LEFT_PANEL`
-into a third top-bar mode, restyled to the app's density, with the file tree
+and behind a `design.code` Labs flag, as a third top-bar mode, restyled to the app's density, with the file tree
 in the File panel and Go to file in the top bar. The unsaved-edit marks
 (CODE-04) land with or after step 19.
 
@@ -277,6 +277,7 @@ where it names Annotate or the old toolbar.
 - 2026-10-02: Position's device sizes open the Frame tool's preset list. INSP-08.
 - 2026-10-02: URL screens stay connected to your code. Their route and a status dot sit in the top bar's center in Interact and Design, with the host only in the tooltip; the route menu only picks the route, and Reload screen and Open in browser sit beside it. The inspector's Screen section and Detach from app go: ⌘D duplicates a screen, and switching between static and live is the agent's job. Device sizes stay in the inspector, since in Design they resize the frame. INSP-07, TOP-07, MOVE-03.
 - 2026-10-02: One Copy link everywhere: after Send to › on canvas menus and after Copy on layer rows, linking what you right-clicked, with the toast naming it. AGT-02.
+- 2026-10-02: Code mode ships behind its own Labs flag, `design.code`, like Tokens. CODE-05.
 - 2026-10-02: Responsive design drops the breakpoint mode. A frame is a frame with width presets from tokens; responsive rules live on layers and compile to container queries with token thresholds; the agent writes them; fixed widths are only viewports to check. RESP-04, RESP-05, RESP-06, RESP-07, RESP-08, RESP-09.
 
 ## Open questions
@@ -291,5 +292,4 @@ where it names Annotate or the old toolbar.
 - **RESP-13** Desktop-first `max-*` output, or flip the base so it's mobile-first?
 - **RESP-14** Keep side-by-side frames at other widths, or rely on drag plus Interact viewports?
 - **RESP-15** Responsive rules on any layer, or only on components?
-- **CODE-05** Ship Code mode to everyone, or start it behind Labs like Tokens?
 - **SAVE-05** When a file changed on disk, is Reapply my changes enough, or also offer Overwrite the file and Discard my changes?
