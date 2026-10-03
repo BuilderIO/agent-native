@@ -416,6 +416,13 @@
       return null;
     }
     if (hasTransformedGridAncestor(container)) return null;
+    var scrollableContainer = container as HTMLElement;
+    if (
+      scrollableContainer.scrollLeft !== 0 ||
+      scrollableContainer.scrollTop !== 0
+    ) {
+      return null;
+    }
     var columns = hitTestGridTracks(styles.gridTemplateColumns);
     var rows = hitTestGridTracks(styles.gridTemplateRows);
     if (!columns.length || !rows.length) return null;
@@ -450,6 +457,19 @@
       px(styles.borderBottomWidth) -
       px(styles.paddingTop) -
       px(styles.paddingBottom);
+    var reservedScrollbarWidth =
+      scrollableContainer.offsetWidth -
+      scrollableContainer.clientWidth -
+      px(styles.borderLeftWidth) -
+      px(styles.borderRightWidth);
+    var reservedScrollbarHeight =
+      scrollableContainer.offsetHeight -
+      scrollableContainer.clientHeight -
+      px(styles.borderTopWidth) -
+      px(styles.borderBottomWidth);
+    if (reservedScrollbarWidth > 1 || reservedScrollbarHeight > 1) {
+      return null;
+    }
     var direction = styles.direction === "rtl";
     var columnGap = hitTestGridGap(styles.columnGap, contentWidth);
     var rowGap = hitTestGridGap(styles.rowGap, contentHeight);

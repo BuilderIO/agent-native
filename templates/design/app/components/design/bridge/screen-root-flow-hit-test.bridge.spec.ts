@@ -259,6 +259,161 @@ describe("grid hit-test placement", () => {
     }
   });
 
+  it("declines precise targeting when either grid scroll offset is nonzero", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 320, height: 240 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="grid" data-agent-native-node-id="grid" style="position:absolute;left:20px;top:20px;box-sizing:border-box;width:100px;height:100px;display:grid;grid-template-columns:100px 100px 100px;grid-template-rows:100px 100px 100px;overflow:auto">
+          <div id="x-probe" style="position:absolute;grid-column:2 / 3;grid-row:1 / 2;inset:0;pointer-events:none"></div>
+          <div id="y-probe" style="position:absolute;grid-column:1 / 2;grid-row:2 / 3;inset:0;pointer-events:none"></div>
+          <div data-agent-native-node-id="overflow" style="grid-column:3;grid-row:3;width:100px;height:100px"></div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+      });
+
+      const cases = [
+        {
+          correlationId: "scrolled-grid-x",
+          direction: "ltr",
+          scrollLeft: 40,
+          scrollTop: 0,
+          probe: "#x-probe",
+          x: 90,
+          y: 30,
+        },
+        {
+          correlationId: "scrolled-grid-y",
+          direction: "ltr",
+          scrollLeft: 0,
+          scrollTop: 40,
+          probe: "#y-probe",
+          x: 30,
+          y: 90,
+        },
+        {
+          correlationId: "scrolled-grid-rtl-x",
+          direction: "rtl",
+          scrollLeft: -40,
+          scrollTop: 0,
+          probe: "#x-probe",
+          x: 30,
+          y: 30,
+        },
+      ];
+      for (const [index, testCase] of cases.entries()) {
+        const geometry = await page.evaluate((value) => {
+          const grid = document.querySelector<HTMLElement>("#grid")!;
+          grid.style.direction = value.direction;
+          grid.scrollLeft = value.scrollLeft;
+          grid.scrollTop = value.scrollTop;
+          const rect = document
+            .querySelector<HTMLElement>(value.probe)!
+            .getBoundingClientRect();
+          window.postMessage(
+            {
+              type: "agent-native:hit-test",
+              correlationId: value.correlationId,
+              x: value.x,
+              y: value.y,
+            },
+            "*",
+          );
+          return {
+            scrollLeft: grid.scrollLeft,
+            scrollTop: grid.scrollTop,
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+            bottom: rect.bottom,
+          };
+        }, testCase);
+        expect(geometry.scrollLeft).toBe(testCase.scrollLeft);
+        expect(geometry.scrollTop).toBe(testCase.scrollTop);
+        expect(testCase.x).toBeGreaterThanOrEqual(geometry.left);
+        expect(testCase.x).toBeLessThan(geometry.right);
+        expect(testCase.y).toBeGreaterThanOrEqual(geometry.top);
+        expect(testCase.y).toBeLessThan(geometry.bottom);
+
+        await page.waitForFunction(
+          (expectedLength) =>
+            (window as any).__hitTestResults.length === expectedLength,
+          index + 1,
+        );
+        const packet = await page.evaluate(
+          (resultIndex) => (window as any).__hitTestResults[resultIndex],
+          index,
+        );
+        expect(packet.gridPlacement, testCase.correlationId).toBeUndefined();
+        expect(packet.guideRect, testCase.correlationId).toBeUndefined();
+      }
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("declines precise targeting when reserved scrollbar space changes client dimensions", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 320, height: 240 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="grid" data-agent-native-node-id="grid" style="position:absolute;left:40px;top:20px;box-sizing:border-box;width:200px;height:100px;border:4px solid;padding:10px;display:grid;grid-template-columns:80px 80px;grid-template-rows:50px 50px 50px;justify-content:center;align-content:center;overflow:auto">
+          <div data-agent-native-node-id="overflow" style="grid-column:2;grid-row:3;width:80px;height:50px"></div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        const grid = document.querySelector<HTMLElement>("#grid")!;
+        Object.defineProperty(grid, "clientWidth", {
+          configurable: true,
+          value: grid.clientWidth - 15,
+        });
+        Object.defineProperty(grid, "clientHeight", {
+          configurable: true,
+          value: grid.clientHeight - 15,
+        });
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "reserved-scrollbar-space",
+            x: 150,
+            y: 40,
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+
+      const packet = await page.evaluate(
+        () => (window as any).__hitTestResults[0],
+      );
+      expect(packet.gridPlacement).toBeUndefined();
+      expect(packet.guideRect).toBeUndefined();
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("maps RTL logical and physical alignment to the correct empty column", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
