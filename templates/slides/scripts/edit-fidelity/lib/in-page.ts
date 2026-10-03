@@ -198,6 +198,7 @@ export function installInPageHelpers(chromeSelector: string) {
     "opacity",
     "visibility",
   ];
+  const customStylePropertiesByRoot = new WeakMap<Element, string[]>();
   const SIDES = ["top", "right", "bottom", "left"];
   const BOX_PROPS = [
     "display",
@@ -224,6 +225,44 @@ export function installInPageHelpers(chromeSelector: string) {
     "background-color",
     "background-image",
     "box-shadow",
+  ];
+  const OUTSIDE_EXTRA_STYLE_PROPS = [
+    "filter",
+    "backdrop-filter",
+    "clip-path",
+    "mask-image",
+    "mix-blend-mode",
+    "isolation",
+    "z-index",
+    "overflow-x",
+    "overflow-y",
+    "contain",
+    "content-visibility",
+    "object-fit",
+    "object-position",
+    "align-content",
+    "align-items",
+    "align-self",
+    "justify-content",
+    "justify-items",
+    "justify-self",
+    "flex-basis",
+    "flex-direction",
+    "flex-grow",
+    "flex-shrink",
+    "flex-wrap",
+    "gap",
+    "row-gap",
+    "column-gap",
+    "grid-area",
+    "grid-auto-flow",
+    "grid-column-end",
+    "grid-column-start",
+    "grid-row-end",
+    "grid-row-start",
+    "grid-template-areas",
+    "grid-template-columns",
+    "grid-template-rows",
   ];
   const PAINTED_TAGS = new Set([
     "SVG",
@@ -333,6 +372,33 @@ export function installInPageHelpers(chromeSelector: string) {
     const out: Record<string, string> = {};
     for (const p of props) out[p] = cs.getPropertyValue(p).trim();
     return out;
+  };
+  const computedStyleProps = (
+    cs: CSSStyleDeclaration,
+    customProperties: string[],
+  ) => {
+    const out = pick(cs, OUTSIDE_EXTRA_STYLE_PROPS);
+    for (const property of customProperties) {
+      out[property] = cs.getPropertyValue(property).trim();
+    }
+    return out;
+  };
+  const customPropertiesFor = (root: Element) => {
+    let properties = customStylePropertiesByRoot.get(root);
+    if (properties) return properties;
+    const names = new Set<string>();
+    for (const element of [root, ...root.querySelectorAll("*")]) {
+      const style = getComputedStyle(element);
+      for (let i = 0; i < style.length; i++) {
+        const property = style[i];
+        if (property?.startsWith("--") && !property.startsWith("--tw-")) {
+          names.add(property);
+        }
+      }
+    }
+    properties = [...names].sort();
+    customStylePropertiesByRoot.set(root, properties);
+    return properties;
   };
   // getComputedStyle resolves an `auto` margin to its used length, which
   // moves whenever a flex sibling grows; the computed value stays `auto`.
@@ -860,6 +926,7 @@ export function installInPageHelpers(chromeSelector: string) {
   ): Snapshot | OutsideSnapshot {
     const root = document.querySelector(canvasSel);
     if (!root) throw new Error(`canvas not found: ${canvasSel}`);
+    const customProperties = outsideOnly ? customPropertiesFor(root) : [];
     const origin = root.getBoundingClientRect();
     const editor = activeEditor();
     const host = floatingHost(root, editor);
@@ -1108,7 +1175,11 @@ export function installInPageHelpers(chromeSelector: string) {
           `text:${text.slice(0, 80)}`,
           "text",
           inside,
-          { ...pick(cs, TEXT_PROPS), visible: String(visible(el)) },
+          {
+            ...pick(cs, TEXT_PROPS),
+            ...(outsideOnly ? computedStyleProps(cs, customProperties) : {}),
+            visible: String(visible(el)),
+          },
           textRect,
           flow,
           {
@@ -1128,7 +1199,10 @@ export function installInPageHelpers(chromeSelector: string) {
           boxKey(el),
           "box",
           inside,
-          boxProps(el, cs),
+          {
+            ...boxProps(el, cs),
+            ...(outsideOnly ? computedStyleProps(cs, customProperties) : {}),
+          },
           rectOf(el.getBoundingClientRect(), origin),
           flow,
           undefined,
@@ -1145,7 +1219,11 @@ export function installInPageHelpers(chromeSelector: string) {
           `${boxKey(el)}${pseudo}`,
           "box",
           inside,
-          { ...pick(ps, BOX_PROPS), content: ps.content },
+          {
+            ...pick(ps, BOX_PROPS),
+            ...(outsideOnly ? computedStyleProps(ps, customProperties) : {}),
+            content: ps.content,
+          },
           { x: 0, y: 0, width: 0, height: 0 },
           false,
           undefined,

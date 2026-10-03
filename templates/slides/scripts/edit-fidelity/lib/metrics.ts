@@ -290,12 +290,15 @@ export function diffSnapshots(
         deltas.push({ key: ra.key, prop, a: "changed", b: "changed", inside });
       }
     }
-    for (const prop of Object.keys(ra.props)) {
+    for (const prop of new Set([
+      ...Object.keys(ra.props),
+      ...Object.keys(rb.props),
+    ])) {
       if (ra.props[prop] !== rb.props[prop]) {
         deltas.push({
           key: ra.key,
           prop,
-          a: ra.props[prop],
+          a: ra.props[prop] ?? "(absent)",
           b: rb.props[prop] ?? "(absent)",
           inside,
         });
