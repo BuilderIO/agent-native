@@ -164,6 +164,22 @@ describe("indexed text limits on Postgres", () => {
     ).resolves.toBeUndefined();
   });
 
+  it("rejects characters ingest strips from every string", async () => {
+    await expect(
+      insert({ eventName: "a\u0000b", app: "clips", path: "/", userKey: "u" }),
+    ).rejects.toThrow(/0x00/);
+    for (const [note, error] of [
+      ["a\u0000b", /unsupported Unicode escape/],
+      ["x\uD83D", /invalid input syntax for type json/],
+    ] as const) {
+      await expect(
+        client.query("SELECT $1::jsonb ->> 'note' AS note", [
+          JSON.stringify({ note }),
+        ]),
+      ).rejects.toThrow(error);
+    }
+  });
+
   it("rejects an unbounded value, which is why ingest bounds them", async () => {
     await expect(
       insert({ eventName: "pageview", app: WIDEST, path: "/", userKey: "u" }),

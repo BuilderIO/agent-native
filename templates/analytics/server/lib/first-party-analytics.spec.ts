@@ -555,6 +555,37 @@ describe("recordAnalyticsEvents", () => {
     );
   });
 
+  it("drops NUL from every string and key so one cannot fail the batch", async () => {
+    const parsed = parseAnalyticsTrackPayload(
+      JSON.stringify({
+        publicKey: "anpk_test",
+        events: [
+          {
+            event: "clip\u0000_viewed",
+            userId: "user\u0000_1",
+            properties: {
+              path: "/clips\u0000",
+              "note\u0000": { quote: "a\u0000b", half: "x\uD83D" },
+            },
+          },
+        ],
+      }),
+    );
+    await recordAnalyticsEvents(parsed.publicKey, parsed.events);
+
+    const [rows] = rollupMocks.upsert.mock.calls[0];
+    expect(rows[0]).toMatchObject({
+      eventName: "clip_viewed",
+      userId: "user_1",
+      path: "/clips",
+    });
+    expect(JSON.parse(rows[0].properties).note).toEqual({
+      quote: "ab",
+      half: "x�",
+    });
+    expect(JSON.stringify(rows[0])).not.toMatch(/\\u0000|\\ud83d/i);
+  });
+
   it("bounds every indexed value so one long value cannot fail the batch", async () => {
     const long = "中".repeat(4096);
     await recordAnalyticsEvents("anpk_test", [

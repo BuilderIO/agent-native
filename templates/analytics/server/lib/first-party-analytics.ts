@@ -497,14 +497,36 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+const NUL = /\u0000/g;
 const LONE_SURROGATE =
   /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
 
-// Rollup and index ids encode these values with encodeURIComponent, which
-// throws on a lone surrogate and would reject the batch on every retry.
+/**
+ * Postgres rejects U+0000 in text and jsonb, and a lone surrogate in jsonb;
+ * properties are read back with ::jsonb, and rollup and index ids encode
+ * values with encodeURIComponent, which throws on a lone surrogate. One such
+ * character would fail its batch on every retry, or every query over it
+ * later, so every string and key is cleaned once, as the body is parsed.
+ */
+function postgresSafe(value: unknown): unknown {
+  if (typeof value === "string") {
+    return value.replace(NUL, "").replace(LONE_SURROGATE, "\uFFFD");
+  }
+  if (Array.isArray(value)) return value.map(postgresSafe);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        postgresSafe(key),
+        postgresSafe(entry),
+      ]),
+    );
+  }
+  return value;
+}
+
 function asString(value: unknown): string | null {
   if (typeof value === "string" && value.trim()) {
-    return value.trim().replace(LONE_SURROGATE, "\uFFFD");
+    return value.trim();
   }
   if (typeof value === "number" || typeof value === "boolean") {
     return String(value);
@@ -639,7 +661,9 @@ export function parseAnalyticsTrackPayload(
   events: IncomingAnalyticsEvent[];
 } {
   const body = asRecord(
-    typeof raw === "string" && raw.trim() ? parseJsonBody(raw) : raw,
+    postgresSafe(
+      typeof raw === "string" && raw.trim() ? parseJsonBody(raw) : raw,
+    ),
   );
   const publicKey =
     asString(headerKey) ||
