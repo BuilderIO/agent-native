@@ -18,6 +18,34 @@ import {
 } from "./authorization/action-access-runtime.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
+export {
+  ACTION_RECEIPT_SCHEMA_VERSION,
+  DOMAIN_EVENT_CONTENT_TYPE,
+  DOMAIN_EVENT_SPEC_VERSION,
+  ActionReceiptValidationError,
+  assertActionDomainEvent,
+  assertActionReceipt,
+  commitAction,
+  createActionDomainEvent,
+  parseActionDomainEvent,
+  parseActionReceipt,
+  serializeActionDomainEvent,
+  serializeActionReceipt,
+} from "./action-receipt.js";
+export type {
+  ActionAtomicAdapter,
+  ActionAtomicContext,
+  ActionAtomicOutcome,
+  ActionDomainEvent,
+  ActionDomainEventDraft,
+  ActionDomainEventReference,
+  ActionJsonPrimitive,
+  ActionJsonValue,
+  ActionReceipt,
+  ActionReceiptProvenance,
+  CommitActionOptions,
+} from "./action-receipt.js";
+
 export type ActionCaller =
   | "tool"
   | "http"
