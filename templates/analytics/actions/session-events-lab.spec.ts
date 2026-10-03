@@ -314,18 +314,35 @@ describe("Sessions triage Lab guard on event actions", () => {
     expect(page.recordings).toEqual([{ id: "r1", friction: { score: 4 } }]);
   });
 
-  it("adds friction to a replay summary only with the Lab on, and says when it could not", async () => {
+  it("adds friction and speed to a replay summary only with the Lab on, and says when either could not", async () => {
+    const speed = {
+      ttfbMs: 120,
+      lcpMs: 4_500,
+      inpMs: null,
+      cls: null,
+      slowRequests: 2,
+      maxRequestMs: 1_800,
+      atLeast: [],
+      incomplete: false,
+    };
+    getSessionRecordingPerformance.mockResolvedValue({
+      performance: { r1: speed },
+      coverageStartedAt: "2026-09-20T00:00:00.000Z",
+    } as never);
     await expect(getSummary.run({ recordingId: "r1" })).resolves.toEqual({
       id: "r1",
       sessionId: "s1",
     });
     expect(listRecordingFriction).not.toHaveBeenCalled();
+    expect(getSessionRecordingPerformance).not.toHaveBeenCalled();
 
     labEnabled.value = true;
     await expect(getSummary.run({ recordingId: "r1" })).resolves.toEqual({
       id: "r1",
       sessionId: "s1",
       friction: { score: 4 },
+      performance: speed,
+      performanceCoverageStartedAt: "2026-09-20T00:00:00.000Z",
     });
 
     listRecordingFriction.mockRejectedValueOnce(new Error("friction down"));
@@ -333,6 +350,30 @@ describe("Sessions triage Lab guard on event actions", () => {
       id: "r1",
       sessionId: "s1",
       frictionError: "friction down",
+      performance: speed,
+      performanceCoverageStartedAt: "2026-09-20T00:00:00.000Z",
+    });
+
+    getSessionRecordingPerformance.mockRejectedValueOnce(
+      new Error("speed down"),
+    );
+    await expect(getSummary.run({ recordingId: "r1" })).resolves.toEqual({
+      id: "r1",
+      sessionId: "s1",
+      friction: { score: 4 },
+      performanceError: "speed down",
+    });
+
+    getSessionRecordingPerformance.mockResolvedValueOnce({
+      performance: { r1: null },
+      coverageStartedAt: null,
+    } as never);
+    await expect(getSummary.run({ recordingId: "r1" })).resolves.toEqual({
+      id: "r1",
+      sessionId: "s1",
+      friction: { score: 4 },
+      performance: null,
+      performanceCoverageStartedAt: null,
     });
 
     getUserLabEnabled.mockRejectedValueOnce(new Error("labs down"));
@@ -340,6 +381,11 @@ describe("Sessions triage Lab guard on event actions", () => {
       id: "r1",
       sessionId: "s1",
       labStateError: "labs down",
+    });
+    getSessionRecordingPerformance.mockReset();
+    getSessionRecordingPerformance.mockResolvedValue({
+      performance: {},
+      coverageStartedAt: null,
     });
   });
 

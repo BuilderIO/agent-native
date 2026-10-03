@@ -248,9 +248,9 @@ agent answers about browser recordings in the Analytics template.
   one just over 1 s may be counted without a marker, and a failed or timed-out
   action request is marked as failed even when the count includes it.
 - `slow` and `includePerformance` on `list-session-recordings`,
-  `list-session-performance`, `list-route-performance`, and the replay's
-  vitals and slow-request markers exist only while the Sessions triage Lab is
-  on.
+  `list-session-performance`, `list-route-performance`, the replay's vitals
+  and slow-request markers, and `performance` on `get-session-replay-summary`
+  exist only while the Sessions triage Lab is on.
 - Lab state never holds up the base list. The page waits for it only when the
   URL carries Lab-only conditions (did/didn't events, friction signals or
   sorts, `slow`), with one wait for all of them, and for at most 5 s; a
