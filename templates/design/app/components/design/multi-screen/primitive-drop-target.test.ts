@@ -1215,6 +1215,308 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
     ).toBeNull();
   });
 
+  it("keeps inline flex ordering when the document links a stylesheet", () => {
+    const screen = {
+      ...flexScreen,
+      id: "linked-stylesheet-inline-flex-screen",
+      content: `<!doctype html><html><head>
+        <link rel="stylesheet" href="data:text/css,">
+      </head><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:120px;display:flex;flex-direction:row">
+          <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="position:absolute;left:20px;top:20px;width:20px;height:20px"></div>
+          <div data-agent-native-node-id="second" data-an-primitive="rectangle" style="position:absolute;left:100px;top:20px;width:20px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const parent = primitives.find(
+      (primitive) => primitive.nodeId === "parent",
+    )!;
+
+    expect(parent).toMatchObject({
+      autoLayoutAxis: "x",
+      autoLayoutFlexDirection: "row",
+      autoLayoutDirection: "ltr",
+      autoLayoutOrderKnown: true,
+    });
+    expect(
+      findAutoLayoutInsertionAnchor(parent, primitives, { x: 25, y: 30 }, null),
+    ).toMatchObject({ anchorNodeId: "first", placement: "before" });
+  });
+
+  it("ignores lower-priority stylesheet values overridden by inline flex values", () => {
+    const screen = {
+      ...flexScreen,
+      id: "lower-priority-stylesheet-flex-screen",
+      content: `<!doctype html><html><head><style>
+        .parent { flex-direction: column; direction: rtl; }
+      </style></head><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" class="parent" style="position:absolute;left:0;top:0;width:200px;height:120px;display:flex;flex-direction:row;direction:ltr">
+          <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="position:absolute;left:20px;top:20px;width:20px;height:20px"></div>
+          <div data-agent-native-node-id="second" data-an-primitive="rectangle" style="position:absolute;left:100px;top:20px;width:20px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const parent = primitives.find(
+      (primitive) => primitive.nodeId === "parent",
+    )!;
+
+    expect(parent).toMatchObject({
+      autoLayoutAxis: "x",
+      autoLayoutFlexDirection: "row",
+      autoLayoutDirection: "ltr",
+      autoLayoutOrderKnown: true,
+    });
+    expect(
+      findAutoLayoutInsertionAnchor(parent, primitives, { x: 25, y: 30 }, null),
+    ).toMatchObject({ anchorNodeId: "first", placement: "before" });
+  });
+
+  it("defers stylesheet important overrides unless inline flex values are important", () => {
+    for (const inlineImportant of [false, true]) {
+      const priority = inlineImportant ? " !important" : "";
+      const screen = {
+        ...flexScreen,
+        id: `important-flex-priority-${inlineImportant}`,
+        content: `<!doctype html><html><head><style>
+          .parent { flex-direction: column !important; direction: rtl !important; }
+        </style></head><body>
+          <div data-agent-native-node-id="parent" data-an-primitive="frame" class="parent" style="position:absolute;left:0;top:0;width:200px;height:120px;display:flex;flex-direction:row${priority};direction:ltr${priority}">
+            <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="position:absolute;left:20px;top:20px;width:20px;height:20px"></div>
+            <div data-agent-native-node-id="second" data-an-primitive="rectangle" style="position:absolute;left:100px;top:20px;width:20px;height:20px"></div>
+          </div>
+        </body></html>`,
+      };
+      const primitives = parsePrimitivesFromScreen(screen);
+      const parent = primitives.find(
+        (primitive) => primitive.nodeId === "parent",
+      )!;
+
+      if (inlineImportant) {
+        expect(parent).toMatchObject({
+          autoLayoutAxis: "x",
+          autoLayoutFlexDirection: "row",
+          autoLayoutDirection: "ltr",
+          autoLayoutOrderKnown: true,
+        });
+      } else {
+        expect(parent).toMatchObject({
+          autoLayoutAxis: undefined,
+          autoLayoutOrderKnown: false,
+        });
+      }
+    }
+  });
+
+  it("keeps column-flex ordering when inherited text direction is automatic", () => {
+    const screen = {
+      ...flexScreen,
+      id: "column-flex-auto-direction-screen",
+      content: `<!doctype html><html><body dir="auto">
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:200px;display:flex;flex-direction:column">
+          <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="position:absolute;left:20px;top:140px;width:20px;height:20px"></div>
+          <div data-agent-native-node-id="second" data-an-primitive="rectangle" style="position:absolute;left:20px;top:60px;width:20px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const parent = primitives.find(
+      (primitive) => primitive.nodeId === "parent",
+    )!;
+
+    expect(parent).toMatchObject({
+      autoLayoutAxis: "y",
+      autoLayoutOrderKnown: true,
+    });
+    expect(parent.autoLayoutDirection).toBeUndefined();
+    expect(
+      findAutoLayoutInsertionAnchor(
+        parent,
+        primitives,
+        { x: 30, y: 145 },
+        null,
+      ),
+    ).toMatchObject({ anchorNodeId: "first", placement: "before" });
+  });
+
+  it("does not fall back to an inside target when flex order is unknown", () => {
+    const screen = {
+      ...flexScreen,
+      id: "unknown-flex-order-target-screen",
+      content: `<!doctype html><html><head><style>
+        .rtl { direction: rtl; }
+      </style></head><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" class="rtl" style="position:absolute;left:0;top:0;width:200px;height:120px;display:flex;flex-direction:row">
+          <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="position:absolute;left:10px;top:20px;width:20px;height:20px"></div>
+          <div data-agent-native-node-id="second" data-an-primitive="rectangle" style="position:absolute;left:80px;top:20px;width:20px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+
+    const target = getPrimitiveDropTargetForPoint(
+      { x: 150, y: 100 },
+      null,
+      [screen],
+      { [screen.id]: { x: 0, y: 0, width: 200, height: 120 } },
+      () => ({ width: 200, height: 120 }),
+    );
+    expect(target === null).toBe(true);
+  });
+
+  it("maps in-flow reverse-flex children to their visual coordinates", () => {
+    for (const testCase of [
+      {
+        id: "row-reverse-in-flow-screen",
+        direction: "row-reverse",
+        width: 200,
+        height: 120,
+        childWidth: 50,
+        childHeight: 20,
+        expectedFirst: { x: 150, y: 0 },
+        expectedSecond: { x: 100, y: 0 },
+        point: { x: 165, y: 10 },
+      },
+      {
+        id: "column-reverse-in-flow-screen",
+        direction: "column-reverse",
+        width: 120,
+        height: 200,
+        childWidth: 20,
+        childHeight: 40,
+        expectedFirst: { x: 0, y: 160 },
+        expectedSecond: { x: 0, y: 120 },
+        point: { x: 10, y: 175 },
+      },
+    ] as const) {
+      const screen = {
+        id: testCase.id,
+        filename: `${testCase.id}.html`,
+        content: `<!doctype html><html><body>
+          <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:${testCase.width}px;height:${testCase.height}px;display:flex;flex-direction:${testCase.direction}">
+            <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="width:${testCase.childWidth}px;height:${testCase.childHeight}px"></div>
+            <div data-agent-native-node-id="second" data-an-primitive="rectangle" style="width:${testCase.childWidth}px;height:${testCase.childHeight}px"></div>
+          </div>
+        </body></html>`,
+      };
+      const primitives = parsePrimitivesFromScreen(screen);
+      const parent = primitives.find(
+        (primitive) => primitive.nodeId === "parent",
+      )!;
+      expect(
+        primitives.find((primitive) => primitive.nodeId === "first"),
+      ).toMatchObject({
+        localLeft: testCase.expectedFirst.x,
+        localTop: testCase.expectedFirst.y,
+      });
+      expect(
+        primitives.find((primitive) => primitive.nodeId === "second"),
+      ).toMatchObject({
+        localLeft: testCase.expectedSecond.x,
+        localTop: testCase.expectedSecond.y,
+      });
+      expect(
+        findAutoLayoutInsertionAnchor(parent, primitives, testCase.point, null),
+      ).toMatchObject({
+        anchorNodeId: "first",
+        placement: "after",
+        guidePlacement: "before",
+      });
+    }
+  });
+
+  it("maps reverse-flow items with padding, borders, gap, and margins", () => {
+    const screen = {
+      id: "row-reverse-box-model-screen",
+      filename: "row-reverse-box-model-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:20px;top:10px;box-sizing:border-box;width:320px;height:120px;display:flex;flex-direction:row-reverse;gap:10px;padding:8px 20px 8px 10px;border:2px solid #111;border-right-width:4px">
+          <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="width:50px;height:20px;margin-left:3px;margin-right:5px"></div>
+          <div data-agent-native-node-id="second" data-an-primitive="rectangle" style="width:40px;height:20px;margin-left:7px;margin-right:11px"></div>
+        </div>
+      </body></html>`,
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const parent = primitives.find(
+      (primitive) => primitive.nodeId === "parent",
+    )!;
+    expect(
+      primitives
+        .filter((primitive) => ["first", "second"].includes(primitive.nodeId))
+        .map(({ nodeId, localLeft, localTop }) => ({
+          nodeId,
+          localLeft,
+          localTop,
+        })),
+    ).toEqual([
+      { nodeId: "first", localLeft: 261, localTop: 20 },
+      { nodeId: "second", localLeft: 197, localTop: 20 },
+    ]);
+    expect(parent.autoLayoutOrderKnown).toBe(true);
+    expect(
+      findAutoLayoutInsertionAnchor(
+        parent,
+        primitives,
+        { x: 270, y: 30 },
+        null,
+      ),
+    ).toMatchObject({
+      anchorNodeId: "first",
+      placement: "after",
+      guidePlacement: "before",
+    });
+  });
+
+  it("defers flex slots when justification or shrink changes estimated positions", () => {
+    const cases = [
+      {
+        id: "reverse-flex-centered-screen",
+        parentStyle:
+          "width:200px;height:120px;display:flex;flex-direction:row-reverse;justify-content:center",
+      },
+      {
+        id: "reverse-flex-shrink-screen",
+        parentStyle:
+          "width:80px;height:120px;display:flex;flex-direction:row-reverse;gap:10px",
+      },
+    ];
+
+    for (const testCase of cases) {
+      const screen = {
+        id: testCase.id,
+        filename: `${testCase.id}.html`,
+        content: `<!doctype html><html><body>
+          <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;${testCase.parentStyle}">
+            <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="width:50px;height:20px"></div>
+            <div data-agent-native-node-id="second" data-an-primitive="rectangle" style="width:50px;height:20px"></div>
+          </div>
+        </body></html>`,
+      };
+      const primitives = parsePrimitivesFromScreen(screen);
+      const parent = primitives.find(
+        (primitive) => primitive.nodeId === "parent",
+      )!;
+
+      expect(parent.autoLayoutOrderKnown).toBe(false);
+      expect(
+        findAutoLayoutInsertionAnchor(
+          parent,
+          primitives,
+          { x: 50, y: 50 },
+          null,
+        ),
+      ).toBeNull();
+      const target = getPrimitiveDropTargetForPoint(
+        { x: 150, y: 80 },
+        null,
+        [screen],
+        { [screen.id]: { x: 0, y: 0, width: 200, height: 120 } },
+        () => ({ width: 200, height: 120 }),
+      );
+      expect(target === null).toBe(true);
+    }
+  });
+
   it("does not infer left-to-right insertion order for dir=auto", () => {
     const screen = {
       ...flexScreen,

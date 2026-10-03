@@ -202,15 +202,24 @@ function hasMatchingStylesheetValue(
   element: Element,
   property: string,
 ): boolean {
-  if (doc.querySelector('link[rel~="stylesheet"]')) return true;
+  const inlineStyle = (element as HTMLElement).style;
+  const inlineValue = inlineStyle.getPropertyValue(property).trim();
+  const inlinePriority = inlineStyle.getPropertyPriority(property);
 
   const matchesRule = (rules: CSSRuleList): boolean => {
     for (const rule of Array.from(rules)) {
-      if (/^@import\b/i.test(rule.cssText)) return true;
+      if (/^@import\b/i.test(rule.cssText)) {
+        if (inlinePriority !== "important") return true;
+        continue;
+      }
       const styleRule = rule as CSSStyleRule;
+      const value = styleRule.style?.getPropertyValue(property);
+      const priority = styleRule.style?.getPropertyPriority(property);
       if (
         styleRule.selectorText &&
-        styleRule.style?.getPropertyValue(property)
+        value &&
+        (!inlineValue ||
+          (priority === "important" && inlinePriority !== "important"))
       ) {
         try {
           if (element.matches(styleRule.selectorText)) return true;
@@ -228,7 +237,8 @@ function hasMatchingStylesheetValue(
     try {
       if (matchesRule(sheet.cssRules)) return true;
     } catch {
-      return true;
+      // ponytail: unreadable CSS can override normal inline values with !important.
+      if (inlinePriority !== "important") return true;
     }
   }
   return false;
@@ -1049,10 +1059,46 @@ export function authoredElementPosition(
       const isGrid = display === "grid" || display === "inline-grid";
       const isRow =
         isFlex && !(parentStyle.flexDirection || "row").startsWith("column");
+      const reversesFlexFlow =
+        isFlex &&
+        (parentStyle.flexDirection || "row").endsWith("-reverse") !==
+          (isRow &&
+            resolveAuthoredDirection(parent, parent.ownerDocument) === "rtl");
       const gap = isFlex ? flexMainAxisGap(parent, isRow ? "x" : "y") : 0;
       if (isFlex) {
-        if (isRow) x += inlineNumber(cursor, "marginLeft");
-        else y += inlineNumber(cursor, "marginTop");
+        if (reversesFlexFlow) {
+          const axis = isRow ? "x" : "y";
+          const precedingExtent = siblings
+            .slice(0, index)
+            .filter((sibling) => !isOutOfFlow(sibling))
+            .reduce(
+              (extent, sibling) =>
+                extent +
+                elementInlineSize(sibling, axis, cache, visiting) +
+                inlineNumber(
+                  sibling,
+                  axis === "x" ? "marginLeft" : "marginTop",
+                ) +
+                inlineNumber(
+                  sibling,
+                  axis === "x" ? "marginRight" : "marginBottom",
+                ) +
+                gap,
+              0,
+            );
+          const contentEnd = parentContentSize(parent, axis, cache, visiting);
+          const offset =
+            contentEnd -
+            precedingExtent -
+            elementInlineSize(cursor, axis, cache, visiting) -
+            inlineNumber(cursor, axis === "x" ? "marginRight" : "marginBottom");
+          if (axis === "x") x += offset;
+          else y += offset;
+        } else if (isRow) {
+          x += inlineNumber(cursor, "marginLeft");
+        } else {
+          y += inlineNumber(cursor, "marginTop");
+        }
       }
       if (isGrid) {
         const columnValue = gridStartValue(style, "column");
@@ -1209,7 +1255,7 @@ export function authoredElementPosition(
             .slice(0, row - 1)
             .reduce((sum, _track, index) => sum + rowSizes[index] + gapY, 0);
         }
-      } else if (index > 0) {
+      } else if (index > 0 && !reversesFlexFlow) {
         const previous = siblings.slice(0, index);
         for (const sibling of previous as Element[]) {
           if (isOutOfFlow(sibling)) continue;
@@ -1352,9 +1398,41 @@ export function parsePrimitivesFromScreen(
       const autoLayoutDirection = autoLayoutFlexDirection
         ? resolveAuthoredDirection(element, doc)
         : undefined;
+      let flexPositioningKnown = !isFlexContainer;
+      if (isFlexContainer && autoLayoutAxis) {
+        const justifyContent = style.justifyContent.trim().toLowerCase();
+        const flowChildren = Array.from(element.children).filter(
+          (child) => !isOutOfFlow(child),
+        );
+        const gap = flexMainAxisGap(element, autoLayoutAxis);
+        const usedMainAxisSpace =
+          flowChildren.reduce(
+            (used, child) =>
+              used +
+              elementInlineSize(child, autoLayoutAxis, sizeCache) +
+              inlineNumber(
+                child,
+                autoLayoutAxis === "x" ? "marginLeft" : "marginTop",
+              ) +
+              inlineNumber(
+                child,
+                autoLayoutAxis === "x" ? "marginRight" : "marginBottom",
+              ),
+            0,
+          ) +
+          Math.max(0, flowChildren.length - 1) * gap;
+        flexPositioningKnown =
+          !hasMatchingStylesheetValue(doc, element, "justify-content") &&
+          ["", "normal", "flex-start", "start"].includes(justifyContent) &&
+          usedMainAxisSpace <=
+            parentContentSize(element, autoLayoutAxis, sizeCache, new Set()) +
+              0.5;
+      }
       const autoLayoutOrderKnown =
         !isFlexContainer ||
-        (flexDirectionKnown && autoLayoutDirection !== undefined);
+        (flexDirectionKnown &&
+          (autoLayoutAxis === "y" || autoLayoutDirection !== undefined) &&
+          flexPositioningKnown);
       const autoLayoutWrapped =
         (style.display === "flex" || style.display === "inline-flex") &&
         (style.flexWrap === "wrap" || style.flexWrap === "wrap-reverse");
@@ -1618,6 +1696,7 @@ export function getPrimitiveDropTargetForPoint(
             primitive.projectionIdentity?.nodeId === hitTargetIdentity.nodeId,
         )
       : primitives.find((primitive) => primitive.nodeId === best!.nodeId);
+    if (containerPrimitive?.autoLayoutOrderKnown === false) return null;
     if (containerPrimitive?.autoLayoutAxis) {
       const localPoint = options.identityCoordinateScreenIds?.has(
         topScreen.screen.id,
