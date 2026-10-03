@@ -358,6 +358,37 @@ describe("ApiKeysSettingsPage", () => {
     });
   });
 
+  it("adds a key as an admin for everyone in the organization by default", async () => {
+    state.listing = listing({ canManageOrg: true });
+    clientMock.save.mockResolvedValue(undefined);
+    await render();
+    const header = await renderHeader();
+    await act(async () => buttonByText("Add key", header).click());
+
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const picker = dialog.querySelector('[role="combobox"]');
+    expect(picker?.textContent).toContain("Everyone in Acme");
+
+    const [name, value] = [
+      ...dialog.querySelectorAll("input"),
+    ] as HTMLInputElement[];
+    await act(async () => typeInto(name!, "linear key"));
+    await act(async () => typeInto(value!, "fake-linear-value"));
+    await act(async () => {
+      dialog
+        .querySelector("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+    expect(clientMock.save).toHaveBeenCalledWith({
+      name: "LINEAR_KEY",
+      value: "fake-linear-value",
+      registered: false,
+      shared: true,
+    });
+  });
+
   it("sends model provider keys to Model and offers registered keys by name", async () => {
     await render();
     const header = await renderHeader();

@@ -330,7 +330,7 @@ describe("ConnectionsSettingsContent", () => {
 
     expect(
       Array.from(container.querySelectorAll("button")).filter((button) =>
-        button.textContent?.includes("Connect Builder"),
+        button.textContent?.includes("Use Builder.io"),
       ),
     ).toHaveLength(0);
 
@@ -343,7 +343,7 @@ describe("ConnectionsSettingsContent", () => {
     await vi.waitFor(() => {
       const connectButtons = Array.from(
         container.querySelectorAll("button"),
-      ).filter((button) => button.textContent?.includes("Connect Builder"));
+      ).filter((button) => button.textContent?.includes("Use Builder.io"));
       expect(connectButtons).toHaveLength(5);
 
       const solidPrimaryBtn = connectButtons.find((btn) =>

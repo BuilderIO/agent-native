@@ -52,7 +52,7 @@ export function addExportSnapshotBaseUrl(
     parsedBaseUrl.protocol !== "http:" &&
     parsedBaseUrl.protocol !== "https:"
   ) {
-    throw new PngCaptureError("blob-failed");
+    throw new PngCaptureError("blob-failed", "snapshot base URL is not HTTP");
   }
 
   const base = `<base href="${escapeAttribute(parsedBaseUrl.toString())}">`;
@@ -97,7 +97,12 @@ export async function createExportSnapshotFrame(args: {
       if (timeoutId !== undefined) window.clearTimeout(timeoutId);
       const doc = iframe.contentDocument;
       if (!doc?.documentElement) {
-        reject(new PngCaptureError("blob-failed"));
+        reject(
+          new PngCaptureError(
+            "blob-failed",
+            "snapshot frame loaded without a document",
+          ),
+        );
         return;
       }
       resolve(doc);
@@ -105,7 +110,9 @@ export async function createExportSnapshotFrame(args: {
     iframe.addEventListener("load", onLoad, { once: true });
     timeoutId = window.setTimeout(() => {
       iframe.removeEventListener("load", onLoad);
-      reject(new PngCaptureError("blob-failed"));
+      reject(
+        new PngCaptureError("blob-failed", "snapshot frame load timed out"),
+      );
     }, SNAPSHOT_FRAME_LOAD_TIMEOUT_MS);
   });
 

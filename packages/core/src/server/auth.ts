@@ -261,6 +261,7 @@ import {
   runWithRequestContext,
 } from "./request-context.js";
 import { captureAuthError } from "./sentry.js";
+import { isTestIdentity } from "./test-identity.js";
 import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 function stripAppBasePath(pathname: string): string {
@@ -323,6 +324,15 @@ export interface AuthSession {
   emailVerified?: boolean;
   orgId?: string;
   orgRole?: string;
+}
+
+/**
+ * `AuthSession` as `/_agent-native/auth/session` returns it. The browser
+ * cannot read `testIdentity.emails`, and that list must never be sent to it,
+ * so the server resolves `isTestIdentity` here for browser telemetry to honor.
+ */
+export interface AuthSessionResponse extends AuthSession {
+  testIdentity: boolean;
 }
 
 export interface AuthOptions {
@@ -4737,9 +4747,16 @@ export const authSessionHandler = defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, 503);
     return { error: "Session unavailable" };
   }
-  if (session) setFrameworkSessionHintCookie(event);
-  else clearFrameworkSessionHintCookies(event);
-  return session ?? { error: "Not authenticated" };
+  if (!session) {
+    clearFrameworkSessionHintCookies(event);
+    return { error: "Not authenticated" };
+  }
+  setFrameworkSessionHintCookie(event);
+  const response: AuthSessionResponse = {
+    ...session,
+    testIdentity: isTestIdentity(session.email),
+  };
+  return response;
 });
 
 export function setFrameworkSessionCookie(event: H3Event, token: string): void {

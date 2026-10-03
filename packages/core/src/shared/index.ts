@@ -195,7 +195,12 @@ export {
   type ChatFirstAppCreationResource,
   type ChatFirstAppCreationVaultAccessMode,
 } from "./chat-first-app-creation.js";
-export { isAutozQaEmail, isQaTestEmail } from "./qa-test-email.js";
+export {
+  isAutozQaEmail,
+  isQaTestEmail,
+  isTestIdentityEmail,
+  testIdentityEmailSql,
+} from "./qa-test-email.js";
 export {
   SYNTHETIC_TRAFFIC_BETA_E2E,
   SYNTHETIC_TRAFFIC_HEADER,

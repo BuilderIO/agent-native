@@ -448,7 +448,9 @@ const messages = {
     resolveThread: "Resolver hilo",
     reopenThread: "Reabrir hilo",
     hideReplies: "Ocultar respuestas",
-    replyCount: "{{count}} respuestas",
+    replyCount_one: "{{count}} respuesta",
+    replyCount_many: "{{count}} respuestas",
+    replyCount_other: "{{count}} respuestas",
     title: "Comentarios",
     addComment: "Añadir comentario",
     close: "Cerrar",
@@ -993,8 +995,8 @@ const messages = {
           "Lee la web de la empresa indicada y crea una presentación sobre ella. Informa de errores de acceso en lugar de inventar datos.",
       },
     },
-    connectBuilderIo: "Conectar Builder.io",
-    connectingBuilder: "Conectando Builder.io…",
+    connectBuilderIo: "Usar Builder.io",
+    connectingBuilder: "Configurando Builder.io…",
     recent: "Recientes",
     starters: {
       pitch: {

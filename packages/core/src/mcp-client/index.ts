@@ -103,6 +103,7 @@ export {
   listVisibleMcpTools,
   McpAppApiError,
   type AppMcpTool,
+  type CallMcpToolOptions,
   type ListVisibleMcpToolsOptions,
 } from "./app-api.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";

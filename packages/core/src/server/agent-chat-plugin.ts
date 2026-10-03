@@ -268,7 +268,7 @@ import {
   registerAuthPublicPaths,
 } from "./auth.js";
 import { captureError } from "./capture-error.js";
-import { completeText } from "./complete-text.js";
+import { chatTitleRequestFromBody, generateChatTitle } from "./chat-title.js";
 import {
   getH3App,
   markDefaultPluginProvided,
@@ -293,6 +293,11 @@ import {
 export { handleSharedThreadRequest };
 export type { SharedThreadRouteDependencies };
 
+type AgentChatRunTrackingSource = Pick<
+  TrackingMeta,
+  "userId" | "authUserId" | "anonymousId" | "sessionId"
+> & { isSyntheticTraffic?: boolean };
+
 export function trackAgentChatRunLifecycle(
   event: "run_started" | "run_finished" | "run_no_reply",
   threadId: string | undefined,
@@ -300,8 +305,15 @@ export function trackAgentChatRunLifecycle(
   userId?: string,
   properties: Record<string, unknown> = {},
   appId?: string,
+  trackingSource?: AgentChatRunTrackingSource,
 ): void {
-  if (!threadId?.trim() || !attemptId?.trim()) return;
+  if (
+    !threadId?.trim() ||
+    !attemptId?.trim() ||
+    trackingSource?.isSyntheticTraffic === true
+  ) {
+    return;
+  }
   track(
     event,
     {
@@ -310,7 +322,7 @@ export function trackAgentChatRunLifecycle(
       thread_id: threadId,
       attempt_id: attemptId,
     },
-    runLifecycleTrackingSource(userId),
+    trackingSource ?? runLifecycleTrackingSource(userId),
   );
 }
 
@@ -1038,11 +1050,11 @@ export function resolveHostedBuilderHandoff(
 
 /** Setup CTAs that must be callable on the very first request.
  *
- *  Both are recovery actions: the agent should answer "connect Builder for me"
+ *  Both are recovery actions: the agent should answer "use Builder.io for me"
  *  or a failed upload by rendering the inline card, not by spending a turn in
  *  `tool-search` first. `connect-builder` is registered in every registry that
  *  receives `browserTools`, local dev included, so naming it only through the
- *  hosted-only handoff left local dev advertising "Connect Builder.io" in the
+ *  hosted-only handoff left local dev advertising "Use Builder.io" in the
  *  UI while the agent was never told the tool existed. Names the registry does
  *  not have are dropped by `filterInitialEngineTools`, so listing both here is
  *  safe for lean registries. */
@@ -2006,6 +2018,7 @@ export function createAgentChatPlugin(
           {
             bridgeTools: options?.codeExecution?.bridgeTools,
             evaluator: productionEvaluator,
+            appActionNames: Object.keys(templateScriptsAll),
           },
         );
       const leanRunCodeTool: Record<string, ActionEntry> =
@@ -2016,6 +2029,7 @@ export function createAgentChatPlugin(
           {
             bridgeTools: options?.codeExecution?.bridgeTools,
             evaluator: productionEvaluator,
+            appActionNames: Object.keys(templateScriptsAll),
           },
         );
 
@@ -2054,6 +2068,7 @@ export function createAgentChatPlugin(
             {
               bridgeTools: options?.codeExecution?.bridgeTools,
               evaluator: "node",
+              appActionNames: Object.keys(templateScriptsAll),
             },
           )
         : {};
@@ -3497,6 +3512,7 @@ export function createAgentChatPlugin(
       const onRunComplete = async (
         run: ActiveRun,
         threadId: string | undefined,
+        trackingSource?: AgentChatRunTrackingSource,
       ) => {
         const runThreadId = String(run?.threadId ?? threadId ?? "");
         const chatScope = getRequestRunContext()?.chatScope;
@@ -3537,6 +3553,7 @@ export function createAgentChatPlugin(
               : {}),
           },
           options?.appId,
+          trackingSource,
         );
         if (!assistantMsg) {
           trackAgentChatRunLifecycle(
@@ -3546,6 +3563,7 @@ export function createAgentChatPlugin(
             getRequestRunContext()?.owner,
             {},
             options?.appId,
+            trackingSource,
           );
         }
         if (!threadId) {
@@ -4646,9 +4664,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             { threadId, runId },
           );
         },
-        onRunComplete: async (run: ActiveRun, threadId: string | undefined) => {
+        onRunComplete: async (
+          run: ActiveRun,
+          threadId: string | undefined,
+          trackingSource?: AgentChatRunTrackingSource,
+        ) => {
           if (threadId) _runSendByThread.delete(threadId);
-          await onRunComplete(run, threadId);
+          await onRunComplete(run, threadId, trackingSource);
         },
         resolveAdditionalActions: ({ ownerEmail, orgId }) =>
           getMcpActionEntriesForPrincipal(ownerEmail, orgId),
@@ -4723,9 +4745,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               onRunComplete: async (
                 run: ActiveRun,
                 threadId: string | undefined,
+                trackingSource?: AgentChatRunTrackingSource,
               ) => {
                 if (threadId) _runSendByThread.delete(threadId);
-                await onRunComplete(run, threadId);
+                await onRunComplete(run, threadId, trackingSource);
               },
               resolveOwnerEmail: getOwnerFromEvent,
             })
@@ -5002,9 +5025,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           onRunComplete: async (
             run: ActiveRun,
             threadId: string | undefined,
+            trackingSource?: AgentChatRunTrackingSource,
           ) => {
             if (threadId) _runSendByThread.delete(threadId);
-            await onRunComplete(run, threadId);
+            await onRunComplete(run, threadId, trackingSource);
           },
         });
       }
@@ -6225,43 +6249,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
           }
 
-          const body = await readBody(event);
-          const message = body?.message;
-          if (!message || typeof message !== "string") {
+          const request = chatTitleRequestFromBody(await readBody(event));
+          if (!request) {
             setResponseStatus(event, 400);
             return { error: "message is required" };
           }
           const orgId = await getOrgIdFromEvent(event);
-          // Strip hidden context and mention markup before title generation.
-          // Never let injected prompt context become a visible tab label.
-          const cleanMessage = message
-            .replace(/<context\b[^>]*>[\s\S]*?<\/context>\n?/gi, "")
-            .replace(/<context\b[^>]*>[\s\S]*$/gi, "")
-            .replace(/<\/context>/gi, "")
-            .replace(/@\[([^\]|]+)\|[^\]]*\]/g, "@$1")
-            .trim();
           try {
-            const result = await runWithRequestContext(
+            const title = await runWithRequestContext(
               { userEmail: ownerEmail, orgId },
-              () =>
-                completeText({
-                  appId: options?.appId,
-                  systemPrompt:
-                    "Create a concise chat tab title for the user's request. Return only 3-6 words, with no quotes, punctuation, or explanation.",
-                  input: cleanMessage.slice(0, 500),
-                  maxOutputTokens: 30,
-                  temperature: 0,
-                  timeoutMs: 10_000,
-                }),
+              () => generateChatTitle({ ...request, appId: options?.appId }),
             );
-            const title = result.text
-              .replace(/^["'`]+|["'`]+$/g, "")
-              .replace(/\s+/g, " ")
-              .trim()
-              .slice(0, 80);
             return { title };
-          } catch {
-            return { title: "" };
+          } catch (error) {
+            console.warn(
+              `[agent-chat] title generation failed (engine=${request.engine ?? "default"} model=${request.model ?? "default"}): ${error instanceof Error ? error.message : String(error)}`,
+            );
+            setResponseStatus(event, 502);
+            return { error: "Title generation failed" };
           }
         }),
       );
@@ -6613,7 +6618,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               await import("./credential-provider.js");
 
             return {
-              active: true,
+              active: run.inFlight,
               runId: run.runId,
               threadId: run.threadId,
               turnId: run.turnId,
@@ -6797,8 +6802,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       );
 
       // ─── Thread management endpoints ──────────────────────────────────────
-      // Single handler for /threads and /threads/:id — h3's use() does prefix
-      // matching so we can't reliably split them into separate handlers.
+      // Single handler for /threads and /threads/:id. H3 2 matches mounted
+      // paths exactly, so register both the collection path and its subtree.
       const parseScopeFromQuery = (
         q: Record<string, unknown>,
       ): ChatThreadScope | null => {
@@ -6869,9 +6874,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       };
       const buildShareUrl = (event: H3Event, token: string) =>
         `${getOrigin(event)}${routePath}/shared/${encodeURIComponent(token)}`;
-      getH3App(nitroApp).use(
+      const threadRouteHandler = withTransientDatabaseFallback(
         `${routePath}/threads`,
-        withTransientDatabaseFallback(`${routePath}/threads`, async (event) => {
+        async (event) => {
           const owner = await getOwnerFromEvent(event);
           const orgId = await getOrgIdFromEvent(event);
           const method = getMethod(event);
@@ -7020,7 +7025,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   const incomingScope = parseScopeFromBody(body.scope);
                   await setThreadScope(threadId, owner, incomingScope);
                 }
-                return { ok: true };
+                // The scope the thread really has now (a detach can land
+                // between the read above and this save), so the client records
+                // what the server holds instead of guessing from the page.
+                const saved = await resolveThreadAccess(
+                  owner,
+                  threadId,
+                  "editor",
+                  { orgId },
+                );
+                return { ok: true, scope: saved?.scope ?? null };
               });
             }
 
@@ -7087,10 +7101,27 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   requireAgentChatAiSetup(),
                 );
               }
-              const result = await mutateThreadQueuedMessages(
-                threadId,
-                mutation,
-              );
+              let result: Awaited<
+                ReturnType<typeof mutateThreadQueuedMessages>
+              >;
+              try {
+                result = await mutateThreadQueuedMessages(threadId, mutation);
+              } catch (error) {
+                if (
+                  mutation.type === "claim" &&
+                  error instanceof Error &&
+                  error.message ===
+                    `Unknown queued message: ${mutation.messageId}`
+                ) {
+                  setResponseStatus(event, 409);
+                  return {
+                    error: error.message,
+                    code: "queued_message_missing",
+                    retryable: false,
+                  };
+                }
+                throw error;
+              }
               if (!result) {
                 setResponseStatus(event, 404);
                 return { error: "Thread not found" };
@@ -7417,8 +7448,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
-        }),
+        },
       );
+      const threadRouteApp = getH3App(nitroApp);
+      threadRouteApp.use(`${routePath}/threads`, threadRouteHandler);
+      threadRouteApp.use(`${routePath}/threads/**`, threadRouteHandler);
 
       // Shared per-request invocation: resolve auth/org/timezone context, then
       // pick the dev/prod/anonymous handler and run it inside the request
@@ -7490,7 +7524,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             message:
               error.statusMessage ??
               error.message ??
-              "Connect Builder AI or a provider API key before chatting.",
+              "Use Builder.io or a provider API key before chatting.",
           },
         });
       };
