@@ -344,6 +344,7 @@ describe("open-visual-edit", () => {
       }),
     ).rejects.toThrow(/saved Visual Edit context is unreadable/);
 
+    expect(mocks.connectLocalhostRun).not.toHaveBeenCalled();
     expect(mocks.createDesignRun).not.toHaveBeenCalled();
   });
 

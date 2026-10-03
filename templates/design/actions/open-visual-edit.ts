@@ -676,6 +676,26 @@ export default defineAction({
               }) ?? [],
             generatedAt: new Date().toISOString(),
           };
+      const activeVisualEdit =
+        !args.designId && !args.newDesign
+          ? await readAppState("visual-edit")
+          : null;
+      let savedVisualEdit:
+        | z.infer<typeof activeVisualEditStateSchema>
+        | undefined;
+      if (activeVisualEdit) {
+        const parsed = activeVisualEditStateSchema.safeParse(activeVisualEdit);
+        if (!parsed.success) {
+          fail(
+            "The saved Visual Edit context is unreadable. Inspect it or explicitly start a new project.",
+            {
+              errorCode: "visual_edit_context_invalid",
+              statusCode: 500,
+            },
+          );
+        }
+        savedVisualEdit = parsed.data;
+      }
       const connection = await connectLocalhostAction.run({
         id: args.connectionId,
         name: args.name,
@@ -690,24 +710,8 @@ export default defineAction({
       });
 
       let designId = args.designId;
-      if (!designId && !args.newDesign) {
-        const activeVisualEdit = await readAppState("visual-edit");
-        if (activeVisualEdit) {
-          const parsed =
-            activeVisualEditStateSchema.safeParse(activeVisualEdit);
-          if (!parsed.success) {
-            fail(
-              "The saved Visual Edit context is unreadable. Inspect it or explicitly start a new project.",
-              {
-                errorCode: "visual_edit_context_invalid",
-                statusCode: 500,
-              },
-            );
-          }
-          if (parsed.data.connectionId === connection.id) {
-            designId = parsed.data.designId;
-          }
-        }
+      if (savedVisualEdit?.connectionId === connection.id) {
+        designId = savedVisualEdit.designId;
       }
       let createdDesign = false;
       let publicReadOnly = false;
