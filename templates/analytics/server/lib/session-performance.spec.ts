@@ -30,6 +30,7 @@ import {
   aggregatePerformanceRows,
   getSessionPerformanceSummaries,
   listRoutePerformance,
+  prunePerformanceAggregates,
   recordRoutePerformance,
   recordSessionPerformance,
   slowSessionConditions,
@@ -316,6 +317,35 @@ describe("performance aggregates on Postgres", () => {
     // Nothing measured INP here: that is no data, not a fast route.
     expect(route.inp).toBeNull();
     expect(route.ttfb).toBeNull();
+  });
+
+  it("keeps each gap marker as long as the aggregate it describes", async () => {
+    const now = new Date(`${DAY}T12:00:00.000Z`);
+    const daysAgo = (days: number) =>
+      new Date(now.getTime() - days * 86_400_000).toISOString().slice(0, 10);
+    for (const [id, days, sessionId] of [
+      ["session-recent", 10, "s-recent"],
+      ["session-old", 100, "s-old"],
+      ["route-old", 100, ""],
+      ["route-expired", 200, ""],
+    ] as const) {
+      await client.query(
+        `INSERT INTO analytics_performance_gaps (id, tenant_key, owner_email, org_id, event_date, session_id, recorded_at)
+         VALUES ($1, 'tenant', $2, $3, $4, $5, $6)`,
+        [id, OWNER, ORG, daysAgo(days), sessionId, now.toISOString()],
+      );
+    }
+
+    await prunePerformanceAggregates(30, now);
+
+    const kept = await client.query(
+      "SELECT id FROM analytics_performance_gaps ORDER BY id",
+    );
+    // Sessions last as long as their replays; route days last 180 days.
+    expect(kept.rows.map((row: { id: string }) => row.id)).toEqual([
+      "route-old",
+      "session-recent",
+    ]);
   });
 
   it("lists every app in range, even one whose routes rank below the limit", async () => {

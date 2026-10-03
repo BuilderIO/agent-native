@@ -7,7 +7,10 @@ import {
 } from "@agent-native/core/server";
 
 import { SESSION_REPLAY_ANALYTICS_EVENT_TAG } from "../../shared/session-events.js";
-import { SESSION_REPLAY_VITALS_EVENT_TAG } from "../../shared/session-performance.js";
+import {
+  SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG,
+  SESSION_REPLAY_VITALS_EVENT_TAG,
+} from "../../shared/session-performance.js";
 import {
   SESSION_REPLAY_AGENT_ACCESS_PARAM,
   SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX,
@@ -467,6 +470,12 @@ function capReplayTimelineMarkers(
   return [...kept].sort((a, b) => a.offsetMs - b.offsetMs);
 }
 
+const SESSIONS_TRIAGE_MARKER_TAGS = new Set<string>([
+  SESSION_REPLAY_ANALYTICS_EVENT_TAG,
+  SESSION_REPLAY_VITALS_EVENT_TAG,
+  SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG,
+]);
+
 function buildReplayTimeline(events: AgentReplayEvent[]) {
   const startedAt = replayStartedAt(events);
   const markers: ReplayTimelineMarker[] = [];
@@ -568,11 +577,10 @@ function buildReplayTimeline(events: AgentReplayEvent[]) {
       });
     } else if (
       event.type === RRWEB_EVENT_TYPE.Custom &&
-      // App event and Web Vitals markers belong to the Sessions triage Lab;
-      // agent timelines keep their existing shape until that Lab covers agent
-      // surfaces.
-      event.data?.tag !== SESSION_REPLAY_ANALYTICS_EVENT_TAG &&
-      event.data?.tag !== SESSION_REPLAY_VITALS_EVENT_TAG
+      // App event, Web Vitals and slow-request markers belong to the Sessions
+      // triage Lab; agent timelines keep their existing shape until that Lab
+      // covers agent surfaces.
+      !SESSIONS_TRIAGE_MARKER_TAGS.has(String(event.data?.tag))
     ) {
       markers.push({
         timestamp,

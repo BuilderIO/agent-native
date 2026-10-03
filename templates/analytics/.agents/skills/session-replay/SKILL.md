@@ -292,7 +292,9 @@ agent answers about browser recordings in the Analytics template.
   and truncated flags. Agent-context instructions steer agents to diagnostics
   as the primary debugging signal.
 - The agent timeline includes `console-error` / `network-error` markers; error
-  markers are kept preferentially under the 200-marker cap.
+  markers are kept preferentially under the 200-marker cap. App event, Web
+  Vitals and slow-request markers belong to the Sessions triage Lab and stay
+  off it (`SESSIONS_TRIAGE_MARKER_TAGS`); add any new Lab marker tag there.
 - `apis.diagnostics` advertises the fuller bounded list:
   `GET /api/session-replay/agent-diagnostics.json?id=<recordingId>&agent_access=<token>&kind=console|network|all&level=<level>&limit=<n>&offset=<n>&fromMs=<n>&toMs=<n>`
   (limit defaults to 200, max 500). It uses the same recording-scoped
