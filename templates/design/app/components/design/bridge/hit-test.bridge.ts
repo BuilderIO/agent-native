@@ -544,7 +544,6 @@
       ) {
         continue;
       }
-      var childRect = child.getBoundingClientRect();
       var childColumnRange = hitTestGridItemRange(
         childStyles,
         "column",
@@ -552,22 +551,8 @@
       );
       var childRowRange = hitTestGridItemRange(childStyles, "row", rows.length);
       if (!childColumnRange || !childRowRange) {
-        var hasUnresolvedPlacement =
-          (childStyles.gridColumnStart !== "auto" && !childColumnRange) ||
-          (childStyles.gridColumnEnd !== "auto" && !childColumnRange) ||
-          (childStyles.gridRowStart !== "auto" && !childRowRange) ||
-          (childStyles.gridRowEnd !== "auto" && !childRowRange);
-        if (hasUnresolvedPlacement) return null;
-        if (childRect.width <= 0 || childRect.height <= 0) return null;
-        if (
-          childRect.left < cell.left + cell.width &&
-          childRect.right > cell.left && // i18n-ignore non-user-facing pointer geometry condition
-          childRect.top < cell.top + cell.height &&
-          childRect.bottom > cell.top
-        ) {
-          return null;
-        }
-        continue;
+        // Auto-placement can occupy a track even when paint bounds are elsewhere.
+        return null;
       }
       if (
         column < childColumnRange.end - 1 &&

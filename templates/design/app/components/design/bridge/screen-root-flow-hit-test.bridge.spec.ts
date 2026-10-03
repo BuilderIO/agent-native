@@ -788,6 +788,121 @@ describe("grid hit-test placement", () => {
     }
   });
 
+  it("declines an auto-placed cell when a transformed child's painted bounds hide its grid area", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 240, height: 120 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="grid" data-agent-native-node-id="grid" style="position:absolute;left:20px;top:20px;box-sizing:border-box;width:160px;height:80px;display:grid;grid-template-columns:80px 80px;grid-template-rows:80px">
+          <div data-agent-native-node-id="occupied" style="grid-column:1;grid-row:1;width:80px;height:80px"></div>
+          <div data-agent-native-node-id="auto-displaced" style="width:20px;height:20px;justify-self:start;align-self:start;transform:translateX(-100px)"></div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+      });
+      const fixture = await page.evaluate(() => {
+        const grid = document.querySelector<HTMLElement>("#grid")!;
+        const child = document.querySelector<HTMLElement>(
+          '[data-agent-native-node-id="auto-displaced"]',
+        )!;
+        const rect = child.getBoundingClientRect();
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "transformed-auto-placement",
+            x: 120,
+            y: 30,
+          },
+          "*",
+        );
+        return {
+          columns: getComputedStyle(grid).gridTemplateColumns,
+          start: getComputedStyle(child).gridColumnStart,
+          end: getComputedStyle(child).gridColumnEnd,
+          paintedLeft: rect.left,
+          paintedRight: rect.right,
+        };
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults?.length === 1,
+      );
+      const packet = await page.evaluate(
+        () => (window as any).__hitTestResults[0],
+      );
+
+      expect(fixture.columns).toBe("80px 80px");
+      expect(fixture.start).toBe("auto");
+      expect(fixture.end).toBe("auto");
+      expect(fixture.paintedRight).toBeLessThanOrEqual(20);
+      expect(packet.gridPlacement).toBeUndefined();
+      expect(packet.guideRect).toBeUndefined();
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("keeps targeting empty cells when sibling placements are explicit", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 240, height: 120 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="grid" data-agent-native-node-id="grid" style="position:absolute;left:20px;top:20px;box-sizing:border-box;width:160px;height:80px;display:grid;grid-template-columns:80px 80px;grid-template-rows:80px">
+          <div data-agent-native-node-id="occupied" style="grid-column:1;grid-row:1;width:80px;height:80px"></div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "explicit-placement-control",
+            x: 120,
+            y: 30,
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+      const packet = await page.evaluate(
+        () => (window as any).__hitTestResults[0],
+      );
+
+      expect(packet.gridPlacement).toEqual({
+        column: 2,
+        columnEnd: 3,
+        row: 1,
+        rowEnd: 2,
+      });
+      expect(packet.guideRect).toEqual({
+        left: 100,
+        top: 20,
+        width: 80,
+        height: 80,
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("declines precise targeting for underfilled auto-placed spans", async () => {
     const browser = await chromium.launch({ headless: true });
     try {

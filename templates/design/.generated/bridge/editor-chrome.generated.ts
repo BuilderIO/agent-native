@@ -13213,16 +13213,37 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return ev.timeStamp >= 1e12 ? ev.timeStamp : eventPerformance.timeOrigin + ev.timeStamp;
     }
+    function gridItemAxisSpanForSource(el, layout, axis) {
+      var styles = window.getComputedStyle(el);
+      var startValue = axis === "column" ? styles.gridColumnStart : styles.gridRowStart;
+      var endValue = axis === "column" ? styles.gridColumnEnd : styles.gridRowEnd;
+      var authoredSpan = endValue.trim().match(/^span\\s+(\\d+)$/) || startValue.trim().match(/^span\\s+(\\d+)$/);
+      if (authoredSpan) return Math.max(1, Number(authoredSpan[1]));
+      var start = gridLinePosition(startValue, layout, axis);
+      var end = gridLinePosition(endValue, layout, axis);
+      if (start !== null && end !== null) {
+        return Math.max(1, Math.abs(end - start));
+      }
+      var startIsAuto = startValue.trim() === "auto" || startValue.trim() === "";
+      var endIsAuto = endValue.trim() === "auto" || endValue.trim() === "";
+      if (startIsAuto && endIsAuto || start !== null && endIsAuto) return 1;
+      if (startIsAuto && end !== null) return 1;
+      return null;
+    }
     function crossScreenGridSpanForElement(el) {
-      var parent = el?.parentElement;
-      if (!el || !parent) return void 0;
+      if (!el) return void 0;
+      var parent = el.parentElement;
+      while (parent && window.getComputedStyle(parent).display === "contents") {
+        parent = parent.parentElement;
+      }
+      if (!parent) return void 0;
       var display = window.getComputedStyle(parent).display;
       if (display !== "grid" && display !== "inline-grid") return void 0;
       var layout = gridTrackLayoutForElement(parent);
-      return {
-        columns: gridItemAxisPlacement(el, layout, "column").span,
-        rows: gridItemAxisPlacement(el, layout, "row").span
-      };
+      var columns = gridItemAxisSpanForSource(el, layout, "column");
+      var rows = gridItemAxisSpanForSource(el, layout, "row");
+      if (columns === null || rows === null) return void 0;
+      return { columns, rows };
     }
     function postCrossScreenDrag(phase, el, ev, options) {
       dndLog("post:cross-screen", { phase, el: getSelector(el ?? null) });

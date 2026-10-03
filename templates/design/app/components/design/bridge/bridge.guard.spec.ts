@@ -9,7 +9,7 @@ import {
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { chromium } from "@playwright/test";
+import { chromium, type Page } from "@playwright/test";
 import { build } from "esbuild";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
@@ -63,6 +63,113 @@ function compileBridgeFunction<T extends (...args: any[]) => any>(
     `${ts.transpile(source.slice(start, end), { target: ts.ScriptTarget.ES2020 })}; return ${name};`,
   )(...Object.values(globals)) as T;
 }
+
+describe("cross-screen grid source span resolution", () => {
+  it("does not fabricate a one-track span when source geometry is unavailable", () => {
+    const sourceGrid = {};
+    const source = { parentElement: sourceGrid };
+    const getSourceGridSpan = compileBridgeFunction<
+      (element: Element | null) => { columns: number; rows: number } | undefined
+    >("crossScreenGridSpanForElement", "postCrossScreenDrag", {
+      window: { getComputedStyle: () => ({ display: "grid" }) },
+      gridTrackLayoutForElement: () => null,
+      gridItemAxisPlacement: () => ({ span: 1 }),
+      gridItemAxisSpanForSource: () => null,
+    });
+
+    expect(getSourceGridSpan(source as unknown as Element)).toBeUndefined();
+  });
+
+  it.each([
+    { start: "start", end: "end", expected: null },
+    { start: "-4", end: "-2", expected: null },
+    { start: "2", end: "4", expected: 2 },
+    { start: "span 3", end: "auto", expected: 3 },
+    { start: "auto", end: "auto", expected: 1 },
+  ])(
+    "resolves source spans from authored axis placement ($start / $end)",
+    ({ start, end, expected }) => {
+      const element = {};
+      const stylesByElement = new Map([
+        [
+          element,
+          {
+            gridColumnStart: start,
+            gridColumnEnd: end,
+            gridRowStart: "auto",
+            gridRowEnd: "auto",
+          },
+        ],
+      ]);
+      const getSourceAxisSpan = compileBridgeFunction<
+        (
+          element: Element,
+          layout: null,
+          axis: "column" | "row",
+        ) => number | null
+      >("gridItemAxisSpanForSource", "crossScreenGridSpanForElement", {
+        window: {
+          getComputedStyle: (node: object) => stylesByElement.get(node),
+        },
+        gridLinePosition: (value: string) => {
+          const numeric = value.trim().match(/^(\d+)$/);
+          return numeric ? Number(numeric[1]) : null;
+        },
+      });
+
+      expect(getSourceAxisSpan(element as Element, null, "column")).toBe(
+        expected,
+      );
+    },
+  );
+
+  it("walks through display:contents ancestors to the grid formatting parent", () => {
+    const grid = {};
+    const flattened = { parentElement: grid };
+    const source = { parentElement: flattened };
+    const layout = {};
+    const displayFor = new Map([
+      [grid, "grid"],
+      [flattened, "contents"],
+    ]);
+    const gridTrackLayoutForElement = vi.fn((element: unknown) =>
+      element === grid ? layout : null,
+    );
+    const gridItemAxisSpanForSource = vi.fn(
+      (_element: unknown, _layout: unknown, axis: "column" | "row") =>
+        axis === "column" ? 2 : 3,
+    );
+    const getSourceGridSpan = compileBridgeFunction<
+      (element: Element | null) => { columns: number; rows: number } | undefined
+    >("crossScreenGridSpanForElement", "postCrossScreenDrag", {
+      window: {
+        getComputedStyle: (element: object) => ({
+          display: displayFor.get(element),
+        }),
+      },
+      gridTrackLayoutForElement,
+      gridItemAxisPlacement: () => ({ span: 1 }),
+      gridItemAxisSpanForSource,
+    });
+
+    expect(getSourceGridSpan(source as unknown as Element)).toEqual({
+      columns: 2,
+      rows: 3,
+    });
+    expect(gridTrackLayoutForElement).toHaveBeenCalledWith(grid);
+    expect(gridItemAxisSpanForSource).toHaveBeenCalledTimes(2);
+    expect(gridItemAxisSpanForSource).toHaveBeenCalledWith(
+      source,
+      layout,
+      "column",
+    );
+    expect(gridItemAxisSpanForSource).toHaveBeenCalledWith(
+      source,
+      layout,
+      "row",
+    );
+  });
+});
 
 describe("source vector stroke overlay reconciliation", () => {
   type FakeNode = {
@@ -269,6 +376,44 @@ function hydratedEditorChromeBridgeScriptWithLiveReflow(
     "__LIVE_REFLOW_ENABLED__",
     "true",
   );
+}
+
+async function crossScreenDragStartFor(
+  page: Page,
+  selector: string,
+): Promise<Record<string, unknown> | undefined> {
+  await page.evaluate(() => {
+    window.__bridgeMessages = [];
+    window.postMessage = ((message: unknown) => {
+      window.__bridgeMessages?.push(
+        message as { type?: string; phase?: string },
+      );
+    }) as typeof window.postMessage;
+  });
+  const sourceBox = await page.locator(selector).boundingBox();
+  expect(sourceBox).not.toBeNull();
+  await page.mouse.move(
+    sourceBox!.x + sourceBox!.width / 2,
+    sourceBox!.y + sourceBox!.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    sourceBox!.x + sourceBox!.width / 2 + 40,
+    sourceBox!.y + sourceBox!.height / 2 + 40,
+    { steps: 4 },
+  );
+  const start = await page.evaluate(() => {
+    const starts = (window.__bridgeMessages ?? []).filter(
+      (message) =>
+        message.type === "agent-native:cross-screen-drag" &&
+        message.phase === "start",
+    );
+    return starts[starts.length - 1] as unknown as
+      | Record<string, unknown>
+      | undefined;
+  });
+  await page.mouse.up();
+  return start;
 }
 
 function hydratedBoardEditorChromeBridgeScriptWithOffset(
@@ -14672,6 +14817,102 @@ it(
         rows: 1,
       });
       await page.mouse.up();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it.each([
+  {
+    kind: "named",
+    columns: "[start] 80px [middle] 80px [end]",
+    placement: "start / end",
+  },
+  {
+    kind: "negative",
+    columns: "repeat(4, 80px)",
+    placement: "-4 / -2",
+  },
+])(
+  "omits unresolved $kind source grid lines when track geometry is unavailable",
+  { timeout: 30_000 },
+  async ({ columns, placement }) => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #grid { position: absolute; left: 100px; top: 100px; width: 320px; height: 80px; display: grid; grid-template-columns: ${columns}; grid-template-rows: 80px; transform: rotate(2deg); transform-origin: top left; }
+      #target { grid-column: ${placement}; grid-row: 1; justify-self: start; align-self: start; width: 160px; height: 40px; background: #6366f1; }
+    </style>
+  </head>
+  <body>
+    <div id="grid"><div id="target" data-agent-native-node-id="target">Target</div></div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      expect(
+        await page
+          .locator("#grid")
+          .evaluate((grid) => getComputedStyle(grid).transform),
+      ).not.toBe("none");
+
+      const start = await crossScreenDragStartFor(page, "#target");
+
+      expect(start).toBeDefined();
+      expect(start?.sourceGridSpan).toBeUndefined();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "captures authored source grid spans through display:contents wrappers",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #grid { position: absolute; left: 100px; top: 100px; width: 320px; height: 160px; display: grid; grid-template-columns: repeat(4, 80px); grid-template-rows: repeat(2, 80px); }
+      #flattened { display: contents; }
+      #target { grid-column: 2 / 4; grid-row: 1 / 3; justify-self: start; align-self: start; width: 160px; height: 160px; background: #6366f1; }
+    </style>
+  </head>
+  <body>
+    <div id="grid"><div id="flattened"><div id="target" data-agent-native-node-id="target">Target</div></div></div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      const start = await crossScreenDragStartFor(page, "#target");
+
+      expect(start).toBeDefined();
+      expect(start?.sourceGridSpan).toEqual({
+        columns: 2,
+        rows: 2,
+      });
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

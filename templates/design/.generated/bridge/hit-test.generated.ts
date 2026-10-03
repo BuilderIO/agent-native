@@ -361,7 +361,6 @@ export const hitTestBridgeScript: string = `"use strict";
         if (childStyles.display === "none" || childStyles.position === "absolute" || childStyles.position === "fixed") {
           continue;
         }
-        var childRect = child.getBoundingClientRect();
         var childColumnRange = hitTestGridItemRange(
           childStyles,
           "column",
@@ -369,14 +368,7 @@ export const hitTestBridgeScript: string = `"use strict";
         );
         var childRowRange = hitTestGridItemRange(childStyles, "row", rows.length);
         if (!childColumnRange || !childRowRange) {
-          var hasUnresolvedPlacement = childStyles.gridColumnStart !== "auto" && !childColumnRange || childStyles.gridColumnEnd !== "auto" && !childColumnRange || childStyles.gridRowStart !== "auto" && !childRowRange || childStyles.gridRowEnd !== "auto" && !childRowRange;
-          if (hasUnresolvedPlacement) return null;
-          if (childRect.width <= 0 || childRect.height <= 0) return null;
-          if (childRect.left < cell.left + cell.width && childRect.right > cell.left && // i18n-ignore non-user-facing pointer geometry condition
-          childRect.top < cell.top + cell.height && childRect.bottom > cell.top) {
-            return null;
-          }
-          continue;
+          return null;
         }
         if (column < childColumnRange.end - 1 && column + columnSpan > childColumnRange.start - 1 && // i18n-ignore non-user-facing grid occupancy math
         row < childRowRange.end - 1 && row + rowSpan > childRowRange.start - 1) {

@@ -16660,16 +16660,45 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       : eventPerformance.timeOrigin + ev.timeStamp;
   }
 
+  function gridItemAxisSpanForSource(
+    el: Element,
+    layout: ReturnType<typeof gridTrackLayoutForElement>,
+    axis: "column" | "row",
+  ): number | null {
+    var styles = window.getComputedStyle(el);
+    var startValue =
+      axis === "column" ? styles.gridColumnStart : styles.gridRowStart;
+    var endValue = axis === "column" ? styles.gridColumnEnd : styles.gridRowEnd;
+    var authoredSpan =
+      endValue.trim().match(/^span\s+(\d+)$/) ||
+      startValue.trim().match(/^span\s+(\d+)$/);
+    if (authoredSpan) return Math.max(1, Number(authoredSpan[1]));
+    var start = gridLinePosition(startValue, layout, axis);
+    var end = gridLinePosition(endValue, layout, axis);
+    if (start !== null && end !== null) {
+      return Math.max(1, Math.abs(end - start));
+    }
+    var startIsAuto = startValue.trim() === "auto" || startValue.trim() === "";
+    var endIsAuto = endValue.trim() === "auto" || endValue.trim() === "";
+    if ((startIsAuto && endIsAuto) || (start !== null && endIsAuto)) return 1;
+    if (startIsAuto && end !== null) return 1;
+    return null;
+  }
+
   function crossScreenGridSpanForElement(el: Element | null) {
-    var parent = el?.parentElement;
-    if (!el || !parent) return undefined;
+    if (!el) return undefined;
+    var parent = el.parentElement;
+    while (parent && window.getComputedStyle(parent).display === "contents") {
+      parent = parent.parentElement;
+    }
+    if (!parent) return undefined;
     var display = window.getComputedStyle(parent).display;
     if (display !== "grid" && display !== "inline-grid") return undefined;
     var layout = gridTrackLayoutForElement(parent);
-    return {
-      columns: gridItemAxisPlacement(el, layout, "column").span,
-      rows: gridItemAxisPlacement(el, layout, "row").span,
-    };
+    var columns = gridItemAxisSpanForSource(el, layout, "column");
+    var rows = gridItemAxisSpanForSource(el, layout, "row");
+    if (columns === null || rows === null) return undefined;
+    return { columns: columns, rows: rows };
   }
 
   function postCrossScreenDrag(
