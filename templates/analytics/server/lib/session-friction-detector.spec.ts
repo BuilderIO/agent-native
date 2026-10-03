@@ -163,6 +163,56 @@ describe("detectReplayFriction", () => {
     expect(delta.retryLoops).toBe(1);
   });
 
+  it("ignores requests the page aborted, and still counts network failures", () => {
+    const aborted = detectReplayFriction(
+      [
+        network(1_000, {
+          url: "/api/models",
+          status: 0,
+          error: "signal is aborted without reason",
+        }),
+        network(2_000, {
+          url: "/api/models",
+          status: 0,
+          error: "The user aborted a request.",
+        }),
+        network(3_000, {
+          api: "xhr",
+          url: "/api/models",
+          status: 0,
+          error: "XMLHttpRequest aborted",
+        }),
+      ],
+      null,
+    );
+    expect(aborted.delta.retryLoops).toBe(0);
+    expect(aborted.errorThenLeave).toBe(false);
+
+    const failed = detectReplayFriction(
+      [
+        network(1_000, {
+          url: "/api/models",
+          status: 0,
+          error: "Failed to fetch",
+        }),
+        network(2_000, {
+          url: "/api/models",
+          status: 0,
+          error: "Failed to fetch",
+        }),
+        network(3_000, {
+          api: "xhr",
+          url: "/api/models",
+          status: 0,
+          error: "XMLHttpRequest failed",
+        }),
+      ],
+      null,
+    );
+    expect(failed.delta.retryLoops).toBe(1);
+    expect(failed.errorThenLeave).toBe(true);
+  });
+
   it("does not call failures a retry loop once a success breaks them up", () => {
     const { delta } = detectReplayFriction(
       [

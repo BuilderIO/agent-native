@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+import { isBenignAbort } from "@agent-native/core/shared/error-noise";
+
 import {
   SESSION_REPLAY_CONSOLE_EVENT_TAG,
   SESSION_REPLAY_NETWORK_EVENT_TAG,
@@ -36,6 +38,8 @@ export const RETRY_LOOP_MIN_FAILURES = 3;
 export const RETRY_LOOP_WINDOW_MS = 60_000;
 /** An error this close to the recording's last event reads as leaving. */
 export const ERROR_THEN_LEAVE_WINDOW_MS = 30_000;
+/** The recorder's message for `xhr.abort()`, which `isBenignAbort` does not know. */
+const XHR_ABORTED = "XMLHttpRequest aborted";
 const MAX_TRACKED_REQUEST_KEYS = 50;
 const MAX_TRACKED_TOAST_IDS = 50;
 
@@ -74,6 +78,11 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function isAbortedRequest(error: unknown): boolean {
+  if (typeof error !== "string") return false;
+  return error === XHR_ABORTED || isBenignAbort("", error);
 }
 
 function finiteNumber(value: unknown): number | null {
@@ -284,6 +293,8 @@ export function detectReplayFriction(
     if (status === null) continue;
     if (status >= 400 && status < 500) delta.http4xx += 1;
     if (status >= 500) delta.http5xx += 1;
+    // Status 0 is also a real network failure, which still counts.
+    if (status === 0 && isAbortedRequest(payload.error)) continue;
     if (status === 0 || status >= 500) state.lastErrorAt = at;
 
     const key = requestKey(payload.method, payload.url);
