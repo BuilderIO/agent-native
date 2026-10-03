@@ -248,8 +248,11 @@ agent answers about browser recordings in the Analytics template.
   aggregates. A summary's `slowRequests` is null when the session made no
   measured request. Bucket edges are positional, so changing them needs a new
   `PERFORMANCE_HISTOGRAM_VERSION`.
-- Percentiles interpolate inside one bucket, so they are within about 28% of
-  the exact value; a value in the open top bucket is reported as `atLeast`.
+- Percentiles interpolate inside one bucket. Past the first bucket each edge
+  is at most 28% above the last, so they are within about 28% of the exact
+  value; in the first bucket, within 1 ms (CLS 0.001). Keep that step when
+  adding edges, and keep every rating threshold an edge. A value in the open
+  top bucket is reported as `atLeast`.
   A metric with no samples is null: no data, never fast. Before the migration
   creates `analytics_performance_coverage`, ingest stores events without these
   aggregates and warns, the slow filter matches nothing, and reads report no
