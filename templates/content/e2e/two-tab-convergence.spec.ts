@@ -335,29 +335,31 @@ test.describe("two tabs editing one page at beta cadence", () => {
     },
   );
 
-  test("simultaneous edits in different paragraphs keep both tabs' text", async ({
-    context,
-  }, testInfo) => {
-    await runScenario("simultaneous", testInfo, context, async (s) => {
-      const { first, second } = await openPair(s);
-      await s.tabs.showAll();
-      for (let cycle = 1; cycle <= 4; cycle++) {
-        await Promise.all([
-          typeAtParagraphEnd(
-            first,
-            "Alpha paragraph",
-            ` ${s.markers.next("A")}`,
-          ),
-          typeAtParagraphEnd(
-            second,
-            "Charlie paragraph",
-            ` ${s.markers.next("B")}`,
-          ),
-        ]);
-        await first.waitForTimeout(400);
-      }
-    });
-  });
+  test(
+    "simultaneous edits in different paragraphs keep both tabs' text",
+    KNOWN_LOSS,
+    async ({ context }, testInfo) => {
+      await runScenario("simultaneous", testInfo, context, async (s) => {
+        const { first, second } = await openPair(s);
+        await s.tabs.showAll();
+        for (let cycle = 1; cycle <= 4; cycle++) {
+          await Promise.all([
+            typeAtParagraphEnd(
+              first,
+              "Alpha paragraph",
+              ` ${s.markers.next("A")}`,
+            ),
+            typeAtParagraphEnd(
+              second,
+              "Charlie paragraph",
+              ` ${s.markers.next("B")}`,
+            ),
+          ]);
+          await first.waitForTimeout(400);
+        }
+      });
+    },
+  );
 
   test("typing across the 500 ms autosave pause keeps every word", async ({
     context,
