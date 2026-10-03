@@ -285,6 +285,7 @@ export class TabSet {
   readonly detached = emptyTab("detached");
   private readonly pending: Promise<void>[] = [];
   private readonly sentAt = new WeakMap<Request, number>();
+  private savesInFlight = 0;
 
   private constructor(readonly context: BrowserContext) {}
 
@@ -375,6 +376,21 @@ export class TabSet {
     await Promise.all(this.pending);
   }
 
+  /**
+   * Wait until no tab has a save on the wire. Reloading or closing a tab cuts
+   * off its save in flight, which is a race of its own; without this wait the
+   * refresh check races whichever save the tab sent last.
+   */
+  async quiet(): Promise<void> {
+    await expect
+      .poll(() => this.savesInFlight, {
+        message: "saves still in flight after the scenario ended",
+        timeout: CONVERGENCE_DEADLINE_MS,
+      })
+      .toBe(0);
+    await this.settled();
+  }
+
   private observe(page: Page, kind: string, detail: string) {
     const record = this.tabs.get(page);
     if (!record) return;
@@ -390,6 +406,7 @@ export class TabSet {
     const record = (page && this.tabs.get(page)) || this.detached;
     if (url.pathname === SAVE_PATH && request.method() === "POST") {
       record.saveRequests++;
+      this.savesInFlight++;
       this.sentAt.set(request, Date.now());
     }
     // The collaboration poll is the only poll request without a cursor.
@@ -413,6 +430,7 @@ export class TabSet {
       return;
     }
     if (pathname !== SAVE_PATH || request.method() !== "POST") return;
+    this.savesInFlight--;
     const sentAt = this.sentAt.get(request);
     if (sentAt !== undefined) record.saveDurationsMs.push(Date.now() - sentAt);
     this.pending.push(
@@ -429,6 +447,7 @@ export class TabSet {
       request.method() !== "POST"
     )
       return;
+    this.savesInFlight--;
     const page = pageOf(request);
     const record = (page && this.tabs.get(page)) || this.detached;
     record.saveOutcomes.aborted = (record.saveOutcomes.aborted ?? 0) + 1;
@@ -866,12 +885,14 @@ export async function observeIntegrity(
   await tabs.settled();
   await settle("deadline", open);
 
+  await tabs.quiet();
   for (const page of open) {
     await page.reload({ waitUntil: "domcontentloaded" });
     await expectEditorReady(page);
   }
   await settle("refresh", open);
 
+  await tabs.quiet();
   for (const page of open) await page.close();
   const alone = await tabs.open("alone", id);
   await settle("reopened-alone", [alone]);
