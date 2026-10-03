@@ -1872,13 +1872,18 @@ describe("AgentKitAssistantChat host behavior", () => {
   });
 
   it("shows a model catalog retry instead of missing-provider setup", async () => {
+    const onRetryModelList = vi.fn();
     chatMocks.readiness = {
       canChat: false,
       missing: true,
       state: "missing",
     };
     await mount(
-      baseProps({ providerStatusChecksEnabled: true, modelListError: true }),
+      baseProps({
+        providerStatusChecksEnabled: true,
+        modelListError: true,
+        onRetryModelList,
+      }),
     );
 
     expect(chatMocks.setupCardProps).toBeNull();
@@ -1892,11 +1897,10 @@ describe("AgentKitAssistantChat host behavior", () => {
 
     const dispatchEvent = vi.spyOn(window, "dispatchEvent");
     await act(async () => container.querySelector("button")?.click());
-    expect(
-      dispatchEvent.mock.calls.some(
-        ([event]) => event.type === "agent-engine:configured-changed",
-      ),
-    ).toBe(true);
+    expect(onRetryModelList).toHaveBeenCalledOnce();
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-engine:configured-changed" }),
+    );
     dispatchEvent.mockRestore();
   });
 

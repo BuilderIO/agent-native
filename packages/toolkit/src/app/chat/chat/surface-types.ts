@@ -316,6 +316,8 @@ export interface AssistantChatProps {
   modelListLoading?: boolean;
   /** Whether the model list failed to load. */
   modelListError?: boolean;
+  /** Retry loading a host-managed model list. */
+  onRetryModelList?: () => void;
   /** Callback when user picks a model from the picker */
   onModelChange?: (model: string, engine: string) => void;
   /** Callback when user picks an effort from the picker */

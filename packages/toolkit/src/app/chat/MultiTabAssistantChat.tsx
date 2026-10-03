@@ -902,6 +902,7 @@ export function MultiTabAssistantChat({
   availableModels: hostAvailableModels,
   modelListLoading: hostModelListLoading,
   modelListError: hostModelListError,
+  onRetryModelList: hostOnRetryModelList,
   onModelChange: hostOnModelChange,
   ...props
 }: MultiTabAssistantChatProps) {
@@ -3263,6 +3264,9 @@ export function MultiTabAssistantChat({
                   availableModels={availableModels}
                   modelListLoading={modelListLoading}
                   modelListError={modelListError}
+                  onRetryModelList={
+                    hostManagedModels ? hostOnRetryModelList : refreshEngines
+                  }
                   onModelChange={handleModelChangeWithHost}
                   onEffortChange={handleEffortChange}
                   onForkChat={() => handleForkChat(tabId)}

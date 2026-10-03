@@ -479,13 +479,15 @@ export function GuidedQuestionProviderGate({
             : "agentChat.setup.providerStatusUnavailable",
         )}
       </span>
-      <button
-        type="button"
-        className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={onRetry}
-      >
-        {t("agentChat.common.retry")}
-      </button>
+      {onRetry ? (
+        <button
+          type="button"
+          className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={onRetry}
+        >
+          {t("agentChat.common.retry")}
+        </button>
+      ) : null}
     </div>
   );
 }
