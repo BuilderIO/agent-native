@@ -481,8 +481,11 @@ export function installInPageHelpers(chromeSelector: string) {
           }
           visit(stylesheet.cssRules);
         }
-      } catch {
-        return null;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "SecurityError") {
+          return null;
+        }
+        throw error;
       }
       return [...names].sort();
     };
@@ -1095,6 +1098,11 @@ export function installInPageHelpers(chromeSelector: string) {
       const style = getComputedStyle(marker);
       const width = Number.parseFloat(style.width);
       const height = Number.parseFloat(style.height);
+      const background = style.backgroundColor;
+      const alpha = background.match(/[,/]\s*([\d.]+)%?\s*\)$/)?.[1];
+      const hasVisibleBackground =
+        background !== "transparent" &&
+        (alpha === undefined || Number(alpha) !== 0);
       return (
         !text &&
         width > 0 &&
@@ -1103,8 +1111,7 @@ export function installInPageHelpers(chromeSelector: string) {
         height <= 48 &&
         (Number.parseFloat(style.borderTopWidth) > 0 ||
           Number.parseFloat(style.borderLeftWidth) > 0 ||
-          (style.backgroundColor !== "transparent" &&
-            style.backgroundColor !== "rgba(0, 0, 0, 0)") ||
+          hasVisibleBackground ||
           Number.parseFloat(style.borderRadius) > 0)
       );
     };

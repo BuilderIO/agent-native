@@ -3577,6 +3577,105 @@ export async function runAuthoringFuzz(
 
     const finalHtml = await editor.innerHTML();
     const finalSlideHtml = await slideContent.innerHTML();
+    const readHistoryState = () =>
+      page.evaluate((selector: string) => {
+        const root = document.querySelector(selector);
+        const selection = window.getSelection();
+        return {
+          html: root instanceof HTMLElement ? root.innerHTML : null,
+          inside:
+            root instanceof HTMLElement &&
+            !!selection?.rangeCount &&
+            root.contains(selection.anchorNode) &&
+            root.contains(selection.focusNode),
+        };
+      }, editorSelector);
+    // Keep one real shortcut per direction; replay the rest in-page to avoid thousands of protocol round trips.
+    const runHistoryBatch = (options: {
+      direction: "undo" | "redo";
+      maxCalls: number;
+      html: string;
+      stableCalls: number;
+      changedCount: number;
+    }) =>
+      page.evaluate(
+        async ({
+          selector,
+          modifier,
+          stableLimit,
+          ...state
+        }: {
+          selector: string;
+          modifier: string;
+          stableLimit: number;
+          direction: "undo" | "redo";
+          maxCalls: number;
+          html: string;
+          stableCalls: number;
+          changedCount: number;
+        }) => {
+          let { html, stableCalls, changedCount } = state;
+          let calls = 0;
+          while (calls < state.maxCalls && stableCalls < stableLimit) {
+            const root = document.querySelector(selector);
+            if (!(root instanceof HTMLElement)) {
+              throw new Error(
+                "edited element disappeared during history replay",
+              );
+            }
+            const event = new KeyboardEvent("keydown", {
+              key: "z",
+              code: "KeyZ",
+              bubbles: true,
+              cancelable: true,
+              metaKey: modifier === "Meta",
+              ctrlKey: modifier === "Control",
+              shiftKey: state.direction === "redo",
+            });
+            if (root.dispatchEvent(event)) {
+              throw new Error(
+                `the editor did not handle ${state.direction} during history replay`,
+              );
+            }
+            const restored = document.querySelector(selector);
+            if (!(restored instanceof HTMLElement)) {
+              throw new Error(
+                "edited element disappeared during history replay",
+              );
+            }
+            const selection = window.getSelection();
+            if (
+              !selection?.rangeCount ||
+              !restored.contains(selection.anchorNode) ||
+              !restored.contains(selection.focusNode)
+            ) {
+              throw new Error(
+                `selection/caret left the edited element during ${state.direction}`,
+              );
+            }
+            const nextHtml = restored.innerHTML;
+            if (nextHtml === html) stableCalls += 1;
+            else {
+              stableCalls = 0;
+              changedCount += 1;
+            }
+            html = nextHtml;
+            calls += 1;
+            if (calls % 32 === 0) {
+              await new Promise<void>((resolve) =>
+                requestAnimationFrame(() => resolve()),
+              );
+            }
+          }
+          return { html, stableCalls, changedCount, calls };
+        },
+        {
+          ...options,
+          selector: editorSelector,
+          modifier,
+          stableLimit: stableHistoryProbeLimit,
+        },
+      );
     let currentHtml = finalHtml;
     activePhase = "undo-all";
     // Drain selection-only snapshots too, past the editor's configured cap.
@@ -3585,24 +3684,29 @@ export async function runAuthoringFuzz(
     let stableUndo = 0;
     let undoCalls = 0;
     let undoCount = 0;
-    // History replay may replace blocks created by earlier Enter operations; byte-identical HTML below proves restoration.
-    while (
-      undoCalls < maxHistoryCalls &&
-      stableUndo < stableHistoryProbeLimit
-    ) {
-      await page.keyboard.press(`${modifier}+Z`);
-      undoCalls += 1;
-      const nextHtml = await editor.innerHTML();
-      if (nextHtml === currentHtml) stableUndo += 1;
-      else {
-        stableUndo = 0;
-        undoCount += 1;
-      }
-      currentHtml = nextHtml;
-      await assertCaret();
-      await checkPageErrors();
-      await assertOutsideUnchanged();
+    await page.keyboard.press(`${modifier}+Z`);
+    undoCalls += 1;
+    const afterKeyboardUndo = await readHistoryState();
+    if (!afterKeyboardUndo.inside) {
+      throw new Error("selection/caret left the edited element during undo");
     }
+    if (afterKeyboardUndo.html === null)
+      throw new Error("edited element disappeared during undo");
+    if (afterKeyboardUndo.html === currentHtml) stableUndo += 1;
+    else undoCount += 1;
+    currentHtml = afterKeyboardUndo.html;
+    const remainingUndo = await runHistoryBatch({
+      direction: "undo",
+      maxCalls: maxHistoryCalls - undoCalls,
+      html: currentHtml,
+      stableCalls: stableUndo,
+      changedCount: undoCount,
+    });
+    undoCalls += remainingUndo.calls;
+    undoCount = remainingUndo.changedCount;
+    currentHtml = remainingUndo.html;
+    await checkPageErrors();
+    await assertOutsideUnchanged();
     assertByteIdenticalHtml(
       currentHtml,
       originalHtml,
@@ -3619,20 +3723,29 @@ export async function runAuthoringFuzz(
     let redoCount = 0;
     activePhase = "redo-all";
     const maxRedoCalls = historyLimit + stableHistoryProbeLimit;
-    while (redoCalls < maxRedoCalls && stableRedo < stableHistoryProbeLimit) {
-      await page.keyboard.press(`${modifier}+Shift+Z`);
-      redoCalls += 1;
-      const nextHtml = await editor.innerHTML();
-      if (nextHtml === currentHtml) stableRedo += 1;
-      else {
-        stableRedo = 0;
-        redoCount += 1;
-      }
-      currentHtml = nextHtml;
-      await assertCaret();
-      await checkPageErrors();
-      await assertOutsideUnchanged();
+    await page.keyboard.press(`${modifier}+Shift+Z`);
+    redoCalls += 1;
+    const afterKeyboardRedo = await readHistoryState();
+    if (!afterKeyboardRedo.inside) {
+      throw new Error("selection/caret left the edited element during redo");
     }
+    if (afterKeyboardRedo.html === null)
+      throw new Error("edited element disappeared during redo");
+    if (afterKeyboardRedo.html === currentHtml) stableRedo += 1;
+    else redoCount += 1;
+    currentHtml = afterKeyboardRedo.html;
+    const remainingRedo = await runHistoryBatch({
+      direction: "redo",
+      maxCalls: maxRedoCalls - redoCalls,
+      html: currentHtml,
+      stableCalls: stableRedo,
+      changedCount: redoCount,
+    });
+    redoCalls += remainingRedo.calls;
+    redoCount = remainingRedo.changedCount;
+    currentHtml = remainingRedo.html;
+    await checkPageErrors();
+    await assertOutsideUnchanged();
     assertByteIdenticalHtml(currentHtml, finalHtml, "redo-all editor HTML");
     assertByteIdenticalHtml(
       await slideContent.innerHTML(),

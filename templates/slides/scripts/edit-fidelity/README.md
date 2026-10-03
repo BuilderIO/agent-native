@@ -97,6 +97,10 @@ invariants, and prints the seed plus a bounded operation log on failure. Use
 synthetic, absolute, flex/grid, semantic-list, imported flex bullet-row, imported
 paragraph bullet-row, and scaled committed-corpus text targets:
 
+Random operations use Playwright keyboard input. The full undo/redo drain starts
+with a Playwright shortcut in each direction, then dispatches the editor's same
+keydown handler in-page and checks caret and markup after every history step.
+
 ```bash
 pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seeds 20
 pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seeds 20 --browser webkit
