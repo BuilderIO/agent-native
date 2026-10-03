@@ -250,8 +250,7 @@ agent answers about browser recordings in the Analytics template.
 - `slow` and `includePerformance` on `list-session-recordings`,
   `list-session-performance`, `list-route-performance`, and the replay's
   vitals and slow-request markers exist only while the Sessions triage Lab is
-  on; `view-screen` then passes `includePerformance` so the agent reads the
-  same rows as the page.
+  on.
 - Lab state never holds up the base list. The page waits for it only when the
   URL carries Lab-only conditions (did/didn't events, friction signals or
   sorts, `slow`), with one wait for all of them, and for at most 5 s; a
@@ -261,7 +260,9 @@ agent answers about browser recordings in the Analytics template.
   like row friction, keyed on the visible recording ids; when they fail the
   page says speed data could not load instead of showing no hints, apart
   from any friction failure. `view-screen` reads Lab state in its own `try`
-  and reports a failure as `labStateError` beside the base list.
+  and reads row friction and speed hints beside the base list, reporting
+  `labStateError`, `frictionError`, and `performanceError` separately; its
+  `fullPageAction` asks for both.
 
 ## Agent Diagnostics Surface
 

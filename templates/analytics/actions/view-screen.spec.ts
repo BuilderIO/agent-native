@@ -60,7 +60,16 @@ vi.mock("../server/lib/dashboards-store", () => ({
 vi.mock("../server/lib/first-party-analytics.js", () => ({
   listAnalyticsPublicKeys: vi.fn(async () => []),
 }));
+const getSessionRecordingPerformance = vi.fn(
+  async (_scope: unknown, recordingIds: string[]) => ({
+    performance: Object.fromEntries(
+      recordingIds.map((id) => [id, { slowRequests: 1 }]),
+    ) as Record<string, unknown>,
+    coverageStartedAt: "2026-09-20T00:00:00.000Z" as string | null,
+  }),
+);
 vi.mock("../server/lib/session-replay.js", () => ({
+  getSessionRecordingPerformance,
   getSessionReplaySummary: vi.fn(async () => null),
   listSessionRecordings: vi.fn(async () => []),
   listSessionRecordingsPage,
@@ -515,6 +524,7 @@ describe("view-screen Sessions context", () => {
     expect(on.sessionReplays[0]).toEqual({
       id: "recording-0",
       friction: { score: 3 },
+      performance: { slowRequests: 1 },
     });
     expect(on.sessionReplayPage.fullPageAction.args).toMatchObject({
       frictionSignals: ["dead_clicks"],
@@ -579,7 +589,7 @@ describe("view-screen Sessions context", () => {
     expect(off.sessionReplayPage.performanceCoverageStartedAt).toBeUndefined();
   });
 
-  it("reads each row's speed hints the way the page shows them while the Lab is on", async () => {
+  it("reads each row's speed hints beside the list the way the page shows them while the Lab is on", async () => {
     setScreen(
       { view: "sessions" },
       { pathname: "/sessions", searchParams: {} },
@@ -590,19 +600,26 @@ describe("view-screen Sessions context", () => {
 
     expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
       expect.anything(),
-      expect.objectContaining({ includePerformance: true }),
+      expect.not.objectContaining({ includePerformance: expect.anything() }),
+    );
+    expect(getSessionRecordingPerformance).toHaveBeenLastCalledWith(
+      { userEmail: "user@example.test", orgId: "org-1" },
+      Array.from({ length: 25 }, (_, index) => `recording-${index}`),
+    );
+    expect(on.sessionReplays[0].performance).toEqual({ slowRequests: 1 });
+    expect(on.sessionReplayPage.performanceCoverageStartedAt).toBe(
+      "2026-09-20T00:00:00.000Z",
     );
     expect(on.sessionReplayPage.fullPageAction.args).toMatchObject({
       includePerformance: true,
     });
 
+    getSessionRecordingPerformance.mockClear();
     isSessionsTriageLabEnabled.mockResolvedValueOnce(false);
     const off = await runScreen();
 
-    expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
-      expect.anything(),
-      expect.not.objectContaining({ includePerformance: expect.anything() }),
-    );
+    expect(getSessionRecordingPerformance).not.toHaveBeenCalled();
+    expect(off.sessionReplays[0]).not.toHaveProperty("performance");
     expect(
       off.sessionReplayPage.fullPageAction.args.includePerformance,
     ).toBeUndefined();
@@ -682,8 +699,34 @@ describe("view-screen Sessions context", () => {
 
     expect(out.sessionReplayError).toBeUndefined();
     expect(out.sessionReplays).toHaveLength(25);
-    expect(out.sessionReplays[0]).toEqual({ id: "recording-0" });
+    expect(out.sessionReplays[0]).toEqual({
+      id: "recording-0",
+      performance: { slowRequests: 1 },
+    });
     expect(out.sessionReplayPage.frictionError).toBe("friction unavailable");
+    expect(out.sessionReplayPage).not.toHaveProperty("performanceError");
+  });
+
+  it("keeps the base list and reports speed hints that fail to load", async () => {
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
+    getSessionRecordingPerformance.mockRejectedValueOnce(
+      new Error("speed unavailable"),
+    );
+    setScreen({ view: "sessions" }, { pathname: "/sessions" });
+
+    const out = await runScreen();
+
+    expect(out.sessionReplayError).toBeUndefined();
+    expect(out.sessionReplays).toHaveLength(25);
+    expect(out.sessionReplays[0]).toEqual({
+      id: "recording-0",
+      friction: { score: 3 },
+    });
+    expect(out.sessionReplayPage.performanceError).toBe("speed unavailable");
+    expect(out.sessionReplayPage).not.toHaveProperty(
+      "performanceCoverageStartedAt",
+    );
+    expect(out.sessionReplayPage).not.toHaveProperty("frictionError");
   });
 
   it("carries friction coverage so an empty friction match is not read as zero", async () => {

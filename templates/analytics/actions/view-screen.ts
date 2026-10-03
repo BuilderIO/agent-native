@@ -12,6 +12,7 @@ import { getErrorIssue, listErrorIssues } from "../server/lib/error-capture.js";
 import { listAnalyticsPublicKeys } from "../server/lib/first-party-analytics.js";
 import { getSessionFrictionDetails } from "../server/lib/session-friction.js";
 import {
+  getSessionRecordingPerformance,
   getSessionReplaySummary,
   listSessionRecordingsPage,
   replayRangeToIso,
@@ -328,27 +329,45 @@ export default defineAction({
               }
               if (urlFrictionSort) filters.sort = urlFrictionSort;
               if (urlSlow) filters.slow = urlSlow;
-              filters.includePerformance = true;
             }
             const result = await listSessionRecordingsPage(scope, {
               ...filters,
               limit: SESSION_EXCERPT_SIZE,
             });
             screen.sessionReplays = result.recordings;
+            // Row friction and speed hints load beside the list, as on the
+            // page, so either one failing leaves the list and is reported
+            // on its own.
             let frictionError: string | undefined;
+            let performanceError: string | undefined;
+            let performanceCoverageStartedAt: string | null | undefined;
             if (triageLabEnabled) {
-              try {
-                const friction = await getSessionFrictionDetails(
+              const [friction, speed] = await Promise.allSettled([
+                getSessionFrictionDetails(scope, result.recordings),
+                getSessionRecordingPerformance(
                   scope,
-                  result.recordings,
-                );
-                screen.sessionReplays = result.recordings.map((recording) => ({
-                  ...recording,
-                  friction: friction.get(recording.id),
-                }));
-              } catch (error) {
-                frictionError = errorMessage(error);
+                  result.recordings.map((recording) => recording.id),
+                ),
+              ]);
+              if (friction.status === "rejected") {
+                frictionError = errorMessage(friction.reason);
               }
+              if (speed.status === "rejected") {
+                performanceError = errorMessage(speed.reason);
+                performanceCoverageStartedAt =
+                  result.performanceCoverageStartedAt;
+              } else {
+                performanceCoverageStartedAt = speed.value.coverageStartedAt;
+              }
+              screen.sessionReplays = result.recordings.map((recording) => ({
+                ...recording,
+                ...(friction.status === "fulfilled"
+                  ? { friction: friction.value.get(recording.id) }
+                  : {}),
+                ...(speed.status === "fulfilled"
+                  ? { performance: speed.value.performance[recording.id] }
+                  : {}),
+              }));
             }
             // The URL's sort and Lab conditions are not what was applied
             // while the Lab is off, so echo the list's own filters.
@@ -383,16 +402,14 @@ export default defineAction({
               excerptLimit: SESSION_EXCERPT_SIZE,
               ...(labStateError ? { labStateError } : {}),
               ...(frictionError ? { frictionError } : {}),
+              ...(performanceError ? { performanceError } : {}),
               ...(result.frictionCoverageStartedAt !== undefined
                 ? {
                     frictionCoverageStartedAt: result.frictionCoverageStartedAt,
                   }
                 : {}),
-              ...(triageLabEnabled
-                ? {
-                    performanceCoverageStartedAt:
-                      result.performanceCoverageStartedAt ?? null,
-                  }
+              ...(performanceCoverageStartedAt !== undefined
+                ? { performanceCoverageStartedAt }
                 : {}),
               ...(urlHasEventConditions && !triageLabEnabled
                 ? { eventConditionsNotApplied: urlEventConditions }
@@ -417,7 +434,9 @@ export default defineAction({
                 args: {
                   paginated: true,
                   ...filters,
-                  ...(triageLabEnabled ? { includeFriction: true } : {}),
+                  ...(triageLabEnabled
+                    ? { includeFriction: true, includePerformance: true }
+                    : {}),
                   limit: SESSION_PAGE_SIZE,
                 },
               },
