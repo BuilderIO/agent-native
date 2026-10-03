@@ -1433,6 +1433,7 @@ export default {
     slowRequestCount: "{{count}} solicitudes lentas",
     slowRequestCountSingular: "{{count}} solicitud lenta",
     speedIncomplete: "Datos de velocidad incompletos",
+    speedNotMeasured: "Velocidad no medida",
     speedUnavailable: "No se pudieron cargar los datos de velocidad.",
     markerPageVitals: "Métricas de la página",
     markerSlowRequest: "Solicitud lenta",

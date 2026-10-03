@@ -1382,6 +1382,7 @@ export default {
     slowRequestCount: "{{count}} धीमे अनुरोध",
     slowRequestCountSingular: "{{count}} धीमा अनुरोध",
     speedIncomplete: "गति डेटा अधूरा है",
+    speedNotMeasured: "गति मापी नहीं गई",
     speedUnavailable: "गति डेटा लोड नहीं हो सका।",
     markerPageVitals: "पेज वाइटल्स",
     markerSlowRequest: "धीमा अनुरोध",

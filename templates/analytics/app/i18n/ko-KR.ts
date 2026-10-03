@@ -1394,6 +1394,7 @@ export default {
     slowRequestCount: "느린 요청 {{count}}개",
     slowRequestCountSingular: "느린 요청 {{count}}개",
     speedIncomplete: "속도 데이터가 불완전함",
+    speedNotMeasured: "속도 측정 안 됨",
     speedUnavailable: "속도 데이터를 불러오지 못했습니다.",
     markerPageVitals: "페이지 Web Vitals",
     markerSlowRequest: "느린 요청",

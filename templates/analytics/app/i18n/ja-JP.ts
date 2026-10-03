@@ -1417,6 +1417,7 @@ export default {
     slowRequestCount: "遅いリクエスト {{count}} 件",
     slowRequestCountSingular: "遅いリクエスト {{count}} 件",
     speedIncomplete: "速度データが不完全です",
+    speedNotMeasured: "速度未計測",
     speedUnavailable: "速度データを読み込めませんでした。",
     markerPageVitals: "ページの Web Vitals",
     markerSlowRequest: "遅いリクエスト",

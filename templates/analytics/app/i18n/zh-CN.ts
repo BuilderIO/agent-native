@@ -1344,6 +1344,7 @@ export default {
     slowRequestCount: "{{count}} 个慢请求",
     slowRequestCountSingular: "{{count}} 个慢请求",
     speedIncomplete: "速度数据不完整",
+    speedNotMeasured: "未测量速度",
     speedUnavailable: "无法加载速度数据。",
     markerPageVitals: "页面 Web Vitals",
     markerSlowRequest: "慢请求",

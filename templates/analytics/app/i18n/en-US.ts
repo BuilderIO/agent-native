@@ -1489,6 +1489,7 @@ export default {
     slowRequestCount: "{{count}} slow requests",
     slowRequestCountSingular: "{{count}} slow request",
     speedIncomplete: "Speed data incomplete",
+    speedNotMeasured: "Speed not measured",
     speedUnavailable: "Couldn't load speed data.",
     markerPageVitals: "Page vitals",
     markerSlowRequest: "Slow request",
