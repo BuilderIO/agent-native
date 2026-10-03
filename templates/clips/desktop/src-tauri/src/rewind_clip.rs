@@ -67,10 +67,7 @@ fn reserve_pending_rewind_clip_preparation(
     startup_id: &str,
 ) -> Result<(), String> {
     let mut pending_state = pending_state.lock().map_err(|error| error.to_string())?;
-    if pending_state
-        .as_ref()
-        .is_some_and(|pending| !pending.cancelled)
-    {
+    if pending_state.is_some() {
         return Err("a Rewind-derived clip is already prepared or active".into());
     }
     *pending_state = Some(PendingRewindClipPreparation {
@@ -1872,7 +1869,7 @@ mod tests {
     }
 
     #[test]
-    fn cancelled_pending_startup_can_be_replaced_for_retry() {
+    fn cancelled_pending_startup_blocks_retry_until_cleanup_finishes() {
         let pending = Mutex::new(Some(PendingRewindClipPreparation {
             startup_id: "startup-cancelled".into(),
             cancelled: true,
@@ -1882,13 +1879,15 @@ mod tests {
             startup_id: "startup-cancelled".into(),
         };
 
-        reserve_pending_rewind_clip_preparation(&pending, "startup-retry").unwrap();
-        let retry = pending.lock().unwrap();
-        assert_eq!(retry.as_ref().unwrap().startup_id, "startup-retry");
-        assert!(!retry.as_ref().unwrap().cancelled);
-        drop(retry);
+        assert!(reserve_pending_rewind_clip_preparation(&pending, "startup-retry").is_err());
+        assert_eq!(
+            pending.lock().unwrap().as_ref().unwrap().startup_id,
+            "startup-cancelled"
+        );
 
         drop(old_guard);
+        assert!(pending.lock().unwrap().is_none());
+        reserve_pending_rewind_clip_preparation(&pending, "startup-retry").unwrap();
         assert_eq!(
             pending.lock().unwrap().as_ref().unwrap().startup_id,
             "startup-retry"

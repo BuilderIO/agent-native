@@ -34,8 +34,9 @@ async function playBeforeCapture(
   }
   let timer: ReturnType<typeof window.setTimeout> | null = null;
   let abortHandler: (() => void) | null = null;
+  const deadline = performance.now() + CUE_PLAY_TIMEOUT_MS;
   const playback = play().then<CueOutcome, CueOutcome>(
-    () => "played",
+    () => (performance.now() < deadline ? "played" : "timed_out"),
     (err) => {
       console.warn("[clips-recorder] start cue outcome=failed:", err);
       return "failed";
