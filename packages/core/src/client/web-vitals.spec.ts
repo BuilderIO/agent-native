@@ -7,7 +7,7 @@ import {
 } from "./web-vitals.js";
 
 function at(pathname: string, route = pathname): WebVitalsLocation {
-  return { route, url: `https://app.example.test${pathname}`, pathname };
+  return { route, pathname };
 }
 
 function setup(
@@ -40,7 +40,6 @@ describe("createWebVitalsTracker", () => {
     expect(reports).toEqual([
       {
         route: "/r/:id",
-        url: "https://app.example.test/r/abc",
         navigationType: "load",
         ttfbMs: 182,
         lcpMs: 2_411,
@@ -61,7 +60,6 @@ describe("createWebVitalsTracker", () => {
     expect(reports).toEqual([
       {
         route: "/",
-        url: "https://app.example.test/",
         navigationType: "resume",
         inpMs: 96,
       },
@@ -92,7 +90,6 @@ describe("createWebVitalsTracker", () => {
     tracker.hidden();
     expect(reports).toEqual([
       {
-        url: "https://app.example.test/u/alice",
         navigationType: "load",
         ttfbMs: 50,
         cls: 0,
@@ -117,14 +114,12 @@ describe("createWebVitalsTracker", () => {
     expect(reports).toEqual([
       {
         route: "/inbox",
-        url: "https://app.example.test/inbox",
         navigationType: "load",
         ttfbMs: 50,
         cls: 0.2,
       },
       {
         route: "/thread/:id",
-        url: "https://app.example.test/thread/42",
         navigationType: "client",
         inpMs: 40,
         cls: 0,

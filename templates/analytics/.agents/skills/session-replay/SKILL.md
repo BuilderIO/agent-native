@@ -264,10 +264,11 @@ agent answers about browser recordings in the Analytics template.
   aggregates and warns, the slow filter matches nothing, and reads report no
   coverage.
 - The replay's slow-request markers come from the `agent-native.slow_request`
-  events core records beside each slow `action.response`, with that event's
-  own duration, status, and outcome, and follow the count's rule
-  (`isWaitedActionResponse`), so a marker matches exactly what the row
-  counts. Never derive them from replay network events: those stop timing at
+  events core records beside each slow `action.response` someone waited for,
+  with that event's own duration, status, and outcome. Core and the timeline
+  both apply the count's rule (`isWaitedActionResponse`, from core), so a
+  marker matches exactly what the row counts and background requests never
+  spend the replay's marker budget. Never derive them from replay network events: those stop timing at
   the response headers. Replays from clients without these events show no
   slow-request markers.
 - `slow` and `includePerformance` on `list-session-recordings`,

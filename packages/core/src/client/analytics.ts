@@ -10,6 +10,7 @@ import {
   legacyLifecycleEvent,
   normalizeTrackingDimension,
   PAGE_LOAD_PAGEVIEW_PROPERTY,
+  isWaitedActionResponse,
   SLOW_ACTION_RESPONSE_MS,
   withCanonicalTrackingProperties,
   type AgentNativeLifecycleEventName,
@@ -2053,18 +2054,15 @@ function installPageviewTracking(): void {
 }
 
 function webVitalsLocation(): WebVitalsLocation {
-  const pathname = window.location.pathname;
   return {
     route: currentRouteTemplate(),
-    url: window.location.origin + pathname,
-    pathname,
+    pathname: window.location.pathname,
   };
 }
 
 function reportPageViewVitals(vitals: PageViewVitals): void {
   _sessionReplayModuleForCapture?.emitSessionReplayWebVitals?.(vitals);
   trackEvent("web_vitals", {
-    url: vitals.url,
     ...(vitals.route ? { route: vitals.route } : {}),
     navigation_type: vitals.navigationType,
     ttfb_ms: vitals.ttfbMs,
@@ -2183,7 +2181,8 @@ function markTrackedEventInSessionReplay(
   if (
     name === "action.response" &&
     typeof props.duration_ms === "number" &&
-    props.duration_ms >= SLOW_ACTION_RESPONSE_MS
+    props.duration_ms >= SLOW_ACTION_RESPONSE_MS &&
+    isWaitedActionResponse(props)
   ) {
     _sessionReplayModuleForCapture?.emitSessionReplaySlowRequest?.(props);
   }
