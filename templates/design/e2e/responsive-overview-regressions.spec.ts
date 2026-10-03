@@ -560,7 +560,29 @@ test("overview screen creation and duplicate undo/redo keep screens selected and
     const assertCreatedScreenSelectedVisibleWithSingleCameraCommit = async (
       screenId: string,
     ) => {
-      await expect(page.locator("[data-frame-selection-box]")).toBeVisible();
+      const selectionBoxes = page.locator("[data-frame-selection-box]");
+      await expect(selectionBoxes).toHaveCount(1);
+      await expect
+        .poll(() =>
+          page.evaluate((targetId) => {
+            const selection = document
+              .querySelector("[data-frame-selection-box]")
+              ?.getBoundingClientRect();
+            const target = document
+              .querySelector(
+                `[data-frame-id="${CSS.escape(targetId)}"] [data-screen-card]`,
+              )
+              ?.getBoundingClientRect();
+            if (!selection || !target) return false;
+            return [
+              Math.abs(selection.left - target.left),
+              Math.abs(selection.top - target.top),
+              Math.abs(selection.width - target.width),
+              Math.abs(selection.height - target.height),
+            ].every((difference) => difference < 1);
+          }, screenId),
+        )
+        .toBe(true);
       try {
         await expect
           .poll(() =>
@@ -687,12 +709,19 @@ test("overview screen creation and duplicate undo/redo keep screens selected and
       process.platform === "darwin" ? "Meta+Z" : "Control+Z",
     );
     await expect(page.locator("[data-screen-shell]")).toHaveCount(4);
+    await expect
+      .poll(async () => (await designFileIds(request, designId)).sort())
+      .toEqual([...beforeIds].sort());
+    expect(await designFileIds(request, designId)).not.toContain(duplicatedId);
     resetCameraProbe();
     await page.keyboard.press(
       process.platform === "darwin" ? "Meta+Shift+Z" : "Control+Shift+Z",
     );
     await expect(page.locator("[data-screen-shell]")).toHaveCount(5);
     const redoneId = await createdScreenId(beforeIds);
+    await expect
+      .poll(async () => (await designFileIds(request, designId)).sort())
+      .toEqual([...beforeIds, redoneId].sort());
     await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(redoneId);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
