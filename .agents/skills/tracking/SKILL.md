@@ -199,12 +199,17 @@ providers build it.
   `verified_after_pipe_closed`, `resume_attempts`, `run_id`, `thread_id`):
   every `interrupted` / `failed` / `unverified` run up to 30 per page, every
   `stopped` run up to its own 30 (so stops never crowd out failures), and
-  `succeeded` sampled at 10% with `sample_weight`. A failed or interrupted
-  run adds its `cause` from `AGENT_TROUBLE_CAUSES`, or else an
+  `succeeded` sampled at 10% with `sample_weight`. A turn the server refuses
+  at its start (no model connected, a 5xx) is a `failed` run too, with
+  `terminal_source: local` and the refused turn's id. A failed or
+  interrupted run adds its `cause` from `AGENT_TROUBLE_CAUSES`, or else an
   `error_message` reduced by `normalizeAgentTroubleMessage`, never the raw
   text. That replaces quoted text, emails, URLs, file paths, hostnames (any
-  dotted name), and numbers or ids; other words remain, so an unquoted name
-  in a message still leaves with it. `agent_feedback_submitted` (`sentiment`,
+  dotted name), and numbers or ids, and shows a cause that only repeats its
+  message once; other words remain, so an unquoted name in a message still
+  leaves with it. A provider error is `provider_error` only when its code
+  came from a structured HTTP status (`http_5xx`, including a status on a
+  wrapped cause); a status that appears only in message text is not read. `agent_feedback_submitted` (`sentiment`,
   `run_id`, `thread_id`) is the browser's copy of a thumbs rating, because
   `$ai_feedback` has no browser session. Every `pageview` carries
   `agent_signals: 1` (`AGENT_SIGNALS_PAGEVIEW_PROPERTY`): clients before it
@@ -216,7 +221,10 @@ providers build it.
   `session_navigation` is one event per document that left because of the
   session (`reason`, and for `signed_out` the `evidence`: `signed_out_body` or
   `http_401`), never the destination. Both are emitted from the single place
-  that decides (`agentkit-protocol.ts`, `navigateForSession`), not the callers.
+  that decides (`agentkit-protocol.ts`, `navigateForSession`; a refused
+  start from the transport's start-run catch), not the callers.
+  `agent_chat_stuck_detected` fires once per run and only while the stuck
+  banner shows, so Analytics' stuck chats are ones the person saw.
 
 Symbolication is per-backend and not automatic: the framework uploads no source
 maps to PostHog, so minified browser stacks stay minified there. Known gap, not
