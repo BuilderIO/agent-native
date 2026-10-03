@@ -278,6 +278,57 @@
     return tracks;
   }
 
+  function hitTestGridGap(value: string, contentSize: number): number | null {
+    if (!value || value === "normal") return 0;
+    var match = value.trim().match(/^(-?(?:\d+\.?\d*|\.\d+))(px|%)$/);
+    if (!match) return null;
+    var amount = Number(match[1]);
+    if (!Number.isFinite(amount) || amount < 0) return null;
+    return match[2] === "%" ? (amount * contentSize) / 100 : amount;
+  }
+
+  function hitTestGridItemRange(
+    styles: CSSStyleDeclaration,
+    axis: "column" | "row",
+    trackCount: number,
+  ): { start: number; end: number } | null {
+    var startValue =
+      axis === "column" ? styles.gridColumnStart : styles.gridRowStart;
+    var endValue = axis === "column" ? styles.gridColumnEnd : styles.gridRowEnd;
+    var startSpan = startValue.trim().match(/^span\s+(\d+)$/);
+    var endSpan = endValue.trim().match(/^span\s+(\d+)$/);
+    var startValueMatch = startValue.trim().match(/^-?\d+$/);
+    var endValueMatch = endValue.trim().match(/^-?\d+$/);
+    if (
+      (startValue.trim() !== "auto" && !startSpan && !startValueMatch) ||
+      (endValue.trim() !== "auto" && !endSpan && !endValueMatch)
+    ) {
+      return null;
+    }
+    var startLine = startValueMatch ? Number(startValueMatch[0]) : null;
+    var endLine = endValueMatch ? Number(endValueMatch[0]) : null;
+    if (startLine !== null && startLine < 0)
+      startLine = trackCount + 2 + startLine;
+    if (endLine !== null && endLine < 0) endLine = trackCount + 2 + endLine;
+    var span = Number((endSpan || startSpan)?.[1] || 0);
+    if (!span) {
+      span =
+        startLine !== null && endLine !== null
+          ? Math.abs(endLine - startLine)
+          : 1;
+    }
+    if (!Number.isSafeInteger(span) || span < 1) return null;
+    var start =
+      startLine !== null ? startLine : endLine !== null ? endLine - span : null;
+    if (start === null) return null;
+    if (startLine !== null && endLine !== null) {
+      start = Math.min(startLine, endLine);
+      span = Math.abs(endLine - startLine);
+    }
+    if (!Number.isSafeInteger(start) || start < 1 || span < 1) return null;
+    return { start: start, end: start + span };
+  }
+
   function hitTestGridDistribution(
     tracks: number[],
     contentSize: number,
@@ -383,17 +434,20 @@
       px(styles.paddingTop) -
       px(styles.paddingBottom);
     var direction = styles.direction === "rtl";
+    var columnGap = hitTestGridGap(styles.columnGap, contentWidth);
+    var rowGap = hitTestGridGap(styles.rowGap, contentHeight);
+    if (columnGap === null || rowGap === null) return null;
     var columnFlow = hitTestGridDistribution(
       columns,
       contentWidth,
-      px(styles.columnGap),
+      columnGap,
       styles.justifyContent,
       direction,
     );
     var rowFlow = hitTestGridDistribution(
       rows,
       contentHeight,
-      px(styles.rowGap),
+      rowGap,
       styles.alignContent,
       false,
     );
@@ -436,29 +490,61 @@
     ) {
       return null;
     }
+    var firstColumn = columnBounds[column];
+    var lastColumn = columnBounds[column + columnSpan - 1];
+    var firstRow = rowBounds[row];
+    var lastRow = rowBounds[row + rowSpan - 1];
     var cell = {
-      left: columnBounds[column].start,
-      top: rowBounds[row].start,
+      left: Math.min(firstColumn.start, lastColumn.start),
+      top: Math.min(firstRow.start, lastRow.start),
       width:
-        columnBounds[column + columnSpan - 1].end - columnBounds[column].start,
-      height: rowBounds[row + rowSpan - 1].end - rowBounds[row].start,
+        Math.max(firstColumn.end, lastColumn.end) -
+        Math.min(firstColumn.start, lastColumn.start),
+      height:
+        Math.max(firstRow.end, lastRow.end) -
+        Math.min(firstRow.start, lastRow.start),
     };
-    var children = draggableElementChildren(container);
+    var children = Array.prototype.slice.call(container.children) as Element[];
     for (var childIndex = 0; childIndex < children.length; childIndex += 1) {
       var child = children[childIndex];
+      if (isOverlayElement(child) || isTransientCloneElement(child)) continue;
       var childStyles = window.getComputedStyle(child);
       if (
+        childStyles.display === "none" ||
         childStyles.position === "absolute" ||
         childStyles.position === "fixed"
       ) {
         continue;
       }
       var childRect = child.getBoundingClientRect();
+      var childColumnRange = hitTestGridItemRange(
+        childStyles,
+        "column",
+        columns.length,
+      );
+      var childRowRange = hitTestGridItemRange(childStyles, "row", rows.length);
+      if (!childColumnRange || !childRowRange) {
+        var hasUnresolvedPlacement =
+          (childStyles.gridColumnStart !== "auto" && !childColumnRange) ||
+          (childStyles.gridColumnEnd !== "auto" && !childColumnRange) ||
+          (childStyles.gridRowStart !== "auto" && !childRowRange) ||
+          (childStyles.gridRowEnd !== "auto" && !childRowRange);
+        if (hasUnresolvedPlacement) return null;
+        if (
+          childRect.left < cell.left + cell.width &&
+          childRect.right > cell.left && // i18n-ignore non-user-facing pointer geometry condition
+          childRect.top < cell.top + cell.height &&
+          childRect.bottom > cell.top
+        ) {
+          return null;
+        }
+        continue;
+      }
       if (
-        childRect.left < cell.left + cell.width &&
-        childRect.right > cell.left && // i18n-ignore non-user-facing pointer geometry condition
-        childRect.top < cell.top + cell.height &&
-        childRect.bottom > cell.top
+        column < childColumnRange.end - 1 &&
+        column + columnSpan > childColumnRange.start - 1 && // i18n-ignore non-user-facing grid occupancy math
+        row < childRowRange.end - 1 &&
+        row + rowSpan > childRowRange.start - 1
       ) {
         return null;
       }

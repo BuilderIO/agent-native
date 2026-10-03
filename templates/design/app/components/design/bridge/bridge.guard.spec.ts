@@ -14482,6 +14482,81 @@ it(
 );
 
 it(
+  "editor chrome bridge preserves an RTL source item's authored grid span on drag start",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      #grid { position: absolute; left: 100px; top: 100px; width: 320px; height: 80px; display: grid; direction: rtl; grid-template-columns: repeat(4, 80px); grid-auto-columns: 80px; grid-template-rows: 80px; }
+      #target { grid-column: 1 / -1; grid-row: 1; justify-self: start; align-self: start; width: 40px; height: 40px; background: #6366f1; }
+      #implicit { grid-column: 6; grid-row: 1; width: 20px; height: 20px; }
+    </style>
+  </head>
+  <body>
+    <div id="grid"><div id="target" data-agent-native-node-id="target">Target</div><div id="implicit" data-agent-native-node-id="implicit">Implicit</div></div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        window.postMessage = ((message: unknown) => {
+          (window as any).__bridgeMessages.push(message);
+        }) as typeof window.postMessage;
+      });
+
+      const sourceBox = await page.locator("#target").boundingBox();
+      expect(sourceBox).toMatchObject({
+        y: 100,
+        width: 40,
+        height: 40,
+      });
+      expect(sourceBox).not.toBeNull();
+      await page.mouse.move(
+        sourceBox!.x + sourceBox!.width / 2,
+        sourceBox!.y + sourceBox!.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(
+        sourceBox!.x + sourceBox!.width / 2 + 40,
+        sourceBox!.y + sourceBox!.height / 2 + 40,
+        { steps: 4 },
+      );
+
+      const start = await page.evaluate(() => {
+        const starts = (
+          (window as any).__bridgeMessages as Array<Record<string, unknown>>
+        ).filter(
+          (message) =>
+            message.type === "agent-native:cross-screen-drag" &&
+            message.phase === "start",
+        );
+        return starts[starts.length - 1];
+      });
+      expect(start).toBeDefined();
+      expect(start?.sourceGridSpan).toEqual({
+        columns: 4,
+        rows: 1,
+      });
+      await page.mouse.up();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "keeps a live drag source visible until the host acknowledges the destination insert",
   { timeout: 30_000 },
   async () => {

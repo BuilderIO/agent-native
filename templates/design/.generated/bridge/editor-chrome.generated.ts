@@ -13607,10 +13607,44 @@ export const editorChromeBridgeScript: string = `"use strict";
             return rect.left < cellRight && rect.right > cellLeft && // i18n-ignore non-user-facing pointer geometry condition
             rect.top < cellBottom && rect.bottom > cellTop;
           });
+          var displacedFootprint = null;
+          if (displaced && trackLayout) {
+            var displacedColumn = gridItemAxisPlacement(
+              displaced,
+              trackLayout,
+              "column"
+            );
+            var displacedRow = gridItemAxisPlacement(
+              displaced,
+              trackLayout,
+              "row"
+            );
+            var firstDisplacedColumn = displacedColumn.start !== null ? trackLayout.columnBounds[displacedColumn.start - 1] : null;
+            var lastDisplacedColumn = displacedColumn.start !== null ? trackLayout.columnBounds[displacedColumn.start + displacedColumn.span - 2] : null;
+            var firstDisplacedRow = displacedRow.start !== null ? trackLayout.rowBounds[displacedRow.start - 1] : null;
+            var lastDisplacedRow = displacedRow.start !== null ? trackLayout.rowBounds[displacedRow.start + displacedRow.span - 2] : null;
+            if (firstDisplacedColumn && lastDisplacedColumn && firstDisplacedRow && lastDisplacedRow) {
+              displacedFootprint = {
+                left: Math.min(
+                  firstDisplacedColumn.start,
+                  lastDisplacedColumn.start
+                ),
+                top: Math.min(firstDisplacedRow.start, lastDisplacedRow.start),
+                width: Math.max(firstDisplacedColumn.end, lastDisplacedColumn.end) - Math.min(firstDisplacedColumn.start, lastDisplacedColumn.start),
+                height: Math.max(firstDisplacedRow.end, lastDisplacedRow.end) - Math.min(firstDisplacedRow.start, lastDisplacedRow.start)
+              };
+            }
+          }
+          var insertionFootprint = displacedFootprint || {
+            left: cellLeft,
+            top: cellTop,
+            width: cellRight - cellLeft,
+            height: cellBottom - cellTop
+          };
           var autoFlow = (styles.gridAutoFlow || "row").split(/\\s+/);
           var gridAxis = autoFlow[0] === "column" ? "y" : "x";
           var pointer = gridAxis === "x" ? clientX : clientY;
-          var midpoint = gridAxis === "x" ? (cellLeft + cellRight) / 2 : (cellTop + cellBottom) / 2;
+          var midpoint = gridAxis === "x" ? insertionFootprint.left + insertionFootprint.width / 2 : insertionFootprint.top + insertionFootprint.height / 2;
           return {
             anchor: container,
             placement: "inside",
@@ -13618,12 +13652,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             persistencePlacement: displaced ? pointer <= midpoint + 0.5 ? "before" : "after" : "inside",
             axis: gridAxis,
             dropMode: "flow-insert",
-            guideRect: {
-              left: cellLeft,
-              top: cellTop,
-              width: cellRight - cellLeft,
-              height: cellBottom - cellTop
-            },
+            guideRect: insertionFootprint,
             guideMode: displaced ? "grid-line" : "grid-cell",
             guidePlacement: pointer <= midpoint + 0.5 ? "before" : "after",
             ...autoFlow[0] === "column" && !sourceHasAuthoredPlacement ? {} : { gridCell: { column, row } },
@@ -14520,13 +14549,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
     }
-    function gridLineIndexAtCoordinate(bounds, coordinate) {
-      for (var index = 0; index < bounds.length; index += 1) {
-        if (Math.abs(bounds[index].start - coordinate) < 1) return index + 1;
-      }
-      var last = bounds[bounds.length - 1];
-      return last && Math.abs(last.end - coordinate) < 1 ? bounds.length + 1 : null;
-    }
     function gridLinePosition(value, layout, axis) {
       var numeric = numericGridLine(value);
       if (numeric !== null) return numeric;
@@ -14534,23 +14556,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       var negative = value.trim().match(/^-(\\d+)$/);
       if (negative) {
         var bounds = axis === "column" ? layout.columnBounds : layout.rowBounds;
-        var coordinates = withGridAreaProbe(layout.container, function(probe) {
+        return withGridAreaProbe(layout.container, function(probe) {
           if (axis === "column") probe.style.gridRow = "1 / 1";
           else probe.style.gridColumn = "1 / 1";
-          if (axis === "column") probe.style.gridColumn = "1 / 1";
-          else probe.style.gridRow = "1 / 1";
-          var first = probe.getBoundingClientRect();
           if (axis === "column") probe.style.gridColumn = \`\${value} / \${value}\`;
           else probe.style.gridRow = \`\${value} / \${value}\`;
           var resolved = probe.getBoundingClientRect();
-          return axis === "column" ? { first: first.left, resolved: resolved.left } : { first: first.top, resolved: resolved.top };
+          var coordinate = axis === "column" ? resolved.left : resolved.top;
+          for (var line = 1; line <= bounds.length + 1; line += 1) {
+            if (axis === "column") probe.style.gridColumn = \`\${line} / \${line}\`;
+            else probe.style.gridRow = \`\${line} / \${line}\`;
+            var candidate = probe.getBoundingClientRect();
+            var candidateCoordinate = axis === "column" ? candidate.left : candidate.top;
+            if (Math.abs(candidateCoordinate - coordinate) < 1) return line;
+          }
+          return null;
         });
-        var firstLine = gridLineIndexAtCoordinate(bounds, coordinates.first);
-        var resolvedLine = gridLineIndexAtCoordinate(
-          bounds,
-          coordinates.resolved
-        );
-        return firstLine !== null && resolvedLine !== null ? resolvedLine - firstLine + 1 : null;
       }
       var name = value.trim();
       if (!name || name === "auto" || name.startsWith("span ")) return null;

@@ -387,6 +387,203 @@ describe("grid hit-test placement", () => {
     }
   });
 
+  it("keeps RTL multi-column span guides positive and on the selected tracks", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 360, height: 120 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="grid" data-agent-native-node-id="grid" style="position:absolute;left:0;top:0;box-sizing:border-box;width:320px;height:60px;display:grid;direction:rtl;grid-template-columns:repeat(4,80px);grid-template-rows:60px"></div>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "rtl-grid-span",
+            x: 200,
+            y: 30,
+            preview: true,
+            sourceGridSpan: { columns: 2, rows: 1 },
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+
+      const packet = await page.evaluate(
+        () => (window as any).__hitTestResults[0],
+      );
+      expect(packet).toMatchObject({
+        gridPlacement: { column: 2, columnEnd: 4, row: 1, rowEnd: 2 },
+        guideRect: { left: 80, top: 0, width: 160, height: 60 },
+      });
+      expect(
+        await page
+          .locator("[data-agent-native-hit-test-preview]")
+          .evaluate((element) => {
+            const rect = element.getBoundingClientRect();
+            return {
+              left: rect.left,
+              top: rect.top,
+              width: rect.width,
+              height: rect.height,
+            };
+          }),
+      ).toEqual({ left: 80, top: 0, width: 160, height: 60 });
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("treats locked grid items as occupied when the pointer is beside them", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 240, height: 120 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="grid" data-agent-native-node-id="grid" style="position:absolute;left:0;top:0;box-sizing:border-box;width:160px;height:80px;display:grid;grid-template-columns:80px 80px;grid-template-rows:80px">
+          <div data-agent-native-node-id="locked" data-agent-native-locked="true" style="grid-column:1;grid-row:1;width:20px;justify-self:start"></div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "locked-grid-cell",
+            x: 50,
+            y: 30,
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+
+      const packet = await page.evaluate(
+        () => (window as any).__hitTestResults[0],
+      );
+      expect(packet.gridPlacement).toBeUndefined();
+      expect(packet.guideRect).toBeUndefined();
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("treats an underfilled spanning item's full grid area as occupied", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 360, height: 120 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="grid" data-agent-native-node-id="grid" style="position:absolute;left:0;top:0;box-sizing:border-box;width:320px;height:60px;display:grid;grid-template-columns:repeat(4,80px);grid-template-rows:60px">
+          <div data-agent-native-node-id="underfilled" style="grid-column:2 / 4;grid-row:1;width:50px;justify-self:start"></div>
+        </div>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "underfilled-grid-area",
+            x: 190,
+            y: 30,
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+
+      const packet = await page.evaluate(
+        () => (window as any).__hitTestResults[0],
+      );
+      expect(packet.gridPlacement).toBeUndefined();
+      expect(packet.guideRect).toBeUndefined();
+    } finally {
+      await browser.close();
+    }
+  });
+
+  it("does not treat percentage column gaps as pixel values", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 320, height: 500 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0">
+        <div id="grid" data-agent-native-node-id="grid" style="position:absolute;left:20px;top:0;box-sizing:border-box;width:250px;height:400px;display:grid;grid-template-columns:repeat(3,50px);grid-template-rows:repeat(3,50px);column-gap:20%;row-gap:20%"></div>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "percentage-column-gap",
+            x: 195,
+            y: 25,
+          },
+          "*",
+        );
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "percentage-row-gap",
+            x: 45,
+            y: 185,
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 2,
+      );
+
+      const packets = await page.evaluate(
+        () => (window as any).__hitTestResults,
+      );
+      expect(packets).toHaveLength(2);
+      for (const packet of packets) {
+        expect(packet.gridPlacement).toBeUndefined();
+        expect(packet.guideRect).toBeUndefined();
+      }
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("falls back to generic insertion when a grid ancestor is transformed", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
