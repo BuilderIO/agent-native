@@ -236,6 +236,33 @@ describe("aggregateSessionFrictionEvents", () => {
     expect(sessions[0]!.navState).not.toContain("/a");
   });
 
+  it("compares pages only within one page load", () => {
+    const load = (id: string) => ({ page_load_id: id });
+    const { sessions } = aggregateSessionFrictionEvents(
+      [
+        // A list opens an item in a new tab, then changes its own filter.
+        pageview("s1", 0, "/list", load("list")),
+        pageview("s1", 1, "/item", load("item")),
+        pageview("s1", 2, "/list", load("list")),
+        // A tab goes back while another tab opens a page in between.
+        pageview("s2", 0, "/a", load("one")),
+        pageview("s2", 1, "/b", load("one")),
+        pageview("s2", 2, "/x", load("two")),
+        pageview("s2", 3, "/a", load("one")),
+        ...Array.from({ length: 25 }, (_, i) =>
+          pageview("s3", i, "/a", load(`load-${i}`)),
+        ),
+      ],
+      new Map(),
+    );
+    const bySession = new Map(
+      sessions.map((session) => [session.sessionId, session]),
+    );
+    expect(bySession.get("s1")).toMatchObject({ quickBacks: 0 });
+    expect(bySession.get("s2")).toMatchObject({ quickBacks: 1 });
+    expect(JSON.parse(bySession.get("s3")!.navState!).loads).toHaveLength(20);
+  });
+
   it("continues navigation from the state an earlier batch stored", () => {
     const first = aggregateSessionFrictionEvents(
       [pageview("s1", 0, "/a"), pageview("s1", 10, "/b")],
