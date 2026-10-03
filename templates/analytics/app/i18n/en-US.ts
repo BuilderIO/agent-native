@@ -1378,6 +1378,8 @@ export default {
       "Friction isn't measured for every session in this range yet.",
     labStateUnavailable:
       "Couldn't load your Lab settings, so this link's filters aren't applied.",
+    labFeaturesUnavailable:
+      "Couldn't load your Lab settings, so Lab features are hidden.",
     frictionUnavailable: "Couldn't load friction.",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:

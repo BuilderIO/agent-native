@@ -875,12 +875,14 @@ export function SessionsTriagePage() {
           </Button>
         ) : null}
       </div>
-      {urlHasLabFilters && !eventsLabEnabled && labStateFailed ? (
+      {!eventsLabEnabled && labStateFailed ? (
         <p
           className="flex items-center gap-2 text-xs text-muted-foreground"
           role="status"
         >
-          {t("sessions.labStateUnavailable")}
+          {urlHasLabFilters
+            ? t("sessions.labStateUnavailable")
+            : t("sessions.labFeaturesUnavailable")}
           <Button variant="ghost" size="xs" onClick={eventsLab.refetch}>
             <IconRefresh />
             {t("sidebar.retry")}
@@ -1069,6 +1071,7 @@ export function SessionsTriagePage() {
                       sortSignal={
                         isSessionFrictionSignal(sort) ? sort : undefined
                       }
+                      filterSignals={frictionSignals}
                     >
                       <Link
                         to={`/sessions/${encodeURIComponent(recording.id)}`}
@@ -1275,17 +1278,23 @@ function eventCatalogHref(range: Range, app: string): string {
 function SessionRow({
   friction,
   sortSignal,
+  filterSignals,
   children,
 }: {
   friction: SessionFriction | undefined;
   sortSignal: SessionFrictionSignal | undefined;
+  filterSignals: readonly SessionFrictionSignal[];
   children: ReactNode;
 }) {
   if (!friction) return <>{children}</>;
   return (
     <div>
       {children}
-      <SessionFrictionStrip friction={friction} sortSignal={sortSignal} />
+      <SessionFrictionStrip
+        friction={friction}
+        sortSignal={sortSignal}
+        filterSignals={filterSignals}
+      />
     </div>
   );
 }

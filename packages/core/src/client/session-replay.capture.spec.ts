@@ -477,6 +477,24 @@ describe("session replay console/network capture", () => {
     });
   });
 
+  it("marks a fetch the browser cancelled while the page was leaving", async () => {
+    const { fetchMock, windowStub, fireWindowEvent } = installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+    await startCapture();
+    const wrappedFetch = windowStub.fetch as typeof fetch;
+
+    fireWindowEvent("beforeunload", {});
+    await expect(wrappedFetch("/api/poll")).rejects.toThrow();
+    fireWindowEvent("pointerdown", {});
+    await expect(wrappedFetch("/api/poll")).rejects.toThrow();
+
+    const [leaving, stayed] = networkEvents();
+    expect(leaving).toMatchObject({ status: 0, pageLeaving: true });
+    expect(stayed).toMatchObject({ status: 0, error: "Failed to fetch" });
+    expect(stayed).not.toHaveProperty("pageLeaving");
+  });
+
   it("captures XHR requests including failures", async () => {
     const { XhrCtor } = installBrowser();
     recordMock.mockReturnValue(vi.fn());

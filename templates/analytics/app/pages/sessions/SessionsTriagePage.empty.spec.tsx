@@ -672,6 +672,17 @@ describe("Sessions empty states", () => {
     expect(container.querySelector('a[href="/sessions/r1"]')).not.toBeNull();
   });
 
+  it("says a failed Lab state hid Lab features on a plain link", async () => {
+    mocks.labError = true;
+    await renderSessions();
+
+    expect(container.textContent).toContain("sessions.labFeaturesUnavailable");
+    expect(container.textContent).not.toContain("sessions.labStateUnavailable");
+    expect(retryButtons()).toHaveLength(1);
+    await click(retryButtons()[0]);
+    expect(mocks.labRefetch).toHaveBeenCalledOnce();
+  });
+
   it("holds a shared slow link until the Lab state loads", async () => {
     mocks.labLoading = true;
     await renderSessions("/sessions?slow=vitals");

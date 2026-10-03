@@ -213,6 +213,23 @@ describe("detectReplayFriction", () => {
     expect(failed.errorThenLeave).toBe(true);
   });
 
+  it("does not call a request cancelled by leaving the page an error", () => {
+    const { delta, errorThenLeave } = detectReplayFriction(
+      [
+        network(1_000, {
+          url: "/api/poll",
+          status: 0,
+          durationMs: 4_000,
+          error: "Failed to fetch",
+          pageLeaving: true,
+        }),
+      ],
+      null,
+    );
+    expect(errorThenLeave).toBe(false);
+    expect(delta.stalledRequests).toBe(1);
+  });
+
   it("does not call failures a retry loop once a success breaks them up", () => {
     const { delta } = detectReplayFriction(
       [

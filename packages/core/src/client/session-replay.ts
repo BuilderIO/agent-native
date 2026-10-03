@@ -2905,6 +2905,34 @@ function installNetworkCapture(
       document.visibilityState !== "visible";
   };
 
+  // A request the browser cancels because the page is leaving fails exactly
+  // like a network error. WebKit cancels right after beforeunload, Chromium
+  // after pagehide; neither listener costs the page its bfcache eligibility.
+  // Input or a bfcache restore means the page stayed (a cancelled prompt or a
+  // download keeps it alive after beforeunload).
+  let pageLeaving = false;
+  const markLeaving = () => {
+    pageLeaving = true;
+  };
+  const markStaying = () => {
+    pageLeaving = false;
+  };
+  const leaveListeners: Array<[EventTarget, string, () => void]> = [
+    [window, "beforeunload", markLeaving],
+    [window, "pagehide", markLeaving],
+    [window, "pageshow", markStaying],
+    [window, "pointerdown", markStaying],
+    [window, "keydown", markStaying],
+  ];
+  for (const [target, type, listener] of leaveListeners) {
+    target.addEventListener(type, listener, { capture: true });
+  }
+  restores.push(() => {
+    for (const [target, type, listener] of leaveListeners) {
+      target.removeEventListener(type, listener, { capture: true });
+    }
+  });
+
   const recordRequest = (
     api: "fetch" | "xhr",
     method: string,
@@ -2929,6 +2957,7 @@ function installNetworkCapture(
         ok,
         durationMs: Math.max(0, Math.round(durationMs)),
         ...(pageHidden ? { pageHidden: true } : {}),
+        ...(status === 0 && pageLeaving ? { pageLeaving: true } : {}),
         ...(error
           ? {
               error: truncateCaptureText(

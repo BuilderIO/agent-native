@@ -1312,6 +1312,8 @@ export default {
       "O atrito ainda não é medido em todas as sessões deste período.",
     labStateUnavailable:
       "Não foi possível carregar suas configurações de Lab, então os filtros deste link não foram aplicados.",
+    labFeaturesUnavailable:
+      "Não foi possível carregar suas configurações de Lab, então os recursos de Lab estão ocultos.",
     frictionUnavailable: "Não foi possível carregar o atrito.",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:

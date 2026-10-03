@@ -1302,6 +1302,8 @@ export default {
       "この期間のすべてのセッションでフリクションが計測されているわけではありません。",
     labStateUnavailable:
       "Lab の設定を読み込めなかったため、このリンクのフィルターは適用されていません。",
+    labFeaturesUnavailable:
+      "Lab の設定を読み込めなかったため、Lab の機能は非表示になっています。",
     frictionUnavailable: "フリクションを読み込めませんでした。",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:

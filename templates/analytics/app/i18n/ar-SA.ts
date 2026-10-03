@@ -1281,6 +1281,7 @@ export default {
     frictionCoverageIncomplete: "لم يُقَس الاحتكاك بعد لكل الجلسات في هذا النطاق.",
     labStateUnavailable:
       "تعذّر تحميل إعدادات Lab، لذلك لم تُطبَّق عوامل التصفية في هذا الرابط.",
+    labFeaturesUnavailable: "تعذّر تحميل إعدادات Lab، لذلك ميزات Lab مخفية.",
     frictionUnavailable: "تعذّر تحميل الاحتكاك.",
     frictionSignalCount: "{{label}}: {{count}}",
     frictionFiltersNeedLab:
