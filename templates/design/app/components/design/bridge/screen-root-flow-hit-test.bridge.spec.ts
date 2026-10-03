@@ -546,6 +546,58 @@ describe("Screen-root auto-layout hit testing", () => {
     }
   });
 
+  it("does not apply reverse-flex ordering to a direct child in an RTL grid", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 640, height: 480 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0;width:640px;height:480px;position:relative">
+        <section data-agent-native-node-id="rtl-grid" style="position:absolute;left:40px;top:40px;width:320px;height:180px;display:grid;grid-template-columns:repeat(2,140px);grid-template-rows:repeat(2,70px);gap:20px;direction:rtl">
+          <div data-agent-native-node-id="rtl-grid-first" style="width:80px;height:40px"></div>
+          <div data-agent-native-node-id="rtl-grid-second" style="width:80px;height:40px"></div>
+        </section>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        const child = document.querySelector(
+          '[data-agent-native-node-id="rtl-grid-first"]',
+        )!;
+        const rect = child.getBoundingClientRect();
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "rtl-grid-direct-child",
+            x: rect.left + 8,
+            y: rect.top + rect.height / 2,
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+
+      expect(
+        await page.evaluate(() => (window as any).__hitTestResults[0]),
+      ).toMatchObject({
+        correlationId: "rtl-grid-direct-child",
+        anchorNodeId: "rtl-grid-first",
+        placement: "before",
+        axis: "x",
+        dropMode: "flow-insert",
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("uses grid cell targeting for an oversized drop at an empty trailing cell", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
@@ -575,6 +627,28 @@ describe("Screen-root auto-layout hit testing", () => {
         .replace(/__INITIAL_SOURCE_HEAD__/g, '""');
       await page.addScriptTag({ content: editorBridge });
       await page.addScriptTag({ content: hitTestBridgeScript });
+      const gridTarget = await page.evaluate(() => {
+        const grid = document.querySelector(
+          '[data-agent-native-node-id="grid-root"]',
+        )!;
+        const target = (
+          window as any
+        ).__agentNativeDesignNearestChildInsertionTarget(grid, 240, 165);
+        return (
+          target && {
+            placement: target.placement,
+            guideMode: target.guideMode,
+            gridCell: target.gridCell,
+            guideRect: target.guideRect,
+          }
+        );
+      });
+      expect(gridTarget).toMatchObject({
+        placement: "inside",
+        guideMode: "grid-cell",
+        gridCell: { column: 1, row: 1 },
+        guideRect: { left: 200, top: 130, width: 140, height: 70 },
+      });
       await page.evaluate(() => {
         const nestedChild = document.querySelector(
           '[data-agent-native-node-id="nested-child"]',

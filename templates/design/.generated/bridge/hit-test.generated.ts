@@ -552,7 +552,7 @@ export const hitTestBridgeScript: string = `"use strict";
           }
           var parentAxis = parentFlowAxis(parent);
           var parentStyles = window.getComputedStyle(parent);
-          var reverseFlow = isReverseFlexFlow(parentStyles, parentAxis);
+          var reverseFlow = !isMultiTrackGrid(parent) && isReverseFlexFlow(parentStyles, parentAxis);
           var childRect = cursor.getBoundingClientRect();
           var childCenter = parentAxis === "x" ? childRect.left + childRect.width / 2 : childRect.top + childRect.height / 2;
           var childPointer = parentAxis === "x" ? clientX : clientY;

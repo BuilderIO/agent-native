@@ -814,7 +814,9 @@
         }
         var parentAxis = parentFlowAxis(parent);
         var parentStyles = window.getComputedStyle(parent);
-        var reverseFlow = isReverseFlexFlow(parentStyles, parentAxis);
+        var reverseFlow =
+          !isMultiTrackGrid(parent) &&
+          isReverseFlexFlow(parentStyles, parentAxis);
         var childRect = cursor.getBoundingClientRect();
         var childCenter =
           parentAxis === "x"
