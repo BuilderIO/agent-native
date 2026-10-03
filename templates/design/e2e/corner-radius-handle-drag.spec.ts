@@ -98,7 +98,7 @@ async function expectSelectedLayer(page: Page, sourceId: string) {
     .toMatchObject({ sourceId, tagName: "svg" });
 }
 
-async function setOverviewZoom(page: Page, zoom: 200) {
+async function setOverviewZoom(page: Page, zoom: number = 200) {
   const zoomButton = page
     .getByRole("button")
     .filter({ hasText: /^\s*\d+%\s*$/ })
