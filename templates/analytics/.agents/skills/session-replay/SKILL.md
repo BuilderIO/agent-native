@@ -247,7 +247,9 @@ agent answers about browser recordings in the Analytics template.
   with event friction, a share grants the recording, not its tenant's
   events: a recording shared from another tenant has no speed summary (null)
   and never matches a slow filter. A summary's `slowRequests` is null when the session made no
-  measured request. Bucket edges are positional, so changing them needs a new
+  measured request. A null summary is a session never measured: its row says
+  "Speed not measured", and a slow match or a range from before coverage
+  shows when speed coverage began, so it never reads as fast. Bucket edges are positional, so changing them needs a new
   `PERFORMANCE_HISTOGRAM_VERSION`.
 - Percentiles interpolate inside one bucket. Past the first bucket each edge
   is at most 28% above the last, so they are within about 28% of the exact

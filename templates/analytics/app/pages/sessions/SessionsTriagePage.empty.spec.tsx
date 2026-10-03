@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   pending: false,
   placeholder: false,
   coverage: undefined as string | null | undefined,
+  speedCoverage: undefined as string | null | undefined,
   recordings: [] as Record<string, unknown>[],
   rowFriction: {} as Record<string, unknown>,
   rowFrictionError: null as Error | null,
@@ -56,6 +57,9 @@ const mocks = vi.hoisted(() => ({
                   appCounts: [],
                   ...(mocks.coverage !== undefined
                     ? { frictionCoverageStartedAt: mocks.coverage }
+                    : {}),
+                  ...(mocks.speedCoverage !== undefined
+                    ? { performanceCoverageStartedAt: mocks.speedCoverage }
                     : {}),
                 },
             error: mocks.error,
@@ -109,7 +113,7 @@ vi.mock("@/hooks/use-replay-storage-status", () => ({
 }));
 
 import {
-  rangePredatesFrictionCoverage,
+  rangePredatesCoverage,
   SessionsTriagePage,
 } from "./SessionsTriagePage";
 
@@ -133,6 +137,7 @@ describe("Sessions empty states", () => {
     mocks.pending = false;
     mocks.placeholder = false;
     mocks.coverage = undefined;
+    mocks.speedCoverage = undefined;
     mocks.recordings = [];
     mocks.rowFriction = {};
     mocks.rowFrictionError = null;
@@ -631,16 +636,14 @@ describe("Sessions empty states", () => {
 
   it("flags a range that starts before friction coverage", () => {
     const coverage = "2026-09-20T00:00:00.000Z";
-    expect(rangePredatesFrictionCoverage(undefined, coverage)).toBe(true);
-    expect(
-      rangePredatesFrictionCoverage("2026-09-01T00:00:00.000Z", coverage),
-    ).toBe(true);
-    expect(
-      rangePredatesFrictionCoverage("2026-09-21T00:00:00.000Z", coverage),
-    ).toBe(false);
-    expect(
-      rangePredatesFrictionCoverage("2026-09-21T00:00:00.000Z", null),
-    ).toBe(true);
+    expect(rangePredatesCoverage(undefined, coverage)).toBe(true);
+    expect(rangePredatesCoverage("2026-09-01T00:00:00.000Z", coverage)).toBe(
+      true,
+    );
+    expect(rangePredatesCoverage("2026-09-21T00:00:00.000Z", coverage)).toBe(
+      false,
+    );
+    expect(rangePredatesCoverage("2026-09-21T00:00:00.000Z", null)).toBe(true);
   });
 
   it("normalizes an unsafe page before querying any large offset", async () => {
@@ -801,6 +804,50 @@ describe("Sessions empty states", () => {
     expect(container.textContent).toContain("LCP sessions.perfAtLeast");
     expect(container.textContent).toContain("sessions.speedIncomplete");
     expect(container.textContent).not.toContain("sessions.slowRequestCount");
+  });
+
+  it("says a session's speed was never measured rather than showing it as fast", async () => {
+    mocks.labEnabled = true;
+    mocks.total = 2;
+    mocks.recordings = [recording("r-unmeasured"), recording("r-fast")];
+    mocks.speed = {
+      "r-unmeasured": null,
+      "r-fast": {
+        ttfbMs: 120,
+        lcpMs: 900,
+        inpMs: 40,
+        cls: 0,
+        slowRequests: 0,
+        maxRequestMs: 300,
+        atLeast: [],
+        incomplete: false,
+      },
+    };
+    await renderSessions();
+
+    expect(
+      container.textContent?.split("sessions.speedNotMeasured"),
+    ).toHaveLength(2);
+  });
+
+  it("says when speed coverage began beside a slow match", async () => {
+    mocks.labEnabled = true;
+    mocks.speedCoverage = null;
+    await renderSessions("/sessions?slow=any");
+    expect(container.textContent).toContain("sessions.noSessions");
+    expect(container.textContent).toContain("sessions.speedCoverageStarting");
+
+    mocks.speedCoverage = "2026-09-20T00:00:00.000Z";
+    await renderSessions("/sessions?slow=any");
+    expect(container.textContent).toContain("sessions.speedCoverageSince");
+
+    // Matches from a range that starts before coverage say so above the list.
+    mocks.total = 1;
+    mocks.recordings = [recording("r1")];
+    await renderSessions("/sessions?slow=any&range=all");
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "sessions.speedCoverageSince",
+    );
   });
 
   function retryButtons() {

@@ -123,6 +123,8 @@ type Page = {
   appCounts: { app: string; count: number }[];
   /** Present when a friction filter or sort applied; null: part uncovered. */
   frictionCoverageStartedAt?: string | null;
+  /** Present when a speed filter applied; null: nothing measured yet. */
+  performanceCoverageStartedAt?: string | null;
 };
 
 const RANGES: Range[] = ["24h", "7d", "30d", "90d", "all"];
@@ -212,7 +214,7 @@ export function withSessionEventConditions(
  * True when part of the range predates friction coverage, so a friction
  * filter there can miss sessions that were never measured.
  */
-export function rangePredatesFrictionCoverage(
+export function rangePredatesCoverage(
   from: string | undefined,
   coverageStartedAt: string | null,
 ): boolean {
@@ -465,6 +467,15 @@ export function SessionsTriagePage() {
         ? t("sessions.frictionCoverageIncomplete")
         : t("sessions.frictionCoverageSince", {
             date: new Date(frictionCoverageStartedAt).toLocaleDateString(),
+          });
+  const speedCoverageStartedAt = data?.performanceCoverageStartedAt;
+  const speedCoverageNote =
+    speedCoverageStartedAt === undefined
+      ? null
+      : speedCoverageStartedAt === null
+        ? t("sessions.speedCoverageStarting")
+        : t("sessions.speedCoverageSince", {
+            date: new Date(speedCoverageStartedAt).toLocaleDateString(),
           });
   const total = data?.total ?? 0;
   // Speed hints load beside the list, keyed on its rows, so turning the Lab
@@ -958,12 +969,16 @@ export function SessionsTriagePage() {
       ) : null}
       {frictionCoverageStartedAt !== undefined &&
       recordings.length > 0 &&
-      rangePredatesFrictionCoverage(
-        dateBounds.from,
-        frictionCoverageStartedAt,
-      ) ? (
+      rangePredatesCoverage(dateBounds.from, frictionCoverageStartedAt) ? (
         <p className="text-xs text-muted-foreground" role="status">
           {frictionCoverageNote}
+        </p>
+      ) : null}
+      {speedCoverageStartedAt !== undefined &&
+      recordings.length > 0 &&
+      rangePredatesCoverage(dateBounds.from, speedCoverageStartedAt) ? (
+        <p className="text-xs text-muted-foreground" role="status">
+          {speedCoverageNote}
         </p>
       ) : null}
       <Card>
@@ -1048,6 +1063,9 @@ export function SessionsTriagePage() {
                   <p>{t("sessions.noSessions")}</p>
                   {frictionCoverageNote ? (
                     <p className="mt-1 text-xs">{frictionCoverageNote}</p>
+                  ) : null}
+                  {speedCoverageNote ? (
+                    <p className="mt-1 text-xs">{speedCoverageNote}</p>
                   ) : null}
                   {showEmptySessionRecovery ? (
                     <Button
@@ -1206,12 +1224,20 @@ const POOR_VITAL_HINTS = [
   ["ttfb", "ttfbMs", "TTFB"],
 ] as const;
 
+/** Null is a session speed never measured, which must not read as fast. */
 function PerformanceHints({
   performance,
 }: {
   performance: SessionPerformanceSummary | null | undefined;
 }) {
   const t = useT();
+  if (performance === null) {
+    return (
+      <span className="text-muted-foreground">
+        {t("sessions.speedNotMeasured")}
+      </span>
+    );
+  }
   if (!performance) return null;
   const poor = POOR_VITAL_HINTS.flatMap(([metric, key, name]) => {
     const value = performance[key];

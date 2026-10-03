@@ -1392,6 +1392,7 @@ export default {
     slowRequestCount: "{{count}} طلبات بطيئة",
     slowRequestCountSingular: "{{count}} طلب بطيء",
     speedIncomplete: "بيانات السرعة غير مكتملة",
+    speedNotMeasured: "لم تُقَس السرعة",
     speedUnavailable: "تعذّر تحميل بيانات السرعة.",
     markerPageVitals: "مؤشرات الصفحة",
     markerSlowRequest: "طلب بطيء",
