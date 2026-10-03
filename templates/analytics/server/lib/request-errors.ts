@@ -19,6 +19,39 @@ export function parseJsonBody(raw: string): unknown {
   }
 }
 
+const NUL = /\u0000/g;
+const LONE_SURROGATE =
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
+/**
+ * Postgres rejects U+0000 in text and jsonb, and a lone surrogate in jsonb;
+ * stored JSON is read back with ::jsonb, and row ids encode values with
+ * encodeURIComponent, which throws on a lone surrogate. One such character
+ * would fail its write on every retry, or every query over it later, so an
+ * ingest body has every string and key cleaned once, as it is parsed.
+ */
+export function parseIngestBody(raw: unknown): unknown {
+  return postgresSafe(
+    typeof raw === "string" && raw.trim() ? parseJsonBody(raw) : raw,
+  );
+}
+
+function postgresSafe(value: unknown): unknown {
+  if (typeof value === "string") {
+    return value.replace(NUL, "").replace(LONE_SURROGATE, "�");
+  }
+  if (Array.isArray(value)) return value.map(postgresSafe);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        postgresSafe(key),
+        postgresSafe(entry),
+      ]),
+    );
+  }
+  return value;
+}
+
 export function errorReply(
   error: unknown,
   logPrefix: string,

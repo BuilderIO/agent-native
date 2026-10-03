@@ -50,7 +50,7 @@ import {
   touchPublicKeyLastUsedAt,
 } from "./first-party-analytics.js";
 import { MAX_SESSION_ID_LENGTH } from "./indexed-text.js";
-import { parseJsonBody } from "./request-errors.js";
+import { parseIngestBody } from "./request-errors.js";
 import {
   pruneSessionEventIndex,
   sessionEventFilterConditions,
@@ -999,9 +999,7 @@ function deriveReplaySignals({
 export function parseSessionReplayIngestPayload(
   raw: unknown,
 ): ParsedSessionReplayIngest {
-  const body = replayRecord(
-    typeof raw === "string" && raw.trim() ? parseJsonBody(raw) : raw,
-  );
+  const body = replayRecord(parseIngestBody(raw));
   const publicKey =
     replayString(body.publicKey) ||
     replayString(body.writeKey) ||

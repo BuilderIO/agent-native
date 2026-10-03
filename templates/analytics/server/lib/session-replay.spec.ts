@@ -395,6 +395,39 @@ describe("session replay ingest parsing", () => {
     });
   });
 
+  it("drops NUL and lone surrogates before deriving fields and chunks", () => {
+    const parsed = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording\u0000_1",
+      sessionId: "session\u0000_1",
+      userId: "dev@example.com\uD83D",
+      sequence: 0,
+      events: [
+        {
+          type: 4,
+          timestamp: 1,
+          data: {
+            href: "https://example.com/a\u0000b",
+            "no\u0000te": "x\uDE00",
+          },
+        },
+      ],
+    });
+
+    expect(parsed).toMatchObject({
+      clientRecordingId: "recording_1",
+      sessionId: "session_1",
+      userId: "dev@example.com�",
+    });
+    expect(JSON.parse(parsed.chunks[0].inlineData ?? "")).toEqual([
+      {
+        type: 4,
+        timestamp: 1,
+        data: { href: "https://example.com/ab", note: "x�" },
+      },
+    ]);
+  });
+
   it("derives error and network-error counts from tagged diagnostics events", () => {
     const parsed = parseSessionReplayIngestPayload({
       publicKey: "anpk_test",
