@@ -108,6 +108,23 @@ struct ActiveRewindClip {
     shared_sink: Option<native_screen::SharedClipSink>,
 }
 
+struct TemporaryAudioLeaseGuard<'a> {
+    app: &'a AppHandle,
+    lease: Option<screen_memory::TemporaryAudioLease>,
+}
+
+impl TemporaryAudioLeaseGuard<'_> {
+    fn take(&mut self) -> Option<screen_memory::TemporaryAudioLease> {
+        self.lease.take()
+    }
+}
+
+impl Drop for TemporaryAudioLeaseGuard<'_> {
+    fn drop(&mut self) {
+        release_temporary_audio(self.app, self.lease.take());
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum RewindClipCompatibility {
@@ -186,24 +203,27 @@ pub(crate) fn rewind_clip_prepare(
             "Screen Memory is unavailable or not recording",
         ));
     }
+    let output = artifact_path(&app, &artifact_label)?;
     native_screen::reset_native_upload_completion_state();
     let temporary_audio_owner = format!("{REWIND_CLIP_AUDIO_OWNER}:{startup_id}");
-    let temporary_audio = if include_mic || include_system_audio {
-        screen_memory::acquire_temporary_audio_consumer(
-            &app,
-            &temporary_audio_owner,
-            CaptureConsumer::Clip,
-            include_mic,
-            include_system_audio,
-        )?
-    } else {
-        None
+    let mut temporary_audio = TemporaryAudioLeaseGuard {
+        app: &app,
+        lease: if include_mic || include_system_audio {
+            screen_memory::acquire_temporary_audio_consumer(
+                &app,
+                &temporary_audio_owner,
+                CaptureConsumer::Clip,
+                include_mic,
+                include_system_audio,
+            )?
+        } else {
+            None
+        },
     };
-    if (include_mic || include_system_audio) && temporary_audio.is_none() {
+    if (include_mic || include_system_audio) && temporary_audio.lease.is_none() {
         return Err(not_compatible("Screen Memory has no active audio producer"));
     }
     let sources = screen_memory::rewind_clip_sources(&app);
-    let output = artifact_path(&app, &artifact_label)?;
     #[cfg(target_os = "macos")]
     let recovery_intent = (server_url.clone(), recording_id.clone());
     #[cfg(target_os = "macos")]
@@ -221,10 +241,7 @@ pub(crate) fn rewind_clip_prepare(
         },
     ) {
         Ok(sink) => sink,
-        Err(error) => {
-            release_temporary_audio(&app, temporary_audio);
-            return Err(error);
-        }
+        Err(error) => return Err(error),
     };
     #[cfg(not(target_os = "macos"))]
     {
@@ -236,7 +253,6 @@ pub(crate) fn rewind_clip_prepare(
             cookie,
             has_camera,
         );
-        release_temporary_audio(&app, temporary_audio);
         return Err(not_compatible("shared Rewind Clip sinks require macOS"));
     }
     #[cfg(target_os = "macos")]
@@ -258,7 +274,6 @@ pub(crate) fn rewind_clip_prepare(
                 crate::config::feature_config(&app).voice_cleanup_enabled && include_mic,
             ) {
                 shared_sink.cancel();
-                release_temporary_audio(&app, temporary_audio);
                 return Err(error);
             }
         }
@@ -280,7 +295,6 @@ pub(crate) fn rewind_clip_prepare(
         drop(active);
         #[cfg(target_os = "macos")]
         shared_sink.cancel();
-        release_temporary_audio(&app, temporary_audio);
         return Err(if was_cancelled {
             "Rewind Clip startup was cancelled".into()
         } else {
@@ -292,7 +306,6 @@ pub(crate) fn rewind_clip_prepare(
         drop(active);
         #[cfg(target_os = "macos")]
         shared_sink.cancel();
-        release_temporary_audio(&app, temporary_audio);
         return Err("a Rewind-derived clip is already prepared or active".into());
     }
     *active = Some(ActiveRewindClip {
@@ -306,7 +319,7 @@ pub(crate) fn rewind_clip_prepare(
         retrospective_seconds: 0,
         intervals: Vec::new(),
         paused: false,
-        temporary_audio,
+        temporary_audio: temporary_audio.take(),
         #[cfg(target_os = "macos")]
         shared_sink: Some(shared_sink),
     });
