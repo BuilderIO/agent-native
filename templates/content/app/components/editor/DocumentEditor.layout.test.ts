@@ -2354,8 +2354,9 @@ describe("document editor layout", () => {
     );
 
     expect(source).toContain(
-      "relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4",
+      "relative z-10 flex h-12 shrink-0 items-center bg-background @container/toolbar",
     );
+    expect(source).toContain('shareInMenu ? "gap-1 px-2" : "gap-3 px-4"');
     expect(source).toContain("ToolbarBreadcrumb");
     expect(source).toContain("disabled={menuItem.id === currentDocumentId}");
     expect(source).toContain("formatEditedLabel");
@@ -2364,7 +2365,7 @@ describe("document editor layout", () => {
     expect(source).toContain("editor.toolbar.shareAgents");
     expect(source).toContain("editor.toolbar.info");
     expect(source).toContain("comments.title");
-    expect(source).toContain("showCommentsControl ?");
+    expect(source).toContain("showCommentsControl && !commentsInMenu ?");
     expect(editorSource).toContain(
       "commentsHistoryOpen={showCommentsHistoryDrawer}",
     );
@@ -3253,10 +3254,36 @@ describe("document editor layout", () => {
       ),
     ).toEqual(["Personal", "Page 1"]);
     expect(titles(deep, 200)).toEqual(["…", "Draft"]);
-    expect(titles(deep, 120)).toEqual(["Draft"]);
     expect(titles(shallow, 216)).toEqual(["Personal", "Draft"]);
     expect(titles(shallow, 200)).toEqual(["…", "Draft"]);
-    expect(titles(shallow, 120)).toEqual(["Draft"]);
+  });
+
+  it("keeps every ancestor in the breadcrumb menu at the narrowest width", () => {
+    const deep = [
+      { id: "files", title: "Personal" },
+      { id: "one", title: "Page 1" },
+      { id: "two", title: "Page 2" },
+      { id: "draft", title: "Draft" },
+    ];
+    const menu = (items: typeof deep, width: number) =>
+      compactToolbarBreadcrumbItems(items, width).map((item) => ({
+        title: item.title,
+        menu: item.menuItems?.map((menuItem) => menuItem.id),
+      }));
+
+    for (const width of [0, 60, 120]) {
+      expect(menu(deep, width)).toEqual([
+        { title: "…", menu: ["files", "one", "two"] },
+        { title: "Draft", menu: undefined },
+      ]);
+      expect(menu([deep[0], deep[3]], width)).toEqual([
+        { title: "…", menu: ["files"] },
+        { title: "Draft", menu: undefined },
+      ]);
+      expect(menu([deep[3]], width)).toEqual([
+        { title: "Draft", menu: undefined },
+      ]);
+    }
   });
 
   it("folds the same at a breadcrumb's fold width as at its measured width", () => {
