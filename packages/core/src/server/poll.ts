@@ -853,6 +853,8 @@ export class AppSyncState {
     ) {
       return "visible";
     }
+    if (event.visibility === "public") return "visible";
+
     if (event.resourceType && event.resourceId) {
       const key = accessCacheKey(
         normalizedUserEmail,
@@ -879,7 +881,6 @@ export class AppSyncState {
     }
 
     if (event.orgId && orgId && event.orgId === orgId) return "visible";
-    if (event.visibility === "public") return "visible";
 
     return "hidden";
   }

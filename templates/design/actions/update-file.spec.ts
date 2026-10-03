@@ -299,7 +299,11 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       // expectedVersionHash intentionally omitted.
     } as never);
 
-    expect(result).toEqual({ id: FILE_ID, updated: true });
+    expect(result).toEqual({
+      id: FILE_ID,
+      designId: "design_1",
+      updated: true,
+    });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);
     expect(await hasCollabState(FILE_ID)).toBe(true);
   });
@@ -360,6 +364,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
 
     expect(result).toEqual({
       id: FILE_ID,
+      designId: "design_1",
       updated: true,
       skippedStaleMirror: true,
     });
@@ -403,7 +408,11 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       expectedVersionHash: matchingHash,
     } as never);
 
-    expect(result).toEqual({ id: FILE_ID, updated: true });
+    expect(result).toEqual({
+      id: FILE_ID,
+      designId: "design_1",
+      updated: true,
+    });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);
     const liveText = getOrCreateDoc(FILE_ID).getText("content").toString();
     expect(liveText).not.toBe(next);
@@ -425,6 +434,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
 
     expect(result).toEqual({
       id: FILE_ID,
+      designId: "design_1",
       updated: true,
       skippedStaleMirror: true,
     });
@@ -438,7 +448,11 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       filename: "renamed-only.html",
     } as never);
 
-    expect(result).toEqual({ id: FILE_ID, updated: true });
+    expect(result).toEqual({
+      id: FILE_ID,
+      designId: "design_1",
+      updated: true,
+    });
     expect(designFilesStore.rows.get(FILE_ID)!.filename).toBe(
       "renamed-only.html",
     );
@@ -474,7 +488,11 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       expectedVersionHash: staleHash,
     } as never);
 
-    expect(result).toEqual({ id: FILE_ID, updated: true });
+    expect(result).toEqual({
+      id: FILE_ID,
+      designId: "design_1",
+      updated: true,
+    });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(next);
   });
 
@@ -498,6 +516,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
 
     expect(result).toEqual({
       id: FILE_ID,
+      designId: "design_1",
       updated: true,
       skippedStaleMirror: true,
     });
@@ -531,7 +550,11 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       syncCollab: false,
       expectedVersionHash: sourceContentHash(editOne),
     } as never);
-    expect(result).toEqual({ id: FILE_ID, updated: true });
+    expect(result).toEqual({
+      id: FILE_ID,
+      designId: "design_1",
+      updated: true,
+    });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(editTwo);
 
     for (const update of delayed) Y.applyUpdate(server, update, "remote");
@@ -556,6 +579,7 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
 
     expect(result).toEqual({
       id: FILE_ID,
+      designId: "design_1",
       updated: true,
       skippedStaleMirror: true,
     });
@@ -583,7 +607,11 @@ describe("update-file: expectedVersionHash / syncCollab regression baseline", ()
       expectedVersionHash: sourceContentHash(mirrorState),
     } as never);
 
-    expect(result).toEqual({ id: FILE_ID, updated: true });
+    expect(result).toEqual({
+      id: FILE_ID,
+      designId: "design_1",
+      updated: true,
+    });
     expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(callerContent);
 
     expect(getOrCreateDoc(FILE_ID).getText("content").toString()).toBe(
