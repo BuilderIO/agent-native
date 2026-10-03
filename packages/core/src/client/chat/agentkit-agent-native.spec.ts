@@ -8,7 +8,9 @@ import {
   mergeThreadDataForClientSave,
   upsertUserMessage,
 } from "../../agent/thread-data-builder.js";
+import { agentTroubleCauseForCode } from "../../shared/analytics-events.js";
 import { createAgentNativeAgentKitTransport } from "./agentkit-agent-native.js";
+import type { RunOutcomeReport } from "./run-outcome.js";
 import {
   createAgentNativeChatRuntime,
   createHttpAgentChatRuntime,
@@ -1206,6 +1208,67 @@ describe("createAgentNativeAgentKitTransport", () => {
         },
       },
     ]);
+    await transport.dispose();
+  });
+
+  it("reports a turn refused at its start under the id the server recorded", async () => {
+    const sentTurnIds: string[] = [];
+    let respond: () => Response | Promise<Response> = () =>
+      json(
+        {
+          statusCode: 403,
+          statusMessage:
+            "Connect Builder AI or a provider API key before chatting.",
+          data: { code: "AGENT_CHAT_AI_SETUP_REQUIRED" },
+        },
+        403,
+      );
+    const fetcher = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      sentTurnIds.push(JSON.parse(String(init?.body)).turnId);
+      return respond();
+    });
+    const reports: RunOutcomeReport[] = [];
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+      adapter: { onRunOutcome: (report) => reports.push(report) },
+    });
+    const start = () =>
+      transport.startRun({
+        threadId: "thread-1",
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Hello" }],
+          },
+        ],
+      });
+
+    await expect(start()).rejects.toMatchObject({
+      code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+      status: 403,
+    });
+    expect(reports).toEqual([
+      expect.objectContaining({
+        runId: sentTurnIds[0],
+        threadId: "thread-1",
+        outcome: "failed",
+        code: "AGENT_CHAT_AI_SETUP_REQUIRED",
+        terminalSource: "local",
+      }),
+    ]);
+    expect(agentTroubleCauseForCode(reports[0]!.code)).toBe(
+      "no_model_connected",
+    );
+
+    respond = () => {
+      throw new DOMException("signal is aborted without reason", "AbortError");
+    };
+    await expect(start()).rejects.toMatchObject({ name: "AbortError" });
+    respond = () => json({ code: "run_slot_busy" }, 409);
+    await expect(start()).rejects.toMatchObject({ status: 409 });
+    expect(reports).toHaveLength(1);
     await transport.dispose();
   });
 

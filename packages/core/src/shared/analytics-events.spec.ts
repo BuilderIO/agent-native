@@ -20,6 +20,9 @@ describe("agent trouble causes", () => {
     expect(agentTroubleCauseForCode("missing_api_key")).toBe(
       "no_model_connected",
     );
+    expect(agentTroubleCauseForCode("AGENT_CHAT_AI_SETUP_REQUIRED")).toBe(
+      "no_model_connected",
+    );
     for (const code of [
       "rate_limited",
       "rate_limit_exceeded",
@@ -94,6 +97,28 @@ describe("agent trouble causes", () => {
     ).toBe("fetch to <host> failed");
     expect(normalizeAgentTroubleMessage("Failed. Retry, e.g. later")).toBe(
       "Failed. Retry, e.g. later",
+    );
+  });
+
+  it("shows a cause once when it only repeats its message", () => {
+    expect(
+      normalizeAgentTroubleMessage(
+        "qa stub returned 500 (cause: qa stub returned 500)",
+      ),
+    ).toBe("qa stub returned <n>");
+    expect(
+      normalizeAgentTroubleMessage(
+        "Failed after 3 attempts. Last error: model failed (cause: model failed <- socket hang up)",
+      ),
+    ).toBe(
+      "Failed after <n> attempts. Last error: model failed (cause: socket hang up)",
+    );
+    expect(
+      normalizeAgentTroubleMessage(
+        "Connection error. (cause: fetch failed <- UND_ERR_SOCKET other side closed)",
+      ),
+    ).toBe(
+      "Connection error. (cause: fetch failed <- UND_ERR_SOCKET other side closed)",
     );
   });
 

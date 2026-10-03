@@ -354,7 +354,11 @@ export function agentTroubleCauseForCode(
 ): AgentTroubleCause | null {
   const normalized = code?.trim().toLowerCase();
   if (!normalized) return null;
-  if (normalized === "missing_credentials" || normalized === "missing_api_key")
+  if (
+    normalized === "missing_credentials" ||
+    normalized === "missing_api_key" ||
+    normalized === "agent_chat_ai_setup_required"
+  )
     return "no_model_connected";
   if (normalized === "http_429" || normalized.includes("rate_limit"))
     return "rate_limit";
@@ -387,6 +391,32 @@ export const AGENT_SIGNALS_VERSION = 1;
 const MAX_AGENT_TROUBLE_MESSAGE_INPUT = 1_000;
 export const MAX_AGENT_TROUBLE_MESSAGE_LENGTH = 120;
 
+const CAUSE_CHAIN_START = " (cause: ";
+
+/**
+ * A provider error often wraps a cause with its own message, and the engine
+ * describes it as `message (cause: a <- b)`. A link whose shape is already
+ * shown adds nothing, so it is dropped.
+ */
+function withoutRepeatedCauses(message: string): string {
+  const start = message.indexOf(CAUSE_CHAIN_START);
+  if (start < 0) return message;
+  const head = message.slice(0, start);
+  const shown = [head];
+  for (const link of message
+    .slice(start + CAUSE_CHAIN_START.length)
+    .replace(/\)$/, "")
+    .split(" <- ")) {
+    const text = link.trim();
+    if (text && !shown.some((earlier) => earlier.includes(text))) {
+      shown.push(text);
+    }
+  }
+  return shown.length > 1
+    ? `${head}${CAUSE_CHAIN_START}${shown.slice(1).join(" <- ")})`
+    : head;
+}
+
 /**
  * An error message reduced to its shape, so the same failure groups together:
  * quoted text, emails, URLs, file paths, hostnames (any dotted name), and
@@ -397,7 +427,7 @@ export function normalizeAgentTroubleMessage(
   message: string | null | undefined,
 ): string {
   if (!message) return "";
-  const normalized = message
+  const shape = message
     .slice(0, MAX_AGENT_TROUBLE_MESSAGE_INPUT)
     .replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, "<url>")
     .replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, "<email>")
@@ -414,7 +444,8 @@ export function normalizeAgentTroubleMessage(
     )
     .replace(/[\w-]*\d[\w-]*/g, "<n>")
     .replace(/\s+/g, " ")
-    .trim()
+    .trim();
+  const normalized = withoutRepeatedCauses(shape)
     .slice(0, MAX_AGENT_TROUBLE_MESSAGE_LENGTH)
     .trim();
   return /[\uD800-\uDBFF]$/.test(normalized)
