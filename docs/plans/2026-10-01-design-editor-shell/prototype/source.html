@@ -446,7 +446,32 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .rv-ln.del { background: var(--diff-del-bg); } .rv-ln.del .sg { color: var(--diff-del); }
 .rv-ln.add mark { background: var(--diff-add-word); color: inherit; border-radius: 2px; }
 .rv-ln.del mark { background: var(--diff-del-word); color: inherit; border-radius: 2px; }
-.rv-ln .tg { color: var(--syn-tag); } .rv-ln .at { color: var(--syn-attr); } .rv-ln .st { color: var(--syn-str); }
+.rv-ln .tg, .cv-ln .tg { color: var(--syn-tag); } .rv-ln .at, .cv-ln .at { color: var(--syn-attr); } .rv-ln .st, .cv-ln .st { color: var(--syn-str); }
+/* Code mode: the code workbench (code-workbench/) as a third mode. Files in the left panel on the Layers row,
+   then tabs, breadcrumbs, the editor, and a status bar where the canvas was. */
+.code-view { position: absolute; inset: 0; display: none; flex-direction: column; background: var(--bg); }
+.app.code-mode .code-view { display: flex; }
+.app.code-mode #canvas-wrap > :not(.code-view) { display: none !important; }
+.cv-tabs { display: flex; height: 40px; flex: none; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+.cv-tab { display: flex; align-items: center; gap: 6px; padding: 0 4px 0 12px; font-size: 12px; color: var(--muted-fg); border-right: 1px solid var(--border); white-space: nowrap; cursor: default; }
+.cv-tab svg.i { width: 14px; height: 14px; }
+.cv-tab[aria-selected="true"] { color: var(--fg); box-shadow: inset 0 -2px 0 var(--fg); }
+.cv-tab .x { width: 20px; height: 20px; border-radius: 4px; display: grid; place-items: center; color: var(--muted-fg); visibility: hidden; }
+.cv-tab:hover .x, .cv-tab[aria-selected="true"] .x { visibility: visible; }
+.cv-tab .x:hover { background: var(--hover); color: var(--fg); }
+.cv-crumbs { height: 24px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 12px; font-size: 11px; color: var(--muted-fg); }
+.cv-crumbs svg.i { width: 12px; height: 12px; }
+.cv-code { flex: 1; overflow: auto; font: 12px/20px var(--mono); padding-bottom: 24px; }
+.cv-ln { display: grid; grid-template-columns: 48px 3px 13px max-content; white-space: pre; min-width: 100%; }
+.cv-ln .no { color: var(--muted-fg); text-align: right; padding-right: 12px; user-select: none; }
+.cv-ln.unsaved .mk { background: var(--warn); }
+.cv-ln.flash { background: var(--accent-row); }
+.cv-status { height: 24px; flex: none; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 16px; padding: 0 12px; font-size: 11px; color: var(--muted-fg); }
+.cv-status .grow { flex: 1; }
+.cv-status button { display: inline-flex; align-items: center; gap: 6px; color: inherit; }
+.cv-status button:hover { color: var(--fg); }
+.cv-empty { flex: 1; display: grid; place-items: center; color: var(--muted-fg); font-size: 12px; }
+.topbar #goto-file .k { color: var(--muted-fg); font-size: 11px; flex: none; }
 .inp.sel .v { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .src-offline { position: absolute; left: 50%; top: 24px; translate: -50% 0; z-index: 3; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 4px 0 12px; border-radius: 8px; background: var(--popover); box-shadow: var(--shadow); font-size: 12px; white-space: nowrap; }
 .src-offline button { height: 24px; padding: 0 8px; border-radius: 6px; background: var(--muted); font-weight: 500; }
@@ -1027,6 +1052,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
     </div></div>
     </div>
     <div class="dock" id="dock" role="toolbar" aria-label="Tools"></div>
+    <div class="code-view" id="code-view"></div>
   </main>
 
   <aside class="insp" id="insp" aria-label="Inspector"></aside>
@@ -1287,8 +1313,7 @@ function syncDialog() {
     const bar = ({ a, d }) => { const t = a + d, ga = Math.round(5 * a / t), gd = Math.min(5 - ga, Math.round(5 * d / t)); return `<span class="rv-bar">${"<i class=a></i>".repeat(ga)}${"<i class=d></i>".repeat(gd)}${"<i></i>".repeat(5 - ga - gd)}</span>`; };
     // The selected file's diff, like a PR's file view: one line-number column, gaps between hunks, light JSX
     // coloring, and the changed words marked inside a changed line.
-    const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const syn = t => esc(t).replace(/(&lt;\/?)([\w.]+)|(\s)([\w-]+)=|("[^"]*")/g, (m, lt, tag, sp, at, str) => lt ? `${lt}<span class="tg">${tag}</span>` : at ? `${sp}<span class="at">${at}</span>=` : `<span class="st">${str}</span>`);
+    const syn = codeSyn;
     const words = (a, b) => { let i = 0, j = 0; while (i < a.length && a[i] === b[i]) i++; while (j < a.length - i && j < b.length - i && a[a.length - 1 - j] === b[b.length - 1 - j]) j++; return [i, j]; };
     const lineHTML = (ls, k) => {
       const [g, , n, t] = ls[k], pair = g === "-" ? ls[k + 1] : g === "+" ? ls[k - 1] : null;
@@ -1321,7 +1346,7 @@ function syncDialog() {
       const ra = e.target.closest("[data-reapply]"); if (ra) { ra.disabled = true; ra.textContent = "Reapplying…"; return reapplyChanges(ra.dataset.reapply); }
       const cb = e.target.closest("[data-rv-skip]"); if (cb) { const k = cb.dataset.rvSkip; RV.skip.has(k) ? RV.skip.delete(k) : RV.skip.add(k); return paint(); }
       if (e.target.closest("[data-rv-all]")) { const open = Object.keys(SYNC.pending).filter(p => !SYNC.conflict.has(p)); RV.skip = open.every(p => !RV.skip.has(p)) ? new Set(open) : new Set(); return paint(); }
-      const vf = e.target.closest("[data-view-file]"); if (vf) return toast(`Opens ${vf.dataset.viewFile} in the code view`);
+      const vf = e.target.closest("[data-view-file]"); if (vf) { const route = Object.keys(DIFFS).find(k => DIFFS[k].file === vf.dataset.viewFile); close(); S.mode = "code"; return openFile(`app:${vf.dataset.viewFile}`, firstChange(route)); }
       const mc = e.target.closest("[data-mention]"); if (mc) { close(); setPanel("agents"); return toast(`Added ${mc.dataset.mention} to the chat`); }
       const f = e.target.closest("[data-rv]"); if (f) { RV.sel = f.dataset.rv; paint(); }
     });
@@ -1409,6 +1434,7 @@ function rowHTML({ depth = 0, disc = null, icon, label, id, selected, cls = "", 
 }
 function renderTree() {
   const t = $("#tree");
+  if (S.mode === "code") return renderFiles(t);
   let h = `<div class="sec-head"><button class="sec-toggle" data-sec="screens" aria-expanded="${S.screens}"><span class="chev">${ic("chevron-down", "s12")}</span>Screens</button><div class="sec-actions"><button class="icon-btn sm" title="Add screen" data-add-screen aria-haspopup="menu">${ic("plus", "s12")}</button></div></div>`;
   if (S.screens) {
     h += `<div class="sec-block" role="tree" aria-label="Screens">`;
@@ -1459,6 +1485,7 @@ function renderTopbar() {
       <div class="seg" role="group" aria-label="Mode">
         <button data-mode="interact" aria-pressed="${interact}" title="Interact">Interact</button>
         <button data-mode="design" aria-pressed="${S.mode === "design"}" title="Design">Design</button>
+        <button data-mode="code" aria-pressed="${S.mode === "code"}" title="Code">Code</button>
         ${S.labs ? `<button data-mode="annotate" aria-pressed="${S.mode === "annotate"}" title="Annotate (Labs)">Annotate</button>` : ""}
       </div>
       ${interact ? `<span class="tb-zone tb-left-extra"><button class="select" id="device-btn" aria-haspopup="menu" title="${S.device}"><span class="nar">${ic(DEVICES.find(d => d.name === S.device)?.icon || "device-desktop")}</span><span class="v">${S.device}</span>${ic("chevron-down", "chev")}</button>
@@ -1468,13 +1495,14 @@ function renderTopbar() {
       ${interact ? `<span class="nav-btns"><button class="icon-btn" id="nav-back" title="Back" ${S.hIndex === 0 ? "disabled" : ""}>${ic("arrow-left")}</button><button class="icon-btn" id="nav-fwd" title="Forward" ${S.hIndex >= S.history.length - 1 ? "disabled" : ""}>${ic("arrow-right")}</button></span>
       <button class="select route" id="route-btn" aria-haspopup="menu" title="Go to a route">${localApp() ? sdot() : ic("circle-dashed")}<span class="v">${r.path}</span>${ic("chevron-down", "chev")}</button>
       <span class="nav-btns"><button class="icon-btn" id="nav-reload" title="Reload">${ic("refresh")}</button></span>`
+      : S.mode === "code" ? `<button class="select route" id="goto-file" aria-haspopup="menu" title="Go to file (⌘P)">${ic("search")}<span class="v">Go to file…</span><span class="k">⌘P</span></button>`
       : urlScreen() && S.route !== "*" ? `<button class="select route" data-route-menu aria-haspopup="menu" title="${srcTip()}">${sdot()}<span class="v">${S.route}</span>${ic("chevron-down", "chev")}</button>
       <span class="nav-btns"><button class="icon-btn" id="screen-reload" title="${srcUp() ? "Reload screen" : "Retry connection"}">${ic("refresh")}</button><button class="icon-btn" id="screen-open" title="Open in browser (${SRC.host})" ${srcUp() ? "" : "disabled"}>${ic("external-link")}</button></span>
       ${unsaved() ? `<button class="select" id="unsaved-btn" aria-haspopup="dialog" title="${changes(unsaved())} aren't in your code yet">${unsaved()} unsaved</button>` : ""}` : ""}
     </div>
     <div class="tb-zone tb-right">
       ${S.scenario === "rewrite" ? `<button class="btn secondary" style="height:28px;font-size:13px;border-radius:8px" id="review-changes" aria-haspopup="menu">${ic("stack-2", "s14")}Review changes · 2</button>` : ""}
-      <button class="select" id="zoom-btn" aria-haspopup="menu" title="Zoom (same in both modes)"><span class="v">${S.zoom}%</span>${ic("chevron-down", "chev")}</button>
+      ${S.mode === "code" ? "" : `<button class="select" id="zoom-btn" aria-haspopup="menu" title="Zoom (same in both modes)"><span class="v">${S.zoom}%</span>${ic("chevron-down", "chev")}</button>`}
     </div>
     <div class="tb-insp">
       <span class="avatars" title="Shawn, Vee, and Ana are here"><span style="background:#7c6cf2">S</span><span style="background:#e0864a">V</span><span style="background:#3aa17e">A</span></span>
@@ -1514,6 +1542,7 @@ const PICK = {};
 const variantOf = t => variants(t)[Math.min(PICK[t.id] || 0, variants(t).length - 1)];
 function renderDock() {
   queueMicrotask(() => renderInspector());
+  if (S.mode === "code") { $("#dock").innerHTML = ""; return; }
   const tools = TOOLS[S.mode];
   if (!tools.some(t => t.id === S.tool && !t.agent)) S.tool = tools[0].id;
   $("#dock").innerHTML = tools.map(t => {
@@ -1905,10 +1934,11 @@ function toast(t) {
 /* ───────── behavior ───────── */
 function render() {
   app.classList.toggle("design", S.mode === "design");
-  app.classList.toggle("interact", S.mode !== "design");
+  app.classList.toggle("interact", S.mode !== "design" && S.mode !== "code");
+  app.classList.toggle("code-mode", S.mode === "code");
   app.classList.toggle("show-spec", S.grid);
   $("#spec-grid-btn").setAttribute("aria-pressed", S.grid);
-  renderTree(); renderTopbar(); renderDock(); renderPage(); applyScheme(); renderInspector(); renderAgents(); renderComments(); app.classList.toggle("comment-tool", S.tool === "comment"); requestAnimationFrame(renderPins);
+  renderTree(); renderTopbar(); renderDock(); renderPage(); renderCode(); applyScheme(); renderInspector(); renderAgents(); renderComments(); app.classList.toggle("comment-tool", S.tool === "comment"); requestAnimationFrame(renderPins);
 }
 // aria-expanded follows whichever control opened or closed the panel.
 new MutationObserver(() => document.querySelectorAll(".rail-item[data-panel]").forEach(b => b.setAttribute("aria-expanded", b.dataset.panel === S.panel && !app.classList.contains("no-panel")))).observe(app, { attributes: true, attributeFilter: ["class"] });
@@ -2181,7 +2211,7 @@ document.addEventListener("keydown", e => {
   if (e.shiftKey && k === "s") { startSkill("Debug"); return; }
   if (!e.shiftKey && k === "s") { startSkill("Polish"); return; }
   if (e.shiftKey && k === "c") { S.showPins = S.showPins === false; renderPins(); toast(S.showPins === false ? "Comments hidden" : "Comments shown"); return; }
-  for (const t of TOOLS[S.mode]) {
+  for (const t of TOOLS[S.mode] || []) {
     if (t.action) continue;
     if (t.agent) continue;
     const vs = variants(t);
@@ -3077,6 +3107,234 @@ function appDialog() {
     });
   });
 }
+
+/* ───────── code mode (code-workbench/: ExplorerView, EditorTabs, Breadcrumbs, MonacoHost, StatusBar, QuickInput) ───────── */
+// Two workspace roots, as create-providers.ts builds them: the design's own files, and the connected app's repo.
+const codeEsc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const codeSyn = t => codeEsc(t).replace(/(&lt;\/?)([\w.]+)|(\s)([\w-]+)=|("[^"]*")/g, (m, lt, tag, sp, at, str) => lt ? `${lt}<span class="tg">${tag}</span>` : at ? `${sp}<span class="at">${at}</span>=` : `<span class="st">${str}</span>`);
+const L = s => s.replace(/^\n/, "").split("\n");
+const CODE_SRC = {
+  "app:app/routes/_index.tsx": L(`
+import { Button } from "~/components/ui/Button";
+import { Features } from "~/components/Features";
+import { Footer } from "~/components/Footer";
+import { Nav } from "~/components/Nav";
+import { Testimonials } from "~/components/Testimonials";
+import { Stat } from "~/components/Stat";
+
+export const meta = () => [{ title: "Agent-Native" }];
+export default function Home() {
+  return (
+    <main>
+      <Nav />
+      {/* Hero */}
+      <section className="hero">
+        <span className="pill">v1.5</span>
+        <h1 className="text-7xl font-semibold tracking-tight">
+          The app framework your agent can actually use.
+        </h1>
+        <p className="mt-6 text-xl text-muted-foreground">
+          Agent-Native turns every app you build into a set of typed actions.
+        </p>
+        <Button size="lg">Start building</Button>
+      </section>
+
+      <section className="showcase">
+        <h2 className="text-3xl font-semibold">Every capability is a tool.</h2>
+        <p className="text-muted-foreground">
+          Define an action once. The UI calls it, and so does the agent.
+        </p>
+        <pre className="code">{"export const refundOrder = defineAction({ ... })"}</pre>
+      </section>
+
+      <section className="stats grid grid-cols-3 gap-6">
+        <Stat value="12" label="Templates" />
+        <Stat value="140+" label="Actions" />
+        <Stat value="1" label="Action surface" />
+      </section>
+
+      {/* Social proof */}
+      <hr className="my-16" />
+      <Features />
+      <Testimonials />
+      <Footer />
+    </main>
+  );
+}`),
+  "app:app/routes/docs.tsx": L(`
+import { Nav } from "~/components/Nav";
+import { Toc } from "~/components/Toc";
+
+export const meta = () => [{ title: "Docs · Agent-Native" }];
+
+export default function Docs() {
+  return (
+    <main className="docs">
+      <h2 className="text-5xl tracking-tight">Documentation</h2>
+      <p className="text-muted-foreground">
+        Build apps where the UI and the agent share one set of actions.
+      </p>
+      <hr className="my-8" />
+      <Toc />
+    </main>
+  );
+}`),
+  "app:app/routes/pricing.tsx": L(`
+import { Faq } from "~/components/Faq";
+import { Nav } from "~/components/Nav";
+import { Plan } from "~/components/Plan";
+
+export const meta = () => [{ title: "Pricing · Agent-Native" }];
+const faqs = [
+  ["Can I self-host?", "Yes. Every template runs on your own infrastructure."],
+  ["Do I need an API key?", "Bring your own model key, or use ours."],
+  ["Is there a free plan?", "Yes, with no time limit."],
+];
+
+export default function Pricing() {
+  return (
+    <main className="pricing">
+      <Nav />
+      <header className="text-center">
+        <h1 className="text-5xl font-semibold">Pricing</h1>
+        <p className="text-muted-foreground">Start free. Upgrade when your team does.</p>
+      </header>
+
+      <div className="plans grid gap-6">
+        <Plan name="Hobby" price="$0" />
+        <Plan name="Pro" price="$24" featured />
+        <Plan name="Team" price="Contact us" />
+      </div>{/* gap-8 at md */}
+
+      <Faq items={faqs} />
+    </main>
+  );
+}`),
+  "app:app/root.tsx": L(`
+import { Links, Meta, Outlet, Scripts } from "react-router";
+import "./app.css";
+
+export default function App() {
+  return (
+    <html lang="en">
+      <head>
+        <Meta />
+        <Links />
+      </head>
+      <body>
+        <Outlet />
+        <Scripts />
+      </body>
+    </html>
+  );
+}`),
+  "app:package.json": L(`
+{
+  "name": "agent-native-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "react-router dev",
+    "build": "react-router build"
+  }
+}`),
+  "design:index.html": L(`
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="tokens.css" />
+  </head>
+  <body>
+    <div id="screens"></div>
+  </body>
+</html>`),
+  "design:tokens.css": L(`
+:root {
+  --color-primary: #171717;
+  --color-muted: #737373;
+  --radius-md: 8px;
+  --space-4: 16px;
+}`),
+};
+const CODE_ROOTS = () => [
+  ["design", "Design", ["index.html", "screens/home.html", "screens/docs.html", "screens/pricing.html", "tokens.css"]],
+  ...(appConnected() ? [["app", SRC.name, ["app/components/ui/Badge.tsx", "app/components/ui/Button.tsx", "app/components/Features.tsx", "app/components/Footer.tsx", "app/components/Hero.tsx", "app/components/Nav.tsx", "app/routes/_index.tsx", "app/routes/docs.tsx", "app/routes/pricing.tsx", "app/app.css", "app/root.tsx", "package.json", "vite.config.ts"]]] : []),
+];
+const CODE = { open: [], active: null, closed: new Set(["design:screens"]), flash: null };
+const fileName = id => id.split("/").pop().replace(/^\w+:/, "");
+const fileText = id => CODE_SRC[id] || (id.endsWith(".tsx")
+  ? L(`export function ${fileName(id).replace(/\.tsx$/, "")}() {\n  return <div className="${fileName(id).replace(/\.tsx$/, "").toLowerCase()}" />;\n}`)
+  : id.endsWith(".html") ? L(`<section data-screen="${fileName(id).replace(/\.html$/, "")}">\n  <!-- static screen -->\n</section>`)
+  : id.endsWith(".css") ? L(`@import "tailwindcss";\n`) : L(`export default {};`));
+const fileLang = id => id.endsWith(".tsx") ? "TypeScript JSX" : id.endsWith(".ts") ? "TypeScript" : id.endsWith(".html") ? "HTML" : id.endsWith(".css") ? "CSS" : "JSON";
+// Unsaved Design edits show in the file they'll write to: amber in the gutter, like the dot.
+const routeOfFile = id => Object.keys(DIFFS).find(k => `app:${DIFFS[k].file}` === id && SYNC.pending[k]);
+const unsavedLines = id => { const r = routeOfFile(id); return new Set(r ? DIFFS[r].hunks.flatMap(([, ls]) => ls.filter(l => l[0] === "+").map(l => l[2])) : []); };
+const firstChange = route => Math.min(...DIFFS[route].hunks.flatMap(([, ls]) => ls.filter(l => l[0] !== " ").map(l => l[2] || l[1])));
+function openFile(id, line) {
+  if (!CODE.open.includes(id)) CODE.open.push(id);
+  CODE.active = id; CODE.flash = line || null;
+  const [root, ...rest] = id.split(":"); const parts = rest.join(":").split("/");
+  parts.slice(0, -1).forEach((_, i) => CODE.closed.delete(`${root}:${parts.slice(0, i + 1).join("/")}`)); CODE.closed.delete(root);
+  render();
+  if (line) requestAnimationFrame(() => document.querySelector(`.cv-ln[data-ln="${line}"]`)?.scrollIntoView({ block: "center" }));
+}
+function renderFiles(t) {
+  const rows = [];
+  for (const [root, label, paths] of CODE_ROOTS()) {
+    const open = !CODE.closed.has(root);
+    rows.push(rowHTML({ depth: 0, disc: open, icon: ic(root === "app" ? "server" : "file"), label, id: root, trail: false }).replace('data-id=', 'data-dir='));
+    if (!open) continue;
+    const seen = new Set();
+    for (const path of paths) {
+      const parts = path.split("/");
+      let hidden = false;
+      for (let i = 0; i < parts.length - 1; i++) {
+        const dir = `${root}:${parts.slice(0, i + 1).join("/")}`;
+        if (hidden) break;
+        if (!seen.has(dir)) { seen.add(dir); rows.push(rowHTML({ depth: i + 1, disc: !CODE.closed.has(dir), icon: ic("folder"), label: parts[i], id: dir, trail: false }).replace('data-id=', 'data-dir=')); }
+        if (CODE.closed.has(dir)) hidden = true;
+      }
+      if (hidden) continue;
+      const id = `${root}:${path}`, r = routeOfFile(id);
+      const dot = r ? `<span class="sdot warn" title="${changes(SYNC.pending[r])} not in your code yet"></span>` : "";
+      rows.push(rowHTML({ depth: parts.length, icon: ic(path.endsWith(".json") ? "file" : "file-code"), label: parts.at(-1), id, selected: id === CODE.active, trail: false }).replace('data-id=', 'data-file=').replace(/<\/div>$/, `${dot}</div>`));
+    }
+  }
+  t.innerHTML = `<div class="sec-head"><span class="sec-toggle" style="padding-left:16px">Files</span><div class="sec-actions"><button class="icon-btn sm" title="Go to file (⌘P)" data-goto>${ic("search", "s12")}</button></div></div><div class="sec-block" role="tree" aria-label="Files">${rows.join("")}</div>`;
+}
+function renderCode() {
+  const v = $("#code-view"); if (S.mode !== "code") { v.innerHTML = ""; return; }
+  const ids = CODE_ROOTS().flatMap(([root, , paths]) => paths.map(p => `${root}:${p}`));
+  CODE.open = CODE.open.filter(id => ids.includes(id));
+  if (!CODE.active || !ids.includes(CODE.active)) { CODE.active = CODE.open[0] || (appConnected() ? "app:app/routes/_index.tsx" : "design:index.html"); if (!CODE.open.includes(CODE.active)) CODE.open.push(CODE.active); }
+  const id = CODE.active, [root, ...rest] = id.split(":"), parts = rest.join(":").split("/");
+  const rootLabel = CODE_ROOTS().find(r => r[0] === root)?.[1];
+  const marks = unsavedLines(id), route = routeOfFile(id);
+  v.innerHTML = `<div class="cv-tabs" role="tablist">${CODE.open.map(f => `<div class="cv-tab" role="tab" data-tab="${f}" aria-selected="${f === id}">${ic(f.endsWith(".json") ? "file" : "file-code")}<span>${fileName(f)}</span>${routeOfFile(f) ? `<span class="sdot warn"></span>` : ""}<button class="x" data-close-tab="${f}" aria-label="Close ${fileName(f)}">${ic("x", "s12")}</button></div>`).join("")}</div>
+    <div class="cv-crumbs">${[rootLabel, ...parts].map(x => `<span>${x}</span>`).join(ic("chevron-right"))}</div>
+    <div class="cv-code" role="textbox" aria-label="${fileName(id)}" aria-readonly="false">${fileText(id).map((t, i) => `<div class="cv-ln ${marks.has(i + 1) ? "unsaved" : ""} ${CODE.flash === i + 1 ? "flash" : ""}" data-ln="${i + 1}"><span class="no">${i + 1}</span><span class="mk"></span><span></span><span>${codeSyn(t) || " "}</span></div>`).join("")}</div>
+    <div class="cv-status">${route ? `<button data-cv-review>${sdot()}${changes(SYNC.pending[route])} not in your code</button>` : ""}<span class="grow"></span><span>${CODE.flash ? `Ln ${CODE.flash}, Col 1` : "Ln 1, Col 1"}</span><span>Spaces: 2</span><span>${fileLang(id)}</span></div>`;
+}
+function gotoFile(anchor) {
+  const ids = CODE_ROOTS().flatMap(([root, label, paths]) => paths.map(p => [`${root}:${p}`, label, p]));
+  openMenu(anchor, [{ search: "Go to file" }, ...ids.map(([id, label, p]) => ({ icon: p.endsWith(".json") ? "file" : "file-code", t: p.split("/").pop(), k: p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : label, run: () => openFile(id) }))], { minWidth: Math.max(320, anchor.offsetWidth) });
+  const m = document.querySelector('.menu[data-depth="0"]'), input = m.querySelector(".search input");
+  input.addEventListener("input", () => { const q = input.value.trim().toLowerCase(); m.querySelectorAll("button[data-i]").forEach(b => b.hidden = !!q && !b.textContent.toLowerCase().includes(q)); });
+  input.addEventListener("keydown", e => { if (e.key === "Enter") m.querySelector("button[data-i]:not([hidden])")?.click(); });
+  input.focus();
+}
+document.addEventListener("click", e => {
+  const t = e.target;
+  if (t.closest?.("#goto-file, [data-goto]")) return gotoFile(t.closest("#goto-file") || $("#goto-file"));
+  const d = t.closest?.(".row[data-dir]"); if (d) { const k = d.dataset.dir; CODE.closed.has(k) ? CODE.closed.delete(k) : CODE.closed.add(k); return renderTree(); }
+  const f = t.closest?.(".row[data-file]"); if (f) return openFile(f.dataset.file);
+  const x = t.closest?.("[data-close-tab]"); if (x) { const k = x.dataset.closeTab, i = CODE.open.indexOf(k); CODE.open.splice(i, 1); if (CODE.active === k) CODE.active = CODE.open[Math.min(i, CODE.open.length - 1)] || null; CODE.flash = null; renderTree(); return renderCode(); }
+  const tab = t.closest?.("[data-tab]"); if (tab) { CODE.active = tab.dataset.tab; CODE.flash = null; renderTree(); return renderCode(); }
+  if (t.closest?.("[data-cv-review]")) return syncDialog();
+});
+document.addEventListener("keydown", e => { if (S.mode === "code" && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "p") { e.preventDefault(); gotoFile($("#goto-file")); } });
 
 /* spec drawer */
 const SPEC = __REQUIREMENTS__;

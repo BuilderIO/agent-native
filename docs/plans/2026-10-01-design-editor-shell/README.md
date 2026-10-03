@@ -63,7 +63,7 @@ Spacing (G), Theme, and Spec (the requirements, by ID).
 
 ## Roadmap
 
-Nineteen steps, each one PR that's shippable alone and leaves the editor
+Twenty steps, each one PR that's shippable alone and leaves the editor
 working. Steps 2–4 can run in parallel after step 1. None has started.
 
 ### 1. Top bar shell
@@ -235,6 +235,15 @@ marks each screen that has them, and Review changes saves what it safely can
 and replays edits onto files that changed on disk instead of overwriting them. Cover the app-down,
 no-consent, and changed-on-disk cases with tests before the UI.
 
+### 20. Code mode
+
+Not started · CODE · PR —
+
+Move the existing code workbench out from behind `SHOW_DESIGN_CODE_LEFT_PANEL`
+into a third top-bar mode, restyled to the app's density, with the file tree
+in the File panel and Go to file in the top bar. The unsaved-edit marks
+(CODE-04) land with or after step 19.
+
 ### Every step
 
 A step that touches copy updates `app/i18n/en-US.ts` and the 11 locale files
@@ -275,4 +284,5 @@ where it names Annotate or the old toolbar.
 - **RESP-13** Desktop-first `max-*` output, or flip the base so it's mobile-first?
 - **RESP-14** Keep side-by-side frames at other widths, or rely on drag plus Interact viewports?
 - **RESP-15** Responsive rules on any layer, or only on components?
+- **CODE-05** Ship Code mode to everyone, or start it behind Labs like Tokens?
 - **SAVE-05** When a file changed on disk, is Reapply my changes enough, or also offer Overwrite the file and Discard my changes?

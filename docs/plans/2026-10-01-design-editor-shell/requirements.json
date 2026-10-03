@@ -1178,7 +1178,7 @@
         {
           "id": "SAVE-04",
           "status": "proposed",
-          "change": "With unsaved edits, the 10 unsaved button opens Review changes. On the left, the changed files sit in their project folders (the hierarchy a flat list loses), each with a shadcn checkbox and its added and removed line counts (+4 −4); the folder's checkbox selects or clears every file and shows the mixed state when only some are checked. Choosing a file shows its diff on the right, one file at a time: Modified with the file name, its counts and five-block bar, View file (opens the code view) and Mention in chat, then the diff with one line-number column, gaps between separate hunks, light JSX coloring, and the changed words marked inside a changed line. The footer is one primary action, Save 2 files, which saves the checked files; the connection isn't repeated here, and the button is disabled while the app is down. A file that changed on disk after your edits (someone saved it in their editor) is never overwritten: it shows a warning in the tree, its checkbox is off and disabled, and its diff opens with one line saying the file changed on disk after these edits and saving now would overwrite that work, with Reapply my changes. Reapply replays the edits, which Design keeps as visual-edit intents, onto the newer file; only an edit that no longer fits goes to the agent. Retry connection says how many changes are ready. Unsaved edits are never dropped: they stay in Design, marked, until they're saved.",
+          "change": "With unsaved edits, the 10 unsaved button opens Review changes. On the left, the changed files sit in their project folders (the hierarchy a flat list loses), each with a shadcn checkbox and its added and removed line counts (+4 −4); the folder's checkbox selects or clears every file and shows the mixed state when only some are checked. Choosing a file shows its diff on the right, one file at a time: Modified with the file name, its counts and five-block bar, View file (opens it in Code mode at its first change, CODE-04) and Mention in chat, then the diff with one line-number column, gaps between separate hunks, light JSX coloring, and the changed words marked inside a changed line. The footer is one primary action, Save 2 files, which saves the checked files; the connection isn't repeated here, and the button is disabled while the app is down. A file that changed on disk after your edits (someone saved it in their editor) is never overwritten: it shows a warning in the tree, its checkbox is off and disabled, and its diff opens with one line saying the file changed on disk after these edits and saving now would overwrite that work, with Reapply my changes. Reapply replays the edits, which Design keeps as visual-edit intents, onto the newer file; only an edit that no longer fits goes to the agent. Retry connection says how many changes are ready. Unsaved edits are never dropped: they stay in Design, marked, until they're saved.",
           "prototype": "Scenario: Local app, unsaved changes. Retry connection (the reload button), then 10 unsaved. Choose the /docs file for the changed-on-disk case; uncheck files or the folder to leave them out.",
           "refs": [
             "templates/design/actions/apply-visual-edit.ts#Pass one intent or an ordered array of intents"
@@ -1188,6 +1188,49 @@
           "id": "SAVE-05",
           "status": "question",
           "change": "When a file changed on disk, is Reapply my changes enough, or should the review also offer Overwrite the file and Discard my changes?"
+        }
+      ]
+    },
+    {
+      "area": "Code mode",
+      "prefix": "CODE",
+      "steps": [
+        20
+      ],
+      "items": [
+        {
+          "id": "CODE-01",
+          "status": "context",
+          "today": "Design already has a code workbench: a Monaco editor with tabs, breadcrumbs, and a status bar, a file Explorer, project search, quick open, and format on open. It reads two workspaces, the design's own files and each connected localhost app's repo. It's a left panel (\"code\") behind the build-time `SHOW_DESIGN_CODE_LEFT_PANEL`, the same switch that hides Tokens, so nobody sees it today.",
+          "refs": [
+            "templates/design/app/pages/design-editor/types.ts#SHOW_DESIGN_CODE_LEFT_PANEL",
+            "templates/design/app/components/design/code-workbench/workspace/create-providers.ts#createLocalhostProvider",
+            "templates/design/app/components/design/code-workbench/SideBar.tsx#SearchView",
+            "templates/design/app/components/design/code-workbench/CodeWorkbench.tsx#openQuickInput",
+            "templates/design/app/components/design/code-workbench/editor/EditorTabs.tsx#export function EditorTabs"
+          ]
+        },
+        {
+          "id": "CODE-02",
+          "status": "proposed",
+          "change": "Code becomes the third mode in the top bar: Interact | Design | Code. It puts the workbench where the canvas is and hides the inspector, the floating toolbar, and zoom. The File panel lists Files instead of Screens and Layers: one root for the design's own files and one for the connected app, named like the top bar's route control. The top bar's center holds Go to file… with ⌘P, the workbench's quick open, and ⌘P opens it anywhere in Code. The rail's other panels (Agents, Tokens, Threads) work as in the other modes.",
+          "prototype": "Choose Code in the top bar. Scenario: Local app screen adds the app's files."
+        },
+        {
+          "id": "CODE-03",
+          "status": "proposed",
+          "change": "Restyle the workbench to the app's density instead of VS Code's: the file tree uses the Layers row (32px, 24px per level, the same disclosure chevrons and icons), tabs are 40px with the underline the share popover's tabs use, breadcrumbs and the status bar are 24px with 11px text, and code is 12/20 mono with line numbers in the muted color. Monaco's theme takes its colors from the app's tokens (`monaco-theme-palette.ts`)."
+        },
+        {
+          "id": "CODE-04",
+          "status": "proposed",
+          "change": "Code shows unsaved Design edits (SAVE-03) where they'll land: an amber mark in the gutter on each unsaved line, the amber dot on the file's tab and its tree row, and a status bar item (3 changes not in your code) that opens Review changes. Review changes' View file opens the file in Code at its first changed line.",
+          "prototype": "Scenario: Local app, unsaved changes, then Code; or Review changes › View file."
+        },
+        {
+          "id": "CODE-05",
+          "status": "question",
+          "change": "Does Code ship to everyone, or start behind a Labs flag like Tokens?"
         }
       ]
     }
