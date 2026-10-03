@@ -199,7 +199,11 @@ agent answers about browser recordings in the Analytics template.
   is a fixed message, because the cause can quote database details; the
   server log keeps it. On
   the list, `view-screen` reports them beside the base list, and its
-  `activeFilters` echo the filters it applied, not the URL's.
+  `activeFilters` echo the filters it applied, not the URL's. Its row excerpt
+  drops trailing rows to stay under the agent's 50,000-character tool-result
+  limit, so the page metadata after the rows always arrives; a cut sets
+  `truncated`, and `fullPageAction` reads the whole page. Keep it that way
+  when adding per-row fields: a bigger row means fewer rows, not a lost page.
 
 ## Agent Diagnostics Surface
 

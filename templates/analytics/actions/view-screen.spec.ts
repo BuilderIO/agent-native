@@ -610,6 +610,39 @@ describe("view-screen Sessions context", () => {
     );
   });
 
+  it("drops trailing rows so the page metadata fits the agent's result limit", async () => {
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
+    getSessionFrictionDetails.mockImplementationOnce(
+      async (_scope: unknown, recordings: Array<{ id: string }>) =>
+        new Map(
+          recordings.map((recording) => [
+            recording.id,
+            {
+              score: 12,
+              troubles: Array.from({ length: 3 }, (_, index) => ({
+                label: `Trouble ${index} `.repeat(80),
+                count: 2,
+              })),
+            },
+          ]),
+        ),
+    );
+    setScreen({ view: "sessions" }, { pathname: "/sessions" });
+
+    const text = await viewScreenAction.run({} as never);
+    const out = JSON.parse(text);
+
+    expect(text.length).toBeLessThanOrEqual(45_000);
+    expect(out.sessionReplays.length).toBeLessThan(25);
+    expect(out.sessionReplays[0].id).toBe("recording-0");
+    expect(out.sessionReplayPage).toMatchObject({
+      total: 137,
+      returnedCount: out.sessionReplays.length,
+      truncated: true,
+      fullPageAction: { name: "list-session-recordings" },
+    });
+  });
+
   it("keeps the base list and reports row friction that fails to load", async () => {
     isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
     const log = vi.spyOn(console, "error").mockImplementation(() => {});

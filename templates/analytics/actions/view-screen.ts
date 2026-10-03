@@ -71,6 +71,12 @@ const SESSION_SORTS = new Set([
 ]);
 const SESSION_DURATIONS = new Set([0, 60_000, 300_000, 900_000, 1_800_000]);
 const SESSION_EXCERPT_SIZE = 25;
+/**
+ * The agent sees only the first 50,000 characters of a tool result, and the
+ * session page metadata (errors, coverage, `fullPageAction`) follows the
+ * rows, so a cut there would drop what says the list is incomplete.
+ */
+const SCREEN_CHAR_BUDGET = 45_000;
 const DASHBOARD_PATH_RE = /^\/(?:adhoc|dashboards)\/([^/]+)\/?$/;
 
 function dashboardIdFromPathname(pathname: string): string | null {
@@ -783,9 +789,35 @@ export default defineAction({
     if (Object.keys(screen).length === 0) {
       return "No application state found. Is the app running?";
     }
-    return JSON.stringify(screen, null, 2);
+    return screenText(screen);
   },
 });
+
+/** The screen as JSON, with session rows dropped from the end to fit. */
+function screenText(screen: Record<string, unknown>): string {
+  const text = JSON.stringify(screen, null, 2);
+  const rows = screen.sessionReplays;
+  const page = screen.sessionReplayPage;
+  if (
+    text.length <= SCREEN_CHAR_BUDGET ||
+    !Array.isArray(rows) ||
+    !page ||
+    typeof page !== "object"
+  ) {
+    return text;
+  }
+  let excess = text.length - SCREEN_CHAR_BUDGET;
+  let kept = rows.length;
+  while (kept > 1 && excess > 0) {
+    const row = JSON.stringify(rows[kept - 1], null, 2);
+    // Nested two levels into the screen, each line gains four spaces.
+    excess -= row.length + 4 * row.split("\n").length + 2;
+    kept -= 1;
+  }
+  screen.sessionReplays = rows.slice(0, kept);
+  screen.sessionReplayPage = { ...page, returnedCount: kept, truncated: true };
+  return JSON.stringify(screen, null, 2);
+}
 
 function readReplayRange(value: unknown): ReplayRange {
   return typeof value === "string" && REPLAY_RANGES.has(value)
