@@ -205,12 +205,137 @@ function hasMatchingStylesheetValue(
   const inlineStyle = (element as HTMLElement).style;
   const inlineValue = inlineStyle.getPropertyValue(property).trim();
   const inlinePriority = inlineStyle.getPropertyPriority(property);
+  const view =
+    doc.defaultView ?? (typeof window === "undefined" ? undefined : window);
+
+  type CssConditionResult =
+    | { kind: "known"; matches: boolean }
+    | { kind: "unknown" };
+  type ImportedDataCssResult =
+    | { kind: "external" | "not-css" | "unreadable" }
+    | { kind: "css"; text: string };
+
+  const conditionMatches = (
+    kind: "media" | "supports",
+    condition: string,
+  ): CssConditionResult => {
+    if (!condition.trim()) return { kind: "known", matches: true };
+    if (kind === "media") {
+      const matchMedia = view?.matchMedia;
+      if (typeof matchMedia !== "function") return { kind: "unknown" };
+      try {
+        return {
+          kind: "known",
+          matches: matchMedia.call(view, condition).matches,
+        };
+      } catch {
+        return { kind: "unknown" };
+      }
+    }
+    const declaration = condition.match(/^\(\s*([\w-]+)\s*:\s*([^()]+)\)$/);
+    if (declaration?.[1] && declaration[2]) {
+      const probe = doc.createElement("div").style;
+      probe.setProperty(declaration[1], declaration[2].trim());
+      if (!probe.getPropertyValue(declaration[1])) {
+        return { kind: "known", matches: false };
+      }
+    }
+    const supports = view?.CSS?.supports;
+    if (typeof supports === "function") {
+      try {
+        return { kind: "known", matches: supports.call(view?.CSS, condition) };
+      } catch {
+        return { kind: "unknown" };
+      }
+    }
+    if (!declaration?.[1] || !declaration[2]) return { kind: "unknown" };
+    const probe = doc.createElement("div").style;
+    probe.setProperty(declaration[1], declaration[2].trim());
+    return {
+      kind: "known",
+      matches: probe.getPropertyValue(declaration[1]) !== "",
+    };
+  };
+
+  const importedDataCss = (href: string): ImportedDataCssResult => {
+    const comma = href.indexOf(",");
+    if (!/^data:/i.test(href)) return { kind: "external" };
+    if (comma < 0) return { kind: "unreadable" };
+    const metadata = href.slice(5, comma);
+    if (!/^text\/css(?:;|$)/i.test(metadata)) return { kind: "not-css" };
+    const data = href.slice(comma + 1);
+    try {
+      if (/(?:^|;)base64(?:;|$)/i.test(metadata)) {
+        const decode = view?.atob ?? globalThis.atob;
+        return typeof decode === "function"
+          ? { kind: "css", text: decode(data) }
+          : { kind: "unreadable" };
+      }
+      return { kind: "css", text: decodeURIComponent(data) };
+    } catch {
+      return { kind: "unreadable" };
+    }
+  };
+
+  const matchesDataCss = (cssText: string): boolean => {
+    const styleElement = doc.createElement("style");
+    styleElement.textContent = cssText;
+    (doc.head ?? doc.documentElement).append(styleElement);
+    try {
+      const rules = (styleElement as HTMLStyleElement).sheet?.cssRules;
+      return rules ? matchesRule(rules) : inlinePriority !== "important";
+    } catch {
+      return inlinePriority !== "important";
+    } finally {
+      styleElement.remove();
+    }
+  };
 
   const matchesRule = (rules: CSSRuleList): boolean => {
     for (const rule of Array.from(rules)) {
-      if (/^@import\b/i.test(rule.cssText)) {
+      const ruleText = rule.cssText.trimStart();
+      if (/^@import\b/i.test(ruleText)) {
+        const importRule = rule as CSSImportRule;
+        const mediaMatches = conditionMatches(
+          "media",
+          importRule.media?.mediaText ?? "",
+        );
+        if (mediaMatches.kind === "known" && !mediaMatches.matches) continue;
+        const dataCss = importedDataCss(importRule.href);
+        if (dataCss.kind === "css") {
+          if (matchesDataCss(dataCss.text)) return true;
+          continue;
+        }
+        if (dataCss.kind === "not-css") continue;
+        if (dataCss.kind === "unreadable") {
+          if (inlinePriority !== "important") return true;
+          continue;
+        }
+        const importedSheet = importRule.styleSheet;
+        if (importedSheet) {
+          try {
+            if (matchesRule(importedSheet.cssRules)) return true;
+            continue;
+          } catch {
+            if (inlinePriority !== "important") return true;
+            continue;
+          }
+        }
         if (inlinePriority !== "important") return true;
         continue;
+      }
+      if (/^@media\b/i.test(ruleText)) {
+        const condition = conditionMatches(
+          "media",
+          (rule as CSSMediaRule).conditionText,
+        );
+        if (condition.kind === "known" && !condition.matches) continue;
+      } else if (/^@supports\b/i.test(ruleText)) {
+        const condition = conditionMatches(
+          "supports",
+          (rule as CSSSupportsRule).conditionText,
+        );
+        if (condition.kind === "known" && !condition.matches) continue;
       }
       const styleRule = rule as CSSStyleRule;
       const value = styleRule.style?.getPropertyValue(property);
@@ -632,6 +757,84 @@ function parseAuthoredLength(value: string | undefined, reference: number) {
 function isOutOfFlow(element: Element) {
   const position = (element as HTMLElement).style.position;
   return position === "absolute" || position === "fixed";
+}
+
+function flexOrder(element: Element) {
+  const value = Number.parseInt((element as HTMLElement).style.order, 10);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function flexFlowChildren(parent: Element) {
+  return Array.from(parent.children)
+    .filter((child) => !isOutOfFlow(child))
+    .map((child, domIndex) => ({ child, domIndex, order: flexOrder(child) }))
+    .sort(
+      (left, right) =>
+        left.order - right.order || left.domIndex - right.domIndex,
+    )
+    .map(({ child }) => child);
+}
+
+function elementBoxDecorationSize(element: Element, axis: AuthoredSizeAxis) {
+  return axis === "x"
+    ? inlineNumber(element, "paddingLeft") +
+        inlineNumber(element, "paddingRight") +
+        inlineNumber(element, "borderLeftWidth") +
+        inlineNumber(element, "borderRightWidth")
+    : inlineNumber(element, "paddingTop") +
+        inlineNumber(element, "paddingBottom") +
+        inlineNumber(element, "borderTopWidth") +
+        inlineNumber(element, "borderBottomWidth");
+}
+
+function elementOuterSize(
+  element: Element,
+  axis: AuthoredSizeAxis,
+  cache?: AuthoredSizeCache,
+  visiting?: Set<Element>,
+) {
+  const size = elementInlineSize(element, axis, cache, visiting);
+  const style = (element as HTMLElement).style;
+  if (style.boxSizing === "border-box") return size;
+
+  const dimension = style[axis === "x" ? "width" : "height"];
+  const parent = element.parentElement;
+  const reference = parent
+    ? parentContentSize(parent, axis, cache ?? new Map(), visiting ?? new Set())
+    : 0;
+  const explicitDimension = parseAuthoredLength(dimension, reference) !== null;
+  const explicitFlexBasis =
+    parent !== null && flexMainAxis(parent) === axis
+      ? flexBasis(element, reference) !== null
+      : false;
+  return (
+    size +
+    (explicitDimension || explicitFlexBasis
+      ? elementBoxDecorationSize(element, axis)
+      : 0)
+  );
+}
+
+function hasAutoMainAxisMargin(element: Element, axis: AuthoredSizeAxis) {
+  const style = (element as HTMLElement).style;
+  const properties =
+    axis === "x"
+      ? [
+          "margin-left",
+          "margin-right",
+          "margin-inline-start",
+          "margin-inline-end",
+        ]
+      : [
+          "margin-top",
+          "margin-bottom",
+          "margin-block-start",
+          "margin-block-end",
+        ];
+  return properties.some(
+    (property) =>
+      style.getPropertyValue(property).trim().toLowerCase() === "auto",
+  );
 }
 
 function flexBasis(element: Element, reference: number) {
@@ -1056,6 +1259,8 @@ export function authoredElementPosition(
       const index = siblings.indexOf(cursor);
       const display = parentStyle.display;
       const isFlex = display === "flex" || display === "inline-flex";
+      const flowChildren = isFlex ? flexFlowChildren(parent) : [];
+      const flowIndex = flowChildren.indexOf(cursor);
       const isGrid = display === "grid" || display === "inline-grid";
       const isRow =
         isFlex && !(parentStyle.flexDirection || "row").startsWith("column");
@@ -1068,13 +1273,12 @@ export function authoredElementPosition(
       if (isFlex) {
         if (reversesFlexFlow) {
           const axis = isRow ? "x" : "y";
-          const precedingExtent = siblings
-            .slice(0, index)
-            .filter((sibling) => !isOutOfFlow(sibling))
+          const precedingExtent = flowChildren
+            .slice(0, flowIndex)
             .reduce(
               (extent, sibling) =>
                 extent +
-                elementInlineSize(sibling, axis, cache, visiting) +
+                elementOuterSize(sibling, axis, cache, visiting) +
                 inlineNumber(
                   sibling,
                   axis === "x" ? "marginLeft" : "marginTop",
@@ -1090,7 +1294,7 @@ export function authoredElementPosition(
           const offset =
             contentEnd -
             precedingExtent -
-            elementInlineSize(cursor, axis, cache, visiting) -
+            elementOuterSize(cursor, axis, cache, visiting) -
             inlineNumber(cursor, axis === "x" ? "marginRight" : "marginBottom");
           if (axis === "x") x += offset;
           else y += offset;
@@ -1255,23 +1459,30 @@ export function authoredElementPosition(
             .slice(0, row - 1)
             .reduce((sum, _track, index) => sum + rowSizes[index] + gapY, 0);
         }
-      } else if (index > 0 && !reversesFlexFlow) {
-        const previous = siblings.slice(0, index);
-        for (const sibling of previous as Element[]) {
-          if (isOutOfFlow(sibling)) continue;
+      } else if (isFlex && flowIndex > 0 && !reversesFlexFlow) {
+        for (const sibling of flowChildren.slice(0, flowIndex)) {
           if (isRow) {
             x +=
-              elementInlineSize(sibling, "x", cache, visiting) +
+              elementOuterSize(sibling, "x", cache, visiting) +
               inlineNumber(sibling, "marginLeft") +
               inlineNumber(sibling, "marginRight") +
               gap;
           } else {
             y +=
-              elementInlineSize(sibling, "y", cache, visiting) +
+              elementOuterSize(sibling, "y", cache, visiting) +
               inlineNumber(sibling, "marginTop") +
               inlineNumber(sibling, "marginBottom") +
-              (isFlex ? gap : 0);
+              gap;
           }
+        }
+      } else if (!isFlex && index > 0) {
+        const previous = siblings.slice(0, index);
+        for (const sibling of previous) {
+          if (isOutOfFlow(sibling)) continue;
+          y +=
+            elementOuterSize(sibling, "y", cache, visiting) +
+            inlineNumber(sibling, "marginTop") +
+            inlineNumber(sibling, "marginBottom");
         }
       }
       if (style.position === "relative" || style.position === "sticky") {
@@ -1367,8 +1578,8 @@ export function parsePrimitivesFromScreen(
         element.getAttribute("data-an-primitive") || ""
       ).toLowerCase();
       const position = authoredElementPosition(element, sizeCache);
-      const width = authoredElementSize(element, "x", sizeCache);
-      const height = authoredElementSize(element, "y", sizeCache);
+      const width = elementOuterSize(element, "x", sizeCache);
+      const height = elementOuterSize(element, "y", sizeCache);
       if (width <= 0 || height <= 0) return;
 
       const isContainer = isPrimitiveContainer({
@@ -1401,15 +1612,13 @@ export function parsePrimitivesFromScreen(
       let flexPositioningKnown = !isFlexContainer;
       if (isFlexContainer && autoLayoutAxis) {
         const justifyContent = style.justifyContent.trim().toLowerCase();
-        const flowChildren = Array.from(element.children).filter(
-          (child) => !isOutOfFlow(child),
-        );
+        const flowChildren = flexFlowChildren(element);
         const gap = flexMainAxisGap(element, autoLayoutAxis);
         const usedMainAxisSpace =
           flowChildren.reduce(
             (used, child) =>
               used +
-              elementInlineSize(child, autoLayoutAxis, sizeCache) +
+              elementOuterSize(child, autoLayoutAxis, sizeCache) +
               inlineNumber(
                 child,
                 autoLayoutAxis === "x" ? "marginLeft" : "marginTop",
@@ -1424,6 +1633,33 @@ export function parsePrimitivesFromScreen(
         flexPositioningKnown =
           !hasMatchingStylesheetValue(doc, element, "justify-content") &&
           ["", "normal", "flex-start", "start"].includes(justifyContent) &&
+          !hasMatchingStylesheetValue(doc, element, "flex-wrap") &&
+          flowChildren.every(
+            (child) =>
+              !hasMatchingStylesheetValue(doc, child, "order") &&
+              flexGrow(child) === 0 &&
+              !hasMatchingStylesheetValue(doc, child, "flex-grow") &&
+              !hasMatchingStylesheetValue(doc, child, "flex") &&
+              !hasAutoMainAxisMargin(child, autoLayoutAxis) &&
+              ![
+                ...(autoLayoutAxis === "x"
+                  ? [
+                      "margin-left",
+                      "margin-right",
+                      "margin-inline-start",
+                      "margin-inline-end",
+                    ]
+                  : [
+                      "margin-top",
+                      "margin-bottom",
+                      "margin-block-start",
+                      "margin-block-end",
+                    ]),
+              ].some((property) =>
+                hasMatchingStylesheetValue(doc, child, property),
+              ),
+          ) &&
+          !["wrap", "wrap-reverse"].includes(style.flexWrap.trim()) &&
           usedMainAxisSpace <=
             parentContentSize(element, autoLayoutAxis, sizeCache, new Set()) +
               0.5;

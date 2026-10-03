@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { rotatePoint } from "@shared/canvas-math";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   __clearPrimitiveParseCachesForTests,
@@ -13,6 +13,38 @@ import {
 } from "./primitive-drop-target";
 
 beforeEach(() => __clearPrimitiveParseCachesForTests());
+
+function parseWithImportedStylesheet(
+  screen: Parameters<typeof parsePrimitivesFromScreen>[0],
+  importedCss: string,
+) {
+  const NativeDOMParser = globalThis.DOMParser;
+  const href = `data:text/css,${encodeURIComponent(importedCss)}`;
+  vi.stubGlobal(
+    "DOMParser",
+    class DOMParserWithImport extends NativeDOMParser {
+      override parseFromString(source: string, type: DOMParserSupportedType) {
+        const doc = super.parseFromString(source, type);
+        const importRule = {
+          cssText: `@import url("${href}");`,
+          href,
+          media: { mediaText: "" },
+          styleSheet: null,
+        };
+        Object.defineProperty(doc, "styleSheets", {
+          configurable: true,
+          value: [{ cssRules: [importRule] }],
+        });
+        return doc;
+      }
+    },
+  );
+  try {
+    return parsePrimitivesFromScreen(screen);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+}
 
 describe("primitive drop target authored layout fallback", () => {
   it("prefers the deepest equal-sized nested container", () => {
@@ -1465,6 +1497,283 @@ describe("auto-layout drop insertion anchor (WORK ITEM 1)", () => {
       placement: "after",
       guidePlacement: "before",
     });
+  });
+
+  it("ignores unrelated imports and inactive conditional flex declarations", () => {
+    const screen = {
+      ...flexScreen,
+      id: "inactive-flex-stylesheet-screen",
+      content: `<!doctype html><html><head>
+        <style>@import url("data:text/css,%2Eparent%20%7B%20color%3A%20red%3B%20%7D");</style>
+        <style>
+        @media print { .parent { justify-content: center; } }
+        </style>
+        <style>
+        @supports (display: definitely-not-a-display-value) {
+          .parent { justify-content: center; }
+        }
+        </style>
+      </head><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" class="parent" style="position:absolute;left:0;top:0;width:200px;height:120px;display:flex;flex-direction:row">
+          <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="width:20px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const parent = primitives.find(
+      (primitive) => primitive.nodeId === "parent",
+    )!;
+    expect(parent).toMatchObject({
+      autoLayoutAxis: "x",
+      autoLayoutFlexDirection: "row",
+      autoLayoutOrderKnown: true,
+    });
+  });
+
+  it("does not let an unrelated imported rule defer inline flex ordering", () => {
+    const importedCss = ".parent { color: red; }";
+    const href = `data:text/css,${encodeURIComponent(importedCss)}`;
+    const screen = {
+      ...flexScreen,
+      id: "unrelated-imported-flex-rule-screen",
+      content: `<!doctype html><html><head><style>
+        @import url("${href}");
+      </style></head><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" class="parent" style="position:absolute;left:0;top:0;width:200px;height:120px;display:flex;flex-direction:row">
+          <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="width:20px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+    const primitives = parseWithImportedStylesheet(screen, importedCss);
+    const parent = primitives.find(
+      (primitive) => primitive.nodeId === "parent",
+    )!;
+
+    expect(parent).toMatchObject({
+      autoLayoutAxis: "x",
+      autoLayoutOrderKnown: true,
+    });
+  });
+
+  it("respects imported important values against inline cascade priority", () => {
+    const importedCss = ".parent { justify-content: center !important; }";
+    const href = `data:text/css,${encodeURIComponent(importedCss)}`;
+    for (const inlineImportant of [false, true]) {
+      const priority = inlineImportant ? " !important" : "";
+      const screen = {
+        ...flexScreen,
+        id: `imported-important-flex-override-screen-${inlineImportant}`,
+        content: `<!doctype html><html><head><style>
+          @import url("${href}");
+        </style></head><body>
+          <div data-agent-native-node-id="parent" data-an-primitive="frame" class="parent" style="position:absolute;left:0;top:0;width:200px;height:120px;display:flex;flex-direction:row;justify-content:flex-start${priority}">
+            <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="width:20px;height:20px"></div>
+          </div>
+        </body></html>`,
+      };
+      const primitives = parseWithImportedStylesheet(screen, importedCss);
+      const parent = primitives.find(
+        (primitive) => primitive.nodeId === "parent",
+      )!;
+
+      expect(parent).toMatchObject({
+        autoLayoutAxis: "x",
+        autoLayoutOrderKnown: inlineImportant,
+      });
+      const anchor = findAutoLayoutInsertionAnchor(
+        parent,
+        primitives,
+        { x: 10, y: 10 },
+        null,
+      );
+      if (inlineImportant) expect(anchor).not.toBeNull();
+      else expect(anchor).toBeNull();
+    }
+  });
+
+  it("keeps reverse-flex coordinates in the item border box", () => {
+    const screen = {
+      id: "reverse-flex-child-border-box-screen",
+      filename: "reverse-flex-child-border-box-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;box-sizing:border-box;width:200px;height:100px;display:flex;flex-direction:row-reverse;gap:5px;padding:4px 10px;border:2px solid #111">
+          <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="width:40px;height:20px;padding-left:10px;padding-right:6px;border-left:2px solid #111;border-right:2px solid #111;margin-left:3px;margin-right:5px"></div>
+          <div data-agent-native-node-id="second" data-an-primitive="rectangle" style="width:30px;height:20px;margin-left:7px;margin-right:11px"></div>
+        </div>
+      </body></html>`,
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const parent = primitives.find(
+      (primitive) => primitive.nodeId === "parent",
+    )!;
+
+    expect(
+      primitives
+        .filter((primitive) => ["first", "second"].includes(primitive.nodeId))
+        .map(({ nodeId, localLeft, localTop, localWidth }) => ({
+          nodeId,
+          localLeft,
+          localTop,
+          localWidth,
+        })),
+    ).toEqual([
+      { nodeId: "first", localLeft: 123, localTop: 6, localWidth: 60 },
+      { nodeId: "second", localLeft: 74, localTop: 6, localWidth: 30 },
+    ]);
+    expect(parent.autoLayoutOrderKnown).toBe(true);
+    expect(
+      findAutoLayoutInsertionAnchor(
+        parent,
+        primitives,
+        { x: 165, y: 12 },
+        null,
+      ),
+    ).toMatchObject({ anchorNodeId: "first", placement: "before" });
+  });
+
+  it("uses stable CSS order groups when estimating reverse-flex positions", () => {
+    const screen = {
+      id: "reverse-flex-css-order-screen",
+      filename: "reverse-flex-css-order-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:300px;height:100px;display:flex;flex-direction:row-reverse;gap:5px">
+          <div data-agent-native-node-id="last" data-an-primitive="rectangle" style="order:2;width:20px;height:20px"></div>
+          <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="order:0;width:30px;height:20px"></div>
+          <div data-agent-native-node-id="middle" data-an-primitive="rectangle" style="order:1;width:40px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const parent = primitives.find(
+      (primitive) => primitive.nodeId === "parent",
+    )!;
+
+    expect(
+      primitives
+        .filter((primitive) =>
+          ["first", "middle", "last"].includes(primitive.nodeId),
+        )
+        .map(({ nodeId, localLeft }) => ({ nodeId, localLeft })),
+    ).toEqual([
+      { nodeId: "last", localLeft: 200 },
+      { nodeId: "first", localLeft: 270 },
+      { nodeId: "middle", localLeft: 225 },
+    ]);
+    expect(parent.autoLayoutOrderKnown).toBe(true);
+    expect(
+      findAutoLayoutInsertionAnchor(
+        parent,
+        primitives,
+        { x: 285, y: 10 },
+        null,
+      ),
+    ).toMatchObject({ anchorNodeId: "first", placement: "before" });
+  });
+
+  it("defers when a stylesheet can change flex-item order", () => {
+    const screen = {
+      id: "reverse-flex-stylesheet-order-screen",
+      filename: "reverse-flex-stylesheet-order-screen.html",
+      content: `<!doctype html><html><head><style>
+        .later { order: 2; }
+      </style></head><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:100px;display:flex;flex-direction:row-reverse">
+          <div data-agent-native-node-id="first" data-an-primitive="rectangle" class="later" style="width:40px;height:20px"></div>
+          <div data-agent-native-node-id="second" data-an-primitive="rectangle" style="width:40px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const parent = primitives.find(
+      (primitive) => primitive.nodeId === "parent",
+    )!;
+
+    expect(parent.autoLayoutOrderKnown).toBe(false);
+    expect(
+      findAutoLayoutInsertionAnchor(parent, primitives, { x: 50, y: 10 }, null),
+    ).toBeNull();
+  });
+
+  for (const testCase of [
+    {
+      label: "main-axis auto margins",
+      id: "reverse-flex-auto-margin-screen",
+      parentStyle: "flex-direction:row-reverse",
+      firstStyle: "margin-left:auto;width:40px;height:20px",
+    },
+    {
+      label: "wrapped lines",
+      id: "reverse-flex-wrap-screen",
+      parentStyle: "flex-direction:row-reverse;flex-wrap:wrap",
+      firstStyle: "width:40px;height:20px",
+    },
+  ]) {
+    it(`defers flex ordering for ${testCase.label}`, () => {
+      const screen = {
+        id: testCase.id,
+        filename: `${testCase.id}.html`,
+        content: `<!doctype html><html><body>
+          <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:100px;display:flex;${testCase.parentStyle}">
+            <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="${testCase.firstStyle}"></div>
+            <div data-agent-native-node-id="second" data-an-primitive="rectangle" style="width:40px;height:20px"></div>
+          </div>
+        </body></html>`,
+      };
+      const primitives = parsePrimitivesFromScreen(screen);
+      const parent = primitives.find(
+        (primitive) => primitive.nodeId === "parent",
+      )!;
+
+      expect(parent.autoLayoutOrderKnown).toBe(false);
+      expect(
+        findAutoLayoutInsertionAnchor(
+          parent,
+          primitives,
+          { x: 50, y: 10 },
+          null,
+        ),
+      ).toBeNull();
+      expect(
+        getPrimitiveDropTargetForPoint(
+          { x: 50, y: 10 },
+          null,
+          [screen],
+          { [screen.id]: { x: 0, y: 0, width: 200, height: 100 } },
+          () => ({ width: 200, height: 100 }),
+        ),
+      ).toBeNull();
+    });
+  }
+
+  it("defers reverse-flex ordering when flex grow changes item sizes", () => {
+    const screen = {
+      id: "reverse-flex-grow-screen",
+      filename: "reverse-flex-grow-screen.html",
+      content: `<!doctype html><html><body>
+        <div data-agent-native-node-id="parent" data-an-primitive="frame" style="position:absolute;left:0;top:0;width:200px;height:100px;display:flex;flex-direction:row-reverse">
+          <div data-agent-native-node-id="first" data-an-primitive="rectangle" style="flex:1 1 40px;width:40px;height:20px"></div>
+          <div data-agent-native-node-id="second" data-an-primitive="rectangle" style="flex:1 1 40px;width:40px;height:20px"></div>
+        </div>
+      </body></html>`,
+    };
+    const primitives = parsePrimitivesFromScreen(screen);
+    const parent = primitives.find(
+      (primitive) => primitive.nodeId === "parent",
+    )!;
+
+    expect(parent.autoLayoutOrderKnown).toBe(false);
+    expect(
+      findAutoLayoutInsertionAnchor(parent, primitives, { x: 50, y: 10 }, null),
+    ).toBeNull();
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 50, y: 10 },
+        null,
+        [screen],
+        { [screen.id]: { x: 0, y: 0, width: 200, height: 100 } },
+        () => ({ width: 200, height: 100 }),
+      ),
+    ).toBeNull();
   });
 
   it("defers flex slots when justification or shrink changes estimated positions", () => {
