@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import { getFrameGroupBounds, type FrameBounds } from "@shared/canvas-math";
 import type { CodeLayerSource } from "@shared/code-layer";
 import {
@@ -1057,6 +1059,49 @@ describe("parsePrimitivesFromScreen identity cache", () => {
     expect(
       __getPrimitiveParseCacheSizesForTests().identity,
     ).toBeLessThanOrEqual(64);
+  });
+
+  it.each([
+    [
+      "tokenized flex-flow",
+      "display:flex;flex-flow:var(--flow);width:300px;height:200px",
+      "",
+    ],
+    [
+      "anonymous direct text",
+      "display:flex;flex-direction:row;width:300px;height:200px",
+      "text before the flex child",
+    ],
+    [
+      "unknown forward-flex geometry",
+      "display:flex;flex-direction:row;justify-content:space-between;width:300px;height:200px",
+      "",
+    ],
+  ])("does not target descendants with %s", (_name, parentStyle, text) => {
+    const screenId = `uncertain-flex-${String(_name).replace(/ /g, "-")}`;
+    const screen: ScreenStub = {
+      id: screenId,
+      filename: "f.html",
+      width: 320,
+      height: 640,
+      content: `<body><div data-agent-native-node-id="parent" data-an-primitive="frame" style="${parentStyle}">${text}<div data-agent-native-node-id="child" data-an-primitive="frame" style="width:120px;height:80px"></div></div></body>`,
+    };
+    const primitives = parsePrimitivesFromScreen(screen as never);
+    const parent = primitives.find(
+      (primitive) => primitive.nodeId === "parent",
+    );
+
+    expect(parent?.autoLayoutOrderKnown).toBe(false);
+    expect(
+      getPrimitiveDropTargetForPoint(
+        { x: 50, y: 50 },
+        null,
+        [screen as never],
+        { [screenId]: makeGeom(0, 0, 320, 640) },
+        () => ({ width: 320, height: 640 }),
+        { identityCoordinateScreenIds: new Set([screenId]) },
+      ),
+    ).toBeNull();
   });
 });
 

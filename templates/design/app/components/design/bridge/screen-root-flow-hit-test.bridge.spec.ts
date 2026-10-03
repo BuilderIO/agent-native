@@ -328,6 +328,61 @@ describe("Screen-root auto-layout hit testing", () => {
     }
   });
 
+  it("uses the vertical main-axis size for row drops in vertical writing modes", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 640, height: 480 },
+      });
+      await page.setContent(`<!doctype html><html><body style="margin:0;width:640px;height:480px;position:relative">
+        <section data-agent-native-node-id="outer" style="position:absolute;left:40px;top:40px;width:300px;height:300px;display:flex;flex-direction:column">
+          <section data-agent-native-node-id="vertical-row" data-an-primitive="frame" style="position:relative;width:80px;height:180px;display:flex;flex-direction:row;writing-mode:vertical-rl">
+            <section data-agent-native-node-id="anchor" style="flex:none;width:40px;height:100px">Anchor</section>
+          </section>
+        </section>
+      </body></html>`);
+      await page.addScriptTag({ content: hitTestBridgeScript });
+      await page.evaluate(() => {
+        (window as any).__hitTestResults = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "agent-native:hit-test-result") {
+            (window as any).__hitTestResults.push(event.data);
+          }
+        });
+        const anchor = document.querySelector(
+          '[data-agent-native-node-id="anchor"]',
+        )!;
+        const rect = anchor.getBoundingClientRect();
+        window.postMessage(
+          {
+            type: "agent-native:hit-test",
+            correlationId: "vertical-row-size-guard",
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+            preview: true,
+            sourceElementSize: { width: 100, height: 120 },
+          },
+          "*",
+        );
+      });
+      await page.waitForFunction(
+        () => (window as any).__hitTestResults.length === 1,
+      );
+
+      const packet = await page.evaluate(
+        () => (window as any).__hitTestResults[0],
+      );
+      expect(packet).toMatchObject({
+        correlationId: "vertical-row-size-guard",
+        anchorNodeId: "anchor",
+        axis: "y",
+        dropMode: "flow-insert",
+      });
+    } finally {
+      await browser.close();
+    }
+  });
+
   it("uses a fitting legacy-marked plain frame as an absolute container, not a flow slot", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
