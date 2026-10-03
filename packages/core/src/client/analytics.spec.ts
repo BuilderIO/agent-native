@@ -695,6 +695,51 @@ describe("browser analytics pageviews", () => {
     expect(amplitudeException?.[1]).not.toHaveProperty("exceptionExtra");
   });
 
+  it("sends a run's error message to first-party analytics only", async () => {
+    const { gtag } = installBrowser();
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amplitude_test");
+    const { configureTracking, trackEvent } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/track",
+      pageviewTracking: false,
+    });
+    await tick();
+    amplitudeMock.track.mockClear();
+    analyticsCalls.length = 0;
+
+    trackEvent("agent_run_outcome", {
+      outcome: "failed",
+      error_message: "Deck Quarterly Planning not found",
+    });
+    await tick();
+
+    const firstParty = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((body) => body.event === "agent_run_outcome");
+    expect(firstParty?.properties).toMatchObject({
+      outcome: "failed",
+      error_message: "Deck Quarterly Planning not found",
+    });
+    const amplitudeOutcome = amplitudeMock.track.mock.calls.find(
+      ([name]) => name === "agent_run_outcome",
+    );
+    expect(amplitudeOutcome?.[1]).toMatchObject({ outcome: "failed" });
+    expect(amplitudeOutcome?.[1]).not.toHaveProperty("error_message");
+    expect(gtag).toHaveBeenCalledWith(
+      "event",
+      "agent_run_outcome",
+      expect.not.objectContaining({ error_message: expect.anything() }),
+    );
+    expect(gtag).toHaveBeenCalledWith(
+      "event",
+      "agent_run_outcome",
+      expect.objectContaining({ outcome: "failed" }),
+    );
+  });
+
   it("links the open chat thread on a first-party exception, and leaves one outside a thread alone", async () => {
     installBrowser("https://mail.agent-native.com/inbox?thread=thr_9&token=s");
     const { analyticsCalls } = installFetch();

@@ -16,8 +16,8 @@ import type { RunOutcomeReport } from "./run-outcome.js";
  * `$ai_trace`); this event is what the browser saw and how it came to know.
  *
  * A failure carries its named `cause` when it has one, or else its message
- * reduced to a shape, so Analytics can group agent trouble without the
- * message's own text.
+ * reduced to a shape, so Analytics can group agent trouble. The shape keeps
+ * unquoted words, so only first-party Analytics receives it.
  */
 export const RUN_OUTCOME_EVENT = "agent_run_outcome";
 
