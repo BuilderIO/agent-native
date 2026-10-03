@@ -2678,6 +2678,11 @@ function installConsoleCapture(
         level,
         source,
         message,
+        // Captured exceptions also arrive as console errors, and only they
+        // can become Monitoring issues, so a reader must tell the two apart.
+        ...(source === "console" && level === "error"
+          ? { exception: false }
+          : {}),
         ...(extraArgs.length ? { args: extraArgs } : {}),
         ...(stack ? { stack } : {}),
         ...(url ? { url } : {}),
@@ -3628,6 +3633,7 @@ export function emitSessionReplayException(input: {
   emitReplayCustomEvent(state, SESSION_REPLAY_CONSOLE_EVENT_TAG, {
     level,
     source: "console",
+    exception: true,
     message: `${input.type}: ${input.message}`.slice(
       0,
       MAX_CONSOLE_MESSAGE_LENGTH,
