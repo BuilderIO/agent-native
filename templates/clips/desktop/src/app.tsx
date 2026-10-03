@@ -3634,6 +3634,7 @@ export function App({
   async function handleStartRecording(options?: {
     resumeCapture?: RestartHandoff;
   }): Promise<RecorderHandle | null> {
+    const recordingClickAt = performance.now();
     if (recordingStopFinalizingRef.current) {
       console.warn(
         "[clips-popover] handleStartRecording ignored — previous recording still finalizing",
@@ -3767,6 +3768,9 @@ export function App({
             options?.resumeCapture?.transcriptionTornDown ?? null,
           signal: attempt.signal,
           onCaptureStartRequested: (recordingId) => {
+            console.log(
+              `[recording-start-latency] click to capture request ${Math.round(performance.now() - recordingClickAt)}ms`,
+            );
             captureStartRequestedDuringStart = true;
             if (recordingStartAttemptRef.current === attempt) {
               captureStartedDuringStartRef.current = true;

@@ -215,7 +215,7 @@ const params: StartParams = {
 };
 
 const handlers = new Map<string, Set<(event: { payload: unknown }) => void>>();
-const nativeCommands = new Map<string, () => Promise<unknown>>();
+const nativeCommands = new Map<string, (args?: unknown) => Promise<unknown>>();
 let getUserMedia: ReturnType<typeof vi.fn>;
 let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -268,8 +268,8 @@ beforeEach(() => {
   mocks.emit.mockImplementation(async (name, payload) => {
     for (const handler of handlers.get(name) ?? []) handler({ payload });
   });
-  mocks.invoke.mockImplementation(async (name) => {
-    if (nativeCommands.has(name)) return nativeCommands.get(name)!();
+  mocks.invoke.mockImplementation(async (name, args) => {
+    if (nativeCommands.has(name)) return nativeCommands.get(name)!(args);
     if (name === "rewind_capture_suspension_acquire") {
       return { leaseId: null, suspendedRewind: false };
     }
@@ -504,7 +504,6 @@ describe("native recording startup", () => {
     await flush();
     const id = createdRecordingId();
     await vi.advanceTimersByTimeAsync(10_000);
-    await failed;
 
     createResponse.resolve(
       new Response(
@@ -512,6 +511,7 @@ describe("native recording startup", () => {
         { status: 200 },
       ),
     );
+    await failed;
     await flush();
 
     expect(calls("rewind_clip_prepare")).toHaveLength(0);
@@ -521,6 +521,70 @@ describe("native recording startup", () => {
         String(url).includes(`/api/uploads/${id}/abort`),
       ),
     ).toHaveLength(1);
+  });
+
+  it("scopes late Rewind cleanup to the canceled startup attempt", async () => {
+    const prepare = deferred<unknown>();
+    const controller = new AbortController();
+    let activeStartupId: string | null = null;
+    let prepareAttempts = 0;
+    nativeCommands.set("rewind_clip_status", async () => ({
+      compatibility: "compatible",
+      active: false,
+    }));
+    nativeCommands.set("rewind_clip_prepare", (args) => {
+      const startupId = (args as { startupId: string }).startupId;
+      prepareAttempts += 1;
+      if (prepareAttempts === 1) return prepare.promise;
+      activeStartupId = startupId;
+      return Promise.resolve({ compatibility: "compatible", active: false });
+    });
+    nativeCommands.set("rewind_clip_cancel", async (args) => {
+      const startupId = (args as { startupId: string }).startupId;
+      if (activeStartupId === startupId) activeStartupId = null;
+    });
+
+    const pending = startRecording({
+      ...params,
+      source: "full-screen",
+      localRecordingMode: "composed",
+      signal: controller.signal,
+    });
+    const failed = expect(pending).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await flush();
+    expect(calls("rewind_clip_prepare")).toHaveLength(1);
+
+    controller.abort();
+    await failed;
+    const firstStartupId = (
+      calls("rewind_clip_prepare")[0][1] as { startupId: string }
+    ).startupId;
+
+    const retry = startRecording({
+      ...params,
+      source: "full-screen",
+      localRecordingMode: "composed",
+    });
+    await vi.advanceTimersByTimeAsync(3_600);
+    const retryHandle = await retry;
+    const retryStartupId = (
+      calls("rewind_clip_prepare")[1][1] as { startupId: string }
+    ).startupId;
+    expect(activeStartupId).toBe(retryStartupId);
+
+    prepare.resolve({ compatibility: "compatible", active: true });
+    await flush();
+
+    expect(calls("rewind_clip_cancel")).toContainEqual([
+      "rewind_clip_cancel",
+      { startupId: firstStartupId },
+    ]);
+    expect(activeStartupId).toBe(retryStartupId);
+
+    await retryHandle.cancel();
+    expect(activeStartupId).toBeNull();
   });
 
   it("cancels Rewind countdown while event listeners are still registering", async () => {
