@@ -1994,11 +1994,11 @@ export async function listSessionRecordingsPage(
   const search = replayListSearchCondition(filters.query);
   if (search) conditions.push(search);
   conditions.push(
-    ...(await sessionEventFilterConditions({
+    ...(await sessionEventFilterConditions(scope, {
       didEvents: filters.didEvents,
       didNotEvents: filters.didNotEvents,
     })),
-    ...(await sessionFrictionFilterConditions(filters.frictionSignals)),
+    ...(await sessionFrictionFilterConditions(scope, filters.frictionSignals)),
   );
   const appConditions = [...conditions];
   if (filters.app)
@@ -2009,7 +2009,7 @@ export async function listSessionRecordingsPage(
   // Before the friction migration nothing is measured, so friction sorts
   // fall back to newest rather than fail.
   const sortOrder = isSessionFrictionSort(sort)
-    ? ((await sessionFrictionSortOrder(sort)) ??
+    ? ((await sessionFrictionSortOrder(scope, sort)) ??
       desc(schema.sessionRecordings.startedAt))
     : sort === "longest"
       ? sql`${schema.sessionRecordings.durationMs} desc nulls last`
@@ -2731,11 +2731,18 @@ export async function finalizeAbandonedSessionRecordings(
   let finalized = 0;
   for (const row of rows) {
     try {
-      await finalizeReplayFriction({
-        recordingId: row.id,
-        errorCount: Number(row.errorCount ?? 0),
-        rageClickCount: Number(row.rageClickCount ?? 0),
-      });
+      await finalizeReplayFriction(
+        {
+          id: row.id,
+          sessionId: row.sessionId,
+          ownerEmail: row.ownerEmail,
+          orgId: row.orgId ?? null,
+          chunkCount: Number(row.chunkCount ?? 0),
+          errorCount: Number(row.errorCount ?? 0),
+          rageClickCount: Number(row.rageClickCount ?? 0),
+        },
+        now.toISOString(),
+      );
     } catch (error) {
       console.warn(
         "[session-replay] Replay friction finalize failed; the recording stays active until the next sweep:",

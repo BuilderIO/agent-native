@@ -338,20 +338,12 @@ export function detectReplayFriction(
     trimFailures(state);
   }
 
-  return { state, delta, errorThenLeave: endedSoonAfterError(state) };
-}
-
-/**
- * Whether the last event so far came soon after an error. It means the person
- * left only once the recording has ended; before that, it is just the latest
- * upload.
- */
-export function endedSoonAfterError(
-  state: ReplayFrictionDetectorState,
-): boolean {
-  return (
+  // The last event so far came soon after an error. That means the person
+  // left only once the recording has ended; before that, it is just the
+  // latest upload.
+  const errorThenLeave =
     state.lastErrorAt !== null &&
     state.lastEventAt !== null &&
-    state.lastEventAt - state.lastErrorAt <= ERROR_THEN_LEAVE_WINDOW_MS
-  );
+    state.lastEventAt - state.lastErrorAt <= ERROR_THEN_LEAVE_WINDOW_MS;
+  return { state, delta, errorThenLeave };
 }

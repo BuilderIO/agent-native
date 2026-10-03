@@ -584,14 +584,14 @@ describe("session friction on Postgres", () => {
     const rows = await db
       .select({ id: r.id })
       .from(r)
-      .where(and(...(await sessionFrictionFilterConditions(signals))))
+      .where(and(...(await sessionFrictionFilterConditions(SCOPE, signals))))
       .orderBy(asc(r.id));
     return rows.map((row: { id: string }) => row.id);
   }
 
   async function sorted(sort: SessionFrictionSort) {
     const r = schema.sessionRecordings;
-    const order = await sessionFrictionSortOrder(sort);
+    const order = await sessionFrictionSortOrder(SCOPE, sort);
     if (!order) return null;
     const rows = await db
       .select({ id: r.id })
@@ -938,11 +938,7 @@ describe("session friction on Postgres", () => {
     });
 
     // Retention finalizes a recording that never sent its final upload.
-    await finalizeReplayFriction({
-      recordingId: "r1",
-      errorCount: 0,
-      rageClickCount: 0,
-    });
+    await finalizeReplayFriction(recordingInput("r1", "s1", 1), at(60));
     details = await getSessionFrictionDetails(SCOPE, [
       recordingInput("r1", "s1", 1),
     ]);
@@ -953,6 +949,40 @@ describe("session friction on Postgres", () => {
     expect(details.get("r1")?.score).toBe(
       sessionFrictionScore(
         { http_5xx: 1, error_then_leave: 1 },
+        REPLAY_FRICTION_SCORE_INPUTS,
+      ),
+    );
+  });
+
+  it("rescores a recording from an upload that stored no new chunks", async () => {
+    await migrateFriction(client);
+    await addRecording("r1", "s1", at(0), 1);
+    await replayBatch("r1", "s1", 0, [serverError(5_000)], false);
+
+    // A retried final upload: every chunk is already stored, but the
+    // recording has now ended and its counts grew.
+    await recordReplayFriction({
+      recordingId: "r1",
+      sessionId: "s1",
+      ownerEmail: OWNER,
+      orgId: ORG,
+      priorChunkCount: 1,
+      newChunks: [],
+      errorCount: 2,
+      rageClickCount: 0,
+      recordingEnded: true,
+      ingestedAt: at(60),
+    });
+    const details = await getSessionFrictionDetails(SCOPE, [
+      { ...recordingInput("r1", "s1", 1), errorCount: 2 },
+    ]);
+    expect(details.get("r1")?.replay).toMatchObject({
+      http_5xx: 1,
+      error_then_leave: 1,
+    });
+    expect(details.get("r1")?.score).toBe(
+      sessionFrictionScore(
+        { http_5xx: 1, error_then_leave: 1, errors: 2 },
         REPLAY_FRICTION_SCORE_INPUTS,
       ),
     );
@@ -1321,6 +1351,42 @@ describe("session friction on Postgres", () => {
       "s-new",
     ]);
     expect(await sessionIds("session_recording_friction")).toEqual([]);
+  });
+
+  it("shows a recording shared from another tenant only its replay friction", async () => {
+    await migrateFriction(client);
+    const other = { ownerEmail: "other@example.com", orgId: "org_2" };
+    await index(
+      [
+        {
+          ...actionResponse("s1", 1, { action: "save", success: false }),
+          ...other,
+        },
+      ],
+      at(0),
+    );
+    await client.query(
+      `INSERT INTO session_recordings (id, client_recording_id, session_id, owner_email, org_id, started_at, chunk_count)
+       VALUES ('r-shared', 'client-r-shared', 's1', $1, $2, $3, 1)`,
+      [other.ownerEmail, other.orgId, at(0)],
+    );
+    await replayBatch("r-shared", "s1", 0, [serverError(1_000)]);
+    const recording = { ...recordingInput("r-shared", "s1", 1), ...other };
+
+    const owner = await getSessionFrictionDetails(
+      { userEmail: other.ownerEmail, orgId: other.orgId },
+      [recording],
+    );
+    expect(owner.get("r-shared")?.events).toMatchObject({ failed_actions: 1 });
+
+    const shared = await getSessionFrictionDetails(SCOPE, [recording]);
+    expect(shared.get("r-shared")).toMatchObject({
+      replay: { http_5xx: 1 },
+      events: null,
+      troubles: [],
+    });
+    expect(await matching(["failed_actions"])).toEqual([]);
+    expect(await matching(["http_5xx"])).toEqual(["r-shared"]);
   });
 
   it("keys friction rows by tenant, never another tenant's session", async () => {

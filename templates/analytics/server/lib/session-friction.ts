@@ -47,15 +47,16 @@ import {
 } from "./error-capture.js";
 import {
   boundedText,
+  recordingTenantSql,
   type SessionEventIndexInputRow,
   type SessionEventScope,
   sessionEventTenantKey,
   sessionGapRows,
   sessionIdOf,
+  viewerReadsRecordingEventsSql,
 } from "./session-event-index.js";
 import {
   detectReplayFriction,
-  endedSoonAfterError,
   parseReplayFrictionDetectorState,
 } from "./session-friction-detector.js";
 
@@ -203,98 +204,8 @@ export interface ReplayFrictionInput {
 export async function recordReplayFriction(
   input: ReplayFrictionInput,
 ): Promise<void> {
-  if (!input.newChunks.length) return;
-  // Chunks can arrive out of order. A batch that does not continue exactly at
-  // the processed count would be measured out of order, so it is left out and
-  // the row falls behind the recording.
-  const seqs = input.newChunks.map((chunk) => chunk.seq).sort((a, b) => a - b);
-  if (seqs.some((seq, index) => seq !== input.priorChunkCount + index)) return;
   try {
-    const db = getDb() as any;
-    if (!(await sessionFrictionReady(db))) return;
-    const t = schema.sessionRecordingFriction;
-    let existing: typeof t.$inferSelect | undefined;
-    if (input.priorChunkCount > 0) {
-      [existing] = await db
-        .select()
-        .from(t)
-        .where(eq(t.recordingId, input.recordingId))
-        .limit(1);
-      if (!existing || existing.processedChunks !== input.priorChunkCount) {
-        return;
-      }
-    }
-    const previousState = existing
-      ? parseReplayFrictionDetectorState(existing.detectorState)
-      : null;
-    if (existing && !previousState) return;
-
-    const events: unknown[] = [];
-    for (const chunk of [...input.newChunks].sort((a, b) => a.seq - b.seq)) {
-      const parsed = chunk.inlineData
-        ? parseReplayEventsStrict(chunk.inlineData)
-        : null;
-      if (!parsed) return;
-      events.push(...parsed);
-    }
-    const { state, delta, errorThenLeave } = detectReplayFriction(
-      events,
-      previousState,
-    );
-    const counts = {
-      deadClicks: (existing?.deadClicks ?? 0) + delta.deadClicks,
-      errorToasts: (existing?.errorToasts ?? 0) + delta.errorToasts,
-      retryLoops: (existing?.retryLoops ?? 0) + delta.retryLoops,
-      errorThenLeave: errorThenLeave && input.recordingEnded ? 1 : 0,
-      stalledRequests: (existing?.stalledRequests ?? 0) + delta.stalledRequests,
-      http4xx: (existing?.http4xx ?? 0) + delta.http4xx,
-      http5xx: (existing?.http5xx ?? 0) + delta.http5xx,
-    };
-    const score = sessionFrictionScore(
-      {
-        ...replayCountsBySignal(counts),
-        errors: input.errorCount,
-        rage_clicks: input.rageClickCount,
-      },
-      REPLAY_FRICTION_SCORE_INPUTS,
-    );
-    const values = {
-      ...counts,
-      issueErrors: !existing
-        ? delta.issueErrors
-        : existing.issueErrors === null
-          ? null
-          : existing.issueErrors + delta.issueErrors,
-      processedChunks: input.priorChunkCount + input.newChunks.length,
-      score,
-      detectorState: JSON.stringify(state),
-      updatedAt: input.ingestedAt,
-    };
-    if (existing) {
-      // Conditional on the count read above, so two overlapping uploads can
-      // never both advance the same row.
-      await db
-        .update(t)
-        .set(values)
-        .where(
-          and(
-            eq(t.recordingId, input.recordingId),
-            eq(t.processedChunks, input.priorChunkCount),
-          ),
-        );
-      return;
-    }
-    await db
-      .insert(t)
-      .values({
-        recordingId: input.recordingId,
-        tenantKey: sessionEventTenantKey(input.ownerEmail, input.orgId),
-        ownerEmail: input.ownerEmail,
-        orgId: input.orgId,
-        sessionId: input.sessionId,
-        ...values,
-      })
-      .onConflictDoNothing();
+    await measureReplayFriction(input);
   } catch (error) {
     warnFrictionFailure(
       "Replay friction write failed; the recording reads as unmeasured:",
@@ -309,43 +220,132 @@ export async function recordReplayFriction(
  * counts as leaving. Throws, so retention can leave the recording active and
  * try again rather than end it with leaving uncounted.
  */
-export async function finalizeReplayFriction(input: {
-  recordingId: string;
-  errorCount: number;
-  rageClickCount: number;
-}): Promise<void> {
+export async function finalizeReplayFriction(
+  recording: {
+    id: string;
+    sessionId: string;
+    ownerEmail: string;
+    orgId: string | null;
+    chunkCount: number;
+    errorCount: number;
+    rageClickCount: number;
+  },
+  finalizedAt: string,
+): Promise<void> {
+  await measureReplayFriction({
+    recordingId: recording.id,
+    sessionId: recording.sessionId,
+    ownerEmail: recording.ownerEmail,
+    orgId: recording.orgId,
+    priorChunkCount: recording.chunkCount,
+    newChunks: [],
+    errorCount: recording.errorCount,
+    rageClickCount: recording.rageClickCount,
+    recordingEnded: true,
+    ingestedAt: finalizedAt,
+  });
+}
+
+/**
+ * A batch with no new chunks, such as a retried upload or a final flush,
+ * still rescores the row: the recording's counts, and whether it has ended,
+ * can change without new events.
+ */
+async function measureReplayFriction(
+  input: ReplayFrictionInput,
+): Promise<void> {
+  // Chunks can arrive out of order. A batch that does not continue exactly at
+  // the processed count would be measured out of order, so it is left out and
+  // the row falls behind the recording.
+  const seqs = input.newChunks.map((chunk) => chunk.seq).sort((a, b) => a - b);
+  if (seqs.some((seq, index) => seq !== input.priorChunkCount + index)) return;
   const db = getDb() as any;
   if (!(await sessionFrictionReady(db))) return;
   const t = schema.sessionRecordingFriction;
-  const [row] = await db
-    .select()
-    .from(t)
-    .where(eq(t.recordingId, input.recordingId))
-    .limit(1);
-  // A row whose state cannot be read is already unmeasured.
-  const state = row
-    ? parseReplayFrictionDetectorState(row.detectorState)
+  let existing: typeof t.$inferSelect | undefined;
+  if (input.priorChunkCount > 0) {
+    [existing] = await db
+      .select()
+      .from(t)
+      .where(eq(t.recordingId, input.recordingId))
+      .limit(1);
+    if (!existing || existing.processedChunks !== input.priorChunkCount) {
+      return;
+    }
+  } else if (!input.newChunks.length) {
+    return;
+  }
+  const previousState = existing
+    ? parseReplayFrictionDetectorState(existing.detectorState)
     : null;
-  if (!row || !state) return;
-  const errorThenLeave = endedSoonAfterError(state) ? 1 : 0;
-  if (row.errorThenLeave === errorThenLeave) return;
+  if (existing && !previousState) return;
+
+  const events: unknown[] = [];
+  for (const chunk of [...input.newChunks].sort((a, b) => a.seq - b.seq)) {
+    const parsed = chunk.inlineData
+      ? parseReplayEventsStrict(chunk.inlineData)
+      : null;
+    if (!parsed) return;
+    events.push(...parsed);
+  }
+  const { state, delta, errorThenLeave } = detectReplayFriction(
+    events,
+    previousState,
+  );
+  const counts = {
+    deadClicks: (existing?.deadClicks ?? 0) + delta.deadClicks,
+    errorToasts: (existing?.errorToasts ?? 0) + delta.errorToasts,
+    retryLoops: (existing?.retryLoops ?? 0) + delta.retryLoops,
+    errorThenLeave: errorThenLeave && input.recordingEnded ? 1 : 0,
+    stalledRequests: (existing?.stalledRequests ?? 0) + delta.stalledRequests,
+    http4xx: (existing?.http4xx ?? 0) + delta.http4xx,
+    http5xx: (existing?.http5xx ?? 0) + delta.http5xx,
+  };
   const score = sessionFrictionScore(
     {
-      ...replayCountsBySignal({ ...row, errorThenLeave }),
+      ...replayCountsBySignal(counts),
       errors: input.errorCount,
       rage_clicks: input.rageClickCount,
     },
     REPLAY_FRICTION_SCORE_INPUTS,
   );
+  const values = {
+    ...counts,
+    issueErrors: !existing
+      ? delta.issueErrors
+      : existing.issueErrors === null
+        ? null
+        : existing.issueErrors + delta.issueErrors,
+    processedChunks: input.priorChunkCount + input.newChunks.length,
+    score,
+    detectorState: JSON.stringify(state),
+    updatedAt: input.ingestedAt,
+  };
+  if (existing) {
+    // Conditional on the count read above, so two overlapping uploads can
+    // never both advance the same row.
+    await db
+      .update(t)
+      .set(values)
+      .where(
+        and(
+          eq(t.recordingId, input.recordingId),
+          eq(t.processedChunks, input.priorChunkCount),
+        ),
+      );
+    return;
+  }
   await db
-    .update(t)
-    .set({ errorThenLeave, score })
-    .where(
-      and(
-        eq(t.recordingId, input.recordingId),
-        eq(t.processedChunks, row.processedChunks),
-      ),
-    );
+    .insert(t)
+    .values({
+      recordingId: input.recordingId,
+      tenantKey: sessionEventTenantKey(input.ownerEmail, input.orgId),
+      ownerEmail: input.ownerEmail,
+      orgId: input.orgId,
+      sessionId: input.sessionId,
+      ...values,
+    })
+    .onConflictDoNothing();
 }
 
 function replayCountsBySignal(
@@ -787,14 +787,8 @@ async function writeSessionEventFriction(
   }
 }
 
-const recordingTenantSql = (recording: {
-  orgId: AnyColumn;
-  ownerEmail: AnyColumn;
-}) =>
-  sql`(case when ${recording.orgId} is not null then 'org:' || ${recording.orgId} else 'user:' || ${recording.ownerEmail} end)`;
-
 /** True when the recording's session events were measured completely. */
-function eventFrictionCoveredSql(): SQL {
+function eventFrictionCoveredSql(scope: SessionEventScope): SQL {
   const r = schema.sessionRecordings;
   const sibling = alias(schema.sessionRecordings, "session_friction_sibling");
   const coverage = schema.analyticsSessionFrictionCoverage;
@@ -802,7 +796,7 @@ function eventFrictionCoveredSql(): SQL {
   const frictionGaps = schema.analyticsSessionFrictionGaps;
   const tenant = recordingTenantSql(r);
   const coverageStart = sql`(select ${coverage.startedAt} from ${coverage} where ${coverage.tenantKey} = ${tenant})`;
-  return sql`(${r.startedAt} >= ${coverageStart} and not exists (select 1 from ${r} as ${sibling} where ${sibling.sessionId} = ${r.sessionId} and ${recordingTenantSql(sibling)} = ${tenant} and ${sibling.startedAt} < ${coverageStart}) and not exists (select 1 from ${gaps} where ${gaps.tenantKey} = ${tenant} and ${gaps.sessionId} = ${r.sessionId}) and not exists (select 1 from ${frictionGaps} where ${frictionGaps.tenantKey} = ${tenant} and ${frictionGaps.sessionId} = ${r.sessionId}))`;
+  return sql`(${viewerReadsRecordingEventsSql(r, scope)} and ${r.startedAt} >= ${coverageStart} and not exists (select 1 from ${r} as ${sibling} where ${sibling.sessionId} = ${r.sessionId} and ${recordingTenantSql(sibling)} = ${tenant} and ${sibling.startedAt} < ${coverageStart}) and not exists (select 1 from ${gaps} where ${gaps.tenantKey} = ${tenant} and ${gaps.sessionId} = ${r.sessionId}) and not exists (select 1 from ${frictionGaps} where ${frictionGaps.tenantKey} = ${tenant} and ${frictionGaps.sessionId} = ${r.sessionId}))`;
 }
 
 function replayValueSql(column: AnyColumn): SQL {
@@ -811,28 +805,36 @@ function replayValueSql(column: AnyColumn): SQL {
   return sql`(select ${column} from ${rf} where ${rf.recordingId} = ${r.id} and ${rf.processedChunks} = ${r.chunkCount})`;
 }
 
-function eventValueSql(column: AnyColumn, agentReported = false): SQL {
+function eventValueSql(
+  scope: SessionEventScope,
+  column: AnyColumn,
+  agentReported = false,
+): SQL {
   const r = schema.sessionRecordings;
   const f = schema.analyticsSessionFriction;
-  return sql`(case when ${eventFrictionCoveredSql()} then (select ${column} from ${f} where ${f.tenantKey} = ${recordingTenantSql(r)} and ${f.sessionId} = ${r.sessionId}${agentReported ? sql` and ${f.agentSignalsMeasured} and not ${f.agentSignalsMissing}` : sql``}) end)`;
+  return sql`(case when ${eventFrictionCoveredSql(scope)} then (select ${column} from ${f} where ${f.tenantKey} = ${recordingTenantSql(r)} and ${f.sessionId} = ${r.sessionId}${agentReported ? sql` and ${f.agentSignalsMeasured} and not ${f.agentSignalsMissing}` : sql``}) end)`;
 }
 
 /** A signal's count for the outer recording, or null when unmeasured. */
-function signalValueSql(signal: SessionFrictionSignal): SQL {
+function signalValueSql(
+  scope: SessionEventScope,
+  signal: SessionFrictionSignal,
+): SQL {
   if (signal in REPLAY_COLUMNS) {
     const key = REPLAY_COLUMNS[signal as ReplayFrictionSignal];
     return replayValueSql(schema.sessionRecordingFriction[key]);
   }
   const key = EVENT_COLUMNS[signal as EventFrictionSignal];
   return eventValueSql(
+    scope,
     schema.analyticsSessionFriction[key],
     isAgentReportedFrictionSignal(signal),
   );
 }
 
 /** Replay plus event score; null only when neither part was measured. */
-function frictionScoreSql(): SQL {
-  return sql`(select sum(part) from (values (${replayValueSql(schema.sessionRecordingFriction.score)}), (${eventValueSql(schema.analyticsSessionFriction.score)})) as friction_parts(part))`;
+function frictionScoreSql(scope: SessionEventScope): SQL {
+  return sql`(select sum(part) from (values (${replayValueSql(schema.sessionRecordingFriction.score)}), (${eventValueSql(scope, schema.analyticsSessionFriction.score)})) as friction_parts(part))`;
 }
 
 /**
@@ -841,12 +843,13 @@ function frictionScoreSql(): SQL {
  * the migration.
  */
 export async function sessionFrictionFilterConditions(
+  scope: SessionEventScope,
   signals: readonly SessionFrictionSignal[] | undefined,
 ): Promise<SQL[]> {
   if (!signals?.length) return [];
   if (!(await sessionFrictionReady(getDb()))) return [sql`false`];
   return [...new Set(signals)].map(
-    (signal) => sql`${signalValueSql(signal)} > 0`,
+    (signal) => sql`${signalValueSql(scope, signal)} > 0`,
   );
 }
 
@@ -914,10 +917,12 @@ export async function getSessionFrictionCoverageStart(
 
 /** Most friction first; unmeasured sessions last. Null before migration. */
 export async function sessionFrictionSortOrder(
+  scope: SessionEventScope,
   sort: SessionFrictionSort,
 ): Promise<SQL | null> {
   if (!(await sessionFrictionReady(getDb()))) return null;
-  const value = sort === "friction" ? frictionScoreSql() : signalValueSql(sort);
+  const value =
+    sort === "friction" ? frictionScoreSql(scope) : signalValueSql(scope, sort);
   return sql`${value} desc nulls last`;
 }
 
@@ -984,7 +989,7 @@ export async function getSessionFrictionDetails(
     db
       .select({
         recordingId: r.id,
-        covered: sql<boolean>`${eventFrictionCoveredSql()}`,
+        covered: sql<boolean>`${eventFrictionCoveredSql(scope)}`,
         tenantKey: f.tenantKey,
         sessionId: f.sessionId,
         failedActions: f.failedActions,

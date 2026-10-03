@@ -83,6 +83,26 @@ function viewerTenantKeys(scope: SessionEventScope): string[] {
     : [sessionEventTenantKey(scope.userEmail, null)];
 }
 
+/** The tenant whose analytics events a recording's session belongs to. */
+export function recordingTenantSql(recording: {
+  orgId: AnyColumn;
+  ownerEmail: AnyColumn;
+}) {
+  return sql`(case when ${recording.orgId} is not null then 'org:' || ${recording.orgId} else 'user:' || ${recording.ownerEmail} end)`;
+}
+
+/**
+ * Whether the viewer may read the recording's session events. A share grants
+ * the recording, not its tenant's events, so a recording shared from another
+ * tenant reads as if its session were never indexed.
+ */
+export function viewerReadsRecordingEventsSql(
+  recording: { orgId: AnyColumn; ownerEmail: AnyColumn },
+  scope: SessionEventScope,
+) {
+  return inArray(recordingTenantSql(recording), viewerTenantKeys(scope));
+}
+
 /**
  * Unique indexes hold event names and apps raw, so both are cut to a length
  * that fits an index entry. Never ends on half of a surrogate pair, which
@@ -453,6 +473,7 @@ export function hasSessionEventFilters(filters: SessionEventFilters): boolean {
  * widen the recording access filter it is combined with.
  */
 export async function sessionEventFilterConditions(
+  scope: SessionEventScope,
   filters: SessionEventFilters,
 ) {
   const didEvents = normalizeSessionEventNames(filters.didEvents);
@@ -465,19 +486,18 @@ export async function sessionEventFilterConditions(
   const se = schema.analyticsSessionEvents;
   const coverage = schema.analyticsSessionEventCoverage;
   const gaps = schema.analyticsSessionEventGaps;
-  const tenantOf = (recording: { orgId: AnyColumn; ownerEmail: AnyColumn }) =>
-    sql`(case when ${recording.orgId} is not null then 'org:' || ${recording.orgId} else 'user:' || ${recording.ownerEmail} end)`;
-  const recordingTenant = tenantOf(r);
+  const recordingTenant = recordingTenantSql(r);
   const coverageStart = sql`(select ${coverage.startedAt} from ${coverage} where ${coverage.tenantKey} = ${recordingTenant})`;
   const sessionIndexed = (eventName?: string) =>
     sql`exists (select 1 from ${se} where ${se.tenantKey} = ${recordingTenant} and ${se.sessionId} = ${r.sessionId}${eventName === undefined ? sql`` : sql` and ${se.eventName} = ${eventName}`})`;
 
   return [
+    viewerReadsRecordingEventsSql(r, scope),
     sql`${r.startedAt} >= ${coverageStart}`,
     // One analytics session can span tabs, each with its own recording. A
     // session that had a recording before coverage began may have events the
     // index never saw.
-    sql`not exists (select 1 from ${r} as ${sibling} where ${sibling.sessionId} = ${r.sessionId} and ${tenantOf(sibling)} = ${recordingTenant} and ${sibling.startedAt} < ${coverageStart})`,
+    sql`not exists (select 1 from ${r} as ${sibling} where ${sibling.sessionId} = ${r.sessionId} and ${recordingTenantSql(sibling)} = ${recordingTenant} and ${sibling.startedAt} < ${coverageStart})`,
     ...didEvents.map((eventName) => sessionIndexed(eventName)),
     // "Didn't" needs a session the index saw completely, so a failed or
     // pruned index write never reads as the event's absence.
