@@ -220,7 +220,9 @@ providers build it.
   cancelled runs and thumbs-down as measured only after seeing the marker
   and while no unmarked pageview or sampled stop shares the session (tabs
   share one session id), and counts only stops sent unsampled. Keep both
-  guarantees while the marker ships.
+  guarantees while the marker ships. Every `pageview` also carries
+  `page_load_id` (`PAGE_LOAD_PAGEVIEW_PROPERTY`), the same until the page
+  reloads, because quick backs compare pages only within one page load.
   `session_navigation` is one event per document that left because of the
   session (`reason`, and for `signed_out` the `evidence`: `signed_out_body` or
   `http_401`), never the destination. Both are emitted from the single place
@@ -305,7 +307,7 @@ Template roots call `configureTracking()` once during app startup. That installs
 - Event: `pageview`
 - Fires on initial load, `history.pushState`, `history.replaceState`, and `popstate`
 - De-dupes repeated events for the same URL
-- Includes `url`, `path`, `hostname`, `referrer`, `title`, `navigation_type`, `agent_signals`, `app`, and inferred `template`
+- Includes `url`, `path`, `hostname`, `referrer`, `title`, `navigation_type`, `agent_signals`, `page_load_id`, `app`, and inferred `template`
 - Includes LLM connection context on browser events when known: `llm_connection` (`builder`, `anthropic`, `openai`, etc.), `llm_engine`, `llm_model`, `llm_connection_source`, and `llm_connection_configured`
 - Does not send first-party events from localhost/local dev
 

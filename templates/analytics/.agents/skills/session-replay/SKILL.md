@@ -134,6 +134,9 @@ agent answers about browser recordings in the Analytics template.
   still counts as a stalled request. Any other status-0 failure counts.
 - Never store page text or URLs: detector state keeps timestamps, rrweb node
   ids, and hashed request keys; quick backs compare hashed paths.
+- One session id spans every tab, so a quick back compares pages only within
+  one page load (`page_load_id` on each pageview). Pageviews from older
+  clients, which send no id, are followed as one page load.
 - A replay row counts only while `processed_chunks` equals the recording's
   `chunk_count`. Each batch must continue from the stored detector state and
   its chunk seqs must start exactly at `processed_chunks`, so a batch that

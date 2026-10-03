@@ -6,6 +6,7 @@ import {
   agentTroubleCauseForCode,
   isAgentTroubleCause,
   normalizeAgentTroubleMessage,
+  PAGE_LOAD_PAGEVIEW_PROPERTY,
 } from "@agent-native/core/shared/analytics-events";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
@@ -90,6 +91,9 @@ const FEEDBACK_EVENT = "agent_feedback_submitted";
 
 /** Back to the previous page within this long of leaving it is a quick back. */
 export const QUICK_BACK_WINDOW_MS = 5_000;
+/** A session keeps the navigation of only its most recent page loads. */
+const MAX_NAV_PAGE_LOADS = 20;
+const MAX_PAGE_LOAD_ID_LENGTH = 64;
 const MAX_TROUBLE_LABEL_LENGTH = 120;
 const MAX_TROUBLE_STATUS_LENGTH = 80;
 const MAX_PATH_LENGTH = 2_000;
@@ -387,20 +391,32 @@ function measuredCounts(
   ) as FrictionCounts;
 }
 
-interface NavState {
-  v: 1;
+interface PageLoadNav {
   previous: string | null;
-  current: string | null;
-  at: number | null;
+  current: string;
+  at: number;
 }
 
+/** Each page load's navigation, least recently navigated first. */
+type NavState = Map<string, PageLoadNav>;
+
 function parseNavState(raw: string | null): NavState {
-  if (raw === null) return { v: 1, previous: null, current: null, at: null };
-  const parsed = JSON.parse(raw) as NavState;
-  if (parsed?.v !== 1) {
+  if (raw === null) return new Map();
+  const parsed = JSON.parse(raw) as {
+    v?: unknown;
+    loads?: Array<PageLoadNav & { id: string }>;
+  };
+  if (parsed?.v !== 2 || !Array.isArray(parsed.loads)) {
     throw new Error("Session friction navigation state is unreadable");
   }
-  return parsed;
+  return new Map(parsed.loads.map(({ id, ...load }) => [id, load]));
+}
+
+function serializeNavState(nav: NavState): string {
+  return JSON.stringify({
+    v: 2,
+    loads: [...nav].map(([id, load]) => ({ id, ...load })),
+  });
 }
 
 type SessionFrictionRow = typeof schema.analyticsSessionFriction.$inferInsert;
@@ -600,17 +616,31 @@ export function aggregateSessionFrictionEvents(
     const at = Date.parse(row.timestamp);
     if (!path || !Number.isFinite(at)) continue;
     const page = shortHash(path);
-    const nav = session.nav;
-    if (page === nav.current || (nav.at !== null && at < nav.at)) continue;
+    // One session id spans every tab, so only a page load's own navigation
+    // can come back to its previous page. Older clients send no id.
+    const loadId = boundedText(
+      stringProperty(properties[PAGE_LOAD_PAGEVIEW_PROPERTY]),
+      MAX_PAGE_LOAD_ID_LENGTH,
+    );
+    const load = session.nav.get(loadId);
+    if (load && (page === load.current || at < load.at)) continue;
     if (
-      page === nav.previous &&
-      nav.at !== null &&
-      at - nav.at <= QUICK_BACK_WINDOW_MS
+      load &&
+      page === load.previous &&
+      at - load.at <= QUICK_BACK_WINDOW_MS
     ) {
       session.quickBacks = (session.quickBacks ?? 0) + 1;
     }
-    session.nav = { v: 1, previous: nav.current, current: page, at };
-    session.navState = JSON.stringify(session.nav);
+    session.nav.delete(loadId);
+    session.nav.set(loadId, {
+      previous: load?.current ?? null,
+      current: page,
+      at,
+    });
+    if (session.nav.size > MAX_NAV_PAGE_LOADS) {
+      session.nav.delete(session.nav.keys().next().value!);
+    }
+    session.navState = serializeNavState(session.nav);
   }
 
   return {
