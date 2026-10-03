@@ -6,11 +6,13 @@
               (top bar, rail, panels, canvas, comments, inspector, menus, dialogs,
               Settings, tokens, share popover)
     markup    review strip, Settings shell, rail, file panel, canvas, inspector
-    <script>  banners "/* ───────── name ───────── */": data, tree (Screens + Layers),
-              top bar, floating dock, canvas, inspector, comments, menus (context
-              menus, Send to), behavior (click and key handlers), keyboard shortcuts
-              window, Settings, version history, history mode, then tokens, which
-              runs to the end: tokens, App menu, Nudge amount, share popover, Import.
+    <script>  banners "/* ───────── name ───────── */": data, responsive, URL screens
+              (route control, unsaved changes, Review changes), screen frame
+              inspector, frame tool, tree (Screens + Layers), top bar, floating dock,
+              canvas, inspector, comments, menus (context menus, Send to), behavior
+              (click and key handlers), keyboard shortcuts window, Settings, version
+              history, history mode, tokens (with App menu, Nudge amount, share
+              popover, Import), Add a screen from your app, then code mode.
   Search for a banner name to jump to a surface. The review strip's switches (Labs,
   History, Scenario, Spacing, Theme, Spec) exist only in the prototype.
 -->
@@ -1210,6 +1212,7 @@ const boundToken = () => RESP.tok && RESP.tok[1] === RESP.w ? RESP.tok : null;
 const frameToken = () => boundToken() || nearestToken(RESP.w);
 const widthMenu = (cur, run) => { const [name, , kind] = (cur === RESP.w ? frameToken() : nearestToken(cur)) || []; return [{ label: "Container" }, ...widthTokens("container").map(([n, px]) => ({ t: n, k: String(px), radio: true, on: kind === "container" && name === n, run: () => run(px, [n, px, "container"]) })), "-", { label: "Breakpoint" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: n, k: String(px), radio: true, on: kind === "breakpoint" && name === n, run: () => run(px, [n, px, "breakpoint"]) }))]; };
 const whenMenu = (r) => [{ label: "Container (this layer's parent)" }, ...widthTokens("container").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), radio: true, on: r.scale === "container" && r.token === n, run: () => { r.scale = "container"; r.token = n; renderPage(); renderInspector(); } })), "-", { label: "Breakpoint (the frame)" }, ...widthTokens("breakpoint").map(([n, px]) => ({ t: `Below ${n}`, k: String(px), radio: true, on: r.scale === "breakpoint" && r.token === n, run: () => { r.scale = "breakpoint"; r.token = n; renderPage(); renderInspector(); } }))];
+/* ───────── URL screens: route control, connection, unsaved changes, Review changes (INSP-07, SAVE) ───────── */
 // A URL screen is like an instance of your app's route. Designers see the route; the app and its host live
 // behind the status dot and tooltip of the top bar's route control, the same control as Interact's address bar. There's no detach: edits write back to the app's code, and
 // turning a live screen static is left to the agent (update-screen-source). Static screens have no source UI.
@@ -1352,6 +1355,7 @@ function syncDialog() {
     });
   });
 }
+/* ───────── screen frame inspector: Position with device sizes, W bound to width tokens ───────── */
 // Device sizes use the Frame tool's list, so there's one set of presets; a device sets W and a fixed H.
 const deviceMenu = () => FRAME_PRESETS.map(([key, label, icon, list]) => ({ icon, t: label, sub: list.map(([n, w, h]) => ({ t: n, k: `${w}\u2009×\u2009${h}`, radio: true, on: RESP.w === w && RESP.h === h, run: () => { RESP.h = h; setFrameWidth(w); } })) }));
 // The selected screen's frame, in the code's order: Position (X/Y, size with device presets),
@@ -3062,6 +3066,7 @@ function importDialog(focus) {
   });
 }
 
+/* ───────── Add a screen from your app (AddLocalhostScreenDialog, with a connect step: INSP-09) ───────── */
 // Add a screen from your app (AddLocalhostScreenDialog), with a connect step in front of it. `design connect`
 // finds the dev server itself when --url is left off, so the command has no port to fill in.
 const CONNECT_CMD = "npx @agent-native/core@latest design connect --daemon";

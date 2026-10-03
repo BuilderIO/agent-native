@@ -3,8 +3,10 @@
 The Design template's editor chrome, rebuilt from the Figma baseline: a
 mode-aware top bar, the floating toolbar, a 56px rail with File, Agents,
 Threads, and Tokens (Labs), canvas comments, version history mode,
-outside-agent access, and a width-agnostic responsive model. Canvas rendering, actions, and data are unchanged, and
-no step changes saving, sharing, auth, or billing writes.
+outside-agent access, a width-agnostic responsive model, screens that come
+from your running app, and a Code mode. Canvas rendering, actions, and data are
+unchanged, and only step 19 changes how edits save to code; no step changes
+sharing, auth, or billing writes.
 
 ## Links
 
@@ -149,7 +151,10 @@ open thread id (`use-navigation-state.ts`, URL param). Update
 Not started · INSP · PR —
 
 Drop the tab row, put every section on one `InspectorGrid` template, and hide
-the column outside Design. Update `panel-section.spec.tsx` and
+the column outside Design. A URL screen's Source control and Screen section
+go: its route, status dot, Reload, and Open in browser move to the top bar
+(INSP-07, with step 1's TOP-07), and Add a screen from your app gains the
+connect step (INSP-09). Update `panel-section.spec.tsx` and
 `inspector-styles.spec.ts`.
 
 ### 11. View options in the zoom menu
@@ -270,6 +275,8 @@ where it names Annotate or the old toolbar.
 - 2026-10-02: Theme and Nudge amount live in App menu › Preferences, not Settings. SET-05.
 - 2026-10-02: The Frame tool's presets use Shawn's list: seven icon groups (Phone, Tablet, Desktop, Presentation, Smartwatch, Paper, Social media), current devices, paper in points, no Ad unit. INSP-05, INSP-06.
 - 2026-10-02: Position's device sizes open the Frame tool's preset list. INSP-08.
+- 2026-10-02: URL screens stay connected to your code. Their route and a status dot sit in the top bar's center in Interact and Design, with the host only in the tooltip; the route menu only picks the route, and Reload screen and Open in browser sit beside it. The inspector's Screen section and Detach from app go: ⌘D duplicates a screen, and switching between static and live is the agent's job. Device sizes stay in the inspector, since in Design they resize the frame. INSP-07, TOP-07, MOVE-03.
+- 2026-10-02: One Copy link everywhere: after Send to › on canvas menus and after Copy on layer rows, linking what you right-clicked, with the toast naming it. AGT-02.
 - 2026-10-02: Responsive design drops the breakpoint mode. A frame is a frame with width presets from tokens; responsive rules live on layers and compile to container queries with token thresholds; the agent writes them; fixed widths are only viewports to check. RESP-04, RESP-05, RESP-06, RESP-07, RESP-08, RESP-09.
 
 ## Open questions

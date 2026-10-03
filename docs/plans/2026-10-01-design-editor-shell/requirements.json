@@ -53,8 +53,8 @@
         },
         {
           "id": "TOP-07",
-          "status": "proposed",
-          "change": "Local app screens: one route control (status dot, route ▾) in the top bar's center in both modes, Interact's address bar and Design's screen control (INSP-07). In Design, Reload screen and Open in browser sit beside it, with Apply to source until SAVE-02.",
+          "status": "decided",
+          "change": "Local app screens: one route control (status dot, route ▾) in the top bar's center in Interact and Design, Interact's address bar and Design's screen control (INSP-07). In Design, Reload screen and Open in browser sit beside it, with Apply to source until SAVE-02.",
           "prototype": "Scenario: Local app screen."
         },
         {
@@ -105,7 +105,7 @@
         },
         {
           "id": "MOVE-03",
-          "status": "proposed",
+          "status": "decided",
           "today": "The localhost link and Apply to source sit in `rightSidebarActions`.",
           "change": "The localhost link becomes the route control's tooltip and the Open in browser button beside it; Apply to source joins that group until SAVE-02 replaces it (INSP-07)."
         },
@@ -866,7 +866,7 @@
         },
         {
           "id": "INSP-07",
-          "status": "proposed",
+          "status": "decided",
           "today": "Every selected screen shows a Source segmented control, Static | URL (`update-screen-source`). URL reveals a Screen URL field with Update and, with more than one connected app, Choose local app. The Static label reuses `editPanel.positionOptions.static`, the Position option of the same name.",
           "change": "Treat a URL screen like an instance of your app's route, and drop the Source control. Static screens show no source UI at all. Designers see the route, not the server, and it lives in the top bar rather than the inspector (whose Screen section goes, leaving the frame's own properties). In Design, a URL screen puts one control in the top bar's center, the same one as Interact's address bar: a status dot and the route (`● /home ▾`), green when the connection answers and grey when it doesn't (the connection's `status` and the bridge health check), with the app and host in its tooltip (Agent-Native Web · localhost:5173). Its menu answers one question, which route this frame shows: a search box (Search or type a path) over the app's routes, grouped by app only when more than one is connected (replacing Choose local app). Typing filters the routes, and a path that isn't listed (/plans/42) offers Show /plans/42, which replaces Custom path…. The app's actions sit beside it on the toolbar, the way Interact's reload sits beside its address bar: Reload screen (Retry connection while the app is down) and Open in browser (the host in its tooltip, disabled while down). Until SAVE-02 ships, the code's Apply to source joins them as a third button with the file in its tooltip. The selection header shows the screen name and its route, the same as a static screen. There's no Detach from app: editing a URL screen writes to the app's code (`apply-visual-edit` on consented localhost files), so the screen stays connected, and ⌘D duplicates it like any frame. When the app stops answering, the dot goes grey, Reload becomes Retry connection, Open in browser and Apply to source disable, and the canvas keeps the last render greyed out under one pill, Can't reach Agent-Native Web · Retry connection, in place of the bridge's error text. Interact's address bar shows the same dot and the path. Adding a route as a screen moves to Screens' + menu (Blank screen, From your app…), the code's “Add a screen from your app” flow (INSP-09). Switching a screen between static and live stays with the agent (`update-screen-source`), in both directions, with no UI. “Static snapshot” no longer needs its own string.",
           "refs": [
@@ -920,7 +920,7 @@
         },
         {
           "id": "AGT-02",
-          "status": "proposed",
+          "status": "decided",
           "today": "Nothing copies a link to a layer or screen.",
           "change": "One item, Copy link (the code's `copyLink` and `linkCopied` strings), right after Send to › in every canvas menu, and after Copy on a layer row (which has no agent group). Like Send to, it links what you right-clicked: the screen from empty canvas, the layer or layers otherwise. The toast names it (Link to Hero title copied), so the label never needs a scope. Links carry scope: `/design/<id>?screen=home&node=hero-title` (comma-separated nodes). Opening one selects the layers and zooms to them."
         },
@@ -1166,8 +1166,8 @@
         {
           "id": "SAVE-02",
           "status": "proposed",
-          "change": "One rule for every route: once writes are allowed, each edit saves to the route's file as you make it, HTML routes included. Apply to source goes away, menu item and string. This changes behavior, so it ships as its own PR (step 19), not with the UI steps; until then INSP-07 keeps Apply to source in the route control's menu.",
-          "prototype": "Scenario: Local app screen. The tooltip says edits save as you make them, and the menu has no save item."
+          "change": "One rule for every route: once writes are allowed, each edit saves to the route's file as you make it, HTML routes included. Apply to source goes away, button and string. This changes behavior, so it ships as its own PR (step 19), not with the UI steps; until then INSP-07 keeps Apply to source as a button beside the route control.",
+          "prototype": "Scenario: Local app screen. The route control's tooltip says edits save as you make them, and there's no save button."
         },
         {
           "id": "SAVE-03",
