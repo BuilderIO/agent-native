@@ -115,7 +115,7 @@ export default defineAction({
       .boolean()
       .optional()
       .describe(
-        "Return recordings, total count, and app counts rather than the legacy recordings array. Friction filters and sorts always return this shape.",
+        "Return recordings, total count, and app counts rather than the legacy recordings array. Friction filters and sorts, `slow`, and `includePerformance` always return this shape.",
       ),
     status: z.enum(["active", "completed"]).optional(),
     didEvents: z
@@ -183,9 +183,11 @@ export default defineAction({
       );
     }
     const { includeFriction, ...filters } = args;
-    // The legacy array has no room for frictionCoverageStartedAt, and without
-    // it an empty friction match cannot be told apart from "not measured".
-    if (!args.paginated && !frictionApplied) {
+    // The legacy array has no room for the friction or speed coverage start,
+    // and without it an empty match cannot be told apart from "not measured".
+    const coverageNeeded =
+      frictionApplied || Boolean(args.slow || args.includePerformance);
+    if (!args.paginated && !coverageNeeded) {
       const recordings = await listSessionRecordings(scope, filters);
       return includeFriction ? withFriction(scope, recordings) : recordings;
     }
