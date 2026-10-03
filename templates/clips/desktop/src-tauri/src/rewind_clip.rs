@@ -62,6 +62,24 @@ fn mark_pending_rewind_clip_cancelled(
     Ok(true)
 }
 
+fn reserve_pending_rewind_clip_preparation(
+    pending_state: &Mutex<Option<PendingRewindClipPreparation>>,
+    startup_id: &str,
+) -> Result<(), String> {
+    let mut pending_state = pending_state.lock().map_err(|error| error.to_string())?;
+    if pending_state
+        .as_ref()
+        .is_some_and(|pending| !pending.cancelled)
+    {
+        return Err("a Rewind-derived clip is already prepared or active".into());
+    }
+    *pending_state = Some(PendingRewindClipPreparation {
+        startup_id: startup_id.to_owned(),
+        cancelled: false,
+    });
+    Ok(())
+}
+
 pub(crate) fn is_active(app: &AppHandle) -> bool {
     app.try_state::<RewindClipState>()
         .and_then(|state| {
@@ -157,14 +175,7 @@ pub(crate) fn rewind_clip_prepare(
         if active.is_some() {
             return Err("a Rewind-derived clip is already prepared or active".into());
         }
-        let mut pending = state.1.lock().map_err(|error| error.to_string())?;
-        if pending.is_some() {
-            return Err("a Rewind-derived clip is already prepared or active".into());
-        }
-        *pending = Some(PendingRewindClipPreparation {
-            startup_id: startup_id.clone(),
-            cancelled: false,
-        });
+        reserve_pending_rewind_clip_preparation(&state.1, &startup_id)?;
     }
     let _preparation_guard = PendingRewindClipPreparationGuard {
         pending: &state.1,
@@ -176,10 +187,11 @@ pub(crate) fn rewind_clip_prepare(
         ));
     }
     native_screen::reset_native_upload_completion_state();
+    let temporary_audio_owner = format!("{REWIND_CLIP_AUDIO_OWNER}:{startup_id}");
     let temporary_audio = if include_mic || include_system_audio {
         screen_memory::acquire_temporary_audio_consumer(
             &app,
-            REWIND_CLIP_AUDIO_OWNER,
+            &temporary_audio_owner,
             CaptureConsumer::Clip,
             include_mic,
             include_system_audio,
@@ -1829,6 +1841,31 @@ mod tests {
 
         drop(guard);
         assert!(pending.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn cancelled_pending_startup_can_be_replaced_for_retry() {
+        let pending = Mutex::new(Some(PendingRewindClipPreparation {
+            startup_id: "startup-cancelled".into(),
+            cancelled: true,
+        }));
+        let old_guard = PendingRewindClipPreparationGuard {
+            pending: &pending,
+            startup_id: "startup-cancelled".into(),
+        };
+
+        reserve_pending_rewind_clip_preparation(&pending, "startup-retry").unwrap();
+        let retry = pending.lock().unwrap();
+        assert_eq!(retry.as_ref().unwrap().startup_id, "startup-retry");
+        assert!(!retry.as_ref().unwrap().cancelled);
+        drop(retry);
+
+        drop(old_guard);
+        assert_eq!(
+            pending.lock().unwrap().as_ref().unwrap().startup_id,
+            "startup-retry"
+        );
+        assert!(reserve_pending_rewind_clip_preparation(&pending, "startup-3").is_err());
     }
 
     #[test]
