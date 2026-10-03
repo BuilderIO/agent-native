@@ -243,8 +243,24 @@ Instead:
 2. **Capture is installed by a migration.** `searchIndexMigration()` installs
    the triggers and subscribes search. It replaces existing triggers in place,
    and waits at most 3 seconds for each table lock. On a table too busy for
-   that, the migration stays pending and runs again at the next boot rather
-   than block writes.
+   that, the migration stays pending and runs again at the next migration run
+   rather than block writes. A Node server migrates at boot; a serverless
+   host migrates only at release, so there it waits for the next release.
+
+   The migration is recorded under its name plus a hash of the trigger SQL. A
+   release that changes that SQL, including the trigger names, installs it
+   again; under the bare name, a database that recorded an earlier build's
+   capture would keep it, and search would stay on the fallback. Before
+   installing anything, it raises the index's target to the registration's
+   version. A release migrates before its code deploys, so the build still
+   serving would otherwise find capture in place and finish a rebuild at its
+   own, lower version. If a newer version already holds the index, the
+   migration installs nothing, since its older SQL would replace the newer
+   build's. Two builds at the same version aren't ordered: whichever migrates
+   last installs its SQL. If the migration finds capture missing, it discards
+   the finished index, because writes made in the meantime were never
+   recorded. A release that renames the triggers therefore rebuilds the index
+   once.
 
    Search checks at most once a minute that the triggers exist and are
    enabled. If they're missing or disabled, search reports
@@ -319,10 +335,15 @@ Instead:
      larger than that is written alone. Between rows, a drain yields to other
      work every 20 ms.
 6. **Rebuilds.** A higher registration `version` rebuilds the index:
-   - The first process to see it raises the target version.
-   - It enqueues every row with one `INSERT … SELECT`. That replaces changes
-     already queued, including leased and failing ones, and it records the
-     highest `seq` it assigned.
+   - The release migration raises the target version, and so does the first
+     process to see it if no migration did.
+   - The first drain at that version enqueues every row with one
+     `INSERT … SELECT`. That replaces changes already queued, including leased
+     and failing ones, and it records the highest `seq` it assigned. On a
+     large table it is the rebuild's one long statement, about 1.4 s for
+     51,000 documents on PGlite, and no budget cuts it short. Saves that queue
+     a change for a row it holds wait for it, and so do queries sharing its
+     connection.
    - The rebuild is complete when nothing at or below that `seq` is pending.
      Rows whose source is gone are then removed.
    - A rebuild at the same version, after capture was missing, is claimed by
@@ -621,3 +642,7 @@ Planned:
    expected about 3,000 of 12,000 rows to match "task prio" when all did.
    Turning off nested loops per statement would need a transaction per search
    and would make selective queries scan every document the caller can see.
+5. Should a change to core's tokenizing rebuild every app's index? A row's
+   `content_hash` covers the app's version and the source text, not the
+   tokenizer, so a row tokenized by an earlier core keeps its tokens, even
+   through a rebuild, until its source changes or the app raises its version.

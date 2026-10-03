@@ -482,6 +482,19 @@ async function indexedIds(type: string) {
   return rows.map((row: any) => String(row.resource_id));
 }
 
+async function dropCapture(
+  source: import("../resource-changes/store.js").ResourceChangeSource,
+) {
+  const names = feed.resourceChangeTriggerNames(source);
+  for (const trigger of [
+    names.insertDeleteTrigger,
+    names.updateTrigger,
+    names.truncateTrigger,
+  ]) {
+    await run(`DROP TRIGGER "${trigger}" ON ${source.table}`);
+  }
+}
+
 /** Makes every backed-off change claimable now. */
 async function skipBackoff(type: string) {
   await run(
@@ -1067,6 +1080,138 @@ describe("change capture", () => {
     // An update that changes nothing still records nothing.
     await run(`UPDATE shapes SET title = title WHERE id = 's1'`);
     expect(await seq()).toBe(updated);
+  });
+
+  it("is installed again by a release that changes it", async () => {
+    const { runMigrations } = await import("../db/migrations.js");
+    await run(
+      `CREATE TABLE search_released (id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '')`,
+    );
+    const table = isolatedTable("search_released");
+    const registered = search.registerSearchableResource({
+      app: "isolated",
+      type: "released",
+      table,
+      idColumn: table.id,
+      version: 1,
+      load: async () => [],
+    });
+    const source = {
+      app: "isolated",
+      resourceType: "released",
+      table: "search_released",
+      idColumn: "id",
+    };
+    const migrate = (entry: import("../db/migrations.js").MigrationEntry) =>
+      runMigrations([entry], { table: "released_migrations" })(
+        undefined as any,
+      );
+    // An earlier build ran the migration under the same name, but installed
+    // capture this build doesn't recognize.
+    await migrate({
+      version: 1,
+      name: "capture-released",
+      sql: {},
+      run: async () => {},
+    });
+    expect(await feed.resourceChangeCaptureInstalled(exec(), source)).toBe(
+      false,
+    );
+    await migrate(
+      search.searchIndexMigration(registered, {
+        version: 1,
+        name: "capture-released",
+      }),
+    );
+    expect(await feed.resourceChangeCaptureInstalled(exec(), source)).toBe(
+      true,
+    );
+  });
+
+  it("is installed only after older versions are fenced out", async () => {
+    await run(
+      `CREATE TABLE search_handover (id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '')`,
+    );
+    await run(
+      `INSERT INTO search_handover (id, title) VALUES ('h1', 'Handover')`,
+    );
+    const table = isolatedTable("search_handover");
+    const older = search.registerSearchableResource({
+      app: "isolated",
+      type: "handover",
+      table,
+      idColumn: table.id,
+      version: 1,
+      load: async (ids) => {
+        const rows = await db
+          .select()
+          .from(table)
+          .where(drizzle.inArray(table.id, ids));
+        return rows.map((row: any) => ({ id: row.id, title: row.title }));
+      },
+    });
+    const newer = { ...older, version: 2 };
+    // The newer release migrates while the older build still serves.
+    await search.searchIndexMigration(newer, {
+      version: 1,
+      name: "capture-handover",
+    }).run!(exec());
+    search.resetSearchIndexRuntime();
+    expect(await prepareFully(older)).toEqual({
+      ready: false,
+      reason: "outdated-registration",
+    });
+    expect(await indexedIds("handover")).toEqual([]);
+    search.resetSearchIndexRuntime();
+    expect(await prepareFully(newer)).toEqual({ ready: true });
+    expect(await indexedVersions("handover")).toEqual(["2/v2"]);
+  });
+
+  it("rebuilds the index when a release reinstalls capture no search saw missing", async () => {
+    search.resetSearchIndexRuntime();
+    const { registered, tableName } = await isolatedRegistration("unseen");
+    await run(`INSERT INTO ${tableName} (id, title) VALUES ('kept', 'Kept')`);
+    expect(await prepareFully(registered)).toEqual({ ready: true });
+    await dropCapture({
+      app: "isolated",
+      resourceType: "unseen",
+      table: tableName,
+      idColumn: "id",
+    });
+    await run(
+      `INSERT INTO ${tableName} (id, title) VALUES ('missed', 'Missed')`,
+    );
+    await search.searchIndexMigration(registered, {
+      version: 1,
+      name: "capture-unseen-again",
+    }).run!(exec());
+    search.resetSearchIndexRuntime();
+    expect(await prepareFully(registered)).toEqual({ ready: true });
+    expect(await indexedIds("unseen")).toEqual(["kept", "missed"]);
+  });
+
+  it("is left to the newer version when an older release migrates later", async () => {
+    const { registered, tableName } = await isolatedRegistration("superseded");
+    await search.searchIndexMigration(
+      { ...registered, version: 2 },
+      { version: 1, name: "capture-superseded-newer" },
+    ).run!(exec());
+    const source = {
+      app: "isolated",
+      resourceType: "superseded",
+      table: tableName,
+      idColumn: "id",
+    };
+    // With the newer build's triggers gone, anything the older release
+    // installs shows up as capture.
+    await dropCapture(source);
+    await search.searchIndexMigration(registered, {
+      version: 1,
+      name: "capture-superseded-older",
+    }).run!(exec());
+    expect(await feed.resourceChangeCaptureInstalled(exec(), source)).toBe(
+      false,
+    );
   });
 });
 
