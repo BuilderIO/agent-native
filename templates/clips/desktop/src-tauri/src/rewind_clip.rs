@@ -282,6 +282,7 @@ pub(crate) fn rewind_clip_prepare(
     let mut active = match state.0.lock() {
         Ok(active) => active,
         Err(error) => {
+            #[cfg(target_os = "macos")]
             shared_sink.cancel();
             return Err(error.to_string());
         }
@@ -290,6 +291,7 @@ pub(crate) fn rewind_clip_prepare(
         Ok(pending) => pending,
         Err(error) => {
             drop(active);
+            #[cfg(target_os = "macos")]
             shared_sink.cancel();
             return Err(error.to_string());
         }
