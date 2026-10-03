@@ -303,6 +303,7 @@ describe("RecordingCard behavior", () => {
         customSCKPipelineLiveUploadEnabled: false,
         uploadRetryResume: false,
       },
+      refetch: vi.fn(),
     } as ReturnType<typeof useLabState>);
     vi.mocked(hasRecordingBackup).mockResolvedValue(true);
     vi.mocked(getRecordingUploadRecoveryEnabled)
