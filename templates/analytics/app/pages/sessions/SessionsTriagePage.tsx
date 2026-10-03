@@ -280,13 +280,17 @@ export function SessionsTriagePage() {
   const [labWaitExpired, setLabWaitExpired] = useState(false);
   const waitsForLab = urlHasLabFilters && eventsLab.isLoading;
   useEffect(() => {
-    if (!waitsForLab) return;
+    if (!waitsForLab || labWaitExpired) return;
     const timer = setTimeout(() => setLabWaitExpired(true), LAB_STATE_WAIT_MS);
     return () => clearTimeout(timer);
-  }, [waitsForLab]);
+  }, [waitsForLab, labWaitExpired]);
   const waitingForEventsLab = waitsForLab && !labWaitExpired;
   const labStateFailed =
     eventsLab.isError || (eventsLab.isLoading && labWaitExpired);
+  const retryLabState = () => {
+    setLabWaitExpired(false);
+    void eventsLab.refetch();
+  };
 
   useEffect(() => {
     if (requestedPage === null || requestedPage === String(page)) return;
@@ -795,7 +799,7 @@ export function SessionsTriagePage() {
           {urlHasLabFilters
             ? t("sessions.labStateUnavailable")
             : t("sessions.labFeaturesUnavailable")}
-          <Button variant="ghost" size="xs" onClick={eventsLab.refetch}>
+          <Button variant="ghost" size="xs" onClick={retryLabState}>
             <IconRefresh />
             {t("sidebar.retry")}
           </Button>

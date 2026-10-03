@@ -129,6 +129,7 @@ async function createBaseTables(client: PGliteClient) {
       issue_id text NOT NULL,
       session_recording_id text,
       client_recording_id text,
+      session_id text,
       owner_email text NOT NULL,
       org_id text
     )
@@ -688,6 +689,33 @@ describe("session friction on Postgres", () => {
     }
   });
 
+  it("leaves a session unmeasured when it was indexed before coverage began", async () => {
+    await index(
+      [actionResponse("s-early", 1, { action: "save", success: false })],
+      at(1),
+    );
+    await migrateFriction(client);
+    await index(
+      [
+        markedPageview("s-early", 11, "/a"),
+        markedPageview("s-fresh", 11, "/a"),
+      ],
+      at(10),
+    );
+    await addRecording("r-early", "s-early", at(11));
+    await addRecording("r-fresh", "s-fresh", at(11));
+
+    const details = await getSessionFrictionDetails(SCOPE, [
+      recordingInput("r-early", "s-early"),
+      recordingInput("r-fresh", "s-fresh"),
+    ]);
+    expect(details.get("r-early")).toMatchObject({ score: null, events: null });
+    expect(details.get("r-fresh")).toMatchObject({
+      score: 0,
+      events: { failed_actions: 0 },
+    });
+  });
+
   async function sessionIds(table: string) {
     const result = await client.query(
       `SELECT DISTINCT session_id FROM ${table} ORDER BY session_id`,
@@ -1138,11 +1166,15 @@ describe("session friction on Postgres", () => {
         ('issue-other', 'Someone else''s issue', 'other@example.com', 'org_2')
     `);
     await client.query(`
-      INSERT INTO error_events (id, issue_id, session_recording_id, client_recording_id, owner_email, org_id) VALUES
-        ('e1', 'issue-a', 'r1', NULL, '${OWNER}', '${ORG}'),
-        ('e2', 'issue-a', NULL, 'client-r1', '${OWNER}', '${ORG}'),
-        ('e3', 'issue-b', 'r1', NULL, '${OWNER}', '${ORG}'),
-        ('e4', 'issue-other', 'r1', 'client-r1', 'other@example.com', 'org_2')
+      INSERT INTO error_events (id, issue_id, session_recording_id, client_recording_id, session_id, owner_email, org_id) VALUES
+        ('e1', 'issue-a', 'r1', NULL, 's1', '${OWNER}', '${ORG}'),
+        ('e2', 'issue-a', NULL, 'client-r1', 's1', '${OWNER}', '${ORG}'),
+        ('e3', 'issue-b', 'r1', NULL, NULL, '${OWNER}', '${ORG}'),
+        ('e4', 'issue-other', 'r1', 'client-r1', 's1', 'other@example.com', 'org_2'),
+        -- The same client recording id under another public key: one
+        -- occurrence was linked to that recording, one came from its session.
+        ('e5', 'issue-b', 'r-other-key', 'client-r1', 's1', '${OWNER}', '${ORG}'),
+        ('e6', 'issue-b', NULL, 'client-r1', 's-other-key', '${OWNER}', '${ORG}')
     `);
     const details = await getSessionFrictionDetails(SCOPE, [
       recordingInput("r1", "s1"),

@@ -73,8 +73,9 @@ import {
  * its own inside the session event index savepoint. A failed friction write
  * rolls back only friction and leaves a friction gap marker; a failed index
  * write leaves the index's gap marker, which covers friction too. A session is
- * measured only if it began after its tenant's friction coverage began, has
- * no earlier sibling recording, and has neither gap marker. Its thumbs-down
+ * measured only if it, its sibling recordings, and its indexed events all
+ * began after its tenant's friction coverage began, and it has neither gap
+ * marker. Its thumbs-down
  * and cancelled runs are measured only once a pageview carried the
  * `agent_signals` marker and no unmarked pageview or sampled stop arrived:
  * older clients sampled stops and sent no ratings, and one session id spans
@@ -794,9 +795,12 @@ function eventFrictionCoveredSql(scope: SessionEventScope): SQL {
   const coverage = schema.analyticsSessionFrictionCoverage;
   const gaps = schema.analyticsSessionEventGaps;
   const frictionGaps = schema.analyticsSessionFrictionGaps;
+  const events = schema.analyticsSessionEvents;
   const tenant = recordingTenantSql(r);
   const coverageStart = sql`(select ${coverage.startedAt} from ${coverage} where ${coverage.tenantKey} = ${tenant})`;
-  return sql`(${viewerReadsRecordingEventsSql(r, scope)} and ${r.startedAt} >= ${coverageStart} and not exists (select 1 from ${r} as ${sibling} where ${sibling.sessionId} = ${r.sessionId} and ${recordingTenantSql(sibling)} = ${tenant} and ${sibling.startedAt} < ${coverageStart}) and not exists (select 1 from ${gaps} where ${gaps.tenantKey} = ${tenant} and ${gaps.sessionId} = ${r.sessionId}) and not exists (select 1 from ${frictionGaps} where ${frictionGaps.tenantKey} = ${tenant} and ${frictionGaps.sessionId} = ${r.sessionId}))`;
+  // The event index predates friction coverage, so an event it holds from
+  // before coverage began is one friction never aggregated.
+  return sql`(${viewerReadsRecordingEventsSql(r, scope)} and ${r.startedAt} >= ${coverageStart} and not exists (select 1 from ${r} as ${sibling} where ${sibling.sessionId} = ${r.sessionId} and ${recordingTenantSql(sibling)} = ${tenant} and ${sibling.startedAt} < ${coverageStart}) and not exists (select 1 from ${events} where ${events.tenantKey} = ${tenant} and ${events.sessionId} = ${r.sessionId} and ${events.firstAt} < ${coverageStart}) and not exists (select 1 from ${gaps} where ${gaps.tenantKey} = ${tenant} and ${gaps.sessionId} = ${r.sessionId}) and not exists (select 1 from ${frictionGaps} where ${frictionGaps.tenantKey} = ${tenant} and ${frictionGaps.sessionId} = ${r.sessionId}))`;
 }
 
 function replayValueSql(column: AnyColumn): SQL {
