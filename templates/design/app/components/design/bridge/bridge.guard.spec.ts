@@ -280,6 +280,80 @@ describe("bridge oversized-drop receiver guards", () => {
     },
   );
 
+  it.each([
+    {
+      bridgeFilename: "editor-chrome.bridge.ts",
+      nextFunction: "isOutsideIframeViewport",
+      style: { display: "flex", flexDirection: "row", flexWrap: "nowrap" },
+      containerSize: { width: 300, height: 124 },
+      sourceSize: { width: 80, height: 140 },
+      expected: true,
+    },
+    {
+      bridgeFilename: "hit-test.bridge.ts",
+      nextFunction: "elementFromEditorPoint",
+      style: {
+        display: "inline-flex",
+        flexDirection: "column",
+        flexWrap: "nowrap",
+      },
+      containerSize: { width: 124, height: 300 },
+      sourceSize: { width: 140, height: 80 },
+      expected: true,
+    },
+    {
+      bridgeFilename: "editor-chrome.bridge.ts",
+      nextFunction: "isOutsideIframeViewport",
+      style: { display: "flex", flexDirection: "row", flexWrap: "wrap" },
+      containerSize: { width: 300, height: 124 },
+      sourceSize: { width: 80, height: 140 },
+      expected: false,
+    },
+    {
+      bridgeFilename: "hit-test.bridge.ts",
+      nextFunction: "elementFromEditorPoint",
+      style: { display: "grid", flexDirection: "row", flexWrap: "nowrap" },
+      containerSize: { width: 300, height: 124 },
+      sourceSize: { width: 80, height: 140 },
+      expected: false,
+    },
+  ])(
+    "uses main-axis fit only for single-line auto-layout fallback in $bridgeFilename",
+    ({
+      bridgeFilename,
+      nextFunction,
+      style,
+      containerSize,
+      sourceSize,
+      expected,
+    }) => {
+      const dropFitsAutoLayoutFallback = compileBridgeFunction<
+        (
+          container: Element,
+          sourceWidth: number,
+          sourceHeight: number,
+        ) => boolean
+      >(
+        "dropFitsAutoLayoutFallback",
+        nextFunction,
+        {
+          dropFitsContainer: () => false,
+          dropContentSize: () => containerSize,
+          window: { getComputedStyle: () => style },
+        },
+        bridgeFilename,
+      );
+
+      expect(
+        dropFitsAutoLayoutFallback(
+          {} as Element,
+          sourceSize.width,
+          sourceSize.height,
+        ),
+      ).toBe(expected);
+    },
+  );
+
   it("keeps the two-dimensional fit check for static receivers", () => {
     const dropFitsContainer = compileBridgeFunction<
       (container: Element, sourceWidth: number, sourceHeight: number) => boolean
@@ -349,6 +423,7 @@ describe("bridge oversized-drop receiver guards", () => {
       isAbsolutePrimitiveContainer: () => false,
       isFreeformRelativeContainer: () => false,
       dropFitsContainer: (element: Element) => element === body,
+      dropFitsAutoLayoutFallback: () => false,
       parentFlowAxis: () => "y",
       nearestChildInsertionTarget,
     });

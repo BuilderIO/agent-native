@@ -17224,6 +17224,30 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     return size.width >= sourceWidth && size.height >= sourceHeight;
   }
 
+  function dropFitsAutoLayoutFallback(
+    container: Element,
+    sourceWidth: number,
+    sourceHeight: number,
+  ): boolean {
+    // Direct targets fit both axes; only ancestor fallback may use flex's main
+    // axis.
+    if (dropFitsContainer(container, sourceWidth, sourceHeight)) return true;
+    var style = window.getComputedStyle(container);
+    var singleLineFlex =
+      (style.display === "flex" || style.display === "inline-flex") &&
+      style.flexWrap !== "wrap" &&
+      style.flexWrap !== "wrap-reverse";
+    if (!singleLineFlex) return false;
+    var size = dropContentSize(container);
+    if (style.flexDirection.indexOf("row") === 0) {
+      return size.width >= sourceWidth;
+    }
+    if (style.flexDirection.indexOf("column") === 0) {
+      return size.height >= sourceHeight;
+    }
+    return false;
+  }
+
   function isOutsideIframeViewport(clientX: number, clientY: number): boolean {
     return (
       clientX < 0 ||
@@ -22808,13 +22832,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           parent !== dragEl &&
           (parentIsFlow || parentIsAbsolute)
         ) {
-          if (
-            dropFitsContainer(
-              parent,
-              dragElStartRect.width,
-              dragElStartRect.height,
-            )
-          ) {
+          var parentFits = parentIsFlow
+            ? dropFitsAutoLayoutFallback(
+                parent,
+                dragElStartRect.width,
+                dragElStartRect.height,
+              )
+            : dropFitsContainer(
+                parent,
+                dragElStartRect.width,
+                dragElStartRect.height,
+              );
+          if (parentFits) {
             if (parentIsFlow) {
               return (
                 nearestChildInsertionTarget(
