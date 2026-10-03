@@ -26,6 +26,12 @@ export interface RunStuckBannerProps {
 const AUTO_RETRY_CLAIM_TTL_MS = 5 * 60 * 1000;
 const BACKGROUND_WORKER_FRESH_HEARTBEAT_MS = 30_000;
 
+/**
+ * Per page, not per banner: a chat view that remounts while the same run is
+ * still stuck has not found a new stuck chat.
+ */
+const reportedStuckRunIds = new Set<string>();
+
 type BusyState = { type: "none" } | { type: "cancel" | "retry"; runId: string };
 
 type MaybeLockManager = {
@@ -166,11 +172,10 @@ export function RunStuckBanner({
 
   // Analytics counts this event as a stuck chat, so it fires only when the
   // banner shows, once per run: a quiet tool call or live worker is not one.
-  const reportedStuckRunIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (!showsStuckBanner || !state.runId) return;
-    if (reportedStuckRunIdsRef.current.has(state.runId)) return;
-    reportedStuckRunIdsRef.current.add(state.runId);
+    if (reportedStuckRunIds.has(state.runId)) return;
+    reportedStuckRunIds.add(state.runId);
     trackEvent("agent_chat_stuck_detected", {
       runId: state.runId,
       threadId: threadId ?? null,
