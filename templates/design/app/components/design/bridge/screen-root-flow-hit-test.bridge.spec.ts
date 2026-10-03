@@ -298,7 +298,7 @@ describe("Screen-root auto-layout hit testing", () => {
     }
   });
 
-  it("keeps flow slots and measures ancestor content space during size fallback", async () => {
+  it("requires both flex dimensions and measures ancestor content space during size fallback", async () => {
     const browser = await chromium.launch({ headless: true });
     try {
       const page = await browser.newPage({
@@ -398,9 +398,9 @@ describe("Screen-root auto-layout hit testing", () => {
       );
       expect(packets[0]).toMatchObject({
         correlationId: "flow-slot-fallback",
-        anchorNodeId: "nested-row",
-        placement: "after",
-        axis: "x",
+        anchorNodeId: "",
+        placement: "inside",
+        axis: "y",
         dropMode: "flow-insert",
       });
       expect(packets[1]).toMatchObject({
@@ -419,7 +419,8 @@ describe("Screen-root auto-layout hit testing", () => {
       });
       expect(packets[3]).toMatchObject({
         correlationId: "column-main-axis-fallback",
-        anchorNodeId: "column-nested",
+        anchorNodeId: "column",
+        placement: "before",
         axis: "y",
         dropMode: "flow-insert",
       });
