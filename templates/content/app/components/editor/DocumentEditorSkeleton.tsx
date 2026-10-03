@@ -4,6 +4,7 @@ import { startupAnchor } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
 
 import {
+  DOCUMENT_EDITOR_COLUMN_CONTAINER_CLASS_NAME,
   DOCUMENT_EDITOR_PAGE_TITLE_SIZE_CLASS_NAME,
   DOCUMENT_EDITOR_TITLE_CLASS_NAME,
   documentEditorBodyClassName,
@@ -42,7 +43,12 @@ export function DocumentEditorSkeleton({
           <Skeleton className="h-7 w-7 rounded-md" />
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-hidden">
+      <div
+        className={cn(
+          "min-h-0 flex-1 overflow-hidden",
+          DOCUMENT_EDITOR_COLUMN_CONTAINER_CLASS_NAME,
+        )}
+      >
         <div className={documentEditorTitleRegionClassName(false)}>
           <div className="mb-1">
             {iconRow === "startup" ? (

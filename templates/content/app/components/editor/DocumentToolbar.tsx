@@ -38,6 +38,7 @@ import {
   IconFileTypeHtml,
   IconFileTypePdf,
   IconFolder,
+  IconLink,
   IconLinkOff,
   IconLoader2,
   IconMarkdown,
@@ -137,6 +138,7 @@ import {
 } from "@/hooks/use-content-action-mutation";
 import { useContentDatabasePersonalView } from "@/hooks/use-content-database";
 import { useCreativeContextLab } from "@/hooks/use-creative-context-lab";
+import { useElementWidthValue } from "@/hooks/use-element-width-value";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   useNotionConnection,
@@ -287,9 +289,16 @@ export function ToolbarBreadcrumb({
   untitledLabel: string;
   onOpen: ToolbarBreadcrumbOpen;
 }) {
-  const visibleItems = compactToolbarBreadcrumbItems(items);
+  const navRef = useRef<HTMLElement>(null);
+  const foldWidth = useElementWidthValue<number | undefined>(
+    navRef,
+    breadcrumbFoldWidth,
+    undefined,
+  );
+  const visibleItems = compactToolbarBreadcrumbItems(items, foldWidth);
   return (
     <nav
+      ref={navRef}
       aria-label={ariaLabel}
       className="flex min-w-0 flex-1 items-center gap-1 text-sm text-foreground"
     >
@@ -371,7 +380,13 @@ function ToolbarBreadcrumbSegmentView({
   ) : null;
 
   return (
-    <div className="flex min-w-0 items-center gap-1">
+    <div
+      className={cn(
+        "flex min-w-0 items-center gap-1",
+        isLast && "min-w-[min(6rem,100%)]",
+        item.fold && "shrink-0",
+      )}
+    >
       {hasMenu ? (
         <>
           {pageButton}
@@ -427,6 +442,8 @@ export interface ToolbarBreadcrumbItem {
   iconKind?: "folder";
   filesDatabaseId?: string | null;
   menuItems?: ToolbarBreadcrumbMenuItem[];
+  /** The "…" menu folded ancestors go into; it keeps its width. */
+  fold?: boolean;
   /** Peers load when the menu opens instead of arriving with the item. */
   siblings?: ToolbarBreadcrumbSiblings;
 }
@@ -439,15 +456,72 @@ interface ToolbarBreadcrumbMenuItem {
   filesDatabaseId?: string | null;
 }
 
+// The current page keeps `min-w-[min(6rem,100%)]`; ancestors and the "…"
+// menu take the rest of the breadcrumb, at about these widths.
+const BREADCRUMB_CURRENT_MIN_WIDTH = 96;
+const BREADCRUMB_ANCESTOR_WIDTH = 120;
+const BREADCRUMB_FOLD_WIDTH = 44;
+const BREADCRUMB_MAX_NAMED_ANCESTORS = 2;
+
+// The breadcrumb widths where `compactToolbarBreadcrumbItems` folds
+// differently. Between two of them it shows the same items, so the nav
+// re-renders only when it crosses one.
+const BREADCRUMB_FOLD_WIDTHS = Array.from(
+  { length: BREADCRUMB_MAX_NAMED_ANCESTORS },
+  (_, index) => [
+    BREADCRUMB_CURRENT_MIN_WIDTH + (index + 1) * BREADCRUMB_ANCESTOR_WIDTH,
+    BREADCRUMB_CURRENT_MIN_WIDTH +
+      BREADCRUMB_FOLD_WIDTH +
+      (index + 1) * BREADCRUMB_ANCESTOR_WIDTH,
+  ],
+)
+  .flat()
+  .sort((left, right) => left - right);
+
+export function breadcrumbFoldWidth(width: number) {
+  return Math.max(0, ...BREADCRUMB_FOLD_WIDTHS.filter((step) => width >= step));
+}
+
+/** The narrowest the breadcrumb gets with its current page still readable. */
+export function breadcrumbMinWidth(items: ToolbarBreadcrumbItem[]) {
+  return items.length > 1
+    ? BREADCRUMB_CURRENT_MIN_WIDTH + BREADCRUMB_FOLD_WIDTH
+    : BREADCRUMB_CURRENT_MIN_WIDTH;
+}
+
+/**
+ * The breadcrumb items that fit in `width`. Ancestors fold into a "…" menu,
+ * the workspace first and the parent last, before the current page drops
+ * below its readable width; at the narrowest, every ancestor is in the menu
+ * beside the current page. Without a width, it shows the workspace, the
+ * parent, and the page.
+ */
 export function compactToolbarBreadcrumbItems(
   items: ToolbarBreadcrumbItem[],
+  width = Number.POSITIVE_INFINITY,
 ): ToolbarBreadcrumbItem[] {
-  if (items.length <= 3) return items;
-  const hidden = items.slice(1, -2);
+  if (items.length === 0) return items;
+  const current = items[items.length - 1];
+  const ancestors = items.slice(0, -1);
+  const room = width - BREADCRUMB_CURRENT_MIN_WIDTH;
+  const namedAncestors = (space: number) =>
+    Math.max(
+      0,
+      Math.min(
+        BREADCRUMB_MAX_NAMED_ANCESTORS,
+        Math.floor(space / BREADCRUMB_ANCESTOR_WIDTH),
+      ),
+    );
+  if (ancestors.length <= namedAncestors(room)) return items;
+  const named = namedAncestors(room - BREADCRUMB_FOLD_WIDTH);
+  const tail = Math.min(named, 1);
+  const head = named - tail;
+  const hidden = ancestors.slice(head, ancestors.length - tail);
   return [
-    items[0],
+    ...ancestors.slice(0, head),
     {
       title: "…",
+      fold: true,
       menuItems: hidden.flatMap((item) =>
         item.id
           ? [
@@ -462,7 +536,8 @@ export function compactToolbarBreadcrumbItems(
           : [],
       ),
     },
-    ...items.slice(-2),
+    ...ancestors.slice(ancestors.length - tail),
+    current,
   ];
 }
 
@@ -838,6 +913,32 @@ interface DocumentToolbarProps {
   editorEscapeTargetRef?: Ref<HTMLButtonElement>;
 }
 
+// PresenceBar's default.
+const TOOLBAR_PRESENCE_AVATARS = 5;
+
+// The toolbar's `px-4` and `gap-3`, and the sidebar trigger's `icon-lg`.
+const TOOLBAR_PADDING = 32;
+const TOOLBAR_GAP = 12;
+const TOOLBAR_SIDEBAR_TRIGGER_WIDTH = 40;
+
+// The room for the controls where the toolbar folds one step further. Under
+// the first, presence shows fewer avatars. Then the Suggesting chip moves
+// into the page-actions menu, presence leaves, and Comments moves into the
+// menu. Under the last, Share leaves and its Copy page link moves into the
+// menu: the Share popover anchors to its own trigger, so it cannot open from
+// the menu, and a phone's room stays above that step.
+const TOOLBAR_FOLD_ROOMS = [384, 320, 260, 152, 112];
+
+/**
+ * How far the toolbar folds its controls at `width`, when `reserved` of it
+ * holds the padding, the sidebar trigger and the breadcrumb at their
+ * narrowest.
+ */
+export function toolbarFoldLevel(width: number, reserved: number) {
+  const room = width - reserved;
+  return TOOLBAR_FOLD_ROOMS.filter((step) => room < step).length;
+}
+
 export function DocumentToolbar({
   compact = false,
   documentId,
@@ -882,6 +983,25 @@ export function DocumentToolbar({
 }: DocumentToolbarProps) {
   const sidebarTrigger = useSidebarTrigger();
   const t = useT();
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const toolbarBreadcrumbItems = breadcrumbItems.length
+    ? breadcrumbItems
+    : [{ id: documentId, title: documentTitle || "Untitled" }];
+  const reservedWidth =
+    TOOLBAR_PADDING +
+    (sidebarTrigger ? TOOLBAR_SIDEBAR_TRIGGER_WIDTH + TOOLBAR_GAP : 0) +
+    (compact ? 0 : breadcrumbMinWidth(toolbarBreadcrumbItems) + TOOLBAR_GAP);
+  const foldLevel = useElementWidthValue(
+    toolbarRef,
+    (width) => toolbarFoldLevel(width, reservedWidth),
+    0,
+    true,
+    reservedWidth,
+  );
+  const suggestingInMenu = foldLevel >= 2;
+  const presenceHidden = foldLevel >= 3;
+  const commentsInMenu = foldLevel >= 4;
+  const shareInMenu = foldLevel >= 5;
   const navigate = useNavigate();
   const location = useLocation();
   const creativeContextEnabled = useCreativeContextLab();
@@ -1321,6 +1441,22 @@ export function DocumentToolbar({
     [documentContent, documentId, documentTitle, exportDocument, t],
   );
 
+  const toggleCommentsHistory = () => {
+    const nextPanel = commentsHistoryOpen ? null : "comments";
+    if (nextPanel === "comments") {
+      trackEvent("document_utility_panel_opened", {
+        app_name: "content",
+        template_name: "content",
+        panel: "comments",
+      });
+    }
+    onUtilityPanelChange(nextPanel);
+  };
+  const shareLabel = (
+    <span className="hidden @min-[40rem]/toolbar:inline">
+      {t("editor.toolbar.share")}
+    </span>
+  );
   const unopenedShareControl = (
     <JoinedShareControl
       trigger={
@@ -1330,7 +1466,7 @@ export function DocumentToolbar({
           label={
             <span className="flex items-center gap-2">
               <IconUserPlus aria-hidden="true" />
-              <span>{t("editor.toolbar.share")}</span>
+              {shareLabel}
             </span>
           }
           intent="primary"
@@ -1352,18 +1488,22 @@ export function DocumentToolbar({
 
   return (
     <>
+      {/* As the toolbar narrows, the Edited label goes first, then the Share
+          and Suggesting labels, then controls fold by `toolbarFoldLevel`;
+          the breadcrumb folds its ancestors before the page title drops below
+          a readable width. */}
       <div
-        className="relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4"
+        ref={toolbarRef}
+        className={cn(
+          "relative z-10 flex h-12 shrink-0 items-center bg-background @container/toolbar",
+          shareInMenu ? "gap-1 px-2" : "gap-3 px-4",
+        )}
         data-editor-selection-continuation=""
       >
         {sidebarTrigger}
         {!compact ? (
           <ToolbarBreadcrumb
-            items={
-              breadcrumbItems.length
-                ? breadcrumbItems
-                : [{ id: documentId, title: documentTitle || "Untitled" }]
-            }
+            items={toolbarBreadcrumbItems}
             currentDocumentId={documentId}
             ariaLabel={t("editor.toolbar.pageBreadcrumb")}
             untitledLabel={t("sidebar.untitled")}
@@ -1378,50 +1518,67 @@ export function DocumentToolbar({
         ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
           {editedLabel && !compact ? (
-            <span className="hidden shrink-0 px-2 text-sm text-muted-foreground lg:inline">
+            <span className="hidden shrink-0 px-2 text-sm text-muted-foreground @min-[48rem]/toolbar:inline">
               {editedLabel}
             </span>
           ) : null}
 
           {/* Presence — shared PresenceBar (agent + collaborator avatars) */}
-          <PresenceBar
-            activeUsers={activeUsers ?? []}
-            agentPresent={agentPresent}
-            agentActive={agentActive}
-            currentUserEmail={currentUserEmail}
-            className="mr-1"
-          />
+          {presenceHidden ? null : (
+            <PresenceBar
+              activeUsers={activeUsers ?? []}
+              agentPresent={agentPresent}
+              agentActive={agentActive}
+              currentUserEmail={currentUserEmail}
+              maxVisible={foldLevel === 0 ? TOOLBAR_PRESENCE_AVATARS : 2}
+              className="mr-1"
+            />
+          )}
           {isLocalFileDocument ? (
-            <DropdownMenu modal={false}>
-              <DropdownMenuTrigger asChild>
-                <ShareTrigger
-                  className="h-9 rounded-lg px-3"
-                  pending={shareLocalFile.isPending}
-                  disabled={shareLocalFile.isPending}
-                  label={t("editor.toolbar.share")}
-                />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                data-database-preview-portal={compact ? "" : undefined}
-              >
-                <DropdownMenuItem onSelect={() => void handleCopyPageLink()}>
-                  {t("editor.toolbar.copyPageLink")}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => void handleShareLocalFile()}>
-                  {t("editor.toolbar.createShareableCopy")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            shareInMenu ? null : (
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
+                  <ShareTrigger
+                    className="h-9 rounded-lg px-3"
+                    pending={shareLocalFile.isPending}
+                    disabled={shareLocalFile.isPending}
+                    aria-label={t("editor.toolbar.share")}
+                    label={
+                      <span className="flex items-center gap-2">
+                        <IconUserPlus aria-hidden="true" />
+                        {shareLabel}
+                      </span>
+                    }
+                  />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  data-database-preview-portal={compact ? "" : undefined}
+                >
+                  <DropdownMenuItem onSelect={() => void handleCopyPageLink()}>
+                    {t("editor.toolbar.copyPageLink")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => void handleShareLocalFile()}
+                  >
+                    {t("editor.toolbar.createShareableCopy")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )
           ) : (
-            <Suspense fallback={unopenedShareControl}>
-              {shareRequested || openShareOnLoad ? (
+            <Suspense fallback={shareInMenu ? null : unopenedShareControl}>
+              {shareInMenu ? null : shareRequested || openShareOnLoad ? (
                 <ShareButton
                   resourceType="document"
                   resourceId={documentId}
                   resourceTitle={documentTitle}
                   shareUrl={shareUrl}
                   mobileSheet
+                  triggerContent={shareLabel}
+                  // ShareButton wraps the label in a span gapped from its
+                  // icon; the gap goes with the label.
+                  triggerClassName="[&>span]:gap-0 @min-[40rem]/toolbar:[&>span]:gap-2"
                   agentShareLabel={t("editor.toolbar.temporaryAgentLink")}
                   showShareLinks={false}
                   quickCopy={{
@@ -1523,10 +1680,12 @@ export function DocumentToolbar({
             </Suspense>
           )}
 
-          {suggesting ? (
+          {suggesting && !suggestingInMenu ? (
             <div className="flex h-8 items-center gap-1 rounded-md bg-primary/10 ps-2 text-sm text-primary">
               <IconPencil aria-hidden="true" className="size-3.5" />
-              <span>{t("editor.toolbar.suggesting")}</span>
+              <span className="sr-only @min-[40rem]/toolbar:not-sr-only">
+                {t("editor.toolbar.suggesting")}
+              </span>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
@@ -1546,7 +1705,7 @@ export function DocumentToolbar({
             </div>
           ) : null}
 
-          {showCommentsControl ? (
+          {showCommentsControl && !commentsInMenu ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
@@ -1559,17 +1718,7 @@ export function DocumentToolbar({
                   )}
                   aria-label={t("comments.title")}
                   aria-pressed={commentsHistoryOpen}
-                  onClick={() => {
-                    const nextPanel = commentsHistoryOpen ? null : "comments";
-                    if (nextPanel === "comments") {
-                      trackEvent("document_utility_panel_opened", {
-                        app_name: "content",
-                        template_name: "content",
-                        panel: "comments",
-                      });
-                    }
-                    onUtilityPanelChange(nextPanel);
-                  }}
+                  onClick={toggleCommentsHistory}
                 >
                   <IconMessageCircle size={16} />
                 </button>
@@ -1613,10 +1762,22 @@ export function DocumentToolbar({
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
                   <button
-                    ref={suggesting ? undefined : editorEscapeTargetRef}
+                    ref={
+                      suggesting && !suggestingInMenu
+                        ? undefined
+                        : editorEscapeTargetRef
+                    }
                     className={cn(
                       "flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground",
                       utilityPanel === "info" && "bg-accent text-foreground",
+                      // Folded, the menu holds Comments and Stop suggesting,
+                      // so it shows their state.
+                      commentsInMenu &&
+                        commentsHistoryOpen &&
+                        "bg-accent text-foreground",
+                      suggestingInMenu &&
+                        suggesting &&
+                        "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
                     )}
                     aria-label={t("editor.toolbar.morePageActions")}
                     onPointerDownCapture={() => {
@@ -1653,7 +1814,7 @@ export function DocumentToolbar({
               data-database-preview-portal={compact ? "" : undefined}
               onCloseAutoFocus={(event) => event.preventDefault()}
             >
-              {canSuggest ? (
+              {canSuggest || suggesting ? (
                 <>
                   <DropdownMenuItem
                     onSelect={() => {
@@ -1711,6 +1872,17 @@ export function DocumentToolbar({
                       : t("editor.toolbar.pin")}
                   </DropdownMenuItem>
                 ) : null}
+                {showCommentsControl && commentsInMenu ? (
+                  <DropdownMenuItem
+                    onSelect={toggleCommentsHistory}
+                    className={cn(
+                      commentsHistoryOpen && "bg-accent text-accent-foreground",
+                    )}
+                  >
+                    <IconMessageCircle className="me-2 h-4 w-4" />
+                    {t("comments.title")}
+                  </DropdownMenuItem>
+                ) : null}
                 <DropdownMenuItem
                   onSelect={() => {
                     const nextPanel = utilityPanel === "info" ? null : "info";
@@ -1733,6 +1905,28 @@ export function DocumentToolbar({
                 </DropdownMenuItem>
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
+              {shareInMenu ? (
+                <>
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem
+                      onSelect={() => void handleCopyPageLink()}
+                    >
+                      <IconLink className="me-2 h-4 w-4" />
+                      {t("editor.toolbar.copyPageLink")}
+                    </DropdownMenuItem>
+                    {isLocalFileDocument ? (
+                      <DropdownMenuItem
+                        disabled={shareLocalFile.isPending}
+                        onSelect={() => void handleShareLocalFile()}
+                      >
+                        <IconUserPlus className="me-2 h-4 w-4" />
+                        {t("editor.toolbar.createShareableCopy")}
+                      </DropdownMenuItem>
+                    ) : null}
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                </>
+              ) : null}
               {isLocalFileDocument ? (
                 <DropdownMenuGroup>
                   <DropdownMenuLabel className="text-xs text-muted-foreground">
