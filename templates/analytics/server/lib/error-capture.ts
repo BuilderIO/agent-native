@@ -25,6 +25,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { unionAll } from "drizzle-orm/pg-core";
 
 import { ANALYTICS_USER_PREFS_KEY } from "../../shared/analytics-user-prefs";
 import { getDb, schema } from "../db/index.js";
@@ -1500,6 +1501,7 @@ async function sparklinesForIssues(
 export interface RecordingErrorIssueInput {
   id: string;
   clientRecordingId: string;
+  sessionId: string;
   ownerEmail: string;
   orgId: string | null;
   errorCount: number;
@@ -1521,8 +1523,9 @@ const MAX_RECORDING_ISSUE_ROWS = 500;
 
 /**
  * The Monitoring issues each recording's captured errors belong to, most
- * frequent first. An occurrence matches by recording id or client recording
- * id, within the recording's own owner scope. `error_events` keeps only each
+ * frequent first. An occurrence matches by recording id, within the
+ * recording's own owner scope. One captured before its recording existed has
+ * only the client recording id, which matches only within the same session. `error_events` keeps only each
  * issue's newest occurrences, so a recording with none left falls back to the
  * issues whose last recording it is, with no count. A recording still without
  * an issue maps to null when the read was truncated, or when it has errors
@@ -1544,6 +1547,7 @@ export async function listRecordingErrorIssues(
   const rows: Array<{
     sessionRecordingId: string | null;
     clientRecordingId: string | null;
+    sessionId: string | null;
     ownerEmail: string;
     orgId: string | null;
     issueId: string;
@@ -1553,6 +1557,7 @@ export async function listRecordingErrorIssues(
     .select({
       sessionRecordingId: e.sessionRecordingId,
       clientRecordingId: e.clientRecordingId,
+      sessionId: e.sessionId,
       ownerEmail: e.ownerEmail,
       orgId: e.orgId,
       issueId: i.id,
@@ -1576,9 +1581,12 @@ export async function listRecordingErrorIssues(
             e.sessionRecordingId,
             recordings.map((recording) => recording.id),
           ),
-          inArray(
-            e.clientRecordingId,
-            recordings.map((recording) => recording.clientRecordingId),
+          and(
+            isNull(e.sessionRecordingId),
+            inArray(
+              e.clientRecordingId,
+              recordings.map((recording) => recording.clientRecordingId),
+            ),
           ),
         ),
       ),
@@ -1586,6 +1594,7 @@ export async function listRecordingErrorIssues(
     .groupBy(
       e.sessionRecordingId,
       e.clientRecordingId,
+      e.sessionId,
       e.ownerEmail,
       e.orgId,
       i.id,
@@ -1600,16 +1609,21 @@ export async function listRecordingErrorIssues(
   ) =>
     row.ownerEmail === recording.ownerEmail &&
     (row.orgId ?? null) === (recording.orgId ?? null);
+  // A client recording id is unique only per public key, and occurrences keep
+  // no key, so an unlinked occurrence must also share the recording's session.
+  const belongsTo = (
+    row: (typeof rows)[number],
+    recording: RecordingErrorIssueInput,
+  ) =>
+    sameScope(row, recording) &&
+    (row.sessionRecordingId === recording.id ||
+      (row.sessionRecordingId === null &&
+        row.clientRecordingId === recording.clientRecordingId &&
+        (row.sessionId === null || row.sessionId === recording.sessionId)));
   const unlinked = truncated
     ? []
     : recordings.filter(
-        (recording) =>
-          !rows.some(
-            (row) =>
-              sameScope(row, recording) &&
-              (row.sessionRecordingId === recording.id ||
-                row.clientRecordingId === recording.clientRecordingId),
-          ),
+        (recording) => !rows.some((row) => belongsTo(row, recording)),
       );
   const lastRecordingRows: Array<{
     id: string;
@@ -1645,13 +1659,7 @@ export async function listRecordingErrorIssues(
   for (const recording of recordings) {
     const issues = new Map<string, RecordingErrorIssue & { count: number }>();
     for (const row of rows) {
-      if (
-        !sameScope(row, recording) ||
-        (row.sessionRecordingId !== recording.id &&
-          row.clientRecordingId !== recording.clientRecordingId)
-      ) {
-        continue;
-      }
+      if (!belongsTo(row, recording)) continue;
       const existing = issues.get(row.issueId);
       if (existing) existing.count += Number(row.count);
       else
@@ -1690,39 +1698,36 @@ export async function listRecordingErrorIssues(
       result.set(recording.id, []);
     }
   }
+  const scopeKey = (row: { ownerEmail: string; orgId: string | null }) =>
+    JSON.stringify([row.ownerEmail, row.orgId ?? null]);
   const scopes = new Map<string, RecordingErrorIssueInput>();
   for (const recording of erroringWithoutIssue) {
-    scopes.set(
-      JSON.stringify([recording.ownerEmail, recording.orgId ?? null]),
-      recording,
-    );
+    scopes.set(scopeKey(recording), recording);
   }
-  const scopesWithIssues = new Set<string>();
-  await Promise.all(
-    [...scopes].map(async ([key, recording]) => {
-      const [issue] = await db
-        .select({ id: i.id })
-        .from(i)
-        .where(
-          and(
-            issuesAccessFilter(scope),
-            eq(i.ownerEmail, recording.ownerEmail),
-            recording.orgId ? eq(i.orgId, recording.orgId) : isNull(i.orgId),
-          ),
-        )
-        .limit(1);
-      if (issue) scopesWithIssues.add(key);
-    }),
-  );
-  for (const recording of erroringWithoutIssue) {
-    result.set(
-      recording.id,
-      scopesWithIssues.has(
-        JSON.stringify([recording.ownerEmail, recording.orgId ?? null]),
+  // One statement, but still one indexed probe that stops at the first issue
+  // per scope; a single filter over every scope would read all their issues.
+  const probes = [...scopes.values()].map((recording) =>
+    db
+      .select({ ownerEmail: i.ownerEmail, orgId: i.orgId })
+      .from(i)
+      .where(
+        and(
+          issuesAccessFilter(scope),
+          eq(i.ownerEmail, recording.ownerEmail),
+          recording.orgId ? eq(i.orgId, recording.orgId) : isNull(i.orgId),
+        ),
       )
-        ? null
-        : [],
-    );
+      .limit(1),
+  );
+  const scopesWithIssues: Array<{ ownerEmail: string; orgId: string | null }> =
+    probes.length > 1
+      ? await unionAll(probes[0], probes[1], ...probes.slice(2))
+      : probes.length
+        ? await probes[0]
+        : [];
+  const hasIssues = new Set(scopesWithIssues.map(scopeKey));
+  for (const recording of erroringWithoutIssue) {
+    result.set(recording.id, hasIssues.has(scopeKey(recording)) ? null : []);
   }
   return result;
 }
