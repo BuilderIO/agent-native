@@ -90,9 +90,10 @@ describe("prepareRewindRecordingStart", () => {
     expect(events).toEqual(["countdown-start", "countdown-cancel"]);
   });
 
-  it("surfaces countdown cancellation without waiting for preparation", async () => {
+  it("waits for preparation to finish before surfacing countdown cancellation", async () => {
     const events: string[] = [];
     const prepareGate = deferred();
+    const countdownCancelled = deferred();
 
     const startPromise = prepareRewindRecordingStart({
       async prepare() {
@@ -105,6 +106,7 @@ describe("prepareRewindRecordingStart", () => {
       },
       cancelCountdown() {
         events.push("countdown-cancel");
+        countdownCancelled.resolve();
       },
       async activate() {
         events.push("activate");
@@ -112,11 +114,26 @@ describe("prepareRewindRecordingStart", () => {
       },
     });
 
+    let settled = false;
+    const observeSettlement = startPromise.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+
+    await countdownCancelled.promise;
+    expect(events).toEqual(["countdown-cancel"]);
+    expect(settled).toBe(false);
+
+    prepareGate.resolve();
     await expect(startPromise).rejects.toThrow(
       "Recording cancelled during countdown",
     );
-    expect(events).toEqual(["countdown-cancel"]);
-    prepareGate.resolve();
+    await observeSettlement;
+    expect(events).toEqual(["countdown-cancel", "prepare-done"]);
   });
 
   it("surfaces activation failure after playing the cue", async () => {

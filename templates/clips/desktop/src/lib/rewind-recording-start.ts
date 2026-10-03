@@ -16,7 +16,7 @@ export async function prepareRewindRecordingStart<TPrepared, TStarted>(
     [prepared] = await Promise.all([preparation, countdown]);
   } catch (error) {
     phases.cancelCountdown();
-    await countdown.catch(() => {});
+    await Promise.allSettled([preparation, countdown]);
     throw error;
   }
   await phases.beforeActivate?.();
