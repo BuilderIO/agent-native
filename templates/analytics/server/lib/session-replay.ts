@@ -1935,7 +1935,7 @@ async function sessionRecordingPerformance(
   const [coverageStartedAt, summaries] = await Promise.all([
     getPerformanceCoverageStart(scope),
     options.summaries
-      ? getSessionPerformanceSummaries(recordings)
+      ? getSessionPerformanceSummaries(scope, recordings)
       : Promise.resolve(null),
   ]);
   if (summaries) {
@@ -1980,7 +1980,7 @@ export async function getSessionRecordingPerformance(
       : Promise.resolve([]),
     getPerformanceCoverageStart(scope),
   ]);
-  const summaries = await getSessionPerformanceSummaries(recordings);
+  const summaries = await getSessionPerformanceSummaries(scope, recordings);
   return {
     performance: Object.fromEntries(
       recordings.map((recording: { id: string }) => [
@@ -2087,7 +2087,7 @@ export async function listSessionRecordingsPage(
       didEvents: filters.didEvents,
       didNotEvents: filters.didNotEvents,
     })),
-    ...(await slowSessionConditions(filters.slow)),
+    ...(await slowSessionConditions(scope, filters.slow)),
     ...(await sessionFrictionFilterConditions(scope, filters.frictionSignals)),
   );
   const appConditions = [...conditions];

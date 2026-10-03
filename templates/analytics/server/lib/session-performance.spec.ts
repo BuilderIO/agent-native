@@ -263,12 +263,13 @@ describe("performance aggregates on Postgres", () => {
 
   async function slowRecordings(
     filter: "any" | "vitals" | "requests",
+    viewer: { userEmail: string; orgId: string | null } = scope,
   ): Promise<string[]> {
     const r = schema.sessionRecordings;
     const rows = await db
       .select({ id: r.id })
       .from(r)
-      .where(and(...(await slowSessionConditions(filter))))
+      .where(and(...(await slowSessionConditions(viewer, filter))))
       .orderBy(asc(r.id));
     return rows.map((row: { id: string }) => row.id);
   }
@@ -333,8 +334,7 @@ describe("performance aggregates on Postgres", () => {
       ownerEmail: "other@example.com",
       orgId: "org_2",
     });
-    // A recording shared from another tenant is judged by its own tenant's
-    // aggregates, which the viewer's tenant list does not include.
+    // A share grants the recording, not its tenant's speed data.
     await ingest([
       vitals(
         "s-shared",
@@ -347,15 +347,37 @@ describe("performance aggregates on Postgres", () => {
       orgId: "org_2",
     });
 
-    expect(await slowRecordings("vitals")).toEqual(["r-poor-lcp", "r-shared"]);
+    expect(await slowRecordings("vitals")).toEqual(["r-poor-lcp"]);
     expect(await slowRecordings("requests")).toEqual(["r-slow-request"]);
     expect(await slowRecordings("any")).toEqual([
       "r-poor-lcp",
-      "r-shared",
       "r-slow-request",
     ]);
+    expect(
+      await slowRecordings("vitals", {
+        userEmail: "other@example.com",
+        orgId: "org_2",
+      }),
+    ).toEqual(["r-shared"]);
+    const shared = {
+      id: "r-shared",
+      sessionId: "s-shared",
+      ownerEmail: "other@example.com",
+      orgId: "org_2",
+    };
+    expect(
+      (await getSessionPerformanceSummaries(scope, [shared])).has("r-shared"),
+    ).toBe(false);
+    expect(
+      (
+        await getSessionPerformanceSummaries(
+          { userEmail: shared.ownerEmail, orgId: shared.orgId },
+          [shared],
+        )
+      ).get("r-shared"),
+    ).toMatchObject({ lcpMs: 5_000 });
 
-    const summaries = await getSessionPerformanceSummaries([
+    const summaries = await getSessionPerformanceSummaries(scope, [
       { id: "r-fast", sessionId: "s-fast", ownerEmail: OWNER, orgId: ORG },
       {
         id: "r-poor-lcp",
@@ -393,7 +415,7 @@ describe("performance aggregates on Postgres", () => {
       vitals("s1", { lcp_ms: 3_600_000, cls: 0.3 }),
       response("s1", { duration_ms: 900_000 }),
     ]);
-    const summaries = await getSessionPerformanceSummaries([
+    const summaries = await getSessionPerformanceSummaries(scope, [
       { id: "r1", sessionId: "s1", ownerEmail: OWNER, orgId: ORG },
     ]);
     expect(summaries.get("r1")).toMatchObject({
@@ -440,7 +462,7 @@ describe("performance aggregates on Postgres", () => {
     await addRecording("r-lost", "s-lost");
     await addRecording("r-partial", "s-partial");
 
-    const summaries = await getSessionPerformanceSummaries([
+    const summaries = await getSessionPerformanceSummaries(scope, [
       { id: "r-ok", sessionId: "s-ok", ownerEmail: OWNER, orgId: ORG },
       { id: "r-lost", sessionId: "s-lost", ownerEmail: OWNER, orgId: ORG },
       {
@@ -493,7 +515,7 @@ describe("performance aggregates on Postgres", () => {
     await addRecording("r-ok", "s-ok");
     expect(
       (
-        await getSessionPerformanceSummaries([
+        await getSessionPerformanceSummaries(scope, [
           { id: "r-ok", sessionId: "s-ok", ownerEmail: OWNER, orgId: ORG },
         ])
       ).get("r-ok")?.incomplete,
@@ -564,7 +586,7 @@ describe("performance aggregates on Postgres", () => {
     ).toMatchObject({ routes: [], coverageStartedAt: null });
     expect(
       (
-        await getSessionPerformanceSummaries([
+        await getSessionPerformanceSummaries(scope, [
           { id: "r1", sessionId: "s1", ownerEmail: OWNER, orgId: ORG },
         ])
       ).size,

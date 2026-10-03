@@ -346,7 +346,10 @@ describe("session recording performance", () => {
     expect(conditionText(condition)).toContain("r-unreadable");
     expect(
       performanceMocks.getSessionPerformanceSummaries,
-    ).toHaveBeenCalledWith(rows);
+    ).toHaveBeenCalledWith(
+      { userEmail: "viewer@example.test", orgId: "org_1" },
+      rows,
+    );
   });
 
   it("reports coverage without reading recordings when given no ids", async () => {

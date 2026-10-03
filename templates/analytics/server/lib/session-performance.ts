@@ -1,17 +1,5 @@
 import { fail } from "@agent-native/core/action";
-import {
-  and,
-  type AnyColumn,
-  desc,
-  eq,
-  gte,
-  inArray,
-  lt,
-  lte,
-  ne,
-  or,
-  sql,
-} from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, lte, ne, or, sql } from "drizzle-orm";
 
 import {
   histogramBucket,
@@ -39,11 +27,13 @@ import { getDb, schema } from "../db/index.js";
 import {
   boundedText,
   isoDate,
+  recordingTenantSql,
   sessionEventTenantKey,
   type SessionEventIndexInputRow,
   type SessionEventScope,
   sessionIdOf,
   stableId,
+  viewerReadsRecordingEventsSql,
   viewerTenantKeys,
   warnIndexFailure,
 } from "./session-event-index.js";
@@ -547,20 +537,18 @@ export async function recordRoutePerformance(
   }
 }
 
-function tenantOf(recording: { orgId: AnyColumn; ownerEmail: AnyColumn }) {
-  return sql`(case when ${recording.orgId} is not null then 'org:' || ${recording.orgId} else 'user:' || ${recording.ownerEmail} end)`;
-}
-
 /**
  * Conditions on `session_recordings` for the slow-session filter, correlated
  * to each recording's own tenant and session so they can never widen the
- * recording access filter they are combined with, and so a recording shared
- * from another tenant is judged by that tenant's aggregates. A session
- * without measurements is never slow, and never shown as fast either. `any`
- * also keeps a session with a gap marker, since its missing measurements
- * cannot rule it out; `vitals` and `requests` need a measured slow value.
+ * recording access filter they are combined with. A share grants the
+ * recording, not its tenant's events, so a recording shared from another
+ * tenant never matches. A session without measurements is never slow, and
+ * never shown as fast either. `any` also keeps a session with a gap marker,
+ * since its missing measurements cannot rule it out; `vitals` and `requests`
+ * need a measured slow value.
  */
 export async function slowSessionConditions(
+  scope: SessionEventScope,
   filter: SlowSessionFilter | undefined,
 ) {
   if (!filter) return [];
@@ -576,17 +564,20 @@ export async function slowSessionConditions(
       : filter === "requests"
         ? slowRequests
         : sql`(${poorVitals} or ${slowRequests})`;
-  const measured = sql`exists (select 1 from ${p} where ${p.tenantKey} = ${tenantOf(r)} and ${p.sessionId} = ${r.sessionId} and ${slow})`;
-  if (filter !== "any") return [measured];
+  const tenant = recordingTenantSql(r);
+  const measured = sql`exists (select 1 from ${p} where ${p.tenantKey} = ${tenant} and ${p.sessionId} = ${r.sessionId} and ${slow})`;
+  const readable = viewerReadsRecordingEventsSql(r, scope);
+  if (filter !== "any") return [readable, measured];
   return [
-    sql`(${measured} or exists (select 1 from ${gaps} where ${gaps.tenantKey} = ${tenantOf(r)} and ${gaps.sessionId} = ${r.sessionId} and ${gaps.sessionId} <> ''))`,
+    readable,
+    sql`(${measured} or exists (select 1 from ${gaps} where ${gaps.tenantKey} = ${tenant} and ${gaps.sessionId} = ${r.sessionId} and ${gaps.sessionId} <> ''))`,
   ];
 }
 
 /**
- * The latest coverage start among the viewer's tenants. Each recording is
- * matched against its own tenant's aggregates, so only the latest holds for
- * all of them.
+ * The latest coverage start among the viewer's tenants. Each of their
+ * recordings is matched against its own tenant's aggregates, so only the
+ * latest holds for all of them.
  */
 export async function getPerformanceCoverageStart(
   scope: SessionEventScope,
@@ -608,11 +599,14 @@ export async function getPerformanceCoverageStart(
 /**
  * Performance summaries for a page of recordings the caller already read
  * through the recording access filter. Recordings the aggregates never
- * measured are absent from the map; a recording whose aggregate write failed
- * is present and `incomplete`, even with nothing measured.
+ * measured are absent from the map, and so is one shared from another
+ * tenant: a share grants the recording, not its tenant's events. A recording
+ * whose aggregate write failed is present and `incomplete`, even with
+ * nothing measured.
  */
 export async function getSessionPerformanceSummaries(
-  recordings: ReadonlyArray<{
+  scope: SessionEventScope,
+  pageRecordings: ReadonlyArray<{
     id: string;
     sessionId: string;
     ownerEmail: string;
@@ -620,6 +614,12 @@ export async function getSessionPerformanceSummaries(
   }>,
 ): Promise<Map<string, SessionPerformanceSummary>> {
   const summaries = new Map<string, SessionPerformanceSummary>();
+  const viewerTenants = new Set(viewerTenantKeys(scope));
+  const recordings = pageRecordings.filter((recording) =>
+    viewerTenants.has(
+      sessionEventTenantKey(recording.ownerEmail, recording.orgId),
+    ),
+  );
   if (!recordings.length) return summaries;
   const db = getDb() as any;
   if (!(await performanceTablesExist(db))) return summaries;
