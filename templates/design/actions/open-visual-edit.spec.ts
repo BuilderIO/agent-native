@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   getRequestUserEmail: vi.fn(),
   navigateRun: vi.fn(),
   runWithRequestContext: vi.fn(),
+  readAppState: vi.fn(),
   writeAppState: vi.fn(),
   designData: null as string | null,
   designFiles: [] as Array<{ id: string; filename: string; fileType: string }>,
@@ -28,6 +29,7 @@ vi.mock("@agent-native/core", () => ({
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
+  readAppState: mocks.readAppState,
   writeAppState: mocks.writeAppState,
 }));
 
@@ -183,6 +185,7 @@ describe("open-visual-edit", () => {
         }
       },
     );
+    mocks.readAppState.mockReset().mockResolvedValue(null);
     mocks.writeAppState.mockReset();
     mocks.designData = null;
     mocks.designFiles = [];
@@ -249,6 +252,99 @@ describe("open-visual-edit", () => {
     expect(result.connectionId).toBe("localhost_canonical");
     expect(result.bridgeToken).toBe("stored-write-token");
     expect(result.previewToken).toBe("stored-preview-token");
+  });
+
+  it("reuses the saved visual-edit project for the matching connection", async () => {
+    mocks.readAppState.mockResolvedValue({
+      designId: "design_existing",
+      connectionId: "localhost_canonical",
+      devServerUrl: "http://localhost:5173",
+    });
+
+    const result = await action.run({
+      devServerUrl: "http://localhost:5173",
+      rootPath: "/tmp/app",
+      paths: ["/settings"],
+      navigate: false,
+    });
+
+    expect(mocks.readAppState).toHaveBeenCalledWith("visual-edit");
+    expect(mocks.createDesignRun).not.toHaveBeenCalled();
+    expect(mocks.addLocalhostScreensRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        designId: "design_existing",
+        connectionId: "localhost_canonical",
+      }),
+      undefined,
+    );
+    expect(result.designId).toBe("design_existing");
+    expect(result.createdDesign).toBe(false);
+  });
+
+  it("creates a separate project when newDesign is explicit", async () => {
+    mocks.readAppState.mockResolvedValue({
+      designId: "design_existing",
+      connectionId: "localhost_canonical",
+    });
+
+    const result = await action.run({
+      newDesign: true,
+      devServerUrl: "http://localhost:5173",
+      rootPath: "/tmp/app",
+      paths: ["/"],
+      navigate: false,
+    });
+
+    expect(mocks.readAppState).not.toHaveBeenCalled();
+    expect(mocks.createDesignRun).toHaveBeenCalledOnce();
+    expect(result.designId).toBe("design_created");
+    expect(result.createdDesign).toBe(true);
+  });
+
+  it("rejects conflicting existing and new project targets", async () => {
+    await expect(
+      action.run({
+        designId: "design_existing",
+        newDesign: true,
+        devServerUrl: "http://localhost:5173",
+      }),
+    ).rejects.toThrow(/Choose an existing designId or newDesign/);
+
+    expect(mocks.connectLocalhostRun).not.toHaveBeenCalled();
+  });
+
+  it("does not reuse the saved project for another connection", async () => {
+    mocks.readAppState.mockResolvedValue({
+      designId: "design_existing",
+      connectionId: "localhost_another",
+    });
+
+    const result = await action.run({
+      devServerUrl: "http://localhost:5173",
+      rootPath: "/tmp/app",
+      paths: ["/"],
+      navigate: false,
+    });
+
+    expect(mocks.createDesignRun).toHaveBeenCalledOnce();
+    expect(result.designId).toBe("design_created");
+  });
+
+  it("fails when the saved visual-edit context cannot identify a project", async () => {
+    mocks.readAppState.mockResolvedValue({
+      connectionId: "localhost_canonical",
+    });
+
+    await expect(
+      action.run({
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        paths: ["/"],
+        navigate: false,
+      }),
+    ).rejects.toThrow(/saved Visual Edit context is unreadable/);
+
+    expect(mocks.createDesignRun).not.toHaveBeenCalled();
   });
 
   it("puts the bridge start command in the message, which MCP callers see instead of the full result", async () => {
