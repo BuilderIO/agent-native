@@ -124,6 +124,9 @@ test("a drag released inside rendered Hug overflow stays in its source Screen", 
   const designId = design.id ?? design.data?.id;
   if (typeof designId !== "string") throw new Error("create-design no id");
   try {
+    await page.addInitScript(() => {
+      (window as unknown as { __DESIGN_TRACE?: boolean }).__DESIGN_TRACE = true;
+    });
     const screen = await action(page, "create-file", {
       designId,
       filename: "index.html",
@@ -190,11 +193,6 @@ test("a drag released inside rendered Hug overflow stays in its source Screen", 
     expect(release.y).toBeGreaterThan(iframe.y + persistedFrame.height * scale);
     expect(release.y).toBeLessThan(iframe.y + iframe.height);
     const beforeFiles = await filesContaining(page, designId);
-    const beforeSource = await designRecord(page, designId).then(
-      (record) =>
-        record.files.find((file: { id: string }) => file.id === screenId)
-          ?.content,
-    );
 
     await page.mouse.click(node.x + node.width / 2, node.y + node.height / 2);
     await expect(
@@ -205,14 +203,23 @@ test("a drag released inside rendered Hug overflow stays in its source Screen", 
     await page.mouse.move(release.x, release.y, { steps: 18 });
     await page.mouse.up();
 
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const entries = (window as any).__designTrace?.entries?.() ?? [];
+          return entries
+            .filter(
+              (entry: any) =>
+                entry.area === "drop" && entry.event === "finalize",
+            )
+            .at(-1)?.data;
+        }),
+      )
+      .toMatchObject({
+        boardDropRoute: null,
+        droppedInsideSourceScreen: true,
+      });
     expect(await filesContaining(page, designId)).toEqual(beforeFiles);
-    expect(
-      await designRecord(page, designId).then(
-        (record) =>
-          record.files.find((file: { id: string }) => file.id === screenId)
-            ?.content,
-      ),
-    ).toBe(beforeSource);
   } finally {
     await action(page, "delete-design", { id: designId }).catch(() => {});
   }

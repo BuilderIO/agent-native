@@ -3386,15 +3386,10 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         !sameBoardDuplicateHit &&
         !!sourceFrameGeometry &&
         geometryContainsPoint(sourceFrameGeometry, lastBoardPoint);
-      if (droppedInsideSourceScreen) {
-        cancelPendingSourceDelete();
-        finishCommittedDrop();
-        clearCurrentDrop();
-        return;
-      }
       trace("drop", "finalize", {
         candidate: resolvedCandidate?.id ?? null,
         sourceScreen: sourceScreenId,
+        boardDropRoute,
         droppedInsideSourceScreen,
         outcome: droppedInsideSourceScreen
           ? "discarded — pointer never left the source screen"
@@ -3402,6 +3397,12 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             ? "moving into candidate"
             : "no candidate — refused unless over the board surface",
       });
+      if (droppedInsideSourceScreen) {
+        cancelPendingSourceDelete();
+        finishCommittedDrop();
+        clearCurrentDrop();
+        return;
+      }
       const targetCandidate =
         resolvedCandidate ??
         (boardCanvasHit && boardFileId && boardFrameGeometry
