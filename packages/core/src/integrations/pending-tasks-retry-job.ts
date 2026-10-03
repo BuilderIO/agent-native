@@ -213,6 +213,7 @@ export async function retryStuckPendingTasks(
              WHERE id = ?
                AND status = ?
                AND updated_at = ?
+               AND created_at >= ?
           `,
           args: [
             Date.now(),
@@ -220,6 +221,7 @@ export async function retryStuckPendingTasks(
             row.id,
             row.status,
             row.updatedAt,
+            Date.now() - MAX_RECOVERABLE_PENDING_TASK_AGE_MS,
           ],
         });
         if (affectedRows(update) === 0) {
@@ -241,8 +243,16 @@ export async function retryStuckPendingTasks(
            WHERE id = ?
              AND status = ?
              AND updated_at = ?
+             AND created_at >= ?
         `,
-        args: [newStatus, Date.now(), row.id, row.status, row.updatedAt],
+        args: [
+          newStatus,
+          Date.now(),
+          row.id,
+          row.status,
+          row.updatedAt,
+          Date.now() - MAX_RECOVERABLE_PENDING_TASK_AGE_MS,
+        ],
       });
       if (affectedRows(update) === 0) {
         result.skipped += 1;

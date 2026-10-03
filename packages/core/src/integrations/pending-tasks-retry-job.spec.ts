@@ -80,6 +80,7 @@ describe("pending task retry job", () => {
           "task-processing",
           "processing",
           10,
+          expect.any(Number),
         ],
       }),
     );
@@ -163,6 +164,7 @@ describe("pending task retry job", () => {
           "task-exhausted",
           "pending",
           20,
+          expect.any(Number),
         ],
       }),
     );
@@ -237,6 +239,7 @@ describe("pending task retry job", () => {
           "task-stale-pending",
           "pending",
           30,
+          expect.any(Number),
         ],
       }),
     );
@@ -250,6 +253,7 @@ describe("pending task retry job", () => {
           "task-stale-processing",
           "processing",
           40,
+          expect.any(Number),
         ],
       }),
     );

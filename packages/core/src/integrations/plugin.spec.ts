@@ -214,6 +214,7 @@ vi.mock("../resources/store.js", () => ({
 
 vi.mock("./pending-tasks-store.js", () => ({
   MAX_PENDING_TASK_ATTEMPTS: 3,
+  MAX_RECOVERABLE_PENDING_TASK_AGE_MS: 24 * 60 * 60 * 1000,
   claimPendingTask: claimPendingTaskMock,
   getPendingTask: getPendingTaskMock,
   getNextPendingTaskForThread: getNextPendingTaskForThreadMock,
@@ -1278,6 +1279,53 @@ describe("integrations plugin routes", () => {
       { status: "completed" },
     );
     expect(markTaskCompletedMock).toHaveBeenCalledWith(task.id);
+  });
+
+  it("does not continue a campaign whose task is more than a day old", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.NETLIFY = "true";
+    process.env.A2A_SECRET = "test-secret";
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    const baseTask = claimedTask(1);
+    const task = {
+      ...baseTask,
+      payload: JSON.stringify({
+        kind: "response-delivery",
+        incoming: JSON.parse(baseTask.payload).incoming,
+        message: { text: "Weeks-old checkpoint", platformContext: {} },
+        campaignTerminalStatus: "completed",
+      }),
+      createdAt: Date.now() - 25 * 60 * 60 * 1000,
+      updatedAt: Date.now() - 60_000,
+    };
+    getPendingTaskMock.mockResolvedValueOnce(task);
+    const sendResponse = vi.fn(adapter.sendResponse);
+    const deliveryAdapter: PlatformAdapter = { ...adapter, sendResponse };
+    const timestamp = Date.now();
+    const signature = createHmac("sha256", process.env.A2A_SECRET)
+      .update(`${task.id}:${timestamp}`)
+      .digest("hex");
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [deliveryAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: task.id, __integrationCampaignContinuation: true },
+      { authorization: `Bearer ${timestamp}.${signature}` },
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      ok: true,
+      skipped: "campaign-task-expired",
+    });
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(processIntegrationTaskMock).not.toHaveBeenCalled();
+    expect(terminalizeIntegrationCampaignForTaskMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
+    expect(markTaskFailedMock).not.toHaveBeenCalled();
   });
 
   it("leases an unreceipted campaign delivery so overlapping wakes send once", async () => {

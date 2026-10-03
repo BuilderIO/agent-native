@@ -54,6 +54,13 @@ const {
   ensurePendingTasksTable,
   getNextPendingTaskForThread,
 } = await import("./pending-tasks-store.js");
+const {
+  createIntegrationCampaign,
+  ensureIntegrationCampaignsTable,
+  listDueIntegrationCampaignIds,
+} = await vi.importActual<typeof import("./integration-campaigns-store.js")>(
+  "./integration-campaigns-store.js",
+);
 
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
@@ -109,6 +116,7 @@ describe("pending task age bound", () => {
   beforeAll(async () => {
     pglite = await createTestPglite();
     await ensurePendingTasksTable();
+    await ensureIntegrationCampaignsTable();
   });
 
   afterAll(async () => {
@@ -117,6 +125,7 @@ describe("pending task age bound", () => {
 
   beforeEach(async () => {
     await pglite.exec(`DELETE FROM integration_pending_tasks`);
+    await pglite.exec(`DELETE FROM integration_campaigns`);
     dispatchPendingTaskMock.mockClear();
   });
 
@@ -219,6 +228,108 @@ describe("pending task age bound", () => {
       attempts: 3,
       updatedAt: now - 10 * MINUTE,
     });
+  });
+
+  it("leaves a row alone when it ages out partway through a sweep", async () => {
+    const start = Date.now();
+    let elapsed = 0;
+    const clock = vi
+      .spyOn(Date, "now")
+      .mockImplementation(() => start + elapsed);
+    try {
+      const now = await seed([
+        {
+          id: "first",
+          thread: "T1:team:C1:1.0",
+          status: "pending",
+          attempts: 0,
+          createdAgo: 20 * MINUTE,
+          updatedAgo: 20 * MINUTE,
+        },
+        {
+          id: "crossing-processing",
+          thread: "T1:team:C2:1.0",
+          status: "processing",
+          attempts: 1,
+          createdAgo: DAY - MINUTE,
+          updatedAgo: 15 * MINUTE,
+        },
+        {
+          id: "crossing-at-cap",
+          thread: "T1:team:C3:1.0",
+          status: "pending",
+          attempts: 3,
+          createdAgo: DAY - MINUTE,
+          updatedAgo: 10 * MINUTE,
+        },
+      ]);
+      // The sweep handles rows one at a time, oldest update first. The first
+      // dispatch takes long enough for the other two rows to pass a day old.
+      dispatchPendingTaskMock.mockImplementationOnce(async () => {
+        elapsed = 2 * MINUTE;
+        return "portable-unconfirmed";
+      });
+
+      const result = await retryStuckPendingTasks({
+        webhookBaseUrl: "https://deploy.test",
+      });
+
+      expect(result).toMatchObject({
+        selected: 3,
+        dispatched: 1,
+        markedFailed: 0,
+        skipped: 2,
+      });
+      expect(dispatchPendingTaskMock).toHaveBeenCalledTimes(1);
+      expect(await readRow("crossing-processing")).toEqual({
+        status: "processing",
+        attempts: 1,
+        updatedAt: now - 15 * MINUTE,
+      });
+      expect(await readRow("crossing-at-cap")).toEqual({
+        status: "pending",
+        attempts: 3,
+        updatedAt: now - 10 * MINUTE,
+      });
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it("does not list a campaign as due once its task is more than a day old", async () => {
+    const now = await seed([
+      {
+        id: "stale-campaign-task",
+        thread: "T1:team:C1:1.0",
+        status: "processing",
+        attempts: 1,
+        createdAgo: 30 * DAY,
+        updatedAgo: 30 * DAY,
+      },
+      {
+        id: "live-campaign-task",
+        thread: "T1:team:C2:1.0",
+        status: "processing",
+        attempts: 1,
+        createdAgo: 20 * MINUTE,
+        updatedAgo: MINUTE,
+      },
+    ]);
+    await createIntegrationCampaign({
+      integrationTaskId: "stale-campaign-task",
+      threadId: "thread-stale",
+      turnId: "turn-stale",
+      nextRunAt: now - 30 * DAY,
+    });
+    const live = await createIntegrationCampaign({
+      integrationTaskId: "live-campaign-task",
+      threadId: "thread-live",
+      turnId: "turn-live",
+      nextRunAt: now - MINUTE,
+    });
+
+    // The expired campaign is the most overdue, so it would take the one slot.
+    expect(await listDueIntegrationCampaignIds(1)).toEqual([live.id]);
   });
 
   it("runs a new message behind an expired row in its thread and leaves that row alone", async () => {

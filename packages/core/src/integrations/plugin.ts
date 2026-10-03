@@ -133,6 +133,7 @@ import {
   insertPendingTask,
   isDuplicateEventError,
   MAX_PENDING_TASK_ATTEMPTS,
+  MAX_RECOVERABLE_PENDING_TASK_AGE_MS,
   markTaskCompleted,
   markTaskDeliveryRetryable,
   markTaskFailed,
@@ -2020,6 +2021,15 @@ export function createIntegrationsPlugin(
         if (campaignContinuation && task.status !== "processing") {
           setResponseStatus(event, 200);
           return { ok: true, skipped: "campaign-task-not-processing" };
+        }
+        // Continuations read the task directly instead of claiming it, so the
+        // claim's age bound does not reach them.
+        if (
+          campaignContinuation &&
+          task.createdAt < Date.now() - MAX_RECOVERABLE_PENDING_TASK_AGE_MS
+        ) {
+          setResponseStatus(event, 200);
+          return { ok: true, skipped: "campaign-task-expired" };
         }
         let taskPayload:
           | IntegrationSystemNoticeTaskPayload
