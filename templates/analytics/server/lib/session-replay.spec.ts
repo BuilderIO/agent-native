@@ -7,6 +7,7 @@ const putPrivateBlobMock = vi.hoisted(() => vi.fn());
 const deletePrivateBlobMock = vi.hoisted(() => vi.fn());
 const readPrivateBlobMock = vi.hoisted(() => vi.fn());
 const resolveAccessMock = vi.hoisted(() => vi.fn());
+const recordReplayFrictionMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/index.js", async () => {
   const actual =
@@ -21,6 +22,11 @@ vi.mock("@agent-native/core/private-blob", () => ({
   deletePrivateBlob: deletePrivateBlobMock,
   putPrivateBlob: putPrivateBlobMock,
   readPrivateBlob: readPrivateBlobMock,
+}));
+
+vi.mock("./session-friction.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./session-friction.js")>()),
+  recordReplayFriction: recordReplayFrictionMock,
 }));
 
 vi.mock("@agent-native/core/sharing", async (importOriginal) => {
@@ -329,6 +335,7 @@ describe("session replay ingest parsing", () => {
     deletePrivateBlobMock.mockReset();
     readPrivateBlobMock.mockReset();
     resolveAccessMock.mockReset();
+    recordReplayFrictionMock.mockReset();
   });
 
   it("normalizes recorder payloads into session recording chunks", () => {
@@ -1356,6 +1363,26 @@ describe("session replay ingest parsing", () => {
     });
   });
 
+  it("keeps a recording active while the recorder says so, despite its end time", () => {
+    const payload = {
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      sequence: 0,
+      endedAt: "2026-01-01T00:00:04.500Z",
+      events: [{ type: 3, timestamp: Date.parse("2026-01-01T00:00:04.500Z") }],
+    };
+
+    expect(
+      parseSessionReplayIngestPayload({ ...payload, status: "active" }).status,
+    ).toBe("active");
+    expect(
+      parseSessionReplayIngestPayload({ ...payload, status: "completed" })
+        .status,
+    ).toBe("completed");
+    expect(parseSessionReplayIngestPayload(payload).status).toBe("completed");
+  });
+
   it("requires an Origin header when an allowlist is configured", async () => {
     await expect(
       assertReplayKeyBudget(
@@ -1991,6 +2018,65 @@ describe("session replay ingest parsing", () => {
     );
     expect((recordingInsert?.values as { visibility: string }).visibility).toBe(
       "private",
+    );
+  });
+
+  it("measures friction for exactly the chunks a batch stored, after the ones before it", async () => {
+    // Stored as a blob, the chunk row has no inline data; friction must still
+    // read the events the upload carried.
+    putPrivateBlobMock.mockResolvedValue({
+      opaque: "blob_1",
+      provider: "test",
+    });
+    const input = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      sequence: 1,
+      status: "active",
+      endedAt: 1,
+      events: [{ type: 4, timestamp: 1 }],
+    });
+    const [key, bytes, requests, , , recording] =
+      replayIngestKeyDbResults(null);
+    const { db, inserts } = createReplayDbMock([
+      key,
+      bytes,
+      requests,
+      [{ ...recording[0], chunkCount: 1, errorCount: 2, rageClickCount: 1 }],
+      [{ seq: 0, checksum: "earlier", eventCount: 1, byteLength: 10 }],
+    ]);
+    const update = vi.fn(() => ({
+      set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+    }));
+    getDbMock.mockReturnValue({ ...db, update });
+    await recordSessionReplayChunks(input, {
+      origin: "https://app.example.com",
+      requestBytes: 100,
+    });
+    expect(
+      inserts.find((entry) => entry.table === schema.sessionReplayChunks)
+        ?.values,
+    ).toEqual([
+      expect.objectContaining({
+        seq: 1,
+        storageKind: "blob",
+        inlineData: null,
+      }),
+    ]);
+    expect(recordReplayFrictionMock).toHaveBeenCalledTimes(1);
+    expect(recordReplayFrictionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingId: "sr_new",
+        sessionId: "session_1",
+        ownerEmail: "owner@example.com",
+        orgId: null,
+        priorChunkCount: 1,
+        newChunks: [{ seq: 1, inlineData: input.chunks[0]!.inlineData }],
+        errorCount: 2,
+        rageClickCount: 1,
+        recordingEnded: false,
+      }),
     );
   });
 

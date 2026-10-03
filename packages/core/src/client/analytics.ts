@@ -4,9 +4,12 @@ import type * as Sentry from "@sentry/browser";
 import { recordTrackingEvent } from "../observability/tracing.js";
 import {
   AGENT_NATIVE_LIFECYCLE_EVENTS,
+  AGENT_SIGNALS_PAGEVIEW_PROPERTY,
+  AGENT_SIGNALS_VERSION,
   canonicalTrackingEvent,
   legacyLifecycleEvent,
   normalizeTrackingDimension,
+  PAGE_LOAD_PAGEVIEW_PROPERTY,
   withCanonicalTrackingProperties,
   type AgentNativeLifecycleEventName,
 } from "../shared/analytics-events.js";
@@ -28,6 +31,7 @@ import { isSyntheticTrafficValue } from "../shared/test-traffic.js";
 import { toPostHogExceptionProperties } from "../tracking/posthog-exception.js";
 import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import {
+  getAnalyticsPageLoadId,
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
@@ -1313,6 +1317,26 @@ function exceptionEventProperties(
   };
 }
 
+/**
+ * Properties only first-party Analytics receives. A run's error message is
+ * reduced to its shape but keeps every unquoted word, so it can still name a
+ * user's document or a person.
+ */
+const FIRST_PARTY_ONLY_PROPERTIES = new Map<string, readonly string[]>([
+  ["agent_run_outcome", ["error_message"]],
+]);
+
+function thirdPartyEventProperties(
+  name: string,
+  properties: Record<string, unknown>,
+): Record<string, unknown> {
+  const omitted = FIRST_PARTY_ONLY_PROPERTIES.get(name);
+  if (!omitted) return properties;
+  return Object.fromEntries(
+    Object.entries(properties).filter(([key]) => !omitted.includes(key)),
+  );
+}
+
 function amplitudeEventProperties(
   name: string,
   properties: Record<string, unknown>,
@@ -1841,6 +1865,8 @@ function pageviewProperties(reason: string): Record<string, unknown> {
     path: window.location.pathname,
     hostname: window.location.hostname,
     navigation_type: reason,
+    [AGENT_SIGNALS_PAGEVIEW_PROPERTY]: AGENT_SIGNALS_VERSION,
+    [PAGE_LOAD_PAGEVIEW_PROPERTY]: getAnalyticsPageLoadId(),
   };
   if (_trackingContentCaptureEnabled && window.location.search) {
     properties.search = scrubUrl(window.location.search);
@@ -2088,10 +2114,17 @@ function emitBrowserTrackingEvent(
   } = {},
 ): void {
   const { gtagProperties = props, sendGtag = true } = options;
-  const amplitudeProps = amplitudeEventProperties(name, props);
+  const amplitudeProps = amplitudeEventProperties(
+    name,
+    thirdPartyEventProperties(name, props),
+  );
   if (sendGtag) {
     const gtag = window.__AGENT_NATIVE_GA_GTAG__ ?? window.gtag;
-    gtag?.("event", name.replace(/\s+/g, "_"), gtagProperties);
+    gtag?.(
+      "event",
+      name.replace(/\s+/g, "_"),
+      thirdPartyEventProperties(name, gtagProperties),
+    );
   }
   if (ensureAmplitude()) {
     _amplitudeModule?.track(name, amplitudeProps);

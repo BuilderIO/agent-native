@@ -25,6 +25,7 @@ export const AUTOMATIC_ANALYTICS_EVENT_NAMES: ReadonlySet<string> = new Set([
   "$ai_generation",
   "$ai_feedback",
   "agent_chat_lifecycle",
+  "agent_feedback_submitted",
   "session_replay_started",
   "session replay upload rejected",
   "session_replay_upload_rejected",

@@ -308,6 +308,8 @@ describe("browser analytics pageviews", () => {
         referrer: "https://builder.io/start?token=%3Credacted%3E&utm=ok",
         title: "Inbox",
         navigation_type: "load",
+        agent_signals: 1,
+        page_load_id: expect.any(String),
         client_platform: "web",
         llm_connection: "builder",
         llm_connection_configured: true,
@@ -692,6 +694,51 @@ describe("browser analytics pageviews", () => {
     });
     expect(amplitudeException?.[1]).not.toHaveProperty("exceptionTags");
     expect(amplitudeException?.[1]).not.toHaveProperty("exceptionExtra");
+  });
+
+  it("sends a run's error message to first-party analytics only", async () => {
+    const { gtag } = installBrowser();
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amplitude_test");
+    const { configureTracking, trackEvent } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/track",
+      pageviewTracking: false,
+    });
+    await tick();
+    amplitudeMock.track.mockClear();
+    analyticsCalls.length = 0;
+
+    trackEvent("agent_run_outcome", {
+      outcome: "failed",
+      error_message: "Deck Quarterly Planning not found",
+    });
+    await tick();
+
+    const firstParty = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((body) => body.event === "agent_run_outcome");
+    expect(firstParty?.properties).toMatchObject({
+      outcome: "failed",
+      error_message: "Deck Quarterly Planning not found",
+    });
+    const amplitudeOutcome = amplitudeMock.track.mock.calls.find(
+      ([name]) => name === "agent_run_outcome",
+    );
+    expect(amplitudeOutcome?.[1]).toMatchObject({ outcome: "failed" });
+    expect(amplitudeOutcome?.[1]).not.toHaveProperty("error_message");
+    expect(gtag).toHaveBeenCalledWith(
+      "event",
+      "agent_run_outcome",
+      expect.not.objectContaining({ error_message: expect.anything() }),
+    );
+    expect(gtag).toHaveBeenCalledWith(
+      "event",
+      "agent_run_outcome",
+      expect.objectContaining({ outcome: "failed" }),
+    );
   });
 
   it("links the open chat thread on a first-party exception, and leaves one outside a thread alone", async () => {
@@ -1341,6 +1388,9 @@ describe("browser analytics pageviews", () => {
       "/sent",
     ]);
     expect(events[1].properties.navigation_type).toBe("pushState");
+    expect(events[1].properties.page_load_id).toBe(
+      events[0].properties.page_load_id,
+    );
   });
 
   it("drops a queued pageview when the browser environment is gone", async () => {
