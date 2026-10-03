@@ -9,19 +9,33 @@ import {
 } from "react";
 
 import {
-  CONTENT_TEXT_MIN_WIDTH,
   type ContentLayout,
   type ContentLayoutInput,
   contentAvailableWidth,
+  contentPageMinWidth,
   resolveContentLayout,
   sameContentLayout,
 } from "./content-layout";
 
 export const ContentLayoutContext = createContext<ContentLayout | null>(null);
 
+/** Holds the shell's room for a page rail open; the returned call releases it. */
+export const ContentUtilityRailContext = createContext<
+  (() => () => void) | null
+>(null);
+
 /** The app shell's layout, or null outside the app shell. */
 export function useContentLayout() {
   return useContext(ContentLayoutContext);
+}
+
+/**
+ * Tells the shell this page has its comments list or Info open, so the
+ * sidebar makes room for that rail before it covers the text.
+ */
+export function useContentUtilityRail(open: boolean) {
+  const hold = useContext(ContentUtilityRailContext);
+  useLayoutEffect(() => (open && hold ? hold() : undefined), [hold, open]);
 }
 
 type AgentPanelDock = ContentLayoutInput["agentPanel"];
@@ -120,22 +134,26 @@ export function useContentShellLayout({
     viewportWidth: typeof window === "undefined" ? Infinity : window.innerWidth,
     sidebar,
     agentPanel: CLOSED_AGENT_PANEL,
+    utilityRail: false,
   });
   const [layout, setLayout] = useState(() =>
     resolveContentLayout(measurementsRef.current),
   );
   const layoutRef = useRef(layout);
 
-  const measure = useCallback((next: Partial<ShellMeasurements>) => {
-    measurementsRef.current = { ...measurementsRef.current, ...next };
-    const resolved = resolveContentLayout({
-      ...measurementsRef.current,
-      previous: layoutRef.current,
-    });
-    if (sameContentLayout(resolved, layoutRef.current)) return;
-    layoutRef.current = resolved;
-    setLayout(resolved);
-  }, []);
+  const measure = useCallback(
+    (next: Partial<ShellMeasurements>, { hold = true } = {}) => {
+      measurementsRef.current = { ...measurementsRef.current, ...next };
+      const resolved = resolveContentLayout({
+        ...measurementsRef.current,
+        previous: hold ? layoutRef.current : null,
+      });
+      if (sameContentLayout(resolved, layoutRef.current)) return;
+      layoutRef.current = resolved;
+      setLayout(resolved);
+    },
+    [],
+  );
 
   useLayoutEffect(() => {
     measure({
@@ -231,10 +249,28 @@ export function useContentShellLayout({
     };
   }, [measure, shellRef]);
 
+  // Counted, so a page that mounts before the previous one unmounts cannot
+  // release the rail the new page holds. Opening or closing the rail is a
+  // choice, not a window dragged across a threshold, so it resolves without
+  // the modes on screen holding: a held docked sidebar or margin lane would
+  // leave the text narrower than either side of the change.
+  const utilityRailHolds = useRef(0);
+  const holdUtilityRail = useCallback(() => {
+    const update = (change: number) => {
+      utilityRailHolds.current += change;
+      const utilityRail = utilityRailHolds.current > 0;
+      if (utilityRail === measurementsRef.current.utilityRail) return;
+      measure({ utilityRail }, { hold: false });
+    };
+    update(1);
+    return () => update(-1);
+  }, [measure]);
+
   /** The widest the sidebar can be dragged and still stay docked. */
   const dockedSidebarMaxWidth = useCallback(
     () =>
-      contentAvailableWidth(measurementsRef.current) - CONTENT_TEXT_MIN_WIDTH,
+      contentAvailableWidth(measurementsRef.current) -
+      contentPageMinWidth(measurementsRef.current, layoutRef.current),
     [],
   );
   /** Whether expanding the sidebar would dock it, rather than need a drawer. */
@@ -247,5 +283,5 @@ export function useContentShellLayout({
     [],
   );
 
-  return { layout, dockedSidebarMaxWidth, canDockSidebar };
+  return { layout, dockedSidebarMaxWidth, canDockSidebar, holdUtilityRail };
 }

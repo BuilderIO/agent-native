@@ -384,6 +384,7 @@ function ToolbarBreadcrumbSegmentView({
       className={cn(
         "flex min-w-0 items-center gap-1",
         isLast && "min-w-[min(6rem,100%)]",
+        item.fold && "shrink-0",
       )}
     >
       {hasMenu ? (
@@ -441,6 +442,8 @@ export interface ToolbarBreadcrumbItem {
   iconKind?: "folder";
   filesDatabaseId?: string | null;
   menuItems?: ToolbarBreadcrumbMenuItem[];
+  /** The "…" menu folded ancestors go into; it keeps its width. */
+  fold?: boolean;
   /** Peers load when the menu opens instead of arriving with the item. */
   siblings?: ToolbarBreadcrumbSiblings;
 }
@@ -518,6 +521,7 @@ export function compactToolbarBreadcrumbItems(
     ...ancestors.slice(0, head),
     {
       title: "…",
+      fold: true,
       menuItems: hidden.flatMap((item) =>
         item.id
           ? [

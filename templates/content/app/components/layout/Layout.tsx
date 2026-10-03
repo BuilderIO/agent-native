@@ -53,6 +53,7 @@ import {
 import { SidebarTriggerContext } from "./sidebar-trigger";
 import {
   ContentLayoutContext,
+  ContentUtilityRailContext,
   useContentShellLayout,
 } from "./use-content-layout";
 
@@ -197,6 +198,7 @@ export function Layout({ children }: LayoutProps) {
     layout: shellLayout,
     dockedSidebarMaxWidth,
     canDockSidebar,
+    holdUtilityRail,
   } = useContentShellLayout({
     shellRef: layoutShellRef,
     sidebar: { collapsed: userSidebarCollapsed, width: sidebarWidth },
@@ -366,31 +368,33 @@ export function Layout({ children }: LayoutProps) {
           }
         >
           <ContentLayoutContext.Provider value={shellLayout}>
-            <main
-              className="agent-native-app-main relative flex min-w-0 min-h-0 flex-1 flex-col overflow-x-hidden"
-              style={
-                {
-                  "--content-sidebar-width": `${contentSidebarWidth}px`,
-                } as CSSProperties
-              }
-            >
-              {showHeader ? (
-                <Header sidebarTrigger={mobileSidebarTrigger} />
-              ) : null}
-              <InvitationBanner
-                className={`${showHeader || fullWidthSettings ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
-              />
-              <SidebarTriggerContext.Provider value={mobileSidebarTrigger}>
-                {showPendingDocumentSkeleton && pendingDocumentId ? (
-                  <DocumentEditorSkeleton
-                    title={pendingDocumentTitle}
-                    iconRow={readPageIconRowHint(pendingDocumentId)}
-                  />
-                ) : (
-                  children
-                )}
-              </SidebarTriggerContext.Provider>
-            </main>
+            <ContentUtilityRailContext.Provider value={holdUtilityRail}>
+              <main
+                className="agent-native-app-main relative flex min-w-0 min-h-0 flex-1 flex-col overflow-x-hidden"
+                style={
+                  {
+                    "--content-sidebar-width": `${contentSidebarWidth}px`,
+                  } as CSSProperties
+                }
+              >
+                {showHeader ? (
+                  <Header sidebarTrigger={mobileSidebarTrigger} />
+                ) : null}
+                <InvitationBanner
+                  className={`${showHeader || fullWidthSettings ? "ps-4" : "ps-16"} sm:ps-4 [&>div]:flex-wrap [&>div]:items-start [&>div>span]:min-w-0 [&>div>span]:flex-1`}
+                />
+                <SidebarTriggerContext.Provider value={mobileSidebarTrigger}>
+                  {showPendingDocumentSkeleton && pendingDocumentId ? (
+                    <DocumentEditorSkeleton
+                      title={pendingDocumentTitle}
+                      iconRow={readPageIconRowHint(pendingDocumentId)}
+                    />
+                  ) : (
+                    children
+                  )}
+                </SidebarTriggerContext.Provider>
+              </main>
+            </ContentUtilityRailContext.Provider>
           </ContentLayoutContext.Provider>
         </AgentSidebar>
       </div>

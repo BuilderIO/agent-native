@@ -79,7 +79,10 @@ import {
   sameContentCommentSurfaces,
 } from "@/components/layout/content-layout";
 import { useSidebarTrigger } from "@/components/layout/sidebar-trigger";
-import { useContentLayout } from "@/components/layout/use-content-layout";
+import {
+  useContentLayout,
+  useContentUtilityRail,
+} from "@/components/layout/use-content-layout";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   createContentSpaceSelectionQueue,
@@ -6303,6 +6306,9 @@ function PageEditorSessionBody({
   const hasInlineCommentSpace = commentSurfaces.margin === "lane";
   const showCommentsHistoryDrawer =
     utilityPanel === "comments" && commentsBrowseOpen;
+  useContentUtilityRail(
+    host === "page" && (showCommentsHistoryDrawer || utilityPanel === "info"),
+  );
   const showDesktopCommentsHistory =
     showCommentsHistoryDrawer &&
     documentEditorHasDesktopCommentSurface({

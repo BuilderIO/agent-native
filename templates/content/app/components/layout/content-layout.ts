@@ -52,6 +52,8 @@ export interface ContentLayoutInput {
   sidebar: { collapsed: boolean; width: number };
   /** `width` is the panel's target width, not its animated one. */
   agentPanel: { open: boolean; width: number };
+  /** The page has its comments list or Info open. */
+  utilityRail: boolean;
   previous?: ContentLayout | null;
 }
 
@@ -93,24 +95,44 @@ export function contentPageWidth(
   );
 }
 
+/**
+ * The page width the sidebar makes room for. An open comments list or Info
+ * rail counts while the window can fit it beside the text with the sidebar
+ * gone; past that it becomes a panel over the page instead.
+ */
+export function contentPageMinWidth(
+  input: Pick<
+    ContentLayoutInput,
+    "viewportWidth" | "agentPanel" | "utilityRail"
+  >,
+  previous?: ContentLayout | null,
+) {
+  const besideRail = CONTENT_TEXT_MIN_WIDTH + CONTENT_COMMENT_SURFACE_WIDTH;
+  return input.utilityRail &&
+    fits(
+      contentAvailableWidth(input),
+      besideRail,
+      previous?.comments.list === "rail",
+    )
+    ? besideRail
+    : CONTENT_TEXT_MIN_WIDTH;
+}
+
 export function resolveContentSidebar(
   availableWidth: number,
   sidebar: ContentLayoutInput["sidebar"],
   previous?: ContentSidebarMode | null,
+  pageMinWidth = CONTENT_TEXT_MIN_WIDTH,
 ): ContentSidebarMode {
   if (
     !sidebar.collapsed &&
-    fits(
-      availableWidth - sidebar.width,
-      CONTENT_TEXT_MIN_WIDTH,
-      previous === "docked",
-    )
+    fits(availableWidth - sidebar.width, pageMinWidth, previous === "docked")
   ) {
     return "docked";
   }
   return fits(
     availableWidth - COLLAPSED_SIDEBAR_WIDTH,
-    CONTENT_TEXT_MIN_WIDTH,
+    pageMinWidth,
     previous === "docked" || previous === "rail",
   )
     ? "rail"
@@ -148,6 +170,7 @@ export function resolveContentLayout(input: ContentLayoutInput): ContentLayout {
     contentAvailableWidth(input),
     input.sidebar,
     input.previous?.sidebar,
+    contentPageMinWidth(input, input.previous),
   );
   return {
     sidebar,

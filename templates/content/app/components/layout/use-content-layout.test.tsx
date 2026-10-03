@@ -49,14 +49,16 @@ describe("useContentShellLayout", () => {
   let container: HTMLDivElement;
   let root: Root;
   let layouts: ContentLayout[];
+  let holdUtilityRail: () => () => void;
 
   function Shell() {
     const shellRef = useRef<HTMLDivElement>(null);
-    const { layout } = useContentShellLayout({
+    const shell = useContentShellLayout({
       shellRef,
       sidebar: { collapsed: false, width: 240 },
     });
-    layouts.push(layout);
+    holdUtilityRail = shell.holdUtilityRail;
+    layouts.push(shell.layout);
     return (
       <div ref={shellRef}>
         <div className="agent-sidebar-shell" />
@@ -202,6 +204,36 @@ describe("useContentShellLayout", () => {
       placeholder.remove();
     });
     expect(latestLayout().agentPanel).toBe("closed");
+  });
+
+  it("gives the sidebar's room to a page rail until every page releases it", async () => {
+    await act(async () => setViewportWidth(1100));
+    expect(latestLayout()).toMatchObject({
+      sidebar: "docked",
+      comments: { list: "region-list" },
+    });
+
+    let releaseLeaving = () => {};
+    let releaseArriving = () => {};
+    await act(async () => {
+      releaseLeaving = holdUtilityRail();
+      releaseArriving = holdUtilityRail();
+    });
+    expect(latestLayout()).toMatchObject({
+      sidebar: "rail",
+      sidebarAutoCollapsed: true,
+      comments: { list: "rail" },
+    });
+
+    await act(async () => releaseLeaving());
+    expect(latestLayout().comments.list).toBe("rail");
+
+    await act(async () => releaseArriving());
+    expect(latestLayout()).toMatchObject({
+      sidebar: "docked",
+      comments: { margin: "anchored", list: "region-list" },
+    });
+    expect(localStorage.getItem(SIDEBAR_COLLAPSED_KEY)).toBe("false");
   });
 
   it("re-renders only when a mode changes", async () => {
