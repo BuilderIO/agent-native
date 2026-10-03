@@ -1312,7 +1312,7 @@ export default {
     signalRetryLoops: "再試行ループ",
     signalErrorToasts: "エラー通知",
     signalDeadClicks: "反応のないクリック",
-    signalSlowRequests: "遅いリクエスト",
+    signalStalledRequests: "停滞したリクエスト",
     signalHttp4xx: "4xx レスポンス",
     signalAgentFailures: "エージェントの失敗",
     signalStuckChats: "停止したエージェントチャット",

@@ -4,7 +4,7 @@ import {
   SESSION_REPLAY_CONSOLE_EVENT_TAG,
   SESSION_REPLAY_NETWORK_EVENT_TAG,
 } from "../../shared/session-replay-diagnostics.js";
-import { SLOW_REQUEST_THRESHOLD_MS } from "../../shared/slow-requests.js";
+import { STALLED_REQUEST_THRESHOLD_MS } from "../../shared/stalled-requests.js";
 import {
   detectReplayFriction,
   emptyReplayFrictionDetectorState,
@@ -126,20 +126,20 @@ describe("detectReplayFriction", () => {
     expect(delta.errorToasts).toBe(2);
   });
 
-  it("counts slow requests and 4xx and 5xx responses separately", () => {
+  it("counts stalled requests and 4xx and 5xx responses separately", () => {
     const { delta } = detectReplayFriction(
       [
         network(1_000, {
           url: "/a",
           status: 200,
           ok: true,
-          durationMs: SLOW_REQUEST_THRESHOLD_MS,
+          durationMs: STALLED_REQUEST_THRESHOLD_MS,
         }),
         network(2_000, {
           url: "/b",
           status: 200,
           ok: true,
-          durationMs: SLOW_REQUEST_THRESHOLD_MS - 1,
+          durationMs: STALLED_REQUEST_THRESHOLD_MS - 1,
         }),
         network(3_000, { url: "/c", status: 404 }),
         network(4_000, { url: "/d", status: 422 }),
@@ -147,7 +147,7 @@ describe("detectReplayFriction", () => {
       ],
       null,
     );
-    expect(delta).toMatchObject({ slowRequests: 1, http4xx: 2, http5xx: 1 });
+    expect(delta).toMatchObject({ stalledRequests: 1, http4xx: 2, http5xx: 1 });
   });
 
   it("counts one retry loop for repeated failures to one endpoint", () => {

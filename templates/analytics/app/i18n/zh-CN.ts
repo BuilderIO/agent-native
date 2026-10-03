@@ -1244,7 +1244,7 @@ export default {
     signalRetryLoops: "重试循环",
     signalErrorToasts: "错误提示",
     signalDeadClicks: "无响应点击",
-    signalSlowRequests: "慢请求",
+    signalStalledRequests: "停滞的请求",
     signalHttp4xx: "4xx 响应",
     signalAgentFailures: "智能体失败",
     signalStuckChats: "卡住的智能体对话",

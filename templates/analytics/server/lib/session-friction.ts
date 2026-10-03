@@ -146,7 +146,7 @@ const REPLAY_COLUMNS = {
   retry_loops: "retryLoops",
   error_toasts: "errorToasts",
   dead_clicks: "deadClicks",
-  slow_requests: "slowRequests",
+  stalled_requests: "stalledRequests",
   http_4xx: "http4xx",
 } as const satisfies Record<
   ReplayFrictionSignal,
@@ -243,7 +243,7 @@ export async function recordReplayFriction(
       errorToasts: (existing?.errorToasts ?? 0) + delta.errorToasts,
       retryLoops: (existing?.retryLoops ?? 0) + delta.retryLoops,
       errorThenLeave: errorThenLeave ? 1 : 0,
-      slowRequests: (existing?.slowRequests ?? 0) + delta.slowRequests,
+      stalledRequests: (existing?.stalledRequests ?? 0) + delta.stalledRequests,
       http4xx: (existing?.http4xx ?? 0) + delta.http4xx,
       http5xx: (existing?.http5xx ?? 0) + delta.http5xx,
     };

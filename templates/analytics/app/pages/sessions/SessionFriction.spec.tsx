@@ -73,7 +73,7 @@ describe("SessionFrictionBreakdown", () => {
       retry_loops: 0,
       error_toasts: 0,
       dead_clicks: 1,
-      slow_requests: 0,
+      stalled_requests: 0,
       http_4xx: 3,
     },
     events: { ...measuredEvents, agent_failures: 4 },

@@ -45,8 +45,8 @@ export function frictionSignalLabel(signal: ScoredFrictionInput, t: T): string {
       return t("sessions.signalErrorToasts");
     case "dead_clicks":
       return t("sessions.signalDeadClicks");
-    case "slow_requests":
-      return t("sessions.signalSlowRequests");
+    case "stalled_requests":
+      return t("sessions.signalStalledRequests");
     case "http_4xx":
       return t("sessions.signalHttp4xx");
     case "agent_failures":

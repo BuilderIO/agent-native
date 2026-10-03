@@ -1327,7 +1327,7 @@ export default {
     signalRetryLoops: "重試循環",
     signalErrorToasts: "錯誤提示",
     signalDeadClicks: "無回應點擊",
-    signalSlowRequests: "緩慢的請求",
+    signalStalledRequests: "停滯的請求",
     signalHttp4xx: "4xx 回應",
     signalAgentFailures: "代理程式失敗",
     signalStuckChats: "卡住的代理程式對話",

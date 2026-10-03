@@ -1339,7 +1339,7 @@ export default {
     signalRetryLoops: "Wiederholungsschleifen",
     signalErrorToasts: "Fehlermeldungen",
     signalDeadClicks: "Tote Klicks",
-    signalSlowRequests: "Langsame Anfragen",
+    signalStalledRequests: "Hängende Anfragen",
     signalHttp4xx: "4xx-Antworten",
     signalAgentFailures: "Agent-Fehler",
     signalStuckChats: "Hängende Agent-Chats",
