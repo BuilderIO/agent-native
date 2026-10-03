@@ -19351,7 +19351,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         elWidthPx,
         elHeightPx,
         wholeShape ? null : originRadius,
-        radiiWereNormalized
+        radiiWereNormalized || e.altKey
       );
       var maxRadiusX = maxRadius.x;
       var maxRadiusY = maxRadius.y;

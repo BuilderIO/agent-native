@@ -24812,7 +24812,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             elWidthPx,
             elHeightPx,
             wholeShape ? null : originRadius,
-            radiiWereNormalized,
+            radiiWereNormalized || e.altKey,
           );
     var maxRadiusX = maxRadius.x;
     var maxRadiusY = maxRadius.y;
