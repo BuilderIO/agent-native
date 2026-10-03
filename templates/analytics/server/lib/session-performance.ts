@@ -954,17 +954,22 @@ export async function prunePerformanceAggregates(
   const routeResult = await db
     .delete(schema.analyticsRoutePerformanceDaily)
     .where(lt(schema.analyticsRoutePerformanceDaily.eventDate, routeCutoff));
-  // guard:allow-unscoped -- retention intentionally sweeps gap markers older than any aggregate they describe.
+  // A session marker says that session's maxima failed, and a route-day
+  // marker (no session) that day's histograms did, so each goes with its own.
+  const gaps = schema.analyticsPerformanceGaps;
+  // guard:allow-unscoped -- retention intentionally sweeps session gap markers with the session aggregates they describe.
   await db
-    .delete(schema.analyticsPerformanceGaps)
+    .delete(gaps)
     .where(
-      lt(
-        schema.analyticsPerformanceGaps.eventDate,
-        sessionCutoff.slice(0, 10) < routeCutoff
-          ? sessionCutoff.slice(0, 10)
-          : routeCutoff,
+      and(
+        ne(gaps.sessionId, ""),
+        lt(gaps.eventDate, sessionCutoff.slice(0, 10)),
       ),
     );
+  // guard:allow-unscoped -- retention intentionally sweeps route-day gap markers with the route days they describe.
+  await db
+    .delete(gaps)
+    .where(and(eq(gaps.sessionId, ""), lt(gaps.eventDate, routeCutoff)));
   return {
     sessions: Number(sessionResult?.rowCount ?? 0),
     routeDays: Number(routeResult?.rowCount ?? 0),
