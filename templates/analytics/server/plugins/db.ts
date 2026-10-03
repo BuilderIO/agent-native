@@ -1563,7 +1563,7 @@ ALTER TABLE error_events ADD COLUMN IF NOT EXISTS test_identity BOOLEAN NOT NULL
       error_toasts INTEGER NOT NULL DEFAULT 0,
       retry_loops INTEGER NOT NULL DEFAULT 0,
       error_then_leave INTEGER NOT NULL DEFAULT 0,
-      slow_requests INTEGER NOT NULL DEFAULT 0,
+      stalled_requests INTEGER NOT NULL DEFAULT 0,
       http_4xx INTEGER NOT NULL DEFAULT 0,
       http_5xx INTEGER NOT NULL DEFAULT 0,
       issue_errors INTEGER,

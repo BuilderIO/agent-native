@@ -1388,7 +1388,7 @@ export default {
     signalRetryLoops: "Retry loops",
     signalErrorToasts: "Error toasts",
     signalDeadClicks: "Dead clicks",
-    signalSlowRequests: "Slow requests",
+    signalStalledRequests: "Stalled requests",
     signalHttp4xx: "4xx responses",
     signalAgentFailures: "Agent failures",
     signalStuckChats: "Stuck agent chats",

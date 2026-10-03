@@ -1322,7 +1322,7 @@ export default {
     signalRetryLoops: "Loops de nova tentativa",
     signalErrorToasts: "Avisos de erro",
     signalDeadClicks: "Cliques sem resposta",
-    signalSlowRequests: "Requisições lentas",
+    signalStalledRequests: "Requisições travadas",
     signalHttp4xx: "Respostas 4xx",
     signalAgentFailures: "Falhas do agente",
     signalStuckChats: "Chats do agente travados",

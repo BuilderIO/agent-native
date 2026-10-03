@@ -1281,7 +1281,7 @@ export default {
     signalRetryLoops: "पुनः प्रयास लूप",
     signalErrorToasts: "त्रुटि सूचनाएँ",
     signalDeadClicks: "बेअसर क्लिक",
-    signalSlowRequests: "धीमे अनुरोध",
+    signalStalledRequests: "अटके हुए अनुरोध",
     signalHttp4xx: "4xx प्रतिक्रियाएँ",
     signalAgentFailures: "एजेंट विफलताएँ",
     signalStuckChats: "अटकी एजेंट चैट",

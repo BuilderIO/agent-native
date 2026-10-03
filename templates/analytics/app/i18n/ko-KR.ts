@@ -1293,7 +1293,7 @@ export default {
     signalRetryLoops: "재시도 반복",
     signalErrorToasts: "오류 알림",
     signalDeadClicks: "반응 없는 클릭",
-    signalSlowRequests: "느린 요청",
+    signalStalledRequests: "정체된 요청",
     signalHttp4xx: "4xx 응답",
     signalAgentFailures: "에이전트 실패",
     signalStuckChats: "멈춘 에이전트 채팅",

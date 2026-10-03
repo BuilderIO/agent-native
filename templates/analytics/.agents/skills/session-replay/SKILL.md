@@ -117,8 +117,8 @@ agent answers about browser recordings in the Analytics template.
 
 - Friction is derived at ingest into Analytics' own tables and read only
   from them, in every sink mode. Replay signals (dead clicks, Sonner error
-  toasts, retry loops, leaving within 30 seconds of an error, slow requests
-  over `SLOW_REQUEST_THRESHOLD_MS`, 4xx and 5xx responses) come from the
+  toasts, retry loops, leaving within 30 seconds of an error, stalled
+  requests over `STALLED_REQUEST_THRESHOLD_MS`, 4xx and 5xx responses) come from the
   rrweb chunks in `recordSessionReplayChunks`, one row per recording in
   `session_recording_friction`. Event signals (failed actions, agent
   failures, stuck chats, thumbs-down, quick backs, cancelled runs) and their

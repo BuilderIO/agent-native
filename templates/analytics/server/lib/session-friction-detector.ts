@@ -6,7 +6,7 @@ import {
   SESSION_REPLAY_CONSOLE_EVENT_TAG,
   SESSION_REPLAY_NETWORK_EVENT_TAG,
 } from "../../shared/session-replay-diagnostics.js";
-import { isSlowRequest } from "../../shared/slow-requests.js";
+import { isStalledRequest } from "../../shared/stalled-requests.js";
 
 /**
  * Replay friction detectors. They run once per ingested chunk batch over the
@@ -57,7 +57,7 @@ export interface ReplayFrictionDelta {
   deadClicks: number;
   errorToasts: number;
   retryLoops: number;
-  slowRequests: number;
+  stalledRequests: number;
   http4xx: number;
   http5xx: number;
   /**
@@ -238,7 +238,7 @@ export function detectReplayFriction(
     deadClicks: 0,
     errorToasts: 0,
     retryLoops: 0,
-    slowRequests: 0,
+    stalledRequests: 0,
     http4xx: 0,
     http5xx: 0,
     issueErrors: 0,
@@ -303,7 +303,7 @@ export function detectReplayFriction(
     }
     if (data.tag !== SESSION_REPLAY_NETWORK_EVENT_TAG) continue;
     const status = finiteNumber(payload.status);
-    if (isSlowRequest(payload.durationMs)) delta.slowRequests += 1;
+    if (isStalledRequest(payload.durationMs)) delta.stalledRequests += 1;
     if (status === null) continue;
     if (status >= 400 && status < 500) delta.http4xx += 1;
     if (status >= 500) delta.http5xx += 1;

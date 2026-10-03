@@ -16,7 +16,7 @@ export const REPLAY_FRICTION_SIGNALS = [
   "retry_loops",
   "error_toasts",
   "dead_clicks",
-  "slow_requests",
+  "stalled_requests",
   "http_4xx",
 ] as const;
 
@@ -89,7 +89,7 @@ export const SESSION_FRICTION_WEIGHTS: Readonly<
   quick_backs: 2,
   cancelled_runs: 2,
   dead_clicks: 1,
-  slow_requests: 1,
+  stalled_requests: 1,
   http_4xx: 1,
 };
 

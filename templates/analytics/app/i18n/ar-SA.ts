@@ -1291,7 +1291,7 @@ export default {
     signalRetryLoops: "حلقات إعادة المحاولة",
     signalErrorToasts: "إشعارات الأخطاء",
     signalDeadClicks: "نقرات بلا استجابة",
-    signalSlowRequests: "طلبات بطيئة",
+    signalStalledRequests: "طلبات متعثرة",
     signalHttp4xx: "استجابات 4xx",
     signalAgentFailures: "إخفاقات الوكيل",
     signalStuckChats: "محادثات وكيل متعثرة",
