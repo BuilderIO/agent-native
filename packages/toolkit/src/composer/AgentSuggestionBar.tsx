@@ -68,10 +68,13 @@ function twoLineTrackWidth(widths: readonly number[], gap: number): number {
 }
 
 // Chrome does not scroll a partly visible chip into view when it takes
-// keyboard focus, which leaves it under the edge fade.
-function revealKeyboardFocusedChip(event: FocusEvent<HTMLButtonElement>) {
-  if (!event.currentTarget.matches(":focus-visible")) return;
-  event.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" });
+// keyboard focus, which leaves it under the edge fade. Listen on the track:
+// a host's ActionButton adapter receives only the props Button forwards, and
+// onFocus is not one of them.
+function revealKeyboardFocusedChip(event: FocusEvent<HTMLDivElement>) {
+  const chip = event.target;
+  if (!(chip instanceof HTMLElement) || !chip.matches(":focus-visible")) return;
+  chip.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
 function useTwoLineSuggestionTrack(layoutKey: string) {
@@ -162,6 +165,7 @@ export function AgentSuggestionBar({
           ref={trackRef}
           data-agent-suggestion-track="true"
           className="flex w-(--agent-suggestion-track-width) min-w-full flex-wrap gap-1"
+          onFocus={revealKeyboardFocusedChip}
         >
           {items.map((suggestion) => (
             <Button
@@ -171,7 +175,6 @@ export function AgentSuggestionBar({
               size="sm"
               disabled={suggestion.disabled}
               onClick={() => onSelect(suggestion)}
-              onFocus={revealKeyboardFocusedChip}
               className="h-7 shrink-0 snap-start whitespace-nowrap rounded-full border-transparent bg-muted/55 px-2.5 text-[11px] font-normal text-foreground/80 shadow-none transition-[border-color,background-color,color] hover:border-border/55 hover:bg-muted hover:text-foreground"
             >
               <span>

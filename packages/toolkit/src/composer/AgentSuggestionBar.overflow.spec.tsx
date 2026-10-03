@@ -8,6 +8,8 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { ActionButtonProps } from "../design-system/types.js";
+import { ToolkitProvider } from "../provider.js";
 import { AgentSuggestionBar } from "./AgentSuggestionBar.js";
 
 const DOCUMENT_SUGGESTIONS = [
@@ -170,6 +172,9 @@ describe("AgentSuggestionBar overflow", () => {
     ).toEqual(DOCUMENT_SUGGESTIONS);
     expect(track().className).toContain("flex-wrap");
     expect(track().className).toContain("min-w-full");
+    // The measured width only lays the chips out in two lines once the track
+    // is sized by it; the mocked geometry here cannot show that on its own.
+    expect(track().className).toContain("w-(--agent-suggestion-track-width)");
     expect(trackWidth()).toBe(144 + 4 + 144);
     expect(fadeEdges()).toEqual({ start: null, end: "true" });
   });
@@ -204,6 +209,42 @@ describe("AgentSuggestionBar overflow", () => {
     const scrollIntoView = vi.fn();
     defineLayout("scrollIntoView", { value: scrollIntoView });
     render(DOCUMENT_SUGGESTIONS);
+    const lastChip = [...container.querySelectorAll("button")].at(-1)!;
+
+    act(() => lastChip.focus());
+
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      block: "nearest",
+      inline: "nearest",
+    });
+  });
+
+  it("reveals a keyboard-focused suggestion rendered by a host's ActionButton", () => {
+    const scrollIntoView = vi.fn();
+    defineLayout("scrollIntoView", { value: scrollIntoView });
+    // Adapters receive only the props Button forwards, which omit onFocus.
+    const HostActionButton = ({
+      label,
+      onClick,
+      elementRef,
+    }: ActionButtonProps) => (
+      <button ref={elementRef} type="button" onClick={onClick}>
+        {label}
+      </button>
+    );
+    act(() => {
+      root.render(
+        <ToolkitProvider
+          designSystem={{ components: { ActionButton: HostActionButton } }}
+        >
+          <AgentSuggestionBar
+            ariaLabel="Suggested prompts"
+            suggestions={DOCUMENT_SUGGESTIONS}
+            onSelect={() => {}}
+          />
+        </ToolkitProvider>,
+      );
+    });
     const lastChip = [...container.querySelectorAll("button")].at(-1)!;
 
     act(() => lastChip.focus());
