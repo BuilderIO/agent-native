@@ -146,6 +146,7 @@ test("a layer dragged below the rendered Screen card moves to the board", async 
         .at(-1)?.data;
     });
     expect(commitPoint.hasAnchor).toBe(false);
+    expect(commitPoint.targetOutsideBoardRenderGeometry).toBe(false);
     expect(commitPoint.boardSurfaceRenderOrigin).toMatchObject({
       x: expect.any(Number),
       y: expect.any(Number),

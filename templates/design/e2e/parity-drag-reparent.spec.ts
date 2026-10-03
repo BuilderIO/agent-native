@@ -1126,6 +1126,38 @@ test.describe("drag reparent parity", () => {
       )
       .toBe(true);
 
+    const boardCommitPoint = await page.evaluate(() => {
+      const entries = (window as any).__designTrace?.entries?.() ?? [];
+      return (
+        entries
+          .filter(
+            (entry: any) =>
+              entry.area === "drop" && entry.event === "board-commit-point",
+          )
+          .at(-1)?.data ?? null
+      );
+    });
+    expect(boardCommitPoint).not.toBeNull();
+    expect(boardCommitPoint.targetOutsideBoardRenderGeometry).toBe(true);
+    expect(boardCommitPoint.boardSurfaceRenderOrigin).toMatchObject({
+      x: expect.any(Number),
+      y: expect.any(Number),
+    });
+    expect(
+      Math.hypot(
+        boardCommitPoint.boardSurfaceRenderOrigin.x,
+        boardCommitPoint.boardSurfaceRenderOrigin.y,
+      ),
+    ).toBeGreaterThan(0);
+    expect(
+      boardCommitPoint.targetCanvasPoint.x -
+        boardCommitPoint.targetLocalPoint.x,
+    ).toBeCloseTo(boardCommitPoint.boardSurfaceRenderOrigin.x, 4);
+    expect(
+      boardCommitPoint.targetCanvasPoint.y -
+        boardCommitPoint.targetLocalPoint.y,
+    ).toBeCloseTo(boardCommitPoint.boardSurfaceRenderOrigin.y, 4);
+
     const boardStyle = styleOf(boardHtml, "widget");
     const boardLeft = styleNum(boardStyle, "left");
     const boardTop = styleNum(boardStyle, "top");
