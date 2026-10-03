@@ -385,6 +385,7 @@ import {
   isCrossScreenDropAxis,
   isCrossScreenDropMode,
   isCrossScreenDropPlacement,
+  isCrossScreenGridPlacement,
   isCrossScreenHitTestAnchorRect,
   isFinitePoint,
   isPointerInsideSourceIframe,
@@ -1292,6 +1293,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     sourcePointerOffset?: Point;
     sourceElementSize?: { width: number; height: number };
     sourceComputedSize?: { width?: number; height?: number };
+    sourceGridSpan?: { columns: number; rows: number };
     modifiers?: {
       metaKey?: boolean;
       ctrlKey?: boolean;
@@ -2770,6 +2772,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         previewGeneration?: number;
         previewRequestSeq?: number;
         sourceElementSize?: { width: number; height: number };
+        sourceGridSpan?: { columns: number; rows: number };
         modifiers?: {
           metaKey?: boolean;
           ctrlKey?: boolean;
@@ -2880,8 +2883,14 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             dropMode: isCrossScreenDropMode(ev.data.dropMode)
               ? ev.data.dropMode
               : undefined,
+            gridPlacement: isCrossScreenGridPlacement(ev.data.gridPlacement)
+              ? ev.data.gridPlacement
+              : undefined,
             anchorRect: isCrossScreenHitTestAnchorRect(ev.data.anchorRect)
               ? ev.data.anchorRect
+              : undefined,
+            guideRect: isCrossScreenHitTestAnchorRect(ev.data.guideRect)
+              ? ev.data.guideRect
               : undefined,
           };
           if (
@@ -2913,6 +2922,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             y: localPoint.y,
             preview: options.preview === true,
             sourceElementSize: options.sourceElementSize,
+            sourceGridSpan: options.sourceGridSpan,
             modifiers,
           },
           "*",
@@ -2955,6 +2965,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         previewGeneration,
         previewRequestSeq: requestSeq,
         sourceElementSize: crossScreenDragMsgRef.current?.sourceElementSize,
+        sourceGridSpan: crossScreenDragMsgRef.current?.sourceGridSpan,
         modifiers: crossScreenDragMsgRef.current?.modifiers,
       }).then((hit) => {
         if (crossScreenPreviewGenerationRef.current !== previewGeneration) {
@@ -3214,6 +3225,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         sourcePointerOffset?: Point;
         sourceElementSize?: { width: number; height: number };
         sourceComputedSize?: { width?: number; height?: number };
+        sourceGridSpan?: { columns: number; rows: number };
         modifiers?: {
           metaKey?: boolean;
           ctrlKey?: boolean;
@@ -3363,6 +3375,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         void runHitTest(targetCandidate, lastBoardPoint, {
           timeoutMs: HIT_TEST_COMMIT_TIMEOUT_MS,
           sourceElementSize: payload.sourceElementSize,
+          sourceGridSpan: payload.sourceGridSpan,
           modifiers: payload.modifiers,
         }).then(
           ({
@@ -3372,6 +3385,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             anchorSelector,
             placement,
             dropMode,
+            gridPlacement,
             anchorRect,
           }) => {
             if (!isCurrentDrop()) {
@@ -3401,6 +3415,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
               targetAnchorSelector: anchorSelector,
               targetAnchorPlacement: placement,
               targetDropMode: dropMode,
+              targetGridPlacement: gridPlacement,
               targetAnchorRect: anchorRect,
               targetCanvasPoint: lastBoardPoint,
               targetLocalPoint:
@@ -3485,6 +3500,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       void runHitTest(targetCandidate, lastBoardPoint, {
         timeoutMs: HIT_TEST_COMMIT_TIMEOUT_MS,
         sourceElementSize: payload.sourceElementSize,
+        sourceGridSpan: payload.sourceGridSpan,
         modifiers: payload.modifiers,
       }).then(
         ({
@@ -3494,6 +3510,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           anchorSelector,
           placement,
           dropMode,
+          gridPlacement,
           anchorRect,
         }) => {
           if (!isCurrentDrop()) {
@@ -3524,6 +3541,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             targetAnchorSelector: anchorSelector,
             targetAnchorPlacement,
             targetDropMode: dropMode,
+            targetGridPlacement: gridPlacement,
             targetAnchorRect: anchorRect,
             targetCanvasPoint: lastBoardPoint,
             targetLocalPoint: targetLocalPoint ?? undefined,
@@ -3658,6 +3676,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         styleSnapshot?: unknown;
         styleSnapshotCaptureFailed?: boolean;
         sourceComputedSize?: { width?: number; height?: number };
+        sourceGridSpan?: { columns: number; rows: number };
         startedAt?: number;
         releasedAt?: number;
         duplicate?: boolean;
@@ -3694,6 +3713,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                 msg.sourceComputedSize.height >= 0
                   ? msg.sourceComputedSize.height
                   : undefined,
+            }
+          : undefined;
+      const sourceGridSpan =
+        msg.sourceGridSpan &&
+        Number.isSafeInteger(msg.sourceGridSpan.columns) &&
+        Number.isSafeInteger(msg.sourceGridSpan.rows) &&
+        msg.sourceGridSpan.columns > 0 &&
+        msg.sourceGridSpan.rows > 0
+          ? {
+              columns: msg.sourceGridSpan.columns,
+              rows: msg.sourceGridSpan.rows,
             }
           : undefined;
       const sourceModifiers = msg.modifiers
@@ -3833,6 +3863,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           sourcePointerOffset,
           sourceElementSize,
           sourceComputedSize,
+          sourceGridSpan,
           modifiers: {
             ...sourceModifiers,
             ignoreAutoLayout:
@@ -3907,6 +3938,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             sourcePointerOffset,
             sourceElementSize,
             sourceComputedSize,
+            sourceGridSpan,
             modifiers: sourceModifiers,
             sourceHtmlSnapshot,
             duplicate: msg.duplicate === true,
@@ -4171,6 +4203,8 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           sourceComputedSize:
             sourceComputedSize ??
             crossScreenDragMsgRef.current?.sourceComputedSize,
+          sourceGridSpan:
+            sourceGridSpan ?? crossScreenDragMsgRef.current?.sourceGridSpan,
           modifiers:
             sourceModifiers ?? crossScreenDragMsgRef.current?.modifiers,
           sourceHtmlSnapshot:

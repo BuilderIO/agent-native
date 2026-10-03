@@ -6170,6 +6170,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     var activeCrossScreenStyleSnapshot = void 0;
     var activeCrossScreenSourceHtml = void 0;
     var activeCrossScreenComputedSize;
+    var activeCrossScreenGridSpan;
     var activeCrossScreenDeleteRequestId = void 0;
     var activeCrossScreenDragIdentity = null;
     function rememberEndedCrossScreenModifierSnapshot(snapshotId) {
@@ -13760,6 +13761,38 @@ export const editorChromeBridgeScript: string = `"use strict";
       }
       return ev.timeStamp >= 1e12 ? ev.timeStamp : eventPerformance.timeOrigin + ev.timeStamp;
     }
+    function gridItemAxisSpanForSource(el, layout, axis) {
+      var styles = window.getComputedStyle(el);
+      var startValue = axis === "column" ? styles.gridColumnStart : styles.gridRowStart;
+      var endValue = axis === "column" ? styles.gridColumnEnd : styles.gridRowEnd;
+      var authoredSpan = endValue.trim().match(/^span\\s+(\\d+)$/) || startValue.trim().match(/^span\\s+(\\d+)$/);
+      if (authoredSpan) return Math.max(1, Number(authoredSpan[1]));
+      var start = gridLinePosition(startValue, layout, axis);
+      var end = gridLinePosition(endValue, layout, axis);
+      if (start !== null && end !== null) {
+        return Math.max(1, Math.abs(end - start));
+      }
+      var startIsAuto = startValue.trim() === "auto" || startValue.trim() === "";
+      var endIsAuto = endValue.trim() === "auto" || endValue.trim() === "";
+      if (startIsAuto && endIsAuto || start !== null && endIsAuto) return 1;
+      if (startIsAuto && end !== null) return 1;
+      return null;
+    }
+    function crossScreenGridSpanForElement(el) {
+      if (!el) return void 0;
+      var parent = el.parentElement;
+      while (parent && window.getComputedStyle(parent).display === "contents") {
+        parent = parent.parentElement;
+      }
+      if (!parent) return void 0;
+      var display = window.getComputedStyle(parent).display;
+      if (display !== "grid" && display !== "inline-grid") return void 0;
+      var layout = gridTrackLayoutForElement(parent);
+      var columns = gridItemAxisSpanForSource(el, layout, "column");
+      var rows = gridItemAxisSpanForSource(el, layout, "row");
+      if (columns === null || rows === null) return void 0;
+      return { columns, rows };
+    }
     function postCrossScreenDrag(phase, el, ev, options) {
       dndLog("post:cross-screen", { phase, el: getSelector(el ?? null) });
       if (phase === "cancel") {
@@ -13767,6 +13800,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         activeCrossScreenStyleSnapshot = void 0;
         activeCrossScreenSourceHtml = void 0;
         activeCrossScreenComputedSize = void 0;
+        activeCrossScreenGridSpan = void 0;
         activeCrossScreenDragIdentity = null;
         activeCrossScreenDeleteRequestId = void 0;
         window.parent.postMessage(
@@ -13794,6 +13828,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           activeCrossScreenStyleSnapshot,
           computed
         );
+        activeCrossScreenGridSpan = crossScreenGridSpanForElement(el ?? null);
         var startSourceId = getSourceId(el ?? null);
         var startProvenance = nodeProvenanceForSourceId(
           startSourceId,
@@ -13840,6 +13875,7 @@ export const editorChromeBridgeScript: string = `"use strict";
           pointerOffset,
           styleSnapshot: activeCrossScreenStyleSnapshot,
           sourceComputedSize: activeCrossScreenComputedSize,
+          sourceGridSpan: activeCrossScreenGridSpan,
           styleSnapshotCaptureFailed: activeCrossScreenStyleSnapshot === null,
           modifiers: options?.modifiers,
           duplicate: options?.duplicate === true ? true : void 0,
@@ -13855,6 +13891,7 @@ export const editorChromeBridgeScript: string = `"use strict";
         activeCrossScreenStyleSnapshot = void 0;
         activeCrossScreenSourceHtml = void 0;
         activeCrossScreenComputedSize = void 0;
+        activeCrossScreenGridSpan = void 0;
         activeCrossScreenDragIdentity = null;
         activeCrossScreenDeleteRequestId = void 0;
       }
@@ -14087,6 +14124,12 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (styles.display !== "grid" && styles.display !== "inline-grid") {
         return null;
       }
+      for (var pseudo of ["::before", "::after"]) {
+        var pseudoStyles = window.getComputedStyle(container, pseudo);
+        if (pseudoStyles.content !== "none" && pseudoStyles.content !== "normal" && pseudoStyles.display !== "none" && pseudoStyles.position !== "absolute" && pseudoStyles.position !== "fixed") {
+          return null;
+        }
+      }
       var trackLayout = gridTrackLayoutForElement(container);
       if (trackLayout) {
         trackLayout = expandGridTrackLayoutForAuthoredChildren(
@@ -14141,10 +14184,45 @@ export const editorChromeBridgeScript: string = `"use strict";
             return rect.left < cellRight && rect.right > cellLeft && // i18n-ignore non-user-facing pointer geometry condition
             rect.top < cellBottom && rect.bottom > cellTop;
           });
+          var displacedFootprint = null;
+          if (displaced && trackLayout) {
+            var displacedColumn = gridItemAxisPlacement(
+              displaced,
+              trackLayout,
+              "column"
+            );
+            var displacedRow = gridItemAxisPlacement(
+              displaced,
+              trackLayout,
+              "row"
+            );
+            var displacedColumnIndex = displacedColumn.start !== null ? styles.direction === "rtl" ? trackLayout.columnBounds.length - displacedColumn.start - displacedColumn.span + 1 : displacedColumn.start - 1 : null;
+            var firstDisplacedColumn = displacedColumnIndex !== null && displacedColumnIndex >= 0 ? trackLayout.columnBounds[displacedColumnIndex] : null;
+            var lastDisplacedColumn = displacedColumnIndex !== null && displacedColumnIndex >= 0 ? trackLayout.columnBounds[displacedColumnIndex + displacedColumn.span - 1] : null;
+            var firstDisplacedRow = displacedRow.start !== null ? trackLayout.rowBounds[displacedRow.start - 1] : null;
+            var lastDisplacedRow = displacedRow.start !== null ? trackLayout.rowBounds[displacedRow.start + displacedRow.span - 2] : null;
+            if (firstDisplacedColumn && lastDisplacedColumn && firstDisplacedRow && lastDisplacedRow) {
+              displacedFootprint = {
+                left: Math.min(
+                  firstDisplacedColumn.start,
+                  lastDisplacedColumn.start
+                ),
+                top: Math.min(firstDisplacedRow.start, lastDisplacedRow.start),
+                width: Math.max(firstDisplacedColumn.end, lastDisplacedColumn.end) - Math.min(firstDisplacedColumn.start, lastDisplacedColumn.start),
+                height: Math.max(firstDisplacedRow.end, lastDisplacedRow.end) - Math.min(firstDisplacedRow.start, lastDisplacedRow.start)
+              };
+            }
+          }
+          var insertionFootprint = displacedFootprint || {
+            left: cellLeft,
+            top: cellTop,
+            width: cellRight - cellLeft,
+            height: cellBottom - cellTop
+          };
           var autoFlow = (styles.gridAutoFlow || "row").split(/\\s+/);
           var gridAxis = autoFlow[0] === "column" ? "y" : "x";
           var pointer = gridAxis === "x" ? clientX : clientY;
-          var midpoint = gridAxis === "x" ? (cellLeft + cellRight) / 2 : (cellTop + cellBottom) / 2;
+          var midpoint = gridAxis === "x" ? insertionFootprint.left + insertionFootprint.width / 2 : insertionFootprint.top + insertionFootprint.height / 2;
           return {
             anchor: container,
             placement: "inside",
@@ -14152,12 +14230,7 @@ export const editorChromeBridgeScript: string = `"use strict";
             persistencePlacement: displaced ? pointer <= midpoint + 0.5 ? "before" : "after" : "inside",
             axis: gridAxis,
             dropMode: "flow-insert",
-            guideRect: {
-              left: cellLeft,
-              top: cellTop,
-              width: cellRight - cellLeft,
-              height: cellBottom - cellTop
-            },
+            guideRect: insertionFootprint,
             guideMode: displaced ? "grid-line" : "grid-cell",
             guidePlacement: pointer <= midpoint + 0.5 ? "before" : "after",
             ...autoFlow[0] === "column" && !sourceHasAuthoredPlacement ? {} : { gridCell: { column, row } },
@@ -15063,13 +15136,6 @@ export const editorChromeBridgeScript: string = `"use strict";
         }
       }
     }
-    function gridLineIndexAtCoordinate(bounds, coordinate) {
-      for (var index = 0; index < bounds.length; index += 1) {
-        if (Math.abs(bounds[index].start - coordinate) < 1) return index + 1;
-      }
-      var last = bounds[bounds.length - 1];
-      return last && Math.abs(last.end - coordinate) < 1 ? bounds.length + 1 : null;
-    }
     function gridLinePosition(value, layout, axis) {
       var numeric = numericGridLine(value);
       if (numeric !== null) return numeric;
@@ -15077,23 +15143,22 @@ export const editorChromeBridgeScript: string = `"use strict";
       var negative = value.trim().match(/^-(\\d+)$/);
       if (negative) {
         var bounds = axis === "column" ? layout.columnBounds : layout.rowBounds;
-        var coordinates = withGridAreaProbe(layout.container, function(probe) {
+        return withGridAreaProbe(layout.container, function(probe) {
           if (axis === "column") probe.style.gridRow = "1 / 1";
           else probe.style.gridColumn = "1 / 1";
-          if (axis === "column") probe.style.gridColumn = "1 / 1";
-          else probe.style.gridRow = "1 / 1";
-          var first = probe.getBoundingClientRect();
           if (axis === "column") probe.style.gridColumn = \`\${value} / \${value}\`;
           else probe.style.gridRow = \`\${value} / \${value}\`;
           var resolved = probe.getBoundingClientRect();
-          return axis === "column" ? { first: first.left, resolved: resolved.left } : { first: first.top, resolved: resolved.top };
+          var coordinate = axis === "column" ? resolved.left : resolved.top;
+          for (var line = 1; line <= bounds.length + 1; line += 1) {
+            if (axis === "column") probe.style.gridColumn = \`\${line} / \${line}\`;
+            else probe.style.gridRow = \`\${line} / \${line}\`;
+            var candidate = probe.getBoundingClientRect();
+            var candidateCoordinate = axis === "column" ? candidate.left : candidate.top;
+            if (Math.abs(candidateCoordinate - coordinate) < 1) return line;
+          }
+          return null;
         });
-        var firstLine = gridLineIndexAtCoordinate(bounds, coordinates.first);
-        var resolvedLine = gridLineIndexAtCoordinate(
-          bounds,
-          coordinates.resolved
-        );
-        return firstLine !== null && resolvedLine !== null ? resolvedLine - firstLine + 1 : null;
       }
       var name = value.trim();
       if (!name || name === "auto" || name.startsWith("span ")) return null;
@@ -15122,13 +15187,14 @@ export const editorChromeBridgeScript: string = `"use strict";
         axis === "column" ? layout.columnBounds : layout.rowBounds,
         axis
       ) : null;
-      var span = authoredSpan ? Number(authoredSpan[1]) : start !== null && end !== null ? end - start : geometricRange ? geometricRange.end - geometricRange.start : 1;
+      var span = authoredSpan ? Number(authoredSpan[1]) : start !== null && end !== null ? Math.abs(end - start) : geometricRange ? geometricRange.end - geometricRange.start : 1;
       span = Math.max(1, span);
       if (start === null && end !== null && authoredSpan) start = end - span;
+      var areaStart = start !== null && end !== null ? Math.min(start, end) : start;
       return {
         authoredStart: start,
         hasAuthoredPlacement,
-        start: start ?? (geometricRange ? geometricRange.start + 1 : null),
+        start: areaStart ?? (geometricRange ? geometricRange.start + 1 : null),
         span
       };
     }
@@ -21839,6 +21905,23 @@ export const editorChromeBridgeScript: string = `"use strict";
           rejectInsert("html");
           return;
         }
+        var rawInsertGridPlacement = e.data.gridPlacement;
+        var insertGridPlacement = rawInsertGridPlacement && Number.isInteger(rawInsertGridPlacement.column) && Number.isInteger(rawInsertGridPlacement.columnEnd) && Number.isInteger(rawInsertGridPlacement.row) && Number.isInteger(rawInsertGridPlacement.rowEnd) && rawInsertGridPlacement.column > 0 && rawInsertGridPlacement.row > 0 && rawInsertGridPlacement.columnEnd > rawInsertGridPlacement.column && rawInsertGridPlacement.rowEnd > rawInsertGridPlacement.row ? {
+          column: rawInsertGridPlacement.column,
+          columnEnd: rawInsertGridPlacement.columnEnd,
+          row: rawInsertGridPlacement.row,
+          rowEnd: rawInsertGridPlacement.rowEnd
+        } : null;
+        if (rawInsertGridPlacement && (!insertGridPlacement || insertPlacement !== "inside" || !["grid", "inline-grid"].includes(
+          window.getComputedStyle(insertAnchor).display
+        ))) {
+          rejectInsert("grid-placement");
+          return;
+        }
+        if (insertGridPlacement) {
+          parsedInsertEl.style.gridColumn = insertGridPlacement.column + " / " + insertGridPlacement.columnEnd;
+          parsedInsertEl.style.gridRow = insertGridPlacement.row + " / " + insertGridPlacement.rowEnd;
+        }
         var insertNodeId = parsedInsertEl.getAttribute(
           "data-agent-native-node-id"
         );
@@ -21872,7 +21955,8 @@ export const editorChromeBridgeScript: string = `"use strict";
           axis: parentFlowAxis(
             insertPlacement === "inside" ? insertAnchor : insertAnchor.parentElement
           ),
-          dropMode: insertPlacement === "inside" && isAbsolutePrimitiveContainer(insertAnchor) ? "absolute-container" : "flow-insert"
+          dropMode: insertPlacement === "inside" && isAbsolutePrimitiveContainer(insertAnchor) ? "absolute-container" : "flow-insert",
+          gridPlacement: insertGridPlacement || void 0
         };
         if (existingInsertEl) {
           if (existingInsertEl.contains(insertAnchor)) {

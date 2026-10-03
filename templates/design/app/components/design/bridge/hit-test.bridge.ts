@@ -14,7 +14,9 @@
  *     anchorNodeId: string, pendingNodeId: string | undefined,
  *     anchorSelector: string | undefined,
  *     placement: 'before'|'after'|'inside', axis: 'x'|'y',
- *     anchorRect: { left: number, top: number, width: number, height: number } }
+ *     anchorRect: { left: number, top: number, width: number, height: number },
+ *     gridPlacement?: { column: number, columnEnd: number, row: number, rowEnd: number },
+ *     guideRect?: { left: number, top: number, width: number, height: number } }
  *
  * `anchorSelector` accompanies `pendingNodeId`, and also accompanies an
  * ambiguous stable anchor id only when the hit-test has an exact source
@@ -58,6 +60,26 @@
  *   • Wrap everything in a self-executing IIFE.
  */
 (function () {
+  type HitTestRect = {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  };
+  type HitTestTarget = {
+    anchor: Element;
+    placement: string;
+    axis: string;
+    dropMode: string;
+    gridPlacement?: {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    };
+    guideRect?: HitTestRect;
+  };
+
   var insertionGuide: HTMLDivElement | null = null;
 
   function ensureInsertionGuide(): HTMLDivElement {
@@ -264,9 +286,7 @@
       return "y";
     }
     if (cs.display === "grid" || cs.display === "inline-grid") {
-      var cols = (cs.gridTemplateColumns || "")
-        .split(" ")
-        .filter(Boolean).length;
+      var cols = hitTestGridTracks(cs.gridTemplateColumns || "").length;
       return cols > 1 ? "x" : "y";
     }
     return "y";
@@ -283,6 +303,356 @@
     return cs.flexDirection && cs.flexDirection.indexOf("row") === 0
       ? "x"
       : "y";
+  }
+
+  function hitTestGridTracks(template: string): number[] {
+    if (!template || template === "none") return [];
+    var tracks: number[] = [];
+    var tokens = template.trim().match(/\[[^\]]*\]|[^\s]+/g) || [];
+    for (var index = 0; index < tokens.length; index += 1) {
+      var token = tokens[index];
+      if (token.charAt(0) === "[" && token.charAt(token.length - 1) === "]") {
+        continue;
+      }
+      if (!/^-?(?:\d+\.?\d*|\.\d+)px$/.test(token)) return [];
+      var size = parseFloat(token);
+      if (!Number.isFinite(size) || size < 0) return [];
+      tracks.push(size);
+    }
+    return tracks;
+  }
+
+  function hitTestGridGap(value: string, contentSize: number): number | null {
+    if (!value || value === "normal") return 0;
+    var match = value.trim().match(/^(-?(?:\d+\.?\d*|\.\d+))(px|%)$/);
+    if (!match) return null;
+    var amount = Number(match[1]);
+    if (!Number.isFinite(amount) || amount < 0) return null;
+    return match[2] === "%" ? (amount * contentSize) / 100 : amount;
+  }
+
+  function hitTestGridItemRange(
+    styles: CSSStyleDeclaration,
+    axis: "column" | "row",
+    trackCount: number,
+  ): { start: number; end: number } | null {
+    var startValue =
+      axis === "column" ? styles.gridColumnStart : styles.gridRowStart;
+    var endValue = axis === "column" ? styles.gridColumnEnd : styles.gridRowEnd;
+    var startSpan = startValue.trim().match(/^span\s+(\d+)$/);
+    var endSpan = endValue.trim().match(/^span\s+(\d+)$/);
+    var startValueMatch = startValue.trim().match(/^-?\d+$/);
+    var endValueMatch = endValue.trim().match(/^-?\d+$/);
+    if (
+      (startValue.trim() !== "auto" && !startSpan && !startValueMatch) ||
+      (endValue.trim() !== "auto" && !endSpan && !endValueMatch)
+    ) {
+      return null;
+    }
+    var startLine = startValueMatch ? Number(startValueMatch[0]) : null;
+    var endLine = endValueMatch ? Number(endValueMatch[0]) : null;
+    if (startLine !== null && startLine < 0)
+      startLine = trackCount + 2 + startLine;
+    if (endLine !== null && endLine < 0) endLine = trackCount + 2 + endLine;
+    var span = Number((endSpan || startSpan)?.[1] || 0);
+    if (!span) {
+      span =
+        startLine !== null && endLine !== null
+          ? Math.abs(endLine - startLine)
+          : 1;
+    }
+    if (!Number.isSafeInteger(span) || span < 1) return null;
+    var start =
+      startLine !== null ? startLine : endLine !== null ? endLine - span : null;
+    if (start === null) return null;
+    if (startLine !== null && endLine !== null) {
+      start = Math.min(startLine, endLine);
+      span = Math.abs(endLine - startLine);
+    }
+    if (!Number.isSafeInteger(start) || start < 1 || span < 1) return null;
+    return { start: start, end: start + span };
+  }
+
+  function hitTestGridDistribution(
+    tracks: number[],
+    contentSize: number,
+    gap: number,
+    distribution: string,
+    reverse: boolean,
+  ): { offset: number; gap: number } {
+    var used = gap * Math.max(0, tracks.length - 1);
+    for (var index = 0; index < tracks.length; index += 1) {
+      used += tracks[index];
+    }
+    var leftover = contentSize - used;
+    var alignment = (distribution || "normal").trim().split(/\s+/);
+    var mode = alignment.pop() || "normal";
+    if (leftover < -0.01) {
+      if (alignment.indexOf("safe") !== -1) {
+        return { offset: 0, gap: gap };
+      }
+      if (mode === "center") return { offset: leftover / 2, gap: gap };
+      if (mode === "end" || mode === "flex-end") {
+        return { offset: leftover, gap: gap };
+      }
+      if (mode === "right") {
+        return { offset: reverse ? 0 : leftover, gap: gap };
+      }
+      if (mode === "left") {
+        return { offset: reverse ? leftover : 0, gap: gap };
+      }
+      return { offset: 0, gap: gap };
+    }
+    if (!(leftover > 0.01)) return { offset: 0, gap: gap };
+    if (mode === "center") return { offset: leftover / 2, gap: gap };
+    if (mode === "end" || mode === "flex-end") {
+      return { offset: leftover, gap: gap };
+    }
+    if (mode === "right") {
+      return { offset: reverse ? 0 : leftover, gap: gap };
+    }
+    if (mode === "left") {
+      return { offset: reverse ? leftover : 0, gap: gap };
+    }
+    if (mode === "space-between" && tracks.length > 1) {
+      return { offset: 0, gap: gap + leftover / (tracks.length - 1) };
+    }
+    if (mode === "space-around" && tracks.length > 0) {
+      var around = leftover / tracks.length;
+      return { offset: around / 2, gap: gap + around };
+    }
+    if (mode === "space-evenly" && tracks.length > 0) {
+      var evenly = leftover / (tracks.length + 1);
+      return { offset: evenly, gap: gap + evenly };
+    }
+    return { offset: 0, gap: gap };
+  }
+
+  function hasTransformedGridAncestor(container: Element): boolean {
+    var current: Element | null = container;
+    while (current) {
+      var styles = window.getComputedStyle(current);
+      if (
+        styles.transform !== "none" ||
+        styles.translate !== "none" ||
+        styles.rotate !== "none" ||
+        styles.scale !== "none" ||
+        (styles.zoom !== "1" && styles.zoom !== "normal")
+      ) {
+        return true;
+      }
+      current = current.parentElement;
+    }
+    return false;
+  }
+
+  function gridEmptyCellInsertionTarget(
+    container: Element,
+    clientX: number,
+    clientY: number,
+    sourceGridSpan?: { columns: number; rows: number },
+  ): HitTestTarget | null {
+    var styles = window.getComputedStyle(container);
+    if (
+      (styles.display !== "grid" && styles.display !== "inline-grid") ||
+      styles.writingMode !== "horizontal-tb"
+    ) {
+      return null;
+    }
+    if (hasTransformedGridAncestor(container)) return null;
+    var scrollableContainer = container as HTMLElement;
+    if (
+      scrollableContainer.scrollLeft !== 0 ||
+      scrollableContainer.scrollTop !== 0
+    ) {
+      return null;
+    }
+    var columns = hitTestGridTracks(styles.gridTemplateColumns);
+    var rows = hitTestGridTracks(styles.gridTemplateRows);
+    if (!columns.length || !rows.length) return null;
+    var columnSpan = sourceGridSpan?.columns ?? 1;
+    var rowSpan = sourceGridSpan?.rows ?? 1;
+    if (
+      !Number.isSafeInteger(columnSpan) ||
+      !Number.isSafeInteger(rowSpan) ||
+      columnSpan < 1 ||
+      rowSpan < 1
+    ) {
+      return null;
+    }
+    var rect = container.getBoundingClientRect();
+    var px = function (value: string) {
+      var parsed = parseFloat(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    var contentLeft =
+      rect.left + px(styles.borderLeftWidth) + px(styles.paddingLeft);
+    var contentTop =
+      rect.top + px(styles.borderTopWidth) + px(styles.paddingTop);
+    var contentWidth =
+      rect.width -
+      px(styles.borderLeftWidth) -
+      px(styles.borderRightWidth) -
+      px(styles.paddingLeft) -
+      px(styles.paddingRight);
+    var contentHeight =
+      rect.height -
+      px(styles.borderTopWidth) -
+      px(styles.borderBottomWidth) -
+      px(styles.paddingTop) -
+      px(styles.paddingBottom);
+    var reservedScrollbarWidth =
+      scrollableContainer.offsetWidth -
+      scrollableContainer.clientWidth -
+      px(styles.borderLeftWidth) -
+      px(styles.borderRightWidth);
+    var reservedScrollbarHeight =
+      scrollableContainer.offsetHeight -
+      scrollableContainer.clientHeight -
+      px(styles.borderTopWidth) -
+      px(styles.borderBottomWidth);
+    if (reservedScrollbarWidth > 1 || reservedScrollbarHeight > 1) {
+      return null;
+    }
+    var direction = styles.direction === "rtl";
+    var columnGap = hitTestGridGap(styles.columnGap, contentWidth);
+    var rowGap = hitTestGridGap(styles.rowGap, contentHeight);
+    if (columnGap === null || rowGap === null) return null;
+    var columnFlow = hitTestGridDistribution(
+      columns,
+      contentWidth,
+      columnGap,
+      styles.justifyContent,
+      direction,
+    );
+    var rowFlow = hitTestGridDistribution(
+      rows,
+      contentHeight,
+      rowGap,
+      styles.alignContent,
+      false,
+    );
+    var columnBounds: Array<{ start: number; end: number }> = [];
+    var columnStart = direction
+      ? contentLeft + contentWidth - columnFlow.offset
+      : contentLeft + columnFlow.offset;
+    for (var columnIndex = 0; columnIndex < columns.length; columnIndex += 1) {
+      if (direction) {
+        columnBounds.push({
+          start: columnStart - columns[columnIndex],
+          end: columnStart,
+        });
+        columnStart -= columns[columnIndex] + columnFlow.gap;
+      } else {
+        columnBounds.push({
+          start: columnStart,
+          end: columnStart + columns[columnIndex],
+        });
+        columnStart += columns[columnIndex] + columnFlow.gap;
+      }
+    }
+    var rowBounds: Array<{ start: number; end: number }> = [];
+    var rowStart = contentTop + rowFlow.offset;
+    for (var rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+      rowBounds.push({ start: rowStart, end: rowStart + rows[rowIndex] });
+      rowStart += rows[rowIndex] + rowFlow.gap;
+    }
+    var column = columnBounds.findIndex(
+      (bound) => clientX >= bound.start && clientX <= bound.end,
+    );
+    var row = rowBounds.findIndex(
+      (bound) => clientY >= bound.start && clientY <= bound.end,
+    );
+    if (
+      column < 0 ||
+      row < 0 ||
+      column + columnSpan > columnBounds.length ||
+      row + rowSpan > rowBounds.length
+    ) {
+      return null;
+    }
+    var firstColumn = columnBounds[column];
+    var lastColumn = columnBounds[column + columnSpan - 1];
+    var firstRow = rowBounds[row];
+    var lastRow = rowBounds[row + rowSpan - 1];
+    var cell = {
+      left: Math.min(firstColumn.start, lastColumn.start),
+      top: Math.min(firstRow.start, lastRow.start),
+      width:
+        Math.max(firstColumn.end, lastColumn.end) -
+        Math.min(firstColumn.start, lastColumn.start),
+      height:
+        Math.max(firstRow.end, lastRow.end) -
+        Math.min(firstRow.start, lastRow.start),
+    };
+    for (var pseudo of ["::before", "::after"]) {
+      var pseudoStyles = window.getComputedStyle(container, pseudo);
+      if (
+        pseudoStyles.content !== "none" &&
+        pseudoStyles.content !== "normal" &&
+        pseudoStyles.display !== "none" &&
+        pseudoStyles.position !== "absolute" &&
+        pseudoStyles.position !== "fixed"
+      ) {
+        return null;
+      }
+    }
+    var children = Array.prototype.slice.call(container.children) as Element[];
+    var childNodes = Array.prototype.slice.call(container.childNodes) as Node[];
+    for (var nodeIndex = 0; nodeIndex < childNodes.length; nodeIndex += 1) {
+      var node = childNodes[nodeIndex];
+      if (node.nodeType === 3 && node.textContent?.trim()) return null;
+      if (
+        node.nodeType === 1 &&
+        window.getComputedStyle(node as Element).display === "contents"
+      ) {
+        return null;
+      }
+    }
+    for (var childIndex = 0; childIndex < children.length; childIndex += 1) {
+      var child = children[childIndex];
+      if (isOverlayElement(child) || isTransientCloneElement(child)) continue;
+      var childStyles = window.getComputedStyle(child);
+      if (
+        childStyles.display === "none" ||
+        childStyles.position === "absolute" ||
+        childStyles.position === "fixed"
+      ) {
+        continue;
+      }
+      var childColumnRange = hitTestGridItemRange(
+        childStyles,
+        "column",
+        columns.length,
+      );
+      var childRowRange = hitTestGridItemRange(childStyles, "row", rows.length);
+      if (!childColumnRange || !childRowRange) {
+        // Auto-placement can occupy a track even when paint bounds are elsewhere.
+        return null;
+      }
+      if (
+        column < childColumnRange.end - 1 &&
+        column + columnSpan > childColumnRange.start - 1 && // i18n-ignore non-user-facing grid occupancy math
+        row < childRowRange.end - 1 &&
+        row + rowSpan > childRowRange.start - 1
+      ) {
+        return null;
+      }
+    }
+    var autoFlow = (styles.gridAutoFlow || "row").split(/\s+/);
+    return {
+      anchor: container,
+      placement: "inside",
+      axis: autoFlow[0] === "column" ? "y" : "x",
+      dropMode: "flow-insert",
+      gridPlacement: {
+        column: column + 1,
+        columnEnd: column + columnSpan + 1,
+        row: row + 1,
+        rowEnd: row + rowSpan + 1,
+      },
+      guideRect: cell,
+    };
   }
 
   function isReverseFlexFlow(styles: CSSStyleDeclaration, axis: string) {
@@ -690,13 +1060,25 @@
     container: Element,
     clientX: number,
     clientY: number,
+    sourceGridSpan?: { columns: number; rows: number },
   ) {
+    var gridTarget = gridEmptyCellInsertionTarget(
+      container,
+      clientX,
+      clientY,
+      sourceGridSpan,
+    );
+    if (gridTarget) return gridTarget;
     var children = draggableElementChildren(container);
     if (!children.length) return null;
     var wrappedFlexAxis = wrappedFlexMainAxis(container);
     var axis = wrappedFlexAxis || parentFlowAxis(container);
     var containerStyles = window.getComputedStyle(container);
-    var multiTrackGrid = isMultiTrackGrid(container);
+    var columns = hitTestGridTracks(containerStyles.gridTemplateColumns || "");
+    var multiTrackGrid =
+      (containerStyles.display === "grid" ||
+        containerStyles.display === "inline-grid") &&
+      columns.length > 1;
     var reverseFlow =
       !multiTrackGrid && isReverseFlexFlow(containerStyles, axis);
     var best: Element | null = null;
@@ -736,6 +1118,7 @@
   function screenRootFlowInsertionTargetForPoint(
     clientX: number,
     clientY: number,
+    sourceGridSpan?: { columns: number; rows: number },
   ) {
     if (!isAutoLayoutElement(document.body)) return null;
     var bodyRect = document.body.getBoundingClientRect();
@@ -749,19 +1132,20 @@
     ) {
       return null;
     }
-    return nearestChildInsertionTarget(document.body, clientX, clientY);
+    return nearestChildInsertionTarget(
+      document.body,
+      clientX,
+      clientY,
+      sourceGridSpan,
+    );
   }
 
   function resolveHitTarget(
     clientX: number,
     clientY: number,
     forceNestedAutoLayout = false,
-  ): {
-    anchor: Element;
-    placement: string;
-    axis: string;
-    dropMode: string;
-  } | null {
+    sourceGridSpan?: { columns: number; rows: number },
+  ): HitTestTarget | null {
     var hit = elementFromEditorPoint(clientX, clientY);
     if (!hit || hit === document.documentElement) return null;
 
@@ -773,7 +1157,12 @@
         }
         if (isAutoLayoutElement(cursor) && isContainerDropTarget(cursor)) {
           return (
-            nearestChildInsertionTarget(cursor, clientX, clientY) || {
+            nearestChildInsertionTarget(
+              cursor,
+              clientX,
+              clientY,
+              sourceGridSpan,
+            ) || {
               anchor: cursor,
               placement: "inside",
               axis: parentFlowAxis(cursor),
@@ -789,11 +1178,19 @@
       if (isLayerInteractionBlocked(cursor)) return null;
       var parent: Element | null = cursor.parentElement;
       if (parent && isAutoLayoutElement(parent)) {
+        var emptyGridCell = gridEmptyCellInsertionTarget(
+          parent,
+          clientX,
+          clientY,
+          sourceGridSpan,
+        );
+        if (emptyGridCell) return emptyGridCell;
         if (isTransientCloneElement(cursor)) {
           var cloneFallback = nearestChildInsertionTarget(
             parent,
             clientX,
             clientY,
+            sourceGridSpan,
           );
           if (cloneFallback) return cloneFallback;
           return {
@@ -809,6 +1206,7 @@
             parent,
             clientX,
             clientY,
+            sourceGridSpan,
           );
           if (wrappedParentSlot) return wrappedParentSlot;
         }
@@ -853,6 +1251,7 @@
           cursor,
           clientX,
           clientY,
+          sourceGridSpan,
         );
         if (betweenChildren) return betweenChildren;
         return {
@@ -879,6 +1278,7 @@
     var screenRootTarget = screenRootFlowInsertionTargetForPoint(
       clientX,
       clientY,
+      sourceGridSpan,
     );
     if (screenRootTarget) return screenRootTarget;
 
@@ -890,6 +1290,13 @@
     var blockCursor: Element | null = hit;
     while (blockCursor) {
       if (isContainerDropTarget(blockCursor)) {
+        var emptyContainerGridCell = gridEmptyCellInsertionTarget(
+          blockCursor,
+          clientX,
+          clientY,
+          sourceGridSpan,
+        );
+        if (emptyContainerGridCell) return emptyContainerGridCell;
         return {
           anchor: blockCursor,
           placement: "inside",
@@ -903,12 +1310,7 @@
   }
 
   function ignoreAutoLayoutHitTarget(
-    target: {
-      anchor: Element;
-      placement: string;
-      axis: string;
-      dropMode: string;
-    } | null,
+    target: HitTestTarget | null,
     ignoreAutoLayout = false,
   ) {
     if (!ignoreAutoLayout || !target || target.dropMode !== "flow-insert") {
@@ -928,12 +1330,7 @@
   }
 
   function applyHitTestSizeGuard(
-    target: {
-      anchor: Element;
-      placement: string;
-      axis: string;
-      dropMode: string;
-    } | null,
+    target: HitTestTarget | null,
     clientX: number,
     clientY: number,
     sourceElementSize?: { width: number; height: number },
@@ -1058,21 +1455,20 @@
     return null;
   }
 
-  function showInsertionGuideFor(
-    target: { anchor: Element; placement: string; axis: string } | null,
-  ): void {
+  function showInsertionGuideFor(target: HitTestTarget | null): void {
     if (!target || !target.anchor) {
       hideInsertionGuide();
       return;
     }
     var guide = ensureInsertionGuide();
-    var rect = target.anchor.getBoundingClientRect();
+    var anchorRect = target.anchor.getBoundingClientRect();
     guide.style.display = "block";
     guide.style.background = "var(--design-editor-accent-color)";
     guide.style.border = "0";
     guide.style.borderRadius = "999px";
     guide.style.boxShadow = "0 0 0 1px var(--design-editor-accent-color)";
     if (target.placement === "inside") {
+      var rect = target.guideRect || anchorRect;
       guide.style.left = rect.left + "px";
       guide.style.top = rect.top + "px";
       guide.style.width = rect.width + "px";
@@ -1085,16 +1481,18 @@
       return;
     }
     if (target.axis === "x") {
-      var x = target.placement === "before" ? rect.left : rect.right;
+      var x =
+        target.placement === "before" ? anchorRect.left : anchorRect.right;
       guide.style.left = x + "px";
-      guide.style.top = rect.top + "px";
+      guide.style.top = anchorRect.top + "px";
       guide.style.width = "2px";
-      guide.style.height = rect.height + "px";
+      guide.style.height = anchorRect.height + "px";
     } else {
-      var y = target.placement === "before" ? rect.top : rect.bottom;
-      guide.style.left = rect.left + "px";
+      var y =
+        target.placement === "before" ? anchorRect.top : anchorRect.bottom;
+      guide.style.left = anchorRect.left + "px";
       guide.style.top = y + "px";
-      guide.style.width = rect.width + "px";
+      guide.style.width = anchorRect.width + "px";
       guide.style.height = "2px";
     }
   }
@@ -1397,12 +1795,25 @@
             height: sourceElementSize.height,
           }
         : undefined;
+    var rawSourceGridSpan = e.data.sourceGridSpan;
+    var sourceGridSpan =
+      rawSourceGridSpan &&
+      Number.isSafeInteger(rawSourceGridSpan.columns) &&
+      Number.isSafeInteger(rawSourceGridSpan.rows) &&
+      rawSourceGridSpan.columns > 0 &&
+      rawSourceGridSpan.rows > 0
+        ? {
+            columns: rawSourceGridSpan.columns,
+            rows: rawSourceGridSpan.rows,
+          }
+        : undefined;
     var result = ignoreAutoLayoutHitTarget(
       applyHitTestSizeGuard(
         resolveHitTarget(
           x,
           y,
           e.data.modifiers?.forceNestedAutoLayout === true,
+          sourceGridSpan,
         ),
         x,
         y,
@@ -1446,6 +1857,7 @@
           placement: placement,
           axis: axis,
           dropMode: dropMode,
+          gridPlacement: result ? result.gridPlacement : undefined,
           layerName: result
             ? layerNameForElement(result.anchor) || undefined
             : undefined,
@@ -1457,6 +1869,7 @@
                 height: anchorRect.height,
               }
             : undefined,
+          guideRect: result ? result.guideRect : undefined,
         },
         "*",
       );
