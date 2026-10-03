@@ -18,7 +18,11 @@ import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "@agent-native/core/server/request-context";
-import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
+import {
+  assertAccess,
+  resolveAccess,
+  roleSatisfies,
+} from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -715,7 +719,8 @@ export default defineAction({
       let designId = args.designId;
       if (
         savedVisualEdit?.connectionId === connection.id &&
-        savedDesignAccess
+        savedDesignAccess &&
+        roleSatisfies(savedDesignAccess.role, "editor")
       ) {
         designId = savedVisualEdit.designId;
       }

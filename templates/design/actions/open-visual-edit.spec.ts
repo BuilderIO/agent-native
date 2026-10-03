@@ -16,6 +16,10 @@ const mocks = vi.hoisted(() => ({
   runWithRequestContext: vi.fn(),
   readAppState: vi.fn(),
   resolveAccess: vi.fn(),
+  roleSatisfies: vi.fn(
+    (role: string, minimum: string) =>
+      minimum === "editor" && ["editor", "admin", "owner"].includes(role),
+  ),
   writeAppState: vi.fn(),
   designData: null as string | null,
   designFiles: [] as Array<{ id: string; filename: string; fileType: string }>,
@@ -59,6 +63,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
   resolveAccess: mocks.resolveAccess,
+  roleSatisfies: mocks.roleSatisfies,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -323,6 +328,41 @@ describe("open-visual-edit", () => {
       createdDesign: true,
     });
   });
+
+  it.each(["viewer", "commenter"] as const)(
+    "creates a new project when the saved design has %s access",
+    async (role) => {
+      mocks.readAppState.mockResolvedValue({
+        designId: "design_read_only",
+        connectionId: "localhost_canonical",
+        devServerUrl: "http://localhost:5173",
+      });
+      mocks.resolveAccess.mockResolvedValue({
+        role,
+        resource: { id: "design_read_only" },
+      });
+
+      const result = await action.run({
+        devServerUrl: "http://localhost:5173",
+        rootPath: "/tmp/app",
+        paths: ["/settings"],
+        navigate: false,
+      });
+
+      expect(mocks.createDesignRun).toHaveBeenCalledOnce();
+      expect(mocks.addLocalhostScreensRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          designId: "design_created",
+          connectionId: "localhost_canonical",
+        }),
+        undefined,
+      );
+      expect(result).toMatchObject({
+        designId: "design_created",
+        createdDesign: true,
+      });
+    },
+  );
 
   it("creates a separate project when newDesign is explicit", async () => {
     mocks.readAppState.mockResolvedValue({
