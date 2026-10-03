@@ -381,6 +381,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
   const [rowMenuOpen, setRowMenuOpen] = useState(false);
   const [viewRetry, setViewRetry] = useState(0);
+  const [, setGeometryRevision] = useState(0);
 
   const holdTableUiSelection = () => {
     tableUiPointerDownRef.current = true;
@@ -971,7 +972,19 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       syncOverlay();
     };
 
-    const handleGeometryChange = () => syncOverlay();
+    const handleGeometryChange = () => {
+      syncOverlay();
+      setGeometryRevision((revision) => revision + 1);
+    };
+    // Page scrolls carry the overlay along with the tables, but a table
+    // scrolled sideways inside its own `.tableWrapper` leaves the overlay behind.
+    const handleScroll = (event: Event) => {
+      if (event.target instanceof Node && view.dom.contains(event.target)) {
+        handleGeometryChange();
+      } else {
+        syncOverlay();
+      }
+    };
     const observer = new MutationObserver(syncOverlay);
 
     syncOverlay();
@@ -982,7 +995,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     document.addEventListener("click", handlePointerDown, true);
     document.addEventListener("pointermove", handleHoverPointerMove, true);
     window.addEventListener("resize", handleGeometryChange);
-    window.addEventListener("scroll", handleGeometryChange, true);
+    window.addEventListener("scroll", handleScroll, true);
     view.dom.addEventListener("keyup", handleKeyUp);
 
     return () => {
@@ -992,13 +1005,25 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       document.removeEventListener("click", handlePointerDown, true);
       document.removeEventListener("pointermove", handleHoverPointerMove, true);
       window.removeEventListener("resize", handleGeometryChange);
-      window.removeEventListener("scroll", handleGeometryChange, true);
+      window.removeEventListener("scroll", handleScroll, true);
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
       view.dom.removeEventListener("keyup", handleKeyUp);
       editor.off("selectionUpdate", handleSelectionUpdate);
     };
   }, [editor, viewRetry]);
+
+  // Panels opening beside the page narrow the editor without a window resize.
+  useEffect(() => {
+    const view = getMountedEditorView(editor);
+    if (!view || tables.length === 0) return;
+    const observer = new ResizeObserver(() =>
+      setGeometryRevision((revision) => revision + 1),
+    );
+    observer.observe(view.dom);
+    for (const table of tables) observer.observe(table);
+    return () => observer.disconnect();
+  }, [editor, tables]);
 
   const view = getMountedEditorView(editor);
   if (!view) return null;
@@ -1416,55 +1441,70 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
 
         const tableId = getTableOverlayId(table);
         const rect = table.getBoundingClientRect();
-        const left = rect.left - wrapperRect.left;
+        const scrollportRect = table
+          .closest(".tableWrapper")
+          ?.getBoundingClientRect();
+        const visibleLeft = Math.max(
+          rect.left,
+          scrollportRect?.left ?? rect.left,
+        );
+        const visibleRight = Math.min(
+          rect.right,
+          scrollportRect?.right ?? rect.right,
+        );
+        const isTableEndVisible = rect.right <= visibleRight + 1;
         const top = rect.top - wrapperRect.top;
         const right = rect.right - wrapperRect.left;
         const bottom = rect.bottom - wrapperRect.top;
+        const visibleCenter =
+          (visibleLeft + visibleRight) / 2 - wrapperRect.left;
         const isColumnHandleVisible = hoveredEdges.columnTable === table;
         const isRowHandleVisible = hoveredEdges.rowTable === table;
 
         return (
           <div key={tableId}>
-            <Tooltip delayDuration={EDGE_HANDLE_TOOLTIP_DELAY}>
-              <TooltipTrigger asChild>
-                <button
-                  aria-label={t("database.tableColumnHandle")}
-                  className={cn(
-                    handleClass,
-                    "cursor-col-resize -translate-y-1/2",
-                    isColumnHandleVisible && "opacity-100",
-                  )}
-                  data-table-edge-control
-                  data-table-edge="column"
-                  data-table-id={tableId}
-                  data-testid="table-column-handle"
-                  onPointerDown={(event) =>
-                    startHandlePointer("column", table, event)
-                  }
-                  style={{
-                    height: COLUMN_EDGE_HANDLE_HIT_HEIGHT,
-                    left: right - COLUMN_EDGE_HANDLE_HIT_WIDTH / 2,
-                    top: top + rect.height / 2,
-                    width: COLUMN_EDGE_HANDLE_HIT_WIDTH,
-                  }}
-                  type="button"
-                >
-                  <span
-                    className={edgeHandleMarkerClass}
+            {isTableEndVisible ? (
+              <Tooltip delayDuration={EDGE_HANDLE_TOOLTIP_DELAY}>
+                <TooltipTrigger asChild>
+                  <button
+                    aria-label={t("database.tableColumnHandle")}
+                    className={cn(
+                      handleClass,
+                      "cursor-col-resize -translate-y-1/2",
+                      isColumnHandleVisible && "opacity-100",
+                    )}
+                    data-table-edge-control
+                    data-table-edge="column"
+                    data-table-id={tableId}
+                    data-testid="table-column-handle"
+                    onPointerDown={(event) =>
+                      startHandlePointer("column", table, event)
+                    }
                     style={{
-                      height: EDGE_HANDLE_LENGTH,
-                      width: EDGE_HANDLE_THICKNESS,
+                      height: COLUMN_EDGE_HANDLE_HIT_HEIGHT,
+                      left: right - COLUMN_EDGE_HANDLE_HIT_WIDTH / 2,
+                      top: top + rect.height / 2,
+                      width: COLUMN_EDGE_HANDLE_HIT_WIDTH,
                     }}
-                  />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <strong>{t("database.click")}</strong>{" "}
-                {t("database.toAddAColumn")}{" "}
-                <strong>{t("database.drag")}</strong>{" "}
-                {t("database.toAddOrRemoveColumns")}
-              </TooltipContent>
-            </Tooltip>
+                    type="button"
+                  >
+                    <span
+                      className={edgeHandleMarkerClass}
+                      style={{
+                        height: EDGE_HANDLE_LENGTH,
+                        width: EDGE_HANDLE_THICKNESS,
+                      }}
+                    />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <strong>{t("database.click")}</strong>{" "}
+                  {t("database.toAddAColumn")}{" "}
+                  <strong>{t("database.drag")}</strong>{" "}
+                  {t("database.toAddOrRemoveColumns")}
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
 
             <Tooltip delayDuration={EDGE_HANDLE_TOOLTIP_DELAY}>
               <TooltipTrigger asChild>
@@ -1484,7 +1524,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                   }
                   style={{
                     height: ROW_EDGE_HANDLE_HIT_HEIGHT,
-                    left: left + rect.width / 2,
+                    left: visibleCenter,
                     top: bottom - ROW_EDGE_HANDLE_HIT_HEIGHT / 2,
                     width: ROW_EDGE_HANDLE_HIT_WIDTH,
                   }}
