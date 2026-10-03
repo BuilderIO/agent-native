@@ -13,6 +13,10 @@ import {
   isMigrationAuthorizedRuntime,
   isProductionServerlessFunctionRuntime,
 } from "./migration-runtime.js";
+import {
+  assertPoolConnectionAvailable,
+  runHoldingPoolConnection,
+} from "./pool-self-deadlock.js";
 export {
   isHostedFunctionInvocationRuntime,
   isProductionServerlessFunctionRuntime,
@@ -869,17 +873,36 @@ export function isTransientDatabaseError(err: unknown): boolean {
   );
 }
 
+// The hosting gateway gives up near 30s, so a retry loop must stop while the
+// caller can still be handed a database error instead of a 504.
+const DB_RETRY_BUDGET_MS = 20_000;
+
+export function hasRetryBudgetFor(startedAt: number): boolean {
+  const attemptMs = dbOpTimeoutMs();
+  return (
+    Date.now() - startedAt + attemptMs <=
+    Math.max(DB_RETRY_BUDGET_MS, attemptMs)
+  );
+}
+
 export async function retryOnConnectionError<T>(
   fn: () => Promise<T>,
   maxAttempts = 3,
 ): Promise<T> {
+  const startedAt = Date.now();
   let last: unknown;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       return await fn();
     } catch (e) {
       last = e;
-      if (!isConnectionError(e) || attempt === maxAttempts - 1) throw e;
+      if (
+        !isConnectionError(e) ||
+        attempt === maxAttempts - 1 ||
+        !hasRetryBudgetFor(startedAt)
+      ) {
+        throw e;
+      }
       recordDatabaseRetry();
       await new Promise((r) => setTimeout(r, 100 * (attempt + 1)));
     }
@@ -1599,6 +1622,7 @@ async function createDbExecInternal(
           const attemptStartedAt = Date.now();
           const remainingAttemptMs = () =>
             Math.max(1, timeoutMs - (Date.now() - attemptStartedAt));
+          assertPoolConnectionAvailable(pool, "getDbExec().execute()");
           let acquireTimedOut = false;
           const client = await withDbTimeout(
             "connect",
@@ -1647,6 +1671,7 @@ async function createDbExecInternal(
       },
       async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
         return retryOnConnectionError(async () => {
+          assertPoolConnectionAvailable(pool, "getDbExec().transaction()");
           let acquireTimedOut = false;
           const client = await withDbTimeout(
             "connect",
@@ -1690,7 +1715,7 @@ async function createDbExecInternal(
               client,
               "BEGIN; SET LOCAL idle_in_transaction_session_timeout = 30000",
             );
-            const result = await fn(tx);
+            const result = await runHoldingPoolConnection(pool, () => fn(tx));
             await queryNeonClient(client, "COMMIT");
             releaseClient();
             return result;
@@ -1834,6 +1859,7 @@ async function createDbExecInternal(
           ArrayLike<unknown> & { count?: number }
         >(() => {
           const queryPool = pool;
+          assertPoolConnectionAvailable(queryPool, "getDbExec().execute()");
           const query = queryPool.unsafe(pgSql, args as any[]);
           return withDbTimeout(
             "query",
@@ -1873,7 +1899,7 @@ async function createDbExecInternal(
               };
             },
           };
-          return fn(tx);
+          return runHoldingPoolConnection(pool, () => fn(tx));
         });
         return result as T;
       },
