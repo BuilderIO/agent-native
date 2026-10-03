@@ -49,8 +49,8 @@ import {
   type RoutePerformanceRow,
   routePerformanceRangeBounds,
 } from "../../../shared/session-performance";
+import { SessionsLabGate } from "./SessionsLabGate";
 
-const LAB_SETTINGS_PATH = `/settings/labs/lab-${ANALYTICS_SESSIONS_TRIAGE_LAB.key}`;
 const VITAL_COLUMNS = [
   ["ttfb", "TTFB"],
   ["lcp", "LCP"],
@@ -110,168 +110,151 @@ export default function RoutePerformancePage() {
         </h1>
       </div>
 
-      {lab.isLoading ? (
-        <Skeleton className="h-40 w-full" />
-      ) : !lab.enabled ? (
-        <Card>
-          <div className="space-y-3 p-6 text-sm">
-            <p>{t("sessions.perfNeedsLab")}</p>
-            <Button asChild variant="outline" size="sm">
-              <Link to={LAB_SETTINGS_PATH}>
-                {t("sessions.openLabSettings")}
-              </Link>
-            </Button>
-          </div>
-        </Card>
-      ) : (
-        <>
-          <div className="flex flex-wrap items-center gap-2">
-            <Select
-              value={app || "all"}
-              onValueChange={(value) =>
-                setParam("app", value === "all" ? "" : value)
-              }
+      <SessionsLabGate lab={lab} needsLab={t("sessions.perfNeedsLab")}>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={app || "all"}
+            onValueChange={(value) =>
+              setParam("app", value === "all" ? "" : value)
+            }
+          >
+            <SelectTrigger
+              className="h-8 w-auto min-w-28"
+              aria-label={t("sessions.app")}
             >
-              <SelectTrigger
-                className="h-8 w-auto min-w-28"
-                aria-label={t("sessions.app")}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t("sessions.allApps")}</SelectItem>
-                {apps.map((item) => (
-                  <SelectItem key={item} value={item}>
-                    {item}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select
-              value={range}
-              onValueChange={(value) =>
-                setParam("range", value === "7d" ? "" : value)
-              }
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("sessions.allApps")}</SelectItem>
+              {apps.map((item) => (
+                <SelectItem key={item} value={item}>
+                  {item}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={range}
+            onValueChange={(value) =>
+              setParam("range", value === "7d" ? "" : value)
+            }
+          >
+            <SelectTrigger
+              className="h-8 w-auto min-w-28"
+              aria-label={t("sessions.range")}
             >
-              <SelectTrigger
-                className="h-8 w-auto min-w-28"
-                aria-label={t("sessions.range")}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="7d">{t("sessions.last7d")}</SelectItem>
-                <SelectItem value="30d">{t("sessions.last30d")}</SelectItem>
-                <SelectItem value="90d">{t("sessions.last90d")}</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              onClick={() => void refetch()}
-              disabled={isFetching}
-              aria-label={t("sessions.refresh")}
-            >
-              <IconRefresh className={cn(isFetching && "animate-spin")} />
-            </Button>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-8"
-                    aria-label={t("sessions.perfAccuracy")}
-                  >
-                    <IconInfoCircle />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent className="max-w-xs">
-                  {t("sessions.perfAccuracy")}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            {data ? (
-              <span className="text-xs text-muted-foreground">
-                {data.coverageStartedAt
-                  ? t("sessions.speedCoverageSince", {
-                      date: new Date(
-                        data.coverageStartedAt,
-                      ).toLocaleDateString(),
-                    })
-                  : t("sessions.speedCoverageStarting")}
-              </span>
-            ) : null}
-          </div>
-
-          {data?.incompleteDates.length ? (
-            <Alert role="status">
-              <IconAlertTriangle />
-              <AlertDescription>
-                {t("sessions.perfIncomplete", {
-                  dates: data.incompleteDates.join(", "),
-                })}
-              </AlertDescription>
-            </Alert>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="7d">{t("sessions.last7d")}</SelectItem>
+              <SelectItem value="30d">{t("sessions.last30d")}</SelectItem>
+              <SelectItem value="90d">{t("sessions.last90d")}</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+            aria-label={t("sessions.refresh")}
+          >
+            <IconRefresh className={cn(isFetching && "animate-spin")} />
+          </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8"
+                  aria-label={t("sessions.perfAccuracy")}
+                >
+                  <IconInfoCircle />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">
+                {t("sessions.perfAccuracy")}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          {data ? (
+            <span className="text-xs text-muted-foreground">
+              {data.coverageStartedAt
+                ? t("sessions.speedCoverageSince", {
+                    date: new Date(data.coverageStartedAt).toLocaleDateString(),
+                  })
+                : t("sessions.speedCoverageStarting")}
+            </span>
           ) : null}
+        </div>
 
-          <Card>
-            {error ? (
-              <div className="p-6 text-sm text-destructive" role="alert">
-                {t("sessions.perfLoadFailed", { message: error.message })}
-              </div>
-            ) : isPending ? (
-              <div className="space-y-3 p-6">
-                {Array.from({ length: 6 }, (_, index) => (
-                  <Skeleton key={index} className="h-8 w-full" />
-                ))}
-              </div>
-            ) : data.routes.length === 0 ? (
-              <div className="p-10 text-center text-sm text-muted-foreground">
-                {t("sessions.perfEmpty")}
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t("sessions.perfRoute")}</TableHead>
-                    <TableHead>{t("sessions.app")}</TableHead>
-                    {VITAL_COLUMNS.map(([metric, name]) => (
-                      <TableHead key={metric} className="text-end">
-                        {name}
-                      </TableHead>
-                    ))}
-                    <TableHead className="text-end">
-                      {t("sessions.perfRequests")}
-                    </TableHead>
-                    <TableHead className="text-end">
-                      {t("sessions.speedSlowRequests")}
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.routes.map((row) => (
-                    <RoutePerformanceTableRow
-                      key={`${row.app}:${row.route}`}
-                      row={row}
-                    />
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </Card>
-          {data?.truncated ? (
-            <p className="text-xs text-muted-foreground">
-              {t("sessions.perfTruncated", {
-                count: data.routes.length.toLocaleString(),
+        {data?.incompleteDates.length ? (
+          <Alert role="status">
+            <IconAlertTriangle />
+            <AlertDescription>
+              {t("sessions.perfIncomplete", {
+                dates: data.incompleteDates.join(", "),
               })}
-            </p>
-          ) : null}
-        </>
-      )}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        <Card>
+          {error ? (
+            <div className="p-6 text-sm text-destructive" role="alert">
+              {t("sessions.perfLoadFailed", { message: error.message })}
+            </div>
+          ) : isPending ? (
+            <div className="space-y-3 p-6">
+              {Array.from({ length: 6 }, (_, index) => (
+                <Skeleton key={index} className="h-8 w-full" />
+              ))}
+            </div>
+          ) : data.routes.length === 0 ? (
+            <div className="p-10 text-center text-sm text-muted-foreground">
+              {t("sessions.perfEmpty")}
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("sessions.perfRoute")}</TableHead>
+                  <TableHead>{t("sessions.app")}</TableHead>
+                  {VITAL_COLUMNS.map(([metric, name]) => (
+                    <TableHead key={metric} className="text-end">
+                      {name}
+                    </TableHead>
+                  ))}
+                  <TableHead className="text-end">
+                    {t("sessions.perfRequests")}
+                  </TableHead>
+                  <TableHead className="text-end">
+                    {t("sessions.speedSlowRequests")}
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.routes.map((row) => (
+                  <RoutePerformanceTableRow
+                    key={`${row.app}:${row.route}`}
+                    row={row}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </Card>
+        {data?.truncated ? (
+          <p className="text-xs text-muted-foreground">
+            {t("sessions.perfTruncated", {
+              count: data.routes.length.toLocaleString(),
+            })}
+          </p>
+        ) : null}
+      </SessionsLabGate>
     </div>
   );
 }
