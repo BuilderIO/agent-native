@@ -27,6 +27,11 @@ async function playBeforeCapture(
   cleanup: () => void,
   signal?: AbortSignal,
 ): Promise<void> {
+  if (signal?.aborted) {
+    console.warn("[clips-recorder] start cue outcome=cancelled");
+    cleanup();
+    return;
+  }
   let timer: ReturnType<typeof window.setTimeout> | null = null;
   let abortHandler: (() => void) | null = null;
   const playback = play().then<CueOutcome, CueOutcome>(

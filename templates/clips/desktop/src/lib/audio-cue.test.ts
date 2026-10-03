@@ -123,4 +123,23 @@ describe("createAudioCue", () => {
     );
     expect(context.close).toHaveBeenCalledOnce();
   });
+
+  it("does not start playback when the signal is already aborted", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const createOscillator = vi.spyOn(
+      MockAudioContext.prototype,
+      "createOscillator",
+    );
+    const cue = createAudioCue();
+    const abort = new AbortController();
+    abort.abort();
+
+    await cue.playBeforeCapture(abort.signal);
+
+    expect(createOscillator).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      "[clips-recorder] start cue outcome=cancelled",
+    );
+    expect(context.close).toHaveBeenCalledOnce();
+  });
 });
