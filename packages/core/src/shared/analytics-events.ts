@@ -396,6 +396,24 @@ export const AGENT_SIGNALS_VERSION = 1;
  */
 export const PAGE_LOAD_PAGEVIEW_PROPERTY = "page_load_id";
 
+/**
+ * Action telemetry reports every `action.response` at least this slow
+ * unsampled, and marks each one someone waited for on the session replay with
+ * its own timing.
+ */
+export const SLOW_ACTION_RESPONSE_MS = 1_000;
+
+/**
+ * Whether an `action.response`'s duration is what a person waited for.
+ * Background tabs throttle timers and cancelled requests never finish.
+ */
+export function isWaitedActionResponse(properties: {
+  page_hidden?: unknown;
+  outcome?: unknown;
+}): boolean {
+  return properties.page_hidden !== true && properties.outcome !== "cancelled";
+}
+
 const MAX_AGENT_TROUBLE_MESSAGE_INPUT = 1_000;
 export const MAX_AGENT_TROUBLE_MESSAGE_LENGTH = 120;
 

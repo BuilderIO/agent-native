@@ -24,6 +24,7 @@ const replayMock = vi.hoisted(() => ({
   emitSessionReplayAgentChatEvent: vi.fn(),
   emitSessionReplayAnalyticsEvent: vi.fn(),
   emitSessionReplayException: vi.fn(),
+  emitSessionReplaySlowRequest: vi.fn(),
   getSessionReplayId: vi.fn(() => undefined),
   getSessionReplayContext: vi.fn(() => null),
   getSessionReplayUrl: vi.fn(() => null),
@@ -197,6 +198,7 @@ describe("browser analytics pageviews", () => {
     replayMock.stopSessionReplay.mockClear();
     replayMock.emitSessionReplayAgentChatEvent.mockClear();
     replayMock.emitSessionReplayAnalyticsEvent.mockClear();
+    replayMock.emitSessionReplaySlowRequest.mockClear();
     tracingMock.recordTrackingEvent.mockClear();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
@@ -1539,6 +1541,43 @@ describe("browser analytics pageviews", () => {
     expect(marked).not.toContain("action.response");
     expect(marked).not.toContain("session_status");
     expect(marked).not.toContain("session_replay_upload_rejected");
+  });
+
+  it("marks a slow action response someone waited for on the replay with its own timing", async () => {
+    installBrowser("https://clips.agent-native.com/library");
+    installFetch({
+      session: { email: "dev@example.com", userId: "auth-user-1" },
+    });
+    replayMock.startSessionReplay.mockResolvedValue({
+      started: true,
+      replayId: "replay-1",
+      sessionId: "browser-session-1",
+    });
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      sessionReplay: true,
+    });
+    await tick();
+
+    const slow = {
+      action: "save-clip",
+      method: "POST",
+      duration_ms: 1_000,
+      status_code: 500,
+      outcome: "error",
+    };
+    trackEvent("action.response", slow);
+    trackEvent("action.response", { ...slow, duration_ms: 999 });
+    trackEvent("action.response", { ...slow, page_hidden: true });
+    trackEvent("action.response", { ...slow, outcome: "cancelled" });
+    await tick();
+
+    expect(replayMock.emitSessionReplaySlowRequest).toHaveBeenCalledTimes(1);
+    expect(replayMock.emitSessionReplaySlowRequest).toHaveBeenCalledWith(
+      expect.objectContaining(slow),
+    );
   });
 
   it("switches content capture before emitting client-side pageviews", async () => {

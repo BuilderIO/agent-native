@@ -186,10 +186,11 @@ agent answers about browser recordings in the Analytics template.
   read. Change weights only in `SESSION_FRICTION_WEIGHTS`.
 - Every friction surface is behind the Sessions triage Lab, in the UI and in
   `list-session-recordings`, `list-session-friction`, `view-screen`, and
-  `get-session-replay-summary`; a 403 names what the Lab gates. With the Lab off, Sessions looks and behaves exactly as before;
-  ingest still records friction. A link with Lab filters waits up to 5
-  seconds for the Lab state; one that fails or hangs says so with a retry
-  and never reads as the Lab being off.
+  `get-session-replay-summary`; a 403 names what the Lab gates
+  (`assertSessionsTriageLabEnabled` takes every feature the request used).
+  With the Lab off, Sessions looks and behaves exactly as before; ingest
+  still records friction. Waiting on the Lab state is shared with the speed
+  filter; see "Performance In Sessions".
 - Without a friction filter or sort, the list loads without friction and its
   rows read friction from `list-session-friction`, one page of ids at most,
   through the recordings' access filter. A failed friction read then leaves
@@ -208,6 +209,85 @@ agent answers about browser recordings in the Analytics template.
   `truncated`, and `fullPageAction` reads the whole page. Keep it that way
   when adding per-row fields: a bigger row means fewer rows, not a lost page.
 
+## Performance In Sessions
+
+- Core's tracker sends one `web_vitals` event per page view (`route`,
+  `navigation_type`, and whichever of `ttfb_ms`, `lcp_ms`, `inp_ms`, `cls` were
+  measured; an unmeasured metric is absent, never 0) and an
+  `agent-native.vitals` replay marker with the same numbers. `action.response`
+  carries the `route` its request started on. `route` is a React Router
+  template such as `/sessions/:id`; when no manifest route matches it is
+  omitted, never a raw path, which can hold slugs and emails.
+- Requests under `SLOW_REQUEST_THRESHOLD_MS` (`shared/slow-request.ts`, 1 s)
+  are sampled at 10% with `sample_weight: 10`; slow, failed, and 4xx responses
+  always send with weight 1, so slow-request counts are exact. Use that
+  constant for every "slow request" rule. Requests made while the page was
+  hidden or cancelled are not counted. Slow requests (the app's own actions,
+  1 s, counted from events) are not friction's stalled requests (any captured
+  replay request, `STALLED_REQUEST_THRESHOLD_MS`, 3 s): keep their names,
+  fields, columns, and copy apart, and never show one number under the
+  other's label.
+- Ingest strips NUL and replaces lone surrogates in `route`, `app`, and the
+  session id before hashing, as Postgres would store them; otherwise two
+  values that store alike collide in one upsert and fail the batch.
+  Measurements above `performanceCeiling` (the open top bucket's floor: 64 s,
+  CLS 5) are capped there rather than dropped, and `sample_weight` at 10,000.
+  A session value at the ceiling is a floor: summaries list it in `atLeast`
+  and the row hint shows it with ≥.
+- `recordSessionPerformance` keeps each session's worst vitals and its slow
+  requests in `analytics_session_performance`, inside the ingest transaction
+  under a savepoint, with the same gap and coverage rules as the event index.
+  `recordRoutePerformance` adds weights to fixed histogram buckets in
+  `analytics_route_performance_daily` after commit, in its own short
+  transaction. A failed write records a gap: `session_id = ''` marks a
+  route day, read as `incompleteDates`; a session id marks that session,
+  read as `performance.incomplete` and kept by `slow: any` only, since
+  missing data cannot rule it out; `vitals` and `requests` need a measured
+  slow value. The slow filter correlates on each recording's own tenant. As
+  with event friction, a share grants the recording, not its tenant's
+  events: a recording shared from another tenant has no speed summary (null)
+  and never matches a slow filter. A summary's `slowRequests` is null when the session made no
+  measured request. A null summary is a session never measured: its row says
+  "Speed not measured", and a slow match or a range from before coverage
+  shows when speed coverage began, so it never reads as fast. On
+  `list-session-recordings`, `slow` and `includePerformance` always return
+  the paginated shape with `performanceCoverageStartedAt`, as friction does.
+  Bucket edges are positional, so changing them needs a new
+  `PERFORMANCE_HISTOGRAM_VERSION`.
+- Percentiles interpolate inside one bucket. Past the first bucket each edge
+  is at most 28% above the last, so they are within about 28% of the exact
+  value; in the first bucket, within 1 ms (CLS 0.001). Keep that step when
+  adding edges, and keep every rating threshold an edge. A value in the open
+  top bucket is reported as `atLeast`.
+  A metric with no samples is null: no data, never fast. Before the migration
+  creates `analytics_performance_coverage`, ingest stores events without these
+  aggregates and warns, the slow filter matches nothing, and reads report no
+  coverage.
+- The replay's slow-request markers come from the `agent-native.slow_request`
+  events core records beside each slow `action.response` someone waited for,
+  with that event's own duration, status, and outcome. Core and the timeline
+  both apply the count's rule (`isWaitedActionResponse`, from core), so a
+  marker matches exactly what the row counts and background requests never
+  spend the replay's marker budget. Never derive them from replay network events: those stop timing at
+  the response headers. Replays from clients without these events show no
+  slow-request markers.
+- `slow` and `includePerformance` on `list-session-recordings`,
+  `list-session-performance`, `list-route-performance`, the replay's vitals
+  and slow-request markers, and `performance` on `get-session-replay-summary`
+  exist only while the Sessions triage Lab is on.
+- Lab state never holds up the base list. The page waits for it only when the
+  URL carries Lab-only conditions (did/didn't events, friction signals or
+  sorts, `slow`), with one wait for all of them, and for at most 5 s; a
+  failed or hung read lists sessions without them and says so once, with a
+  retry, rather than telling the user to turn on a Lab that may be on.
+  Row speed hints load beside the list through `list-session-performance`,
+  like row friction, keyed on the visible recording ids; when they fail the
+  page says speed data could not load instead of showing no hints, apart
+  from any friction failure. `view-screen` reads Lab state in its own `try`
+  and reads row friction and speed hints beside the base list, reporting
+  `labStateError`, `frictionError`, and `performanceError` separately; its
+  `fullPageAction` asks for both.
+
 ## Agent Diagnostics Surface
 
 - `buildSessionReplayAgentContext` includes a `diagnostics` section: up to 50
@@ -215,7 +295,9 @@ agent answers about browser recordings in the Analytics template.
   and truncated flags. Agent-context instructions steer agents to diagnostics
   as the primary debugging signal.
 - The agent timeline includes `console-error` / `network-error` markers; error
-  markers are kept preferentially under the 200-marker cap.
+  markers are kept preferentially under the 200-marker cap. App event, Web
+  Vitals and slow-request markers belong to the Sessions triage Lab and stay
+  off it (`SESSIONS_TRIAGE_MARKER_TAGS`); add any new Lab marker tag there.
 - `apis.diagnostics` advertises the fuller bounded list:
   `GET /api/session-replay/agent-diagnostics.json?id=<recordingId>&agent_access=<token>&kind=console|network|all&level=<level>&limit=<n>&offset=<n>&fromMs=<n>&toMs=<n>`
   (limit defaults to 200, max 500). It uses the same recording-scoped
@@ -277,7 +359,7 @@ agent answers about browser recordings in the Analytics template.
   widths >= 3,000px. The 2026-07 "ultra-wide replay" bugs (stages rendered
   3,000–9,500px wide, frozen/teleporting cursors, giant icons) were caused
   entirely by demo mode's fetch interceptor: its number redactor faked any
-  integer >= 1000 inside raw replay JSON at *view* time, corrupting Meta /
+  integer >= 1000 inside raw replay JSON at _view_ time, corrupting Meta /
   ViewportResize widths, pointer x/y coordinates, and numeric values inside
   `_cssText` and SVG attributes before rrweb ever saw the payload (heights
   below 1000 stayed real, which is why the symptom looked like a viewport

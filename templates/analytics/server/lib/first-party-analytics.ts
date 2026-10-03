@@ -44,6 +44,10 @@ import {
   recordSessionEventIndex,
   type SessionEventIndexInputRow,
 } from "./session-event-index.js";
+import {
+  recordRoutePerformance,
+  recordSessionPerformance,
+} from "./session-performance.js";
 
 export interface AnalyticsScope {
   userEmail: string;
@@ -230,6 +234,7 @@ async function persistBigQueryRowsWithMigrationFallback(
         })),
       );
       await recordSessionEventIndex(tx, rows, receivedAt);
+      await recordSessionPerformance(tx, rows, receivedAt);
     });
   } catch (error) {
     if (!isFirstPartyAnalyticsDeliveryQueueMissingError(error)) throw error;
@@ -255,6 +260,7 @@ async function persistBigQueryRowsWithMigrationFallback(
         );
       }
       await recordSessionEventIndex(tx, rows, receivedAt);
+      await recordSessionPerformance(tx, rows, receivedAt);
     });
     try {
       const result = await runWithRequestContext(
@@ -864,6 +870,7 @@ export async function recordAnalyticsEvents(
           await tx.insert(schema.analyticsEvents).values(rows);
           await upsertFirstPartyAnalyticsRollups(rows, tx);
           await recordSessionEventIndex(tx, rows, receivedAt);
+          await recordSessionPerformance(tx, rows, receivedAt);
         });
       }
     } catch (error) {
@@ -872,6 +879,7 @@ export async function recordAnalyticsEvents(
   }
   if (rows.length && !persistenceError) {
     await recordEventCatalog(rows);
+    await recordRoutePerformance(rows, receivedAt);
   }
   if (rows.length) {
     await touchPublicKeyLastUsedAt(key.id, receivedAt);
