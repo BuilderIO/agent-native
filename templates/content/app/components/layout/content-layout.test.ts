@@ -28,11 +28,13 @@ function input(
     agentOpen = false,
     collapsed = false,
     sidebarWidth = DEFAULT_SIDEBAR_WIDTH,
+    utilityRail = false,
     previous,
   }: {
     agentOpen?: boolean;
     collapsed?: boolean;
     sidebarWidth?: number;
+    utilityRail?: boolean;
     previous?: ContentLayout;
   } = {},
 ): ContentLayoutInput {
@@ -42,6 +44,7 @@ function input(
     agentPanel: agentOpen
       ? { open: true, width: AGENT_WIDTH }
       : { open: false, width: 0 },
+    utilityRail,
     previous,
   };
 }
@@ -106,6 +109,36 @@ describe("resolveContentLayout", () => {
     expect(contentPageWidth(opened, layout.sidebar)).toBeGreaterThanOrEqual(
       CONTENT_TEXT_MIN_WIDTH,
     );
+  });
+
+  it("gives up the sidebar before an open comments list covers the text", () => {
+    const opened = input(1280, {
+      agentOpen: true,
+      utilityRail: true,
+      previous: resolveContentLayout(input(1280, { utilityRail: true })),
+    });
+    const layout = resolveContentLayout(opened);
+
+    expect(layout.sidebar).toBe("drawer");
+    expect(layout.comments.list).toBe("rail");
+    expect(contentPageWidth(opened, layout.sidebar)).toBeGreaterThanOrEqual(
+      CONTENT_TEXT_MIN_WIDTH + CONTENT_COMMENT_SURFACE_WIDTH,
+    );
+    expect(
+      resolveContentLayout(input(1100, { utilityRail: true })),
+    ).toMatchObject({ sidebar: "rail", comments: { list: "rail" } });
+    expect(
+      resolveContentLayout(input(1280, { utilityRail: true })),
+    ).toMatchObject({ sidebar: "docked", comments: { list: "rail" } });
+  });
+
+  it("keeps the sidebar for the text when even a drawer leaves no room for the list", () => {
+    expect(
+      resolveContentLayout(input(1024, { agentOpen: true, utilityRail: true })),
+    ).toMatchObject({ sidebar: "rail", comments: { list: "region-list" } });
+    expect(
+      resolveContentLayout(input(375, { utilityRail: true })),
+    ).toMatchObject({ sidebar: "drawer", comments: { list: "sheet" } });
   });
 
   it("keeps the comment lane and rail at 1600, with or without the agent", () => {
