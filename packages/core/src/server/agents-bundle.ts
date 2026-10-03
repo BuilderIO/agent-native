@@ -5,6 +5,7 @@ import {
   normalizeSkillScope,
   type SkillScope,
 } from "./agent-chat/skill-frontmatter.js";
+import { captureError } from "./capture-error.js";
 
 export {
   DEFAULT_SKILL_SCOPE,
@@ -397,11 +398,21 @@ export async function getEnabledSkillLabsForUser(
       const state = labs[key];
       if (!state) throw new Error(`Unknown required lab: ${key}`);
       if ("error" in state) {
-        throw new Error(
-          state.error === "invalid-choice"
-            ? `Invalid saved lab choice: ${key}`
-            : `Could not resolve saved lab state: ${key}`,
+        captureError(
+          new Error(
+            state.error === "invalid-choice"
+              ? `Invalid saved lab choice: ${key}`
+              : `Could not resolve saved lab state: ${key}`,
+          ),
+          {
+            tags: {
+              source: "agent-skills",
+              op: "get-enabled-skill-labs",
+              lab: key,
+            },
+          },
         );
+        return false;
       }
       return state.enabled;
     }),

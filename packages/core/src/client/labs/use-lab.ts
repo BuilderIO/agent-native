@@ -1,10 +1,10 @@
 import type { LabDefinition } from "../../labs/registry.js";
-import type { UserLabState, UserLabStateValue } from "../../labs/store.js";
+import type { UserLabState, UserLabStateResult } from "../../labs/store.js";
 import { useActionQuery } from "../use-action.js";
 import { useSession } from "../use-session.js";
 
 export type LabValues = Record<string, boolean>;
-export type LabStates = Record<string, UserLabState>;
+export type LabStates = Record<string, UserLabStateResult>;
 
 export function isLabStateEnabled(labs: LabStates, key: string): boolean {
   const state = labs[key];
@@ -26,7 +26,7 @@ function labKey(lab: LabReference): string {
 
 export function useLabState(lab: LabReference): {
   enabled: boolean;
-  source: UserLabStateValue["source"] | null;
+  source: UserLabState["source"] | null;
   mixed: boolean;
   legacyValues?: Record<string, boolean>;
   isLoading: boolean;

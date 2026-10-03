@@ -40,18 +40,20 @@ async function getStoredLabs(
     : null;
 }
 
-export interface UserLabStateValue {
+export interface UserLabState {
   enabled: boolean;
   source: "choice" | "legacy" | "default";
   legacyValues?: Record<string, boolean>;
   mixed: boolean;
 }
 
+export type UserLabStateValue = UserLabState;
+
 export interface UserLabStateError {
   error: "invalid-choice" | "legacy-unavailable";
 }
 
-export type UserLabState = UserLabStateValue | UserLabStateError;
+export type UserLabStateResult = UserLabState | UserLabStateError;
 
 function parseLegacyRules(
   key: string,
@@ -97,7 +99,7 @@ async function getLegacyRules(
 export async function getUserLabStates(
   email: string,
   scope: FeatureFlagScope = {},
-): Promise<Record<string, UserLabState>> {
+): Promise<Record<string, UserLabStateResult>> {
   const stored = await getStoredLabs(email);
   return resolveStoredLabStates(email, stored, scope);
 }
@@ -107,7 +109,7 @@ async function resolveStoredLabStates(
   stored: Record<string, unknown> | null,
   scope: FeatureFlagScope,
   definitions: readonly LabDefinition[] = listLabs(),
-): Promise<Record<string, UserLabState>> {
+): Promise<Record<string, UserLabStateResult>> {
   const invalidChoices = new Set(
     definitions
       .filter(
@@ -190,7 +192,7 @@ export async function getUserLabState(
   email: string,
   lab: string | LabDefinition,
   scope: FeatureFlagScope = {},
-): Promise<UserLabStateValue> {
+): Promise<UserLabState> {
   const key = typeof lab === "string" ? lab : lab.key;
   const definition = getLabDefinition(key);
   if (!definition) throw new Error(`Unknown lab: ${key}`);
@@ -253,11 +255,22 @@ export async function setUserLab(
   key: string,
   enabled: boolean,
   scope: FeatureFlagScope = {},
-): Promise<Record<string, UserLabState>> {
+): Promise<Record<string, boolean>> {
+  return projectReadableLabValues(
+    await setUserLabStates(email, key, enabled, scope),
+  );
+}
+
+export async function setUserLabStates(
+  email: string,
+  key: string,
+  enabled: boolean,
+  scope: FeatureFlagScope = {},
+): Promise<Record<string, UserLabStateResult>> {
   if (!getLabDefinition(key)) {
     throw new Error(`Unknown lab: ${key}`);
   }
-  let effectiveValues: Record<string, UserLabState> | undefined;
+  let effectiveValues: Record<string, UserLabStateResult> | undefined;
   await mutateUserSetting(email, LABS_SETTING_KEY, async (current) => {
     validLabSetting(LABS_SETTING_KEY, current);
     const legacy =
@@ -271,4 +284,14 @@ export async function setUserLab(
     return next;
   });
   return effectiveValues!;
+}
+
+function projectReadableLabValues(
+  states: Record<string, UserLabStateResult>,
+): Record<string, boolean> {
+  return Object.fromEntries(
+    Object.entries(states).flatMap(([key, state]) =>
+      "error" in state ? [] : [[key, state.enabled]],
+    ),
+  );
 }

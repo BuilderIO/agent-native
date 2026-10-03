@@ -23,6 +23,7 @@ import {
   getUserLabs,
   normalizeLabValues,
   setUserLab,
+  setUserLabStates,
 } from "./store.js";
 
 beforeEach(() => {
@@ -91,10 +92,7 @@ describe("user labs", () => {
 
     await expect(
       setUserLab("alice@example.com", "clips.meetings", true),
-    ).resolves.toEqual({
-      "clips.editor": { enabled: true, source: "choice", mixed: false },
-      "clips.meetings": { enabled: true, source: "choice", mixed: false },
-    });
+    ).resolves.toEqual({ "clips.editor": true, "clips.meetings": true });
     expect(mocks.mutateUserSetting).toHaveBeenCalledWith(
       "alice@example.com",
       "labs",
@@ -133,10 +131,7 @@ describe("user labs", () => {
 
     await expect(
       setUserLab("alice@example.com", "clips.editor", true),
-    ).resolves.toEqual({
-      "clips.editor": { enabled: true, source: "choice", mixed: false },
-      "clips.meetings": { enabled: true, source: "choice", mixed: false },
-    });
+    ).resolves.toEqual({ "clips.editor": true, "clips.meetings": true });
   });
 
   it("merges legacy opt-ins when both setting keys exist", async () => {
@@ -239,6 +234,9 @@ describe("user labs", () => {
 
     await expect(
       setUserLab("alice@example.com", "clips.editor", true),
+    ).resolves.toEqual({ "clips.editor": true });
+    await expect(
+      setUserLabStates("alice@example.com", "clips.editor", true),
     ).resolves.toEqual({
       "clips.editor": { enabled: true, source: "choice", mixed: false },
       "clips.meetings": { error: "invalid-choice" },
@@ -255,9 +253,7 @@ describe("user labs", () => {
 
     await expect(
       setUserLab("alice@example.com", "clips.meetings", true),
-    ).resolves.toMatchObject({
-      "clips.meetings": { enabled: true, source: "choice" },
-    });
+    ).resolves.toEqual({ "clips.editor": false, "clips.meetings": true });
   });
 
   it("rejects malformed Lab setting objects instead of treating them as absent", async () => {
@@ -304,14 +300,9 @@ describe("user labs", () => {
     await expect(
       setUserLab("alice@example.com", "clips.editor", true, { orgId: "org-1" }),
     ).resolves.toEqual({
-      "clips.editor": { enabled: true, source: "choice", mixed: false },
-      "clips.meetings": { enabled: false, source: "default", mixed: false },
-      "design.builder": {
-        enabled: true,
-        source: "legacy",
-        legacyValues: { builder: true },
-        mixed: false,
-      },
+      "clips.editor": true,
+      "clips.meetings": false,
+      "design.builder": true,
     });
   });
 
@@ -329,10 +320,7 @@ describe("user labs", () => {
     );
     await expect(
       setUserLab("alice@example.com", "clips.editor", true, { orgId: "org-1" }),
-    ).resolves.toMatchObject({
-      "clips.editor": { enabled: true, source: "choice" },
-      "design.builder": { error: "legacy-unavailable" },
-    });
+    ).resolves.toEqual({ "clips.editor": true, "clips.meetings": false });
     expect(persisted).toBe(true);
   });
 
@@ -354,14 +342,9 @@ describe("user labs", () => {
     await expect(
       setUserLab("alice@example.com", "clips.editor", true, { orgId: "org-1" }),
     ).resolves.toEqual({
-      "clips.editor": { enabled: true, source: "choice", mixed: false },
-      "clips.meetings": { enabled: false, source: "default", mixed: false },
-      "design.builder": {
-        enabled: true,
-        source: "legacy",
-        legacyValues: { builder: true },
-        mixed: false,
-      },
+      "clips.editor": true,
+      "clips.meetings": false,
+      "design.builder": true,
     });
     expect(persisted).toBe(true);
   });

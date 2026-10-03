@@ -6,5 +6,6 @@ export {
   getUserLabs,
   type UserLabStateError,
   type UserLabState,
+  type UserLabStateResult,
   type UserLabStateValue,
 } from "./store.js";
