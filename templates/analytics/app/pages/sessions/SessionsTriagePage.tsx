@@ -8,7 +8,13 @@ import {
   IconRefresh,
   IconX,
 } from "@tabler/icons-react";
-import { type ReactNode, useCallback, useEffect, useMemo } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -111,6 +117,7 @@ type Page = {
 const RANGES: Range[] = ["24h", "7d", "30d", "90d", "all"];
 const SORTS: Sort[] = ["newest", "longest", "errors", "events", "rage"];
 const DURATIONS = [0, 60_000, 5 * 60_000, 15 * 60_000, 30 * 60_000];
+const LAB_STATE_WAIT_MS = 5_000;
 // Every other search param counts as a filter for Clear all, so a param that
 // is not a filter must be listed here or Clear all will show and drop it.
 const NON_FILTER_PARAMS = new Set(["sort", "page"]);
@@ -263,10 +270,20 @@ export function SessionsTriagePage() {
     : eventsLabEnabled && isSessionFrictionSort(requestedSort)
       ? requestedSort
       : "newest";
-  // A shared link with Lab conditions waits for the Lab state instead of
-  // briefly listing unfiltered sessions.
-  const waitingForEventsLab =
-    (urlHasEventConditions || urlHasFrictionParams) && eventsLab.isLoading;
+  // A shared link with event or friction conditions waits briefly for the Lab
+  // state instead of listing unfiltered sessions. Nothing else waits, and a
+  // hung read stops holding the list and reads as failed.
+  const urlHasLabFilters = urlHasEventConditions || urlHasFrictionParams;
+  const [labWaitExpired, setLabWaitExpired] = useState(false);
+  const waitsForLab = urlHasLabFilters && eventsLab.isLoading;
+  useEffect(() => {
+    if (!waitsForLab) return;
+    const timer = setTimeout(() => setLabWaitExpired(true), LAB_STATE_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [waitsForLab]);
+  const waitingForEventsLab = waitsForLab && !labWaitExpired;
+  const labStateFailed =
+    eventsLab.isError || (eventsLab.isLoading && labWaitExpired);
 
   useEffect(() => {
     if (requestedPage === null || requestedPage === String(page)) return;
@@ -752,12 +769,30 @@ export function SessionsTriagePage() {
           </Button>
         ) : null}
       </div>
-      {urlHasEventConditions && !eventsLabEnabled && !eventsLab.isLoading ? (
+      {urlHasLabFilters && !eventsLabEnabled && labStateFailed ? (
+        <p
+          className="flex items-center gap-2 text-xs text-muted-foreground"
+          role="status"
+        >
+          {t("sessions.labStateUnavailable")}
+          <Button variant="ghost" size="xs" onClick={eventsLab.refetch}>
+            <IconRefresh />
+            {t("sidebar.retry")}
+          </Button>
+        </p>
+      ) : null}
+      {urlHasEventConditions &&
+      !eventsLabEnabled &&
+      !eventsLab.isLoading &&
+      !eventsLab.isError ? (
         <p className="text-xs text-muted-foreground" role="status">
           {t("sessions.eventFiltersNeedLab")}
         </p>
       ) : null}
-      {urlHasFrictionParams && !eventsLabEnabled && !eventsLab.isLoading ? (
+      {urlHasFrictionParams &&
+      !eventsLabEnabled &&
+      !eventsLab.isLoading &&
+      !eventsLab.isError ? (
         <p className="text-xs text-muted-foreground" role="status">
           {t("sessions.frictionFiltersNeedLab")}
         </p>

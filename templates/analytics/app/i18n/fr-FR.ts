@@ -1325,6 +1325,8 @@ export default {
       "La friction couvre les sessions depuis le {{date}}.",
     frictionCoverageIncomplete:
       "La friction n'est pas encore mesurée pour toutes les sessions de cette période.",
+    labStateUnavailable:
+      "Impossible de charger vos paramètres de Lab : les filtres de ce lien ne sont pas appliqués.",
     frictionSignalCount: "{{label}} : {{count}}",
     frictionFiltersNeedLab:
       "Ce lien filtre ou trie par friction. Activez le Lab Tri des sessions dans les paramètres pour l'appliquer.",
