@@ -5,6 +5,7 @@ import {
 import { generateTabId } from "@agent-native/core/client/agent-chat";
 import {
   useCollaborativeDoc,
+  isReconcileLeadClient,
   type UseCollaborativeDocResult,
 } from "@agent-native/core/client/collab";
 import { callAction } from "@agent-native/core/client/hooks";
@@ -843,6 +844,9 @@ export function PlanDocumentEditor({
       : null;
   const ownCollabDoc = useCollaborativeDoc({
     docId: ownDocId,
+    activityResource: planId
+      ? { resourceType: "plan", resourceId: planId }
+      : undefined,
     requestSource: TAB_ID,
     user: docUser,
   });
@@ -1272,6 +1276,7 @@ export function PlanDocumentEditor({
       remoteSaveTimerRef.current = null;
       const editor = editorRef.current;
       if (!editor || editor.isDestroyed || !collabEnabledRef.current) return;
+      if (!isReconcileLeadClient(awareness, ydoc?.clientID)) return;
       const live = readCurrentBlocks(blocksRef.current);
       if (!live) return;
       if (documentIsAheadOfSaved(live, savedBlocksRef.current)) commit(live);
@@ -1300,9 +1305,9 @@ export function PlanDocumentEditor({
     // its data from the blocks the editor holds or last saved.
     const known = [
       ...knownBlocksById(
-        pending,
         blocksRef.current,
         savedBlocksRef.current,
+        pending,
       ).values(),
     ];
     const next = blocksFromSerialized(

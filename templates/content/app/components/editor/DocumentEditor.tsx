@@ -3066,6 +3066,7 @@ function PageEditorSessionBody({
     agentPresent,
   } = useCollaborativeDoc({
     docId: collabDocumentId,
+    activityResource: { resourceType: "document", resourceId: documentId },
     requestSource: TAB_ID,
     user: currentUser,
   });

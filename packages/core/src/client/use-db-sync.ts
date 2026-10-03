@@ -85,6 +85,27 @@ let collabBoostActivityAt = 0;
 // other. A resource-scoped action event that another tab or an agent caused
 // proves someone is editing the resource right now, so it boosts on its own.
 let collabActivityUntil = 0;
+const openCollabResources = new Map<string, number>();
+
+function collabResourceKey(resourceType: string, resourceId: string): string {
+  return `${resourceType}\0${resourceId}`;
+}
+
+export function registerCollabActivityResource(resource: {
+  resourceType: string;
+  resourceId: string;
+}): () => void {
+  const key = collabResourceKey(resource.resourceType, resource.resourceId);
+  openCollabResources.set(key, (openCollabResources.get(key) ?? 0) + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const remaining = (openCollabResources.get(key) ?? 1) - 1;
+    if (remaining > 0) openCollabResources.set(key, remaining);
+    else openCollabResources.delete(key);
+  };
+}
 
 function collabBoostWanted(): boolean {
   return (
@@ -101,6 +122,10 @@ function noteCollaboratorActivity(events: SyncEvent[]): void {
         event.source === "action" &&
         typeof event.resourceType === "string" &&
         event.resourceType !== "" &&
+        typeof event.resourceId === "string" &&
+        openCollabResources.has(
+          collabResourceKey(event.resourceType, event.resourceId),
+        ) &&
         event.requestSource !== ownSource,
     )
   ) {
@@ -1285,6 +1310,7 @@ export function _resetSyncTransportRegistryForTests(): void {
   collabBoostLeases = 0;
   collabBoostActivityAt = 0;
   collabActivityUntil = 0;
+  openCollabResources.clear();
 }
 
 export interface SubscribeSyncEventsOptions {

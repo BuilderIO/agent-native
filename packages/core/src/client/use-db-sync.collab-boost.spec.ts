@@ -11,6 +11,7 @@ import { getBrowserTabId } from "./browser-tab-id";
 import {
   _resetSyncTransportRegistryForTests,
   acquireCollabPollBoost,
+  registerCollabActivityResource,
   subscribeSyncEvents,
 } from "./use-db-sync";
 
@@ -124,13 +125,26 @@ describe("collab poll boost", () => {
   it("keeps boosting past the ceiling while remote events keep arriving", async () => {
     const unsub = await subscribeRefused();
     const release = acquireCollabPollBoost();
+    const releaseResource = registerCollabActivityResource({
+      resourceType: "design",
+      resourceId: "d1",
+    });
     for (let i = 0; i < 100; i++) {
-      nextEvents = [{ source: "action", type: "change", version: i + 1 }];
+      nextEvents = [
+        {
+          source: "action",
+          type: "change",
+          resourceType: "design",
+          resourceId: "d1",
+          version: i + 1,
+        },
+      ];
       await advance(2_500);
     }
     const before = polls;
     await advance(30_000);
     expect(polls - before).toBeGreaterThanOrEqual(11);
+    releaseResource();
     release();
     unsub();
   });
@@ -146,14 +160,22 @@ describe("collab poll boost", () => {
       ...(requestSource ? { requestSource } : {}),
     });
 
-    async function pollsAfterFirstEvent(event: Record<string, unknown>) {
+    async function pollsAfterFirstEvent(
+      event: Record<string, unknown>,
+      resourceId = "d1",
+    ) {
       const unsub = await subscribeRefused();
+      const releaseResource = registerCollabActivityResource({
+        resourceType: "design",
+        resourceId,
+      });
       // The idle poll that carries the event; no lease is ever held.
       nextEvents = [{ ...event, version: 1 }];
       await advance(70_000);
       const before = polls;
       await advance(30_000);
       const boosted = polls - before;
+      releaseResource();
       unsub();
       return boosted;
     }
@@ -166,6 +188,12 @@ describe("collab poll boost", () => {
 
     it("counts an agent's resource action event (no request source) as collaborator activity", async () => {
       expect(await pollsAfterFirstEvent(action())).toBeGreaterThanOrEqual(11);
+    });
+
+    it("does not boost for an action on a different open resource", async () => {
+      expect(
+        await pollsAfterFirstEvent(action("other-tab"), "d2"),
+      ).toBeLessThanOrEqual(1);
     });
 
     it("stays idle for this tab's own action events and for events naming no resource", async () => {

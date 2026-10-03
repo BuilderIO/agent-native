@@ -70,6 +70,9 @@ export function PlanMarkdownEditor({
     requestSync,
   } = useCollaborativeDoc({
     docId,
+    activityResource: planId
+      ? { resourceType: "plan", resourceId: planId }
+      : undefined,
     requestSource: TAB_ID,
     user: collabUser ?? undefined,
   });

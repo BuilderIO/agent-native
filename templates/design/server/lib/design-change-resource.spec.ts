@@ -8,6 +8,7 @@ import { designChangeResource } from "./design-change-resource.js";
 describe("design-mutating actions", () => {
   it.each([
     "update-design",
+    "update-file",
     "create-file",
     "delete-file",
     "rename-screen",

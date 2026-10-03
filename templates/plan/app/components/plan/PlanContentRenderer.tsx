@@ -362,10 +362,13 @@ export function PlanContentRenderer({
         if (!delivered) {
           throw new Error("Live edits have not reached the server yet.");
         }
-        return persistBlocksRef.current(
-          editorBlocksRef.current?.(next) ?? next,
-          base,
-        );
+        const liveBlocks = editorBlocksRef.current?.(next);
+        if (collabDoc.ydoc && !liveBlocks) {
+          throw new Error(
+            "The live plan editor is unavailable; retry autosave.",
+          );
+        }
+        return persistBlocksRef.current(liveBlocks ?? next, base);
       })
       .catch((error) => {
         failed = true;

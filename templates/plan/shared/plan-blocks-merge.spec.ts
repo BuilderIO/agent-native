@@ -28,15 +28,14 @@ describe("mergePlanBlocks", () => {
     ]);
   });
 
-  it("keeps the local prose when both writers changed one prose block", () => {
-    // The local copy already holds the other writer's typing through Yjs, so
-    // merging the text would insert it twice.
-    const merged = mergePlanBlocks(
-      [prose("a", "Seed.")],
-      [prose("a", "Seed. mine theirs")],
-      [prose("a", "Seed. theirs")],
-    );
-    expect(merged).toEqual([prose("a", "Seed. mine theirs")]);
+  it("refuses conflicting prose when both writers changed one block", () => {
+    expect(
+      mergePlanBlocks(
+        [prose("a", "Seed.")],
+        [prose("a", "Seed. mine theirs")],
+        [prose("a", "Seed. theirs")],
+      ),
+    ).toBeNull();
   });
 
   it("takes prose another writer saved when the local copy never changed it", () => {

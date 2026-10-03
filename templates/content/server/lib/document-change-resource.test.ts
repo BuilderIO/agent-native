@@ -42,8 +42,11 @@ describe("documentChangeResource", () => {
     (name) => {
       const source = readFileSync(join(ACTIONS_DIR, `${name}.ts`), "utf8");
       expect(source).toMatch(
-        /changeResource:\s*\(input\) =>\s*documentChangeResource\(/,
+        /changeResource:\s*\(input(?:,\s*result)?\) =>\s*documentChangeResource\(/,
       );
+      if (name === "delete-comment" || name === "update-comment") {
+        expect(source).toContain("input.documentId ?? result.documentId");
+      }
     },
   );
 });

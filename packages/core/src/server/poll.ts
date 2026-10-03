@@ -821,8 +821,8 @@ export class AppSyncState {
    *
    * Security: a cache MISS returns `false`, so we NEVER deliver to a user before
    * their access has been affirmatively confirmed by the resolver — the same
-   * authority that gates the HTTP routes. Errors fail closed (cached deny). The
-   * owner/org fast paths below are unchanged and evaluated first.
+   * authority that gates the HTTP routes. Errors fail closed (cached deny).
+   * Organization membership alone does not grant access to a resource-scoped event.
    */
   canSeeChangeForUser(
     event: Pick<
@@ -853,9 +853,6 @@ export class AppSyncState {
     ) {
       return "visible";
     }
-    if (event.orgId && orgId && event.orgId === orgId) return "visible";
-    if (event.visibility === "public") return "visible";
-
     if (event.resourceType && event.resourceId) {
       const key = accessCacheKey(
         normalizedUserEmail,
@@ -880,6 +877,9 @@ export class AppSyncState {
       );
       return "pending";
     }
+
+    if (event.orgId && orgId && event.orgId === orgId) return "visible";
+    if (event.visibility === "public") return "visible";
 
     return "hidden";
   }

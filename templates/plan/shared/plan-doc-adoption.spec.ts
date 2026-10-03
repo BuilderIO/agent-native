@@ -53,12 +53,12 @@ describe("adoptSnapshot", () => {
     expect(adopted.keptLiveEdits).toBe(false);
   });
 
-  it("falls back to the snapshot when the edits overlap", () => {
+  it("keeps live blocks when edits overlap so save can surface the conflict", () => {
     const live = [prose("a", "Alpha."), callout("c", "Mine.")];
     const snapshot = [prose("a", "Alpha."), callout("c", "Theirs.")];
     const adopted = adoptSnapshot(base, live, snapshot);
-    expect(adopted.target).toEqual(snapshot);
-    expect(adopted.keptLiveEdits).toBe(false);
+    expect(adopted.target).toEqual(live);
+    expect(adopted.keptLiveEdits).toBe(true);
   });
 });
 

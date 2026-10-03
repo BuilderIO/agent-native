@@ -7192,6 +7192,9 @@ function DesignEditor() {
         isSignedIn && canEditDesign && viewMode === "single"
           ? activeFileId
           : null,
+      activityResource: id
+        ? { resourceType: "design", resourceId: id }
+        : undefined,
       requestSource: TAB_ID,
       user: currentUser,
     });
@@ -7212,11 +7215,15 @@ function DesignEditor() {
       isSignedIn && canEditDesign && overviewPresenceFileId
         ? overviewPresenceFileId
         : null,
+    activityResource: id
+      ? { resourceType: "design", resourceId: id }
+      : undefined,
     requestSource: TAB_ID,
     user: currentUser,
   });
 
   useViewerPresence({
+    designId: id ?? null,
     isSignedIn,
     canEditDesign,
     accessRole: designAccessRole,

@@ -46,6 +46,9 @@ export function usePlanPresence(options: {
     agentActive,
   } = useCollaborativeDoc({
     docId,
+    activityResource: planId
+      ? { resourceType: "plan", resourceId: planId }
+      : undefined,
     user,
     requestSource: TAB_ID,
     pollInterval: 3000,

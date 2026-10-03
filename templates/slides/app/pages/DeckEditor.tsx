@@ -3401,6 +3401,7 @@ export default function DeckEditor() {
     agentPresent: slideAgentPresent,
   } = useCollaborativeDoc({
     docId: slideDocId,
+    activityResource: id ? { resourceType: "deck", resourceId: id } : undefined,
     requestSource: TAB_ID,
     user: currentUser,
   });

@@ -88,4 +88,31 @@ describe("PlanDocumentEditor save reader", () => {
     ]);
     expect(saved?.find((block) => block.id === "divider")).toEqual(CALLOUT);
   });
+
+  it("uses adopted structured data ahead of an older pending snapshot", async () => {
+    const reader: MutableRefObject<
+      ((pending: PlanBlock[]) => PlanBlock[] | null) | null
+    > = { current: null };
+    act(() => {
+      root.render(
+        createElement(PlanDocumentEditor, {
+          content,
+          editable: true,
+          onBlocksChange: vi.fn(),
+          blocksReaderRef: reader,
+        }),
+      );
+    });
+    await flushEditorEffects();
+    await flushEditorEffects();
+
+    const staleCallout = {
+      id: CALLOUT.id,
+      type: "callout",
+      data: { tone: "info", body: "Stale pending body." },
+    } as PlanBlock;
+    const saved = reader.current?.([staleCallout]);
+
+    expect(saved?.find((block) => block.id === "divider")).toEqual(CALLOUT);
+  });
 });

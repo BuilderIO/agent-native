@@ -51,9 +51,9 @@ export function adoptSnapshot(
 ): { target: PlanBlock[]; keptLiveEdits: boolean } {
   if (live === null) return { target: snapshot, keptLiveEdits: false };
   const merged = mergePlanBlocks(base, live, snapshot);
-  // Overlapping edits to structure leave nothing to merge; the snapshot wins,
-  // as it did before documents were merged.
-  if (!merged) return { target: snapshot, keptLiveEdits: false };
+  // Keep the live copy on overlap so the existing save path reports the
+  // conflict instead of dropping either writer's data.
+  if (!merged) return { target: live, keptLiveEdits: true };
   return { target: merged, keptLiveEdits: !sameBlocks(merged, snapshot) };
 }
 

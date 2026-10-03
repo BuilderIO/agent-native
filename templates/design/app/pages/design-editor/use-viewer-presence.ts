@@ -21,6 +21,7 @@ export function viewerPresenceDocId(input: {
 }
 
 export function useViewerPresence(input: {
+  designId?: string | null;
   isSignedIn: boolean;
   canEditDesign: boolean;
   accessRole: string | undefined;
@@ -30,6 +31,9 @@ export function useViewerPresence(input: {
 }): void {
   useCollaborativeDoc({
     docId: viewerPresenceDocId(input),
+    activityResource: input.designId
+      ? { resourceType: "design", resourceId: input.designId }
+      : undefined,
     requestSource: input.requestSource,
     user: input.user,
   });

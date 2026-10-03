@@ -6,6 +6,7 @@ import { agentNativePath } from "../client/api-path.js";
 import { useAvatarUrl } from "../client/use-avatar.js";
 import {
   acquireCollabPollBoost,
+  registerCollabActivityResource,
   subscribeSyncEvents,
   type SyncEvent,
 } from "../client/use-db-sync.js";
@@ -30,6 +31,7 @@ export interface UseCollaborativeDocOptions {
   baseUrl?: string;
   requestSource?: string;
   user?: CollabUser;
+  activityResource?: { resourceType: string; resourceId: string };
 }
 
 export type CollabInitializationErrorCategory =
@@ -1234,7 +1236,12 @@ export function useCollaborativeDoc(
     baseUrl = agentNativePath("/_agent-native/collab"),
     requestSource,
     user,
+    activityResource,
   } = options;
+  useEffect(() => {
+    if (!docId || !activityResource) return;
+    return registerCollabActivityResource(activityResource);
+  }, [activityResource?.resourceId, activityResource?.resourceType, docId]);
   const storedAvatarUrl = useAvatarUrl(user?.email);
   const resolvedUser = useMemo(() => {
     if (!user || !storedAvatarUrl || storedAvatarUrl === user.avatarUrl) {

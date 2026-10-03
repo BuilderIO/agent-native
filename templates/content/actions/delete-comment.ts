@@ -15,7 +15,6 @@ export default defineAction({
     id: z.string().describe("Comment ID"),
     documentId: z.string().optional().describe("Document ID"),
   }),
-  changeResource: (input) => documentChangeResource(input.documentId),
   run: async (args) => {
     const db = getDb();
     const [comment] = await db
@@ -60,6 +59,8 @@ export default defineAction({
       );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
-    return { ok: true };
+    return { ok: true, documentId: comment.documentId };
   },
+  changeResource: (input, result) =>
+    documentChangeResource(input.documentId ?? result.documentId),
 });

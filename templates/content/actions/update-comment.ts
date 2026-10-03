@@ -51,7 +51,6 @@ export default defineAction({
       .describe("JSON-encoded array of {email, name} mentions"),
     resolved: z.coerce.boolean().optional().describe("Resolved state"),
   }),
-  changeResource: (input) => documentChangeResource(input.documentId),
   run: async (args) => {
     if (
       args.content === undefined &&
@@ -141,7 +140,11 @@ export default defineAction({
           );
       });
       await writeAppState("refresh-signal", { ts: Date.now() });
-      return { ok: true, resolved: args.resolved };
+      return {
+        ok: true,
+        resolved: args.resolved,
+        documentId: comment.documentId,
+      };
     }
 
     await db
@@ -155,6 +158,8 @@ export default defineAction({
       );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
-    return { ok: true };
+    return { ok: true, documentId: comment.documentId };
   },
+  changeResource: (input, result) =>
+    documentChangeResource(input.documentId ?? result.documentId),
 });

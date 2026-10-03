@@ -45,16 +45,18 @@ function isRichText(...items: unknown[]): boolean {
   return items.every((item) => isRecord(item) && item.type === "rich-text");
 }
 
-// Prose lives in the shared Yjs document, which has already merged every
-// collaborator's typing into the copy being saved, so a text merge here could
-// only insert someone's words a second time. Prose is changed on the other side
-// only when it was saved without going through the document.
-// Whether the local copy changed it is a question about the words: the editor
-// rebuilds prose blocks from the document and leaves out block fields it does
-// not edit (`editable`), so comparing whole blocks would call an untouched
-// block changed and let a stale copy overwrite what the other writer saved.
-function mergeRichText(base: unknown, local: unknown, remote: unknown) {
-  return markdownOf(base) === markdownOf(local) ? remote : local;
+function mergeRichText(base: unknown, local: unknown, remote: unknown): Merged {
+  const baseMarkdown = markdownOf(base);
+  const localMarkdown = markdownOf(local);
+  const remoteMarkdown = markdownOf(remote);
+  const localChanged = !same(baseMarkdown, localMarkdown);
+  const remoteChanged = !same(baseMarkdown, remoteMarkdown);
+  if (localChanged && remoteChanged && !same(localMarkdown, remoteMarkdown)) {
+    return CONFLICT;
+  }
+  // Prefer the saved block when local prose is unchanged; it retains fields
+  // such as `editable` that the editor intentionally omits.
+  return localChanged ? local : remote;
 }
 
 function markdownOf(block: unknown): unknown {
@@ -162,8 +164,7 @@ function mergeValue(base: unknown, local: unknown, remote: unknown): Merged {
  * Three-way merge of a plan's blocks. `base` is the saved content this client's
  * edit started from, `local` the blocks it is trying to save, and `remote` the
  * content another writer saved first. Blocks, and the id-keyed lists nested in
- * them, merge by id. Prose blocks both sides changed keep the local copy (see
- * `mergeRichText`).
+ * them, merge by id. Prose blocks both sides changed to different values conflict.
  *
  * Returns `null` when the edits overlap (the same value, one side deleting what
  * the other edited, both sides reordering) so the caller surfaces a conflict.
