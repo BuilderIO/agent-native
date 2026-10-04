@@ -49,6 +49,7 @@ export default function HomePage() {
           <a
             href={docsUrl("getting-started", {
               source: "app",
+              campaign: null,
               content: "docs-card",
             })}
             target="_blank"

@@ -231,6 +231,15 @@ importers:
       concurrently:
         specifier: ^9.1.0
         version: 9.2.1
+      mdast-util-from-markdown:
+        specifier: 2.0.3
+        version: 2.0.3
+      mdast-util-gfm:
+        specifier: 3.1.0
+        version: 3.1.0
+      micromark-extension-gfm:
+        specifier: 3.0.0
+        version: 3.0.0
       oxfmt:
         specifier: 0.56.0
         version: 0.56.0
@@ -240,6 +249,9 @@ importers:
       oxlint-tsgolint:
         specifier: 0.24.0
         version: 0.24.0
+      parse5:
+        specifier: 8.0.1
+        version: 8.0.1
       prettier:
         specifier: ^3.6.2
         version: 3.8.3

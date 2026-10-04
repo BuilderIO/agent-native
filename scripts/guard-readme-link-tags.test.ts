@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  findReadmeLinks,
   findUntaggedLinks,
   selectReadmePaths,
 } from "./guard-readme-link-tags.js";
@@ -189,6 +188,8 @@ describe("readme link tag guard", () => {
         [
           "<https://agent-native.com/docs>",
           "Visit https://www.agent-native.com/apps, or www.agent-native.com/docs.",
+          "See [the reference][ref] and [wrapped][].",
+          "",
           "[ref]: https://agent-native.com/ref",
           "[wrapped]: <https://agent-native.com/wrapped> 'Title'",
         ].join("\n"),
@@ -196,9 +197,114 @@ describe("readme link tag guard", () => {
     ).toEqual([
       "https://agent-native.com/docs",
       "https://www.agent-native.com/apps",
-      "www.agent-native.com/docs",
+      "http://www.agent-native.com/docs",
       "https://agent-native.com/ref",
       "https://agent-native.com/wrapped",
+    ]);
+  });
+
+  it("catches uppercase schemes, a bare URL in a table cell, and a trailing-dot host", () => {
+    expect(
+      untaggedUrls(
+        [
+          "See HTTPS://AGENT-NATIVE.COM/a and WWW.AGENT-NATIVE.COM/b.",
+          "<HTTPS://AGENT-NATIVE.COM/c>",
+          "",
+          "| link | note |",
+          "| --- | --- |",
+          "|https://agent-native.com/d|x|",
+          "",
+          "<https://agent-native.com./e>",
+        ].join("\n"),
+      ),
+    ).toEqual([
+      "HTTPS://AGENT-NATIVE.COM/a",
+      "http://WWW.AGENT-NATIVE.COM/b",
+      "HTTPS://AGENT-NATIVE.COM/c",
+      "https://agent-native.com/d",
+      "https://agent-native.com./e",
+    ]);
+  });
+
+  it("skips indented code, but a four-space fence doesn't hide what follows", () => {
+    expect(
+      untaggedUrls(
+        [
+          "    https://agent-native.com/a",
+          "",
+          "    [a](https://agent-native.com/a)",
+          "",
+          "    ```",
+          "",
+          "[b](https://agent-native.com/b)",
+        ].join("\n"),
+      ),
+    ).toEqual(["https://agent-native.com/b"]);
+  });
+
+  it("matches anchor closers in any case, so later links are still checked", () => {
+    expect(
+      untaggedUrls(
+        [
+          `<A HREF="https://agent-native.com/?${TAG}"> https://agent-native.com </A>`,
+          "",
+          `<A HREF="https://agent-native.com/?${TAG}"> text </A> then https://agent-native.com/untagged and <a href="https://elsewhere.com">x</a>`,
+        ].join("\n"),
+      ),
+    ).toEqual(["https://agent-native.com/untagged"]);
+  });
+
+  it("checks a reference link's destination, not the URL in its label", () => {
+    expect(
+      untaggedUrls(
+        [
+          "[visit https://agent-native.com/docs][ref]",
+          "",
+          `[ref]: https://agent-native.com/docs?${TAG}`,
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("skips reference definitions used only by images or not at all", () => {
+    expect(
+      untaggedUrls(
+        [
+          "![image][logo]",
+          "",
+          "[logo]: https://agent-native.com/logo.png",
+          "[unused]: https://agent-native.com/unused",
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("decodes numeric entities in HTML anchors", () => {
+    expect(
+      untaggedUrls(
+        [
+          '<a href="https://agent-native.com/?a=1&#38;utm_source=github">x</a>',
+          '<a href="https://agent-native.com/?a=1&#x26;utm_source=github">y</a>',
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("finds anchors inside an HTML block and reports the href's line", () => {
+    expect(
+      findUntaggedLinks([
+        {
+          path: "README.md",
+          text: [
+            '<p align="center">',
+            '  <a href="https://github.com/BuilderIO/agent-native">GitHub</a>',
+            '  <a href="https://agent-native.com/docs"><img src="logo.png"></a>',
+            "</p>",
+          ].join("\n"),
+        },
+      ]),
+    ).toEqual([
+      { path: "README.md", line: 3, url: "https://agent-native.com/docs" },
     ]);
   });
 
@@ -232,14 +338,6 @@ describe("readme link tag guard", () => {
     ).toEqual([
       { path: "README.md", line: 5, url: "https://agent-native.com" },
     ]);
-  });
-
-  it("reports every link position so a tagger can rewrite it", () => {
-    const text = "[a](https://agent-native.com/docs#x)";
-    const [link] = findReadmeLinks(text);
-    expect(text.slice(link.start, link.end)).toBe(
-      "https://agent-native.com/docs#x",
-    );
   });
 
   it("selects README.md files outside fixtures and vendored trees", () => {

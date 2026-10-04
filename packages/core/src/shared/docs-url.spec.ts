@@ -26,11 +26,15 @@ describe("docsUrl", () => {
     expect(
       docsUrl("getting-started", {
         source: "app",
+        campaign: null,
         content: "docs-card",
         hash: "quick-start",
       }),
     ).toBe(
       `${AGENT_NATIVE_DOCS_ORIGIN}/docs?utm_source=app&utm_medium=product&utm_content=docs-card#quick-start`,
+    );
+    expect(docsUrl("deployment", { content: "help" })).toBe(
+      `${AGENT_NATIVE_DOCS_ORIGIN}/docs/deployment?utm_source=agent-native&utm_medium=product&utm_campaign=docs&utm_content=help`,
     );
     expect(
       docsUrl("template-clips-features", {
