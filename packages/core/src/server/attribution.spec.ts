@@ -168,6 +168,19 @@ describe("deriveReferralSource", () => {
     ).toBe("direct");
   });
 
+  it("our own hosts, dev servers, and Google sign-in derive direct", () => {
+    for (const host of [
+      "www.agent-native.com",
+      "slides.agent-native.com",
+      "localhost:8080",
+      "accounts.google.com",
+    ]) {
+      expect(
+        deriveReferralSource({ landing_path: "/", landing_referrer: host }),
+      ).toBe("direct");
+    }
+  });
+
   it("nothing derives direct", () => {
     expect(deriveReferralSource(null)).toBe("direct");
     expect(deriveReferralSource({})).toBe("direct");
@@ -370,7 +383,7 @@ describe("last touch", () => {
   it("reads only last-touch fields out of an_lt", () => {
     const raw = JSON.stringify({
       ref: "steve",
-      utm_term: "not-a-last-touch-field",
+      site_landing_path: "/not-a-last-touch-field",
       touched_at: "2026-10-02T00:00:00.000Z",
     });
     expect(
@@ -401,6 +414,36 @@ describe("last touch", () => {
       { last_touch_source: "clip_share", last_touch_path: "/share/clip" },
     );
     expect(deriveLastTouchAttribution(null)).toEqual({});
+  });
+
+  it("keeps last touch's raw tags, click ids, inviting user, and truncation", () => {
+    const cookie = ltCookie({
+      via: "owner_42",
+      utm_term: "agents",
+      gclid: "g-1",
+      msclkid: "m-1",
+      vector_source: "v-1",
+      capture_truncated: "1",
+    });
+
+    expect(signupAttributionFromCookieHeader(cookie)).toEqual({
+      referral_source: "direct",
+      last_touch_source: "direct",
+      last_touch_via: "owner_42",
+      last_touch_utm_term: "agents",
+      last_touch_gclid: "g-1",
+      last_touch_msclkid: "m-1",
+      last_touch_vector_source: "v-1",
+      last_touch_truncated: "true",
+    });
+  });
+
+  it("keeps last_touch_source meaning who referred, not the channel", () => {
+    // Tags alone don't name a referrer; dashboards sort them into channels.
+    expect(
+      deriveLastTouchAttribution({ utm_source: "youtube", utm_medium: "video" })
+        .last_touch_source,
+    ).toBe("direct");
   });
 
   it("adds last touch beside first touch at signup", () => {

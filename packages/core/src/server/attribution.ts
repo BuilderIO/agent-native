@@ -3,7 +3,10 @@ import {
   ANALYTICS_ANONYMOUS_ID_MAX_LENGTH,
   normalizeAnalyticsAnonymousId,
 } from "../shared/analytics-anonymous-id.js";
-import { shareLandingSource } from "../shared/attribution-source.js";
+import {
+  isSourceReferrerHost,
+  shareLandingSource,
+} from "../shared/attribution-source.js";
 
 /**
  * First-touch referral attribution — server side.
@@ -58,10 +61,15 @@ export interface LastTouchAttribution {
   utm_medium?: string;
   utm_campaign?: string;
   utm_content?: string;
+  utm_term?: string;
+  gclid?: string;
+  msclkid?: string;
+  vector_source?: string;
   landing_referrer?: string;
   site_referrer?: string;
   landing_path?: string;
   touched_at?: string;
+  capture_truncated?: string;
 }
 
 export type SignupOrigin =
@@ -109,10 +117,15 @@ const LAST_TOUCH_STRING_FIELDS: Array<keyof LastTouchAttribution> = [
   "utm_medium",
   "utm_campaign",
   "utm_content",
+  "utm_term",
+  "gclid",
+  "msclkid",
+  "vector_source",
   "landing_referrer",
   "site_referrer",
   "landing_path",
   "touched_at",
+  "capture_truncated",
 ];
 
 /**
@@ -220,11 +233,6 @@ export function readAnalyticsAnonymousId(
   }
 }
 
-function isExternalReferrerHost(host: string | undefined): boolean {
-  const trimmed = host?.trim();
-  return !!trimmed && trimmed.length > 0;
-}
-
 export function deriveReferralSource(
   ft: FirstTouchAttribution | LastTouchAttribution | null,
 ): string {
@@ -232,8 +240,8 @@ export function deriveReferralSource(
   const shareSource = shareLandingSource(ft?.landing_path);
   if (shareSource) return shareSource;
   if (
-    isExternalReferrerHost(ft?.landing_referrer) ||
-    isExternalReferrerHost(ft?.site_referrer)
+    isSourceReferrerHost(ft?.landing_referrer) ||
+    isSourceReferrerHost(ft?.site_referrer)
   ) {
     return "external";
   }
@@ -286,14 +294,21 @@ export function deriveLastTouchAttribution(
   };
 
   setIf("last_touch_ref", lt.ref);
+  setIf("last_touch_via", lt.via);
   setIf("last_touch_utm_source", lt.utm_source);
   setIf("last_touch_utm_medium", lt.utm_medium);
   setIf("last_touch_utm_campaign", lt.utm_campaign);
   setIf("last_touch_utm_content", lt.utm_content);
+  setIf("last_touch_utm_term", lt.utm_term);
+  setIf("last_touch_gclid", lt.gclid);
+  setIf("last_touch_msclkid", lt.msclkid);
+  setIf("last_touch_vector_source", lt.vector_source);
   setIf("last_touch_referrer", lt.landing_referrer);
   setIf("last_touch_site_referrer", lt.site_referrer);
   setIf("last_touch_path", lt.landing_path);
   setIf("last_touch_at", lt.touched_at);
+  // The browser dropped fields to fit the cookie.
+  if (lt.capture_truncated === "1") out.last_touch_truncated = "true";
 
   return out;
 }

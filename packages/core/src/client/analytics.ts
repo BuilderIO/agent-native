@@ -269,13 +269,33 @@ const LAST_TOUCH_STORAGE_KEY = "an_last_touch";
 const LAST_TOUCH_COOKIE_NAME = "an_lt";
 // Small enough that both cookies still fit the signup handoff header.
 const LAST_TOUCH_MAX_COOKIE_BYTES = 700;
+// What a sourced visit keeps as last touch, besides its path and time.
+const LAST_TOUCH_SOURCE_FIELDS = [
+  "ref",
+  "via",
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_content",
+  "utm_term",
+  "gclid",
+  "msclkid",
+  "vector_source",
+  "landing_referrer",
+  "site_referrer",
+] as const satisfies readonly (keyof LastTouchAttribution)[];
+// Which fields the cookie keeps first when they don't all fit.
 const LAST_TOUCH_COOKIE_FIELD_PRIORITY = [
   "ref",
+  "gclid",
+  "msclkid",
+  "vector_source",
   "utm_source",
   "utm_medium",
   "utm_campaign",
   "via",
   "utm_content",
+  "utm_term",
   "landing_referrer",
   "site_referrer",
   "landing_path",
@@ -290,8 +310,15 @@ const FORWARDED_LAST_TOUCH_FIELDS = {
   last_utm_medium: "utm_medium",
   last_utm_campaign: "utm_campaign",
   last_utm_content: "utm_content",
+  last_utm_term: "utm_term",
+  last_gclid: "gclid",
+  last_msclkid: "msclkid",
+  last_vector_source: "vector_source",
   last_referrer: "site_referrer",
 } as const satisfies Record<string, keyof LastTouchAttribution>;
+// When the site's latest sourced visit happened, so an older site visit can't
+// replace a newer one the app already has.
+const FORWARDED_LAST_TOUCH_AT_PARAM = "last_at";
 
 interface AttributionCookieSpec {
   name: string;
@@ -339,6 +366,10 @@ export interface LastTouchAttribution {
   utm_medium?: string;
   utm_campaign?: string;
   utm_content?: string;
+  utm_term?: string;
+  gclid?: string;
+  msclkid?: string;
+  vector_source?: string;
   landing_referrer?: string;
   site_referrer?: string;
   landing_path?: string;
@@ -802,23 +833,43 @@ function captureFirstTouchAttribution(): void {
 /**
  * Last touch (`an_last_touch` / `an_lt`) is the latest visit that had a
  * source. When the marketing site forwards its own last touch, that visit is
- * the one to keep, not the site's first touch riding on the same link.
+ * the one to keep, not the site's first touch riding on the same link. A site
+ * visit keeps the time it happened, and loses to a newer visit the app has
+ * already recorded.
  */
 function captureLastTouchAttribution(current: FirstTouchAttribution): void {
   const forwarded = readForwardedLastTouch();
   const source = forwarded ?? (hasAttributionSource(current) ? current : null);
-  if (!source) {
+  const forwardedAt = readForwardedLastTouchAt();
+  const existing = getLastTouchAttribution();
+  const existingAt = Date.parse(existing?.touched_at ?? "");
+  if (
+    !source ||
+    (forwardedAt &&
+      hasAttributionSource(existing) &&
+      existingAt > Date.parse(forwardedAt))
+  ) {
     backfillAttributionCookie(LAST_TOUCH_STORAGE_KEY, LAST_TOUCH_COOKIE);
     return;
   }
   const lastTouch: LastTouchAttribution = {};
-  for (const field of LAST_TOUCH_COOKIE_FIELD_PRIORITY) {
-    const value = source[field as keyof typeof source];
+  for (const field of LAST_TOUCH_SOURCE_FIELDS) {
+    const value = source[field];
     if (value) lastTouch[field] = value;
   }
   if (current.landing_path) lastTouch.landing_path = current.landing_path;
-  lastTouch.touched_at = current.landed_at;
+  lastTouch.touched_at = forwardedAt ?? current.landed_at;
   storeAttribution(LAST_TOUCH_STORAGE_KEY, LAST_TOUCH_COOKIE, lastTouch);
+}
+
+function readForwardedLastTouchAt(): string | undefined {
+  const raw = new URLSearchParams(window.location.search).get(
+    FORWARDED_LAST_TOUCH_AT_PARAM,
+  );
+  const time = Date.parse(raw ?? "");
+  // A visit can't be in the future; a bad clock or value means "now".
+  if (!Number.isFinite(time) || time > Date.now()) return undefined;
+  return new Date(time).toISOString();
 }
 
 function readForwardedLastTouch(): LastTouchAttribution | null {

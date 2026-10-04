@@ -439,6 +439,7 @@ describe("browser analytics pageviews", () => {
       "https://plan.agent-native.com/",
       "https://accounts.google.com/",
     );
+    await revisit("https://plan.agent-native.com/", "http://localhost:8080/");
 
     expect(cookieJson("an_ft")).not.toHaveProperty("landing_referrer");
     expect(cookieJson("an_lt")).toBeUndefined();
@@ -478,6 +479,69 @@ describe("browser analytics pageviews", () => {
       site_referrer: "www.youtube.com",
       landing_path: "/",
       touched_at: expect.any(String),
+    });
+  });
+
+  it("records an ad click as last touch with its click id", async () => {
+    const { cookieJson, localStorage, revisit } = installBrowser();
+    await revisit("https://plan.agent-native.com/?ref=steve");
+    await revisit(
+      "https://plan.agent-native.com/?gclid=click-new&utm_term=agents",
+    );
+
+    expect(cookieJson("an_lt")).toEqual({
+      gclid: "click-new",
+      utm_term: "agents",
+      landing_path: "/",
+      touched_at: expect.any(String),
+    });
+    expect(JSON.parse(localStorage.getItem("an_last_touch")!)).toMatchObject({
+      gclid: "click-new",
+      utm_term: "agents",
+    });
+  });
+
+  it("keeps a newer app visit over an older site visit", async () => {
+    vi.setSystemTime(Date.parse("2026-10-03T12:00:00.000Z"));
+    const { cookieJson, revisit } = installBrowser();
+    await revisit("https://plan.agent-native.com/?ref=latest");
+    const handoff = new URLSearchParams({
+      ref: "first",
+      site_landing_path: "/",
+      last_at: "2026-09-20T00:00:00.000Z",
+    });
+    await revisit(`https://plan.agent-native.com/?${handoff}`);
+
+    expect(cookieJson("an_lt")).toMatchObject({
+      ref: "latest",
+      touched_at: "2026-10-03T12:00:00.000Z",
+    });
+  });
+
+  it("dates a forwarded site visit by when it happened", async () => {
+    vi.setSystemTime(Date.parse("2026-10-03T12:00:00.000Z"));
+    const { cookieJson, revisit } = installBrowser();
+    await revisit("https://plan.agent-native.com/?ref=older");
+    vi.setSystemTime(Date.parse("2026-10-04T12:00:00.000Z"));
+    const handoff = new URLSearchParams({
+      site_landing_path: "/",
+      last_ref: "steve",
+      last_at: "2026-10-04T11:00:00.000Z",
+    });
+    await revisit(`https://plan.agent-native.com/?${handoff}`);
+    expect(cookieJson("an_lt")).toMatchObject({
+      ref: "steve",
+      touched_at: "2026-10-04T11:00:00.000Z",
+    });
+
+    const future = new URLSearchParams({
+      last_ref: "alice",
+      last_at: "2030-01-01T00:00:00.000Z",
+    });
+    await revisit(`https://plan.agent-native.com/?${future}`);
+    expect(cookieJson("an_lt")).toMatchObject({
+      ref: "alice",
+      touched_at: "2026-10-04T12:00:00.000Z",
     });
   });
 

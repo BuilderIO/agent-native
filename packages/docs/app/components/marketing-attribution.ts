@@ -26,6 +26,10 @@ const LAST_TOUCH_HANDOFF_FIELDS = [
   ["last_utm_medium", "utm_medium"],
   ["last_utm_campaign", "utm_campaign"],
   ["last_utm_content", "utm_content"],
+  ["last_utm_term", "utm_term"],
+  ["last_gclid", "gclid"],
+  ["last_msclkid", "msclkid"],
+  ["last_vector_source", "vector_source"],
   ["last_referrer", "landing_referrer"],
 ] as const satisfies ReadonlyArray<
   readonly [string, keyof LastTouchAttribution]
@@ -77,7 +81,8 @@ export function isFirstPartyAppHost(hostname: string): boolean {
  *
  * When the visitor's latest sourced visit to the site is a later one than
  * their first, forward it too as `last_*`, so the app credits what brought
- * them back.
+ * them back. `last_at` says when that visit happened, so the app can tell it
+ * from a newer visit it saw itself.
  */
 export function appendSiteHandoff(
   targetUrl: string,
@@ -97,6 +102,7 @@ export function appendSiteHandoff(
         siteFields.push([param, lastTouch[field]]);
       }
     }
+    siteFields.push(["last_at", lastTouch?.touched_at]);
     for (const [field, value] of siteFields) {
       if (value && !url.searchParams.has(field)) {
         url.searchParams.set(field, value);

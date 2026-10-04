@@ -147,6 +147,7 @@ describe("appendSiteHandoff", () => {
       last_ref: "steve",
       last_utm_medium: "video",
       last_referrer: "www.youtube.com",
+      last_at: "2026-10-01T00:00:00.000Z",
     });
 
     const sameVisit = appendSiteHandoff(
@@ -155,7 +156,27 @@ describe("appendSiteHandoff", () => {
       "/apps/plan",
       { utm_source: "google", touched_at: firstTouch.landed_at },
     );
-    expect(new URL(sameVisit).searchParams.has("last_utm_source")).toBe(false);
+    const sameParams = new URL(sameVisit).searchParams;
+    expect(sameParams.has("last_utm_source")).toBe(false);
+    // The app still learns when that visit was, to compare with its own.
+    expect(sameParams.get("last_at")).toBe(firstTouch.landed_at);
+  });
+
+  it("forwards an ad click id from a later visit", () => {
+    const target = appendSiteHandoff(
+      "https://plan.agent-native.com/",
+      { landing_path: "/", landed_at: "2026-09-20T00:00:00.000Z" },
+      "/",
+      {
+        gclid: "g-2",
+        utm_term: "agents",
+        touched_at: "2026-10-01T00:00:00.000Z",
+      },
+    );
+
+    const params = new URL(target).searchParams;
+    expect(params.get("last_gclid")).toBe("g-2");
+    expect(params.get("last_utm_term")).toBe("agents");
   });
 });
 

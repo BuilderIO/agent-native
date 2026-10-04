@@ -63,22 +63,35 @@ export function isFirstPartyHost(host: string | undefined): boolean {
 // in, never where someone heard about us.
 const SIGN_IN_HOSTS = new Set(["accounts.google.com"]);
 
+// A developer's own machine, with or without a port.
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "0.0.0.0"]);
+
 /**
- * Moving between our own apps and the marketing site, or returning from
- * Google sign-in, is navigation, not a source: those referrers don't count.
+ * Whether a referrer host says where someone came from. Moving between our own
+ * apps and the marketing site, a local dev server, or returning from Google
+ * sign-in is navigation, not a source. The browser and the server both use
+ * this, so capture and `referral_source` agree.
  */
+export function isSourceReferrerHost(host: string | undefined): boolean {
+  const normalized = host?.trim().toLowerCase().replace(/\.$/, "") ?? "";
+  if (!normalized) return false;
+  const hostname = normalized.startsWith("[")
+    ? normalized.slice(0, normalized.indexOf("]") + 1)
+    : normalized.split(":")[0];
+  return (
+    !isFirstPartyHost(hostname) &&
+    !LOCAL_HOSTS.has(hostname) &&
+    !SIGN_IN_HOSTS.has(hostname)
+  );
+}
+
 export function hasAttributionSource(
   touch: AttributionTouch | null | undefined,
 ): boolean {
   if (!touch) return false;
   if (TAG_FIELDS.some((field) => !!touch[field]?.trim())) return true;
   if (shareLandingSource(touch.landing_path)) return true;
-  return [touch.landing_referrer, touch.site_referrer].some((host) => {
-    const normalized = host?.trim().toLowerCase();
-    return (
-      !!normalized &&
-      !isFirstPartyHost(normalized) &&
-      !SIGN_IN_HOSTS.has(normalized)
-    );
-  });
+  return [touch.landing_referrer, touch.site_referrer].some(
+    isSourceReferrerHost,
+  );
 }

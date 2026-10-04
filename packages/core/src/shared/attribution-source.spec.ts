@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   hasAttributionSource,
   isFirstPartyHost,
+  isSourceReferrerHost,
   shareLandingSource,
 } from "./attribution-source.js";
 
@@ -31,6 +32,25 @@ describe("hasAttributionSource", () => {
     expect(
       hasAttributionSource({ landing_referrer: "Accounts.Google.com" }),
     ).toBe(false);
+  });
+});
+
+describe("isSourceReferrerHost", () => {
+  it("counts outside sites", () => {
+    expect(isSourceReferrerHost("github.com")).toBe(true);
+    expect(isSourceReferrerHost("www.google.com")).toBe(true);
+    expect(isSourceReferrerHost("example.com:8443")).toBe(true);
+  });
+
+  it("skips our hosts, dev servers, Google sign-in, and blanks", () => {
+    expect(isSourceReferrerHost("WWW.Agent-Native.com.")).toBe(false);
+    expect(isSourceReferrerHost("slides.agent-native.com")).toBe(false);
+    expect(isSourceReferrerHost("localhost:8080")).toBe(false);
+    expect(isSourceReferrerHost("127.0.0.1:3000")).toBe(false);
+    expect(isSourceReferrerHost("[::1]:5173")).toBe(false);
+    expect(isSourceReferrerHost("accounts.google.com")).toBe(false);
+    expect(isSourceReferrerHost(" ")).toBe(false);
+    expect(isSourceReferrerHost(undefined)).toBe(false);
   });
 });
 
