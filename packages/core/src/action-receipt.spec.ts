@@ -235,6 +235,39 @@ describe("domain event contract", () => {
         { source: "urn:test:event" },
       ),
     ).toThrow("event.time");
+    for (const time of [
+      "2026-10-03T03:00Z",
+      "2026-02-30T03:00:00Z",
+      "2026-10-03T24:00:00Z",
+    ]) {
+      expect(() =>
+        createActionDomainEvent(
+          { id: "event-1", type: "test.v1", time, data: {} },
+          { source: "urn:test:event" },
+        ),
+      ).toThrow("event.time");
+    }
+  });
+
+  it("snapshots event data when emitted", async () => {
+    const stage = vi.fn(adapter([]).stageActionOutcome);
+    const data = { nested: { value: "before" } };
+    await commitAction({
+      adapter: { ...adapter([]), stageActionOutcome: stage },
+      action: "snapshot-event",
+      source: "urn:test:action",
+      now: () => NOW,
+      idFactory: sequence("event-1", "receipt-1"),
+      mutate: ({ emit }) => {
+        emit({ type: "test.snapshot.v1", data });
+        data.nested.value = "after";
+        return { ok: true };
+      },
+    });
+
+    expect(stage.mock.calls[0]![1].events[0]!.data).toEqual({
+      nested: { value: "before" },
+    });
   });
 });
 
@@ -274,6 +307,18 @@ describe("receipt serialization and validation", () => {
   it("uses a distinct validation error type", () => {
     expect(() => assertActionReceipt(null)).toThrow(
       ActionReceiptValidationError,
+    );
+  });
+
+  it("rejects sparse arrays and inherited receipt fields", () => {
+    const sparse = new Array(2) as unknown[];
+    sparse[1] = "present";
+    expect(() =>
+      assertActionReceipt({ ...receipt, result: sparse } as never),
+    ).toThrow("result[0]");
+
+    expect(() => assertActionReceipt(Object.create(receipt))).toThrow(
+      "action receipt",
     );
   });
 });

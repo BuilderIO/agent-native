@@ -203,7 +203,7 @@ export function createActionDomainEvent<TData extends ActionJsonValue>(
       toTimestamp((options.now ?? (() => new Date()))(), "event.time"),
     ...(draft.subject === undefined ? {} : { subject: draft.subject }),
     datacontenttype: DOMAIN_EVENT_CONTENT_TYPE,
-    data: draft.data,
+    data: cloneJson(draft.data) as TData,
   };
   assertActionDomainEvent(event);
   return event;
@@ -212,16 +212,20 @@ export function createActionDomainEvent<TData extends ActionJsonValue>(
 export function assertActionDomainEvent(
   value: unknown,
 ): asserts value is ActionDomainEvent {
-  const record = strictRecord(value, "domain event", [
-    "specversion",
-    "id",
-    "source",
-    "type",
-    "time",
-    "subject",
-    "datacontenttype",
-    "data",
-  ]);
+  const record = strictRecord(
+    value,
+    "domain event",
+    [
+      "specversion",
+      "id",
+      "source",
+      "type",
+      "time",
+      "subject",
+      "datacontenttype",
+      "data",
+    ],
+  );
   if (record.specversion !== DOMAIN_EVENT_SPEC_VERSION)
     invalid("domain event specversion");
   checkedId(record.id, "event.id");
@@ -233,21 +237,34 @@ export function assertActionDomainEvent(
   if (record.datacontenttype !== DOMAIN_EVENT_CONTENT_TYPE)
     invalid("domain event datacontenttype");
   assertJsonValue(record.data, "event.data");
+  assertOwnFields(record, "domain event", [
+    "specversion",
+    "id",
+    "source",
+    "type",
+    "time",
+    "datacontenttype",
+    "data",
+  ]);
 }
 
 export function assertActionReceipt(
   value: unknown,
 ): asserts value is ActionReceipt {
-  const record = strictRecord(value, "action receipt", [
-    "schemaVersion",
-    "receiptId",
-    "action",
-    "status",
-    "committedAt",
-    "provenance",
-    "result",
-    "events",
-  ]);
+  const record = strictRecord(
+    value,
+    "action receipt",
+    [
+      "schemaVersion",
+      "receiptId",
+      "action",
+      "status",
+      "committedAt",
+      "provenance",
+      "result",
+      "events",
+    ],
+  );
   if (record.schemaVersion !== ACTION_RECEIPT_SCHEMA_VERSION)
     invalid("receipt schemaVersion");
   checkedId(record.receiptId, "receiptId");
@@ -258,6 +275,16 @@ export function assertActionReceipt(
   assertJsonValue(record.result, "result");
   if (!Array.isArray(record.events)) invalid("receipt events");
   for (const event of record.events) assertEventReference(event);
+  assertOwnFields(record, "action receipt", [
+    "schemaVersion",
+    "receiptId",
+    "action",
+    "status",
+    "committedAt",
+    "provenance",
+    "result",
+    "events",
+  ]);
 }
 
 export function serializeActionReceipt(receipt: ActionReceipt): string {
@@ -317,18 +344,22 @@ function provenanceFrom(options: {
 function assertProvenance(
   value: unknown,
 ): asserts value is ActionReceiptProvenance {
-  const record = strictRecord(value, "receipt provenance", [
-    "caller",
-    "appId",
-    "orgId",
-    "runId",
-    "threadId",
-    "turnId",
-    "toolCallId",
-    "correlationId",
-    "causationId",
-    "idempotencyKey",
-  ]);
+  const record = strictRecord(
+    value,
+    "receipt provenance",
+    [
+      "caller",
+      "appId",
+      "orgId",
+      "runId",
+      "threadId",
+      "turnId",
+      "toolCallId",
+      "correlationId",
+      "causationId",
+      "idempotencyKey",
+    ],
+  );
   const callers: readonly ActionCaller[] = [
     "tool",
     "http",
@@ -344,24 +375,24 @@ function assertProvenance(
   for (const key of Object.keys(record)) {
     if (key !== "caller") assertNonEmpty(record[key], `provenance ${key}`);
   }
+  assertOwnFields(record, "receipt provenance", ["caller"]);
 }
 
 function assertEventReference(
   value: unknown,
 ): asserts value is ActionDomainEventReference {
-  const record = strictRecord(value, "event reference", [
-    "id",
-    "source",
-    "type",
-    "time",
-    "subject",
-  ]);
+  const record = strictRecord(
+    value,
+    "event reference",
+    ["id", "source", "type", "time", "subject"],
+  );
   checkedId(record.id, "event reference id");
   assertAbsoluteUri(record.source, "event reference source");
   assertNonEmpty(record.type, "event reference type");
   assertTimestamp(record.time, "event reference time");
   if (record.subject !== undefined)
     assertNonEmpty(record.subject, "event reference subject");
+  assertOwnFields(record, "event reference", ["id", "source", "type", "time"]);
 }
 
 function toEventReference(
@@ -391,9 +422,10 @@ function assertJsonValue(
   if (seen.has(value)) invalid(`${label} (cyclic)`);
   seen.add(value);
   if (Array.isArray(value)) {
-    value.forEach((item, index) =>
-      assertJsonValue(item, `${label}[${index}]`, seen),
-    );
+    for (let index = 0; index < value.length; index += 1) {
+      if (!Object.hasOwn(value, index)) invalid(`${label}[${index}]`);
+      assertJsonValue(value[index], `${label}[${index}]`, seen);
+    }
   } else {
     if (
       Object.getPrototypeOf(value) !== Object.prototype &&
@@ -418,6 +450,16 @@ function sortJson(value: ActionJsonValue): ActionJsonValue {
   return value;
 }
 
+function cloneJson(value: ActionJsonValue): ActionJsonValue {
+  if (Array.isArray(value)) return value.map(cloneJson);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, cloneJson(item)]),
+    );
+  }
+  return value;
+}
+
 function strictRecord(
   value: unknown,
   label: string,
@@ -425,6 +467,8 @@ function strictRecord(
 ): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
     invalid(label);
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) invalid(label);
   const record = value as Record<string, unknown>;
   const extra = Object.keys(record).find((key) => !allowed.includes(key));
   if (extra)
@@ -432,6 +476,18 @@ function strictRecord(
       `Invalid ${label}: unexpected ${extra}`,
     );
   return record;
+}
+
+function assertOwnFields(
+  record: Record<string, unknown>,
+  label: string,
+  required: readonly string[],
+): void {
+  const missing = required.find((key) => !Object.hasOwn(record, key));
+  if (missing)
+    throw new ActionReceiptValidationError(
+      `Invalid ${label}: missing ${missing}`,
+    );
 }
 
 function assertNonEmpty(
@@ -464,11 +520,51 @@ function assertTimestamp(
   label: string,
 ): asserts value is string {
   assertNonEmpty(value, label);
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|([+-])(\d{2}):(\d{2}))$/.exec(
+    value,
+  );
+  if (!match) invalid(label);
+  const [
+    ,
+    yearText,
+    monthText,
+    dayText,
+    hourText,
+    minuteText,
+    secondText,
+    ,
+    offsetHourText,
+    offsetMinuteText,
+  ] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  const offsetHour = offsetHourText === undefined ? 0 : Number(offsetHourText);
+  const offsetMinute =
+    offsetMinuteText === undefined ? 0 : Number(offsetMinuteText);
   if (
-    !/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value) ||
-    Number.isNaN(Date.parse(value))
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > daysInMonth(year, month) ||
+    hour > 23 ||
+    minute > 59 ||
+    second > 60 ||
+    offsetHour > 23 ||
+    offsetMinute > 59
   )
     invalid(label);
+}
+
+function daysInMonth(year: number, month: number): number {
+  if (month === 2) {
+    const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    return leap ? 29 : 28;
+  }
+  return [4, 6, 9, 11].includes(month) ? 30 : 31;
 }
 
 function toTimestamp(value: Date, label: string): string {
