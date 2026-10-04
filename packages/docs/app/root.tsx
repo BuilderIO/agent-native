@@ -633,20 +633,6 @@ export default function Root() {
     );
   }, []);
 
-  useEffect(() => {
-    let uninstall: (() => void) | undefined;
-    let disposed = false;
-    void import("./components/marketing-attribution").then(
-      ({ installAppLinkAttribution }) => {
-        if (!disposed) uninstall = installAppLinkAttribution();
-      },
-    );
-    return () => {
-      disposed = true;
-      uninstall?.();
-    };
-  }, []);
-
   return (
     <QueryClientProvider client={queryClient}>
       <DocsI18nProvider>
