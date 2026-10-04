@@ -30,12 +30,8 @@ export async function handleMcpFetchRequest(
   options: MCPFetchHandlerOptions,
 ): Promise<Response> {
   const method = request.method.toUpperCase();
-  const body =
-    method === "POST"
-      ? options.parsedBody !== undefined
-        ? options.parsedBody
-        : await request.clone().json()
-      : undefined;
+  const body = method === "POST" ? options.parsedBody : undefined;
+  const hasParsedBody = body !== undefined;
   const initializeRequest = body
     ? (Array.isArray(body) ? body : [body]).find(
         (
@@ -94,6 +90,6 @@ export async function handleMcpFetchRequest(
   );
   return handler.fetch(
     request,
-    method === "POST" ? { parsedBody: body } : undefined,
+    hasParsedBody ? { parsedBody: body } : undefined,
   );
 }

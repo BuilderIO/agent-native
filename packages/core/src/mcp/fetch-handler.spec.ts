@@ -66,7 +66,7 @@ describe("handleMcpFetchRequest", () => {
     expect(mocks.fetch).toHaveBeenCalledWith(request, { parsedBody: body });
   });
 
-  it("parses a Fetch request body when a framework did not pre-parse it", async () => {
+  it("leaves an unparsed Fetch request body to the MCP transport", async () => {
     const body = { jsonrpc: "2.0", id: 2, method: "tools/list" };
     const request = new Request("https://example.com/mcp", {
       method: "POST",
@@ -78,6 +78,23 @@ describe("handleMcpFetchRequest", () => {
       requestMeta: { transport: "http" },
     });
 
-    expect(mocks.fetch).toHaveBeenLastCalledWith(request, { parsedBody: body });
+    expect(mocks.fetch).toHaveBeenLastCalledWith(request, undefined);
+  });
+
+  it("leaves malformed bodies to the MCP transport", async () => {
+    const request = new Request("https://example.com/mcp", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{",
+    });
+
+    const response = await handleMcpFetchRequest(
+      request,
+      { name: "test", actions: {} } as any,
+      { requestMeta: { transport: "http" } },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.fetch).toHaveBeenLastCalledWith(request, undefined);
   });
 });
