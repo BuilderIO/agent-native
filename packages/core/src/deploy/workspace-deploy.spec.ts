@@ -383,6 +383,60 @@ describe("workspace deploy", () => {
     ).toContain('AGENT_NATIVE_WORKSPACE_AUTH_MODE: "isolated"');
   });
 
+  it("routes embedded HTML and PCK assets without replacing the app root shell", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    execFile.mockImplementation(((_cmd, args) => {
+      const app = String(args[1]);
+      writeAppBuildOutput(tmpDir, app);
+      const publicDir = path.join(tmpDir, "apps", app, "dist", app);
+      const rendererDir = path.join(publicDir, "living-world", "godot");
+      fs.mkdirSync(rendererDir, { recursive: true });
+      fs.writeFileSync(path.join(publicDir, "index.html"), "root shell");
+      fs.writeFileSync(path.join(rendererDir, "index.html"), "renderer entry");
+      fs.writeFileSync(path.join(rendererDir, "index.pck"), "renderer payload");
+      return Buffer.from("");
+    }) as typeof execFileSync);
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=netlify", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const redirects = fs.readFileSync(
+      path.join(tmpDir, "dist", "_redirects"),
+      "utf8",
+    );
+    for (const file of ["index.html", "index.pck"]) {
+      const publicPath = `/dispatch/living-world/godot/${file}`;
+      expect(redirects).toContain(
+        `${publicPath} /_workspace_static${publicPath} 200`,
+      );
+    }
+    expect(redirects).not.toContain(
+      "/dispatch/index.html /_workspace_static/dispatch/index.html 200",
+    );
+
+    const entry = await import(
+      pathToFileURL(
+        path.join(
+          tmpDir,
+          ".netlify",
+          "functions-internal",
+          "dispatch-server",
+          "dispatch-server.mjs",
+        ),
+      ).href
+    );
+    expect(entry.config.excludedPath).toContain(
+      "/dispatch/living-world/godot/index.html",
+    );
+    expect(entry.config.excludedPath).toContain(
+      "/dispatch/living-world/godot/index.pck",
+    );
+    expect(entry.config.excludedPath).not.toContain("/dispatch/index.html");
+  });
+
   it.each([
     { app: "assets", mounted: true },
     { app: "starter", mounted: true },
