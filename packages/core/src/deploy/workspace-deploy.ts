@@ -93,6 +93,7 @@ const NETLIFY_PUBLIC_ASSET_EXTENSIONS = new Set([
   "avif",
   "css",
   "gif",
+  "html",
   "ico",
   "jpeg",
   "jpg",
@@ -101,6 +102,7 @@ const NETLIFY_PUBLIC_ASSET_EXTENSIONS = new Set([
   "map",
   "mp4",
   "pdf",
+  "pck",
   "png",
   "svg",
   "txt",
@@ -1427,6 +1429,9 @@ function netlifyPublicAssetPaths(app: string, staticDir: string): string[] {
         continue;
       }
       const ext = path.extname(entry.name).slice(1).toLowerCase();
+      // The app root HTML shell must keep the server's routing contract.
+      if (!relativeDirectory && entry.name.toLowerCase() === "index.html")
+        continue;
       if (NETLIFY_PUBLIC_ASSET_EXTENSIONS.has(ext)) {
         assetPaths.push(relativePath);
       }
