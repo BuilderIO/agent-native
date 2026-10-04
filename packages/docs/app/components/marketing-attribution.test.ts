@@ -31,6 +31,19 @@ describe("appendFirstTouchAttribution", () => {
     });
   });
 
+  it("passes ad click ids to the app URL", () => {
+    const target = appendFirstTouchAttribution(
+      "https://clips.agent-native.com",
+      { gclid: "g-1", msclkid: "m-1", vector_source: "v-1" },
+    );
+
+    expect(Object.fromEntries(new URL(target).searchParams)).toEqual({
+      gclid: "g-1",
+      msclkid: "m-1",
+      vector_source: "v-1",
+    });
+  });
+
   it("preserves explicit destination attribution values", () => {
     const target = appendFirstTouchAttribution(
       "https://clips.agent-native.com/?utm_source=destination",
@@ -119,12 +132,28 @@ describe("installAppLinkAttribution", () => {
     localStorage.clear();
   });
 
-  function click(link: HTMLAnchorElement, type = "click") {
-    const event = new MouseEvent(type, { bubbles: true, cancelable: true });
+  /** Returns the href the browser would follow, read after every listener. */
+  function click(link: HTMLAnchorElement, type = "click", button = 0) {
+    const event = new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      button,
+    });
+    let followed = "";
     // jsdom cannot navigate; stop after every document listener has run.
-    window.addEventListener(type, (e) => e.preventDefault(), { once: true });
+    window.addEventListener(
+      type,
+      (e) => {
+        followed = link.href;
+        e.preventDefault();
+      },
+      { once: true },
+    );
     link.dispatchEvent(event);
+    return followed;
   }
+
+  const nextTask = () => new Promise((resolve) => setTimeout(resolve));
 
   function linkTo(href: string): HTMLAnchorElement {
     const link = document.createElement("a");
@@ -145,13 +174,42 @@ describe("installAppLinkAttribution", () => {
     uninstall = installAppLinkAttribution();
     const link = linkTo("https://clips.agent-native.com/");
 
-    click(link, "auxclick");
+    const followed = click(link, "auxclick", 1);
 
-    expect(Object.fromEntries(new URL(link.href).searchParams)).toEqual({
+    expect(Object.fromEntries(new URL(followed).searchParams)).toEqual({
       utm_source: "youtube",
       site_referrer: "www.youtube.com",
       site_landing_path: "/",
     });
+  });
+
+  it("puts the clean link back once the click is followed", async () => {
+    localStorage.setItem(
+      "an_attribution",
+      JSON.stringify({ ref: "alice", landing_path: "/" }),
+    );
+    uninstall = installAppLinkAttribution();
+    const link = linkTo("https://clips.agent-native.com/");
+
+    const followed = click(link);
+    await nextTask();
+
+    expect(new URL(followed).searchParams.get("ref")).toBe("alice");
+    // Copying the link afterwards must not share this visitor's source.
+    expect(link.href).toBe("https://clips.agent-native.com/");
+  });
+
+  it("ignores the right mouse button", async () => {
+    localStorage.setItem(
+      "an_attribution",
+      JSON.stringify({ ref: "alice", landing_path: "/" }),
+    );
+    uninstall = installAppLinkAttribution();
+    const link = linkTo("https://clips.agent-native.com/");
+
+    const followed = click(link, "auxclick", 2);
+
+    expect(followed).toBe("https://clips.agent-native.com/");
   });
 
   it("leaves links to the site and other domains alone", () => {
@@ -166,17 +224,22 @@ describe("installAppLinkAttribution", () => {
     expect(github.href).toBe("https://github.com/BuilderIO/agent-native");
   });
 
-  it("decorates an href a click handler rebuilt", () => {
+  it("decorates an href a click handler rebuilt", async () => {
     uninstall = installAppLinkAttribution();
     const link = linkTo("https://slides.agent-native.com/");
     link.addEventListener("click", () => {
       link.href = "https://slides.agent-native.com/?initialPrompt=deck";
     });
 
-    click(link);
+    const followed = click(link);
+    await nextTask();
 
-    const params = new URL(link.href).searchParams;
+    const params = new URL(followed).searchParams;
     expect(params.get("initialPrompt")).toBe("deck");
     expect(params.get("site_landing_path")).toBe("/");
+    // Only our own parameters come off; the handler's rebuild stays.
+    expect(link.href).toBe(
+      "https://slides.agent-native.com/?initialPrompt=deck",
+    );
   });
 });

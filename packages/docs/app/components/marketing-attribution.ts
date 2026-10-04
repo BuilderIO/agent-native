@@ -11,6 +11,9 @@ const FIRST_TOUCH_HANDOFF_FIELDS = [
   "utm_campaign",
   "utm_content",
   "utm_term",
+  "gclid",
+  "msclkid",
+  "vector_source",
 ] as const satisfies ReadonlyArray<keyof FirstTouchAttribution>;
 
 const MARKETING_HOSTS = new Set([
@@ -84,26 +87,38 @@ export function appendSiteHandoff(
  * Decorate every link into an app at the moment it is followed, so links in
  * docs content, shared components, and future pages carry the visitor's
  * source without each one remembering to.
+ *
+ * The browser reads `href` when the click's default action runs, right after
+ * every listener. The clean `href` comes back on the next task, so copying
+ * the link later never hands this visitor's source to someone else.
  */
 export function installAppLinkAttribution(target: Document = document) {
   const decorate = (event: Event) => {
+    // Primary click (also Enter on a focused link) or middle click. Other
+    // buttons open menus, not the link.
+    const button = event instanceof MouseEvent ? event.button : 0;
+    if (button !== (event.type === "auxclick" ? 1 : 0)) return;
     const element = event.target instanceof Element ? event.target : null;
     const link = element?.closest("a[href]");
     if (!(link instanceof HTMLAnchorElement)) return;
     if (!isFirstPartyAppHost(link.hostname)) return;
+    const cleanUrl = link.href;
     const nextUrl = appendSiteHandoff(
-      link.href,
+      cleanUrl,
       getFirstTouchAttribution(),
       window.location.pathname,
     );
-    if (nextUrl !== link.href) link.href = nextUrl;
+    if (nextUrl === cleanUrl) return;
+    link.href = nextUrl;
+    setTimeout(() => {
+      // Undo only our own change: a handler may have rebuilt the link since.
+      if (link.href === nextUrl) link.href = cleanUrl;
+    });
   };
 
   // Both phases: capture still runs when a handler stops propagation, and
   // bubble runs after handlers that rebuild `href` on click (SlidesTryNow).
-  // Decorating is idempotent. `auxclick` covers middle-click; context-menu
-  // copies are left alone so a copied link never carries this visitor's
-  // source to someone else.
+  // Decorating is idempotent. `auxclick` covers middle-click.
   const listeners = ["click", "auxclick"].flatMap((type) =>
     [true, false].map((capture) => ({ type, capture })),
   );
