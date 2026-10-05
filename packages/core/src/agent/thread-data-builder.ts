@@ -570,12 +570,19 @@ interface MessageIdentityKeySet {
   fingerprint: string[];
 }
 
-function messageIdentityKeySet(message: any): MessageIdentityKeySet {
+function messageIdentityKeySet(
+  message: any,
+  eventRunIds?: Map<string, string>,
+): MessageIdentityKeySet {
   const strong: string[] = [];
   if (typeof message?.id === "string" && message.id) {
     strong.push(`id:${message.id}`);
   }
-  const runId = getMessageRunId(message);
+  const runId =
+    getMessageRunId(message) ??
+    (typeof message?.id === "string"
+      ? eventRunIds?.get(message.id)
+      : undefined);
   if (runId) strong.push(`run:${runId}`);
   const turnId = turnIdOf(message);
   if (turnId) strong.push(`turn:${turnId}`);
@@ -1026,13 +1033,13 @@ function engineMessageTextLength(message: EngineMessage): number {
   );
 }
 
-export function recoverThreadHistoryForRequest(
-  threadData: string | Record<string, unknown> | null | undefined,
+function boundedHistoryWindow(
+  messages: EngineMessage[],
   limits?: { maxMessages?: number; maxChars?: number },
 ): EngineMessage[] {
   const maxMessages = limits?.maxMessages ?? MAX_RECOVERED_HISTORY_MESSAGES;
   const maxChars = limits?.maxChars ?? MAX_RECOVERED_HISTORY_CHARS;
-  const window = threadDataToEngineMessages(threadData).slice(-maxMessages);
+  const window = messages.slice(-maxMessages);
   let total = window.reduce(
     (sum, message) => sum + engineMessageTextLength(message),
     0,
@@ -1040,7 +1047,51 @@ export function recoverThreadHistoryForRequest(
   while (window.length > 1 && total > maxChars) {
     total -= engineMessageTextLength(window.shift()!);
   }
+  // Providers reject a tool result whose call was cut from the window.
+  while (window[0]?.content.some((part) => part.type === "tool-result")) {
+    window.shift();
+  }
   return window;
+}
+
+export function recoverThreadHistoryForRequest(
+  threadData: string | Record<string, unknown> | null | undefined,
+  limits?: { maxMessages?: number; maxChars?: number },
+): EngineMessage[] {
+  return boundedHistoryWindow(threadDataToEngineMessages(threadData), limits);
+}
+
+/**
+ * History for resuming a stopped turn: earlier turns get the recovery window,
+ * while the turn itself, from its last user message on, stays whole so every
+ * finished tool call keeps its result. Without a user message, the turn's
+ * prompt is not in the thread: `foundTurnPrompt` is false and every message is
+ * returned unbounded.
+ */
+export function resumeThreadHistoryForRequest(
+  threadData: string | Record<string, unknown> | null | undefined,
+): { messages: EngineMessage[]; foundTurnPrompt: boolean } {
+  const messages = threadDataToEngineMessages(threadData, {
+    includeToolCalls: true,
+  });
+  let turnStart = messages.length - 1;
+  while (
+    turnStart >= 0 &&
+    !(
+      messages[turnStart]!.role === "user" &&
+      messages[turnStart]!.content.some((part) => part.type === "text")
+    )
+  ) {
+    turnStart--;
+  }
+  if (turnStart < 0) return { messages, foundTurnPrompt: false };
+  return {
+    messages: [
+      ...boundedHistoryWindow(messages.slice(0, turnStart)),
+      ...messages.slice(turnStart),
+    ],
+    foundTurnPrompt: true,
+  };
 }
 
 const MAX_INTEGRATION_ARTIFACTS_IN_CONTEXT = 12;
@@ -1385,7 +1436,9 @@ export function claimQueuedMessage(repo: any, messageId: string): any {
 export function applySubmittedUserMessage(
   repo: any,
   userMessage: UserMessage,
-  queuedMessage?: { id: string; claimId?: string; now?: number },
+  queuedMessage?:
+    | { kind?: "queued-message"; id: string; claimId?: string; now?: number }
+    | { kind: "background-operation"; id: string },
 ):
   | { status: "submitted" | "already_submitted"; repo: any }
   | { status: "already_claimed" | "claim_expired" } {
@@ -1432,6 +1485,16 @@ export function applySubmittedUserMessage(
           (message as Record<string, unknown>).id === queuedMessage.id,
       )
     : undefined;
+  if (queuedMessage.kind === "background-operation") {
+    if (queued) return { status: "claim_expired" };
+    return {
+      status: "submitted",
+      repo: upsertUserMessage(
+        claimQueuedMessage(repo, queuedMessage.id),
+        userMessage,
+      ),
+    };
+  }
   const claim = queued?.promotionClaim;
   if (
     !queued ||
@@ -1550,6 +1613,7 @@ function mergeAgentKitHistoryArray(
   kind: "message" | "toolCall" | "widget",
   existingMessageRunIds: Map<string, string>,
   incomingMessageRunIds: Map<string, string>,
+  promptRunIds: Map<string, string>,
 ): unknown[] | undefined {
   if (!Array.isArray(existing) && !Array.isArray(incoming)) return undefined;
   const merged = Array.isArray(existing) ? [...existing] : [];
@@ -1603,7 +1667,114 @@ function mergeAgentKitHistoryArray(
       }
     }
   }
-  return merged;
+  if (kind !== "message") return merged;
+  const runAt = replyRunIdAt(
+    merged,
+    [incomingMessageRunIds, existingMessageRunIds],
+    promptRunIds,
+  );
+  return merged.filter(
+    (_entry, index) => !isSupersededInFlightReply(merged, index, runAt),
+  );
+}
+
+/** Prompt id to the run it was submitted to, from the stored user messages. */
+function submittedPromptRunIds(...lists: unknown[]): Map<string, string> {
+  const runs = new Map<string, string>();
+  for (const list of lists) {
+    for (const entry of Array.isArray(list) ? list : []) {
+      const message = getStoredMessage(entry);
+      const id = messageId(message);
+      const runId = message?.metadata?.custom?.submittedRunId;
+      if (message?.role === "user" && id && typeof runId === "string") {
+        runs.set(id, runId);
+      }
+    }
+  }
+  return runs;
+}
+
+/**
+ * The run behind each reply: its own metadata, else the AgentKit events, else
+ * the prompt's submitted run when it is the prompt's first reply. Compacted
+ * events drop the link for a reply saved mid-stream, so the prompt is often
+ * the only record left.
+ */
+function replyRunIdAt(
+  entries: unknown[],
+  eventRunIds: Map<string, string>[],
+  promptRunIds: Map<string, string>,
+): (index: number) => string | undefined {
+  return (index) => {
+    const message = getStoredMessage(entries[index]);
+    const id = messageId(message);
+    const recorded =
+      getMessageRunId(message) ??
+      (id ? eventRunIds.find((runs) => runs.has(id))?.get(id) : undefined);
+    if (recorded) return recorded;
+    for (let i = index - 1; i >= 0; i--) {
+      const earlier = getStoredMessage(entries[i]);
+      if (earlier?.role === "assistant") return undefined;
+      if (earlier?.role === "user") {
+        const prompt = messageId(earlier);
+        return prompt ? promptRunIds.get(prompt) : undefined;
+      }
+    }
+    return undefined;
+  };
+}
+
+function storedMessageText(message: any): string {
+  return messageText(message?.content ?? message?.parts);
+}
+
+function isInFlightReply(message: any): boolean {
+  return (
+    message?.role === "assistant" &&
+    (message.status === "streaming" || message.status?.type === "running")
+  );
+}
+
+/**
+ * A reloaded page replays an unfinished run from its first event under a new
+ * message id, so the reply it saved mid-stream reaches storage beside the
+ * replay. That partial gives way only to a finished reply to the same prompt
+ * from the same run whose text extends it, and only while no other run is
+ * still answering that prompt. Without a known run on both sides, both stay.
+ */
+function isSupersededInFlightReply(
+  entries: unknown[],
+  index: number,
+  runAt: (index: number) => string | undefined,
+): boolean {
+  const message = getStoredMessage(entries[index]);
+  if (!isInFlightReply(message)) return false;
+  const runId = runAt(index);
+  if (!runId) return false;
+  let start = index;
+  while (start > 0 && getStoredMessage(entries[start - 1])?.role !== "user") {
+    start--;
+  }
+  if (start === 0) return false;
+  const text = storedMessageText(message);
+  let finishedPast = false;
+  for (let other = start; other < entries.length; other++) {
+    const reply = getStoredMessage(entries[other]);
+    if (reply?.role === "user") break;
+    if (other === index || reply?.role !== "assistant") continue;
+    const otherRunId = runAt(other);
+    if (isInFlightReply(reply) && otherRunId !== runId) return false;
+    const replyText = storedMessageText(reply);
+    if (
+      (reply.status === "complete" || reply.status?.type === "complete") &&
+      otherRunId === runId &&
+      replyText.length > text.length &&
+      replyText.startsWith(text)
+    ) {
+      finishedPast = true;
+    }
+  }
+  return finishedPast;
 }
 
 function latestSnapshotRun(runs: unknown): AgentRunSnapshot | undefined {
@@ -1737,7 +1908,11 @@ export function foldThreadRunSuggestions(
   };
 }
 
-function mergeAgentKitHistory(existing: unknown, incoming: unknown): unknown {
+function mergeAgentKitHistory(
+  existing: unknown,
+  incoming: unknown,
+  promptRunIds: Map<string, string>,
+): unknown {
   if (
     !existing ||
     typeof existing !== "object" ||
@@ -1813,6 +1988,7 @@ function mergeAgentKitHistory(existing: unknown, incoming: unknown): unknown {
       kind,
       existingMessageRunIds,
       incomingMessageRunIds,
+      promptRunIds,
     );
     if (entries) merged[key] = entries;
   }
@@ -1853,28 +2029,33 @@ export function mergeThreadDataForClientSave(
     typeof existingNormalized === "object"
   ) {
     for (const [key, value] of Object.entries(existingNormalized)) {
-      if (key === "messages" || key === "headId") continue;
-      if (key === "queuedMessages" && !preserveExistingQueuedMessages) {
+      if (key === "messages" || key === "headId" || key === "queuedMessages") {
         continue;
       }
       if (!(key in merged)) {
         merged[key] = value;
       }
     }
-  } else if (
+  }
+  // Queue mutations are the only writer of the queue and opt out here. Any
+  // other save carries a queue it read earlier, and letting that copy win drops
+  // a promotion claim or an append that landed in between.
+  if (
     preserveExistingQueuedMessages &&
-    existingNormalized &&
-    typeof existingNormalized === "object" &&
-    existingNormalized.queuedMessages !== undefined &&
-    merged.queuedMessages === undefined
+    existingNormalized?.queuedMessages !== undefined
   ) {
     merged.queuedMessages = existingNormalized.queuedMessages;
   }
 
+  const promptRunIds = submittedPromptRunIds(
+    existingNormalized?.messages,
+    incomingNormalized?.messages,
+  );
   if (merged.agentKit !== undefined) {
     merged.agentKit = mergeAgentKitHistory(
       existingNormalized?.agentKit,
       merged.agentKit,
+      promptRunIds,
     );
   }
 
@@ -1888,12 +2069,38 @@ export function mergeThreadDataForClientSave(
     return pruneClaimedQueuedMessages(merged);
   }
 
+  // The chat UI saves its replies under AgentKit ids with no runId; only the
+  // AgentKit events tie them to the run the server folded under its own id.
+  const eventRunIds = snapshotMessageRunIds(merged.agentKit);
   const incomingKeySets: MessageIdentityKeySet[] = incomingMessages.map(
-    (entry: unknown) => messageIdentityKeySet(getStoredMessage(entry)),
+    (entry: unknown) =>
+      messageIdentityKeySet(getStoredMessage(entry), eventRunIds),
   );
   const usedIncoming = new Set<number>();
   const nextMessages: any[] = [];
   const idRewrites = new Map<string, string>();
+
+  // A message that keeps its own id owns the incoming copy with that id; a
+  // run or turn match is weaker and must not take it from the message itself.
+  const incomingByOwnId = new Map<number, number>();
+  existingMessages.forEach((entry: unknown, existingIndex: number) => {
+    const existingMessage = getStoredMessage(entry);
+    const id = messageId(existingMessage);
+    if (
+      !id ||
+      (existingMessage?.role === "assistant" &&
+        messageContentIsEmpty(existingMessage.content))
+    ) {
+      return;
+    }
+    const incomingIndex = incomingKeySets.findIndex(
+      (keys, index) =>
+        !usedIncoming.has(index) && keys.strong.includes(`id:${id}`),
+    );
+    if (incomingIndex === -1) return;
+    usedIncoming.add(incomingIndex);
+    incomingByOwnId.set(existingIndex, incomingIndex);
+  });
 
   for (
     let existingIndex = 0;
@@ -1909,13 +2116,15 @@ export function mergeThreadDataForClientSave(
       continue;
     }
 
-    const existingKeys = messageIdentityKeySet(existingMessage);
-    const incomingIndex = findRankedIdentityMatch(
-      existingKeys,
-      incomingKeySets,
-      usedIncoming,
-      existingIndex,
-    );
+    const existingKeys = messageIdentityKeySet(existingMessage, eventRunIds);
+    const incomingIndex =
+      incomingByOwnId.get(existingIndex) ??
+      findRankedIdentityMatch(
+        existingKeys,
+        incomingKeySets,
+        usedIncoming,
+        existingIndex,
+      );
 
     if (incomingIndex === -1) {
       nextMessages.push(existingEntry);
@@ -1945,7 +2154,39 @@ export function mergeThreadDataForClientSave(
     nextMessages.push(incomingMessages[index]);
   }
 
-  merged.messages = nextMessages.map((entry) =>
+  // One reply per run: the server's folded reply carries the run in its
+  // metadata, and the chat UI's own copy of it (saved under an AgentKit id,
+  // tied to the run only by events) is dropped wherever both ended up stored.
+  const serverReplyRuns = new Set<string>();
+  for (const entry of nextMessages) {
+    const message = getStoredMessage(entry);
+    const runId =
+      message?.role === "assistant" ? getMessageRunId(message) : null;
+    if (runId) serverReplyRuns.add(runId);
+  }
+  const runAt = replyRunIdAt(
+    nextMessages,
+    [eventRunIds, snapshotMessageRunIds(existingNormalized?.agentKit)],
+    promptRunIds,
+  );
+  const keptMessages = nextMessages.filter((entry, index) => {
+    if (isSupersededInFlightReply(nextMessages, index, runAt)) return false;
+    const message = getStoredMessage(entry);
+    if (message?.role !== "assistant" || getMessageRunId(message)) return true;
+    const runId =
+      typeof message.id === "string" ? eventRunIds.get(message.id) : undefined;
+    if (!runId || !serverReplyRuns.has(runId)) return true;
+    const kept = nextMessages.find((candidate) => {
+      const other = getStoredMessage(candidate);
+      return other?.role === "assistant" && getMessageRunId(other) === runId;
+    });
+    const keptId = messageId(getStoredMessage(kept));
+    const droppedId = messageId(message);
+    if (keptId && droppedId) idRewrites.set(droppedId, keptId);
+    return false;
+  });
+
+  merged.messages = keptMessages.map((entry) =>
     rewriteEntryParentId(entry, idRewrites),
   );
   const normalizedMerged = normalizeThreadRepository(

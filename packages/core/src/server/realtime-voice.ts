@@ -596,7 +596,7 @@ function createSessionHandler(
           setResponseStatus(event, 409);
           return {
             error: gatewayLaneUnavailableMessage(
-              "Connect Builder (free tier available) or configure an OpenAI API key to use realtime voice.",
+              "Use Builder.io (free tier available) or configure an OpenAI API key to use realtime voice.",
             ),
             code: "realtime_voice_setup_required",
           };

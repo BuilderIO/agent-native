@@ -18,7 +18,64 @@ const RETROSPECTIVE_5_MINUTES: u64 = 5 * 60;
 const REWIND_CLIP_AUDIO_OWNER: &str = "rewind-clip";
 
 #[derive(Default)]
-pub(crate) struct RewindClipState(Mutex<Option<ActiveRewindClip>>);
+pub(crate) struct RewindClipState(
+    Mutex<Option<ActiveRewindClip>>,
+    Mutex<Option<PendingRewindClipPreparation>>,
+);
+
+struct PendingRewindClipPreparation {
+    startup_id: String,
+    cancelled: bool,
+}
+
+struct PendingRewindClipPreparationGuard<'a> {
+    pending: &'a Mutex<Option<PendingRewindClipPreparation>>,
+    startup_id: String,
+}
+
+impl Drop for PendingRewindClipPreparationGuard<'_> {
+    fn drop(&mut self) {
+        let Ok(mut pending) = self.pending.lock() else {
+            return;
+        };
+        if pending
+            .as_ref()
+            .is_some_and(|pending| pending.startup_id == self.startup_id)
+        {
+            *pending = None;
+        }
+    }
+}
+
+fn mark_pending_rewind_clip_cancelled(
+    pending_state: &Mutex<Option<PendingRewindClipPreparation>>,
+    startup_id: Option<&str>,
+) -> Result<bool, String> {
+    let mut pending_state = pending_state.lock().map_err(|error| error.to_string())?;
+    let Some(pending) = pending_state.as_mut() else {
+        return Ok(false);
+    };
+    if startup_id.is_some_and(|startup_id| startup_id != pending.startup_id) {
+        return Ok(false);
+    }
+    pending.cancelled = true;
+    Ok(true)
+}
+
+fn reserve_pending_rewind_clip_preparation(
+    pending_state: &Mutex<Option<PendingRewindClipPreparation>>,
+    startup_id: &str,
+) -> Result<(), String> {
+    let mut pending_state = pending_state.lock().map_err(|error| error.to_string())?;
+    if pending_state.is_some() {
+        return Err("a Rewind-derived clip is already prepared or active".into());
+    }
+    *pending_state = Some(PendingRewindClipPreparation {
+        startup_id: startup_id.to_owned(),
+        cancelled: false,
+    });
+    Ok(())
+}
 
 pub(crate) fn is_active(app: &AppHandle) -> bool {
     app.try_state::<RewindClipState>()
@@ -33,6 +90,7 @@ pub(crate) fn is_active(app: &AppHandle) -> bool {
 }
 
 struct ActiveRewindClip {
+    startup_id: String,
     activated: bool,
     lease_id: Option<String>,
     pin_id: String,
@@ -45,6 +103,23 @@ struct ActiveRewindClip {
     temporary_audio: Option<screen_memory::TemporaryAudioLease>,
     #[cfg(target_os = "macos")]
     shared_sink: Option<native_screen::SharedClipSink>,
+}
+
+struct TemporaryAudioLeaseGuard<'a> {
+    app: &'a AppHandle,
+    lease: Option<screen_memory::TemporaryAudioLease>,
+}
+
+impl TemporaryAudioLeaseGuard<'_> {
+    fn take(&mut self) -> Option<screen_memory::TemporaryAudioLease> {
+        self.lease.take()
+    }
+}
+
+impl Drop for TemporaryAudioLeaseGuard<'_> {
+    fn drop(&mut self) {
+        release_temporary_audio(self.app, self.lease.take());
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -99,6 +174,7 @@ pub(crate) fn rewind_clip_status(
 pub(crate) fn rewind_clip_prepare(
     app: AppHandle,
     state: State<'_, RewindClipState>,
+    startup_id: String,
     artifact_label: String,
     server_url: Option<String>,
     recording_id: Option<String>,
@@ -108,31 +184,43 @@ pub(crate) fn rewind_clip_prepare(
     include_system_audio: bool,
     has_camera: bool,
 ) -> Result<RewindClipStatus, String> {
+    {
+        let active = state.0.lock().map_err(|error| error.to_string())?;
+        if active.is_some() {
+            return Err("a Rewind-derived clip is already prepared or active".into());
+        }
+        reserve_pending_rewind_clip_preparation(&state.1, &startup_id)?;
+    }
+    let _preparation_guard = PendingRewindClipPreparationGuard {
+        pending: &state.1,
+        startup_id: startup_id.clone(),
+    };
     if !screen_memory::rewind_clip_compatible(&app)? {
         return Err(not_compatible(
             "Screen Memory is unavailable or not recording",
         ));
     }
-    if state.0.lock().map_err(|error| error.to_string())?.is_some() {
-        return Err("a Rewind-derived clip is already prepared or active".into());
-    }
+    let output = artifact_path(&app, &artifact_label)?;
     native_screen::reset_native_upload_completion_state();
-    let temporary_audio = if include_mic || include_system_audio {
-        screen_memory::acquire_temporary_audio_consumer(
-            &app,
-            REWIND_CLIP_AUDIO_OWNER,
-            CaptureConsumer::Clip,
-            include_mic,
-            include_system_audio,
-        )?
-    } else {
-        None
+    let temporary_audio_owner = format!("{REWIND_CLIP_AUDIO_OWNER}:{startup_id}");
+    let mut temporary_audio = TemporaryAudioLeaseGuard {
+        app: &app,
+        lease: if include_mic || include_system_audio {
+            screen_memory::acquire_temporary_audio_consumer(
+                &app,
+                &temporary_audio_owner,
+                CaptureConsumer::Clip,
+                include_mic,
+                include_system_audio,
+            )?
+        } else {
+            None
+        },
     };
-    if (include_mic || include_system_audio) && temporary_audio.is_none() {
+    if (include_mic || include_system_audio) && temporary_audio.lease.is_none() {
         return Err(not_compatible("Screen Memory has no active audio producer"));
     }
     let sources = screen_memory::rewind_clip_sources(&app);
-    let output = artifact_path(&app, &artifact_label)?;
     #[cfg(target_os = "macos")]
     let recovery_intent = (server_url.clone(), recording_id.clone());
     #[cfg(target_os = "macos")]
@@ -150,10 +238,7 @@ pub(crate) fn rewind_clip_prepare(
         },
     ) {
         Ok(sink) => sink,
-        Err(error) => {
-            release_temporary_audio(&app, temporary_audio);
-            return Err(error);
-        }
+        Err(error) => return Err(error),
     };
     #[cfg(not(target_os = "macos"))]
     {
@@ -165,7 +250,6 @@ pub(crate) fn rewind_clip_prepare(
             cookie,
             has_camera,
         );
-        release_temporary_audio(&app, temporary_audio);
         return Err(not_compatible("shared Rewind Clip sinks require macOS"));
     }
     #[cfg(target_os = "macos")]
@@ -187,21 +271,57 @@ pub(crate) fn rewind_clip_prepare(
                 crate::config::feature_config(&app).voice_cleanup_enabled && include_mic,
             ) {
                 shared_sink.cancel();
-                release_temporary_audio(&app, temporary_audio);
                 return Err(error);
             }
         }
     }
     let response_sources = sources.clone();
-    let mut active = state.0.lock().map_err(|error| error.to_string())?;
-    if active.is_some() {
+    let mut active = match state.0.lock() {
+        Ok(active) => active,
+        Err(error) => {
+            #[cfg(target_os = "macos")]
+            shared_sink.cancel();
+            return Err(error.to_string());
+        }
+    };
+    let mut pending = match state.1.lock() {
+        Ok(pending) => pending,
+        Err(error) => {
+            drop(active);
+            #[cfg(target_os = "macos")]
+            shared_sink.cancel();
+            return Err(error.to_string());
+        }
+    };
+    let is_current_startup = pending
+        .as_ref()
+        .is_some_and(|pending| pending.startup_id == startup_id);
+    let was_cancelled = pending
+        .as_ref()
+        .is_some_and(|pending| pending.startup_id == startup_id && pending.cancelled);
+    if !is_current_startup || was_cancelled {
+        if is_current_startup {
+            *pending = None;
+        }
+        drop(pending);
         drop(active);
         #[cfg(target_os = "macos")]
         shared_sink.cancel();
-        release_temporary_audio(&app, temporary_audio);
+        return Err(if was_cancelled {
+            "Rewind Clip startup was cancelled".into()
+        } else {
+            "Rewind Clip startup was superseded".into()
+        });
+    }
+    if active.is_some() {
+        drop(pending);
+        drop(active);
+        #[cfg(target_os = "macos")]
+        shared_sink.cancel();
         return Err("a Rewind-derived clip is already prepared or active".into());
     }
     *active = Some(ActiveRewindClip {
+        startup_id,
         activated: false,
         pin_id: format!("rewind-clip-{}", Utc::now().timestamp_micros()),
         lease_id: None,
@@ -211,10 +331,11 @@ pub(crate) fn rewind_clip_prepare(
         retrospective_seconds: 0,
         intervals: Vec::new(),
         paused: false,
-        temporary_audio,
+        temporary_audio: temporary_audio.take(),
         #[cfg(target_os = "macos")]
         shared_sink: Some(shared_sink),
     });
+    *pending = None;
     Ok(RewindClipStatus {
         compatibility: RewindClipCompatibility::Compatible,
         active: false,
@@ -1460,8 +1581,23 @@ pub(crate) async fn rewind_clip_stop_and_save(
 pub(crate) fn rewind_clip_cancel(
     app: AppHandle,
     state: State<'_, RewindClipState>,
+    startup_id: Option<String>,
 ) -> Result<(), String> {
-    let active = state.0.lock().map_err(|error| error.to_string())?.take();
+    let mut active_state = state.0.lock().map_err(|error| error.to_string())?;
+    if startup_id.as_deref().is_some_and(|startup_id| {
+        active_state
+            .as_ref()
+            .is_some_and(|active| active.startup_id.as_str() != startup_id)
+    }) {
+        return Ok(());
+    }
+    if active_state.is_none()
+        && mark_pending_rewind_clip_cancelled(&state.1, startup_id.as_deref())?
+    {
+        return Ok(());
+    }
+    let active = active_state.take();
+    drop(active_state);
     if let Some(mut active) = active {
         if let Some(lease_id) = active.lease_id.as_deref() {
             let _ = app
@@ -1711,6 +1847,52 @@ mod tests {
             ),
         ];
         assert!(validate_and_plan_wall_clock(&segments, started, ended).is_err());
+    }
+
+    #[test]
+    fn cancellation_marks_only_the_matching_in_flight_startup() {
+        let pending = Mutex::new(Some(PendingRewindClipPreparation {
+            startup_id: "startup-current".into(),
+            cancelled: false,
+        }));
+        let guard = PendingRewindClipPreparationGuard {
+            pending: &pending,
+            startup_id: "startup-current".into(),
+        };
+
+        assert!(!mark_pending_rewind_clip_cancelled(&pending, Some("startup-old")).unwrap());
+        assert!(mark_pending_rewind_clip_cancelled(&pending, Some("startup-current")).unwrap());
+        assert!(pending.lock().unwrap().as_ref().unwrap().cancelled);
+
+        drop(guard);
+        assert!(pending.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn cancelled_pending_startup_blocks_retry_until_cleanup_finishes() {
+        let pending = Mutex::new(Some(PendingRewindClipPreparation {
+            startup_id: "startup-cancelled".into(),
+            cancelled: true,
+        }));
+        let old_guard = PendingRewindClipPreparationGuard {
+            pending: &pending,
+            startup_id: "startup-cancelled".into(),
+        };
+
+        assert!(reserve_pending_rewind_clip_preparation(&pending, "startup-retry").is_err());
+        assert_eq!(
+            pending.lock().unwrap().as_ref().unwrap().startup_id,
+            "startup-cancelled"
+        );
+
+        drop(old_guard);
+        assert!(pending.lock().unwrap().is_none());
+        reserve_pending_rewind_clip_preparation(&pending, "startup-retry").unwrap();
+        assert_eq!(
+            pending.lock().unwrap().as_ref().unwrap().startup_id,
+            "startup-retry"
+        );
+        assert!(reserve_pending_rewind_clip_preparation(&pending, "startup-3").is_err());
     }
 
     #[test]

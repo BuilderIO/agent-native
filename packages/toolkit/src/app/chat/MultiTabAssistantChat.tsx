@@ -901,6 +901,8 @@ export function MultiTabAssistantChat({
   agentTeamPollMs = DEFAULT_AGENT_TEAM_POLL_MS,
   availableModels: hostAvailableModels,
   modelListLoading: hostModelListLoading,
+  modelListError: hostModelListError,
+  onRetryModelList: hostOnRetryModelList,
   onModelChange: hostOnModelChange,
   ...props
 }: MultiTabAssistantChatProps) {
@@ -1153,9 +1155,13 @@ export function MultiTabAssistantChat({
   );
   const availableModels = hostAvailableModels ?? discoveredModels;
   const [discoveredModelsLoading, setModelListLoading] = useState(true);
+  const [discoveredModelsError, setDiscoveredModelsError] = useState(false);
   const modelListLoading = hostManagedModels
     ? (hostModelListLoading ?? false)
     : discoveredModelsLoading;
+  const modelListError = hostManagedModels
+    ? (hostModelListError ?? false)
+    : discoveredModelsError;
   const [defaultModel, setDefaultModel] = useState<string>(DEFAULT_MODEL);
   const engineCatalogRequestRef = useRef(0);
   const threadModelRef = useRef<
@@ -1401,10 +1407,12 @@ export function MultiTabAssistantChat({
       ),
     );
     setModelListLoading(true);
+    setDiscoveredModelsError(false);
     loadChatModelCatalog()
       .then((catalog) => {
         if (!isCurrentRequest()) return;
         if (catalog.state !== "available") {
+          setDiscoveredModelsError(true);
           if (catalog.enginesUnavailable) {
             // Leaves `availableModels` empty for the session, so an override
             // with no engine of its own has nothing to resolve against.
@@ -1414,6 +1422,7 @@ export function MultiTabAssistantChat({
           }
           return;
         }
+        setDiscoveredModelsError(false);
         setDiscoveredModels(catalog.groups);
         setDefaultModel(catalog.defaultModel);
         void catalog.loadLiveGroups().then((liveGroups) => {
@@ -1422,7 +1431,9 @@ export function MultiTabAssistantChat({
           }
         });
       })
-      .catch(() => {})
+      .catch(() => {
+        if (isCurrentRequest()) setDiscoveredModelsError(true);
+      })
       .finally(() => {
         if (isCurrentRequest()) setModelListLoading(false);
       });
@@ -2708,8 +2719,12 @@ export function MultiTabAssistantChat({
   }, [chatCommandVersion, switchThread]);
 
   const handleGenerateTitle = useCallback(
-    (threadId: string, message: string) => {
-      void generateTitle(threadId, message).then((title) => {
+    (
+      threadId: string,
+      message: string,
+      selection: { engine?: string; model?: string },
+    ) => {
+      void generateTitle(threadId, message, selection).then((title) => {
         if (title) {
           // Persist the generated title to the server
           void saveThreadData(threadId, {
@@ -3248,6 +3263,10 @@ export function MultiTabAssistantChat({
                   defaultModel={defaultModel}
                   availableModels={availableModels}
                   modelListLoading={modelListLoading}
+                  modelListError={modelListError}
+                  onRetryModelList={
+                    hostManagedModels ? hostOnRetryModelList : refreshEngines
+                  }
                   onModelChange={handleModelChangeWithHost}
                   onEffortChange={handleEffortChange}
                   onForkChat={() => handleForkChat(tabId)}

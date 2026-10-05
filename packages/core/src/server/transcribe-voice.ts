@@ -288,7 +288,7 @@ export function createTranscribeVoiceHandler() {
         setResponseStatus(event, 400);
         return {
           error: gatewayLaneUnavailableMessage(
-            `${label} is selected but Builder.io is not connected. Connect Builder.io (free tier available) in Settings, or change the provider preference.`,
+            `${label} is selected but Builder.io is not connected. Sign in to Builder.io (free tier available) in Settings, or change the provider preference.`,
           ),
         };
       }
@@ -444,7 +444,7 @@ export function createTranscribeVoiceHandler() {
       error: gatewayLaneUnavailableMessage(
         builderError
           ? `Builder transcription failed: ${builderError}. Add GOOGLE_GENERATIVE_AI_API_KEY, GROQ_API_KEY, or OPENAI_API_KEY in Settings → API Keys to enable a fallback provider.`
-          : "No voice transcription provider configured. Connect Builder.io (free tier available) or add GOOGLE_GENERATIVE_AI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys.",
+          : "No voice transcription provider configured. Use Builder.io (free tier available) or add GOOGLE_GENERATIVE_AI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY in Settings → API Keys.",
       ),
     };
   });
@@ -585,7 +585,7 @@ async function cleanupTranscriptText({
       setResponseStatus(event, 400);
       return {
         error: gatewayLaneUnavailableMessage(
-          "Builder.io cleanup is selected but Builder.io is not connected. Connect Builder.io (free tier available) in Settings, or change the provider preference.",
+          "Builder.io cleanup is selected but Builder.io is not connected. Sign in to Builder.io (free tier available) in Settings, or change the provider preference.",
         ),
       };
     }

@@ -28,6 +28,7 @@
   "dependencies": {
     "@agent-native/core": "workspace:*",
     "@agent-native/creative-context": "workspace:*",
+    "@agent-native/otel": "workspace:*",
     "@agent-native/toolkit": "workspace:*",
     "@electric-sql/pglite": "^0.5.8",
     "@fontsource-variable/inter": "^5.2.8",
@@ -45,7 +46,7 @@
     "fflate": "^0.8.3",
     "fzstd": "^0.1.1",
     "h3": "catalog:",
-    "html2canvas": "^1.4.1",
+    "image-size": "2.0.4",
     "isbot": "^5",
     "jspdf": "^4.2.1",
     "jszip": "^3.10.1",

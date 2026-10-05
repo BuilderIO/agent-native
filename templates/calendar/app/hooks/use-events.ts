@@ -97,6 +97,13 @@ type UpdateEventResult = Partial<CalendarEvent> & {
 
 const LIST_EVENTS_QUERY_KEY = ["action", "list-events"] as const;
 export const OVERLAY_EVENTS_BATCH_KEY = ["overlay-events-batch"] as const;
+// The status probe calls list-events with format: "inventory", which returns an
+// object. Keep it out of LIST_EVENTS_QUERY_KEY: every optimistic update under
+// that prefix assumes a CalendarEvent[].
+export const OVERLAY_CALENDAR_STATUS_KEY = [
+  "action",
+  "overlay-calendar-status",
+] as const;
 const OPTIMISTIC_EVENT_PREFIX = "optimistic_event_";
 
 function invalidateEventQueries(
@@ -252,7 +259,7 @@ export function shouldDeferOptimisticEventUpdate(
   );
 }
 
-export function updateListEventQueries(
+function updateListEventQueries(
   queryClient: ReturnType<typeof useQueryClient>,
   updater: (
     old: CalendarEvent[] | undefined,
@@ -263,10 +270,8 @@ export function updateListEventQueries(
     queryKey: LIST_EVENTS_QUERY_KEY,
   });
 
-  for (const [queryKey, data] of queries) {
+  for (const [queryKey] of queries) {
     const params = getListEventsParams(queryKey);
-    if (params?.format === "inventory") continue;
-    if (data !== undefined && !Array.isArray(data)) continue;
     queryClient.setQueryData<CalendarEvent[]>(queryKey, (old) =>
       updater(old, params),
     );
@@ -426,7 +431,7 @@ export function useOverlayCalendarStatus(overlayEmails: string[]) {
         format: "inventory",
       };
       return {
-        queryKey: ["action", "list-events", params] as QueryKey,
+        queryKey: [...OVERLAY_CALENDAR_STATUS_KEY, params] as QueryKey,
         queryFn: () =>
           callAction<OverlayStatusResult>("list-events", params, {
             method: "GET",

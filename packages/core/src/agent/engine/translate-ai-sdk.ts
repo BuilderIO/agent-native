@@ -21,6 +21,7 @@ export function engineToolsToAISDK(
   tools: EngineTool[],
   jsonSchema?: (schema: Record<string, unknown>) => unknown,
   toolNameMap = createProviderToolNameMap(tools),
+  strict?: boolean,
 ): Record<string, any> {
   const result: Record<string, any> = {};
   for (const tool of tools) {
@@ -35,6 +36,7 @@ export function engineToolsToAISDK(
     result[providerName] = {
       description: tool.description,
       inputSchema: jsonSchema ? jsonSchema(rawSchema) : rawSchema,
+      ...(strict === undefined ? {} : { strict }),
     };
   }
   return result;

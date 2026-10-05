@@ -214,14 +214,16 @@ export async function readChatState(page: Page): Promise<StateRead> {
         )
           .filter(visible)
           .map(text),
-        messages: all<HTMLElement>(scope, "article.agentkit-message").map(
-          (element) => ({
+        // Multi-tab chat keeps every opened thread mounted under display:none,
+        // so after "New chat" the previous thread's messages are still here.
+        messages: all<HTMLElement>(scope, "article.agentkit-message")
+          .filter(visible)
+          .map((element) => ({
             role: element.dataset.role ?? "",
             id: element.dataset.messageId ?? null,
             busy: element.getAttribute("aria-busy") === "true",
             text: text(element),
-          }),
-        ),
+          })),
         errorCards: all<HTMLElement>(
           scope,
           ".agentkit-run-failure, .agentkit-error, [data-error-code]",

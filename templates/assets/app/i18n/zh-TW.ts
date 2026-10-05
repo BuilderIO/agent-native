@@ -30,7 +30,7 @@ const messages = {
     emailNotificationsDescription: "當你發起的生成完成或失敗時，收到郵件通知。",
     builderDescriptionReady: "連線管理一代。",
     builderDescriptionManaged:
-      "連結 Builder 即可使用託管圖片生成與儲存。若你的空間已啟用影片生成功能，也可使用該功能。",
+      "使用 Builder.io 管理圖像生成與儲存。若你的工作區已啟用影片生成，也可以使用該功能。",
     builderDescriptionDisabled:
       "此處已停用圖像生成；Builder 影片生成功能仍可能可用。",
     builderLookupFailed: "無法檢查 Builder 存取權。請重試以更新連線狀態。",
@@ -59,6 +59,8 @@ const messages = {
       "在生成新資產之前新增 Builder、Gemini 或 OpenAI。",
     enterValueFirst: "首先輸入一個值。",
     saveFailed: "儲存失敗",
+    scopeRoleUnavailable: "無法載入你在組織中的角色，因此暫時無法儲存金鑰。",
+    retry: "重試",
     builderConnectedTo: "已連線至 {{orgName}}。",
     manage: "管理",
     addKeys: "新增金鑰",
