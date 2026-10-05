@@ -71,6 +71,22 @@ function installInvalidationListeners(): void {
       "agent-engine:configured-changed",
       invalidateClientStatusRequests,
     );
+    window.addEventListener("agent-native:tool-done", (event) => {
+      const detail = (
+        event as CustomEvent<{
+          tool?: unknown;
+          isError?: unknown;
+          completedSideEffect?: unknown;
+        }>
+      ).detail;
+      if (
+        detail?.tool === "manage-agent-engine" &&
+        detail.completedSideEffect === true &&
+        detail.isError !== true
+      ) {
+        window.dispatchEvent(new Event("agent-engine:configured-changed"));
+      }
+    });
   }
   if (typeof document.addEventListener === "function") {
     document.addEventListener("visibilitychange", () => {

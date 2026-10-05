@@ -19,6 +19,48 @@ function jsonResponse(data: unknown): Response {
 }
 
 describe("client status requests", () => {
+  it("refreshes model consumers after a successful agent default change", async () => {
+    const fetch = vi.fn(async () => jsonResponse({ configured: true }));
+    vi.stubGlobal("fetch", fetch);
+    await fetchBuilderStatus();
+    const changed = vi.fn();
+    window.addEventListener("agent-engine:configured-changed", changed);
+    try {
+      for (const detail of [
+        {
+          tool: "manage-agent-engine",
+          completedSideEffect: false,
+          isError: false,
+        },
+        {
+          tool: "manage-agent-engine",
+          completedSideEffect: true,
+          isError: true,
+        },
+        { tool: "other-action", completedSideEffect: true, isError: false },
+      ]) {
+        window.dispatchEvent(
+          new CustomEvent("agent-native:tool-done", { detail }),
+        );
+      }
+      expect(changed).not.toHaveBeenCalled();
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-done", {
+          detail: {
+            tool: "manage-agent-engine",
+            completedSideEffect: true,
+            isError: false,
+          },
+        }),
+      );
+      expect(changed).toHaveBeenCalledTimes(1);
+      await fetchBuilderStatus();
+      expect(fetch).toHaveBeenCalledTimes(2);
+    } finally {
+      window.removeEventListener("agent-engine:configured-changed", changed);
+    }
+  });
+
   beforeEach(() => {
     invalidateClientStatusRequests();
     delete window.__agentNativeSessionBootstrap;

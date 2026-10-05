@@ -16,7 +16,10 @@ import {
 import { getOrgSetting, putOrgSetting } from "../settings/org-settings.js";
 import { getSetting } from "../settings/store.js";
 import { getUserSetting, putUserSetting } from "../settings/user-settings.js";
-import { canUpdateAgentAppModelDefaultSettings } from "./app-model-defaults.js";
+import {
+  canUpdateAgentAppModelDefaultSettings,
+  resetAgentAppModelDefaultSettings,
+} from "./app-model-defaults.js";
 
 export const DEFAULT_AGENT_ENGINE_SETTING_KEY = "agent-engine";
 
@@ -179,12 +182,13 @@ async function writeScopedRow(
 
 /**
  * Save the default for the authority's scope. Validate the engine first; this
- * only stores it and records the change.
+ * stores it, clears the named app's override, and records the change.
  */
 export async function writeDefaultAgentEngineSelection(
   authority: Extract<DefaultAgentEngineAuthority, { allowed: true }>,
   selection: DefaultAgentEngineSelection,
   meta: DefaultAgentEngineChangeMeta,
+  options: { appId?: string } = {},
 ): Promise<void> {
   await writeScopedRow(authority, {
     engine: selection.engine,
@@ -192,6 +196,15 @@ export async function writeDefaultAgentEngineSelection(
     updatedAt: Date.now(),
     updatedBy: authority.userEmail,
   });
+  if (options.appId) {
+    await resetAgentAppModelDefaultSettings(
+      {
+        userEmail: authority.userEmail,
+        orgId: authority.scope === "org" ? authority.orgId : undefined,
+      },
+      options.appId,
+    );
+  }
   await recordDefaultAgentEngineAudit({
     meta,
     userEmail: authority.userEmail,
@@ -199,6 +212,7 @@ export async function writeDefaultAgentEngineSelection(
     status: "success",
     operation: "set",
     selection,
+    appId: options.appId,
   });
 }
 
@@ -251,6 +265,7 @@ async function recordDefaultAgentEngineAudit(input: {
   status: "success" | "denied";
   operation: "set" | "clear";
   selection?: { engine: string; model?: string };
+  appId?: string;
   reason?: string;
 }): Promise<void> {
   const { meta, userEmail, orgId, status, operation, selection } = input;
@@ -274,6 +289,7 @@ async function recordDefaultAgentEngineAudit(input: {
     args: {
       operation,
       ...(selection ?? {}),
+      ...(input.appId ? { appId: input.appId, appDefaultReset: true } : {}),
       ...(input.reason ? { reason: input.reason } : {}),
     },
     threadId: meta.threadId,

@@ -34,7 +34,8 @@ const {
   writeDefaultAgentEngineSelection,
 } = await import("./default-agent-engine.js");
 const { putSetting, getSetting } = await import("../settings/store.js");
-const { __resetAuditInitForTests } = await import("../audit/store.js");
+const { __resetAuditInitForTests, ensureAuditTables } =
+  await import("../audit/store.js");
 
 const ORG_A = "org-a";
 const ORG_B = "org-b";
@@ -90,6 +91,37 @@ afterEach(async () => {
 });
 
 describe("default model scope", () => {
+  it("does not record success when clearing the winning app override fails", async () => {
+    await ensureAuditTables();
+    const authority = await adminAuthority(ORG_A, "admin-a@example.test");
+    await putSetting(`o:${ORG_A}:agent-app-model-default:calendar`, {
+      engine: "old-engine",
+      model: "old-model",
+    });
+    const execute = rawClient.execute.getMockImplementation()!;
+    rawClient.execute.mockImplementation(async (input) => {
+      if (typeof input !== "string" && /^DELETE FROM/i.test(input.sql))
+        throw new Error("app default write failed");
+      return execute(input);
+    });
+    try {
+      await expect(
+        writeDefaultAgentEngineSelection(
+          authority,
+          { engine: "anthropic", model: "claude-sonnet-5-5" },
+          meta,
+          { appId: "calendar" },
+        ),
+      ).rejects.toThrow("app default write failed");
+      expect(await auditRows()).toEqual([]);
+      expect(
+        await getSetting(`o:${ORG_A}:agent-app-model-default:calendar`),
+      ).toMatchObject({ model: "old-model" });
+    } finally {
+      rawClient.execute.mockImplementation(execute);
+    }
+  });
+
   it("an org A admin's change leaves org B's default alone", async () => {
     await writeDefaultAgentEngineSelection(
       await adminAuthority(ORG_B, "owner-b@example.test"),

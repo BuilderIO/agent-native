@@ -18,6 +18,10 @@ import type { H3Event } from "h3";
 import { readMultipartFormData } from "h3";
 import { z } from "zod";
 
+import {
+  readAgentAppModelDefaultSettings,
+  normalizeAgentAppModelDefaultAppId,
+} from "../agent/app-model-defaults.js";
 import { CHATGPT_SUBSCRIPTION_CALLBACK_PATH } from "../agent/chatgpt-subscription-contract.js";
 import { readDefaultAgentEngineSetting } from "../agent/default-agent-engine.js";
 import { DEFAULT_MODEL } from "../agent/default-model.js";
@@ -309,6 +313,8 @@ import {
 } from "./realtime-token.js";
 import {
   getRequestContext,
+  getRequestOrgId,
+  getRequestUserEmail,
   hasRequestContext,
   runWithRequestContext,
 } from "./request-context.js";
@@ -356,7 +362,7 @@ export interface AgentEngineStatusResult {
   configured: boolean;
   engine?: string;
   model?: string;
-  source?: "settings" | "env" | "app_secrets";
+  source?: "settings" | "env" | "app_secrets" | "app-default";
   envVar?: string;
   openAiBaseUrlConfigured?: boolean;
 }
@@ -370,6 +376,7 @@ export interface AgentEngineStatusDeps<
   E extends AgentEngineStatusEntry = AgentEngineStatusEntry,
 > {
   readStoredEngine: () => Promise<{ engine?: string; model?: string } | null>;
+  readAppDefault?: () => Promise<{ engine: string; model: string } | null>;
   readOpenAiBaseUrlConfigured: () => boolean | Promise<boolean>;
   isStoredEngineUsable: (
     stored: unknown,
@@ -394,31 +401,32 @@ export async function resolveAgentEngineStatus<
   const lookupEntry = (deps.lookupEntry ?? getAgentEngineEntry) as (
     engine: string,
   ) => E | undefined;
-  const [stored, openAiBaseUrlConfigured] = await Promise.all([
+  const [stored, openAiBaseUrlConfigured, appDefault] = await Promise.all([
     deps.readStoredEngine(),
     deps.readOpenAiBaseUrlConfigured(),
+    deps.readAppDefault?.(),
   ]);
 
-  if (isAgentEngineSettingConfigured(stored)) {
-    const engine = (stored as { engine: string }).engine;
-    const entry = lookupEntry(engine);
-    return {
-      configured: true,
-      engine,
-      model: normalizeAgentEngineStatusModel(entry, stored?.model),
-      source: "settings",
-      openAiBaseUrlConfigured,
-    };
-  }
-
   const configuredEngine = getAppConfig().agent.engine;
+  const configuredModel =
+    getAppConfig().agent.model === "auto"
+      ? undefined
+      : getAppConfig().agent.model;
   const envEntry = configuredEngine ? lookupEntry(configuredEngine) : undefined;
   if (envEntry) {
     if (await deps.isStoredEngineUsable({ engine: envEntry.name }, envEntry)) {
       return {
         configured: true,
         engine: envEntry.name,
-        model: envEntry.defaultModel ?? DEFAULT_MODEL,
+        model: normalizeAgentEngineStatusModel(
+          envEntry,
+          configuredModel ??
+            (appDefault?.engine === envEntry.name
+              ? appDefault.model
+              : stored?.engine === envEntry.name
+                ? stored.model
+                : undefined),
+        ),
         source: "env",
         envVar: "AGENT_ENGINE",
         openAiBaseUrlConfigured,
@@ -426,6 +434,22 @@ export async function resolveAgentEngineStatus<
     }
     if (getRequestContext()?.isSyntheticTraffic !== true) {
       return { configured: false, openAiBaseUrlConfigured };
+    }
+  }
+
+  if (appDefault) {
+    const entry = lookupEntry(appDefault.engine);
+    if (entry && (await deps.isStoredEngineUsable(appDefault, entry))) {
+      return {
+        configured: true,
+        engine: appDefault.engine,
+        model: normalizeAgentEngineStatusModel(
+          entry,
+          configuredModel ?? appDefault.model,
+        ),
+        source: "app-default",
+        openAiBaseUrlConfigured,
+      };
     }
   }
 
@@ -438,8 +462,11 @@ export async function resolveAgentEngineStatus<
       return {
         configured: true,
         engine: stored.engine,
-        model: normalizeAgentEngineStatusModel(entry, stored.model),
-        source: "env",
+        model: normalizeAgentEngineStatusModel(
+          entry,
+          configuredModel ?? stored.model,
+        ),
+        source: isAgentEngineSettingConfigured(stored) ? "settings" : "env",
         envVar: entry.requiredEnvVars[0],
         openAiBaseUrlConfigured,
       };
@@ -453,7 +480,7 @@ export async function resolveAgentEngineStatus<
     return {
       configured: true,
       engine: detectedFromUser.name,
-      model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
+      model: normalizeAgentEngineStatusModel(detectedFromUser, configuredModel),
       source: "app_secrets",
       envVar: detectedFromUser.requiredEnvVars[0],
       openAiBaseUrlConfigured,
@@ -465,7 +492,7 @@ export async function resolveAgentEngineStatus<
     return {
       configured: true,
       engine: detected.name,
-      model: detected.defaultModel ?? DEFAULT_MODEL,
+      model: normalizeAgentEngineStatusModel(detected, configuredModel),
       source: "env",
       envVar: detected.requiredEnvVars[0],
       openAiBaseUrlConfigured,
@@ -477,6 +504,20 @@ export async function resolveAgentEngineStatus<
 
 function requestAgentEngineStatusDeps(): AgentEngineStatusDeps<AgentEngineEntry> {
   return {
+    readAppDefault: async () => {
+      const app = getAppConfig().app;
+      const appId = normalizeAgentAppModelDefaultAppId(
+        app.id ?? app.template ?? app.slug,
+      );
+      if (!appId) return null;
+      const settings = await readAgentAppModelDefaultSettings(
+        { userEmail: getRequestUserEmail(), orgId: getRequestOrgId() },
+        appId,
+      );
+      return settings.engine && settings.model
+        ? { engine: settings.engine, model: settings.model }
+        : null;
+    },
     readStoredEngine: async () =>
       (await readDefaultAgentEngineSetting()) as {
         engine?: string;

@@ -27,7 +27,7 @@ import { run as runTest } from "./test-agent-engine.js";
 
 export const tool: ActionTool = {
   description:
-    'Manage AI agent engines: list available engines, set the organization default engine/model, test an engine, or manage the current app/template default model. Pass action="list" to see options, action="set" to change the organization default (owners and admins only; list reports canUpdateDefault), action="test" to verify connectivity, action="get-app-default" to inspect this app default, action="set-app-default" to set this app default, or action="reset-app-default" to clear it.',
+    'Manage AI agent engines: list available engines, set the organization default engine/model, test an engine, or manage the current app/template default model. Pass action="list" to see options, action="set" to change the organization default and clear the current app override (owners and admins only; list reports canUpdateDefault). Other apps and explicitly pinned chat/automation models keep their selections. Use action="test" to verify connectivity, action="get-app-default" to inspect this app default, action="set-app-default" to set this app default, or action="reset-app-default" to clear it.',
   parameters: {
     type: "object",
     properties: {

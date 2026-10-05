@@ -4,6 +4,7 @@
  */
 
 import { ActionContractError, type ActionRunContext } from "../../action.js";
+import { normalizeAgentAppModelDefaultAppId } from "../../agent/app-model-defaults.js";
 import { CHATGPT_SUBSCRIPTION_ENGINE_NAME } from "../../agent/chatgpt-subscription-contract.js";
 import {
   recordDefaultAgentEngineRefusal,
@@ -24,8 +25,10 @@ import {
   registerBuiltinEngines,
 } from "../../agent/engine/index.js";
 import type { ActionTool } from "../../agent/types.js";
+import { getAppConfig } from "../../app-config/index.js";
 import { CHATGPT_SUBSCRIPTION_LAB } from "../../labs/core-labs.js";
 import { getUserLabEnabled } from "../../labs/store.js";
+import { defaultModelMessagesForUser } from "../../localization/default-model-messages.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -33,7 +36,7 @@ import {
 
 export const tool: ActionTool = {
   description:
-    'Set the organization\'s default AI engine and model. Only organization owners and admins can change it; a user with no organization sets their own. Changes take effect on the next conversation. Use manage-agent-engine with action="list" first to see available options and whether you can change the default (canUpdateDefault).',
+    "Set the organization's default AI engine and model and clear the current app's override so new chats and unpinned automations use it. Other apps' overrides and explicit chat/automation models stay unchanged. Deployment configuration that conflicts with the selection is an error. Only organization owners and admins can change it; a user with no organization sets their own. Use manage-agent-engine with action=\"list\" first to see available options and whether you can change the default (canUpdateDefault).",
   parameters: {
     type: "object",
     properties: {
@@ -62,6 +65,8 @@ export type SelectDefaultAgentEngineResult =
       model: string;
       requestedModel: string;
       label: string;
+      scope: "org" | "user";
+      appId?: string;
     }
   | { status: "refused"; message: string }
   | { status: "invalid"; message: string }
@@ -74,7 +79,7 @@ export type SelectDefaultAgentEngineResult =
  * apply the same role check, validation, and audit record.
  */
 export async function selectDefaultAgentEngine(
-  input: { engine?: string; model?: string },
+  input: { engine?: string; model?: string; appId?: string },
   meta: DefaultAgentEngineChangeMeta,
   ctx: DefaultAgentEngineContext = {
     userEmail: getRequestUserEmail(),
@@ -195,10 +200,31 @@ export async function selectDefaultAgentEngine(
     preserveCustomModels,
   });
 
+  const config = getAppConfig();
+  if (
+    (config.agent.engine && config.agent.engine !== engineName) ||
+    (config.agent.model &&
+      config.agent.model !== "auto" &&
+      normalizeModelForEngine(entry, config.agent.model, {
+        acceptsCustomModels,
+        preserveCustomModels,
+      }) !== resolvedModel)
+  ) {
+    const messages = await defaultModelMessagesForUser(ctx.userEmail);
+    return { status: "invalid", message: messages.configurationConflict };
+  }
+  const appIdInput =
+    input.appId ?? config.app.id ?? config.app.template ?? config.app.slug;
+  const appId = normalizeAgentAppModelDefaultAppId(appIdInput);
+  if (appIdInput && !appId) {
+    return { status: "invalid", message: "A valid appId is required." };
+  }
+
   await writeDefaultAgentEngineSelection(
     authority,
     { engine: engineName, model: resolvedModel },
     meta,
+    { appId: appId ?? undefined },
   );
   return {
     status: "selected",
@@ -206,6 +232,8 @@ export async function selectDefaultAgentEngine(
     model: resolvedModel,
     requestedModel,
     label: entry.label,
+    scope: authority.scope,
+    ...(appId ? { appId } : {}),
   };
 }
 
@@ -213,13 +241,17 @@ export async function run(
   args: Record<string, string>,
   context?: ActionRunContext,
 ): Promise<string> {
-  const result = await selectDefaultAgentEngine(args, {
-    actionName: context?.actionName ?? "manage-agent-engine",
-    caller: context?.caller,
-    threadId: context?.threadId,
-    turnId: context?.turnId,
-    runId: context?.runId,
-  });
+  const messages = await defaultModelMessagesForUser(getRequestUserEmail());
+  const result = await selectDefaultAgentEngine(
+    { ...args, appId: args.appId || context?.appId },
+    {
+      actionName: context?.actionName ?? "manage-agent-engine",
+      caller: context?.caller,
+      threadId: context?.threadId,
+      turnId: context?.turnId,
+      runId: context?.runId,
+    },
+  );
 
   if (result.status === "refused") {
     throw new ActionContractError(result.message, {
@@ -235,15 +267,17 @@ export async function run(
     return `Error: ${result.message}`;
   }
 
-  const normalizedNote =
-    result.model === result.requestedModel
-      ? ""
-      : ` Requested model "${result.requestedModel}" is no longer supported, so "${result.model}" was saved instead.`;
-
   return JSON.stringify({
     ok: true,
     engine: result.engine,
     model: result.model,
-    message: `Default model set to ${result.label} with model ${result.model}. Takes effect on the next conversation.${normalizedNote}`,
+    requestedModel: result.requestedModel,
+    scope: result.scope,
+    appId: result.appId,
+    appDefaultReset: !!result.appId,
+    preservedOverrides: ["other-apps", "chat-models", "automation-models"],
+    message: messages.selected
+      .replace("{{model}}", result.model)
+      .replace("{{engine}}", result.label),
   });
 }
