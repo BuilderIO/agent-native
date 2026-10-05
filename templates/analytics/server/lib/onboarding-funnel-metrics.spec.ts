@@ -1,9 +1,12 @@
 import { createRequire } from "node:module";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { assertFirstPartyAnalyticsBigQuerySql } from "./first-party-analytics-backend.js";
-import { validateFirstPartyAnalyticsSql } from "./first-party-analytics.js";
+import {
+  scopedAnalyticsSql,
+  validateFirstPartyAnalyticsSql,
+} from "./first-party-analytics.js";
 import { buildPanel } from "./first-party-metric-catalog.js";
 
 const { PGlite } = createRequire(
@@ -30,6 +33,7 @@ describe("onboarding funnel metrics", () => {
   let client: PGliteClient;
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await client?.close();
   });
 
@@ -54,7 +58,9 @@ describe("onboarding funnel metrics", () => {
         template text,
         hostname text,
         signed_in text,
-        properties text NOT NULL DEFAULT '{}'
+        properties text NOT NULL DEFAULT '{}',
+        org_id text DEFAULT 'org-1',
+        owner_email text
       )
     `);
   }
@@ -534,5 +540,34 @@ describe("onboarding funnel metrics", () => {
       selected_users: 0,
       first_choice_users: 0,
     });
+  }, 20_000);
+
+  it("excludes the deployment's configured test identities through the query boundary", async () => {
+    vi.stubEnv("AGENT_NATIVE_TEST_IDENTITY_EMAILS", "seed-reader@example.com");
+    await createEventsTable();
+    const step = { flow: "first_run", step_id: "choice", step_index: 1 };
+    for (const user of [
+      { key: "reader@example.com", authId: "reader-auth-id" },
+      { key: "seed-reader@example.com", authId: "seed-auth-id" },
+    ]) {
+      await insertEvent("onboarding_step_viewed", user.authId, step, {
+        email: null,
+        userKey: user.key,
+        authUserId: user.authId,
+      });
+    }
+
+    const panel = buildPanel("onboarding-step-dropoff")!;
+    const scoped = scopedAnalyticsSql(
+      interpolate(panel.sql, FILTERS),
+      { userEmail: "owner@example.com", orgId: "org-1" },
+      eventDay,
+    );
+    const result = (await client.query(scoped.sql, scoped.args)) as {
+      rows: Array<Record<string, unknown>>;
+    };
+    expect(result.rows).toContainEqual(
+      expect.objectContaining({ step_id: "choice", users_reached: 1 }),
+    );
   }, 20_000);
 });

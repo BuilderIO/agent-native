@@ -59,6 +59,8 @@ const messages = {
       "在生成新資產之前新增 Builder、Gemini 或 OpenAI。",
     enterValueFirst: "首先輸入一個值。",
     saveFailed: "儲存失敗",
+    scopeRoleUnavailable: "無法載入你在組織中的角色，因此暫時無法儲存金鑰。",
+    retry: "重試",
     builderConnectedTo: "已連線至 {{orgName}}。",
     manage: "管理",
     addKeys: "新增金鑰",

@@ -859,6 +859,7 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.connectPlaceholder": "Conecte a IA para começar a conversar...",
   "setup.connectToChat": "Conectar a IA ao chat",
   "setup.connectToStart": "Conecte a IA para começar a conversar",
+  "setup.modelListUnavailable": "Não foi possível carregar os modelos.",
   "setup.providerStatusUnavailable":
     "Não foi possível confirmar se a IA está pronta.",
   "agentNativeClips.meetingAsk.placeholder": "Pergunte o que quiser",
@@ -2096,6 +2097,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Esses recursos novos e instáveis podem ter bugs.",
   "settingsShell.appGroup.labsLoadError":
     "Não foi possível carregar seus Labs.",
+  "settingsShell.appGroup.labsReadError":
+    "Não foi possível ler esta escolha salva. Escolha Ativado ou Desativado para defini-la novamente.",
   "settingsShell.appGroup.labsSaveError":
     "Não foi possível alterar {{lab}}. Tente novamente.",
   "settingsShell.appGroup.mcpAbout":

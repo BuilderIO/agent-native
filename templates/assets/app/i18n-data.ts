@@ -658,6 +658,9 @@ const enUS = {
       "Add Builder, Gemini, or OpenAI before generating new assets.",
     enterValueFirst: "Enter a value first.",
     saveFailed: "Save failed",
+    scopeRoleUnavailable:
+      "Couldn't load your organization role, so keys can't be saved yet.",
+    retry: "Retry",
     builderConnectedTo: "Connected to {{orgName}}.",
     manage: "Manage",
     addKeys: "Add keys",
@@ -3984,6 +3987,8 @@ export const messagesByLocale = {
       noManualOptions: "该项目没有可用的手动设置选项。",
       objectStorage: "对象存储",
       saveFailed: "保存失败",
+      scopeRoleUnavailable: "无法加载你在组织中的角色，因此暂时无法保存密钥。",
+      retry: "重试",
       builderConnectedTo: "已连接到 {{orgName}}。",
       generation: "生成",
       storage: "存储",
@@ -4831,6 +4836,9 @@ export const messagesByLocale = {
         "No hay opciones de configuración manual disponibles para este artículo.",
       objectStorage: "Almacenamiento de objetos",
       saveFailed: "Error al guardar",
+      scopeRoleUnavailable:
+        "No se pudo cargar tu rol en la organización, así que aún no se pueden guardar claves.",
+      retry: "Reintentar",
       builderConnectedTo: "Conectado a {{orgName}}.",
       generation: "Generación",
       storage: "Almacenamiento",
@@ -5339,6 +5347,9 @@ export const messagesByLocale = {
         "Aucune option de configuration manuelle n'est disponible pour cet élément.",
       objectStorage: "Stockage d'objets",
       saveFailed: "Échec de l'enregistrement",
+      scopeRoleUnavailable:
+        "Impossible de charger votre rôle dans l’organisation. Les clés ne peuvent pas encore être enregistrées.",
+      retry: "Réessayer",
       builderConnectedTo: "Connecté à {{orgName}}.",
       generation: "Génération",
       storage: "Stockage",
@@ -5846,6 +5857,9 @@ export const messagesByLocale = {
       enterValueFirst: "Geben Sie zunächst einen Wert ein.",
       manualKeys: "Manuelle Schlüssel",
       saveFailed: "Speichern fehlgeschlagen",
+      scopeRoleUnavailable:
+        "Deine Rolle in der Organisation konnte nicht geladen werden, daher können noch keine Schlüssel gespeichert werden.",
+      retry: "Erneut versuchen",
       builderConnectedTo: "Verbunden mit {{orgName}}.",
       manage: "Verwalten",
       addKeys: "Schlüssel hinzufügen",
@@ -6234,6 +6248,9 @@ export const messagesByLocale = {
       enterValueFirst: "先に値を入力してください。",
       manualKeys: "手動キー",
       saveFailed: "保存に失敗しました",
+      scopeRoleUnavailable:
+        "組織でのロールを読み込めなかったため、まだキーを保存できません。",
+      retry: "再試行",
       builderConnectedTo: "{{orgName}} に接続済みです。",
       manage: "管理",
       addKeys: "キーを追加",
@@ -6619,6 +6636,9 @@ export const messagesByLocale = {
       enterValueFirst: "먼저 값을 입력하세요.",
       manualKeys: "수동 키",
       saveFailed: "저장 실패",
+      scopeRoleUnavailable:
+        "조직 역할을 불러오지 못해 아직 키를 저장할 수 없습니다.",
+      retry: "다시 시도",
       builderConnectedTo: "{{orgName}}에 연결되었습니다.",
       manage: "관리",
       addKeys: "키 추가",
@@ -6997,6 +7017,9 @@ export const messagesByLocale = {
         "Nenhuma opção de configuração manual está disponível para este item.",
       objectStorage: "Armazenamento de objetos",
       saveFailed: "Falha ao salvar",
+      scopeRoleUnavailable:
+        "Não foi possível carregar sua função na organização, então ainda não é possível salvar chaves.",
+      retry: "Tentar novamente",
       builderConnectedTo: "Conectado a {{orgName}}.",
       generation: "Geração",
       storage: "Armazenamento",
@@ -7495,6 +7518,9 @@ export const messagesByLocale = {
       enterValueFirst: "पहले एक मान दर्ज करें.",
       manualKeys: "मैनुअल कुंजियाँ",
       saveFailed: "सहेजना विफल",
+      scopeRoleUnavailable:
+        "आपकी संगठन भूमिका लोड नहीं हो सकी, इसलिए अभी कुंजियाँ सहेजी नहीं जा सकतीं।",
+      retry: "फिर से प्रयास करें",
       builderConnectedTo: "{{orgName}} से कनेक्ट है।",
       manage: "प्रबंधित करें",
       addKeys: "कुंजियाँ जोड़ें",
@@ -7870,6 +7896,9 @@ export const messagesByLocale = {
       noManualOptions: "لا تتوفر خيارات الإعداد اليدوي لهذا العنصر.",
       objectStorage: "تخزين الكائنات",
       saveFailed: "فشل الحفظ",
+      scopeRoleUnavailable:
+        "تعذّر تحميل دورك في المؤسسة، لذا لا يمكن حفظ المفاتيح بعد.",
+      retry: "إعادة المحاولة",
       builderConnectedTo: "متصل بـ {{orgName}}.",
       generation: "الإنشاء",
       storage: "التخزين",

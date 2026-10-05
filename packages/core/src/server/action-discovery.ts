@@ -182,6 +182,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   if (typeof entry.changeEvents === "boolean") {
     out.changeEvents = entry.changeEvents;
   }
+  if (typeof entry.changeResource === "function") {
+    out.changeResource = entry.changeResource;
+  }
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
   }

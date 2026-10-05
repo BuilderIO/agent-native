@@ -7,7 +7,10 @@ import type {
   Tool,
 } from "@modelcontextprotocol/server";
 
-import { actionCallEmitsChange } from "../action-call-classification.js";
+import {
+  actionCallEmitsChange,
+  actionChangeResource,
+} from "../action-call-classification.js";
 import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
@@ -31,6 +34,8 @@ import { writeActionChangeMarker } from "../server/action-change-marker-write.js
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
   buildDeepLink,
+  isAgentNativeOpenUrl,
+  isSameOriginUrl,
   toAbsoluteOpenUrl,
   toDesktopOpenUrl,
   toVsCodeOpenUrl,
@@ -45,10 +50,7 @@ import {
   agentNativeMcpInstructions,
   agentNativeToolTitle,
 } from "../shared/agent-mcp-metadata.js";
-import {
-  isAgentNativeOpenDeepLink,
-  withCollapsedAgentSidebarParam,
-} from "../shared/agent-sidebar-url.js";
+import { withCollapsedAgentSidebarParam } from "../shared/agent-sidebar-url.js";
 import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
 import {
   type McpAnalyticsContext,
@@ -877,6 +879,9 @@ function mcpAppEmbedOpenLinkMeta(
   const safeOpenUrl = explicitOpenUrl
     ? toAbsoluteOpenUrl(explicitOpenUrl, meta?.origin)
     : null;
+  const isNativeOpenUrl = safeOpenUrl
+    ? isAgentNativeOpenUrl(safeOpenUrl, meta?.origin, meta?.basePath)
+    : false;
   const desktopDeepLinkUrl = (() => {
     if (!safeOpenUrl) return null;
     const app =
@@ -884,9 +889,10 @@ function mcpAppEmbedOpenLinkMeta(
         ? out.app.trim()
         : undefined;
     if (!app) return safeOpenUrl;
-    if (isAgentNativeOpenDeepLink(safeOpenUrl)) {
+    if (isNativeOpenUrl) {
       return toDesktopOpenUrl(safeOpenUrl);
     }
+    if (!isSameOriginUrl(safeOpenUrl, meta?.origin)) return safeOpenUrl;
     const targetRoute = routePathFromOpenUrl(safeOpenUrl);
     if (!targetRoute) return safeOpenUrl;
     const viewParam =
@@ -1014,11 +1020,16 @@ export function buildLinkArtifacts(
   try {
     const lk = entry.link({ args: args ?? {}, result });
     if (!lk?.url) return {};
-    const linkUrl = isAgentNativeOpenDeepLink(lk.url)
+    const isNativeOpenUrl = isAgentNativeOpenUrl(
+      lk.url,
+      meta?.origin,
+      meta?.basePath,
+    );
+    const linkUrl = isNativeOpenUrl
       ? withCollapsedAgentSidebarParam(lk.url)
       : lk.url;
     const webUrl = toAbsoluteOpenUrl(linkUrl, meta?.origin);
-    const desktopUrl = toDesktopOpenUrl(linkUrl);
+    const desktopUrl = isNativeOpenUrl ? toDesktopOpenUrl(linkUrl) : webUrl;
     const vscodeUrl = toVsCodeOpenUrl(webUrl);
     const markdownUrl = meta?.target === "desktop" ? desktopUrl : webUrl;
     return {
@@ -2358,6 +2369,7 @@ export async function createMCPServerForRequest(
             try {
               await writeActionChangeMarker({
                 actionName: name,
+                ...actionChangeResource(entry, args, rawResult),
                 owner: getRequestUserEmail() ?? undefined,
                 orgId: getRequestOrgId() ?? undefined,
               });

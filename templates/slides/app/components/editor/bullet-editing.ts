@@ -154,7 +154,7 @@ export function isBulletRow(el: HTMLElement): boolean {
     return false;
   }
   const first = el.firstElementChild;
-  return !!first && isBulletMarker(first);
+  return first?.tagName === "SPAN" && isBulletMarker(first);
 }
 
 /** A typed `- ` prefix can look like a marker while it is still inside a span. */

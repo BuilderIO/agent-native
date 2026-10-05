@@ -100,6 +100,12 @@ Together the two layers mean an interrupted run that already had a real side eff
 
 </Callout>
 
+## Continuação automática após um limite de tempo {#auto-continue}
+
+Quando o servidor interrompe um turno no limite de tempo de execução e nada no servidor o retoma, o chat continua sozinho, no **mesmo turno**. A execução retomada recebe as chamadas de ferramentas e os resultados da conversa, além da nota de diário acima, para que as etapas concluídas sejam reaproveitadas, e uma repetição idêntica de uma escrita — incluindo uma delegação `call-agent` entre apps, cuja chave de idempotência é derivada do turno — retorna o resultado registrado em vez de ser enviada de novo. O chat mostra o status _Retomando_, e Parar continua funcionando.
+
+Um turno continua automaticamente **no máximo três vezes**. A contagem fica salva com as execuções do turno, então recarregar a página não a zera e uma segunda aba não consegue duplicá-la. Depois disso, ou após qualquer erro, parada, cancelamento ou limite de credenciais ou de taxa, o turno termina com **Continuar** disponível e espera por você.
+
 ## Relacionado
 
 - [**Real-Time Sync**](/docs/real-time-collaboration) — como o registro de execução durável é transmitido para o cliente e reproduzido na reconexão.

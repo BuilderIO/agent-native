@@ -871,6 +871,7 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.connectPlaceholder": "KI verbinden, um den Chat zu starten...",
   "setup.connectToChat": "KI für den Chat verbinden",
   "setup.connectToStart": "KI verbinden, um den Chat zu starten",
+  "setup.modelListUnavailable": "Modelle konnten nicht geladen werden.",
   "setup.providerStatusUnavailable":
     "Es konnte nicht bestätigt werden, ob die KI bereit ist.",
   "agentNativeClips.meetingAsk.placeholder": "Frag einfach etwas",
@@ -2077,6 +2078,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Diese neuen, instabilen Funktionen können Fehler enthalten.",
   "settingsShell.appGroup.labsLoadError":
     "Deine Labs konnten nicht geladen werden.",
+  "settingsShell.appGroup.labsReadError":
+    "Die gespeicherte Auswahl konnte nicht gelesen werden. Wähle Ein oder Aus, um sie erneut festzulegen.",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} konnte nicht geändert werden. Versuche es erneut.",
   "settingsShell.appGroup.mcpAbout":

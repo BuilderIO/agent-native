@@ -1166,6 +1166,7 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.connectPlaceholder": "चैट शुरू करने के लिए AI कनेक्ट करें...",
   "setup.connectToChat": "चैट करने के लिए AI कनेक्ट करें",
   "setup.connectToStart": "चैट शुरू करने के लिए AI कनेक्ट करें",
+  "setup.modelListUnavailable": "मॉडल लोड नहीं हो सके।",
   "setup.providerStatusUnavailable": "यह पुष्टि नहीं हो सकी कि AI तैयार है।",
   "agentNativeClips.meetingAsk.placeholder": "कुछ भी पूछें",
   "agentNativeClips.meetingAsk.ariaLabel": "इस मीटिंग के बारे में कुछ भी पूछें",
@@ -1941,6 +1942,8 @@ const messages: ToolkitAgentChatTranslation = {
     "प्रस्तुतियों के लिए इस ब्राउज़र में नमूना डेटा का उपयोग करें।",
   "settingsShell.appGroup.labsFootnote": "इन नई, अस्थिर सुविधाओं में बग हो सकते हैं।",
   "settingsShell.appGroup.labsLoadError": "आपकी लैब्स लोड नहीं हो सकीं।",
+  "settingsShell.appGroup.labsReadError":
+    "इस सहेजे गए विकल्प को पढ़ा नहीं जा सका। इसे फिर से सेट करने के लिए चालू या बंद चुनें।",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} बदला नहीं जा सका। फिर से कोशिश करें।",
   "settingsShell.appGroup.mcpAbout":

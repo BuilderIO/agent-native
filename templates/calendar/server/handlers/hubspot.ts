@@ -18,12 +18,12 @@ export const hubspotStatus = defineEventHandler(async (event: H3Event) => {
 
 export const hubspotSaveKey = defineEventHandler(async (event: H3Event) => {
   const body = await readBody(event);
-  const { apiKey } = body;
+  const { apiKey, scope } = body;
   if (!apiKey || typeof apiKey !== "string") {
     setResponseStatus(event, 400);
     return { error: "apiKey is required" };
   }
-  const ok = await saveIntegrationKey(event, "hubspot", apiKey);
+  const ok = await saveIntegrationKey(event, "hubspot", apiKey, scope);
   if (!ok) {
     setResponseStatus(event, 401);
     return { error: "Sign in to connect HubSpot" };

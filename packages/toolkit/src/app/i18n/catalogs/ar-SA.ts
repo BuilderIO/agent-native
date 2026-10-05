@@ -1194,6 +1194,7 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.connectPlaceholder": "اتصل بالذكاء الاصطناعي لبدء المحادثة...",
   "setup.connectToChat": "اتصل بالذكاء الاصطناعي للمحادثة",
   "setup.connectToStart": "اتصل بالذكاء الاصطناعي لبدء المحادثة",
+  "setup.modelListUnavailable": "تعذّر تحميل النماذج.",
   "setup.providerStatusUnavailable": "تعذّر التأكد من جاهزية الذكاء الاصطناعي.",
   "agentNativeClips.meetingAsk.placeholder": "اسأل أي شيء",
   "agentNativeClips.meetingAsk.ariaLabel": "اسأل أي شيء عن هذا الاجتماع",
@@ -2127,6 +2128,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.labsFootnote":
     "قد تحتوي هذه الميزات الجديدة غير المستقرة على أخطاء.",
   "settingsShell.appGroup.labsLoadError": "تعذّر تحميل المختبرات.",
+  "settingsShell.appGroup.labsReadError":
+    "تعذّرت قراءة هذا الاختيار المحفوظ. اختر تشغيل أو إيقاف لإعداده مجددًا.",
   "settingsShell.appGroup.labsSaveError": "تعذّر تغيير {{lab}}. حاول مرة أخرى.",
   "settingsShell.appGroup.mcpAbout":
     "اربط {{app}} بـ Claude أو ChatGPT أو Cursor أو أي تطبيق ذكاء اصطناعي يدعم MCP. يمكن لهذا التطبيق بعد ذلك العمل في {{app}} نيابةً عنك. ولا يرى إلا ما يمكنك رؤيته.",
