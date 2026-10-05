@@ -63,13 +63,13 @@ description: "具有自然语言条件的事件触发和计划自动化"
 | `event`    | 框架事件总线上发出匹配的事件                  | `event`（姓名）    |
 | `webhook`  | 一个 HTTP `POST` 到达自动化的秘密 webhook URL | 创建时返回的 URL   |
 
-事件和 webhook 触发器可以包含 `condition`：由模型在调度之前根据负载检查的自然语言字符串。如果条件不匹配，则跳过自动化，并记录 `skipped` 状态。如果无法评估条件，自动化会改为记录错误。请参阅 [条件](#conditions)。
+事件和 webhook 触发器可以包含 `condition`：由模型在调度之前根据负载检查的自然语言字符串。如果条件不匹配，则跳过自动化，并记录 `skipped` 状态。如果无法评估条件，自动化不会运行。请参阅 [条件](#conditions)。
 
 ### Webhook 触发器 {#webhook-triggers}
 
 创建 webhook 自动化会返回形如 `/_agent-native/automations/webhook/<token>` 的 URL 路径。令牌就是秘密，因此只能把该 URL 提供给要调用它的服务。向该 URL 发送的每个 `POST` 都会成为自动化的负载，最大 64 KB。使用 JSON 内容类型发送的正文会被解析，其他正文则按文本传递。该端点返回 `202`，并在后台运行自动化。
 
-在 `X-Webhook-Event-Id`、`X-Event-Id` 或 `X-GitHub-Delivery` 标头中，或在 JSON 正文的顶层 `id` 中发送稳定的事件 ID。使用相同 ID 重试的投递只会运行一次自动化。
+在 `X-Webhook-Event-Id`、`X-Event-Id` 或 `X-GitHub-Delivery` 标头中，或在 JSON 正文的顶层字符串 `id` 中发送稳定的事件 ID。使用相同 ID 重试的投递只会运行一次自动化，并收到标记为重复的 `200` 响应。
 
 ## 创建自动化 {#creating}
 
@@ -203,7 +203,7 @@ emit(
 
 <Callout tone="info">
 
-无法评估的条件既不算匹配，也不算不匹配。自动化不会运行，并会记录 `lastStatus: error`，原因写在 `lastError` 中。提供商错误会重试。如果没有可用于评估条件的 API 密钥，每个匹配的事件都会记录一次错误，连续三次后自动化会自行暂停。密钥可用后，请在 **Settings › Automations** 中重新开启。
+无法评估的条件既不算匹配，也不算不匹配，自动化不会运行。提供商错误会记录 `lastStatus: error`，原因写在 `lastError` 中，并且该事件会重试。如果没有可用于评估条件的 API 密钥，事件自动化会为每个匹配的事件记录一次错误，连续三次后自动化会自行暂停。密钥可用后，请在 **Settings › Automations** 中重新开启。处于相同状态的 webhook 自动化不会暂停，它的投递会失败并重试。
 
 </Callout>
 

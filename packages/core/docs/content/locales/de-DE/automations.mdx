@@ -63,13 +63,13 @@ Das Framework bezeichnete geplante Automatisierungen ursprünglich als **Recurri
 | `event`    | Ein passendes Ereignis wird auf dem Framework-Ereignisbus ausgegeben      | `event` (Name)                                 |
 | `webhook`  | Ein HTTP-`POST` an der geheimen Webhook-URL der Automatisierung eintrifft | Die URL, die beim Erstellen zurückgegeben wird |
 
-Ereignis- und Webhook-Auslöser können einen `condition` enthalten: eine Zeichenfolge in natürlicher Sprache, die ein Modell vor dem Versand anhand der Nutzlast prüft. Wenn die Bedingung nicht zutrifft, wird die Automatisierung übersprungen und mit dem Status `skipped` protokolliert. Wenn die Bedingung nicht ausgewertet werden kann, protokolliert die Automatisierung stattdessen einen Fehler. Siehe [Bedingungen](#conditions).
+Ereignis- und Webhook-Auslöser können einen `condition` enthalten: eine Zeichenfolge in natürlicher Sprache, die ein Modell vor dem Versand anhand der Nutzlast prüft. Wenn die Bedingung nicht zutrifft, wird die Automatisierung übersprungen und mit dem Status `skipped` protokolliert. Wenn die Bedingung nicht ausgewertet werden kann, wird die Automatisierung nicht ausgeführt. Siehe [Bedingungen](#conditions).
 
 ### Webhook-Trigger {#webhook-triggers}
 
 Beim Erstellen einer Webhook-Automatisierung wird ein URL-Pfad der Form `/_agent-native/automations/webhook/<token>` zurückgegeben. Das Token ist das Geheimnis, geben Sie die URL also nur an den Dienst weiter, der sie aufruft. Jeder `POST` an diese URL wird zur Nutzlast der Automatisierung, bis zu 64 KB. Ein Body mit JSON-Content-Type wird geparst, jeder andere Body wird als Text übergeben. Der Endpunkt antwortet mit `202` und führt die Automatisierung im Hintergrund aus.
 
-Senden Sie eine stabile Ereignis-ID in einem der Header `X-Webhook-Event-Id`, `X-Event-Id` oder `X-GitHub-Delivery` oder als `id` auf oberster Ebene eines JSON-Bodys. Eine erneut gesendete Zustellung mit derselben ID führt die Automatisierung nur einmal aus.
+Senden Sie eine stabile Ereignis-ID in einem der Header `X-Webhook-Event-Id`, `X-Event-Id` oder `X-GitHub-Delivery` oder als `id` vom Typ Zeichenfolge auf oberster Ebene eines JSON-Bodys. Eine erneut gesendete Zustellung mit derselben ID führt die Automatisierung nur einmal aus und erhält eine Antwort `200`, die als Duplikat gekennzeichnet ist.
 
 ## Automatisierungen erstellen {#creating}
 
@@ -203,7 +203,7 @@ Bedingungen sind Zeichenfolgen in natürlicher Sprache, die ein Modell anhand de
 
 <Callout tone="info">
 
-Eine Bedingung, die nicht ausgewertet werden kann, zählt weder als Treffer noch als Nicht-Treffer. Die Automatisierung läuft nicht und protokolliert `lastStatus: error` mit dem Grund in `lastError`. Ein Anbieterfehler wird wiederholt. Ist kein API-Schlüssel zur Auswertung der Bedingung verfügbar, protokolliert jedes passende Ereignis einen Fehler, und die Automatisierung pausiert sich nach drei Fehlern in Folge selbst. Schalten Sie sie in **Settings › Automations** wieder ein, sobald ein Schlüssel verfügbar ist.
+Eine Bedingung, die nicht ausgewertet werden kann, zählt weder als Treffer noch als Nicht-Treffer, und die Automatisierung läuft nicht. Ein Anbieterfehler protokolliert `lastStatus: error` mit dem Grund in `lastError`, und das Ereignis wird wiederholt. Ist kein API-Schlüssel zur Auswertung der Bedingung verfügbar, protokolliert eine Ereignis-Automatisierung für jedes passende Ereignis einen Fehler und pausiert sich nach drei Fehlern in Folge selbst. Schalten Sie sie in **Settings › Automations** wieder ein, sobald ein Schlüssel verfügbar ist. Eine Webhook-Automatisierung pausiert in diesem Zustand nicht. Ihre Zustellung schlägt fehl und wird wiederholt.
 
 </Callout>
 

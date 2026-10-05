@@ -63,7 +63,7 @@ O framework originalmente expunha automações agendadas como **Recurring Jobs**
 | `event`    | Um evento correspondente é emitido no barramento de eventos da estrutura | `event` (nome)                              |
 | `webhook`  | Um `POST` HTTP chega à URL secreta de webhook da automação               | A URL retornada quando a automação é criada |
 
-Os gatilhos de evento e de webhook podem incluir um `condition`: uma string de linguagem natural que um modelo verifica em relação à carga útil antes do envio. Se a condição não corresponder, a automação é ignorada e registra o status `skipped`. Se a condição não puder ser avaliada, a automação registra um erro. Veja [Condições](#conditions).
+Os gatilhos de evento e de webhook podem incluir um `condition`: uma string de linguagem natural que um modelo verifica em relação à carga útil antes do envio. Se a condição não corresponder, a automação é ignorada e registra o status `skipped`. Se a condição não puder ser avaliada, a automação não é executada. Veja [Condições](#conditions).
 
 ### Gatilhos de webhook {#webhook-triggers}
 
@@ -75,8 +75,8 @@ a carga útil da automação, até 64 KB. Um corpo enviado com tipo de conteúdo
 `202` e executa a automação em segundo plano.
 
 Envie um ID de evento estável em um cabeçalho `X-Webhook-Event-Id`,
-`X-Event-Id` ou `X-GitHub-Delivery`, ou como `id` de nível superior em um corpo
-JSON. Uma entrega repetida com o mesmo ID executa a automação apenas uma vez.
+`X-Event-Id` ou `X-GitHub-Delivery`, ou como `id` de string de nível superior em um corpo
+JSON. Uma entrega repetida com o mesmo ID executa a automação apenas uma vez e recebe uma resposta `200` marcada como duplicada.
 
 ## Criando automações {#creating}
 
@@ -210,7 +210,7 @@ As condições são strings de linguagem natural que um modelo verifica em rela�
 
 <Callout tone="info">
 
-Uma condição que não pode ser avaliada nunca conta como correspondência nem como não correspondência. A automação não é executada e registra `lastStatus: error` com o motivo em `lastError`. Um erro do provedor é repetido. Se nenhuma chave de API estiver disponível para avaliar a condição, cada evento correspondente registra um erro, e a automação se pausa sozinha após três seguidos. Ative-a novamente em **Settings › Automations** quando uma chave estiver disponível.
+Uma condição que não pode ser avaliada nunca conta como correspondência nem como não correspondência, e a automação não é executada. Um erro do provedor registra `lastStatus: error` com o motivo em `lastError`, e o evento é repetido. Se nenhuma chave de API estiver disponível para avaliar a condição, uma automação de evento registra um erro para cada evento correspondente e se pausa sozinha após três seguidos. Ative-a novamente em **Settings › Automations** quando uma chave estiver disponível. Uma automação de webhook no mesmo estado não se pausa. Sua entrega falha e é repetida.
 
 </Callout>
 

@@ -63,13 +63,13 @@ Le framework présentait à l'origine les automatisations planifiées comme des 
 | `event`    | Un événement correspondant est émis sur le bus d'événements du framework        | `event` (nom)                |
 | `webhook`  | Une requête HTTP `POST` arrive sur l'URL de webhook secrète de l'automatisation | L'URL renvoyée à la création |
 
-Les déclencheurs d'événement et de webhook peuvent inclure un `condition` : une chaîne en langage naturel qu'un modèle vérifie par rapport à la charge utile avant l'envoi. Si la condition ne correspond pas, l'automatisation est ignorée et enregistre le statut `skipped`. Si la condition ne peut pas être évaluée, l'automatisation enregistre une erreur à la place. Voir [Conditions](#conditions).
+Les déclencheurs d'événement et de webhook peuvent inclure un `condition` : une chaîne en langage naturel qu'un modèle vérifie par rapport à la charge utile avant l'envoi. Si la condition ne correspond pas, l'automatisation est ignorée et enregistre le statut `skipped`. Si la condition ne peut pas être évaluée, l'automatisation ne s'exécute pas. Voir [Conditions](#conditions).
 
 ### Déclencheurs webhook {#webhook-triggers}
 
 Créer une automatisation webhook renvoie un chemin d'URL de la forme `/_agent-native/automations/webhook/<token>`. Le jeton est le secret : ne donnez donc l'URL qu'au service qui l'appelle. Chaque `POST` envoyé à cette URL devient la charge utile de l'automatisation, jusqu'à 64 Ko. Un corps envoyé avec un type de contenu JSON est analysé, et tout autre corps est transmis comme texte. Le point de terminaison répond `202` et exécute l'automatisation en arrière-plan.
 
-Envoyez un identifiant d'événement stable dans un en-tête `X-Webhook-Event-Id`, `X-Event-Id` ou `X-GitHub-Delivery`, ou sous la forme d'un `id` de premier niveau dans un corps JSON. Une livraison renvoyée avec le même identifiant n'exécute l'automatisation qu'une seule fois.
+Envoyez un identifiant d'événement stable dans un en-tête `X-Webhook-Event-Id`, `X-Event-Id` ou `X-GitHub-Delivery`, ou sous la forme d'un `id` de type chaîne de premier niveau dans un corps JSON. Une livraison renvoyée avec le même identifiant n'exécute l'automatisation qu'une seule fois et reçoit une réponse `200` marquée comme doublon.
 
 ## Créer des automatisations {#creating}
 
@@ -203,7 +203,7 @@ Les conditions sont des chaînes en langage naturel qu'un modèle vérifie par r
 
 <Callout tone="info">
 
-Une condition qui ne peut pas être évaluée ne compte ni comme une correspondance ni comme une non-correspondance. L'automatisation ne s'exécute pas et enregistre `lastStatus: error` avec la raison dans `lastError`. Une erreur du fournisseur est retentée. Si aucune clé API n'est disponible pour évaluer la condition, chaque événement correspondant enregistre une erreur, et l'automatisation se met en pause d'elle-même après trois erreurs consécutives. Réactivez-la dans **Settings › Automations** dès qu'une clé est disponible.
+Une condition qui ne peut pas être évaluée ne compte ni comme une correspondance ni comme une non-correspondance, et l'automatisation ne s'exécute pas. Une erreur du fournisseur enregistre `lastStatus: error` avec la raison dans `lastError`, et l'événement est retenté. Si aucune clé API n'est disponible pour évaluer la condition, une automatisation d'événement enregistre une erreur pour chaque événement correspondant et se met en pause d'elle-même après trois erreurs consécutives. Réactivez-la dans **Settings › Automations** dès qu'une clé est disponible. Une automatisation webhook dans le même état ne se met pas en pause. Sa livraison échoue et est retentée.
 
 </Callout>
 

@@ -63,7 +63,7 @@ El framework exponía originalmente las automatizaciones programadas como **Recu
 | `event`    | Se emite un evento coincidente en el bus de eventos del marco         | `event` (nombre)                  |
 | `webhook`  | Llega un `POST` HTTP a la URL secreta de webhook de la automatización | La URL que se devuelve al crearla |
 
-Los activadores de evento y de webhook pueden incluir un `condition`: una cadena en lenguaje natural que un modelo comprueba con respecto a la carga útil antes del envío. Si la condición no coincide, la automatización se omite y registra el estado `skipped`. Si la condición no se puede evaluar, la automatización registra un error. Consulte [Condiciones](#conditions).
+Los activadores de evento y de webhook pueden incluir un `condition`: una cadena en lenguaje natural que un modelo comprueba con respecto a la carga útil antes del envío. Si la condición no coincide, la automatización se omite y registra el estado `skipped`. Si la condición no se puede evaluar, la automatización no se ejecuta. Consulte [Condiciones](#conditions).
 
 ### Activadores de webhook {#webhook-triggers}
 
@@ -76,9 +76,9 @@ texto. El punto final responde `202` y ejecuta la automatización en segundo
 plano.
 
 Envíe un ID de evento estable en un encabezado `X-Webhook-Event-Id`,
-`X-Event-Id` o `X-GitHub-Delivery`, o como `id` de nivel superior en un cuerpo
+`X-Event-Id` o `X-GitHub-Delivery`, o como `id` de cadena de nivel superior en un cuerpo
 JSON. Una entrega reintentada con el mismo ID ejecuta la automatización una sola
-vez.
+vez y recibe una respuesta `200` marcada como duplicada.
 
 ## Crear automatizaciones {#creating}
 
@@ -212,7 +212,7 @@ Las condiciones son cadenas de lenguaje natural que un modelo comprueba con resp
 
 <Callout tone="info">
 
-Una condición que no se puede evaluar nunca cuenta como coincidencia ni como no coincidencia. La automatización no se ejecuta y registra `lastStatus: error` con el motivo en `lastError`. Un error del proveedor se reintenta. Si no hay ninguna clave de API disponible para evaluar la condición, cada evento coincidente registra un error y la automatización se pausa sola tras tres seguidos. Vuelva a activarla en **Settings › Automations** cuando haya una clave disponible.
+Una condición que no se puede evaluar nunca cuenta como coincidencia ni como no coincidencia, y la automatización no se ejecuta. Un error del proveedor registra `lastStatus: error` con el motivo en `lastError`, y el evento se reintenta. Si no hay ninguna clave de API disponible para evaluar la condición, una automatización de evento registra un error por cada evento coincidente y se pausa sola tras tres seguidos. Vuelva a activarla en **Settings › Automations** cuando haya una clave disponible. Una automatización de webhook en el mismo estado no se pausa. Su entrega falla y se reintenta.
 
 </Callout>
 

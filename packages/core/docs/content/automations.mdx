@@ -72,7 +72,7 @@ schedule-only integration or working with scheduler internals.
 | `event`    | A matching event is emitted on the framework event bus        | `event` (name)                     |
 | `webhook`  | An HTTP `POST` arrives at the automation's secret webhook URL | The URL returned when it's created |
 
-Event and webhook triggers can include a `condition`: a natural-language string a model checks against the payload before dispatch. If the condition doesn't match, the automation is skipped and records a `skipped` status. If the condition can't be evaluated, the automation records an error instead. See [Conditions](#conditions).
+Event and webhook triggers can include a `condition`: a natural-language string a model checks against the payload before dispatch. If the condition doesn't match, the automation is skipped and records a `skipped` status. If the condition can't be evaluated, the automation doesn't run. See [Conditions](#conditions).
 
 ### Webhook triggers {#webhook-triggers}
 
@@ -84,8 +84,9 @@ parsed, and any other body is passed as text. The endpoint answers `202` and
 runs the automation in the background.
 
 Send a stable event ID in an `X-Webhook-Event-Id`, `X-Event-Id`, or
-`X-GitHub-Delivery` header, or as a top-level `id` in a JSON body. A retried
-delivery with the same ID runs the automation once.
+`X-GitHub-Delivery` header, or as a top-level string `id` in a JSON body. A retried
+delivery with the same ID runs the automation once and gets a `200` reply
+marked as a duplicate.
 
 ## Creating automations {#creating}
 
@@ -252,7 +253,7 @@ Conditions are natural-language strings a model checks against the event or webh
 
 <Callout tone="info">
 
-A condition that can't be evaluated never counts as a match or as a non-match. The automation doesn't run, and it records `lastStatus: error` with the reason in `lastError`. A provider error is retried. If no API key is available to evaluate the condition, each matching event records an error, and the automation pauses itself after three in a row. Turn it back on in **Settings › Automations** once a key is available.
+A condition that can't be evaluated never counts as a match or as a non-match, and the automation doesn't run. A provider error records `lastStatus: error` with the reason in `lastError`, and the event is retried. If no API key is available to evaluate the condition, an event automation records an error for each matching event and pauses itself after three in a row. Turn it back on in **Settings › Automations** once a key is available. A webhook automation in the same state doesn't pause. Its delivery fails and is retried.
 
 </Callout>
 
