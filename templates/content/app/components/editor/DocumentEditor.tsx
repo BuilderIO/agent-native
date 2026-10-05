@@ -230,6 +230,14 @@ import {
   type PageSaveResult as DocumentSaveResult,
 } from "./pageSession";
 import {
+  createSuggestionAutosave,
+  markSuggestionAutosaveSaved,
+  queueSuggestionAutosave,
+  resetSuggestionAutosave,
+  retrySuggestionAutosave,
+  SUGGESTION_AUTOSAVE_IDLE_MS,
+} from "./suggestions/autosave-schedule";
+import {
   canonicalSuggestionRevision,
   createSuggestionDraftSession,
   previewSuggestionDraft,
@@ -338,10 +346,6 @@ export function documentEditorCommentThreads(
 }
 
 const TAB_ID = generateTabId();
-const SUGGESTION_AUTOSAVE_IDLE_MS = 1000;
-const SUGGESTION_AUTOSAVE_MAX_WAIT_MS = 5000;
-const SUGGESTION_AUTOSAVE_RETRY_MS = 2000;
-const SUGGESTION_AUTOSAVE_MAX_RETRY_MS = 30_000;
 
 export function applyHistoryToDocumentBody(
   hasDatabase: boolean,
@@ -2495,21 +2499,16 @@ function PageEditorSessionBody({
     string,
     ResourceSuggestion
   > | null> | null>(null);
-  const suggestionAutosaveRef = useRef<{
-    timer: ReturnType<typeof setTimeout> | null;
-    dirtySince: number | null;
-    retryDelay: number;
-    disposed: boolean;
-  }>({ timer: null, dirtySince: null, retryDelay: 0, disposed: false });
+  const suggestionAutosaveRef = useRef(createSuggestionAutosave());
   const flushSuggestionDraftRef = useRef<
     (options?: {
       keepMode?: boolean;
       autosave?: boolean;
     }) => Promise<Map<string, ResourceSuggestion> | null>
   >(async () => null);
-  const scheduleSuggestionAutosaveRef = useRef<(delay?: number) => void>(
-    () => {},
-  );
+  const autosaveSuggestionDraft = useCallback(() => {
+    void flushSuggestionDraftRef.current({ keepMode: true, autosave: true });
+  }, []);
   const suggestionProposalsRef = useRef(
     new Map<string, { id: string; summary: string }>(),
   );
@@ -4902,6 +4901,9 @@ function PageEditorSessionBody({
     suggestionBaseRef.current?.existingSuggestion &&
     suggestionDraftHasChanges(suggestionBaseRef.current, suggestionDraft),
   );
+  const suggestionDraftConflicted =
+    suggestionAmendmentConflict &&
+    (amendmentDraftIsDirty || !suggestionBaseRef.current?.existingSuggestion);
   const amendmentResolutionConflicts = suggestionAmendmentResolutionConflicts(
     editingSuggestionId,
     savedSuggestions,
@@ -4957,11 +4959,7 @@ function PageEditorSessionBody({
   }, []);
 
   const clearSuggestionAutosave = useCallback(() => {
-    const autosave = suggestionAutosaveRef.current;
-    if (autosave.timer) clearTimeout(autosave.timer);
-    autosave.timer = null;
-    autosave.dirtySince = null;
-    autosave.retryDelay = 0;
+    resetSuggestionAutosave(suggestionAutosaveRef.current);
   }, []);
 
   const persistSuggestionDraft = useCallback(
@@ -4986,10 +4984,10 @@ function PageEditorSessionBody({
         suggestionAmendmentKeysRef.current.clear();
       };
       const saved = (persisted: Map<string, ResourceSuggestion>) => {
-        const autosaveState = suggestionAutosaveRef.current;
-        autosaveState.retryDelay = 0;
-        if (suggestionDraftRef.current === draft)
-          autosaveState.dirtySince = null;
+        markSuggestionAutosaveSaved(
+          suggestionAutosaveRef.current,
+          suggestionDraftRef.current === draft,
+        );
         setSuggestionDraftSaveFailed(false);
         if (!keepMode) endSession();
         return persisted;
@@ -4999,8 +4997,8 @@ function PageEditorSessionBody({
         return saved(new Map<string, ResourceSuggestion>());
       }
       if (
-        base.existingSuggestion &&
-        (suggestionAmendmentConflict || amendmentTargetIsResolved)
+        suggestionAmendmentConflict ||
+        (base.existingSuggestion && amendmentTargetIsResolved)
       ) {
         setSuggestionAmendmentConflict(true);
         return null;
@@ -5106,6 +5104,10 @@ function PageEditorSessionBody({
             );
           },
         };
+        // Set once a reviewer accepted a suggestion this save meant to change:
+        // the Page now holds it, so no further write from this draft's base is
+        // safe, and the author resolves the draft from the conflict banner.
+        let acceptedElsewhere = false;
         for (const { key, suggestion } of plan.withdraw) {
           const withdrawn = await retryOnSuggestionConflict(
             suggestion,
@@ -5121,7 +5123,11 @@ function PageEditorSessionBody({
               ).suggestion,
             conflictRetry,
           );
-          if (withdrawn) settled.push(withdrawn);
+          if (withdrawn.status === "accepted") {
+            acceptedElsewhere = true;
+            break;
+          }
+          if (withdrawn.status === "saved") settled.push(withdrawn.result);
           entries.delete(key);
         }
         if (settled.length > 0) {
@@ -5135,7 +5141,7 @@ function PageEditorSessionBody({
           });
         }
         const create = [...plan.create];
-        for (const amendment of plan.amend) {
+        for (const amendment of acceptedElsewhere ? [] : plan.amend) {
           const amended = await retryOnSuggestionConflict(
             amendment.suggestion,
             async (target) => {
@@ -5161,18 +5167,29 @@ function PageEditorSessionBody({
             },
             conflictRetry,
           );
+          if (amended.status === "accepted") {
+            acceptedElsewhere = true;
+            break;
+          }
           entries.delete(amendment.previousKey);
-          if (!amended) {
-            // A reviewer decided it while the author kept typing; propose the
-            // current text as a new suggestion instead of losing it.
+          if (amended.status === "closed") {
+            // A reviewer turned it down while the author kept typing; propose
+            // the current text as a new suggestion instead of losing it.
             create.push({ key: amendment.key, operation: amendment.operation });
             continue;
           }
           entries.set(amendment.key, {
-            ...amended,
+            ...amended.result,
             operation: amendment.operation,
           });
-          persisted.set(amendment.key, amended.suggestion);
+          persisted.set(amendment.key, amended.result.suggestion);
+        }
+        if (acceptedElsewhere) {
+          adoptConfirmedSuggestions();
+          setSuggestionAmendmentConflict(true);
+          void suggestionsQuery.refetch();
+          void queryClient.invalidateQueries(documentQueryFilter(documentId));
+          return null;
         }
         if (create.length > 0) {
           const pending = create.map(({ operation }) => operation);
@@ -5243,15 +5260,10 @@ function PageEditorSessionBody({
         const alreadyFailed = suggestionDraftSaveFailedRef.current;
         setSuggestionDraftSaveFailed(true);
         if (autosave && !clientError) {
-          const autosaveState = suggestionAutosaveRef.current;
-          autosaveState.retryDelay = Math.min(
-            Math.max(
-              autosaveState.retryDelay * 2,
-              SUGGESTION_AUTOSAVE_RETRY_MS,
-            ),
-            SUGGESTION_AUTOSAVE_MAX_RETRY_MS,
+          retrySuggestionAutosave(
+            suggestionAutosaveRef.current,
+            autosaveSuggestionDraft,
           );
-          scheduleSuggestionAutosaveRef.current();
         }
         if (autosave && alreadyFailed) return null;
         toast.error(
@@ -5274,6 +5286,7 @@ function PageEditorSessionBody({
       updateSuggestion,
       decideSuggestion,
       adoptConfirmedSuggestions,
+      autosaveSuggestionDraft,
       clearSuggestionAutosave,
       documentId,
       amendmentTargetIsResolved,
@@ -5294,7 +5307,11 @@ function PageEditorSessionBody({
       const inFlight = suggestionFlushRef.current;
       if (inFlight) {
         if (autosave) {
-          scheduleSuggestionAutosaveRef.current(SUGGESTION_AUTOSAVE_IDLE_MS);
+          queueSuggestionAutosave(
+            suggestionAutosaveRef.current,
+            autosaveSuggestionDraft,
+            SUGGESTION_AUTOSAVE_IDLE_MS,
+          );
           return null;
         }
         await inFlight;
@@ -5308,38 +5325,21 @@ function PageEditorSessionBody({
           suggestionFlushRef.current = null;
       }
     },
-    [isSuggesting, isSubmittingSuggestions, persistSuggestionDraft],
+    [
+      autosaveSuggestionDraft,
+      isSuggesting,
+      isSubmittingSuggestions,
+      persistSuggestionDraft,
+    ],
   );
   flushSuggestionDraftRef.current = flushSuggestionDraft;
 
-  const scheduleSuggestionAutosave = useCallback((minimumDelay = 0) => {
-    const autosave = suggestionAutosaveRef.current;
-    if (autosave.disposed) return;
-    // A failed save's backoff retry is already queued; typing must not pull
-    // it earlier, or an outage becomes a request per keystroke.
-    if (autosave.retryDelay > 0 && autosave.timer) return;
-    const now = Date.now();
-    autosave.dirtySince ??= now;
-    if (autosave.timer) clearTimeout(autosave.timer);
-    // The max-wait deadline bounds only the typing debounce, which reaches
-    // zero once it passes; retries and waits behind an in-flight save keep
-    // their own delay or they would spin.
-    const debounce = Math.min(
-      SUGGESTION_AUTOSAVE_IDLE_MS,
-      Math.max(0, autosave.dirtySince + SUGGESTION_AUTOSAVE_MAX_WAIT_MS - now),
+  const scheduleSuggestionAutosave = useCallback(() => {
+    queueSuggestionAutosave(
+      suggestionAutosaveRef.current,
+      autosaveSuggestionDraft,
     );
-    autosave.timer = setTimeout(
-      () => {
-        autosave.timer = null;
-        void flushSuggestionDraftRef.current({
-          keepMode: true,
-          autosave: true,
-        });
-      },
-      Math.max(debounce, autosave.retryDelay, minimumDelay),
-    );
-  }, []);
-  scheduleSuggestionAutosaveRef.current = scheduleSuggestionAutosave;
+  }, [autosaveSuggestionDraft]);
 
   const handleSuggestionDraftChange = useCallback(
     (next: string) => {
@@ -7965,7 +7965,7 @@ function PageEditorSessionBody({
           {isSuggesting &&
           (!suggestionCapability.canStart ||
             suggestionDraftSaveFailed ||
-            (amendmentDraftIsDirty && suggestionAmendmentConflict)) ? (
+            suggestionDraftConflicted) ? (
             <div
               className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm"
               role="alert"

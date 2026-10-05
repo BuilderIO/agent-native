@@ -629,17 +629,22 @@ describe("document editor layout", () => {
       new URL("./DocumentEditor.tsx", import.meta.url),
       "utf8",
     ).replace(/\r\n/g, "\n");
-    const flush = source.slice(
-      source.indexOf("const flushSuggestionDraft"),
-      source.indexOf("const startSuggestionDraft"),
+    const persist = source.slice(
+      source.indexOf("const persistSuggestionDraft"),
+      source.indexOf("const flushSuggestionDraft = "),
     );
-    expect(
-      flush.indexOf("suggestionDraft === base.initialContent"),
-    ).toBeLessThan(
-      flush.indexOf("suggestionAmendmentConflict || amendmentTargetIsResolved"),
+    const unchangedAmendment = persist.indexOf("draft === base.initialContent");
+    expect(unchangedAmendment).toBeGreaterThan(-1);
+    expect(unchangedAmendment).toBeLessThan(
+      persist.search(
+        /suggestionAmendmentConflict \|\|\s*\(base\.existingSuggestion && amendmentTargetIsResolved\)/,
+      ),
     );
-    expect(source).toContain(
-      "amendmentDraftIsDirty && suggestionAmendmentConflict",
+    expect(source).toMatch(
+      /suggestionDraftConflicted =\s*suggestionAmendmentConflict &&\s*\(amendmentDraftIsDirty \|\| !suggestionBaseRef\.current\?\.existingSuggestion\)/,
+    );
+    expect(source).toMatch(
+      /suggestionDraftSaveFailed \|\|\s*suggestionDraftConflicted\) \? \(/,
     );
   });
 

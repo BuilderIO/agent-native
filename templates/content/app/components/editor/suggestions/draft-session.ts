@@ -113,6 +113,14 @@ export function freshestSavedSuggestions(
   return [...byId.values()];
 }
 
+export type SuggestionConflictOutcome<Result> =
+  | { status: "saved"; result: Result }
+  // The Page already holds the text this save meant to change, so the draft's
+  // base no longer describes it.
+  | { status: "accepted" }
+  // Rejected, withdrawn, or gone: the Page never took it.
+  | { status: "closed" };
+
 // A conflict means the suggestion moved on without this save: a reviewer
 // decided it, or its author amended it in another tab. Only a decision ends it;
 // a newer pending revision gets the same attempt once more.
@@ -123,15 +131,16 @@ export async function retryOnSuggestionConflict<Result>(
     isConflict: (error: unknown) => boolean;
     latest: (id: string) => Promise<ResourceSuggestion | undefined>;
   },
-): Promise<Result | null> {
+): Promise<SuggestionConflictOutcome<Result>> {
   try {
-    return await attempt(suggestion);
+    return { status: "saved", result: await attempt(suggestion) };
   } catch (error) {
     if (!options.isConflict(error)) throw error;
   }
   const latest = await options.latest(suggestion.id);
-  if (latest?.status !== "pending") return null;
-  return attempt(latest);
+  if (latest?.status === "accepted") return { status: "accepted" };
+  if (latest?.status !== "pending") return { status: "closed" };
+  return { status: "saved", result: await attempt(latest) };
 }
 
 export function createSuggestionDraftSession(input: {

@@ -1061,26 +1061,27 @@ describe("suggestion draft session", () => {
         },
         { isConflict, latest: async () => saved(2) },
       );
-      expect(result).toBe("saved at 2");
+      expect(result).toEqual({ status: "saved", result: "saved at 2" });
       expect(attempts).toEqual([1, 2]);
     });
 
-    it.each(["accepted", "rejected", "withdrawn"])(
-      "stops once a decision %s it",
-      async (status) => {
-        const attempts: number[] = [];
-        const result = await retryOnSuggestionConflict(
-          saved(1),
-          async (target) => {
-            attempts.push(target.revision);
-            throw conflict;
-          },
-          { isConflict, latest: async () => saved(2, status) },
-        );
-        expect(result).toBeNull();
-        expect(attempts).toEqual([1]);
-      },
-    );
+    it.each([
+      ["accepted", "accepted"],
+      ["rejected", "closed"],
+      ["withdrawn", "closed"],
+    ])("stops once a decision %s it", async (status, outcome) => {
+      const attempts: number[] = [];
+      const result = await retryOnSuggestionConflict(
+        saved(1),
+        async (target) => {
+          attempts.push(target.revision);
+          throw conflict;
+        },
+        { isConflict, latest: async () => saved(2, status) },
+      );
+      expect(result).toEqual({ status: outcome });
+      expect(attempts).toEqual([1]);
+    });
 
     it("stops when the suggestion no longer exists", async () => {
       await expect(
@@ -1091,7 +1092,7 @@ describe("suggestion draft session", () => {
           },
           { isConflict, latest: async () => undefined },
         ),
-      ).resolves.toBeNull();
+      ).resolves.toEqual({ status: "closed" });
     });
 
     it("fails instead of retrying again when the newer revision conflicts too", async () => {
