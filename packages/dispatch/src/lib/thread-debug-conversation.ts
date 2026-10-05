@@ -23,6 +23,19 @@ function stringField(value: unknown): string | null {
 }
 
 /**
+ * Every run id an assistant message accounts for: its own run plus any
+ * earlier runs folded into it (`metadata.custom.foldedRunIds`), e.g. a retry
+ * after a timeout. Those folded runs must not also surface as standalone rows.
+ */
+function foldedRunIds(message: ConversationMessageLike): string[] {
+  const meta = message.metadata as Record<string, any> | null | undefined;
+  const ids = meta?.custom?.foldedRunIds;
+  return Array.isArray(ids)
+    ? ids.filter((id): id is string => !!stringField(id))
+    : [];
+}
+
+/**
  * The run a persisted message belongs to. Assistant rows carry the run that
  * produced them; user rows carry the run they submitted (`submittedRunId`).
  */
@@ -78,9 +91,15 @@ export function buildConversationRows<
   const submittedRunIds = new Set<string>();
   for (const message of messages) {
     const runId = messageRunId(message);
-    if (!runId || !runsById.has(runId)) continue;
-    if (message.role === "user") submittedRunIds.add(runId);
-    else answeredRunIds.add(runId);
+    if (runId && runsById.has(runId)) {
+      if (message.role === "user") submittedRunIds.add(runId);
+      else answeredRunIds.add(runId);
+    }
+    if (message.role !== "user") {
+      for (const folded of foldedRunIds(message)) {
+        if (runsById.has(folded)) answeredRunIds.add(folded);
+      }
+    }
   }
 
   const rows: ConversationRow<M, R>[] = [];

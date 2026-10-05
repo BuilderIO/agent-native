@@ -846,6 +846,12 @@ function ThreadRecords({ detail }: { detail: ThreadDebugResponse }) {
       debug: detail.debug,
       debugRuns: detail.debugRuns,
       queuedMessages: detail.queuedMessages,
+      // Trace records with no run_id are thread-scoped, so they never show
+      // up in a per-run RowInspector traces tab.
+      threadTraces: {
+        summaries: detail.traces.summaries.filter((record) => !record.run_id),
+        spans: detail.traces.spans.filter((record) => !record.run_id),
+      },
       feedback: detail.feedback,
       satisfaction: detail.satisfaction,
       evals: detail.evals,
