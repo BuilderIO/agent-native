@@ -470,7 +470,7 @@
           "id": "TOK-05",
           "status": "decided",
           "today": "One create popover: Add one token is a CSS-variable field and a value field that defaults to `#000000`, and `classifyVar` guesses the group from the name and value.",
-          "change": "+ Add token is a Nova menu of token kinds in the panel's group order: Color · Font family, Font weight, Font size, Line height, Letter spacing · Spacing, Container, Breakpoint, Radius · Shadow, Opacity. A kind adds a draft row at the end of its group with the kind's prefix and a starting value (Font size → `--font-size-`, 16px), stored with that type; Enter moves to the value, Enter or clicking away saves, Esc cancels.",
+          "change": "+ Add token is a Nova menu of token kinds in the panel's group order: Color · Font family, Font weight, Font size, Line height, Letter spacing · Spacing, Container, Breakpoint, Radius · Shadow, Opacity. A kind adds a draft row at the end of its group with the kind's prefix and a starting value (Font size → `--font-size-`, 16px), stored with that type; Enter moves to the value, Enter or clicking away saves, Esc cancels. Since TOK-28 this menu is the token editor's Add token, at the end of the selected collection's table; a new token above Primitives starts as an alias to the first token of its kind below it, and its name opens for editing.",
           "refs": [
             "templates/design/actions/import-design-tokens.ts:130#classifyVar"
           ]
@@ -485,7 +485,7 @@
           "id": "TOK-07",
           "status": "decided",
           "today": "The same popover offers Import a set from text, Import from a file, Import from a folder, and Import from current design.",
-          "change": "Import (Tabler `download`) is a Nova menu like +, each item importing straight away with a toast of what changed: Paste Figma link, DTCG file…, CSS or Tailwind file…, Code folder…, Paste from clipboard, then Generate from design. The same parser runs underneath, and DTCG is detected by content."
+          "change": "Import (Tabler `download`) is a Nova menu like +, each item importing straight away with a toast of what changed: Paste Figma link, DTCG file…, CSS or Tailwind file…, Code folder…, Paste from clipboard, then Generate from design. The same parser runs underneath, and DTCG is detected by content. Since TOK-28 it sits in the token editor's title bar, and in the panel's empty state."
         },
         {
           "id": "TOK-08",
@@ -519,7 +519,7 @@
           "id": "TOK-12",
           "status": "decided",
           "today": "The panel header has a title, a token count, Refresh, and the create popover; rows are 28px.",
-          "change": "The header is the token count, then Search, Import, and +. Search swaps in for the line as a focused 32px field with a ⌘F hint (RAIL-11). Group headers drop their counts and uppercase labels; rows are 32px.",
+          "change": "The header is the token count, then Search and the table icon that opens the token editor (TOK-29; Import and + moved into the editor, TOK-28). Search swaps in for the line as a focused 32px field with a ⌘F hint (RAIL-11). Group headers drop their counts and uppercase labels; rows are 32px.",
           "refs": [
             "templates/design/app/components/design/LayersPanel.tsx:886#searchOpen"
           ]
@@ -576,7 +576,7 @@
           "id": "TOK-20",
           "status": "proposed",
           "today": "Clicking a color token opens a text field for its hex value, the same as every other token.",
-          "change": "Clicking a color token opens the inspector's color picker (step 21, COLOR-02 to COLOR-04) with `supportedPaintTypes` set to solid (Primitives get no Libraries tab; Semantic and Components open on one, TOK-22), beside the panel and level with the row. Dragging restyles the canvas live, Esc puts the old value back, and clicking away keeps the new one. A new color token's swatch opens the same picker.",
+          "change": "Clicking a color token opens the inspector's color picker (step 21, COLOR-02 to COLOR-04) with `supportedPaintTypes` set to solid (Primitives get no Libraries tab; every tier above opens on one, TOK-22), beside the panel row or the editor cell it edits. Dragging restyles the canvas live, Esc puts the old value back, and clicking away keeps the new one. A new color token's swatch opens the same picker.",
           "refs": [
             "templates/design/app/components/design/inspector/DesignColorPicker.tsx#DesignColorPicker",
             "templates/design/app/components/design/TokensPanel.tsx#editing"
@@ -584,37 +584,37 @@
         },
         {
           "id": "TOK-21",
-          "status": "proposed",
-          "today": "The panel groups tokens by type only (Colors, Typography, Spacing & Layout, Radius, Shadows & Effects). Every token is one flat CSS variable with one value; nothing says whether it's a raw palette value or a role.",
-          "change": "Collections are the panel's sections, in tier order: Primitives (raw values: Neutral 0–950, Blue 400/600, Sans, Bold), Semantic (roles: Background, Foreground, Primary, Link, spacing), and Components (Button background, Button text, the radii and the card shadow). Types become 24px sub-labels inside each collection. Each collection header has + (the kind menu, adding to that collection, then Add mode) and, when the collection has several modes, a mode select. The panel header's + adds to Semantic and ends with New collection. In DTCG terms each collection is a resolver set.",
+          "status": "decided",
+          "today": "The panel groups tokens by type only. Every token is one flat CSS variable with one value, so nothing tells a palette value from a role, and a design can bind straight to a raw color.",
+          "change": "Tokens come in strict tiers. Primitives hold the only raw values and have no modes: every brand's palette, type, spacing, radius, and shadow scales (Neutral 0–950, Blue/Violet/Emerald 400 and 600, Sans, Serif, Space 8, Radius full). Theme and Semantic hold only aliases to a tier below. Components are optional and off by default (most systems stop at Semantic); Add collection › Components adds them, aliasing Semantic. A raw value above Primitives gets the amber mark, and its menu offers Use <primitive> when one already holds that value, or Make it a primitive. Imports put values in Primitives and aliases in Semantic, and the color picker's + makes a Semantic token on a new primitive, so nothing the editor creates starts invalid.",
           "refs": [
             "templates/design/app/components/design/TokensPanel.tsx#typeLabel"
           ],
-          "prototype": "Open Tokens: Primitives, Semantic, and Components, each grouped by type."
+          "prototype": "Tokens › table icon › Semantic: type 48px into Page's Light cell, then click its amber mark."
         },
         {
           "id": "TOK-22",
           "status": "proposed",
           "today": "A value of `var(--other)` is kept as text; the panel can't show what it resolves to or let you pick the token it points at.",
-          "change": "A token's value can be an alias to a token in a lower tier (Components → Semantic → Primitives), stored as `var(--token)` so the canvas resolves it as shipped CSS would, and as `{group.token}` in DTCG. An alias row shows the resolved swatch and the target as a chip (Primary · Neutral 900); its tooltip follows the chain to the value (Primary → Neutral 900 → #171717) above the variable and file. Clicking a Semantic or Components color opens the picker on Libraries, grouped by collection, with the current target checked: picking a token sets the alias for the mode being edited; editing on Custom writes a value, which detaches it. Other kinds alias by typing `{Sans}` in the value field, limited to a lower tier and the same kind (a font family can't point at a weight). The inspector's Fill picker lists Semantic first, then Components, then Primitives, and the Fill ▾ lists Semantic colors with Components and Primitives in submenus.",
-          "prototype": "Click Semantic › Link, pick Blue 400 on Libraries, then hover the row."
+          "change": "An alias is stored as `var(--token)`, so the canvas resolves it as shipped CSS would, and as `{group.token}` in DTCG. It shows the resolved swatch and the target as a chip (Primary · Accent); the tooltip follows the chain to the value (Primary → Accent → Blue 600 → #0a6bd6). Clicking a color above Primitives opens the picker on Libraries of the tiers below, grouped by collection, with the current target checked: picking one sets the alias for that mode, and Custom writes a value, which detaches it and earns the TOK-21 mark. Other kinds alias by typing `{Sans}`, limited to a lower tier and the same kind (a font family can't point at a weight).",
+          "prototype": "In the editor, click Semantic › Link's Dark cell and pick Violet 400 on Libraries."
         },
         {
           "id": "TOK-23",
-          "status": "proposed",
+          "status": "decided",
           "today": "A token has one value. A `.dark { --x: … }` override isn't a mode; it isn't read at all (TOK-25).",
-          "change": "A collection has one or more modes (Semantic: Light, Dark). Each token holds a value per mode, and a mode with no value of its own uses the first, so a font set once applies to both. The collection header's mode select picks the mode the panel shows and edits; until you pick one it follows the current screen. Add mode copies the mode being edited, so nothing on screen changes until you edit it. A mode can carry a color scheme (Light → light, Dark → dark), which is what Auto uses (TOK-24). In DTCG this is a resolver modifier (`theme`: `light` | `dark`) whose contexts are the modes.",
-          "prototype": "Set Semantic's select to Dark: rows show Neutral 950, Neutral 50, and so on. Its + › Add mode adds Mode 3."
+          "change": "Themes and modes are two axes, layered so each token varies on one: Theme's columns are the brands (Acme, Globex, Initech) and pick primitives (Accent → Blue 600, Violet 600, Emerald 600; Brand font; Corner; Control corner; Elevation), and Semantic's columns are Light and Dark and pick Theme tokens or primitives (Primary → Accent, Accent light). Six combinations, but no token has more than three columns, and adding a brand touches only Theme. A mode with no value of its own uses the first, so a font set once applies to Light and Dark, and its cell reads dimmed with Same as Light. Light and Dark carry color schemes, which Auto uses (TOK-24). In DTCG these are two resolver modifiers (`theme`, `mode`) whose contexts are the columns.",
+          "prototype": "Editor › Theme: the brand columns. Semantic: Light and Dark aliasing Theme."
         },
         {
           "id": "TOK-24",
           "status": "proposed",
           "today": "Screen iframes hard-code `colorScheme: \"light\"`, and nothing chooses which values a screen uses.",
-          "change": "The Screen inspector gets a Modes section after Appearance: one select per multi-mode collection, with Auto, then the modes (Figma's Apply variable mode). Auto is the first mode in Design and follows Appearance in Interact, so Interact › Appearance › Dark previews Dark without a setting; an explicit mode wins over Appearance. The screen's color scheme follows its mode. The page's own colors (background, text, muted text, cards, borders, the primary button) are Semantic and Components tokens, so the whole screen restyles. The Screen's Fill shows the Background token it uses. Modes on any frame, not just a screen, can follow.",
+          "change": "The Screen inspector's Modes section, after Appearance, has one select per axis: Theme (Acme, Globex, Initech) and Mode (Auto, Light, Dark). Auto is offered only where modes carry a color scheme: Light in Design, following Appearance in Interact, so Interact › Appearance › Dark previews Dark without a setting; an explicit mode wins over Appearance. The screen's color scheme follows its mode. The page's own colors, fonts, radii, and shadows are Semantic tokens, so the whole screen restyles, and the Screen's Fill shows the Background token it uses.",
           "refs": [
             "templates/design/app/components/design/MultiScreenCanvas.tsx:12205#colorScheme"
           ],
-          "prototype": "Select Screen 1 in Layers, set Modes › Semantic to Dark; or set it back to Auto and switch Interact › Appearance to Dark."
+          "prototype": "Select Screen 1 in Layers and set Theme to Initech and Mode to Dark; or click a card in the editor's preview."
         },
         {
           "id": "TOK-25",
@@ -630,22 +630,35 @@
         {
           "id": "TOK-26",
           "status": "proposed",
-          "change": "Export and import follow DTCG 2025.10's Resolver module: one token file per collection (a set), a modifier per multi-mode collection whose contexts are its modes, a `resolutionOrder` in tier order, and aliases kept as `{group.token}` instead of resolved. Import reads a resolver document into collections and modes, and a plain token file into one collection. CSS output is `:root` for first modes and `.dark` plus `@media (prefers-color-scheme: dark)` for a dark-scheme mode. The prototype's export keeps aliases in the first mode only."
+          "change": "Export and import follow DTCG 2025.10's Resolver module: one token file per collection (a set), one modifier per axis (`theme`, `mode`) whose contexts are its columns, a `resolutionOrder` in tier order, and aliases kept as `{group.token}`. Import reads a resolver document into collections and columns, and a plain token file by TOK-21's rule. CSS output is `:root` for first columns, `[data-theme=\"globex\"]` per brand, and `.dark` plus `@media (prefers-color-scheme: dark)` for Dark. The prototype's export keeps aliases in the first column only."
         },
         {
           "id": "TOK-27",
           "status": "proposed",
-          "change": "The agent gets the same surface as actions: list collections and modes, create a collection, add or rename a mode, set a token's value or alias per mode, and set a screen's mode. Generate tokens from design writes Primitives plus Semantic aliases instead of flat values."
+          "change": "The agent gets the same surface as actions: list collections and their columns, add a collection, add, rename, or delete a mode, set a token's value or alias per mode, make a value a primitive, set a screen's Theme and Mode, and set the primitives policy. A find-primitive-usage skill lists fills bound below Semantic and proposes the Semantic token with the same value. Generate tokens from design writes Primitives plus Semantic aliases."
         },
         {
           "id": "TOK-28",
-          "status": "question",
-          "change": "A wide table with one column per mode (Figma's variables table), opened from a collection, for editing Light and Dark side by side? The panel's mode select covers one mode at a time."
+          "status": "decided",
+          "change": "Building the system happens in a token editor window, opened from the panel header's table icon. It's non-modal, like a tool window, with the Keyboard shortcuts window's chrome: designers keep working on the canvas behind it, and every edit restyles the canvas live. It opens 760 × 520 against the canvas's right edge, moves by its title bar, and resizes. Left: search, the collections in tier order, Add collection, and the primitives policy (TOK-30). Right: the selected collection as a table with a column per mode; a mode header's menu has Rename and Delete, + adds a mode (Primitives have none), Add token ends the table, a token row's … has Rename and Delete (off while other tokens point at it), and double-clicking a name renames it. Bottom: a preview card for every Theme × Mode, drawn from the Semantic tokens (background, text, display font, link, primary button, button and card radius); the pressed card is the current screen's, and clicking one applies it there. Esc closes it unless a menu or picker opened from it is up. Import moves here from the panel.",
+          "prototype": "Tokens › table icon. Click Globex · Dark in the preview while watching the canvas."
         },
         {
           "id": "TOK-29",
+          "status": "decided",
+          "change": "The Tokens panel is for using tokens: it lists only what designs apply (Semantic, and Components once added), grouped by type, with values as the current screen shows them. The header is the count, Search, and the table icon that opens the editor (TOK-28); + and Import move to the editor. Rows keep the alias chip, the chain in the tooltip, and the picker on click, editing the current screen's mode.",
+          "prototype": "Open Tokens: Semantic only, by type."
+        },
+        {
+          "id": "TOK-30",
+          "status": "decided",
+          "change": "One policy, Primitives in designs: Allow, Warn (the default), or Block. It covers Primitives and Theme, the tiers designs shouldn't apply. Allow lists every tier in the Fill picker and ▾; Warn lists them after Semantic and Components and marks a fill bound to one with the amber triangle in the Fill field, its ▾ offering Use <Semantic token> for any Semantic token with the same color; Block lists only Semantic and Components and still marks old bindings. It's the same idea as Figma's variable scoping, set once for the system.",
+          "prototype": "Editor › Primitives in designs › Block, then open the headline's Fill › Libraries."
+        },
+        {
+          "id": "TOK-31",
           "status": "question",
-          "change": "The panel header's + adds to Semantic, the tier you apply from, and each collection's + adds there. Keep the header's + at all, or only the per-collection one?"
+          "change": "The editor preview draws a sample card from the Semantic tokens. Is that enough, or should it show thumbnails of the current screen in each Theme × Mode?"
         }
       ]
     },
