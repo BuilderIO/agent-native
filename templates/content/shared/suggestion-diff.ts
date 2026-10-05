@@ -175,9 +175,11 @@ const WORD_CHARACTER = /[\p{L}\p{M}\p{N}]/u;
 /**
  * A character diff keeps every letter two phrasings share, which splits one
  * rewritten phrase into letter-sized hunks. Shared letters or spacing join the
- * word edits on both sides when shorter than each of them. A shared whole word
- * keeps its edits apart, and nothing joins across a line break, so separate
- * word choices and block changes stay separately reviewable.
+ * word edits on both sides when shorter than each edit's longer side: a pure
+ * insertion or deletion has an empty side, so measuring the shorter one would
+ * never join it and the phrase would stay split. A shared whole word keeps its
+ * edits apart, and nothing joins across a line break, so separate word choices
+ * and block changes stay separately reviewable.
  */
 function absorbIncidentalEqualities(parts: DiffPart[]): DiffPart[] {
   type Change = { type: "change"; removed: string; inserted: string };
