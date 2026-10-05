@@ -3,15 +3,208 @@ import { describe, expect, it } from "vitest";
 
 import {
   COMPACT_CROSS_SCREEN_GHOST_PX,
+  applyCrossScreenPathFrameDropTarget,
   captureCrossScreenSourceHtmlSnapshot,
   getBoardDropRoute,
+  getCrossScreenPreviewTimeoutResult,
   getCrossScreenSourceGeometry,
   getCrossScreenGhostStyle,
   isCrossScreenGridPlacement,
   isPointerInsideSourceIframe,
+  rememberCrossScreenPathFrameHit,
+  resolveCrossScreenPathFrameHitAtRelease,
+  snapshotCrossScreenPathFrameHitRequests,
   validateCrossScreenSourceHtmlSnapshot,
 } from "./cross-screen-drop";
 import { SURFACE_PADDING } from "./overview-layout";
+
+describe("cross-screen path frame drop targets", () => {
+  const nestedFrameHit = {
+    anchorNodeId: "nested-frame",
+    anchorParentNodeId: "outer-frame",
+    anchorSelector: '[data-agent-native-node-id="nested-frame"]',
+    placement: "inside" as const,
+    dropMode: "absolute-container" as const,
+    anchorRect: { left: 120, top: 90, width: 280, height: 220 },
+  };
+  const outerFrameHit = {
+    anchorNodeId: "outer-frame",
+    anchorParentNodeId: "body",
+    anchorSelector: '[data-agent-native-node-id="outer-frame"]',
+    placement: "inside" as const,
+    dropMode: "absolute-container" as const,
+    anchorRect: { left: 80, top: 80, width: 560, height: 420 },
+  };
+
+  it("keeps the crossed child frame when the next preview resolves to its parent", () => {
+    const nested = rememberCrossScreenPathFrameHit({
+      previous: null,
+      next: { sessionId: "drag-1", screenId: "screen-1", hit: nestedFrameHit },
+    });
+    expect(
+      rememberCrossScreenPathFrameHit({
+        previous: nested,
+        next: { sessionId: "drag-1", screenId: "screen-1", hit: outerFrameHit },
+      }),
+    ).toMatchObject({
+      ...nested,
+      parentHits: [outerFrameHit],
+    });
+  });
+
+  it("drops after the crossed frame while preserving the release container's rect", () => {
+    const pathFrame = {
+      sessionId: "drag-1",
+      screenId: "screen-1",
+      hit: nestedFrameHit,
+    };
+    expect(
+      applyCrossScreenPathFrameDropTarget({
+        hit: outerFrameHit,
+        pathFrame,
+        sessionId: "drag-1",
+        screenId: "screen-1",
+      }),
+    ).toMatchObject({
+      anchorNodeId: "nested-frame",
+      anchorParentNodeId: "outer-frame",
+      placement: "after",
+      guidePlacement: "after",
+      dropMode: "absolute-container",
+      anchorRect: outerFrameHit.anchorRect,
+    });
+  });
+
+  it("uses the crossed frame directly under the release container after nested exits", () => {
+    const middleFrameHit = {
+      ...nestedFrameHit,
+      anchorNodeId: "middle-frame",
+      anchorParentNodeId: "outer-frame",
+    };
+    const nestedHit = {
+      ...nestedFrameHit,
+      anchorParentNodeId: "middle-frame",
+    };
+    const pathFrame = rememberCrossScreenPathFrameHit({
+      previous: rememberCrossScreenPathFrameHit({
+        previous: null,
+        next: {
+          sessionId: "drag-1",
+          screenId: "screen-1",
+          hit: nestedHit,
+        },
+      }),
+      next: {
+        sessionId: "drag-1",
+        screenId: "screen-1",
+        hit: middleFrameHit,
+      },
+    });
+    const completedPath = rememberCrossScreenPathFrameHit({
+      previous: pathFrame,
+      next: {
+        sessionId: "drag-1",
+        screenId: "screen-1",
+        hit: outerFrameHit,
+      },
+    });
+
+    expect(completedPath).toMatchObject({
+      hit: nestedHit,
+      parentHits: [middleFrameHit, outerFrameHit],
+    });
+    expect(
+      applyCrossScreenPathFrameDropTarget({
+        hit: outerFrameHit,
+        pathFrame: completedPath,
+        sessionId: "drag-1",
+        screenId: "screen-1",
+      }),
+    ).toMatchObject({
+      anchorNodeId: "middle-frame",
+      anchorParentNodeId: "outer-frame",
+      placement: "after",
+    });
+  });
+
+  it.each([
+    {
+      kind: "auto-layout",
+      hit: { ...outerFrameHit, dropMode: "flow-insert" as const },
+    },
+    {
+      kind: "grid",
+      hit: {
+        ...outerFrameHit,
+        gridPlacement: { column: 1, columnEnd: 2, row: 1, rowEnd: 2 },
+      },
+    },
+    {
+      kind: "Alt/ignore-auto-layout",
+      hit: outerFrameHit,
+      ignoreAutoLayout: true,
+    },
+  ])(
+    "preserves the pointer-selected $kind target",
+    ({ hit, ignoreAutoLayout }) => {
+      expect(
+        applyCrossScreenPathFrameDropTarget({
+          hit,
+          pathFrame: {
+            sessionId: "drag-1",
+            screenId: "screen-1",
+            hit: nestedFrameHit,
+          },
+          sessionId: "drag-1",
+          screenId: "screen-1",
+          ignoreAutoLayout,
+        }),
+      ).toBe(hit);
+    },
+  );
+
+  it("clears remembered path frames while Alt bypasses auto layout", () => {
+    expect(
+      rememberCrossScreenPathFrameHit({
+        previous: {
+          sessionId: "drag-1",
+          screenId: "screen-1",
+          hit: nestedFrameHit,
+        },
+        next: {
+          sessionId: "drag-1",
+          screenId: "screen-1",
+          hit: outerFrameHit,
+        },
+        ignoreAutoLayout: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("does not reuse path hits from a different drag or destination", () => {
+    const pathFrame = {
+      sessionId: "drag-1",
+      screenId: "screen-1",
+      hit: nestedFrameHit,
+    };
+    expect(
+      applyCrossScreenPathFrameDropTarget({
+        hit: outerFrameHit,
+        pathFrame,
+        sessionId: "drag-2",
+        screenId: "screen-1",
+      }),
+    ).toBe(outerFrameHit);
+    expect(
+      applyCrossScreenPathFrameDropTarget({
+        hit: outerFrameHit,
+        pathFrame,
+        sessionId: "drag-1",
+        screenId: "screen-2",
+      }),
+    ).toBe(outerFrameHit);
+  });
+});
 
 describe("getCrossScreenSourceGeometry", () => {
   const viewportGeometry = { x: 0, y: 0, width: 1200, height: 800 };
@@ -43,6 +236,211 @@ describe("getCrossScreenSourceGeometry", () => {
     expect(getCrossScreenSourceGeometry({ persistedGeometry })).toBe(
       persistedGeometry,
     );
+  });
+});
+
+describe("cross-screen preview path release ordering", () => {
+  const nestedFrameHit = {
+    anchorNodeId: "nested-frame",
+    anchorParentNodeId: "middle-frame",
+    anchorSelector: '[data-agent-native-node-id="nested-frame"]',
+    placement: "inside" as const,
+    dropMode: "absolute-container" as const,
+  };
+  const outerFrameHit = {
+    anchorNodeId: "outer-frame",
+    anchorParentNodeId: "body",
+    anchorSelector: '[data-agent-native-node-id="outer-frame"]',
+    placement: "inside" as const,
+    dropMode: "absolute-container" as const,
+    anchorRect: { left: 80, top: 80, width: 560, height: 420 },
+  };
+
+  it("keeps post-release hit tests out of the frozen path snapshot", async () => {
+    const requests = new Map([
+      [
+        41,
+        {
+          requestSeq: 41,
+          sessionId: "drag-1",
+          screenId: "screen-1",
+          ignoreAutoLayout: false,
+          hit: Promise.resolve({
+            ...nestedFrameHit,
+            anchorParentNodeId: "outer-frame",
+          }),
+        },
+      ],
+      [
+        42,
+        {
+          requestSeq: 42,
+          sessionId: "drag-1",
+          screenId: "screen-1",
+          ignoreAutoLayout: false,
+          hit: Promise.resolve({
+            ...nestedFrameHit,
+            anchorNodeId: "already-after-release-child",
+            anchorParentNodeId: "outer-frame",
+          }),
+        },
+      ],
+    ]);
+    const snapshot = snapshotCrossScreenPathFrameHitRequests(requests, 41);
+    expect(snapshot.requests.map((request) => request.requestSeq)).toEqual([
+      41,
+    ]);
+    requests.set(43, {
+      requestSeq: 43,
+      sessionId: "drag-1",
+      screenId: "screen-1",
+      ignoreAutoLayout: false,
+      hit: Promise.resolve({
+        ...nestedFrameHit,
+        anchorNodeId: "late-child",
+        anchorParentNodeId: "outer-frame",
+      }),
+    });
+
+    const path = await resolveCrossScreenPathFrameHitAtRelease({
+      ...snapshot,
+      sessionId: "drag-1",
+      screenId: "screen-1",
+      releaseHit: outerFrameHit,
+    });
+    expect(path?.hit.anchorNodeId).toBe("nested-frame");
+    expect(
+      applyCrossScreenPathFrameDropTarget({
+        hit: outerFrameHit,
+        pathFrame: path,
+        sessionId: "drag-1",
+        screenId: "screen-1",
+      }),
+    ).toMatchObject({ anchorNodeId: "nested-frame", placement: "after" });
+  });
+
+  it("waits for out-of-order nested previews and folds the release hit last", async () => {
+    let resolveNested!: (hit: typeof nestedFrameHit) => void;
+    let resolveMiddle!: (hit: typeof nestedFrameHit) => void;
+    let resolved = false;
+    const nestedPreview = new Promise<typeof nestedFrameHit>((resolve) => {
+      resolveNested = resolve;
+    });
+    const middlePreview = new Promise<typeof nestedFrameHit>((resolve) => {
+      resolveMiddle = resolve;
+    });
+    const pathAtRelease = resolveCrossScreenPathFrameHitAtRelease({
+      requests: [
+        {
+          requestSeq: 42,
+          sessionId: "drag-1",
+          screenId: "screen-1",
+          ignoreAutoLayout: false,
+          hit: middlePreview,
+        },
+        {
+          requestSeq: 41,
+          sessionId: "drag-1",
+          screenId: "screen-1",
+          ignoreAutoLayout: false,
+          hit: nestedPreview,
+        },
+      ],
+      releaseRequestSeq: 42,
+      sessionId: "drag-1",
+      screenId: "screen-1",
+      releaseHit: outerFrameHit,
+    }).then((path) => {
+      resolved = true;
+      return path;
+    });
+
+    resolveMiddle({
+      ...nestedFrameHit,
+      anchorNodeId: "middle-frame",
+      anchorParentNodeId: "outer-frame",
+    });
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    resolveNested(nestedFrameHit);
+
+    const path = await pathAtRelease;
+    expect(path).toMatchObject({
+      hit: nestedFrameHit,
+      parentHits: [
+        {
+          anchorNodeId: "middle-frame",
+          anchorParentNodeId: "outer-frame",
+        },
+        outerFrameHit,
+      ],
+    });
+    expect(
+      applyCrossScreenPathFrameDropTarget({
+        hit: outerFrameHit,
+        pathFrame: path,
+        sessionId: "drag-1",
+        screenId: "screen-1",
+      }),
+    ).toMatchObject({
+      anchorNodeId: "middle-frame",
+      anchorParentNodeId: "outer-frame",
+      placement: "after",
+    });
+
+    const releaseExitPath = await resolveCrossScreenPathFrameHitAtRelease({
+      requests: [
+        {
+          requestSeq: 51,
+          sessionId: "drag-1",
+          screenId: "screen-1",
+          ignoreAutoLayout: false,
+          hit: Promise.resolve(nestedFrameHit),
+        },
+      ],
+      releaseRequestSeq: 51,
+      sessionId: "drag-1",
+      screenId: "screen-1",
+      releaseHit: {
+        ...nestedFrameHit,
+        anchorNodeId: "middle-frame",
+        anchorParentNodeId: "outer-frame",
+      },
+    });
+    expect(
+      applyCrossScreenPathFrameDropTarget({
+        hit: {
+          ...nestedFrameHit,
+          anchorNodeId: "middle-frame",
+          anchorParentNodeId: "outer-frame",
+        },
+        pathFrame: releaseExitPath,
+        sessionId: "drag-1",
+        screenId: "screen-1",
+      }),
+    ).toMatchObject({ anchorNodeId: "nested-frame", placement: "after" });
+  });
+
+  it("does not use a cached hit from another timed-out preview sequence", () => {
+    const cached = {
+      requestSeq: 40,
+      generation: 3,
+      result: nestedFrameHit,
+    };
+    expect(
+      getCrossScreenPreviewTimeoutResult({
+        requestSeq: 41,
+        generation: 3,
+        cached,
+      }),
+    ).toEqual({});
+    expect(
+      getCrossScreenPreviewTimeoutResult({
+        requestSeq: 40,
+        generation: 3,
+        cached,
+      }),
+    ).toBe(nestedFrameHit);
   });
 });
 

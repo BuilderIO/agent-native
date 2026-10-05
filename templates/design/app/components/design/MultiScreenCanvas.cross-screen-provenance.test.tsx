@@ -941,6 +941,343 @@ describe("cross-screen drag identity provenance", () => {
     );
   });
 
+  it("invalidates nested path previews when host S toggles without another move", async () => {
+    const originalPlatform = navigator.platform;
+    const onCrossScreenElementDrop = vi.fn();
+    try {
+      Object.defineProperty(navigator, "platform", {
+        configurable: true,
+        value: "Win32",
+      });
+      await act(async () => {
+        root.render(
+          <MultiScreenCanvas
+            screens={[
+              {
+                id: "source",
+                filename: "source.html",
+                content: "<html></html>",
+              },
+              {
+                id: "target",
+                filename: "target.html",
+                content: "<html></html>",
+              },
+            ]}
+            zoom={100}
+            activeId="source"
+            activeTool="move"
+            geometryById={{
+              source: { x: 0, y: 0, width: 400, height: 300 },
+              target: { x: 600, y: 0, width: 400, height: 300 },
+            }}
+            renderScreenContent={(screen) => (
+              <iframe
+                data-design-preview-iframe=""
+                data-screen-iframe-id={screen.id}
+              />
+            )}
+            onPick={() => {}}
+            onCrossScreenElementDrop={onCrossScreenElementDrop}
+          />,
+        );
+      });
+
+      const sourceIframe = container.querySelector<HTMLIFrameElement>(
+        'iframe[data-screen-iframe-id="source"]',
+      )!;
+      const targetIframe = container.querySelector<HTMLIFrameElement>(
+        'iframe[data-screen-iframe-id="target"]',
+      )!;
+      const sourceWindow = sourceIframe.contentWindow!;
+      const targetWindow = targetIframe.contentWindow!;
+      let previewCount = 0;
+      const previewModifiers: Array<{ ignoreAutoLayout?: boolean }> = [];
+      vi.spyOn(targetWindow, "postMessage").mockImplementation(((message: {
+        type?: string;
+        correlationId?: string;
+        preview?: boolean;
+        modifiers?: { ignoreAutoLayout?: boolean };
+      }) => {
+        if (
+          message.type !== "agent-native:hit-test" ||
+          !message.correlationId
+        ) {
+          return;
+        }
+        const hit = message.preview
+          ? previewCount++ === 0
+            ? {
+                anchorNodeId: "nested-frame",
+                anchorParentNodeId: "outer-frame",
+                placement: "inside",
+                dropMode: "absolute-container",
+              }
+            : {
+                anchorNodeId: "outer-frame",
+                anchorParentNodeId: "body",
+                placement: "inside",
+                dropMode: "absolute-container",
+              }
+          : {
+              anchorNodeId: "outer-frame",
+              anchorParentNodeId: "body",
+              placement: "inside",
+              dropMode: "absolute-container",
+            };
+        if (message.preview) previewModifiers.push(message.modifiers ?? {});
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: {
+              type: "agent-native:hit-test-result",
+              correlationId: message.correlationId,
+              ...hit,
+            },
+            source: targetWindow as unknown as Window,
+          }),
+        );
+      }) as typeof targetWindow.postMessage);
+      const sendDrag = (data: Record<string, unknown>) =>
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: { type: "agent-native:cross-screen-drag", ...data },
+            source: sourceWindow as unknown as Window,
+          }),
+        );
+
+      await act(async () => {
+        sendDrag({
+          phase: "start",
+          screenId: "source",
+          selector: ".source",
+          sourceId: "source-node",
+          sourceDeleteRequestId: "host-modifier-request",
+          startedAt: Date.now() - 100,
+          modifiers: { ignoreAutoLayout: false },
+        });
+        sendDrag({
+          phase: "move",
+          screenId: "source",
+          selector: ".source",
+          sourceId: "source-node",
+          sourceDeleteRequestId: "host-modifier-request",
+          iframeX: 650,
+          iframeY: 100,
+          viewportW: 400,
+          viewportH: 300,
+        });
+        await Promise.resolve();
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "s" }));
+        window.dispatchEvent(new KeyboardEvent("keyup", { key: "s" }));
+        sendDrag({
+          phase: "end",
+          screenId: "source",
+          selector: ".source",
+          sourceId: "source-node",
+          sourceDeleteRequestId: "host-modifier-request",
+          iframeX: 650,
+          iframeY: 100,
+          viewportW: 400,
+          viewportH: 300,
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(previewModifiers.length).toBeGreaterThan(0);
+      expect(
+        previewModifiers.map((modifiers) => modifiers.ignoreAutoLayout),
+      ).toEqual([false]);
+      expect(onCrossScreenElementDrop).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceNodeId: "source-node",
+          targetAnchorNodeId: "outer-frame",
+          targetAnchorPlacement: "inside",
+        }),
+      );
+    } finally {
+      Object.defineProperty(navigator, "platform", {
+        configurable: true,
+        value: originalPlatform,
+      });
+    }
+  });
+
+  it("ignores queued iframe moves after physical mouse-up", async () => {
+    const onCrossScreenElementDrop = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            { id: "source", filename: "source.html", content: "<html></html>" },
+            { id: "target", filename: "target.html", content: "<html></html>" },
+          ]}
+          zoom={100}
+          activeId="source"
+          activeTool="move"
+          geometryById={{
+            source: { x: 0, y: 0, width: 400, height: 300 },
+            target: { x: 600, y: 0, width: 400, height: 300 },
+          }}
+          renderScreenContent={(screen) => (
+            <iframe
+              data-design-preview-iframe=""
+              data-screen-iframe-id={screen.id}
+            />
+          )}
+          onPick={() => {}}
+          onCrossScreenElementDrop={onCrossScreenElementDrop}
+        />,
+      );
+    });
+
+    const sourceWindow = container.querySelector<HTMLIFrameElement>(
+      'iframe[data-screen-iframe-id="source"]',
+    )!.contentWindow!;
+    const targetWindow = container.querySelector<HTMLIFrameElement>(
+      'iframe[data-screen-iframe-id="target"]',
+    )!.contentWindow!;
+    let modifierProbeRequestId: string | undefined;
+    const sourcePostMessage = vi
+      .spyOn(sourceWindow, "postMessage")
+      .mockImplementation(((message: { type?: string; requestId?: string }) => {
+        if (
+          message.type === "agent-native:cross-screen-modifier-snapshot-probe"
+        ) {
+          modifierProbeRequestId = message.requestId;
+        }
+      }) as typeof sourceWindow.postMessage);
+    const hitTests: Array<{
+      correlationId: string;
+      preview?: boolean;
+    }> = [];
+    vi.spyOn(targetWindow, "postMessage").mockImplementation(((message: {
+      type?: string;
+      correlationId?: string;
+      preview?: boolean;
+    }) => {
+      if (message.type !== "agent-native:hit-test" || !message.correlationId) {
+        return;
+      }
+      hitTests.push(message as (typeof hitTests)[number]);
+      if (message.preview) {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: {
+              type: "agent-native:hit-test-result",
+              correlationId: message.correlationId,
+              anchorNodeId: "outer-frame",
+              anchorParentNodeId: "body",
+              placement: "inside",
+              dropMode: "absolute-container",
+            },
+            source: targetWindow as unknown as Window,
+          }),
+        );
+      }
+    }) as typeof targetWindow.postMessage);
+    const sendDrag = (data: Record<string, unknown>) =>
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "agent-native:cross-screen-drag", ...data },
+          source: sourceWindow as unknown as Window,
+        }),
+      );
+
+    await act(async () => {
+      sendDrag({
+        phase: "start",
+        screenId: "source",
+        selector: ".source",
+        sourceId: "source-node",
+        sourceDeleteRequestId: "release-race-request",
+      });
+      sendDrag({
+        phase: "move",
+        screenId: "source",
+        selector: ".source",
+        sourceId: "source-node",
+        sourceDeleteRequestId: "release-race-request",
+        iframeX: 650,
+        iframeY: 100,
+        viewportW: 400,
+        viewportH: 300,
+      });
+      window.dispatchEvent(
+        new MouseEvent("mouseup", {
+          bubbles: true,
+          clientX: 1150,
+          clientY: 400,
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(modifierProbeRequestId).toBeTruthy();
+    const previewCountAtRelease = hitTests.filter(
+      (hitTest) => hitTest.preview === true,
+    ).length;
+    expect(previewCountAtRelease).toBeGreaterThan(0);
+    await act(async () => {
+      sendDrag({
+        phase: "move",
+        screenId: "source",
+        selector: ".source",
+        sourceId: "source-node",
+        sourceDeleteRequestId: "release-race-request",
+        iframeX: 680,
+        iframeY: 130,
+        viewportW: 400,
+        viewportH: 300,
+      });
+      await Promise.resolve();
+    });
+    expect(hitTests.filter((hitTest) => hitTest.preview === true)).toHaveLength(
+      previewCountAtRelease,
+    );
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:cross-screen-modifier-snapshot",
+            requestId: modifierProbeRequestId,
+            ignoreAutoLayout: false,
+          },
+          source: sourceWindow as unknown as Window,
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const commitHit = hitTests.find((hitTest) => hitTest.preview !== true);
+    expect(commitHit).toBeTruthy();
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: {
+            type: "agent-native:hit-test-result",
+            correlationId: commitHit!.correlationId,
+            anchorNodeId: "outer-frame",
+            anchorParentNodeId: "body",
+            placement: "inside",
+            dropMode: "absolute-container",
+          },
+          source: targetWindow as unknown as Window,
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(onCrossScreenElementDrop).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceNodeId: "source-node",
+        targetAnchorNodeId: "outer-frame",
+      }),
+    );
+    expect(sourcePostMessage).toHaveBeenCalled();
+  });
+
   it("keeps each released drop tied to its modifier snapshot across later drags and blur", async () => {
     const onCrossScreenElementDrop = vi.fn();
     await act(async () => {

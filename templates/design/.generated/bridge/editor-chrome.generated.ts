@@ -22037,13 +22037,17 @@ export const editorChromeBridgeScript: string = `"use strict";
           rejectInsert("anchor-is-subject");
           return;
         }
+        var insertContainer = insertPlacement === "inside" ? insertAnchor : insertAnchor.parentElement;
+        var preserveAbsoluteInsert = Boolean(
+          e.data.dropMode === "absolute-container" && !insertGridPlacement && isAbsolutePrimitiveContainer(insertContainer)
+        );
         var insertTarget = {
           anchor: insertAnchor,
           placement: insertPlacement,
           axis: parentFlowAxis(
             insertPlacement === "inside" ? insertAnchor : insertAnchor.parentElement
           ),
-          dropMode: insertPlacement === "inside" && isAbsolutePrimitiveContainer(insertAnchor) ? "absolute-container" : "flow-insert",
+          dropMode: preserveAbsoluteInsert || insertPlacement === "inside" && isAbsolutePrimitiveContainer(insertAnchor) ? "absolute-container" : "flow-insert",
           gridPlacement: insertGridPlacement || void 0
         };
         if (existingInsertEl) {
