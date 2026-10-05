@@ -395,6 +395,7 @@ function warmRouteAssetsForHref(href: string) {
     const link = document.createElement("link");
     link.rel = "modulepreload";
     link.href = assetUrl;
+    link.dataset.agentNativeRouteWarmup = "true";
     document.head.appendChild(link);
   }
 }
@@ -662,4 +663,5 @@ export const __routeWarmupInternalsForTests = {
   renderWarmupLinksForSelector,
   routeAssetUrlsForHref,
   resetRouteWarmupCachesForTests,
+  warmRouteAssetsForHref,
 };

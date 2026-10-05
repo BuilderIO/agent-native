@@ -119,6 +119,25 @@ function createFakeWindow(
   };
 }
 
+function expectRecoveryNavigation(
+  fakeLocation: ReturnType<typeof createFakeWindow>["fakeLocation"],
+  expectedHref: string,
+): void {
+  const assignedHref = fakeLocation.assign.mock.calls.at(-1)?.[0];
+  expect(assignedHref).toBeDefined();
+
+  const actual = new URL(assignedHref ?? "");
+  const expected = new URL(expectedHref);
+  expect(actual.origin).toBe(expected.origin);
+  expect(actual.pathname).toBe(expected.pathname);
+  expect(actual.hash).toBe(expected.hash);
+  expect(actual.searchParams.get("__agentNativeChunkRecovery")).toMatch(
+    /^\d+$/,
+  );
+  actual.searchParams.delete("__agentNativeChunkRecovery");
+  expect(actual.href).toBe(expected.href);
+}
+
 describe("route chunk recovery", () => {
   it("detects React Router and dynamic import failures", () => {
     expect(
@@ -291,10 +310,11 @@ describe("route chunk recovery", () => {
       "Error loading route module `/dispatch/assets/new-app-stale.js`, reloading page...",
     );
 
-    expect(fakeLocation.assign).toHaveBeenCalledWith(
+    expectRecoveryNavigation(
+      fakeLocation,
       "https://example.com/dispatch/new-app",
     );
-    expect(fakeLocation.href).toBe("https://example.com/dispatch/new-app");
+    expect(new URL(fakeLocation.href).pathname).toBe("/dispatch/new-app");
 
     fakeLocation.reload();
     expect(fakeLocation.assign).toHaveBeenCalledOnce();
@@ -406,7 +426,8 @@ describe("route chunk recovery", () => {
       preventDefault,
     } as unknown as PromiseRejectionEvent);
 
-    expect(fakeLocation.assign).toHaveBeenCalledWith(
+    expectRecoveryNavigation(
+      fakeLocation,
       "https://example.com/dispatch/new-app",
     );
     expect(preventDefault).toHaveBeenCalled();
@@ -451,7 +472,8 @@ describe("route chunk recovery", () => {
       preventDefault,
     } as unknown as ErrorEvent);
 
-    expect(fakeLocation.assign).toHaveBeenCalledWith(
+    expectRecoveryNavigation(
+      fakeLocation,
       "https://example.com/dispatch/new-app",
     );
     expect(preventDefault).toHaveBeenCalled();
@@ -527,7 +549,11 @@ describe("route chunk recovery", () => {
     );
     fakeLocation.reload();
 
-    expect(fakeLocation.href).toBe("https://example.com/dispatch/new-app");
+    expectRecoveryNavigation(
+      fakeLocation,
+      "https://example.com/dispatch/new-app",
+    );
+    expect(new URL(fakeLocation.href).pathname).toBe("/dispatch/new-app");
     expect(originalReload).toHaveBeenCalledOnce();
   });
 
@@ -557,15 +583,49 @@ describe("route chunk recovery", () => {
       target: {
         tagName: "LINK",
         rel: "modulepreload",
+        hasAttribute: (name: string) =>
+          name === "data-agent-native-route-warmup",
+        getAttribute: (name: string) =>
+          name === "rel" ? "modulepreload" : null,
+      },
+    } as unknown as Event);
+    expect(fakeLocation.assign).not.toHaveBeenCalled();
+
+    dispatchDocument("error", {
+      target: {
+        tagName: "LINK",
+        rel: "modulepreload",
         getAttribute: (name: string) =>
           name === "rel" ? "modulepreload" : null,
       },
     } as unknown as Event);
 
-    expect(fakeLocation.assign).toHaveBeenCalledWith(
+    expectRecoveryNavigation(
+      fakeLocation,
       "https://example.com/dispatch/apps?tab=activity#latest",
     );
     expect(fakeLocation.assign).toHaveBeenCalledOnce();
+  });
+
+  it("removes the browser cache buster after the fresh app shell loads", () => {
+    const startUrl = new URL(
+      "https://example.com/dispatch/apps?tab=activity#latest",
+    );
+    startUrl.searchParams.set("__agentNativeChunkRecovery", "1234");
+    const { fakeWindow, fakeLocation, originalReplaceState } = createFakeWindow(
+      startUrl.href,
+    );
+
+    installRouteChunkRecovery(fakeWindow);
+
+    expect(originalReplaceState).toHaveBeenCalledWith(
+      null,
+      "",
+      "/dispatch/apps?tab=activity#latest",
+    );
+    expect(fakeLocation.href).toBe(
+      "https://example.com/dispatch/apps?tab=activity#latest",
+    );
   });
 
   it("bounds same-route React Router reloads when there is no fresh target", () => {
@@ -583,9 +643,7 @@ describe("route chunk recovery", () => {
     fakeLocation.reload();
 
     expect(fakeLocation.assign).toHaveBeenCalledOnce();
-    expect(fakeLocation.assign).toHaveBeenCalledWith(
-      "https://example.com/dispatch/apps",
-    );
+    expectRecoveryNavigation(fakeLocation, "https://example.com/dispatch/apps");
     expect(originalReload).not.toHaveBeenCalled();
   });
 
@@ -595,9 +653,7 @@ describe("route chunk recovery", () => {
     );
 
     expect(reloadForStaleChunk(fakeWindow, 1_000)).toBe(true);
-    expect(fakeLocation.assign).toHaveBeenCalledWith(
-      "https://example.com/dispatch/apps",
-    );
+    expectRecoveryNavigation(fakeLocation, "https://example.com/dispatch/apps");
 
     expect(reloadForStaleChunk(fakeWindow, 5_000)).toBe(false);
     expect(fakeLocation.assign).toHaveBeenCalledTimes(1);
@@ -621,9 +677,7 @@ describe("route chunk recovery", () => {
       preventDefault,
     } as unknown as PromiseRejectionEvent);
 
-    expect(fakeLocation.assign).toHaveBeenCalledWith(
-      "https://example.com/dispatch/apps",
-    );
+    expectRecoveryNavigation(fakeLocation, "https://example.com/dispatch/apps");
     expect(preventDefault).toHaveBeenCalled();
   });
 

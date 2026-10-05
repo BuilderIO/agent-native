@@ -3,6 +3,7 @@ const INTENDED_NAV_MAX_AGE_MS = 15_000;
 const STALE_CHUNK_RELOAD_AT_KEY = "__agentNativeStaleChunkReloadAt";
 const STALE_CHUNK_RELOAD_COOLDOWN_MS = 10_000;
 const STALE_CHUNK_EXHAUSTED_KEY = "__agentNativeStaleChunkRecoveryExhausted";
+const CHUNK_RECOVERY_QUERY_PARAM = "__agentNativeChunkRecovery";
 
 /**
  * Fired on `window` the first time a stale chunk could not be recovered by a
@@ -126,9 +127,32 @@ function hardNavigate(win: Window, href: string): void {
   }
 }
 
+function withChunkRecoveryCacheBuster(
+  win: Window,
+  href: string,
+  now: number,
+): string {
+  const url = new URL(href, win.location.href);
+  // Netlify varies the shared shell only on _routes and index; this bypasses a browser-cached document.
+  url.searchParams.set(CHUNK_RECOVERY_QUERY_PARAM, String(now));
+  return url.href;
+}
+
+function clearChunkRecoveryCacheBuster(win: Window): void {
+  const url = new URL(win.location.href);
+  if (!url.searchParams.has(CHUNK_RECOVERY_QUERY_PARAM)) return;
+  url.searchParams.delete(CHUNK_RECOVERY_QUERY_PARAM);
+  win.history.replaceState(
+    win.history.state,
+    "",
+    `${url.pathname}${url.search}${url.hash}`,
+  );
+}
+
 function isModuleAssetLoadFailure(event: Event): boolean {
   const target = event.target as
     | (EventTarget & {
+        hasAttribute?: (name: string) => boolean;
         getAttribute?: (name: string) => string | null;
         rel?: string;
         tagName?: string;
@@ -137,6 +161,7 @@ function isModuleAssetLoadFailure(event: Event): boolean {
     | null;
   const tagName = target?.tagName?.toUpperCase();
   if (tagName === "LINK" && target) {
+    if (target.hasAttribute?.("data-agent-native-route-warmup")) return false;
     return /(?:^|\s)modulepreload(?:\s|$)/i.test(
       target.getAttribute?.("rel") ?? target.rel ?? "",
     );
@@ -252,7 +277,12 @@ export function reloadForStaleChunk(
     return false;
   }
   markStaleChunkReload(win, now);
-  hardNavigate(win, win.location.href);
+  hardNavigate(
+    win,
+    hasViteDevRecovery(win) === true
+      ? win.location.href
+      : withChunkRecoveryCacheBuster(win, win.location.href, now),
+  );
   return true;
 }
 
@@ -288,7 +318,12 @@ function recoverToIntendedNavigation(
   try {
     win.history.replaceState(win.history.state, "", recoveryTarget);
   } catch {}
-  hardNavigate(win, recoveryTarget);
+  hardNavigate(
+    win,
+    hasViteDevRecovery(win) === true
+      ? recoveryTarget
+      : withChunkRecoveryCacheBuster(win, recoveryTarget, Date.now()),
+  );
   return true;
 }
 
@@ -373,6 +408,8 @@ export function installRouteChunkRecovery(
   const installedTarget = win as unknown as Record<string, boolean>;
   if (installedTarget[INSTALL_KEY]) return;
   installedTarget[INSTALL_KEY] = true;
+
+  clearChunkRecoveryCacheBuster(win);
 
   const state = createRouteChunkRecoveryState();
 
