@@ -328,23 +328,23 @@
         {
           "id": "MENU-03",
           "status": "decided",
-          "change": "Single layer (Figma 1834:719, shortcuts from `CanvasContextMenu.tsx`): Edit with Agent…, Send to ›, Copy link, Copy, Paste to replace, Copy/Paste as ›, Rename, Frame selection, Add auto layout, Create component, Hide, Lock, Arrange ›, Transform ›. A component instance swaps the creation actions for Go to main component, Swap instance ›, Detach instance."
+          "change": "Single layer (Figma 1834:719, shortcuts from `CanvasContextMenu.tsx`): Edit with Agent ›, Send to ›, Copy link, Copy, Paste to replace, Copy/Paste as ›, Rename, Frame selection, Add auto layout, Create component, Hide, Lock, Arrange ›, Transform ›. A component instance swaps the creation actions for Go to main component, Swap instance ›, Detach instance."
         },
         {
           "id": "MENU-04",
           "status": "decided",
           "today": "Boolean operations: only Subtract (⌥⇧S) is implemented.",
-          "change": "Multiple layers (Shift-click): Edit with Agent…, Send to ›, Copy link, Copy, Paste to replace, Copy/Paste as ›, Group selection, Frame selection, Add auto layout, Boolean operations › (Subtract only), Hide, Lock, Arrange ›, Transform ›."
+          "change": "Multiple layers (Shift-click): Edit with Agent ›, Send to ›, Copy link, Copy, Paste to replace, Copy/Paste as ›, Group selection, Frame selection, Add auto layout, Boolean operations › (Subtract only), Hide, Lock, Arrange ›, Transform ›."
         },
         {
           "id": "MENU-05",
           "status": "decided",
-          "change": "Empty canvas (Figma 1826:562), the agent and sharing group first, as on layers: Explore with Agent…, Send to › (the screen), Copy link; then Paste here; then Hide UI and Hide comments, which flip to Show UI and Show comments while hidden, as `CanvasContextMenu` does. Layer row: Copy, Copy link, Rename (in place), Hide, Lock, Arrange ›, Transform ›, with LayersPanel's shortcuts."
+          "change": "Empty canvas (Figma 1826:562), the agent and sharing group first, as on layers: Explore with Agent, Send to › (the screen), Copy link; then Paste here; then Hide UI and Hide comments, which flip to Show UI and Show comments while hidden, as `CanvasContextMenu` does. Layer row: Copy, Copy link, Rename (in place), Hide, Lock, Arrange ›, Transform ›, with LayersPanel's shortcuts."
         },
         {
           "id": "MENU-06",
           "status": "decided",
-          "change": "Edit with Agent… is the first row, styled like every other row (no tinted agent row). Clicking it opens the agent composer; its submenu is the Agent actions card (Figma 1826:562): Inspiration, Polish, Debug, Generate states, Make responsive, each with a one-line outcome."
+          "change": "Edit with Agent › is the first row, styled like every other row (no tinted agent row). Clicking it opens the agent composer; its submenu is the Agent actions card (Figma 1826:562): Inspiration, Polish, Debug, Generate states, Make responsive, each with a one-line outcome."
         },
         {
           "id": "MENU-07",
@@ -354,7 +354,12 @@
         {
           "id": "MENU-08",
           "status": "proposed",
-          "change": "The Agents composer + is Figma's “MVP Add context menu (prompt bar)” (2261:2104): Search…, Upload file, Attach Figma…, Reference a design…."
+          "change": "The Agents composer + is Figma's “MVP Add context menu (prompt bar)” (2261:2104): Search…, Upload file, Attach Figma, Reference a design."
+        },
+        {
+          "id": "MENU-09",
+          "status": "decided",
+          "change": "Menus are text: no leading icons on rows, following the macOS HIG. A row shows a check or radio for state, a shortcut, or a submenu chevron, and nothing else. An ellipsis (…) ends a label only when the row opens a dialog or a system file panel (Save as template…, Nudge amount…, From your app…, Import's sources, DTCG file…); rows that open a menu, a popover, or the composer don't get one (Export ›, Publish app, Edit with Agent ›). The toolbar's tool pickers keep their glyphs, since the picked tool's glyph becomes the button, and the shared account menu is the toolkit's."
         }
       ]
     },
@@ -735,7 +740,7 @@
           "id": "RAIL-14",
           "status": "decided",
           "today": "Agent surfaces use a robot icon.",
-          "change": "Agents use Tabler `sparkles` everywhere: the rail item, the toolbar's Agent button, Edit with Agent…, Explore with Agent…, and the agent actions. The Polish skill moves to `wand` so it doesn't share the agent mark."
+          "change": "Agents use Tabler `sparkles` on the rail item and the toolbar's Agent button. Menu rows carry no icons (MENU-09), so Edit with Agent ›, Explore with Agent, and the agent actions are text; wherever a skill does show a glyph, Polish uses `wand` so it doesn't share the agent mark."
         },
         {
           "id": "RAIL-15",
@@ -765,7 +770,7 @@
           "id": "FILE-01",
           "status": "decided",
           "today": "The title is click-to-rename, beside a minimal-UI toggle; the project menu holds Back to designs, Save as template, Version history, Export, Edit, View.",
-          "change": "The file name opens the Design file menu from Figma: Rename, Duplicate, Version history, Save as template…, Export…, Move to trash."
+          "change": "The file name opens the Design file menu from Figma: Rename, Duplicate, Version history, Save as template…, Export ›, Move to trash."
         },
         {
           "id": "FILE-02",
@@ -943,7 +948,7 @@
         {
           "id": "AGT-05",
           "status": "decided",
-          "change": "Send to › sits under Edit with Agent… on layers, instances, and multi-selections (the selection) and under Explore with Agent… on the empty canvas (the screen). One list of destinations, grouped Agents, Apps, and Channels, then Copy agent prompt and Manage destinations… (Settings › Integrations). Share › Agents shows the same list."
+          "change": "Send to › sits under Edit with Agent › on layers, instances, and multi-selections (the selection) and under Explore with Agent on the empty canvas (the screen). One list of destinations, grouped Agents, Apps, and Channels, then Copy agent prompt and Manage destinations… (Settings › Integrations). Share › Agents shows the same list."
         },
         {
           "id": "AGT-06",
@@ -1079,7 +1084,7 @@
         {
           "id": "RESP-05",
           "status": "decided",
-          "change": "W's chevron, in the inspector only, lists Container (3xs 256 … 7xl 1280) and Breakpoint (sm 640 … 2xl 1536) widths, from the design system's `--container-*` and `--breakpoint-*` tokens when it has them and Tailwind v4's defaults otherwise. Picking one binds it: W shows the token (2xl) instead of the number, the menu checks it, and Detach token, typing a number, or dragging the frame sets a raw width again. It's one choice, and the menu closes on pick. Device sizes, which set width and height together, are a separate picker on Position (INSP-08).",
+          "change": "W's chevron, in the inspector only, lists Container (3xs 256 … 7xl 1280) and Breakpoint (sm 640 … 2xl 1536) widths, from the design system's `--container-*` and `--breakpoint-*` tokens when it has them and Tailwind v4's defaults otherwise. Picking one binds it: W shows the token (2xl) instead of the number, the menu checks it, and Detach token (the first item while a token is bound, ⌫ while the menu is open), typing a number, or dragging the frame sets a raw width again. It's one choice, and the menu closes on pick. Device sizes, which set width and height together, are a separate picker on Position (INSP-08).",
           "prototype": "Select the screen, then open W's chevron.",
           "today": "Nothing in the inspector binds a value to a token: W/H take numbers, and the device-size picker sets both from `FRAME_SIZE_PRESET_CATEGORIES`.",
           "refs": [

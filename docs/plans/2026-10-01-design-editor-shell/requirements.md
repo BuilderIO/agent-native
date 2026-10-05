@@ -127,18 +127,20 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
 - **MENU-02** · decided
   - Change: Design file menu on the file name (Figma 1309:32834), minus Move to folder… until folders exist. Zoom menu (1693:1945) holds the view toggles.
 - **MENU-03** · decided
-  - Change: Single layer (Figma 1834:719, shortcuts from `CanvasContextMenu.tsx`): Edit with Agent…, Send to ›, Copy link, Copy, Paste to replace, Copy/Paste as ›, Rename, Frame selection, Add auto layout, Create component, Hide, Lock, Arrange ›, Transform ›. A component instance swaps the creation actions for Go to main component, Swap instance ›, Detach instance.
+  - Change: Single layer (Figma 1834:719, shortcuts from `CanvasContextMenu.tsx`): Edit with Agent ›, Send to ›, Copy link, Copy, Paste to replace, Copy/Paste as ›, Rename, Frame selection, Add auto layout, Create component, Hide, Lock, Arrange ›, Transform ›. A component instance swaps the creation actions for Go to main component, Swap instance ›, Detach instance.
 - **MENU-04** · decided
   - Today: Boolean operations: only Subtract (⌥⇧S) is implemented.
-  - Change: Multiple layers (Shift-click): Edit with Agent…, Send to ›, Copy link, Copy, Paste to replace, Copy/Paste as ›, Group selection, Frame selection, Add auto layout, Boolean operations › (Subtract only), Hide, Lock, Arrange ›, Transform ›.
+  - Change: Multiple layers (Shift-click): Edit with Agent ›, Send to ›, Copy link, Copy, Paste to replace, Copy/Paste as ›, Group selection, Frame selection, Add auto layout, Boolean operations › (Subtract only), Hide, Lock, Arrange ›, Transform ›.
 - **MENU-05** · decided
-  - Change: Empty canvas (Figma 1826:562), the agent and sharing group first, as on layers: Explore with Agent…, Send to › (the screen), Copy link; then Paste here; then Hide UI and Hide comments, which flip to Show UI and Show comments while hidden, as `CanvasContextMenu` does. Layer row: Copy, Copy link, Rename (in place), Hide, Lock, Arrange ›, Transform ›, with LayersPanel's shortcuts.
+  - Change: Empty canvas (Figma 1826:562), the agent and sharing group first, as on layers: Explore with Agent, Send to › (the screen), Copy link; then Paste here; then Hide UI and Hide comments, which flip to Show UI and Show comments while hidden, as `CanvasContextMenu` does. Layer row: Copy, Copy link, Rename (in place), Hide, Lock, Arrange ›, Transform ›, with LayersPanel's shortcuts.
 - **MENU-06** · decided
-  - Change: Edit with Agent… is the first row, styled like every other row (no tinted agent row). Clicking it opens the agent composer; its submenu is the Agent actions card (Figma 1826:562): Inspiration, Polish, Debug, Generate states, Make responsive, each with a one-line outcome.
+  - Change: Edit with Agent › is the first row, styled like every other row (no tinted agent row). Clicking it opens the agent composer; its submenu is the Agent actions card (Figma 1826:562): Inspiration, Polish, Debug, Generate states, Make responsive, each with a one-line outcome.
 - **MENU-07** · context
   - Today: Arrange and Transform commands: Bring to front ], Bring forward ⌘], Send backward ⌘[, Send to back [, Align left/right/top/bottom ⌥A/⌥D/⌥W/⌥S, Tidy up ⌃⌥T; Flip horizontal ⇧H, Flip vertical ⇧V, Swap fill and stroke ⇧X. (Figma's submenu card repeats instance rows as placeholders.)
 - **MENU-08** · proposed
-  - Change: The Agents composer + is Figma's “MVP Add context menu (prompt bar)” (2261:2104): Search…, Upload file, Attach Figma…, Reference a design….
+  - Change: The Agents composer + is Figma's “MVP Add context menu (prompt bar)” (2261:2104): Search…, Upload file, Attach Figma, Reference a design.
+- **MENU-09** · decided
+  - Change: Menus are text: no leading icons on rows, following the macOS HIG. A row shows a check or radio for state, a shortcut, or a submenu chevron, and nothing else. An ellipsis (…) ends a label only when the row opens a dialog or a system file panel (Save as template…, Nudge amount…, From your app…, Import's sources, DTCG file…); rows that open a menu, a popover, or the composer don't get one (Export ›, Publish app, Edit with Agent ›). The toolbar's tool pickers keep their glyphs, since the picked tool's glyph becomes the button, and the shared account menu is the toolkit's.
 
 ## Version history (HIST, step 14)
 
@@ -280,7 +282,7 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
   - Change: Agents search covers chats. The filter menu holds Sort by date and Sort by unread, then Pinned only and Show archived chats. Unread is new: a dot marks a chat whose run finished after you last opened it, which needs a per-thread last-read time. Pinned chats show a pin; archived ones are dimmed. Search and Filter show on the chat list, not inside a chat.
 - **RAIL-14** · decided
   - Today: Agent surfaces use a robot icon.
-  - Change: Agents use Tabler `sparkles` everywhere: the rail item, the toolbar's Agent button, Edit with Agent…, Explore with Agent…, and the agent actions. The Polish skill moves to `wand` so it doesn't share the agent mark.
+  - Change: Agents use Tabler `sparkles` on the rail item and the toolbar's Agent button. Menu rows carry no icons (MENU-09), so Edit with Agent ›, Explore with Agent, and the agent actions are text; wherever a skill does show a glyph, Polish uses `wand` so it doesn't share the agent mark.
 - **RAIL-15** · question
   - Today: The Agent panel has a 320px minimum width (`activeLeftPanel === "agent" ? 320 : 220`).
   - Change: Should the Agents panel keep a 320px minimum when every other left panel starts at 232px?
@@ -292,7 +294,7 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
 
 - **FILE-01** · decided
   - Today: The title is click-to-rename, beside a minimal-UI toggle; the project menu holds Back to designs, Save as template, Version history, Export, Edit, View.
-  - Change: The file name opens the Design file menu from Figma: Rename, Duplicate, Version history, Save as template…, Export…, Move to trash.
+  - Change: The file name opens the Design file menu from Figma: Rename, Duplicate, Version history, Save as template…, Export ›, Move to trash.
 - **FILE-02** · decided
   - Change: Under the name, a ghost button reads “Designs” and goes to /home. No arrow: the label sits flush with the file name, the hover fill extends 4px past it on each side, and the button is its own 16px line 2px below the name, so the fill never covers the name.
 - **FILE-03** · decided
@@ -358,7 +360,7 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
   - Today: The toolkit's general access options: Only people with access can view, Anyone in your organization can view, Anyone signed in with the link can view.
   - Change: People: an invite field with the role inside it (Viewer ▾) and a send button, Who has access (owner, people with role menus), general access, then Copy link pinned to the bottom.
 - **AGT-05** · decided
-  - Change: Send to › sits under Edit with Agent… on layers, instances, and multi-selections (the selection) and under Explore with Agent… on the empty canvas (the screen). One list of destinations, grouped Agents, Apps, and Channels, then Copy agent prompt and Manage destinations… (Settings › Integrations). Share › Agents shows the same list.
+  - Change: Send to › sits under Edit with Agent › on layers, instances, and multi-selections (the selection) and under Explore with Agent on the empty canvas (the screen). One list of destinations, grouped Agents, Apps, and Channels, then Copy agent prompt and Manage destinations… (Settings › Integrations). Share › Agents shows the same list.
 - **AGT-06** · proposed
   - Today: Agent deep links exist for Claude, Claude Code, and Codex (`buildAgentShareDeepLink`), with no install detection. Sibling apps come from `useOrgSwitcherAppLinks` (workspace runtime only). Messaging channels report on/off/not-set-up (`list-messaging-channels`) but only receive.
   - Change: Agents: the prompt carries the scoped link and the MCP URL, and the agent reads the context over the Design MCP. Apps: Design calls the app over A2A (`call-agent`) with an objective and the scoped link, then opens the result with `/_agent-native/open`. Channels: posting the scope's screenshot and link is new.
@@ -404,7 +406,7 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
   - Prototype: Click “Screen 1” above the frame or at the top of Layers, then drag the handle on the frame's right edge or set W.
 - **RESP-05** · decided
   - Today: Nothing in the inspector binds a value to a token: W/H take numbers, and the device-size picker sets both from `FRAME_SIZE_PRESET_CATEGORIES`.
-  - Change: W's chevron, in the inspector only, lists Container (3xs 256 … 7xl 1280) and Breakpoint (sm 640 … 2xl 1536) widths, from the design system's `--container-*` and `--breakpoint-*` tokens when it has them and Tailwind v4's defaults otherwise. Picking one binds it: W shows the token (2xl) instead of the number, the menu checks it, and Detach token, typing a number, or dragging the frame sets a raw width again. It's one choice, and the menu closes on pick. Device sizes, which set width and height together, are a separate picker on Position (INSP-08).
+  - Change: W's chevron, in the inspector only, lists Container (3xs 256 … 7xl 1280) and Breakpoint (sm 640 … 2xl 1536) widths, from the design system's `--container-*` and `--breakpoint-*` tokens when it has them and Tailwind v4's defaults otherwise. Picking one binds it: W shows the token (2xl) instead of the number, the menu checks it, and Detach token (the first item while a token is bound, ⌫ while the menu is open), typing a number, or dragging the frame sets a raw width again. It's one choice, and the menu closes on pick. Device sizes, which set width and height together, are a separate picker on Position (INSP-08).
   - Prototype: Select the screen, then open W's chevron.
 - **RESP-06** · decided
   - Change: Responsive rules live on the layer: the inspector's Responsive section lists rules as “Below {token}” plus a change (Stack, Wrap, One column, Collapse to menu, Hide, Text size, Padding), each showing its Tailwind class. A Container token queries the layer's parent (`@container` on the parent, `@max-3xl:grid-cols-1` on the layer); a Breakpoint token queries the frame (`max-md:hidden`). Rules travel with a component into code.

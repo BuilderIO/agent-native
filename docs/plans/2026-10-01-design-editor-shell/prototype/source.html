@@ -1358,7 +1358,7 @@ function syncDialog() {
 }
 /* ───────── screen frame inspector: Position with device sizes, W bound to width tokens ───────── */
 // Device sizes use the Frame tool's list, so there's one set of presets; a device sets W and a fixed H.
-const deviceMenu = () => FRAME_PRESETS.map(([key, label, icon, list]) => ({ icon, t: label, sub: list.map(([n, w, h]) => ({ t: n, k: `${w}\u2009×\u2009${h}`, radio: true, on: RESP.w === w && RESP.h === h, run: () => { RESP.h = h; setFrameWidth(w); } })) }));
+const deviceMenu = () => FRAME_PRESETS.map(([, label, , list]) => ({ t: label, sub: list.map(([n, w, h]) => ({ t: n, k: `${w}\u2009×\u2009${h}`, radio: true, on: RESP.w === w && RESP.h === h, run: () => { RESP.h = h; setFrameWidth(w); } })) }));
 // The selected screen's frame, in the code's order: Position (X/Y, size with device presets),
 // Layout grids, Appearance, Fill, Stroke, Effects, Export.
 function renderScreenInspector(el) {
@@ -1395,9 +1395,9 @@ document.addEventListener("click", e => {
   if (t.closest?.("#unsaved-btn")) return syncDialog();
   if (t.closest?.("[data-app-retry]")) return retryConnection();
   const as = t.closest?.("[data-add-screen]");
-  if (as) return openMenu(as, [{ icon: "frame", t: "Blank screen", toast: "Adds a blank screen; press F for device sizes" }, { icon: "world", t: "From your app…", run: appDialog }], { align: "right" });
+  if (as) return openMenu(as, [{ t: "Blank screen", toast: "Adds a blank screen; press F for device sizes" }, { t: "From your app…", run: appDialog }], { align: "right" });
   const wm = t.closest?.("[data-w-menu]");
-  if (wm) return openMenu(wm.closest(".inp") || wm, [...widthMenu(RESP.w, (px, tok) => setFrameWidth(px, false, tok)), ...(boundToken() ? ["-", { t: "Detach token", run: () => setFrameWidth(RESP.w) }] : [])]);
+  if (wm) return openMenu(wm.closest(".inp") || wm, [...(boundToken() ? [{ t: "Detach token", k: "⌫", keys: ["Backspace", "Delete"], run: () => setFrameWidth(RESP.w) }, "-"] : []), ...widthMenu(RESP.w, (px, tok) => setFrameWidth(px, false, tok))]);
   if (t.closest?.("[data-resp-add]")) { const root = !FLAT[S.selected]?.parent; RESP.rules.push({ id: RESP.nextId++, node: S.selected, scale: root ? "breakpoint" : "container", token: root ? "md" : "md", change: respChoices(S.selected)[0] }); renderPage(); renderInspector(); return; }
   const wh = t.closest?.("[data-resp-when]"); if (wh) return openMenu(wh, whenMenu(RESP.rules.find(r => r.id === +wh.dataset.respWhen)));
   const ch = t.closest?.("[data-resp-change]"); if (ch) { const r = RESP.rules.find(x => x.id === +ch.dataset.respChange); return openMenu(ch, respChoices(r.node).map(c => ({ t: RESP_CHANGES[c].t, radio: true, on: r.change === c, run: () => { r.change = c; renderPage(); renderInspector(); } }))); }
@@ -1569,7 +1569,7 @@ function openToolMenu(chev, t) {
   openMenu(chev, items, { aboveOf: $("#dock") });
 }
 function openSkillsMenu(anchor, opts) {
-  openMenu(anchor, [...SKILLS.map(([icon, name, k]) => ({ icon, t: name, k, run: () => startSkill(name) })), "-", { icon: "sparkles", t: "All skills", run: () => { setPanel("agents"); S.chat = null; renderAgents(); } }], opts);
+  openMenu(anchor, [...SKILLS.map(([icon, name, k]) => ({ t: name, k, run: () => startSkill(name) })), "-", { t: "All skills", run: () => { setPanel("agents"); S.chat = null; renderAgents(); } }], opts);
 }
 
 /* ───────── canvas ───────── */
@@ -1891,7 +1891,12 @@ function openMenu(anchor, items, { align = "left", above = false, aboveOf = null
   const scrim = document.createElement("div"); scrim.className = "scrim";
   const stack = [];
   const close = () => { scrim.remove(); stack.forEach(x => x.remove()); anchor.setAttribute("aria-expanded", "false"); closeMenu = null; document.removeEventListener("keydown", esc); };
-  const esc = e => { if (e.key === "Escape") { close(); anchor.focus(); } };
+  // An item's keys fire it while its menu is open, like Detach token on ⌫.
+  const esc = e => {
+    if (e.key === "Escape") { close(); anchor.focus(); return; }
+    const it = items.find(x => x && x.keys?.includes(e.key) && !x.disabled);
+    if (it) { e.preventDefault(); close(); anchor.focus(); it.run(); }
+  };
   const mount = (list, depth, place) => {
     stack.splice(depth).forEach(x => x.remove());
     const m = menuEl(list, depth); document.body.append(m); stack[depth] = m;
@@ -2114,7 +2119,7 @@ document.addEventListener("click", e => {
     if (bid === "cmc-resolve") { const th = CTHREADS.find(x => x.id === S.cmOpen); th.resolved = true; closeCard(); toast("Resolved"); return; }
     if (bid === "cmc-send" || bid === "cmc-send-mini") { sendComment(t.closest(".cmc")); return; }
     if (bid === "cmc-at") { const card = t.closest(".cmc"), ed = card.querySelector(".cmc-input"); placeCaret(ed); document.execCommand("insertText", false, "@"); return; }
-    if (bid === "cmc-more") return openMenu(t.closest("button"), [{ label: "Ask the agent" }, { icon: "sparkles", t: "Suggest changes", toast: "The agent proposes changes in this thread" }, { icon: "message-circle", t: "Reply in thread", toast: "The agent replies in this thread" }, { icon: "check", t: "Apply changes and resolve", toast: "The agent applies the change and resolves the thread" }, "-", { icon: "link", t: "Copy link", toast: "Link copied" }, { icon: "trash", t: "Delete thread", danger: true, run: () => { const i = CTHREADS.findIndex(x => x.id === S.cmOpen); CTHREADS.splice(i, 1); closeCard(); toast("Thread deleted"); } }], { align: "right" });
+    if (bid === "cmc-more") return openMenu(t.closest("button"), [{ label: "Ask the agent" }, { t: "Suggest changes", toast: "The agent proposes changes in this thread" }, { t: "Reply in thread", toast: "The agent replies in this thread" }, { t: "Apply changes and resolve", toast: "The agent applies the change and resolves the thread" }, "-", { t: "Copy link", toast: "Link copied" }, { t: "Delete thread", danger: true, run: () => { const i = CTHREADS.findIndex(x => x.id === S.cmOpen); CTHREADS.splice(i, 1); closeCard(); toast("Thread deleted"); } }], { align: "right" });
     const tk = t.closest("[data-toast]"); if (tk) toast(tk.dataset.toast);
     return;
   }
@@ -2147,19 +2152,19 @@ document.addEventListener("click", e => {
   if (t.closest("#nav-fwd")) { if (S.hIndex < S.history.length - 1) { S.hIndex++; go(S.history[S.hIndex], false); } return; }
   if (t.closest("#nav-reload")) { renderPage(); toast("Reloaded /" + S.route.slice(1)); return; }
   const id = t.closest("button")?.id;
-  if (id === "route-btn") return openMenu(t.closest("button"), [{ label: S.mode === "interact" ? "Go to" : "Screens" }, ...ROUTES.map(r => ({ icon: "circle-dashed", t: `${r.path}`, check: r.path === S.route, run: () => go(r.path) }))]);
-  if (id === "device-btn") return openMenu(t.closest("button"), DEVICES.map(d => ({ icon: d.icon, t: `${d.name}  ·  ${d.w}`, check: d.name === S.device, run: () => { S.device = d.name; renderTopbar(); renderPage(); } })).concat(["-", { icon: "plus", t: "Custom size…" }]));
+  if (id === "route-btn") return openMenu(t.closest("button"), [{ label: S.mode === "interact" ? "Go to" : "Screens" }, ...ROUTES.map(r => ({ t: `${r.path}`, check: r.path === S.route, run: () => go(r.path) }))]);
+  if (id === "device-btn") return openMenu(t.closest("button"), DEVICES.map(d => ({ t: `${d.name}  ·  ${d.w}`, check: d.name === S.device, run: () => { S.device = d.name; renderTopbar(); renderPage(); } })).concat(["-", { t: "Custom size" }]));
   if (id === "zoom-btn") { const zt = z => () => { S.zoom = z; renderTopbar(); renderPage(); }; return openMenu(t.closest("button"), [{ field: S.zoom + "%" }, { t: "Zoom in", k: "⌘=", run: zt(Math.min(200, S.zoom + 25)) }, { t: "Zoom out", k: "⌘-", run: zt(Math.max(25, S.zoom - 25)) }, { t: "Zoom to fit", k: "⇧1", run: () => zt(fitZoom())() }, { t: "Zoom to 50%", run: zt(50) }, { t: "Zoom to 100%", k: "⇧0", run: zt(100) }, { t: "Zoom to 200%", run: zt(200) }, "-", { t: "Pixel grid", toggle: true, on: true }, { t: "Snap to pixel grid", toggle: true, on: true }, { t: "Layout grids", k: "⌃G", toggle: true, on: S.layoutGrids, run: on => { S.layoutGrids = on; $("#page").classList.toggle("show-grids", on); } }, { t: "Rulers", toggle: true, on: false }, { t: "Multiplayer cursors", toggle: true, on: true }, "-", { t: "Comments", k: "⇧C", toggle: true, on: S.showPins !== false, run: on => { S.showPins = on; renderPins(); } }]); }
   if (id === "app-menu-btn") return openMenu(t.closest("button"), APP_MENU());
   if (id === "tk-new") return openMenu(t.closest("button"), TOKEN_KINDS.map(k => k === "-" ? k : { icon: k[2], t: k[1], run: () => startTokenDraft(k[0]) }), { align: "right" });
   if (id === "tk-import") return openMenu(t.closest("button"), TOKEN_IMPORT_MENU(), { align: "right" });
   if (id === "tk-search") return openTokenSearch();
   if (id === "layer-search") return openLayerSearch();
-  if (id === "scheme-btn") return openMenu(t.closest("button"), ["light", "dark", "system"].map(k => ({ icon: SCHEME_ICON[k], t: SCHEME_LABEL[k], radio: true, on: S.scheme === k, run: () => { S.scheme = k; closeMenu?.(); renderTopbar(); applyScheme(); } })));
-  if (id === "add-context") return openMenu(t.closest("button"), [{ search: "Search…" }, { icon: "file", t: "Upload file", toast: "Opens the file picker" }, { icon: "frame", t: "Attach Figma…", toast: "Paste a Figma link to attach it" }, { icon: "file", t: "Reference a design…", toast: "Pick another design to reference" }], { above: true, offset: 6 });
+  if (id === "scheme-btn") return openMenu(t.closest("button"), ["light", "dark", "system"].map(k => ({ t: SCHEME_LABEL[k], radio: true, on: S.scheme === k, run: () => { S.scheme = k; closeMenu?.(); renderTopbar(); applyScheme(); } })));
+  if (id === "add-context") return openMenu(t.closest("button"), [{ search: "Search…" }, { t: "Upload file", toast: "Opens the file picker" }, { t: "Attach Figma", toast: "Paste a Figma link to attach it" }, { t: "Reference a design", toast: "Pick another design to reference" }], { above: true, offset: 6 });
   if (id === "account-btn") return openAccountMenu(t.closest("button"));
   if (id === "chat-back") { S.chat = null; renderAgents(); return; }
-  if (id === "thread-btn") return openMenu(t.closest("button"), [...(S.chat ? [{ icon: "history", t: "All chats", run: () => { S.chat = null; renderAgents(); } }, "-"] : []), { label: "Recent" }, ...THREADS.filter(th => !th.archived).map(th => ({ icon: "message-circle", t: th.t, k: th.when, run: () => { S.chat = { title: th.t, msgs: [{ user: true, text: th.t }, { text: "Earlier conversation. Messages load here." }] }; renderAgents(); } }))]);
+  if (id === "thread-btn") return openMenu(t.closest("button"), [...(S.chat ? [{ t: "All chats", run: () => { S.chat = null; renderAgents(); } }, "-"] : []), { label: "Recent" }, ...THREADS.filter(th => !th.archived).map(th => ({ t: th.t, k: th.when, run: () => { S.chat = { title: th.t, msgs: [{ user: true, text: th.t }, { text: "Earlier conversation. Messages load here." }] }; renderAgents(); } }))]);
   if (id === "new-chat") { S.chat = null; renderAgents(); $("#ask")?.focus(); return; }
   if (id === "rail-panel-toggle") { app.classList.toggle("no-panel"); return; }
   if (id === "send") return sendAsk();
@@ -2178,14 +2183,14 @@ document.addEventListener("click", e => {
     "-", { t: "Pinned only", toggle: true, on: AG.pinned, run: set("pinned", !AG.pinned) }, { t: "Show archived chats", toggle: true, on: AG.archived, run: set("archived", !AG.archived) }], { align: "right", minWidth: 200 }); }
   if (id === "cm-new") { S.tool = "comment"; renderDock(); app.classList.add("comment-tool"); toast("Click anything on the canvas to comment on it"); return; }
   if (id === "apply-feedback") { startSkillText("Apply all open design review feedback", "Apply feedback"); return; }
-  if (id === "review-changes") return openMenu(t.closest("button"), [{ label: "Changes ready to review" }, { icon: "device-desktop", t: "Screen 1 · 3 variants", toast: "Opens the screen with the variant picker" }, { icon: "device-desktop", t: "Screen 2 · 2 variants", toast: "Opens the screen with the variant picker" }], { align: "right" });
+  if (id === "review-changes") return openMenu(t.closest("button"), [{ label: "Changes ready to review" }, { t: "Screen 1 · 3 variants", toast: "Opens the screen with the variant picker" }, { t: "Screen 2 · 2 variants", toast: "Opens the screen with the variant picker" }], { align: "right" });
   if (id === "import-btn") return importDialog();
   if (id === "import-more") return openMenu(t.closest("button"), IMPORT_MENU(), { align: "right" });
   if (id === "share-btn") return shareDialog();
   if (id === "share-more") return openMenu(t.closest("button"), EXPORT_MENU(), { align: "right" });
   if (id === "file-menu-btn") return openMenu(t.closest("button"), [
     { t: "Rename", run: rename }, { t: "Duplicate" }, "-",
-    { t: "Version history", run: openHistory }, { t: "Save as template…" }, { t: "Export…", run: () => openMenu($("#share-more"), EXPORT_MENU(), { align: "right" }) }, "-",
+    { t: "Version history", run: openHistory }, { t: "Save as template…" }, { t: "Export", sub: EXPORT_MENU().slice(1) }, "-",
     { t: "Move to trash", danger: true, toast: "Opens a confirm that names who loses access" },
   ]);
   if (id === "folder-btn") { toast("Goes to Designs (/home)"); return; }
@@ -2328,13 +2333,13 @@ function openShortcuts() {
 // Figma Menus section: context menus from 1834:719 (coverage) and 1826:562 (no selection, layer row, agent actions).
 // Shortcuts are the code's: CanvasContextMenu.tsx:367-404, LayersPanel.tsx:2445-2517, DESIGN_SHORTCUTS.
 const AGENT_ACTIONS = () => [
-  { icon: "bulb", t: "Inspiration", desc: "Explore multiple variants", run: () => startSkill("Inspiration") },
-  { icon: "wand", t: "Polish", desc: "Improve hierarchy and consistency", run: () => startSkill("Polish") },
-  { icon: "bug", t: "Debug", desc: "Find and fix issues", run: () => startSkill("Debug") },
-  { icon: "layout-grid", t: "Generate states", desc: "Empty, loading, and error", toast: "The agent drafts empty, loading, and error states" },
-  { icon: "device-mobile", t: "Make responsive", desc: "Adapt to narrow widths", run: () => startSkill("Make responsive") },
+  { t: "Inspiration", desc: "Explore multiple variants", run: () => startSkill("Inspiration") },
+  { t: "Polish", desc: "Improve hierarchy and consistency", run: () => startSkill("Polish") },
+  { t: "Debug", desc: "Find and fix issues", run: () => startSkill("Debug") },
+  { t: "Generate states", desc: "Empty, loading, and error", toast: "The agent drafts empty, loading, and error states" },
+  { t: "Make responsive", desc: "Adapt to narrow widths", run: () => startSkill("Make responsive") },
 ];
-const editWithAgent = () => ({ icon: "sparkles", t: "Edit with Agent…", sub: AGENT_ACTIONS(), subIcon: "arrow-up-right", run: () => { setPanel("agents"); $("#ask")?.focus(); } });
+const editWithAgent = () => ({ t: "Edit with Agent", sub: AGENT_ACTIONS(), run: () => { setPanel("agents"); $("#ask")?.focus(); } });
 // Links carry the screen and, with a selection, the layers, so an outside agent's get_design_context reads exactly that scope.
 const DESIGN_URL = "https://design.agent-native.com/design/agent-native-web";
 const MCP_URL = "https://design.agent-native.com/mcp";
@@ -2345,7 +2350,7 @@ function linkTo(scope) {
 }
 function copyText(text, msg) { (navigator.clipboard?.writeText(text) || Promise.reject()).then(() => toast(msg), () => toast(msg)); }
 // One Copy link, like Send to: it links what you right-clicked, and the toast names it.
-const copyLink = (scope, icon = "link") => ({ icon, t: "Copy link", run: () => copyText(linkTo(scope), `Link to ${scopeName(scope)} copied`) });
+const copyLink = (scope, icon = "link") => ({ t: "Copy link", run: () => copyText(linkTo(scope), `Link to ${scopeName(scope)} copied`) });
 const COPY_PASTE_AS = () => [{ t: "Copy as PNG", k: "⇧⌘C" }, { t: "Copy properties", k: "⌥⌘C" }, { t: "Paste properties", k: "⌥⌘V" }, "-", { t: "Paste over selection", k: "⇧⌘V" }];
 const ARRANGE = () => [{ t: "Bring to front", k: "]" }, { t: "Bring forward", k: "⌘]" }, { t: "Send backward", k: "⌘[" }, { t: "Send to back", k: "[" }, "-", { t: "Align left", k: "⌥A" }, { t: "Align right", k: "⌥D" }, { t: "Align top", k: "⌥W" }, { t: "Align bottom", k: "⌥S" }, "-", { t: "Tidy up", k: "⌃⌥T" }];
 const TRANSFORM = () => [{ t: "Flip horizontal", k: "⇧H" }, { t: "Flip vertical", k: "⇧V" }, { t: "Swap fill and stroke", k: "⇧X" }];
@@ -2353,7 +2358,7 @@ const tail = () => ["-", { t: "Hide", k: "⇧⌘H" }, { t: "Lock", k: "⇧⌘L" 
 const CTX = {
   // The agent and sharing group (as on layers), then Paste here, then CanvasContextMenu's view toggles, which
   // name what they'll do (Hide UI while it's showing).
-  none: () => [{ icon: "sparkles", t: "Explore with Agent…", run: () => { setPanel("agents"); $("#ask")?.focus(); } }, sendToItem("screen"), copyLink("screen"), "-",
+  none: () => [{ t: "Explore with Agent", run: () => { setPanel("agents"); $("#ask")?.focus(); } }, sendToItem("screen"), copyLink("screen"), "-",
     { t: "Paste here", k: "⌘V" }, "-",
     { t: app.classList.contains("no-panel") ? "Show UI" : "Hide UI", k: "⌘\\", run: () => app.classList.toggle("no-panel") },
     { t: S.showPins === false ? "Show comments" : "Hide comments", k: "⇧C", run: () => { S.showPins = S.showPins === false; renderPins(); } }],
@@ -2924,13 +2929,13 @@ function importFigma(url) {
 const readClip = fn => navigator.clipboard?.readText ? navigator.clipboard.readText().then(fn, () => toast("Allow clipboard access to paste")) : toast("Allow clipboard access to paste");
 const TOKEN_IMPORT_MENU = () => [
   // Reads the link copied in Figma, so there's no field to fill in.
-  { icon: "brand-figma", t: "Paste Figma link", run: () => readClip(text => importFigma(text.trim())) },
-  { icon: "file-code", t: "DTCG file…", run: () => pickTokenFiles(".tokens,.json,application/design-tokens+json") },
-  { icon: "file-text", t: "CSS or Tailwind file…", run: () => pickTokenFiles(".css,.scss,.sass,.less,.ts,.tsx,.js,.jsx,.json,.md,.mdx,.txt") },
-  { icon: "folder", t: "Code folder…", run: () => pickTokenFiles("", true) },
-  { icon: "copy", t: "Paste from clipboard", run: () => readClip(text => FIGMA_FILE.test(text.trim()) ? importFigma(text.trim()) : importStaged(stageTokens(text), "the clipboard")) },
+  { t: "Paste Figma link", run: () => readClip(text => importFigma(text.trim())) },
+  { t: "DTCG file…", run: () => pickTokenFiles(".tokens,.json,application/design-tokens+json") },
+  { t: "CSS or Tailwind file…", run: () => pickTokenFiles(".css,.scss,.sass,.less,.ts,.tsx,.js,.jsx,.json,.md,.mdx,.txt") },
+  { t: "Code folder…", run: () => pickTokenFiles("", true) },
+  { t: "Paste from clipboard", run: () => readClip(text => FIGMA_FILE.test(text.trim()) ? importFigma(text.trim()) : importStaged(stageTokens(text), "the clipboard")) },
   "-",
-  { icon: "sparkles", t: "Generate from design", run: () => startSkill("Generate tokens") },
+  { t: "Generate from design", run: () => startSkill("Generate tokens") },
 ];
 // The app theme is next-themes' light / dark / system (root.tsx's command menu "Toggle theme"), not a Settings page.
 const appTheme = () => document.documentElement.dataset.theme || "system";
@@ -2946,19 +2951,19 @@ function openNudge() {
     sc => { sc.querySelector(".dlg").style.width = "320px"; sc.addEventListener("change", e => { const k = e.target.id?.replace("nudge-", ""); if (k in nudge) { nudge[k] = clamp(e.target.value); e.target.value = nudge[k]; } }); });
 }
 const APP_MENU = () => [{ search: "Actions…", k: "⌘K" },
-  { t: "File", sub: [{ t: "New design" }, "-", { t: "Save local copy…" }, { t: "Save as template…" }, { t: "Version history", run: openHistory }, "-", { t: "Export…" }, { t: "Copy agent prompt" }, { t: "Make an app…" }] },
+  { t: "File", sub: [{ t: "New design" }, "-", { t: "Save local copy…" }, { t: "Save as template…" }, { t: "Version history", run: openHistory }, "-", { t: "Export", sub: EXPORT_MENU().slice(1) }, { t: "Copy agent prompt" }, { t: "Make an app" }] },
   { t: "Edit", sub: [{ t: "Undo", k: "⌘Z" }, { t: "Redo", k: "⇧⌘Z" }, { t: "Duplicate selection", k: "⌘D" }, { t: "Delete selection", k: "⌫" }, { t: "Pin comment", k: "C" }] },
   { t: "View", sub: [{ t: "Current screen" }, { t: "Zoom out", k: "⌘-" }, { t: "Zoom in", k: "⌘=" }, { t: "Pin comment", k: "C" }] },
   { t: "Preferences", sub: [{ t: "Theme", sub: THEME_MENU() }, { t: "Keyboard shortcuts", k: "⌃⇧?", run: openShortcuts }, { t: "Nudge amount…", run: openNudge }] },
   { t: "Help", sub: [{ t: "Documentation" }, { t: "Keyboard shortcuts", k: "⌃⇧?", run: openShortcuts }, { t: "What’s new" }, { t: "Troubleshooting" }, { t: "Send feedback…" }] }];
 // Export lives in Share's dropdown (today: project menu Export submenu + the share dialog's Export tab).
 const EXPORT_MENU = () => [{ label: "Export" },
-  { icon: "file-code", t: "Download HTML" }, { icon: "photo-down", t: "Download PNG" }, { icon: "vector-triangle", t: "Download SVG" },
-  { icon: "frame", t: "Download for Figma (SVG)" }, { icon: "file-zip", t: "Download ZIP" },
-  ...(S.labsTokens ? [{ icon: "assembly", t: "Download tokens (DTCG)", run: showDtcg }] : []),
-  { icon: "file-type-pdf", t: "Download PDF (all screens)", disabled: true },
-  "-", { icon: "copy", t: "Copy agent prompt", toast: "Agent prompt copied" },
-  "-", { icon: "cloud-upload", t: "Publish app…", toast: "Opens the Publish app waitlist (today's Play popover)" }];
+  { t: "Download HTML" }, { t: "Download PNG" }, { t: "Download SVG" },
+  { t: "Download for Figma (SVG)" }, { t: "Download ZIP" },
+  ...(S.labsTokens ? [{ t: "Download tokens (DTCG)", run: showDtcg }] : []),
+  { t: "Download PDF (all screens)", disabled: true },
+  "-", { t: "Copy agent prompt", toast: "Agent prompt copied" },
+  "-", { t: "Publish app", toast: "Opens the Publish app waitlist (today's Play popover)" }];
 const IMPORT_SOURCES = [
   ["frame", "Figma frame URL", "Paste a frame link. A token is optional."],
   ["upload", "Upload .fig", "Pick frames from a .fig file."],
@@ -2967,7 +2972,7 @@ const IMPORT_SOURCES = [
   ["world", "Local app", "Connect a running local app with /visual-edit."],
   ["box-multiple", "GitHub", "Coming soon"],
 ];
-const IMPORT_MENU = () => IMPORT_SOURCES.map(([icon, t, d]) => ({ icon, t: t + (t === "GitHub" ? "" : "…"), disabled: t === "GitHub", k: t === "GitHub" ? "Soon" : "", run: () => t === "Local app" ? appDialog() : importDialog(t) }));
+const IMPORT_MENU = () => IMPORT_SOURCES.map(([, t]) => ({ t: t + (t === "GitHub" ? "" : "…"), disabled: t === "GitHub", k: t === "GitHub" ? "Soon" : "", run: () => t === "Local app" ? appDialog() : importDialog(t) }));
 function dialog(html, onMount) {
   const sc = document.createElement("div"); sc.className = "dlg-scrim";
   sc.innerHTML = `<div class="dlg" role="dialog" aria-modal="true">${html}</div>`;
@@ -2992,12 +2997,12 @@ function sendTo(kind, id, scope) {
   if (kind === "app") { const [, label, , verb] = SEND_APPS.find(a => a[0] === id); toast(`Sending ${scopeName(scope)} to ${label}…`); return setTimeout(() => toast(`${label} ${verb} ${scopeName(scope)} · Opening it`), 900); }
   if (kind === "channel") { const [, label] = SEND_CHANNELS.find(c => c[0] === id); return toast(`Posted ${scopeName(scope)} to ${label}`); }
 }
-const SEND_TO = scope => [{ label: "Agents" }, ...SEND_AGENTS.map(([id, label, who]) => ({ img: PEOPLE[who].img, t: label, run: () => sendTo("agent", id, scope) })),
-  "-", { label: "Apps" }, ...SEND_APPS.map(([id, label, icon]) => ({ icon, t: label, run: () => sendTo("app", id, scope) })),
-  "-", { label: "Channels" }, ...SEND_CHANNELS.map(([id, label, icon]) => ({ icon, t: label, run: () => sendTo("channel", id, scope) })),
-  "-", { icon: "link", t: "Copy agent prompt", run: () => copyText(agentPrompt(scope), "Agent prompt copied") },
-  { icon: "settings", t: "Manage destinations…", run: () => openSettings("integrations") }];
-const sendToItem = scope => ({ icon: "send", t: "Send to", sub: SEND_TO(scope) });
+const SEND_TO = scope => [{ label: "Agents" }, ...SEND_AGENTS.map(([id, label, who]) => ({ t: label, run: () => sendTo("agent", id, scope) })),
+  "-", { label: "Apps" }, ...SEND_APPS.map(([id, label]) => ({ t: label, run: () => sendTo("app", id, scope) })),
+  "-", { label: "Channels" }, ...SEND_CHANNELS.map(([id, label]) => ({ t: label, run: () => sendTo("channel", id, scope) })),
+  "-", { t: "Copy agent prompt", run: () => copyText(agentPrompt(scope), "Agent prompt copied") },
+  { t: "Manage destinations…", run: () => openSettings("integrations") }];
+const sendToItem = scope => ({ t: "Send to", sub: SEND_TO(scope) });
 // Share is a popover under its button, like the toolkit ShareButton, with Content's People / Agents tabs.
 const VISIBILITY = [["private", "Only people with access can view"], ["org", "Anyone in your organization can view"], ["public", "Anyone signed in with the link can view"]];
 const PEOPLE_ACCESS = [["Shawn", "shawn@example.com", "#7c6cf2", "Owner"], ["Vee", "vee@example.com", "#e0864a", "Editor"], ["Ana", "ana@example.com", "#3aa17e", "Commenter"]];
@@ -3327,7 +3332,7 @@ function renderCode() {
 }
 function gotoFile(anchor) {
   const ids = CODE_ROOTS().flatMap(([root, label, paths]) => paths.map(p => [`${root}:${p}`, label, p]));
-  openMenu(anchor, [{ search: "Go to file" }, ...ids.map(([id, label, p]) => ({ icon: p.endsWith(".json") ? "file" : "file-code", t: p.split("/").pop(), k: p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : label, run: () => openFile(id) }))], { minWidth: Math.max(320, anchor.offsetWidth) });
+  openMenu(anchor, [{ search: "Go to file" }, ...ids.map(([id, label, p]) => ({ t: p.split("/").pop(), k: p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : label, run: () => openFile(id) }))], { minWidth: Math.max(320, anchor.offsetWidth) });
   const m = document.querySelector('.menu[data-depth="0"]'), input = m.querySelector(".search input");
   input.addEventListener("input", () => { const q = input.value.trim().toLowerCase(); m.querySelectorAll("button[data-i]").forEach(b => b.hidden = !!q && !b.textContent.toLowerCase().includes(q)); });
   input.addEventListener("keydown", e => { if (e.key === "Enter") m.querySelector("button[data-i]:not([hidden])")?.click(); });
