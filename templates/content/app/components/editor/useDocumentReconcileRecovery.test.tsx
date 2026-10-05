@@ -87,6 +87,48 @@ describe("document reconcile recovery", () => {
     expect(recovery.state).toBeNull();
   });
 
+  it("hands a newer page to the automatic save already running", async () => {
+    const firstSave = deferred();
+    const save = vi.fn(() => firstSave.promise);
+    draft = "first merge";
+    mount(save, undefined, undefined, false);
+    const newerBase = {
+      ...base,
+      content: "saved remotely, then edited by a peer",
+      updatedAt: "2026-09-10T12:00:01.000Z",
+      revision: "peer-revision",
+    };
+
+    let first!: Promise<boolean>;
+    let second!: Promise<boolean>;
+    act(() => {
+      first = recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "" },
+        base,
+      );
+    });
+    save.mockImplementation(async () => true);
+    act(() => {
+      draft = "second merge";
+      second = recovery.resolveAutomatically(
+        { localDraft: draft, localTitle: "" },
+        newerBase,
+      );
+    });
+    expect(recovery.state).toBeNull();
+    expect(save).toHaveBeenCalledTimes(1);
+
+    await act(async () => firstSave.resolve(true));
+    expect(await first).toBe(true);
+    expect(await second).toBe(true);
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(save).toHaveBeenLastCalledWith(
+      { localDraft: "second merge", localTitle: "" },
+      newerBase,
+    );
+    expect(recovery.state).toBeNull();
+  });
+
   it("publishes recovery only after an automatic merge cannot be saved", async () => {
     draft = "latest merged draft";
     mount(async () => false, undefined, undefined, false);

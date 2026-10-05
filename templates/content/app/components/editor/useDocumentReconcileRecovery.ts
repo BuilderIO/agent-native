@@ -25,6 +25,12 @@ export interface ReconcileRecoveryDraft {
   localTitle: string;
 }
 
+interface AutomaticSave {
+  generation: number;
+  newerBase: ReconcileSaveBase | null;
+  saved: Promise<boolean>;
+}
+
 export function useDocumentReconcileRecovery({
   save,
   retain,
@@ -50,6 +56,7 @@ export function useDocumentReconcileRecovery({
   const current = stateRef ?? internalStateRef;
   const generation = useRef(0);
   const inFlight = useRef(false);
+  const automaticSave = useRef<AutomaticSave | null>(null);
   const callbacks = useRef({
     save,
     retain,
@@ -173,30 +180,14 @@ export function useDocumentReconcileRecovery({
     [current, latestDraft, publish, retainLatest],
   );
 
-  const resolveAutomatically = useCallback(
+  const saveAutomatically = useCallback(
     async (
+      run: AutomaticSave,
       initialDraft: ReconcileRecoveryDraft,
       base: ReconcileSaveBase,
     ): Promise<boolean> => {
-      if (current.current || inFlight.current) {
-        generation.current += 1;
-        publish({
-          reason: current.current?.reason ?? "conflict",
-          ...initialDraft,
-          saving: false,
-        });
-        try {
-          if (callbacks.current.retain)
-            await callbacks.current.retain(initialDraft);
-        } catch {
-          const latest = current.current;
-          if (latest)
-            publish({ ...latest, reason: "save-failed", saving: false });
-        }
-        return false;
-      }
       inFlight.current = true;
-      const started = generation.current;
+      const started = run.generation;
       let saveBase: ReconcileSaveBase | undefined = base;
       let draft = initialDraft;
       let attempts = 0;
@@ -224,7 +215,9 @@ export function useDocumentReconcileRecovery({
           }
           if (callbacks.current.getSaveIdentity() === identity) return true;
           draft = latestDraft();
-          saveBase = undefined;
+          saveBase = run.newerBase ?? undefined;
+          if (run.newerBase) attempts = 0;
+          run.newerBase = null;
         }
         await retainLatest();
         if (generation.current === started && !current.current) {
@@ -247,9 +240,57 @@ export function useDocumentReconcileRecovery({
         return false;
       } finally {
         inFlight.current = false;
+        if (automaticSave.current === run) automaticSave.current = null;
       }
     },
     [current, latestDraft, publish, retainLatest],
+  );
+
+  const resolveAutomatically = useCallback(
+    async (
+      initialDraft: ReconcileRecoveryDraft,
+      base: ReconcileSaveBase,
+    ): Promise<boolean> => {
+      const running = automaticSave.current;
+      if (
+        running &&
+        running.generation === generation.current &&
+        !current.current
+      ) {
+        // Another tab's edit merged while this tab's merge is still saving.
+        // The running save sends the editor's text against this newer page
+        // next; starting a second save here would cancel the first and show
+        // an edit that merged cleanly as a conflict.
+        running.newerBase = base;
+        return running.saved;
+      }
+      if (current.current || inFlight.current) {
+        generation.current += 1;
+        publish({
+          reason: current.current?.reason ?? "conflict",
+          ...initialDraft,
+          saving: false,
+        });
+        try {
+          if (callbacks.current.retain)
+            await callbacks.current.retain(initialDraft);
+        } catch {
+          const latest = current.current;
+          if (latest)
+            publish({ ...latest, reason: "save-failed", saving: false });
+        }
+        return false;
+      }
+      const run: AutomaticSave = {
+        generation: generation.current,
+        newerBase: null,
+        saved: Promise.resolve(false),
+      };
+      automaticSave.current = run;
+      run.saved = saveAutomatically(run, initialDraft, base);
+      return run.saved;
+    },
+    [current, publish, saveAutomatically],
   );
 
   const resolveChoice = useCallback(

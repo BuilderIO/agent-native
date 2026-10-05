@@ -18,6 +18,7 @@ import {
   getPreviewDraft,
   integrityFailures,
   Markers,
+  noiseFailures,
   observeIntegrity,
   postAction,
   RequestGate,
@@ -48,6 +49,8 @@ interface Scenario {
   markers: Markers;
   reader: Page;
   notes: Record<string, unknown>;
+  /** Set when the scenario's tabs may show recovery UI, error toasts or History saves. */
+  noisy: boolean;
 }
 
 async function runScenario(
@@ -67,6 +70,7 @@ async function runScenario(
     markers: new Markers(),
     reader,
     notes: {},
+    noisy: false,
   };
   await body(scenario);
   const working = [...tabs.tabs.values()];
@@ -119,6 +123,11 @@ async function runScenario(
       "no save was timed under the latency",
     ).toBe(true);
   expect(integrityFailures(record), "lost or duplicated text").toEqual([]);
+  if (!scenario.noisy)
+    expect(
+      noiseFailures(record),
+      "recovery notices, error toasts or saves sent to History",
+    ).toEqual([]);
 }
 
 async function openPair(s: Scenario, latencyMs = SAVE_LATENCY_MS) {
@@ -313,6 +322,9 @@ test.describe("two tabs editing one page at beta cadence", () => {
     context,
   }, testInfo) => {
     await runScenario("refresh-mid-save", testInfo, context, async (s) => {
+      // A's save is cut off on purpose, so A reports it before the refresh.
+      // The scenario checks what follows the refresh itself.
+      s.noisy = true;
       const a = await s.tabs.open("A", s.id);
       const b = await s.tabs.open("B", s.id);
       const aSaves = await SaveGate.install(a);
