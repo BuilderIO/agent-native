@@ -43,6 +43,8 @@
   --dock-menu: hsl(0 0% 12%);
   --accent-hover: hsl(205 81% 46%);
   --popover: hsl(0 0% 100%);
+  /* Warnings are amber; red is only for destructive actions. */
+  --warning: hsl(38 92% 45%);
   --shadow: 0 8px 28px rgb(0 0 0 / 14%), 0 1px 3px rgb(0 0 0 / 10%);
   --spec-grid: hsl(330 90% 55% / 0.18);
   --spec-line: hsl(330 90% 55% / 0.7);
@@ -710,7 +712,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .tk-search .tk-clear:hover { background: var(--hover); color: var(--fg); }
 .row.tk .tk-sw { width: 16px; height: 16px; border-radius: 4px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
 .row.tk[aria-expanded="true"] { background: var(--hover); }
-.row.tk .tk-warn { margin-left: 6px; display: grid; color: hsl(38 92% 45%); flex: none; }
+.row.tk .tk-warn { margin-left: 6px; display: grid; color: var(--warning); flex: none; }
 .row.tk .tk-glyph { color: var(--muted-fg); }
 .row.tk .tk-val { margin-left: 8px; font: 11px/16px var(--mono); color: var(--muted-fg); max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; text-align: right; }
 .row.tk:hover .tk-val { color: var(--fg); }
@@ -723,13 +725,13 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .cpk { position: fixed; z-index: 49; width: 272px; background: var(--popover); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 10%), 0 8px 10px -6px rgb(0 0 0 / 10%); overflow: hidden; font-size: 11px; line-height: 16px; animation: swap .12s ease-out; }
 .cpk-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--border); }
 .cpk-head .tabs { display: flex; gap: 4px; margin-left: -8px; }
-.cpk-head .acts { display: flex; gap: 0; }
-.cpk-contrast { width: 24px; height: 24px; margin-right: 4px; border-radius: 6px; display: grid; place-items: center; font-size: 12px; font-weight: 600; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
+.cpk-head .acts { display: flex; align-items: center; gap: 4px; }
+.cpk-contrast { width: 24px; height: 24px; padding: 0; border-radius: 6px; display: grid; place-items: center; font-size: 11px; line-height: 1; font-weight: 600; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
 .cpk-contrast:hover { box-shadow: inset 0 0 0 1px rgb(0 0 0 / 24%); }
-.cpk .icon-btn { width: 24px; height: 24px; border-radius: 6px; }
+.cpk .icon-btn { width: 24px; height: 24px; padding: 0; border-radius: 6px; }
 .cpk .icon-btn:hover { background: var(--hover); }
-.cpk-head button { height: 24px; padding: 0 8px; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--muted-fg); }
-.cpk-head button[aria-selected="true"] { background: var(--muted); color: var(--fg); }
+.cpk-head .tabs button { height: 24px; padding: 0 8px; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--muted-fg); }
+.cpk-head .tabs button[aria-selected="true"] { background: var(--muted); color: var(--fg); }
 .cpk-panes { display: grid; grid-template-columns: minmax(0, 1fr); }
 .cpk-pane { grid-area: 1 / 1; min-width: 0; }
 .cpk-pane[aria-hidden="true"] { visibility: hidden; }
@@ -762,7 +764,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .cpk-tip .ct-h b { font-weight: 600; font-variant-numeric: tabular-nums; }
 .cpk-tip .ct-grid { display: grid; grid-template-columns: auto auto 1fr; column-gap: 12px; row-gap: 2px; margin-top: 6px; padding-top: 6px; border-top: 1px solid rgb(255 255 255 / 15%); }
 .cpk-tip .ct-grid .res { display: inline-flex; align-items: center; gap: 4px; justify-self: end; }
-.cpk-tip .ct-grid .res[data-pass="false"] { color: hsl(0 90% 72%); }
+.cpk-tip .ct-grid .res[data-pass="false"] { color: hsl(38 95% 62%); }
 .cpk-doc { border-top: 1px solid var(--border); padding: 12px; }
 .cpk-doc-h { height: 16px; display: flex; align-items: center; margin-bottom: 8px; color: var(--muted-fg); }
 .cpk-grid { display: grid; grid-template-columns: repeat(8, 24px); gap: 8px; }
@@ -2168,7 +2170,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   const newTipHTML = () => `<div>New</div>${inSrgb(C.lin) ? "" : `<div class="sub">Outside sRGB. Screens without Display P3 show the nearest sRGB color.</div>`}`;
   // Contrast's tooltip is a small table: the ratio on what's behind the text, then AA and AAA with their thresholds.
   const contrastTipHTML = () => {
-    const r = ratioFor(C.lin), [aa, aaa] = need(), row = (n, t) => `<span>${n}</span><span class="sub">${t}:1</span><span class="res" data-pass="${r >= t}">${ic(r >= t ? "check" : "x", "s12")}${r >= t ? "Passes" : "Fails"}</span>`;
+    const r = ratioFor(C.lin), [aa, aaa] = need(), row = (n, t) => `<span>${n}</span><span class="sub">${t}:1</span><span class="res" data-pass="${r >= t}">${ic(r >= t ? "check" : "alert-triangle", "s12")}${r >= t ? "Passes" : "Fails"}</span>`;
     return `<div class="ct-h"><span>Contrast</span><b>${(Math.floor(r * 10) / 10).toFixed(1)}:1</b></div><div class="sub">On ${contrast.bg.toUpperCase()} · ${contrast.large ? "large text" : "body text"}</div><div class="ct-grid">${row("AA", aa)}${row("AAA", aaa)}</div>`;
   };
   const tipHTML = () => tipFor === "contrast" ? contrastTipHTML() : newTipHTML();
