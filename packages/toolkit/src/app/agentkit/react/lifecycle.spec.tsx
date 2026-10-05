@@ -9,7 +9,10 @@ import {
 } from "@agent-native/agentkit/client";
 import { createAgentKitHttpHandler } from "@agent-native/agentkit/http";
 import type {
+  AgentActivity,
   AgentEvent,
+  AgentObjectReference,
+  AgentTask,
   AgentToolCall,
   AgentTransport,
 } from "@agent-native/agentkit/protocol";
@@ -32,6 +35,7 @@ import {
   AgentConnectionRequestCard,
   AgentKitChat,
   AgentMessageActions,
+  AgentTaskGroup,
   formatAgentKitDuration,
 } from "./components.js";
 import {
@@ -2699,6 +2703,155 @@ describe("AgentChat lifecycle", () => {
     await tree.unmount();
   });
 
+  it("preserves distinct agent sources and hides UUID-only labels", async () => {
+    const threadId = "thread-agent-sources";
+    const runId = "run-agent-sources";
+    const internalId = "550e8400-e29b-41d4-a716-446655440000";
+    const source: AgentObjectReference = {
+      id: "source-agent",
+      kind: "agent",
+      label: "Source Agent",
+    };
+    const activities: AgentActivity[] = [
+      ...["activity-1", "activity-2"].map((id) => ({
+        id,
+        kind: "read",
+        label: "Read files",
+        status: "completed" as const,
+        agentId: "actor-agent",
+        runId,
+        source,
+      })),
+      {
+        id: "activity-uuid-label",
+        kind: internalId,
+        label: internalId,
+        status: "completed",
+        runId,
+        object: { id: internalId, kind: internalId, label: internalId },
+      },
+    ];
+    const interaction = {
+      id: "interaction-source",
+      kind: internalId,
+      agentId: "actor-agent",
+      targetAgentId: "target-agent",
+      source,
+    } as const;
+    const task: AgentTask = {
+      id: "task-source",
+      title: "Review report",
+      status: "completed",
+      assignedAgentId: "actor-agent",
+      runId,
+      source,
+    };
+    const events: AgentEvent[] = [
+      ...activities.map(
+        (activity, index): AgentEvent => ({
+          id: `event-${activity.id}`,
+          threadId,
+          runId,
+          sequence: index + 1,
+          occurredAt: `2026-10-01T00:00:0${index + 1}.000Z`,
+          type: "activity.completed",
+          activity,
+        }),
+      ),
+      {
+        id: "event-interaction-source",
+        threadId,
+        runId,
+        sequence: 4,
+        occurredAt: "2026-10-01T00:00:04.000Z",
+        type: "agent.interaction",
+        interaction,
+      },
+      {
+        id: "event-task-source",
+        threadId,
+        runId,
+        sequence: 5,
+        occurredAt: "2026-10-01T00:00:05.000Z",
+        type: "task.created",
+        task,
+      },
+    ];
+    const thread = {
+      ...createAgentThreadState(threadId),
+      events,
+      activities: Object.fromEntries(
+        activities.map((activity) => [activity.id, activity]),
+      ),
+      tasks: { [task.id]: task },
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "completed" as const,
+          lastSequence: 5,
+          startedAt: "2026-10-01T00:00:00.000Z",
+          completedAt: "2026-10-01T00:00:06.000Z",
+        },
+      },
+    };
+    const { controller } = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    await tree.render(
+      <AgentKitProvider controller={controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} />
+        <AgentCollaborationFeed runId={runId} />
+        <AgentTaskGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+
+    const cluster = tree.container.querySelector(".agentkit-activity-cluster");
+    expect(
+      cluster?.querySelector("summary .agentkit-agent-name")?.textContent,
+    ).toBe("Assistant");
+    expect(
+      cluster?.querySelector("summary .agentkit-object-label")?.textContent,
+    ).toBe("Source Agent");
+    expect(
+      cluster?.querySelector(
+        ".agentkit-activity-cluster-items .agentkit-object-label",
+      )?.textContent,
+    ).toBe("Source Agent");
+
+    const interactionRow = tree.container.querySelector(
+      ".agentkit-agent-interaction",
+    );
+    expect(
+      interactionRow?.querySelector(".agentkit-agent-interaction-label")
+        ?.textContent,
+    ).toBe("Working");
+    expect(
+      interactionRow?.querySelector(".agentkit-object-label")?.textContent,
+    ).toBe("Source Agent");
+
+    expect(
+      tree.container.querySelector(".agentkit-task-row .agentkit-object-label")
+        ?.textContent,
+    ).toBe("Source Agent");
+    const uuidActivity = Array.from(
+      tree.container.querySelectorAll<HTMLElement>(".agentkit-activity-item"),
+    ).find((item) => item.dataset.activityKind === internalId);
+    expect(
+      uuidActivity?.querySelector(".agentkit-activity-label")?.textContent,
+    ).toBe("Working");
+    expect(
+      uuidActivity?.querySelector(".agentkit-object-label")?.textContent,
+    ).toBe("Assistant");
+    expect(tree.container.textContent).not.toContain(internalId);
+    await tree.unmount();
+  });
+
   it("keeps generic tool results in collapsed history but preserves rich surfaces", async () => {
     const threadId = "thread-collapsed-tool-results";
     const runId = "run-collapsed-tool-results";
@@ -2937,6 +3090,254 @@ describe("AgentChat lifecycle", () => {
     expect(details[1]?.textContent).toContain("[Content omitted]");
     expect(details[1]?.textContent).not.toContain(internalId);
     expect(details[1]?.textContent).not.toContain("beyond preview");
+    await tree.unmount();
+  });
+
+  it("keeps the omission marker visible when formatted tool output expands", async () => {
+    const threadId = "thread-expanded-tool-output";
+    const runId = "run-expanded-tool-output";
+    const output = Object.fromEntries(
+      Array.from({ length: 79 }, (_, index) => [
+        `field-${index}-${"x".repeat(20)}`,
+        "",
+      ]),
+    );
+    const tool: AgentToolCall = {
+      id: "tool-large-output",
+      name: "read-records",
+      input: { query: "all records" },
+      output,
+      status: "completed",
+    };
+    const thread = {
+      ...createAgentThreadState(threadId),
+      tools: { [tool.id]: tool },
+      events: [
+        {
+          id: "event-large-output",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: "2026-10-01T00:00:01.000Z",
+          type: "tool.started" as const,
+          toolCall: { ...tool, status: "running" as const },
+        },
+      ],
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "completed" as const,
+          lastSequence: 1,
+          startedAt: "2026-10-01T00:00:00.000Z",
+          completedAt: "2026-10-01T00:00:02.000Z",
+        },
+      },
+    };
+    const { controller } = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    await tree.render(
+      <AgentKitProvider controller={controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+
+    const work = tree.container.querySelector<HTMLDetailsElement>(
+      ".agentkit-activities",
+    );
+    await act(async () => work?.querySelector("summary")?.click());
+    const row = tree.container.querySelector<HTMLElement>(
+      ".agentkit-activity-item",
+    );
+    await act(async () => row?.querySelector("button")?.click());
+    const result = row?.querySelector<HTMLPreElement>('[aria-label="Result"]');
+    expect(result?.textContent?.length).toBeLessThanOrEqual(2_000);
+    expect(result?.textContent).toContain("[Content omitted]");
+    expect(result?.textContent).toMatch(/…\n\[Content omitted\]$/);
+    await tree.unmount();
+  });
+
+  it("keeps distinct agent sources visible and sanitizes fallback labels", async () => {
+    const threadId = "thread-agent-source-labels";
+    const runId = "run-agent-source-labels";
+    const internalId = "550e8400-e29b-41d4-a716-446655440000";
+    const source = {
+      id: "external-agent",
+      kind: "agent",
+      label: "Different source agent",
+    };
+    const repeatedActivity = (id: string): AgentActivity => ({
+      id,
+      kind: "read",
+      label: "Reading a file",
+      status: "completed",
+      agentId: "displayed-agent",
+      source,
+    });
+    const sourceEvents: AgentEvent[] = ["source-a", "source-b"].map(
+      (id, index) => ({
+        id: `event-${id}`,
+        threadId,
+        runId,
+        sequence: index + 1,
+        occurredAt: `2026-10-01T00:00:0${index + 1}.000Z`,
+        type: "activity.completed",
+        activity: repeatedActivity(id),
+      }),
+    );
+    const privateLabelActivity: AgentActivity = {
+      id: "activity-private-label",
+      kind: internalId,
+      label: internalId,
+      status: "running",
+      agentId: "displayed-agent",
+      object: { id: "private-object", kind: internalId, label: internalId },
+    };
+    const events: AgentEvent[] = [
+      ...sourceEvents,
+      {
+        id: "event-private-label",
+        threadId,
+        runId,
+        sequence: 3,
+        occurredAt: "2026-10-01T00:00:03.000Z",
+        type: "activity.started",
+        activity: privateLabelActivity,
+      },
+    ];
+    const thread = {
+      ...createAgentThreadState(threadId),
+      events,
+      activities: {
+        [privateLabelActivity.id]: privateLabelActivity,
+      },
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "running" as const,
+          lastSequence: 3,
+          startedAt: "2026-10-01T00:00:00.000Z",
+        },
+      },
+      activeRunIds: [runId],
+    };
+    const { controller } = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    await tree.render(
+      <AgentKitProvider controller={controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+
+    const work = tree.container.querySelector<HTMLDetailsElement>(
+      ".agentkit-activities",
+    );
+    expect(
+      work?.querySelectorAll(
+        ".agentkit-activity-cluster summary .agentkit-object-label",
+      ),
+    ).toHaveLength(1);
+    expect(
+      work?.querySelector(
+        ".agentkit-activity-cluster summary .agentkit-object-label",
+      )?.textContent,
+    ).toBe("Different source agent");
+    const privateRow = Array.from(
+      work?.querySelectorAll<HTMLElement>(".agentkit-activity-item") ?? [],
+    ).find((row) => row.dataset.activityKind === internalId);
+    expect(
+      privateRow?.querySelector(".agentkit-activity-label")?.textContent,
+    ).toBe("Working");
+    expect(
+      privateRow?.querySelector(".agentkit-object-label")?.textContent,
+    ).toBe("Assistant");
+    expect(work?.textContent).not.toContain(internalId);
+    await tree.unmount();
+  });
+
+  it("keeps the omission marker after pretty-print expansion exceeds its budget", async () => {
+    const threadId = "thread-formatted-tool-budget";
+    const runId = "run-formatted-tool-budget";
+    const formattedOutput = Object.fromEntries(
+      Array.from({ length: 38 }, (_, index) => [
+        `property_${String(index).padStart(2, "0")}_long_name_for_serialization`,
+        "0123456789",
+      ]),
+    );
+    const tool: AgentToolCall = {
+      id: "tool-formatted-output",
+      name: "read-file",
+      input: { path: "guide.md" },
+      output: formattedOutput,
+      status: "completed",
+    };
+    const thread = {
+      ...createAgentThreadState(threadId),
+      tools: { [tool.id]: tool },
+      events: [
+        {
+          id: "event-formatted-output",
+          threadId,
+          runId,
+          sequence: 1,
+          occurredAt: "2026-10-01T00:00:00.000Z",
+          type: "tool.updated" as const,
+          toolCall: tool,
+        },
+      ],
+      runs: {
+        [runId]: {
+          id: runId,
+          status: "completed" as const,
+          lastSequence: 1,
+          startedAt: "2026-10-01T00:00:00.000Z",
+          completedAt: "2026-10-01T00:00:01.000Z",
+        },
+      },
+    };
+    const { controller } = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    await tree.render(
+      <AgentKitProvider controller={controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+
+    const work = tree.container.querySelector<HTMLDetailsElement>(
+      ".agentkit-activities",
+    );
+    await act(async () => work?.querySelector("summary")?.click());
+    const row = Array.from(
+      tree.container.querySelectorAll<HTMLElement>(".agentkit-activity-item"),
+    ).find(
+      (item) =>
+        item.querySelector(".agentkit-activity-label")?.textContent ===
+        "Read File",
+    );
+    await act(async () => row?.querySelector("button")?.click());
+    const result = row?.querySelectorAll<HTMLPreElement>(
+      ".agentkit-activity-summary-value",
+    )[1]?.textContent;
+    expect(result).toBeDefined();
+    expect(result!.length).toBeLessThanOrEqual(2_000);
+    expect(result).toMatch(/\[Content omitted\]$/);
     await tree.unmount();
   });
 

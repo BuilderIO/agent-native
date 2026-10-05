@@ -528,9 +528,11 @@ function readableText(value: string | undefined): string {
 }
 
 function humanizeAgentKind(kind: string): string {
-  return kind
-    .replace(/^agent-native\//, "")
-    .replace(/^mcp__/i, "")
+  const readableKind = readableText(
+    kind.replace(/^agent-native\//i, "").replace(/^mcp__/i, ""),
+  );
+  if (!readableKind) return "";
+  return readableKind
     .replace(/[._-]+/g, " ")
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
@@ -555,7 +557,9 @@ function resolveAgentName(
     participant?.name,
     participant?.origin?.label,
     ...references
-      .filter((reference) => reference?.kind === "agent")
+      .filter(
+        (reference) => reference?.kind === "agent" && reference.id === agentId,
+      )
       .map((reference) => reference?.label),
     participant?.description,
   ];
@@ -578,7 +582,21 @@ function resolveObjectLabel(
     const title = humanizeAgentLabel(thread.tasks[object.id]?.title ?? "");
     if (title) return title;
   }
-  return humanizeAgentLabel(object.label) || humanizeAgentKind(object.kind);
+  return (
+    humanizeAgentLabel(object.label) ||
+    humanizeAgentKind(object.kind) ||
+    fallback
+  );
+}
+
+function sourceObjectUnlessRepresented(
+  source: AgentObjectReference | undefined,
+  displayedAgentIds: readonly (string | undefined)[],
+): AgentObjectReference | undefined {
+  if (source?.kind === "agent" && displayedAgentIds.includes(source.id)) {
+    return undefined;
+  }
+  return source;
 }
 
 type ActivityToolValueBudget = {
@@ -744,21 +762,32 @@ function formatActivityToolValue(
   const budget = createActivityToolValueBudget();
   const valueLabels = resolveActivityValueLabels(labels);
   const safeValue = activityToolValue(value, budget, valueLabels);
-  if (safeValue === undefined) return undefined;
+  if (safeValue === undefined) {
+    return budget.truncated ? valueLabels.activityValueOmitted : undefined;
+  }
   const formatted = formatToolDiagnostic(safeValue);
-  const text = budget.truncated
-    ? `${formatted ?? ""}\n${valueLabels.activityValueOmitted}`
-    : formatted;
-  if (!text?.trim()) return undefined;
-  return text.length > ACTIVITY_TOOL_VALUE_LIMIT
-    ? `${text.slice(0, ACTIVITY_TOOL_VALUE_LIMIT).trimEnd()}…`
-    : text;
+  if (!formatted?.trim()) {
+    return budget.truncated ? valueLabels.activityValueOmitted : undefined;
+  }
+  if (!budget.truncated && formatted.length <= ACTIVITY_TOOL_VALUE_LIMIT) {
+    return formatted;
+  }
+  const omissionMarker = `\n${valueLabels.activityValueOmitted}`;
+  const contentLimit = Math.max(
+    0,
+    ACTIVITY_TOOL_VALUE_LIMIT - omissionMarker.length - 1,
+  );
+  return `${formatted.slice(0, contentLimit).trimEnd()}…${omissionMarker}`;
 }
 
 function activityLabel(activity: AgentActivity, workingLabel: string): string {
   const label = readableText(activity.label);
   if (label.toLowerCase() === "processing") return workingLabel;
-  return humanizeAgentLabel(label) || humanizeAgentKind(activity.kind);
+  return (
+    humanizeAgentLabel(label) ||
+    humanizeAgentKind(activity.kind) ||
+    workingLabel
+  );
 }
 
 function AgentIdentityChip({
@@ -811,7 +840,7 @@ function defaultInteractionLabel(
     case "closed":
       return labels.agentClosed;
     default:
-      return interaction.kind;
+      return humanizeAgentKind(interaction.kind) || labels.working;
   }
 }
 
@@ -850,7 +879,10 @@ export function AgentInteractionItem({
   );
   const object =
     interaction.object ??
-    (interaction.source?.kind === "agent" ? undefined : interaction.source);
+    sourceObjectUnlessRepresented(interaction.source, [
+      interaction.agentId,
+      interaction.targetAgentId,
+    ]);
   const label = readableText(interaction.label);
   const visibleLabel =
     humanizeAgentLabel(label) ||
@@ -928,9 +960,7 @@ export function AgentActivityItem({
   const ObjectRenderer = slots.object ?? AgentObjectReferenceView;
   const object =
     activity.object ??
-    (activity.source?.kind === "agent" && activity.agentId
-      ? undefined
-      : activity.source);
+    sourceObjectUnlessRepresented(activity.source, [activity.agentId]);
   const detail = tool ? "" : readableText(activity.detail);
   return (
     <div
@@ -1094,6 +1124,9 @@ function RepeatedActivityCluster({
       AgentParticipantView)
     : undefined;
   const ObjectRenderer = slots.object ?? AgentObjectReferenceView;
+  const object =
+    activity.object ??
+    sourceObjectUnlessRepresented(activity.source, [activity.agentId]);
   return (
     <details
       className="agentkit-activity-cluster"
@@ -1120,12 +1153,7 @@ function RepeatedActivityCluster({
         <span className="agentkit-activity-label">
           {activityLabel(activity, labels.working)}
         </span>
-        {activity.object ? (
-          <ObjectRenderer value={activity.object} threadId={threadId} />
-        ) : activity.source &&
-          (activity.source.kind !== "agent" || !activity.agentId) ? (
-          <ObjectRenderer value={activity.source} threadId={threadId} />
-        ) : null}
+        {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
         <span className="agentkit-activity-cluster-count">
           ×{activities.length}
         </span>
@@ -2055,9 +2083,7 @@ export function AgentTaskItem({
   const detail = readableText(task.detail);
   const object =
     task.object ??
-    (task.source?.kind === "agent" && task.assignedAgentId
-      ? undefined
-      : task.source);
+    sourceObjectUnlessRepresented(task.source, [task.assignedAgentId]);
   const showAgent =
     task.assignedAgentId &&
     title.toLocaleLowerCase() !== agentName.toLocaleLowerCase();
