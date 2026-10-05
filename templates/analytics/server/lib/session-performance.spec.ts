@@ -568,6 +568,25 @@ describe("performance aggregates on Postgres", () => {
     expect(result.routes[0]?.lcp?.samples).toBe(4);
   });
 
+  it("shows routes saved while a tenant's first session write failed", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await failInsertsInto("analytics_session_performance");
+    await ingest([vitals("s-lost", { lcp_ms: 1_000 })]);
+    warn.mockRestore();
+
+    const result = await listRoutePerformance(scope, { from: DAY, to: DAY });
+    expect(result.coverageStartedAt).toBe(`${DAY}T10:00:00.000Z`);
+    expect(result.routes[0]?.lcp?.samples).toBe(1);
+    await addRecording("r-lost", "s-lost");
+    expect(
+      (
+        await getSessionPerformanceSummaries(scope, [
+          { id: "r-lost", sessionId: "s-lost", ownerEmail: OWNER, orgId: ORG },
+        ])
+      ).get("r-lost")?.incomplete,
+    ).toBe(true);
+  });
+
   it("marks a day incomplete when its route aggregates fail to save", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await ingest([vitals("s-ok", { lcp_ms: 1_000 })]);

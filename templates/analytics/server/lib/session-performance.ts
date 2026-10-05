@@ -469,7 +469,9 @@ export async function recordSessionPerformance(
 /**
  * After the events commit, in its own short transaction, so a popular route's
  * rows are never locked for a whole ingest. A failure marks the day's route
- * aggregates incomplete; the events are already stored either way.
+ * aggregates incomplete; the events are already stored either way. It records
+ * coverage too: reads show nothing before a tenant's coverage starts, and the
+ * session write's coverage rolls back with it.
  */
 export async function recordRoutePerformance(
   rows: readonly SessionEventIndexInputRow[],
@@ -478,7 +480,8 @@ export async function recordRoutePerformance(
   const db = getDb() as any;
   let routeBuckets: RoutePerformanceBucketRow[] = [];
   try {
-    routeBuckets = aggregatePerformanceRows(rows).routeBuckets;
+    const aggregates = aggregatePerformanceRows(rows);
+    routeBuckets = aggregates.routeBuckets;
     if (!routeBuckets.length) return;
     const t = schema.analyticsRoutePerformanceDaily;
     await db.transaction(async (tx: any) => {
@@ -497,6 +500,15 @@ export async function recordRoutePerformance(
           ],
           set: { weight: sql`${t.weight} + excluded.weight` },
         });
+      await tx
+        .insert(schema.analyticsPerformanceCoverage)
+        .values(
+          aggregates.tenants.map((tenant) => ({
+            ...tenant,
+            startedAt: receivedAt,
+          })),
+        )
+        .onConflictDoNothing();
     });
   } catch (error) {
     try {
