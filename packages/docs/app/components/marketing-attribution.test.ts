@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   appendFirstTouchAttribution,
@@ -270,13 +270,16 @@ describe("installAppLinkAttribution", () => {
     }
   });
 
-  it("forwards the current page's source before tracking stores it", () => {
+  it("forwards the current page's source before tracking starts", async () => {
     history.replaceState(null, "", "/templates/slides?utm_source=x&gclid=g-1");
     Object.defineProperty(document, "referrer", {
       value: "https://www.youtube.com/watch?v=abc",
       configurable: true,
     });
-    uninstall = installAppLinkAttribution();
+    // A fresh page load, where nothing has captured the first touch yet.
+    vi.resetModules();
+    const fresh = await import("./marketing-attribution");
+    uninstall = fresh.installAppLinkAttribution();
     const link = linkTo("https://slides.agent-native.com/");
 
     const followed = click(link);

@@ -1,6 +1,7 @@
 export {
   AGENT_NATIVE_EXCEPTION_EVENT_NAME,
   addErrorBreadcrumb,
+  captureAttribution,
   captureClientException,
   captureError,
   captureException,
@@ -10,7 +11,6 @@ export {
   getAnalyticsAnonymousId,
   getAnalyticsSessionId,
   getFirstTouchAttribution,
-  getFirstTouchAttributionOrCurrentPage,
   getSessionReplayContext,
   getSessionReplayUrl,
   isErrorCaptureInstalled,

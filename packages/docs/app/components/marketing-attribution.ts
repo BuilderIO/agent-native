@@ -1,6 +1,6 @@
 import {
+  captureAttribution,
   getFirstTouchAttribution,
-  getFirstTouchAttributionOrCurrentPage,
   type FirstTouchAttribution,
 } from "@agent-native/core/client/analytics";
 
@@ -92,11 +92,11 @@ export function appendSiteHandoff(
  * The browser reads `href` when the click's default action runs, right after
  * every listener. The clean `href` comes back on the next task, so copying
  * the link later never hands this visitor's source to someone else.
- *
- * This installs before hydration, so a link can be followed before tracking
- * has stored the first touch; the current page stands in for it until then.
  */
 export function installAppLinkAttribution(target: EventTarget = window) {
+  // This installs before hydration, and tracking stores the first touch only
+  // after it, so store it now for a link followed in between.
+  captureAttribution();
   const decorate = (event: Event) => {
     // Primary click (also Enter on a focused link) or middle click. Other
     // buttons open menus, not the link.
@@ -109,7 +109,7 @@ export function installAppLinkAttribution(target: EventTarget = window) {
     const cleanUrl = link.href;
     const nextUrl = appendSiteHandoff(
       cleanUrl,
-      getFirstTouchAttributionOrCurrentPage(),
+      getFirstTouchAttribution(),
       window.location.pathname,
     );
     if (nextUrl === cleanUrl) return;

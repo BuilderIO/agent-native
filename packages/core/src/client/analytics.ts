@@ -728,18 +728,13 @@ export function getFirstTouchAttribution(): FirstTouchAttribution | null {
 }
 
 /**
- * The first touch for code that can run before `configureTracking()` stores
- * it, such as a link followed while the page is still loading: the stored
- * first touch, or else the one this page will store. Stores nothing.
+ * Store the visitor's first touch now instead of in `configureTracking()`,
+ * for a page that reads it before tracking starts. It runs once per page
+ * load, so tracking's own capture is then a no-op.
  */
-export function getFirstTouchAttributionOrCurrentPage(): FirstTouchAttribution | null {
-  const stored = getFirstTouchAttribution();
-  if (stored || typeof window === "undefined") return stored;
-  try {
-    return buildFirstTouchAttribution();
-  } catch {
-    return null;
-  }
+export function captureAttribution(): void {
+  if (isSyntheticBrowserTraffic()) return;
+  captureFirstTouchAttribution();
 }
 
 function isLocalAnalyticsHostname(hostname: string | undefined): boolean {
