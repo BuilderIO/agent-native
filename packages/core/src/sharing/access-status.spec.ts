@@ -13,10 +13,14 @@ const resourceType = "qa-status-doc";
 const plainType = "qa-status-plain";
 const managedType = "qa-status-managed";
 const strictType = "qa-status-strict";
+const spacedType = "qa-status-spaced";
+const countedType = "qa-status-counted";
 const ownerEmail = "owner+status@example.com";
 const viewerEmail = "viewer+status@example.com";
 const outsiderEmail = "outsider+status@example.com";
 const adminEmail = "admin+status@example.com";
+const spaceMemberEmail = "member+status@example.com";
+const spaceOrgId = "qa-space-org";
 
 const docs = table("qa_status_docs", {
   id: text("id").primaryKey(),
@@ -41,6 +45,18 @@ async function insertDoc(values: {
     ownerEmail,
     orgId: null,
     visibility: values.visibility ?? "private",
+  });
+}
+
+async function shareWithOrg(resourceId: string, orgId: string) {
+  await db.insert(docShares).values({
+    id: `share-${resourceId}-${orgId}`,
+    resourceId,
+    principalType: "org",
+    principalId: orgId,
+    role: "viewer",
+    createdBy: ownerEmail,
+    createdAt: new Date().toISOString(),
   });
 }
 
@@ -261,6 +277,99 @@ describe("resolveAccessStatus", () => {
     });
     expect(await statusAs(outsiderEmail, "older", strictType)).toEqual({
       state: "denied",
+    });
+  });
+
+  it("reads a page the viewer can't open only once", async () => {
+    const resourceQueries: string[] = [];
+    const countingDb = drizzle(pglite.db, {
+      logger: {
+        logQuery: (query) => {
+          if (/from "qa_status_docs"/.test(query)) resourceQueries.push(query);
+        },
+      },
+    });
+    registerShareableResource({
+      type: countedType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Doc",
+      getDb: () => countingDb,
+      availability: {
+        columns: ["trashedAt"],
+        isAvailable: (doc) => !doc.trashedAt,
+      },
+    });
+    await insertDoc({ id: "private" });
+
+    expect(await statusAs(outsiderEmail, "private", countedType)).toEqual({
+      state: "denied",
+    });
+    expect(resourceQueries).toHaveLength(1);
+  });
+
+  describe("with a context the app lends, such as a space's", () => {
+    const lentTo: Array<string | undefined> = [];
+
+    beforeEach(() => {
+      lentTo.length = 0;
+      registerShareableResource({
+        type: spacedType,
+        resourceTable: docs,
+        sharesTable: docShares,
+        displayName: "QA Doc",
+        getDb: () => db,
+        availability: {
+          columns: ["trashedAt"],
+          isAvailable: (doc) => !doc.trashedAt,
+        },
+        fallbackAccessContext: async (_resourceId, ctx) => {
+          lentTo.push(ctx.userEmail);
+          return ctx.userEmail === spaceMemberEmail
+            ? { userEmail: spaceMemberEmail, orgId: spaceOrgId }
+            : null;
+        },
+      });
+    });
+
+    it("lets a member open a page shared with the space", async () => {
+      await insertDoc({ id: "in-space" });
+      await shareWithOrg("in-space", spaceOrgId);
+
+      expect(await statusAs(spaceMemberEmail, "in-space", spacedType)).toEqual({
+        state: "allowed",
+        role: "viewer",
+      });
+    });
+
+    it("tells a member, and nobody else, that the page is in the trash", async () => {
+      await insertDoc({
+        id: "space-trashed",
+        trashedAt: new Date().toISOString(),
+      });
+      await shareWithOrg("space-trashed", spaceOrgId);
+
+      expect(
+        await statusAs(spaceMemberEmail, "space-trashed", spacedType),
+      ).toEqual({ state: "trashed", role: "viewer" });
+      expect(
+        await statusAs(outsiderEmail, "space-trashed", spacedType),
+      ).toEqual({ state: "missing" });
+    });
+
+    it("asks only when the viewer's own context can't open the page", async () => {
+      await insertDoc({ id: "in-space" });
+      await shareWithOrg("in-space", spaceOrgId);
+
+      await statusAs(ownerEmail, "in-space", spacedType);
+      await statusAs(undefined, "in-space", spacedType);
+      await statusAs(spaceMemberEmail, "never-created", spacedType);
+      expect(lentTo).toEqual([]);
+
+      expect(await statusAs(outsiderEmail, "in-space", spacedType)).toEqual({
+        state: "denied",
+      });
+      expect(lentTo).toEqual([outsiderEmail]);
     });
   });
 

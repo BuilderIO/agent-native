@@ -461,6 +461,39 @@ describe("embed auth client", () => {
     expect(originalFetch).toHaveBeenCalledTimes(2);
   });
 
+  it("sends a refused read again once access is known to have changed", async () => {
+    // An embed token stays in this tab's storage after it leaves the embed.
+    sessionStorage.setItem(STORAGE_KEY, "stored-token");
+    window.history.replaceState(null, "", "/page/doc-1");
+    let shared = false;
+    const originalFetch = vi.fn(async () =>
+      shared
+        ? new Response("page", { status: 200 })
+        : new Response("No access", { status: 403 }),
+    );
+    Object.defineProperty(window, "fetch", {
+      configurable: true,
+      writable: true,
+      value: originalFetch,
+    });
+
+    const { ensureEmbedAuthFetchInterceptor, forgetAuthFailures } =
+      await loadEmbedAuth();
+    ensureEmbedAuthFetchInterceptor();
+
+    const read = "/_agent-native/actions/get-document?id=doc-1";
+    expect((await window.fetch(read)).status).toBe(403);
+    shared = true;
+    expect((await window.fetch(read)).status).toBe(403);
+    expect(originalFetch).toHaveBeenCalledTimes(1);
+
+    forgetAuthFailures();
+    const afterShare = await window.fetch(read);
+
+    expect(afterShare.status).toBe(200);
+    expect(originalFetch).toHaveBeenCalledTimes(2);
+  });
+
   it("uses location.href as the app origin when the sandbox origin is opaque", async () => {
     window.history.replaceState(null, "", "/inbox?embedded=1");
     sessionStorage.setItem(STORAGE_KEY, "stored-token");

@@ -1352,12 +1352,6 @@ export function PageEditorSurface({
     return host === "page" ? (
       <DocumentAccessScreen
         documentId={documentId}
-        loading={
-          <DocumentEditorSkeleton
-            title={optimisticTitle}
-            iconRow={readPageIconRowHint(documentId)}
-          />
-        }
         reloading={isManualRetrying}
         onReload={() => void retryDocumentQuery({ fromAccessScreen: true })}
       />

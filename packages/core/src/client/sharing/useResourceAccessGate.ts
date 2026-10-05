@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 
+import { forgetAuthFailures } from "../embed-auth.js";
 import { useActionQuery } from "../use-action.js";
 
 /** Mirrors the server's `ResourceAccessState`. */
@@ -68,22 +69,22 @@ export function useResourceAccessGate({
   onAccessGrantedRef.current = onAccessGranted;
   const refetchRef = useRef(query.refetch);
   refetchRef.current = query.refetch;
+  const target = `${resourceType}:${resourceId}`;
   const lastSeenRef = useRef<{
-    resourceId: string;
+    target: string;
     state: ResourceAccessGateState;
   } | null>(null);
 
   useEffect(() => {
     if (!state) return;
     const previous =
-      lastSeenRef.current?.resourceId === resourceId
-        ? lastSeenRef.current.state
-        : null;
-    lastSeenRef.current = { resourceId, state };
+      lastSeenRef.current?.target === target ? lastSeenRef.current.state : null;
+    lastSeenRef.current = { target, state };
     if (state === "allowed" && previous !== "allowed") {
+      forgetAuthFailures();
       onAccessGrantedRef.current?.();
     }
-  }, [resourceId, state]);
+  }, [target, state]);
 
   // React Query refetches when the tab becomes visible, but not when focus
   // returns from another window that left this tab visible, such as the
