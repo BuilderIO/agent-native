@@ -2694,18 +2694,24 @@ function mcpAudienceList(resource: string | string[] | undefined): string[] {
   return out;
 }
 
-async function isConnectTokenAllowed(
+/**
+ * Null while the connect token is active. A revoked or jti-less token is
+ * refused, and unreadable revocation state answers a retryable 503.
+ */
+async function refuseInactiveConnectToken(
   jti: string | undefined,
-): Promise<boolean> {
-  if (!jti) return false;
+): Promise<VerifyAuthResult | null> {
+  if (!jti) return { authed: false };
+  const { isJtiRevoked } = await import("./connect-store.js");
   try {
-    const { isJtiRevoked } = await import("./connect-store.js");
-    if (await isJtiRevoked(jti)) return false;
-  } catch {
-    // Store import / lookup failed — fail open. Signature verification already
-    // passed; this only gates explicit revokes.
+    return (await isJtiRevoked(jti)) ? { authed: false } : null;
+  } catch (error) {
+    console.error(
+      "[mcp] Connect-token revocation check failed; refusing the token:",
+      error,
+    );
+    return { authed: false, unavailable: true };
   }
-  return true;
 }
 
 /**
@@ -2776,10 +2782,10 @@ export type VerifyAuthResult = {
   fullSurface?: boolean;
   fullCatalog?: boolean;
   /**
-   * The token verified, but its organization could not be checked: the
-   * connect-token org lookup or the membership check hit a database or
-   * identity-authority error. Answer with a retryable error, not an auth
-   * challenge: signing in again would not help.
+   * The token verified, but its standing could not be checked: the
+   * connect-token revocation or org lookup, the retired-address check, or the
+   * membership check hit a database or identity-authority error. Answer with
+   * a retryable error, not an auth challenge: signing in again would not help.
    */
   unavailable?: true;
 };
@@ -2880,11 +2886,9 @@ export async function verifyAuth(
       options.resourceUrl,
     );
     if (oauthIdentity) {
-      if (
-        oauthIdentity.clientId === MCP_CONNECT_OAUTH_CLIENT_ID &&
-        !(await isConnectTokenAllowed(oauthIdentity.jti))
-      ) {
-        return { authed: false };
+      if (oauthIdentity.clientId === MCP_CONNECT_OAUTH_CLIENT_ID) {
+        const refused = await refuseInactiveConnectToken(oauthIdentity.jti);
+        if (refused) return refused;
       }
       const orgResolution = await resolveConnectTokenOrgId(
         oauthIdentity.clientId === MCP_CONNECT_OAUTH_CLIENT_ID
@@ -2946,13 +2950,12 @@ export async function verifyAuth(
     // Connect-minted tokens (scope === "mcp-connect") carry a random `jti`
     // and are individually revocable. Only these tokens hit the revoke
     // store — ordinary A2A delegation JWTs skip the DB lookup entirely so
-    // the hot path is unchanged. The signature was already
-    // cryptographically verified, so failing open here only widens the
-    // explicit-revoke gate, never the trust boundary.
+    // the hot path is unchanged.
     if (tokenScope === MCP_CONNECT_SCOPE) {
-      if (!(await isConnectTokenAllowed(payload.jti as string | undefined))) {
-        return { authed: false };
-      }
+      const refused = await refuseInactiveConnectToken(
+        payload.jti as string | undefined,
+      );
+      if (refused) return refused;
     }
 
     const orgIdClaim = parseMcpOAuthOrgIdClaim(payload);

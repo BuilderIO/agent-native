@@ -347,6 +347,25 @@ describe("connect-store", () => {
       expect(await store.isJtiRevoked("nope")).toBe(false);
     });
 
+    it("isJtiRevoked throws instead of answering 'not revoked' when the store can't be read", async () => {
+      await store.recordMintedToken({ jti: "j", ownerEmail: "a@example.com" });
+      await store.revokeToken("a@example.com", tokens[0].id);
+      getDbExecMock.mockImplementation(() => ({
+        execute: async (input: string | { sql: string; args?: unknown[] }) => {
+          const sql = typeof input === "string" ? input : input.sql;
+          if (/SELECT revoked_at FROM mcp_connect_tokens/.test(sql)) {
+            throw new Error("db down");
+          }
+          return exec(input);
+        },
+      }));
+      try {
+        await expect(store.isJtiRevoked("j")).rejects.toThrow("db down");
+      } finally {
+        getDbExecMock.mockImplementation(() => ({ execute: exec }));
+      }
+    });
+
     it("looks up the org bound to a token and distinguishes missing rows", async () => {
       await store.recordMintedToken({
         jti: "jti-org",

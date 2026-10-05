@@ -459,6 +459,25 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(touchTokenUsedMock).not.toHaveBeenCalled();
   });
 
+  it("answers a retryable outage for a connect-minted MCP OAuth token whose revocation state can't be read", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    isJtiRevokedMock.mockRejectedValue(new Error("db down"));
+    const resource = "https://mail.agent-native.com/_agent-native/mcp";
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth-connect@example.com",
+      clientId: "agent-native-connect",
+      scope: "mcp:read mcp:write mcp:apps",
+      resource,
+      issuer: "https://mail.agent-native.com",
+      jti: "jti-oauth-unreadable",
+    });
+    const res = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: resource,
+    });
+    expect(res).toEqual({ authed: false, unavailable: true });
+    expect(touchTokenUsedMock).not.toHaveBeenCalled();
+  });
+
   it("rejects a connect-scoped token without a jti", async () => {
     const token = await sign({
       sub: "a@example.com",
@@ -482,7 +501,8 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.identity).toBeUndefined();
   });
 
-  it("fails OPEN: a store error never locks out a valid-signature token", async () => {
+  it("answers a retryable outage, not admission, when revocation state can't be read", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
     isJtiRevokedMock.mockRejectedValue(new Error("db down"));
     const token = await sign({
       sub: "a@example.com",
@@ -490,8 +510,8 @@ describe("verifyAuth — connect-token revoke check", () => {
       jti: "jti-x",
     });
     const res = await verifyAuth(`Bearer ${token}`);
-    expect(res.authed).toBe(true);
-    expect(res.identity?.userEmail).toBe("a@example.com");
+    expect(res).toEqual({ authed: false, unavailable: true });
+    expect(touchTokenUsedMock).not.toHaveBeenCalled();
   });
 
   it("still rejects a bad signature regardless of scope claim", async () => {

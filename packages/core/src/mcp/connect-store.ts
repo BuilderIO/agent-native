@@ -192,23 +192,20 @@ export async function recordMintedToken(
  * lock every connected agent out. Signature verification is unaffected — this
  * is only the post-verify revoke check (see `verifyAuth` in build-server.ts).
  */
+/**
+ * Throws when the revocation state can't be read. Answering "not revoked"
+ * instead would let a transient read failure admit a revoked token.
+ */
 export async function isJtiRevoked(jti: string): Promise<boolean> {
-  try {
-    await ensureTable();
-    const client = getDbExec();
-    const { rows } = await client.execute({
-      sql: `SELECT revoked_at FROM mcp_connect_tokens WHERE jti = ?`,
-      args: [jti],
-    });
-    if (rows.length === 0) return false;
-    const revokedAt = rows[0].revoked_at ?? rows[0].revokedAt;
-    return revokedAt != null;
-  } catch (err) {
-    // Fail open: a DB blip must not turn every minted token into a 401.
-    // (Signature checks already passed; this only gates explicit revokes.)
-    if (isConnectionError(err)) return false;
-    return false;
-  }
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT revoked_at FROM mcp_connect_tokens WHERE jti = ?`,
+    args: [jti],
+  });
+  if (rows.length === 0) return false;
+  const revokedAt = rows[0].revoked_at ?? rows[0].revokedAt;
+  return revokedAt != null;
 }
 
 export type StoredConnectTokenIdentity = Pick<
