@@ -854,11 +854,8 @@ export class DesktopIdentityBroker {
     const existing = this.pendingModernAppSessions.get(pendingKey);
     if (existing) return existing;
 
-    const operation = this.ensureModernAppSession(
-      appId,
-      generation,
-      expectedEmail,
-      options,
+    const operation = this.trackSessionCopy(
+      this.ensureModernAppSession(appId, generation, expectedEmail, options),
     );
     this.pendingModernAppSessions.set(pendingKey, operation);
     void operation.then(
@@ -3553,12 +3550,13 @@ export class DesktopIdentityBroker {
     if (active && !active.isDestroyed()) active.close();
   }
 
-  private trackSessionCopy(operation: Promise<void>): Promise<void> {
-    this.activeSessionCopies.add(operation);
-    void operation.then(
-      () => this.activeSessionCopies.delete(operation),
-      () => this.activeSessionCopies.delete(operation),
+  private trackSessionCopy<T>(operation: Promise<T>): Promise<T> {
+    const settled = operation.then(
+      () => undefined,
+      () => undefined,
     );
+    this.activeSessionCopies.add(settled);
+    void settled.then(() => this.activeSessionCopies.delete(settled));
     return operation;
   }
 

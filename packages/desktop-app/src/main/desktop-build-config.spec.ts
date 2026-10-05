@@ -143,5 +143,6 @@ describe("desktop build dependency boundary", () => {
       "node_modules/@agent-native/core/package.json",
     );
     expect(builderConfig).toContain("node_modules/@agent-native/core/dist/**");
+    expect(builderConfig).toContain("node_modules/ws/**");
   });
 });

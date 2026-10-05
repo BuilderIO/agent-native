@@ -48,6 +48,16 @@ const ALLOW_LIST: Array<[string, string, string]> = [
     "clips",
     "line-variant tabs with underline active state for Clips surfaces",
   ],
+  [
+    "tabs.tsx",
+    "design",
+    "line-variant tabs with underline active state for Design Home library",
+  ],
+  [
+    "tabs.tsx",
+    "slides",
+    "line-variant tabs with underline active state for Slides Home library",
+  ],
 
   ["textarea.tsx", "assets", "autoGrow behavior for asset forms"],
   [
@@ -88,6 +98,16 @@ const LOCAL_IMPLEMENTATION_ALLOW_LIST: Array<
     "clips",
     "tabs.tsx",
     "uses the shadcn line variant with an underline active state",
+  ],
+  [
+    "design",
+    "tabs.tsx",
+    "uses the line variant with an underline active state in Design Home library",
+  ],
+  [
+    "slides",
+    "tabs.tsx",
+    "uses the line variant with an underline active state in Slides Home library",
   ],
 ];
 
