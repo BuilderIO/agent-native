@@ -1,6 +1,10 @@
 import { afterEach, expect, it, vi } from "vitest";
 
-import { commitAfterPaint, flushCommitsAfterPaint } from "./commit-after-paint";
+import {
+  commitAfterPaint,
+  flushCommitsAfterPaint,
+  flushCommitsOnInput,
+} from "./commit-after-paint";
 
 afterEach(() => {
   flushCommitsAfterPaint();
@@ -45,4 +49,24 @@ it("surfaces a failing commit without dropping the ones behind it", () => {
   commitAfterPaint(later);
   expect(() => flushCommitsAfterPaint()).toThrow("patch failed");
   expect(later).toHaveBeenCalledOnce();
+});
+
+it("lands a pending commit before the next key or pointer press acts", () => {
+  const target = new EventTarget();
+  const stop = flushCommitsOnInput(target);
+  const landed: string[] = [];
+
+  commitAfterPaint(() => landed.push("style"));
+  target.dispatchEvent(new Event("keydown"));
+  expect(landed).toEqual(["style"]);
+
+  commitAfterPaint(() => landed.push("text"));
+  target.dispatchEvent(new Event("pointerdown"));
+  expect(landed).toEqual(["style", "text"]);
+
+  stop();
+  commitAfterPaint(() => landed.push("after stop"));
+  target.dispatchEvent(new Event("keydown"));
+  expect(landed).toEqual(["style", "text"]);
+  flushCommitsAfterPaint();
 });

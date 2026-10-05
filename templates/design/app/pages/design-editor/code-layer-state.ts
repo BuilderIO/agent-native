@@ -1116,8 +1116,8 @@ interface CodeLayerOwnerModel {
   tree: CodeLayerTreeNode[];
 }
 
-// A live index is never handed out: memos and callbacks key on the owner map's
-// identity, so each change returns a new view instead of copying the entries.
+// Every view reads the one live index, so an old view sees later changes; a
+// change returns a new view so memos keyed on identity still re-run.
 class CodeLayerOwnerView implements ReadonlyMap<string, CodeLayerOwner> {
   constructor(private readonly owners: ReadonlyMap<string, CodeLayerOwner>) {}
   get size() {

@@ -857,7 +857,10 @@ import {
   runVisualStructureChange,
 } from "./design-editor/commands/visual-structure-change";
 import { runWriteFrameGeometrySnapshot } from "./design-editor/commands/write-frame-geometry-snapshot";
-import { flushCommitsAfterPaint } from "./design-editor/commit-after-paint";
+import {
+  flushCommitsAfterPaint,
+  flushCommitsOnInput,
+} from "./design-editor/commit-after-paint";
 import { getCreatedScreenNavigationPlan } from "./design-editor/created-screen-navigation";
 import { designPrecedentDirectives } from "./design-editor/creative-context-precedent";
 import {
@@ -2328,13 +2331,15 @@ function DesignEditor() {
   // Reveals run after every selection and every edit; setting an unchanged list
   // still re-renders the whole editor, so only a real addition sets state.
   const revealLayerIds = useCallback((ids: Iterable<string>) => {
-    const current = expandedLayerIdsRef.current;
-    const next = new Set(current);
-    for (const id of ids) next.add(id);
-    if (next.size === current.length) return;
-    const expanded = Array.from(next);
-    expandedLayerIdsRef.current = expanded;
-    setExpandedLayerIds(expanded);
+    const wanted = [...ids];
+    const shown = new Set(expandedLayerIdsRef.current);
+    if (wanted.every((id) => shown.has(id))) return;
+    // Merge in the updater: the ref lags other updates queued this tick.
+    setExpandedLayerIds((current) => {
+      const next = new Set(current);
+      for (const id of wanted) next.add(id);
+      return next.size === current.length ? current : Array.from(next);
+    });
   }, []);
   const [selectedLayerIdsState, setSelectedLayerIdsState] = useState<string[]>(
     [],
@@ -4819,6 +4824,7 @@ function DesignEditor() {
     [acknowledgeOutboxEntry, createFileSaveOutboxEntry, journalOutboxEntry],
   );
 
+  useEffect(() => flushCommitsOnInput(window), []);
   useEffect(() => {
     const sendPendingKeepaliveSaves = () => {
       if (!canEditDesignRef.current) return;

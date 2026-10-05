@@ -78,7 +78,10 @@ import {
 } from "@/lib/desktop-design-preview";
 import { cn } from "@/lib/utils";
 import { penPathScreenContentOffset } from "@/pages/design-editor/clone-and-pen-edit";
-import { commitAfterPaint } from "@/pages/design-editor/commit-after-paint";
+import {
+  commitAfterPaint,
+  flushCommitsAfterPaint,
+} from "@/pages/design-editor/commit-after-paint";
 import {
   pendingVisualStyleRouteMatches,
   runtimeStyleTarget,
@@ -4931,6 +4934,7 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "design-hotkey") {
+        flushCommitsAfterPaint();
         onIframeHotkey?.({
           key: String(e.data.key || ""),
           code: String(e.data.code || ""),

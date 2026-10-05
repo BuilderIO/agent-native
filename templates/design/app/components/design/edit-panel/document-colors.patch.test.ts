@@ -67,9 +67,9 @@ function colorReads(
 }
 
 function patchedReadsMatchFullScan(fileId: string, content: string): string {
-  const before = patched.readColorTokenScanCounts();
+  const before = patched._colorTokenScanCountsForTests();
   const actual = colorReads(patched, fileId, content);
-  const after = patched.readColorTokenScanCounts();
+  const after = patched._colorTokenScanCountsForTests();
   freshReads += 1;
   expect(actual).toEqual(colorReads(fresh, `full-${freshReads}`, content));
   return after.patched > before.patched ? "patched" : "full";
@@ -196,14 +196,14 @@ describe("patched color token scans", () => {
     }
 
     expect(patchedEdits).toBeGreaterThan(50);
-    expect(fresh.readColorTokenScanCounts().patched).toBe(0);
+    expect(fresh._colorTokenScanCountsForTests().patched).toBe(0);
   });
 
   it("does not rescan the whole screen after a style edit", () => {
     const fileId = "no-rescan";
     const cache = new Map();
     patched.documentFileColorCounts({ id: fileId, content: FIXTURE }, cache);
-    const before = patched.readColorTokenScanCounts();
+    const before = patched._colorTokenScanCountsForTests();
     const edited = FIXTURE.replace(
       'style="color:#f97316"',
       'style="color:#0f172a"',
@@ -221,7 +221,7 @@ describe("patched color token scans", () => {
         cache,
       ),
     ]).toContainEqual(["#0F172A", 2]);
-    expect(patched.readColorTokenScanCounts()).toEqual({
+    expect(patched._colorTokenScanCountsForTests()).toEqual({
       full: before.full,
       patched: before.patched + 1,
     });

@@ -46,3 +46,29 @@ it("fully checks a structure-preserving edit of a document it never validated", 
     edit(broken, broken.replace("color: red", "color: blue")),
   ).toThrow();
 });
+
+it("fully checks a CSS edit inside a style block of a validated document", () => {
+  const valid = doc("<style>main { color: red; }</style><main>Hello</main>");
+  edit(valid, valid.replace("Hello", "Hi"));
+  const previous = valid.replace("Hello", "Hi");
+  buildCodeLayerProjection(previous);
+
+  expect(() =>
+    edit(previous, previous.replace("color: red; }", "color: red;")),
+  ).toThrow();
+});
+
+it("fully checks a style edit that unhides an x-cloak element", () => {
+  const alpine =
+    '<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script>';
+  const valid = doc(
+    `${alpine}<div x-data="{}" x-cloak style="display: none">Menu</div>`,
+  );
+  edit(valid, valid.replace("Menu", "Menus"));
+  const previous = valid.replace("Menu", "Menus");
+  buildCodeLayerProjection(previous);
+
+  expect(() =>
+    edit(previous, previous.replace("display: none", "color: red")),
+  ).toThrow();
+});

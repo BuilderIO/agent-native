@@ -787,7 +787,10 @@ const colorTokenScanContentByFile = new Map<string, string>();
 let colorTokenScanChars = 0;
 const colorTokenScanCounts = { full: 0, patched: 0 };
 
-export function readColorTokenScanCounts(): { full: number; patched: number } {
+export function _colorTokenScanCountsForTests(): {
+  full: number;
+  patched: number;
+} {
   return { ...colorTokenScanCounts };
 }
 

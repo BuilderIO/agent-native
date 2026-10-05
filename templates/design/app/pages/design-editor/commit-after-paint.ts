@@ -1,6 +1,7 @@
 // A commit re-parses and re-validates the whole screen; running it after the
 // frame that shows its preview keeps the triggering input from freezing.
-// Commits stay FIFO, and anything that reads history must flush first.
+// Commits stay FIFO. Undo, redo, page hide and the next key or pointer press
+// flush first, so no command reads a screen missing an edit already made.
 const pending: Array<() => void> = [];
 let scheduled = false;
 
@@ -40,4 +41,17 @@ export function commitAfterPaint(commit: () => void): void {
     ran = true;
     flushCommitsAfterPaint();
   });
+}
+
+export function flushCommitsOnInput(
+  target: Pick<EventTarget, "addEventListener" | "removeEventListener">,
+): () => void {
+  const flush = () => flushCommitsAfterPaint();
+  const options = { capture: true };
+  target.addEventListener("keydown", flush, options);
+  target.addEventListener("pointerdown", flush, options);
+  return () => {
+    target.removeEventListener("keydown", flush, options);
+    target.removeEventListener("pointerdown", flush, options);
+  };
 }

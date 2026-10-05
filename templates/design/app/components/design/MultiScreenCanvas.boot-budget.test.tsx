@@ -368,6 +368,56 @@ describe("MultiScreenCanvas live boot budget", () => {
     expect(liveScreenIds()).toContain("inline-2");
   });
 
+  it("keeps the preview over an editor whose boot only timed out", async () => {
+    const screens = inlineScreens(LARGE_BOARD_SCREEN_COUNT);
+    const readyById = new Map<string, () => void>();
+    const render = (activeId: string) => (
+      <MultiScreenCanvas
+        screens={screens}
+        zoom={10}
+        activeId={activeId}
+        activeTool="move"
+        geometryById={Object.fromEntries(
+          screens.map((screen, index) => [
+            screen.id,
+            { x: index * 1500, y: 0, width: 1440, height: 900 },
+          ]),
+        )}
+        renderScreenContent={(screen, _metadata, _geometry, options) => {
+          if (options?.onBootReady) {
+            readyById.set(screen.id, options.onBootReady);
+          }
+          return <div data-live-screen={screen.id} />;
+        }}
+        onPick={() => {}}
+      />
+    );
+    const staticPreview = () =>
+      container.querySelector<HTMLIFrameElement>(
+        'iframe[data-screen-static-preview][data-screen-iframe-id="inline-2"]',
+      );
+    await act(async () => root.render(render("inline-1")));
+    await vi.waitFor(() => expect(staticPreview()).not.toBeNull());
+    const preview = staticPreview()!;
+    await act(async () => {
+      preview.dispatchEvent(new Event("load"));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+
+    vi.useFakeTimers();
+    await act(async () => root.render(render("inline-2")));
+    await vi.waitFor(() => expect(liveScreenIds()).toContain("inline-2"));
+    await act(async () => {
+      vi.advanceTimersByTime(9_000);
+    });
+    expect(staticPreview()).toBe(preview);
+    expect(preview.className).toContain("z-[1]");
+
+    vi.useRealTimers();
+    await act(async () => readyById.get("inline-2")?.());
+    await vi.waitFor(() => expect(staticPreview()).toBeNull());
+  });
+
   it("keeps the most recently used editors warm, not the first ones on the board", async () => {
     const screens = inlineScreens(LARGE_BOARD_SCREEN_COUNT);
     const render = (activeId: string) => (

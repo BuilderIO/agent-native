@@ -3629,6 +3629,20 @@ export function isStructurePreservingEdit(
   return structurePreservingEditOf(previous, next) !== null;
 }
 
+// Whether the edit `isStructurePreservingEdit` accepts changed an opening tag's
+// style (rather than a text run), and that element's attribute names.
+export function structurePreservingEditTarget(
+  previous: string,
+  next: string,
+): { openingTag: boolean; attributeNames: string[] } | null {
+  const found = structurePreservingEditOf(previous, next);
+  if (!found) return null;
+  return {
+    openingTag: found.edit.nextAttributes !== undefined,
+    attributeNames: found.edit.target.attributes.map((attr) => attr.lowerName),
+  };
+}
+
 // The nearest stable-id element around an edit the patcher accepts, with its
 // markup in `next`, so a live copy of `previous` can re-sync just that subtree.
 export function editedStableSourceElement(

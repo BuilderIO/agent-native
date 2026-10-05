@@ -1560,12 +1560,18 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     },
     [markScreenBootReady],
   );
+  // Filled only by an editor's own ready signal, never by the boot timeout:
+  // the timeout frees a boot slot, it does not mean the editor has drawn.
+  const drawnEditorIdsRef = useRef<Set<string>>(new Set());
   const getScreenBootStartCallback = useCallback(
     (screenId: string, frameId = "primary") => {
       const callbackKey = `${screenId}\0${frameId}`;
       const existing = bootStartCallbackByFrameIdRef.current.get(callbackKey);
       if (existing) return existing;
-      const callback = () => markScreenBootStart(screenId, frameId);
+      const callback = () => {
+        if (frameId === "primary") drawnEditorIdsRef.current.delete(screenId);
+        markScreenBootStart(screenId, frameId);
+      };
       bootStartCallbackByFrameIdRef.current.set(callbackKey, callback);
       return callback;
     },
@@ -1576,7 +1582,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
       const callbackKey = `${screenId}\0${frameId}`;
       const existing = bridgeReadyCallbackByFrameIdRef.current.get(callbackKey);
       if (existing) return existing;
-      const callback = () => markScreenBootReady(screenId, frameId);
+      const callback = () => {
+        if (frameId === "primary" && !drawnEditorIdsRef.current.has(screenId)) {
+          drawnEditorIdsRef.current.add(screenId);
+          setBootStatusRevision((revision) => revision + 1);
+        }
+        markScreenBootReady(screenId, frameId);
+      };
       bridgeReadyCallbackByFrameIdRef.current.set(callbackKey, callback);
       return callback;
     },
@@ -10817,11 +10829,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   // newcomer paints, so the outgoing one stays mounted until then.
   const staticPreviewHandoffById = useMemo(() => {
     const handoffs = new Map<string, StaticPreviewHandoff>();
+    for (const id of drawnEditorIdsRef.current) {
+      if (!editorScreenIds.has(id)) drawnEditorIdsRef.current.delete(id);
+    }
     for (const id of editorScreenIds) {
       if (
         paintedStaticPreviewIds.has(id) &&
-        liveBootFrameCountByScreenId.has(id) &&
-        bootStatusByScreenIdRef.current.get(id) !== "ready"
+        !drawnEditorIdsRef.current.has(id)
       ) {
         handoffs.set(id, "over-editor");
       }
@@ -10834,7 +10848,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     admittedIframeIds,
     bootStatusRevision,
     editorScreenIds,
-    liveBootFrameCountByScreenId,
     paintedStaticPreviewIds,
     retainedEditorScreenIds,
   ]);

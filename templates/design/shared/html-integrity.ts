@@ -7,7 +7,7 @@ import parseCss from "postcss/lib/parse";
 // @ts-expect-error PostCSS exports its tokenizer without TypeScript declarations.
 import tokenizeCss from "postcss/lib/tokenize";
 
-import { isStructurePreservingEdit } from "./code-layer.js";
+import { structurePreservingEditTarget } from "./code-layer.js";
 import { isStandaloneHttpUrl } from "./html-content.js";
 import {
   MAX_CACHED_CONTENT_CHARS,
@@ -1354,7 +1354,8 @@ function introducedRuntimeIssues(
 }
 
 // An edit the code-layer patcher accepts (one style value or one text run)
-// cannot introduce any issue reported here, so it inherits the previous verdict.
+// inherits the previous verdict: it cannot introduce any issue reported here,
+// except restyling an x-cloak element, whose inline style can be its pre-hide.
 const VALIDATED_CONTENT_LIMIT = 64;
 const validatedContents = new Set<string>();
 let validatedChars = 0;
@@ -1393,10 +1394,10 @@ export function assertDesignHtmlEditIntegrity(args: {
     });
   }
   if (args.fileType.toLowerCase() !== "html") return;
-  if (
-    !validatedContents.has(args.previousContent) ||
-    !isStructurePreservingEdit(args.previousContent, args.nextContent)
-  ) {
+  const edit = validatedContents.has(args.previousContent)
+    ? structurePreservingEditTarget(args.previousContent, args.nextContent)
+    : null;
+  if (!edit || (edit.openingTag && edit.attributeNames.includes("x-cloak"))) {
     assertDesignHtmlEditIntegrityOfHtml(args);
   }
   rememberValidatedContent(args.nextContent);
