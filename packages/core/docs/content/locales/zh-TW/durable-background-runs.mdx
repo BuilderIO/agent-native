@@ -143,7 +143,7 @@ Netlify async function 會在**排入**呼叫的瞬間回傳 `202`；這不代�
 
 ## 成本與取捨 {#cost}
 
-Netlify 背景函式適用於所有以點數計費的 Netlify 方案（包含 Free）以及 Enterprise。它們以函式運算量計費，與同步函式使用同一個計量：依函式記憶體大小（預設 1 GB），每 GB-hour 執行時間 10 點。Free 方案每月 300 點是硬性上限，點數用完後 Netlify 會暫停該團隊的專案。舊版方案（2025 年 9 月 4 日前建立的帳戶）依請求次數計費函式，並限制背景函式的使用；請參閱 Netlify 的[函式用量與計費](https://docs.netlify.com/build/functions/usage-and-billing/)頁面。
+Netlify 背景函式適用於所有以點數計費的 Netlify 方案（包含 Free）以及 Enterprise。它們以函式運算量計費，與同步函式使用同一個計量：依函式記憶體大小（預設 1 GB），每 GB-hour 執行時間 10 點。Free 方案每月 300 點是硬性上限，點數用完後 Netlify 會暫停該團隊的專案。舊版方案（2025 年 9 月 4 日前建立的帳戶）依請求次數計費函式，且舊版 Free 與 Starter 方案不含背景函式；請參閱 Netlify 的[函式用量與計費](https://docs.netlify.com/build/functions/usage-and-billing/)頁面。
 
 因此多分鐘的代理回合會比短同步呼叫花費更多運算量；但它大致上**取代**了舊模式，也就是回合撞到約 40 秒限制後，用戶端重新送出多次續跑請求。這是把同一份工作合併到一次長呼叫中，不是純粹額外增加。
 
