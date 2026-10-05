@@ -195,7 +195,7 @@ const DEFAULT_WORKSPACE_APP_DESCRIPTIONS: Record<
   },
 };
 
-function defaultWorkspaceAppUrl(rawUrl: string): string {
+export function defaultWorkspaceAppUrl(rawUrl: string): string {
   if (typeof window === "undefined") return rawUrl;
 
   const hostname = window.location.hostname

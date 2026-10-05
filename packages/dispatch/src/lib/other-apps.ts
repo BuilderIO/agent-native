@@ -1,4 +1,7 @@
-import { isDefaultWorkspaceAppHiddenId } from "./workspace-apps";
+import {
+  defaultWorkspaceAppUrl,
+  isDefaultWorkspaceAppHiddenId,
+} from "./workspace-apps";
 
 export interface ConnectedAppSummary {
   id: string;
@@ -82,5 +85,10 @@ export function filterBuiltInApps(
       seen.add(id);
       return true;
     })
+    .map((app) => ({
+      ...app,
+      url: defaultWorkspaceAppUrl(app.url),
+      ...(app.homeUrl ? { homeUrl: defaultWorkspaceAppUrl(app.homeUrl) } : {}),
+    }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { filterBuiltInApps, filterOtherApps } from "./other-apps.js";
 
@@ -48,6 +48,39 @@ describe("filterBuiltInApps", () => {
         source: "builtin",
       },
     ]);
+  });
+
+  it("keeps built-in app launches on the current beta lane", () => {
+    vi.stubGlobal("window", {
+      location: { hostname: "beta.agent-workspace.builder.io" },
+    });
+
+    try {
+      expect(
+        filterBuiltInApps(
+          [
+            {
+              id: "clips",
+              name: "Clips",
+              url: "https://clips.agent-native.com/",
+              homeUrl: "https://clips.agent-native.com/recordings",
+              source: "builtin",
+            },
+          ],
+          [],
+        ),
+      ).toEqual([
+        {
+          id: "clips",
+          name: "Clips",
+          url: "https://beta.clips.agent-native.com/",
+          homeUrl: "https://beta.clips.agent-native.com/recordings",
+          source: "builtin",
+        },
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
