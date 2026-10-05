@@ -80,4 +80,13 @@ describe("resolveFragmentRedirect", () => {
       ),
     ).toBe("#new-design-system");
   });
+
+  it("sends removed Other Platforms anchors to the deployment targets", () => {
+    expect(resolveFragmentRedirect("deployment", "#aws-lambda")).toBe(
+      "#supported-deployment-targets",
+    );
+    expect(resolveFragmentRedirect("deployment", "#deno-deploy")).toBe(
+      "#supported-deployment-targets",
+    );
+  });
 });

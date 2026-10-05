@@ -45,6 +45,12 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
 };
 
 export const DOCS_FRAGMENT_REDIRECTS: Record<string, Record<string, string>> = {
+  // Old /docs/other-platforms#aws-lambda and #deno-deploy links land here
+  // after the slug redirect, and the browser keeps their fragment.
+  deployment: {
+    "aws-lambda": "#supported-deployment-targets",
+    "deno-deploy": "#supported-deployment-targets",
+  },
   "template-clips-features": {
     "browser-logs-with-the-chrome-extension": "#chrome-extension-browser-logs",
     "desktop-recorder-and-the-desktop-tray-app": "#desktop-tray-app",
