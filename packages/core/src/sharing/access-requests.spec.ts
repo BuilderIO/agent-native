@@ -509,6 +509,27 @@ describe("requestResourceAccess", () => {
       expect(notifyWithDelivery).not.toHaveBeenCalled();
     });
 
+    it("keeps the request when the cut-off ask fails after another claimed it", async () => {
+      await insertDoc("doc");
+      const askedAt = Date.now() - ACCESS_REQUEST_SEND_WINDOW_MS - 1_000;
+      await cutOffRequest(askedAt);
+      // The cut-off ask gives up and cleans up while the retry is sending.
+      notifyWithDelivery.mockImplementationOnce(async () => {
+        await deleteAccessRequest("cut-off", 1, askedAt);
+        return {
+          notification: { id: "notification" } as any,
+          deliveredChannels: ["inbox"],
+        };
+      });
+
+      expect(await requestAs(outsiderEmail, "doc")).toMatchObject({
+        sent: true,
+      });
+      const row = await requestRow("doc");
+      expect(row).toMatchObject({ id: "cut-off", generation: 1 });
+      expect(row?.delivery).not.toBeNull();
+    });
+
     it("sends it again from one ask when several arrive at once", async () => {
       await insertDoc("doc");
       await cutOffRequest(Date.now() - ACCESS_REQUEST_SEND_WINDOW_MS - 1_000);
@@ -531,7 +552,7 @@ describe("requestResourceAccess", () => {
     await requestAs(outsiderEmail, "doc");
     const row = await requestRow("doc");
 
-    await deleteAccessRequest(row!.id, row!.generation);
+    await deleteAccessRequest(row!.id, row!.generation, row!.requested_at);
 
     expect(await requestRow("doc")).toMatchObject({ id: row!.id });
   });

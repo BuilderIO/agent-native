@@ -262,17 +262,19 @@ export async function openAccessRequest(
 
 /**
  * Withdraws a request that was just opened but reached nobody, so asking
- * again isn't blocked and doesn't count toward the limits. One that another
- * ask already delivered stays.
+ * again isn't blocked and doesn't count toward the limits. Only the ask that
+ * opened or claimed it at `requestedAt` can: one another ask has claimed
+ * since, or already delivered, stays.
  */
 export async function deleteAccessRequest(
   id: string,
   generation: number,
+  requestedAt: number,
 ): Promise<void> {
   await ensureTable();
   await getDbExec().execute({
-    sql: `DELETE FROM ${TABLE} WHERE id = ? AND generation = ? AND state = 'pending' AND delivery IS NULL`,
-    args: [id, generation],
+    sql: `DELETE FROM ${TABLE} WHERE id = ? AND generation = ? AND requested_at = ? AND state = 'pending' AND delivery IS NULL`,
+    args: [id, generation, requestedAt],
   });
 }
 

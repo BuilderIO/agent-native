@@ -437,7 +437,11 @@ export async function requestResourceAccess(input: {
       });
     }
   } catch (err) {
-    await deleteAccessRequest(request.id, request.generation);
+    await deleteAccessRequest(
+      request.id,
+      request.generation,
+      request.requestedAt,
+    );
     throw err;
   }
   await recordAccessRequestDelivery(request.id, request.generation, {
