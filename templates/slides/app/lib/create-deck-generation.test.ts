@@ -121,7 +121,6 @@ describe("startDeckGeneration", () => {
       undefined,
       expect.objectContaining({
         noDefaultSlides: true,
-        undoableCreation: false,
       }),
     );
 

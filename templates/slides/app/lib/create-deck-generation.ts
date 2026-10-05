@@ -230,7 +230,6 @@ type CreateDeck = (
   options?: {
     noDefaultSlides?: boolean;
     designSystemId?: string | null;
-    undoableCreation?: boolean;
   },
 ) => Deck;
 
@@ -383,7 +382,6 @@ export async function startDeckGeneration({
   flushSync(() => {
     deck = createDeck(undefined, {
       noDefaultSlides: true,
-      undoableCreation: false,
       designSystemId: selectedDesignSystem?.id ?? null,
     });
   });
