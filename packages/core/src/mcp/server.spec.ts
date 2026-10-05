@@ -307,6 +307,7 @@ vi.mock("h3", () => ({
   getQuery: (event: any) => event._query ?? {},
   setResponseStatus: (event: any, code: number) => {
     event._status = code;
+    if (event.res) event.res.status = code;
   },
   setResponseHeader: (event: any, name: string, value: string) => {
     event._responseHeaders ??= {};
@@ -1083,6 +1084,39 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
         "slides",
         "design",
         "content",
+      ]);
+    } finally {
+      consoleInfo.mockRestore();
+    }
+  }, 30_000);
+
+  it("logs web-runtime response statuses for directory errors", async () => {
+    const requestLogs: Array<Record<string, any>> = [];
+    const consoleInfo = vi
+      .spyOn(console, "info")
+      .mockImplementation((...args: any[]) => {
+        if (args[0] === "[mcp:directory] request") requestLogs.push(args[1]);
+      });
+    try {
+      const event = makeWebEvent({
+        headers: { authorization: "" },
+      });
+      event.res = { status: 200 };
+      const directoryConfig = {
+        ...config,
+        directoryProfile: slidesDirectoryProfile,
+      };
+
+      const result = await handleMcpRequest(
+        event,
+        directoryConfig as any,
+        MCP_DIRECTORY_ROUTE_PREFIX,
+      );
+
+      expect(result).toMatchObject({ error: "Unauthorized" });
+      expect(event.res.status).toBe(401);
+      expect(requestLogs).toEqual([
+        { method: "POST", status: 401, durationMs: expect.any(Number) },
       ]);
     } finally {
       consoleInfo.mockRestore();

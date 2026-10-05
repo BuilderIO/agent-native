@@ -230,7 +230,10 @@ function directoryLogMethod(body: unknown): string | undefined {
 }
 
 function responseStatusFromEvent(event: H3Event): number {
-  const status = (event as any).node?.res?.statusCode ?? (event as any)._status;
+  const status =
+    event.res?.status ??
+    (event as any).node?.res?.statusCode ??
+    (event as any)._status;
   return typeof status === "number" && Number.isInteger(status) && status > 0
     ? status
     : 200;
