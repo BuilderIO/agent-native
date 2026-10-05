@@ -438,8 +438,7 @@
       "prefix": "TOK",
       "steps": [
         15,
-        16,
-        22
+        16
       ],
       "items": [
         {
@@ -470,7 +469,7 @@
           "id": "TOK-05",
           "status": "decided",
           "today": "One create popover: Add one token is a CSS-variable field and a value field that defaults to `#000000`, and `classifyVar` guesses the group from the name and value.",
-          "change": "+ Add token is a Nova menu of token kinds in the panel's group order: Color · Font family, Font weight, Font size, Line height, Letter spacing · Spacing, Container, Breakpoint, Radius · Shadow, Opacity. A kind adds a draft row at the end of its group with the kind's prefix and a starting value (Font size → `--font-size-`, 16px), stored with that type; Enter moves to the value, Enter or clicking away saves, Esc cancels. Since TOK-28 this menu is the token editor's Add token, at the end of the selected collection's table; a new token above Primitives starts as an alias to the first token of its kind below it, and its name opens for editing.",
+          "change": "+ Add token is a Nova menu of token kinds in the panel's group order: Color · Font family, Font weight, Font size, Line height, Letter spacing · Spacing, Container, Breakpoint, Radius · Shadow, Opacity. A kind adds a draft row at the end of its group with the kind's prefix and a starting value (Font size → `--font-size-`, 16px), stored with that type; Enter moves to the value, Enter or clicking away saves, Esc cancels.",
           "refs": [
             "templates/design/actions/import-design-tokens.ts:130#classifyVar"
           ]
@@ -485,7 +484,7 @@
           "id": "TOK-07",
           "status": "decided",
           "today": "The same popover offers Import a set from text, Import from a file, Import from a folder, and Import from current design.",
-          "change": "Import (Tabler `download`) is a Nova menu like +, each item importing straight away with a toast of what changed: Paste Figma link, DTCG file…, CSS or Tailwind file…, Code folder…, Paste from clipboard, then Generate from design. The same parser runs underneath, and DTCG is detected by content. Since TOK-28 it sits in the token editor's title bar, and in the panel's empty state."
+          "change": "Import (Tabler `download`) is a Nova menu like +, each item importing straight away with a toast of what changed: Paste Figma link, DTCG file…, CSS or Tailwind file…, Code folder…, Paste from clipboard, then Generate from design. The same parser runs underneath, and DTCG is detected by content."
         },
         {
           "id": "TOK-08",
@@ -519,7 +518,7 @@
           "id": "TOK-12",
           "status": "decided",
           "today": "The panel header has a title, a token count, Refresh, and the create popover; rows are 28px.",
-          "change": "The header is the token count, then Search and the table icon that opens the token editor (TOK-29; Import and + moved into the editor, TOK-28). Search swaps in for the line as a focused 32px field with a ⌘F hint (RAIL-11). Group headers drop their counts and uppercase labels; rows are 32px.",
+          "change": "The header is the token count, then Search, Import, and +. Search swaps in for the line as a focused 32px field with a ⌘F hint (RAIL-11). Group headers drop their counts and uppercase labels; rows are 32px.",
           "refs": [
             "templates/design/app/components/design/LayersPanel.tsx:886#searchOpen"
           ]
@@ -576,7 +575,7 @@
           "id": "TOK-20",
           "status": "proposed",
           "today": "Clicking a color token opens a text field for its hex value, the same as every other token.",
-          "change": "Clicking a color token opens the inspector's color picker (step 21, COLOR-02 to COLOR-04) with `supportedPaintTypes` set to solid (Primitives get no Libraries tab; every tier above opens on one, TOK-22), beside the panel row or the editor cell it edits. Dragging restyles the canvas live, Esc puts the old value back, and clicking away keeps the new one. A new color token's swatch opens the same picker.",
+          "change": "Clicking a color token opens the inspector's color picker (step 21, COLOR-02 to COLOR-04) with `supportedPaintTypes` set to solid and no Libraries tab, beside the panel and level with the row. Dragging restyles the canvas live, Esc puts the old value back, and clicking away keeps the new one. A new color token's swatch opens the same picker.",
           "refs": [
             "templates/design/app/components/design/inspector/DesignColorPicker.tsx#DesignColorPicker",
             "templates/design/app/components/design/TokensPanel.tsx#editing"
@@ -584,70 +583,14 @@
         },
         {
           "id": "TOK-21",
-          "status": "decided",
-          "today": "The panel groups tokens by type only. Every token is one flat CSS variable with one value, so nothing tells a palette value from a role, and a design can bind straight to a raw color.",
-          "change": "Tokens come in strict tiers. Primitives hold the only raw values and have no modes: every brand's palette, type, spacing, radius, and shadow scales (Neutral 0–950, Blue/Violet/Emerald 400 and 600, Sans, Serif, Space 8, Radius full). Theme and Semantic hold only aliases to a tier below. Components are optional and off by default (most systems stop at Semantic); Add collection › Components adds them, aliasing Semantic. A raw value above Primitives gets the amber mark, and its menu offers Use <primitive> when one already holds that value, or Make it a primitive. Imports put values in Primitives and aliases in Semantic, and the color picker's + makes a Semantic token on a new primitive, so nothing the editor creates starts invalid.",
-          "refs": [
-            "templates/design/app/components/design/TokensPanel.tsx#typeLabel"
-          ],
-          "prototype": "Tokens › table icon › Semantic: type 48px into Page's Light cell, then click its amber mark."
-        },
-        {
-          "id": "TOK-22",
           "status": "proposed",
-          "today": "A value of `var(--other)` is kept as text; the panel can't show what it resolves to or let you pick the token it points at.",
-          "change": "An alias is stored as `var(--token)`, so the canvas resolves it as shipped CSS would, and as `{group.token}` in DTCG. It shows the resolved swatch and the target as a chip (Primary · Accent); the tooltip follows the chain to the value (Primary → Accent → Blue 600 → #0a6bd6). Clicking a color above Primitives opens the picker on Libraries of the tiers below, grouped by collection, with the current target checked: picking one sets the alias for that mode, and Custom writes a value, which detaches it and earns the TOK-21 mark. Other kinds alias by typing `{Sans}`, limited to a lower tier and the same kind (a font family can't point at a weight).",
-          "prototype": "In the editor, click Semantic › Link's Dark cell and pick Violet 400 on Libraries."
-        },
-        {
-          "id": "TOK-23",
-          "status": "decided",
-          "today": "A token has one value. A `.dark { --x: … }` override isn't a mode; it isn't read at all (TOK-25).",
-          "change": "Themes and modes are two axes, layered so each token varies on one: Theme's columns are the brands (Acme, Globex, Initech) and pick primitives (Accent → Blue 600, Violet 600, Emerald 600; Brand font; Corner; Control corner; Elevation), and Semantic's columns are Light and Dark and pick Theme tokens or primitives (Primary → Accent, Accent light). Six combinations, but no token has more than three columns, and adding a brand touches only Theme. A mode with no value of its own uses the first, so a font set once applies to Light and Dark, and its cell reads dimmed with Same as Light. Light and Dark carry color schemes, which Auto uses (TOK-24). In DTCG these are two resolver modifiers (`theme`, `mode`) whose contexts are the columns.",
-          "prototype": "Editor › Theme: the brand columns. Semantic: Light and Dark aliasing Theme."
-        },
-        {
-          "id": "TOK-24",
-          "status": "proposed",
-          "today": "Screen iframes hard-code `colorScheme: \"light\"`, and nothing chooses which values a screen uses.",
-          "change": "The Screen inspector's Modes section, after Appearance, has one select per axis: Theme (Acme, Globex, Initech) and Mode (Auto, Light, Dark). Auto is offered only where modes carry a color scheme: Light in Design, following Appearance in Interact, so Interact › Appearance › Dark previews Dark without a setting; an explicit mode wins over Appearance. The screen's color scheme follows its mode. The page's own colors, fonts, radii, and shadows are Semantic tokens, so the whole screen restyles, and the Screen's Fill shows the Background token it uses.",
-          "refs": [
-            "templates/design/app/components/design/MultiScreenCanvas.tsx:12205#colorScheme"
-          ],
-          "prototype": "Select Screen 1 in Layers and set Theme to Initech and Mode to Dark."
-        },
-        {
-          "id": "TOK-25",
-          "status": "proposed",
-          "today": "`extractCssVars` and `parseCss` run one regex over the whole file and ignore selectors and at-rules, so a later `.dark { --primary: … }` or `@media (prefers-color-scheme: dark)` declaration silently overwrites the `:root` value: the panel, the index, and imports show the dark value as the only one, and the light value is lost.",
-          "change": "A correctness fix that ships on its own, before the panel work: read declarations per rule. `:root` and `html` give the first mode; `.dark`, `[data-theme=\"dark\"]`, `:root.dark`, and `@media (prefers-color-scheme: dark)` give Dark; any other selector is reported as a scoped override instead of replacing the value. `index-design-tokens` returns values per mode, and a spec covers a file with both `:root` and `.dark`.",
+          "today": "`extractCssVars` and `parseCss` run one regex over the whole file and ignore selectors and at-rules, so a later declaration of the same variable silently replaces an earlier one: a `.dark { --primary: … }` or `@media (prefers-color-scheme: dark)` value overwrites the `:root` value, and the panel, the index, and imports show only the last one.",
+          "change": "A correctness fix on its own: read declarations per rule, keep the `:root` / `html` value as the token's value, and report a variable redefined under another selector or at-rule (with the selector) instead of overwriting it. A spec covers a file with both `:root` and `.dark`.",
           "refs": [
             "packages/core/src/server/design-token-utils.ts#extractCssVars",
             "packages/core/src/server/design-token-utils.ts#parseCss",
             "templates/design/actions/index-design-tokens.ts#extractCssVars"
           ]
-        },
-        {
-          "id": "TOK-26",
-          "status": "proposed",
-          "change": "Export and import follow DTCG 2025.10's Resolver module: one token file per collection (a set), one modifier per axis (`theme`, `mode`) whose contexts are its columns, a `resolutionOrder` in tier order, and aliases kept as `{group.token}`. Import reads a resolver document into collections and columns, and a plain token file by TOK-21's rule. CSS output is `:root` for first columns, `[data-theme=\"globex\"]` per brand, and `.dark` plus `@media (prefers-color-scheme: dark)` for Dark. The prototype's export keeps aliases in the first column only."
-        },
-        {
-          "id": "TOK-27",
-          "status": "proposed",
-          "change": "The agent gets the same surface as actions: list collections and their columns, add a collection, add, rename, or delete a mode, set a token's value or alias per mode, make a value a primitive, and set a screen's Theme and Mode. A find-primitive-usage skill lists fills bound below Semantic and proposes the Semantic token with the same value. Generate tokens from design writes Primitives plus Semantic aliases."
-        },
-        {
-          "id": "TOK-28",
-          "status": "decided",
-          "change": "Building the system happens in a token editor window, opened from the panel header's table icon. It's non-modal, like a tool window, with the Keyboard shortcuts window's chrome: designers keep working on the canvas behind it, and every edit restyles the canvas live. It opens 760 × 520 against the canvas's right edge, moves by its title bar, and resizes. Left: search, the collections in tier order, and Add collection. Right: the selected collection as a table with a column per mode; a mode header's menu has Rename and Delete, + adds a mode (Primitives have none), Add token ends the table, a token row's … has Rename and Delete (off while other tokens point at it), and double-clicking a name renames it. Esc closes it unless a menu or picker opened from it is up. Import moves here from the panel.",
-          "prototype": "Tokens › table icon. Edit Theme › Accent's Globex cell with Globex picked for Screen 1."
-        },
-        {
-          "id": "TOK-29",
-          "status": "decided",
-          "change": "The Tokens panel is for using tokens: it lists only what designs apply (Semantic, and Components once added), grouped by type, with values as the current screen shows them. The header is the count, Search, and the table icon that opens the editor (TOK-28); + and Import move to the editor. Rows keep the alias chip, the chain in the tooltip, and the picker on click, editing the current screen's mode.",
-          "prototype": "Open Tokens: Semantic only, by type."
         }
       ]
     },
@@ -1368,7 +1311,7 @@
         {
           "id": "COLOR-05",
           "status": "proposed",
-          "change": "The inspector's picker adds Custom and Libraries tabs in one fixed-size cell; Libraries searches the design's color tokens, and picking one binds the fill to the token. In the Tokens panel, a Primitives color's picker has no tabs; Semantic and Components colors open on Libraries of the tiers below them (TOK-22). When the fill is already bound to a token, the picker opens on Libraries with that token checked.",
+          "change": "The inspector's picker adds Custom and Libraries tabs in one fixed-size cell; Libraries searches the design's color tokens, and picking one binds the fill to the token. The Tokens panel's picker has no tabs. When the fill is already bound to a token, the picker opens on Libraries with that token checked.",
           "prototype": "Open a Fill and choose Libraries › Link: the fill reads Link."
         },
         {
