@@ -2247,6 +2247,7 @@ describe("retryOnConnectionError budget", () => {
 
   it("does not start a second attempt that could outlast the gateway", async () => {
     vi.useFakeTimers();
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "retry-budget-test");
     vi.stubEnv("DB_OP_TIMEOUT_MS", "15000");
     const { retryOnConnectionError } = await import("./client.js");
     const attempt = vi.fn(async () => {
@@ -2280,6 +2281,33 @@ describe("retryOnConnectionError budget", () => {
     expect(error).toMatchObject({ code: "CONNECT_TIMEOUT" });
     expect(attempt).toHaveBeenCalledTimes(2);
     expect(elapsedMs).toBeLessThan(20_000);
+  });
+
+  it("keeps the full retry count outside serverless runtimes", async () => {
+    vi.useFakeTimers();
+    for (const marker of [
+      "NETLIFY",
+      "NETLIFY_FUNCTION_NAME",
+      "VERCEL",
+      "AWS_LAMBDA_FUNCTION_NAME",
+      "LAMBDA_TASK_ROOT",
+      "CF_PAGES",
+    ]) {
+      vi.stubEnv(marker, "");
+    }
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "15000");
+    const { retryOnConnectionError } = await import("./client.js");
+    const attempt = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 15_000));
+      throw connectTimeout();
+    });
+
+    const { error } = await runUntilSettled(() =>
+      retryOnConnectionError(attempt),
+    );
+
+    expect(error).toMatchObject({ code: "CONNECT_TIMEOUT" });
+    expect(attempt).toHaveBeenCalledTimes(3);
   });
 
   it("still retries quick connection errors", async () => {

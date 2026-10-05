@@ -873,11 +873,13 @@ export function isTransientDatabaseError(err: unknown): boolean {
   );
 }
 
-// The hosting gateway gives up near 30s, so a retry loop must stop while the
-// caller can still be handed a database error instead of a 504.
+// A serverless gateway gives up near 30s, so a retry loop there must stop while
+// the caller can still be handed a database error instead of a 504. Other
+// runtimes have no such gateway and keep their full retry count.
 const DB_RETRY_BUDGET_MS = 20_000;
 
 export function hasRetryBudgetFor(startedAt: number): boolean {
+  if (!isServerlessRuntime()) return true;
   const attemptMs = dbOpTimeoutMs();
   return (
     Date.now() - startedAt + attemptMs <=
