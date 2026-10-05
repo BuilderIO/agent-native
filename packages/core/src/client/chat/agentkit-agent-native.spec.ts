@@ -1596,6 +1596,256 @@ describe("createAgentNativeAgentKitTransport", () => {
     },
   );
 
+  // The stale-run reaper recovered turn-1: run-1 was interrupted and run-2,
+  // a successor on the same turn, carried it on.
+  function recoveredTurnThread(input: {
+    run1: Record<string, unknown>;
+    successorReply: boolean;
+    /** The open page followed run-2 and saved its reply as run-1's own messages. */
+    followed?: boolean;
+  }) {
+    const streamed = (id: string, sequence: number) => ({
+      id: `run-1:${sequence}`,
+      type: "message.created",
+      threadId: "thread-recovered",
+      runId: "run-1",
+      sequence,
+      occurredAt: "2026-10-05T17:00:50.000Z",
+      message: { id, role: "assistant", parts: [] },
+    });
+    return {
+      id: "thread-recovered",
+      threadData: JSON.stringify({
+        messages: [
+          {
+            message: {
+              id: "server-user-run-1",
+              role: "user",
+              status: "complete",
+              content: [{ type: "text", text: "Handle the refund" }],
+              metadata: {
+                custom: {
+                  submittedRunId: "run-1",
+                  submittedTurnId: "turn-1",
+                },
+              },
+            },
+            parentId: null,
+          },
+          ...(input.successorReply
+            ? [
+                {
+                  message: {
+                    id: "server-run-2",
+                    role: "assistant",
+                    status: { type: "complete", reason: "stop" },
+                    content: [{ type: "text", text: "Refund handled." }],
+                    metadata: {
+                      runId: "run-2",
+                      custom: { turnId: "turn-1", foldedRunIds: ["run-2"] },
+                    },
+                  },
+                  parentId: "server-user-run-1",
+                },
+              ]
+            : []),
+        ],
+        agentKit: {
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              status: "complete",
+              parts: [{ type: "text", text: "Handle the refund" }],
+            },
+            ...(input.followed
+              ? [
+                  {
+                    id: "assistant-interrupted",
+                    role: "assistant",
+                    status: "complete",
+                    parts: [],
+                  },
+                  {
+                    id: "assistant-recovered",
+                    role: "assistant",
+                    status: "complete",
+                    parts: [{ type: "text", text: "Refund handled." }],
+                  },
+                ]
+              : []),
+          ],
+          events: input.followed
+            ? [
+                streamed("assistant-interrupted", 1),
+                streamed("assistant-recovered", 2),
+              ]
+            : [],
+          runs: [
+            {
+              id: "run-1",
+              threadId: "thread-recovered",
+              startedAt: "2026-10-05T17:00:48.000Z",
+              lastSequence: 0,
+              ...input.run1,
+            },
+          ],
+          activeRunIds: [],
+        },
+      }),
+    };
+  }
+  const staleRunFailure = {
+    status: "failed",
+    error: {
+      code: "stale_run",
+      message:
+        "The agent stopped before it could finish. It may have hit a server timeout or the worker may have been interrupted.",
+      retryable: true,
+    },
+  };
+
+  it.each([
+    {
+      label: "the open page saved its failure",
+      run1: staleRunFailure,
+      active: { active: false, status: "completed", runId: "run-2" },
+    },
+    {
+      label: "the page closed mid-run",
+      run1: { status: "running" },
+      active: { active: false, status: "completed", runId: "run-2" },
+    },
+    {
+      label: "the server no longer reports the turn",
+      run1: staleRunFailure,
+      active: { active: false, status: "idle" },
+    },
+  ])(
+    "does not report an interrupted run as failed once a successor finished its turn ($label)",
+    async ({ run1, active }) => {
+      const transport = createAgentNativeAgentKitTransport({
+        fetch: vi.fn(async (input: string | URL | Request) =>
+          String(input).includes("/runs/active")
+            ? json({ ...active, turnId: "turn-1" })
+            : json(recoveredTurnThread({ run1, successorReply: true })),
+        ) as typeof fetch,
+      });
+
+      const snapshot = await transport.getThreadSnapshot?.({
+        threadId: "thread-recovered",
+      });
+
+      const run = snapshot?.runs?.find((entry) => entry.id === "run-1");
+      expect(run?.status).toBe("completed");
+      expect(run?.error).toBeUndefined();
+      expect(
+        snapshot?.runs?.filter((entry) => entry.status === "failed"),
+      ).toEqual([]);
+      expect(snapshot?.messages.at(-1)).toMatchObject({
+        id: "server-run-2",
+        parts: [{ type: "text", text: "Refund handled." }],
+      });
+      await transport.dispose();
+    },
+  );
+
+  it("shows a recovered turn's reply once after the open page followed the successor", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({
+              active: false,
+              status: "completed",
+              runId: "run-2",
+              turnId: "turn-1",
+            })
+          : json(
+              recoveredTurnThread({
+                run1: { status: "completed" },
+                successorReply: true,
+                followed: true,
+              }),
+            ),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-recovered",
+    });
+
+    expect(
+      snapshot?.messages.filter((message) => message.role === "assistant"),
+    ).toMatchObject([
+      { id: "assistant-interrupted" },
+      {
+        id: "assistant-recovered",
+        parts: [{ type: "text", text: "Refund handled." }],
+      },
+    ]);
+    await transport.dispose();
+  });
+
+  it("follows the successor still running an interrupted run's turn instead of failing the run", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({
+              active: true,
+              status: "running",
+              runId: "run-2",
+              turnId: "turn-1",
+            })
+          : json(
+              recoveredTurnThread({
+                run1: staleRunFailure,
+                successorReply: false,
+              }),
+            ),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-recovered",
+    });
+
+    expect(
+      snapshot?.runs?.find((run) => run.id === "run-1"),
+    ).not.toHaveProperty("error");
+    expect(snapshot?.activeRunIds).toEqual(["run-2"]);
+    await transport.dispose();
+  });
+
+  it("keeps an interrupted run's failure when no newer run carried its turn", async () => {
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: vi.fn(async (input: string | URL | Request) =>
+        String(input).includes("/runs/active")
+          ? json({
+              active: false,
+              status: "failed",
+              runId: "run-1",
+              turnId: "turn-1",
+              terminalReason: "error:stale_run",
+            })
+          : json(
+              recoveredTurnThread({
+                run1: staleRunFailure,
+                successorReply: false,
+              }),
+            ),
+      ) as typeof fetch,
+    });
+
+    const snapshot = await transport.getThreadSnapshot?.({
+      threadId: "thread-recovered",
+    });
+
+    expect(snapshot?.runs?.find((run) => run.id === "run-1")).toMatchObject({
+      status: "failed",
+    });
+    await transport.dispose();
+  });
+
   it("reports a finished run's failure after the server stops calling it active", async () => {
     const transport = createAgentNativeAgentKitTransport({
       fetch: vi.fn(async (input: string | URL | Request) =>

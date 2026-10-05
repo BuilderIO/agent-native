@@ -167,6 +167,11 @@ interface ProtocolRun {
   pipeClosedBeforeTerminal?: boolean;
   /** Restored after a reload: its first "stream" is a placeholder, not a pipe. */
   restoredWithoutStream?: boolean;
+  /**
+   * The runtime run's own interruption, held until the server says whether a
+   * newer run already carries the turn (the stale-run reaper starts one).
+   */
+  heldInterruption?: AgentError;
   outcomeReported?: boolean;
   pendingWidgets: Map<string, AgentWidget>;
   actions: Map<string, AgentActionInvocation>;
@@ -2427,21 +2432,28 @@ export function createAgentKitProtocolAdapter(
             payload: run.usage,
           },
         ];
-      case "error":
+      case "error": {
+        const error: AgentError = {
+          code: event.code ?? "runtime_error",
+          message: event.error,
+          retryable: event.retryable ?? event.recoverable,
+          details: event.details ?? event.cause,
+        };
+        // An interruption ends this runtime run, not necessarily the turn.
+        if (
+          runAuthority &&
+          capabilities.resumableRuns === true &&
+          runOutcomeForCode(error.code) === "interrupted"
+        ) {
+          run.heldInterruption = error;
+          return [];
+        }
         run.terminal = true;
         return [
           { type: "run.status", ...base, status: "failed" },
-          {
-            type: "run.failed",
-            ...base,
-            error: {
-              code: event.code ?? "runtime_error",
-              message: event.error,
-              retryable: event.retryable ?? event.recoverable,
-              details: event.details ?? event.cause,
-            },
-          },
+          { type: "run.failed", ...base, error },
         ];
+      }
       case "done":
         if (!isTerminalReason(event.reason)) {
           run.waitingForContinuation = true;
@@ -2699,6 +2711,17 @@ export function createAgentKitProtocolAdapter(
             : { kind: "unreachable", error };
       }
       if (stopped()) return null;
+      if (run.heldInterruption) {
+        const successor =
+          read.kind === "read" &&
+          read.state.status !== "missing" &&
+          read.state.runId !== runtimeRunId;
+        if (!successor) {
+          appendHeldInterruption(run);
+          return null;
+        }
+        run.heldInterruption = undefined;
+      }
       const decision = decideAfterStreamClosed(read, {
         runId: runtimeRunId,
         drain: run.terminalDrain,
@@ -2859,6 +2882,15 @@ export function createAgentKitProtocolAdapter(
     }
   }
 
+  /** The runtime run's own interruption, once no newer run carries the turn. */
+  function appendHeldInterruption(run: ProtocolRun): void {
+    const error = run.heldInterruption!;
+    run.heldInterruption = undefined;
+    run.terminal = true;
+    append(run, { type: "run.status", status: "failed" });
+    append(run, { type: "run.failed", error });
+  }
+
   function setResumedRuntimeTurn(
     run: ProtocolRun,
     resumed: AgentChatRuntimeTurn,
@@ -2900,7 +2932,13 @@ export function createAgentKitProtocolAdapter(
               )) {
                 append(run, protocolEvent);
               }
-              if (run.waitingForContinuation || run.terminal) break;
+              if (
+                run.waitingForContinuation ||
+                run.terminal ||
+                run.heldInterruption
+              ) {
+                break;
+              }
             }
           } catch (error) {
             stream.failed = true;
@@ -2910,7 +2948,7 @@ export function createAgentKitProtocolAdapter(
             break;
           }
           if (run.restoredWithoutStream) run.restoredWithoutStream = false;
-          else run.pipeClosedBeforeTerminal = true;
+          else if (!run.heldInterruption) run.pipeClosedBeforeTerminal = true;
           const resumed =
             runAuthority && capabilities.resumableRuns === true
               ? await followRunAuthority(run, runAuthority, stream)

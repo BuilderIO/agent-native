@@ -462,6 +462,44 @@ describe("run lifecycle chaos: a cut stream never decides how a run ended", () =
     });
   }
 
+  for (const point of [
+    ...SEVER_POINTS.slice(0, 3),
+    { sever: 3, label: "never (the stream delivers the interruption)" },
+  ]) {
+    it(`follows the run that recovered an interrupted turn when the first stream is cut ${point.label}`, async () => {
+      const chaos: Chaos = { sever: point.sever };
+      const first = scriptedRun({
+        id: "run-1",
+        startsAtMs: 0,
+        wires: [TEXT_HELLO, TOOL_START, FINALS.interrupted.wire],
+        seen: point.sever,
+        status: FINALS.interrupted.status,
+        terminalReason: FINALS.interrupted.terminalReason,
+      });
+      // The reaper inserts the successor in the same transaction that marks
+      // the stale run errored, before the stale run's error event exists.
+      const successor = scriptedRun({
+        id: "run-2",
+        startsAtMs: first.final.atMs,
+        wires: [TEXT_WORLD, { type: "done" }],
+        seen: 0,
+        status: "completed",
+        terminalReason: "done",
+      });
+      const server = createFakeServer([first, successor], chaos);
+      const { transport, runId } = await startTurn(server);
+
+      const observed = await readUntilSettled(
+        transport.subscribeToRun({ threadId: THREAD, runId }),
+        server.clock,
+      );
+
+      expectConvergedToServer(observed, server, "succeeded");
+      expect(assistantText(observed)).toContain("world");
+      await transport.dispose();
+    });
+  }
+
   it("reports a continuation nobody picks up as interrupted with the server's reason, after the handoff grace", async () => {
     const chaos: Chaos = { sever: 4 };
     const first = scriptedRun({
