@@ -1582,6 +1582,61 @@ describe("queryFirstPartyAnalytics", () => {
     }
   });
 
+  it("bounds a coalesced cached read by the joining caller's own deadline", async () => {
+    let now = 5_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    let releaseEarlyGuard!: () => void;
+    const earlyGuardGate = new Promise<void>((resolve) => {
+      releaseEarlyGuard = resolve;
+    });
+    expressionGuard.mockImplementationOnce(() => earlyGuardGate);
+    let releaseCache!: () => void;
+    let markCacheStarted!: () => void;
+    const cacheStarted = new Promise<void>((resolve) => {
+      markCacheStarted = resolve;
+    });
+    const cacheGate = new Promise<void>((resolve) => {
+      releaseCache = resolve;
+    });
+    execute.mockImplementation(async ({ sql }: { sql: string }) => {
+      if (sql.includes("SELECT result FROM first_party_analytics_cache")) {
+        markCacheStarted();
+        await cacheGate;
+        return { rows: [], rowsAffected: 0 };
+      }
+      return { rows: [{ count: "1" }], rowsAffected: 0 };
+    });
+
+    try {
+      const scope = { userEmail: "deadline-join@example.test", orgId: null };
+      const early = queryFirstPartyAnalytics(
+        "SELECT COUNT(*) FROM analytics_events",
+        scope,
+        { cache: true, timeoutMs: 500 },
+      );
+      const earlyOutcome = early.then(
+        () => "resolved",
+        (error: Error) => error.message,
+      );
+      now = 5_100;
+      const late = queryFirstPartyAnalytics(
+        "SELECT COUNT(*) FROM analytics_events",
+        scope,
+        { cache: true, timeoutMs: 500 },
+      );
+      await cacheStarted;
+      now = 5_480;
+      releaseEarlyGuard();
+      expect(await earlyOutcome).toMatch(/timed out/);
+      releaseCache();
+      await expect(late).resolves.toMatchObject({ rows: [{ count: "1" }] });
+    } finally {
+      releaseEarlyGuard();
+      releaseCache();
+      dateNow.mockRestore();
+    }
+  });
+
   it("refuses a cached query when expression verification is unavailable", async () => {
     expressionGuard.mockRejectedValueOnce(new Error("metadata unavailable"));
     await expect(

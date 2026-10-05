@@ -136,6 +136,28 @@ function cacheIoTimeoutMs(deadlineAt: number): number {
   );
 }
 
+// A caller can join a read that started after it did, so its own deadline,
+// not the read's, bounds the wait.
+function waitUntilDeadline(
+  promise: Promise<AnalyticsQueryResult>,
+  deadlineAt: number,
+  timeoutMs: number,
+): Promise<AnalyticsQueryResult> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `First-party analytics query timed out after ${timeoutMs}ms`,
+          ),
+        ),
+      remainingTimeoutMs(deadlineAt),
+    );
+  });
+  return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
+}
+
 export async function withFirstPartyCache(
   key: string,
   sql: string,
@@ -150,7 +172,7 @@ export async function withFirstPartyCache(
 
   const requestKey = inFlightKey(key, options.timeoutMs);
   const existing = inFlight.get(requestKey);
-  if (existing) return existing;
+  if (existing) return waitUntilDeadline(existing, deadlineAt, timeoutMs);
 
   const promise = (async () => {
     const l2Hit = await getL2(key, deadlineAt);
