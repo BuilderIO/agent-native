@@ -69,6 +69,7 @@ import {
   type Status,
   type StyleDiff,
 } from "./lib/metrics.ts";
+import { readValueOption } from "./run-options.ts";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCENARIOS = [
@@ -109,13 +110,11 @@ const VALUE_FLAGS = new Set([
   "--line-key-platform",
 ]);
 const opt = (name: string) => {
-  const i = argv.indexOf(name);
-  if (i < 0) return undefined;
-  const value = argv[i + 1];
-  if (!value || value.startsWith("--")) {
-    fatal(`${name} requires a value`);
+  try {
+    return readValueOption(argv, name);
+  } catch (error) {
+    fatal((error as Error).message);
   }
-  return value;
 };
 const numOpt = (name: string, fallback: number) => {
   const raw = opt(name);
@@ -613,9 +612,16 @@ async function startServer(): Promise<{
       throw new CouldNotRun(`dev server exited with ${exited}; see ${logPath}`);
     }
     try {
-      const res = await fetch(`${base}/`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      let res: Response;
+      try {
+        res = await fetch(`${base}/`, { signal: controller.signal });
+      } finally {
+        clearTimeout(timeoutId);
+      }
       if (res.status < 500) return { base, stop };
-      // coercion-ok: connection refused while the server boots; the loop's deadline fails loudly.
+      // coercion-ok: connection refusal or a slow cold start retries until the deadline fails loudly.
     } catch {
       // not listening yet
     }
@@ -759,7 +765,7 @@ async function ensureSignedIn(page: Page) {
 }
 
 async function settle(page: Page) {
-  await page.evaluate(async (css: string) => {
+  const settled = await page.evaluate(async (css: string) => {
     if (!document.querySelector("style[data-edit-fidelity-mask]")) {
       const style = document.createElement("style");
       style.setAttribute("data-edit-fidelity-mask", "");
@@ -774,6 +780,7 @@ async function settle(page: Page) {
       new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     // Imported-font stylesheets are appended by a passive effect after render.
     await frame();
+    let ready = false;
     for (let i = 0; i < 20; i++) {
       await Promise.race([
         document.fonts.ready,
@@ -783,9 +790,13 @@ async function settle(page: Page) {
       const sheetPending = Array.from(
         document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'),
       ).some((link) => !link.sheet);
-      if (!sheetPending && document.fonts.status === "loaded") break;
+      if (!sheetPending && document.fonts.status === "loaded") {
+        ready = true;
+        break;
+      }
       await new Promise((r) => setTimeout(r, 100));
     }
+    if (!ready) return false;
     // Only the main canvas: sidebar thumbnails are lazy and may never load.
     // A broken image fires "error", never "load"; both views see the same one.
     const pending = Array.from(
@@ -808,7 +819,11 @@ async function settle(page: Page) {
     await new Promise((r) =>
       requestAnimationFrame(() => requestAnimationFrame(r)),
     );
+    return true;
   }, MASK_CSS);
+  if (!settled) {
+    throw new CouldNotRun("slide fonts or stylesheets did not settle");
+  }
   // Autofit measures after paint; give it one more beat.
   await sleep(300);
 }
