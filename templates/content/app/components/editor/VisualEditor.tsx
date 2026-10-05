@@ -166,6 +166,7 @@ import {
   type SuggestionPresentationTransition,
 } from "./suggestions/presentation-rebase";
 import { ContentTableView } from "./table-view";
+import { SuggestingReadOnlyBlocks } from "./suggestions/read-only-blocks";
 import { TableHoverControls } from "./TableHoverControls";
 
 function compareDocumentBodyRevisions(
@@ -365,7 +366,11 @@ function dispatchLiteralPaste(view: EditorView, slice: Slice): void {
     .setMeta("paste", true)
     .setMeta("uiEvent", "paste");
   const expected = insertion.doc;
+  const before = view.state.doc;
   view.dispatch(insertion);
+  // A filter refused the paste (for example into a block that is read-only
+  // while suggesting); retrying it as a raw range would insert it anyway.
+  if (view.state.doc === before) return;
 
   if (!view.state.doc.eq(expected)) {
     view.dispatch(
@@ -1968,6 +1973,7 @@ interface VisualEditorExtensionOptions {
   onImageComment?: (quotedText: string, offsetTop: number) => void;
   onImageFilePickerRequest?: (request: PendingImagePicker) => void;
   canMutateMedia?: () => boolean;
+  isSuggesting?: () => boolean;
   onJoinTitle?: (text: string) => void;
   onOpenNotionPageLink?: (documentId: string) => void;
   localFilePath?: string | null;
@@ -2567,6 +2573,7 @@ export function createVisualEditorExtensions({
   onImageComment,
   onImageFilePickerRequest,
   canMutateMedia,
+  isSuggesting,
   onJoinTitle,
   onOpenNotionPageLink,
   localFilePath,
@@ -2647,6 +2654,9 @@ export function createVisualEditorExtensions({
       NotionTableCell,
       NormalizeTableHeaders,
       NormalizeTableAlignment,
+      ...(isSuggesting
+        ? [SuggestingReadOnlyBlocks.configure({ isSuggesting })]
+        : []),
       ...createNotionEditorExtensions({
         documentId,
         onOpenPageLink: onOpenNotionPageLink,
@@ -3167,6 +3177,7 @@ export function VisualEditor({
     }
   }, [documentId, fileStorageConfigured]);
   const canMutateMedia = useCallback(() => !suggestingRef.current, []);
+  const isSuggesting = useCallback(() => suggestingRef.current, []);
   const isVisualEditorFocused = useCallback((editor: CoreEditor) => {
     if (editor.isFocused) return true;
     const activeElement = editor.view.dom.ownerDocument.activeElement;
@@ -3212,6 +3223,7 @@ export function VisualEditor({
         onImageComment: onComment,
         onImageFilePickerRequest,
         canMutateMedia,
+        isSuggesting,
         onJoinTitle,
         onOpenNotionPageLink,
         localFilePath,
@@ -3254,6 +3266,7 @@ export function VisualEditor({
       onComment,
       onImageFilePickerRequest,
       canMutateMedia,
+      isSuggesting,
       onJoinTitle,
       onOpenNotionPageLink,
       localFilePath,
@@ -4527,7 +4540,7 @@ export function VisualEditor({
         />
       ) : null}
       <LinkHoverPreview editor={editor} editable={editable} />
-      {editable ? <TableHoverControls editor={editor} /> : null}
+      {editable && !suggesting ? <TableHoverControls editor={editor} /> : null}
       {editable && isDraggingMedia ? (
         <div className="media-drop-overlay">
           <div className="media-drop-overlay__content">
