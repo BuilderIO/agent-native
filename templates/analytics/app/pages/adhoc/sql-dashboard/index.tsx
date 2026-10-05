@@ -143,6 +143,7 @@ import {
   canPersistDashboardFilterPreference,
   dashboardFilterParams,
   dashboardFilterPreferenceSaveState,
+  matchesDashboardFilterRestoreState,
   resolveDashboardFilterRestoreStep,
   sameDashboardFilterMap,
   type DashboardFilterPreferenceSaveGuard,
@@ -1081,11 +1082,11 @@ function SqlDashboardPageContent({
       (prev) => {
         if (previousProgress.status === "fallback-applied") {
           if (
-            !sameDashboardFilterMap(
+            !matchesDashboardFilterRestoreState(
+              prev,
               previousProgress.filters,
-              dashboardFilterParams(prev),
-            ) ||
-            prev.get("view") !== previousProgress.viewId
+              previousProgress.viewId,
+            )
           ) {
             return prev;
           }

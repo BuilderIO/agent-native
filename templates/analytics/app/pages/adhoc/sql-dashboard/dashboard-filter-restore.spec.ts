@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   canPersistDashboardFilterPreference,
   dashboardFilterPreferenceSaveState,
+  matchesDashboardFilterRestoreState,
   resolveDashboardFilterRestoreStep,
   type DashboardFilterRestoreProgress,
 } from "./dashboard-filter-restore";
@@ -51,6 +52,27 @@ describe("resolveDashboardFilterRestoreStep", () => {
       progress: { status: "complete" },
       restore: null,
     });
+  });
+
+  it("matches an absent URL view ID to an undefined fallback view ID", () => {
+    const searchParams = new URLSearchParams(
+      "f_timeRange=7d&f_emailFilter=all",
+    );
+
+    expect(
+      matchesDashboardFilterRestoreState(
+        searchParams,
+        personalFilters,
+        undefined,
+      ),
+    ).toBe(true);
+    expect(
+      matchesDashboardFilterRestoreState(
+        searchParams,
+        personalFilters,
+        "90-days",
+      ),
+    ).toBe(false);
   });
 
   it("applies the dashboard default before the user's last filters", () => {

@@ -85,6 +85,17 @@ export function sameDashboardFilterMap(
   return aKeys.every((key) => a![key] === b![key]);
 }
 
+export function matchesDashboardFilterRestoreState(
+  searchParams: URLSearchParams,
+  filters: Record<string, string>,
+  viewId: string | undefined,
+): boolean {
+  return (
+    sameDashboardFilterMap(filters, dashboardFilterParams(searchParams)) &&
+    (searchParams.get("view") ?? undefined) === viewId
+  );
+}
+
 function hasExplicitFilterState(searchParams: URLSearchParams): boolean {
   return (
     searchParams.has("view") ||
@@ -124,11 +135,11 @@ export function resolveDashboardFilterRestoreStep({
     progress.status === "views-failed"
   ) {
     if (
-      !sameDashboardFilterMap(
+      !matchesDashboardFilterRestoreState(
+        searchParams,
         progress.filters,
-        dashboardFilterParams(searchParams),
-      ) ||
-      (searchParams.get("view") ?? undefined) !== progress.viewId
+        progress.viewId,
+      )
     ) {
       return { progress: { status: "complete" }, restore: null };
     }
