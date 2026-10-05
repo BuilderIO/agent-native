@@ -881,7 +881,10 @@ describe("connector-catalog tier", () => {
     it("serves full catalog when OAuth token has catalog_scope: 'full'", async () => {
       process.env.BETTER_AUTH_SECRET = OAUTH_SECRET;
       try {
-        const token = await signOAuthToken({ catalogScope: "full" } as any);
+        const token = await signOAuthToken({
+          catalogScope: "full",
+          clientId: "catalog-test-client",
+        } as any);
         const rpc = { jsonrpc: "2.0", id: 8, method: "tools/list", params: {} };
         const out = await call(rpc, {
           headers: { authorization: `Bearer ${token}` },

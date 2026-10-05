@@ -106,7 +106,8 @@ describe("mountMCP", () => {
     const result = await handler(event);
 
     expect(result).toEqual({
-      error: "MCP identity verification is temporarily unavailable",
+      error: "Service Unavailable",
+      message: "Organization membership could not be verified. Retry shortly.",
     });
     expect(mockServerState.setResponseStatus).toHaveBeenCalledWith(event, 503);
   });

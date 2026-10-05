@@ -7,6 +7,8 @@ const handleJsonRpcH3Mock = vi.hoisted(() =>
   vi.fn(async () => ({ jsonrpc: "2.0", id: 1, result: { ok: true } })),
 );
 const resolveA2AOrganizationCredentialsByDomainMock = vi.hoisted(() => vi.fn());
+const resolveA2AOrganizationMetadataByDomainMock = vi.hoisted(() => vi.fn());
+const resolveA2AOrganizationMetadataByIdMock = vi.hoisted(() => vi.fn());
 const isOrgMemberForA2AMock = vi.hoisted(() => vi.fn());
 const setResponseStatusMock = vi.hoisted(() =>
   vi.fn((event: any, code: number) => {
@@ -48,6 +50,9 @@ vi.mock("../server/h3-helpers.js", () => ({
 vi.mock("../org/context.js", () => ({
   resolveA2AOrganizationCredentialsByDomain:
     resolveA2AOrganizationCredentialsByDomainMock,
+  resolveA2AOrganizationMetadataByDomain:
+    resolveA2AOrganizationMetadataByDomainMock,
+  resolveA2AOrganizationMetadataById: resolveA2AOrganizationMetadataByIdMock,
 }));
 
 vi.mock("../org/membership.js", () => ({
@@ -79,6 +84,10 @@ describe("mountA2A auth", () => {
     vi.resetModules();
     handleJsonRpcH3Mock.mockClear();
     resolveA2AOrganizationCredentialsByDomainMock.mockReset();
+    resolveA2AOrganizationMetadataByDomainMock.mockReset();
+    resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue(null);
+    resolveA2AOrganizationMetadataByIdMock.mockReset();
+    resolveA2AOrganizationMetadataByIdMock.mockResolvedValue(null);
     isOrgMemberForA2AMock.mockReset();
     isOrgMemberForA2AMock.mockResolvedValue(true);
     setResponseStatusMock.mockClear();
@@ -624,6 +633,11 @@ describe("mountA2A auth", () => {
 
   it("falls back to the shared A2A_SECRET when the receiver org secret differs", async () => {
     process.env.A2A_SECRET = "shared-global-secret";
+    isOrgMemberForA2AMock.mockResolvedValueOnce(false);
+    resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+    });
     resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValueOnce({
       orgId: "org-builder",
       orgDomain: "builder.io",
@@ -813,6 +827,10 @@ describe("verifyA2AToken (exported)", () => {
   beforeEach(() => {
     vi.resetModules();
     resolveA2AOrganizationCredentialsByDomainMock.mockReset();
+    resolveA2AOrganizationMetadataByDomainMock.mockReset();
+    resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue(null);
+    resolveA2AOrganizationMetadataByIdMock.mockReset();
+    resolveA2AOrganizationMetadataByIdMock.mockResolvedValue(null);
     isOrgMemberForA2AMock.mockReset();
     isOrgMemberForA2AMock.mockResolvedValue(true);
     process.env = { ...originalEnv, NODE_ENV: "production" };
@@ -1022,6 +1040,54 @@ describe("verifyA2AToken (exported)", () => {
 
   it("returns an exact org id claim without changing legacy token results", async () => {
     process.env.A2A_SECRET = "shared-global-secret";
+    isOrgMemberForA2AMock.mockResolvedValueOnce(false);
+    resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+    });
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      org_domain: "builder.io",
+      org_id: "org-builder",
+    });
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: "alice@builder.io",
+      orgDomain: "builder.io",
+      orgId: "org-builder",
+    });
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("binds domain-only global tokens to local organization metadata without receiver membership", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    isOrgMemberForA2AMock.mockResolvedValueOnce(false);
+    resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+    });
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      org_domain: "builder.io",
+    });
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: "alice@builder.io",
+      orgDomain: "builder.io",
+      orgId: "org-builder",
+    });
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("binds ID-only global tokens to local organization metadata without receiver membership", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    isOrgMemberForA2AMock.mockResolvedValueOnce(false);
+    resolveA2AOrganizationMetadataByIdMock.mockResolvedValue({
+      orgId: "org-builder",
+      orgDomain: null,
+    });
     const { verifyA2AToken } = await import("./server.js");
     const token = await signToken("shared-global-secret", {
       sub: "alice@builder.io",
@@ -1033,13 +1099,57 @@ describe("verifyA2AToken (exported)", () => {
       orgDomain: null,
       orgId: "org-builder",
     });
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a globally signed org id that does not match its resolved domain", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+    });
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      org_domain: "builder.io",
+      org_id: "org-evil",
+    });
+
+    await expect(verifyA2AToken(token)).resolves.toEqual({
+      email: null,
+      orgDomain: null,
+    });
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a global org claim unavailable when local metadata cannot be read", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    resolveA2AOrganizationMetadataByDomainMock.mockRejectedValueOnce(
+      new Error("database unavailable"),
+    );
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      org_domain: "builder.io",
+    });
+
+    await expect(verifyA2AToken(token)).rejects.toMatchObject({
+      name: "A2AIdentityVerificationUnavailableError",
+    });
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
   });
 
   it("exposes verified claims only to an explicit caller", async () => {
     process.env.A2A_SECRET = "shared-global-secret";
+    isOrgMemberForA2AMock.mockResolvedValueOnce(false);
+    resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue({
+      orgId: "dispatch-org-1",
+      orgDomain: "builder.io",
+    });
     const { verifyA2AToken } = await import("./server.js");
     const token = await signToken("shared-global-secret", {
       sub: "alice@builder.io",
+      org_domain: "builder.io",
       app_id: "slides",
       scope: "organization-federation",
       org_id: "dispatch-org-1",

@@ -1008,6 +1008,45 @@ export async function resolveOrgByDomain(
   }
 }
 
+export async function resolveA2AOrganizationMetadataByDomain(
+  domain: string,
+): Promise<{ orgId: string; orgDomain: string | null } | null> {
+  const normalizedDomain = domain.trim().toLowerCase();
+  if (!normalizedDomain) return null;
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT id, allowed_domain
+          FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+    args: [normalizedDomain],
+  });
+  const row = rows[0] as any;
+  if (!row) return null;
+  const orgId = String(row.id ?? "").trim();
+  const orgDomain = String(row.allowed_domain ?? "")
+    .trim()
+    .toLowerCase();
+  if (!orgId || !orgDomain || orgDomain !== normalizedDomain) return null;
+  return { orgId, orgDomain };
+}
+
+export async function resolveA2AOrganizationMetadataById(
+  orgId: string,
+): Promise<{ orgId: string; orgDomain: string | null } | null> {
+  const normalizedOrgId = orgId.trim();
+  if (!normalizedOrgId) return null;
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT id, allowed_domain FROM organizations WHERE id = ? LIMIT 1`,
+    args: [normalizedOrgId],
+  });
+  const row = rows[0] as any;
+  if (!row) return null;
+  const resolvedOrgId = String(row.id ?? "").trim();
+  if (!resolvedOrgId || resolvedOrgId !== normalizedOrgId) return null;
+  const rawDomain = String(row.allowed_domain ?? "")
+    .trim()
+    .toLowerCase();
+  return { orgId: resolvedOrgId, orgDomain: rawDomain || null };
+}
+
 export async function resolveA2AOrganizationCredentialsByDomain(
   domain: string,
 ): Promise<{

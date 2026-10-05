@@ -1423,7 +1423,7 @@ describe("server/sentry", () => {
   });
 
   describe("captureAuthError", () => {
-    it("logs signup errors when server Sentry is disabled", async () => {
+    it("logs a safe signup error marker when server Sentry is disabled", async () => {
       delete process.env.SENTRY_SERVER_DSN;
       delete process.env.SENTRY_DSN;
       const error = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -1437,13 +1437,37 @@ describe("server/sentry", () => {
       );
 
       expect(error).toHaveBeenCalledTimes(1);
-      expect(error.mock.calls[0]?.[0]).toBe(
-        "[agent-native][auth] signup error",
+      expect(error).toHaveBeenCalledWith(
+        "[agent-native][auth] signup error (Sentry unavailable)",
       );
-      expect(error.mock.calls[0]?.[1]).toContain("Failed query");
-      expect(error.mock.calls[0]?.[1]).toContain("params: <redacted>");
-      expect(error.mock.calls[0]?.[1]).not.toContain("private@example.com");
+      expect(JSON.stringify(error.mock.calls)).not.toContain(
+        "private@example.com",
+      );
       expect(sentryMock.captureException).not.toHaveBeenCalled();
+      error.mockRestore();
+    });
+
+    it("does not log signup error details when Sentry capture throws", async () => {
+      process.env.SENTRY_SERVER_DSN = "https://test@example/123";
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      sentryMock.withScope.mockImplementationOnce(() => {
+        throw new Error("Failed to create account for private@example.com");
+      });
+      const { initServerSentry, captureAuthError } =
+        await import("./sentry.js");
+      await initServerSentry();
+
+      captureAuthError(new Error("private@example.com was rejected"), {
+        route: "signup",
+        email: "private@example.com",
+      });
+
+      expect(error).toHaveBeenCalledWith(
+        "[agent-native][auth] signup error (Sentry unavailable)",
+      );
+      expect(JSON.stringify(error.mock.calls)).not.toContain(
+        "private@example.com",
+      );
       error.mockRestore();
     });
   });

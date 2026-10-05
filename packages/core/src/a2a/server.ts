@@ -25,6 +25,7 @@ import {
   isA2AProductionRuntime,
 } from "./auth-policy.js";
 import { handleJsonRpcH3, processA2ATaskFromQueue } from "./handlers.js";
+import { verifyA2AOrganizationIdentity } from "./organization-identity.js";
 import {
   claimA2AApproval,
   getA2AApprovalForOwner,
@@ -46,8 +47,8 @@ function warnA2AUnauthOnce(): void {
 /**
  * Result of verifying an inbound A2A JWT. `email` is the caller identity from
  * the token's `sub` claim (null when verification fails), `orgDomain` mirrors
- * the verified `org_domain` claim when present, and `orgId` mirrors a verified
- * `org_id` claim or the local organization bound to an org-secret token.
+ * locally resolved organization metadata when present, and `orgId` is the
+ * matching local organization bound to the token's organization claims.
  */
 export interface A2ATokenPayload {
   email: string | null;
@@ -78,25 +79,30 @@ export function isA2AIdentityVerificationUnavailableError(
 
 interface A2ATokenVerification {
   payload: A2ATokenPayload;
-  /** Set only when the token was verified by the resolved local org secret. */
+  /** Set only when the token's org claim was bound to local metadata. */
   verifiedOrgId?: string;
 }
 
 function identityPayload(
   payload: jose.JWTPayload,
   audienceOptions?: { includeClaims?: boolean },
-  verifiedOrgId?: string,
+  verifiedOrganization?: { orgId: string; orgDomain: string | null },
 ): A2ATokenPayload {
-  const orgId =
-    verifiedOrgId ??
-    (typeof payload.org_id === "string" && payload.org_id.trim()
-      ? payload.org_id.trim()
-      : undefined);
+  const claims = verifiedOrganization
+    ? {
+        ...payload,
+        org_id: verifiedOrganization.orgId,
+        ...(verifiedOrganization.orgDomain
+          ? { org_domain: verifiedOrganization.orgDomain }
+          : { org_domain: undefined }),
+      }
+    : payload;
   return {
     email: (payload.sub as string) ?? null,
-    orgDomain: (payload.org_domain as string) ?? null,
-    ...(orgId ? { orgId } : {}),
-    ...(audienceOptions?.includeClaims ? { claims: payload } : {}),
+    orgDomain:
+      verifiedOrganization?.orgDomain ?? (payload.org_domain as string) ?? null,
+    ...(verifiedOrganization ? { orgId: verifiedOrganization.orgId } : {}),
+    ...(audienceOptions?.includeClaims ? { claims } : {}),
   };
 }
 
@@ -312,7 +318,29 @@ async function verifyA2ATokenInternal(
       globalSecret,
       verifyOptions,
     );
-    if (payload) return { payload: identityPayload(payload, audienceOptions) };
+    if (payload) {
+      let verifiedOrganization: Awaited<
+        ReturnType<typeof verifyA2AOrganizationIdentity>
+      >;
+      try {
+        verifiedOrganization = await verifyA2AOrganizationIdentity(payload);
+      } catch (cause) {
+        throw new A2AIdentityVerificationUnavailableError(cause);
+      }
+      if (verifiedOrganization === null) {
+        return { payload: { email: null, orgDomain: null } };
+      }
+      return {
+        payload: identityPayload(
+          payload,
+          audienceOptions,
+          verifiedOrganization,
+        ),
+        ...(verifiedOrganization
+          ? { verifiedOrgId: verifiedOrganization.orgId }
+          : {}),
+      };
+    }
   }
 
   if (
@@ -371,7 +399,10 @@ async function verifyA2ATokenInternal(
   if (!member) return { payload: { email: null, orgDomain: null } };
 
   return {
-    payload: identityPayload(payload, audienceOptions, organization.orgId),
+    payload: identityPayload(payload, audienceOptions, {
+      orgId: organization.orgId,
+      orgDomain: organization.orgDomain,
+    }),
     verifiedOrgId: organization.orgId,
   };
 }

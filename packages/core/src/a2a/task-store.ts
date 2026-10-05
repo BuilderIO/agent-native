@@ -486,6 +486,22 @@ export interface A2ATaskOwnership {
   ownerScope: string | null;
 }
 
+export interface A2ATaskAccessScope {
+  ownerEmail: string;
+  ownerScope: string | null;
+}
+
+function taskAccessPredicate(scope: A2ATaskAccessScope | undefined): {
+  sql: string;
+  args: unknown[];
+} {
+  if (!scope) return { sql: "", args: [] };
+  return {
+    sql: " AND LOWER(COALESCE(owner_email, '')) = LOWER(?) AND LOWER(COALESCE(owner_scope, '')) = LOWER(?)",
+    args: [scope.ownerEmail, scope.ownerScope ?? ""],
+  };
+}
+
 export async function getTaskOwner(id: string): Promise<string | null> {
   return (await getTaskOwnership(id)).ownerEmail;
 }
@@ -683,12 +699,16 @@ export async function failStuckQueuedA2ATask(
   return affected !== 0;
 }
 
-export async function getTask(id: string): Promise<Task | null> {
+export async function getTask(
+  id: string,
+  accessScope?: A2ATaskAccessScope,
+): Promise<Task | null> {
   await ensureTable();
   const client = getDbExec();
+  const predicate = taskAccessPredicate(accessScope);
   const { rows } = await client.execute({
-    sql: `SELECT * FROM a2a_tasks WHERE id = ?`,
-    args: [id],
+    sql: `SELECT * FROM a2a_tasks WHERE id = ?${predicate.sql}`,
+    args: [id, ...predicate.args],
   });
   if (rows.length === 0) return null;
   return taskFromRow(rows[0]);
@@ -701,13 +721,15 @@ export async function updateTask(
     message?: Message;
     artifacts?: Artifact[];
   },
+  accessScope?: A2ATaskAccessScope,
 ): Promise<Task | null> {
   await ensureTable();
   const client = getDbExec();
+  const predicate = taskAccessPredicate(accessScope);
 
   const { rows } = await client.execute({
-    sql: `SELECT * FROM a2a_tasks WHERE id = ?`,
-    args: [id],
+    sql: `SELECT * FROM a2a_tasks WHERE id = ?${predicate.sql}`,
+    args: [id, ...predicate.args],
   });
   if (rows.length === 0) return null;
 
@@ -730,8 +752,8 @@ export async function updateTask(
     task.artifacts = [...(task.artifacts ?? []), ...update.artifacts];
   }
 
-  await client.execute({
-    sql: `UPDATE a2a_tasks SET status_state = ?, status_message = ?, status_timestamp = ?, history = ?, artifacts = ?, updated_at = ? WHERE id = ?`,
+  const result = await client.execute({
+    sql: `UPDATE a2a_tasks SET status_state = ?, status_message = ?, status_timestamp = ?, history = ?, artifacts = ?, updated_at = ? WHERE id = ?${predicate.sql}`,
     args: [
       task.status.state,
       task.status.message ? JSON.stringify(task.status.message) : null,
@@ -740,8 +762,13 @@ export async function updateTask(
       JSON.stringify(task.artifacts),
       now,
       id,
+      ...predicate.args,
     ],
   });
+
+  if (accessScope && getAffectedRowCount(result) !== 1) {
+    return null;
+  }
 
   return task;
 }
