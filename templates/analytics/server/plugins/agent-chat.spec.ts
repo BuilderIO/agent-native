@@ -462,6 +462,7 @@ describe("Analytics agent Plan mode policy", () => {
         "account-deep-dive",
         "gong-calls",
         "gong-native-insights",
+        "run-gong-native-insight",
         "github-repo-files",
         "hubspot-deals",
         "hubspot-records",

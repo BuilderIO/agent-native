@@ -1,5 +1,6 @@
 import type { H3Event } from "h3";
 
+import { PROVIDER_ENV_VARS } from "../agent/engine/provider-env-vars.js";
 import { getOrgContext } from "../org/context.js";
 import {
   getRequiredSecret,
@@ -101,7 +102,14 @@ function resolveTargetScope(
   secret: RegisteredSecret | undefined,
   requestedScope: ScopedKeySaveRequestScope,
 ): SecretScope {
-  if (secret?.kind === "api-key") return secret.scope;
+  // Model provider keys register at "user" only so API keys lists the personal
+  // row; every resolver also reads the org's, so an explicit org save lands.
+  if (
+    secret?.kind === "api-key" &&
+    !(requestedScope === "org" && PROVIDER_ENV_VARS.includes(secret.key))
+  ) {
+    return secret.scope;
+  }
   if (requestedScope === "org") return "org";
   if (requestedScope === "workspace" || requestedScope === "app") {
     return "workspace";

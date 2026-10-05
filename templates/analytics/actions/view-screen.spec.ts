@@ -69,6 +69,11 @@ vi.mock("../server/lib/session-replay.js", () => ({
   ),
 }));
 
+const isSessionsTriageLabEnabled = vi.fn(async () => false);
+vi.mock("../server/lib/sessions-triage-lab.js", () => ({
+  isSessionsTriageLabEnabled,
+}));
+
 const { default: viewScreenAction } = await import("./view-screen");
 
 function setScreen(
@@ -443,6 +448,44 @@ describe("view-screen Sessions context", () => {
     });
   });
 
+  it("applies event conditions from the URL only while the Lab is on", async () => {
+    const url = {
+      pathname: "/sessions",
+      search:
+        "?event=recording_started&noEvent=clip_viewed&noEvent=clip_viewed",
+      searchParams: { event: "recording_started", noEvent: "clip_viewed" },
+    };
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
+    setScreen({ view: "sessions" }, url);
+
+    const on = await runScreen();
+
+    expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        didEvents: ["recording_started"],
+        didNotEvents: ["clip_viewed"],
+      }),
+    );
+    expect(on.sessionReplayPage.fullPageAction.args).toMatchObject({
+      didEvents: ["recording_started"],
+      didNotEvents: ["clip_viewed"],
+    });
+    expect(on.sessionReplayPage.eventConditionsNotApplied).toBeUndefined();
+
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(false);
+    const off = await runScreen();
+
+    expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.not.objectContaining({ didEvents: expect.anything() }),
+    );
+    expect(off.sessionReplayPage.eventConditionsNotApplied).toEqual({
+      didEvents: ["recording_started"],
+      didNotEvents: ["clip_viewed"],
+    });
+  });
+
   it("keeps an unsafe page out of the backend offset and context", async () => {
     setScreen(
       { view: "sessions" },
@@ -458,5 +501,53 @@ describe("view-screen Sessions context", () => {
       expect.objectContaining({ offset: 0, limit: 25 }),
     );
     expect(out.sessionReplayPage).toMatchObject({ page: 1, offset: 0 });
+  });
+});
+
+describe("view-screen event catalog", () => {
+  beforeEach(() => {
+    userEmail = "user@example.test";
+    selectedObjectState.current = null;
+    isSessionsTriageLabEnabled.mockReset();
+  });
+
+  it("points the agent at the catalog action for the visible range and app", async () => {
+    isSessionsTriageLabEnabled.mockResolvedValue(true);
+    setScreen(
+      { view: "event-catalog" },
+      {
+        pathname: "/sessions/events",
+        searchParams: { range: "7d", app: "clips" },
+      },
+    );
+
+    const out = await runScreen();
+
+    expect(out.page).toBe("event-catalog");
+    expect(out.eventCatalog).toEqual({
+      range: "7d",
+      app: "clips",
+      fullPageAction: {
+        name: "list-event-catalog",
+        args: { from: "2026-09-01T00:00:00.000Z", app: "clips" },
+      },
+    });
+    expect(isSessionsTriageLabEnabled).toHaveBeenCalledWith(
+      "user@example.test",
+      "org-1",
+    );
+  });
+
+  it("reports the Lab as off instead of describing the catalog", async () => {
+    isSessionsTriageLabEnabled.mockResolvedValue(false);
+    setScreen(
+      { view: "event-catalog" },
+      { pathname: "/sessions/events", searchParams: {} },
+    );
+
+    const out = await runScreen();
+
+    expect(out.page).toBe("event-catalog");
+    expect(out.eventCatalog).toEqual({ labEnabled: false });
   });
 });

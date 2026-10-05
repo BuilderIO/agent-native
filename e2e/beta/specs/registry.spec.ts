@@ -1,21 +1,16 @@
 import { expect, test } from "@playwright/test";
 
-import { evaluateAfterNavigation } from "../lib/app";
 import {
   assertSignedInOnBeta,
   signedInContext,
   skipUnlessAuthed,
 } from "../lib/authed";
 import { authenticatableSites, originFor } from "../lib/fleet";
+import { BETA_E2E_TEST_TRAFFIC_HEADERS } from "../lib/test-traffic";
 
 skipUnlessAuthed();
 
 const sites = authenticatableSites();
-
-function recordNavigationRetry(note: string): void {
-  console.warn(`[beta-e2e] registry: ${note}`);
-  test.info().annotations.push({ type: "navigation-retry", description: note });
-}
 
 test.describe.configure({ mode: "parallel" });
 
@@ -47,30 +42,20 @@ for (const site of sites) {
         seedModel: false,
       });
       try {
-        const page = await context.newPage();
-        await page.goto(`${origin}/`, {
-          waitUntil: "domcontentloaded",
-          timeout: 45_000,
-        });
-        const results = await evaluateAfterNavigation(
-          page,
-          () =>
-            page.evaluate(async () => {
-              const paths = [
-                "/_agent-native/poll",
-                "/_agent-native/agent-engine/status",
-              ];
-              const out: { path: string; status: number }[] = [];
-              for (const path of paths) {
-                const response = await fetch(path, {
-                  headers: { accept: "application/json" },
-                });
-                out.push({ path, status: response.status });
-              }
-              return out;
-            }),
-          recordNavigationRetry,
-        );
+        const paths = [
+          "/_agent-native/poll",
+          "/_agent-native/agent-engine/status",
+        ];
+        const results: { path: string; status: number }[] = [];
+        for (const path of paths) {
+          const response = await context.request.get(`${origin}${path}`, {
+            headers: {
+              ...BETA_E2E_TEST_TRAFFIC_HEADERS,
+              accept: "application/json",
+            },
+          });
+          results.push({ path, status: response.status() });
+        }
 
         const bad = results.filter((r) => r.status < 200 || r.status >= 400);
         expect(
@@ -89,23 +74,20 @@ for (const site of sites) {
         seedModel: false,
       });
       try {
-        const page = await context.newPage();
-        await page.goto(`${origin}/`, {
-          waitUntil: "domcontentloaded",
-          timeout: 45_000,
-        });
-        const discovery = await evaluateAfterNavigation(
-          page,
-          () =>
-            page.evaluate(async (appId) => {
-              const response = await fetch(
-                `/_agent-native/agents?selfAppId=${encodeURIComponent(appId)}`,
-                { headers: { accept: "application/json" } },
-              );
-              return { status: response.status, body: await response.text() };
-            }, site.id),
-          recordNavigationRetry,
+        const response = await context.request.get(
+          `${origin}/_agent-native/agents`,
+          {
+            params: { selfAppId: site.id },
+            headers: {
+              ...BETA_E2E_TEST_TRAFFIC_HEADERS,
+              accept: "application/json",
+            },
+          },
         );
+        const discovery = {
+          status: response.status(),
+          body: await response.text(),
+        };
 
         expect(
           discovery.status,

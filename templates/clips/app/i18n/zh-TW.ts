@@ -2,7 +2,7 @@ const messages = {
   meetingAsk: { resizeOrDismissAnswers: "調整答案區域大小或關閉" },
   agentChat: {
     setup: {
-      connectBuilder: "連線至 Builder.io",
+      connectBuilder: "使用 Builder.io",
       providerStatusUnavailable: "無法確認 AI 是否已就緒。",
     },
     common: { retry: "重試" },
@@ -211,7 +211,8 @@ const messages = {
     backToLibrary: "返回媒體庫",
     sharedWithYou: "與你共享",
     storageStillDisconnected: "儲存仍未連線",
-    finishBuilderOrS3: "完成 Builder.io 快顯視窗或設定 S3 儲存，然後重試。",
+    finishBuilderOrS3:
+      "使用 Builder.io 儲存空間，或設定 S3 相容儲存空間，然後重試。",
     loomImportResumed: "Loom 匯入已恢復",
     clipUploadResumed: "剪輯上傳已恢復",
     couldNotRetryLoom: "無法重試 Loom 匯入",
@@ -254,9 +255,9 @@ const messages = {
     savingWentWrong: "儲存此剪輯時出現問題。",
     finishingClip: "正在完成您的剪輯...",
     loomSourcePreserved:
-      "已保留 Loom 來源連結。連線 Builder.io（免費方案儲存 + AI）或 S3 相容儲存後，Clips 將重試儲存自己的副本。",
+      "Loom 來源連結已保留。使用 Builder.io 儲存空間（免費方案儲存空間和 AI）或 S3 相容儲存空間，Clips 會重試儲存自己的副本。",
     clipDataPreserved:
-      "您的剪輯資料仍會保留。連線 Builder.io（免費方案儲存 + AI）或 S3 相容儲存後，Clips 將自動上傳。",
+      "剪輯資料已保留。使用 Builder.io 儲存空間（免費方案儲存空間和 AI）或 S3 相容儲存空間，Clips 會自動上傳。",
     details: "詳細資料",
     importingLoom: "正在匯入 Loom...",
     uploadingSavedClip: "正在上傳儲存的剪輯...",
@@ -370,13 +371,13 @@ const messages = {
     savingWentWrong: "儲存此剪輯時出現問題。",
     finishingClip: "完成這個剪輯...",
     loomPreservedManage:
-      "Loom 來源連結被保留。連線儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存，然後重試匯入。",
+      "Loom 來源連結已保留。使用 Builder.io 儲存空間（免費方案儲存空間和 AI）或 S3 相容儲存空間，然後重試匯入。",
     videoPreservedManage:
-      "影片已保留。連線儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存，Clips 將完成上傳。",
+      "影片已保留。使用 Builder.io 儲存空間（免費方案儲存空間和 AI）或 S3 相容儲存空間，Clips 會完成上傳。",
     creatorNeedsStorage:
-      "建立者需要先連線儲存才能完成此剪輯：Builder.io（免費方案儲存 + AI）或 S3 相容儲存。",
+      "建立者需要使用 Builder.io 儲存空間（免費方案儲存空間和 AI）或 S3 相容儲存空間，才能完成此剪輯。",
     signInStorage:
-      "如果這是您的剪輯，請在此處登入以連線儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存，並完成上傳。",
+      "如果這是您的剪輯，請在此登入並使用 Builder.io 儲存空間（免費方案儲存空間和 AI）或 S3 相容儲存空間，以完成上傳。",
     uploadNotCompleteSession:
       "上傳尚未完成。開啟此剪輯的儀表板或要求建立者檢查儲存空間。",
     uploadNotCompleteSignIn:
@@ -507,8 +508,8 @@ const messages = {
     cleanupBuilderFailed:
       "即使 Builder.io 已連線，清理也無法完成。已保留本機逐字稿。",
     cleanupPaused:
-      "清理已暫停。請在「設定」中連線 AI：Builder.io（免費額度）或您自己的 LLM 金鑰。",
-    builderNoResponse: "沒有收到 Builder 的回覆。允許快顯視窗並重試。",
+      "清理已暫停。請在「設定」中使用 Builder.io 提供 AI（免費額度），或新增您自己的 LLM 金鑰。",
+    builderNoResponse: "沒有收到 Builder 的回覆，請重試。",
     saveFailed: "儲存失敗（{{status}}）",
     savedRetrying: "已儲存。正在重試轉錄...",
     getGroqKey: "取得 Groq 金鑰",
@@ -1050,7 +1051,7 @@ const messages = {
     pickAtLeastTwo: "請選取至少 2 個錄製進行拼接",
     videoUrlMissing: "一個或多個錄製還沒有可用的影片 URL",
     connectStorage:
-      "拼接錄製前請連線儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存。",
+      "拼接錄影前，請使用 Builder.io 儲存空間（免費方案儲存空間和 AI）或 S3 相容儲存空間。",
     created: "拼接錄製已建立",
     failed: "拼接錄製失敗",
     noOtherRecordings: "沒有其他可用錄製。",
@@ -1383,10 +1384,10 @@ const messages = {
   },
   storageSetup: {
     builderConnectPopupError:
-      "無法開啟 Builder.io。如果此應用程式嵌入在聊天中，請在瀏覽器分頁中開啟；否則請允許此網站顯示快顯視窗後再試一次。",
-    builderConnectError: "無法連線至 Builder.io。請再試一次或聯絡支援團隊。",
+      "無法開啟 Builder.io。如果此應用程式嵌入在聊天中，請在瀏覽器分頁中開啟；否則請重試。",
+    builderConnectError: "無法設定 Builder.io。請再試一次或聯絡支援團隊。",
     checkingBuilderConnection: "正在檢查 Builder 連線…",
-    builderTimeout: "5 分鐘內未收到 Builder 回應。請檢查快顯視窗並重試。",
+    builderTimeout: "5 分鐘內未收到 Builder 回應，請重試。",
     builderConnected: "Builder.io 已連線",
     waitingForBuilder: "正在等待 Builder...",
     description:
@@ -1396,7 +1397,7 @@ const messages = {
     free: "免費",
     whyPrompt: "為什麼我會看到這個？",
     whyDescription:
-      "Clips 是 100% 免費且開放原始碼，因此您需要連線一種儲存 clips 的方式。使用 Builder.io 可取得免費方案儲存和 AI，或使用 S3 相容物件儲存和您自己的 LLM 金鑰。",
+      "Clips 是 100% 免費的開放原始碼應用程式，因此您需要一種方式來儲存剪輯。使用 Builder.io 可取得免費方案儲存空間和 AI，也可以使用 S3 相容物件儲存空間和您自己的 LLM 金鑰。",
   },
   captureInstall: {
     title: "選擇錄製工具",
@@ -1711,9 +1712,9 @@ const messages = {
     storageConnectedReopeningRecorder:
       "儲存空間已連線。正在重新開啟錄製工具...",
     connectStorageToFinish:
-      "在下一個畫面連線儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存。Clips 將完成儲存。",
+      "在下一個畫面使用 Builder.io 儲存空間（免費方案儲存空間和 AI），或設定 S3 相容儲存空間。Clips 會完成儲存。",
     connectStorageToRetryLoom:
-      "在下一個畫面連線儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存。Clips 將重試匯入。",
+      "在下一個畫面使用 Builder.io 儲存空間（免費方案儲存空間和 AI），或設定 S3 相容儲存空間。Clips 會重試匯入。",
     leaveConfirmTitle: "離開這段錄影？",
     leaveConfirmDescription:
       "這段錄影只存在於此分頁中。除非先下載副本，否則離開後會被刪除。",

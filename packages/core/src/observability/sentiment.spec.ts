@@ -150,7 +150,7 @@ describe("inferAndTrackSentiment", () => {
       precedingRunId: "run-before",
       classificationTriggerRunId: "run-1",
       threadId: "thread-1",
-      userId: "person@example.test",
+      userId: "person@example.com",
       sampleRate: 1,
     });
 
@@ -167,7 +167,7 @@ describe("inferAndTrackSentiment", () => {
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       name: "$ai_sentiment",
-      userId: "person@example.test",
+      userId: "person@example.com",
       properties: {
         method: "llm",
         sentiment: "negative",

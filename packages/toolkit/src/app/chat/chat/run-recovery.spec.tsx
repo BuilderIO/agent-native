@@ -79,7 +79,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: Record<string, unknown>) => {
     const translations: Record<string, Record<string, string>> = {
       "en-US": {
-        "agentChat.setup.connectBuilder": "Connect Builder.io",
+        "agentChat.setup.connectBuilder": "Use Builder.io",
         "agentPanel.connectAi": "Connect AI",
         "agentPanel.builderOrOwnKeys": "Choose Builder.io or custom keys.",
         "agentPanel.addOwnKeys": "Custom keys",
@@ -103,8 +103,8 @@ vi.mock("@agent-native/core/client/i18n", () => ({
           "The provider rejected the credential used for this request; it is skipped on the next attempt. Retry, or update your provider key if it keeps failing.",
         "agentChat.recovery.newChatHint":
           "This run can be continued in a new chat.",
-        "agentChat.recovery.reconnectBuilder": "Reconnect Builder.io",
-        "agentChat.recovery.connectingBuilder": "Connecting Builder.io",
+        "agentChat.recovery.reconnectBuilder": "Use Builder.io",
+        "agentChat.recovery.connectingBuilder": "Setting up Builder.io",
         "agentChat.error.stopped": "The agent stopped before finishing",
         "agentChat.error.failed": "The agent run failed before it finished.",
         "agentChat.limit.reached": "Step limit reached",
@@ -564,7 +564,7 @@ describe("run recovery surfaces", () => {
     });
 
     expect(container.textContent).toContain("Connect AI");
-    expect(container.textContent).toContain("Connect Builder.io");
+    expect(container.textContent).toContain("Use Builder.io");
     expect(container.textContent).toContain("Custom keys");
     expect(container.textContent).not.toContain(
       "The agent stopped before finishing",
@@ -601,7 +601,7 @@ describe("run recovery surfaces", () => {
       );
     });
 
-    expect(container.textContent).toContain("Reconnect Builder.io");
+    expect(container.textContent).toContain("Use Builder.io");
     expect(container.textContent).not.toContain("Connect AI");
     expect(container.textContent).not.toContain("Custom keys");
   });
@@ -620,7 +620,7 @@ describe("run recovery surfaces", () => {
     });
 
     expect(container.textContent).toContain("Connect AI");
-    expect(container.textContent).toContain("Connect Builder.io");
+    expect(container.textContent).toContain("Use Builder.io");
 
     const customKeysLink = container.querySelector<HTMLAnchorElement>(
       'a[href="/settings/keys"]',
@@ -856,7 +856,7 @@ describe("run recovery surfaces", () => {
       );
     });
 
-    expect(container.textContent).toContain("Connect Builder.io");
+    expect(container.textContent).toContain("Use Builder.io");
     expect(container.textContent).toContain("Custom keys");
 
     const retryButton = container.querySelector<HTMLButtonElement>(
@@ -1060,7 +1060,7 @@ describe("run recovery surfaces", () => {
     });
 
     expect(container.textContent).toContain("Connect AI");
-    expect(container.textContent).toContain("Connect Builder.io");
+    expect(container.textContent).toContain("Use Builder.io");
     expect(container.textContent).not.toContain("The agent hit an error");
   });
 

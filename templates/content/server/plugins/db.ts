@@ -1,5 +1,7 @@
 import { runMigrations } from "@agent-native/core/db";
+import { searchIndexMigration } from "@agent-native/core/search";
 
+import { documentSearchIndex } from "../db/index.js";
 import { scheduleStartupMaintenance } from "../lib/startup-maintenance.js";
 
 // Convention: every new migration below MUST set a unique `name:` slug (see
@@ -1414,6 +1416,12 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS content_private_icon_reference_document_idx
         ON content_private_icon_references (document_id)`,
     },
+    // Creates the core search tables and installs the triggers that keep
+    // the document index fresh (docs/search-architecture.md).
+    searchIndexMigration(documentSearchIndex, {
+      version: 117,
+      name: "search-index-documents",
+    }),
   ],
   { table: "content_migrations" },
 );

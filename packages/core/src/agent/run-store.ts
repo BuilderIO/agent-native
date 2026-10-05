@@ -13,6 +13,10 @@ import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { captureError } from "../server/capture-error.js";
 import { isRequestedStopAbortReason } from "./abort-reasons.js";
 import {
+  admitAutoContinue,
+  type AutoContinueRefusalCode,
+} from "./auto-continue.js";
+import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "./engine/credential-errors.js";
@@ -291,6 +295,7 @@ export async function ensureRunTables(): Promise<void> {
         ["dispatch_payload", "TEXT"],
         ["in_flight_since", "BIGINT"],
         ["continuation_order", "BIGINT"],
+        ["auto_continue_of", "TEXT"],
       ] as const) {
         await ensureColumnExists(
           "agent_runs",
@@ -1072,12 +1077,15 @@ export async function tryClaimRunSlot(
     dispatchPayload?: string;
     continuationOrder?: number;
     turnInitiator?: AgentTurnInitiator;
+    /** The time-limit stop this run automatically continues. */
+    autoContinueOf?: string;
   },
 ): Promise<{
   claimed: boolean;
   activeRunId: string | null;
   completedRunId?: string;
   turnAborted?: boolean;
+  autoContinueRefused?: AutoContinueRefusalCode;
 }> {
   await ensureRunTables();
   const client = getDbExec();
@@ -1155,11 +1163,60 @@ export async function tryClaimRunSlot(
       }
     }
 
+    // Admitted under the thread's slot lock, so two tabs continuing the same
+    // stop start one run and the count of continuations stays exact.
+    if (options?.autoContinueOf) {
+      const turnRuns = await tx.execute({
+        sql: `SELECT id, status, terminal_reason, completed_at,
+                     COUNT(auto_continue_of) OVER () AS auto_continues,
+                     MIN(started_at) OVER () AS turn_started_at
+              FROM agent_runs
+              WHERE thread_id = ? AND turn_id = ?
+                AND dispatch_mode IS DISTINCT FROM 'turn-abort'
+              ORDER BY started_at DESC LIMIT 1`,
+        args: [threadId, turnId],
+      });
+      const row = turnRuns.rows[0] as
+        | {
+            id: string;
+            status: string;
+            terminal_reason: string | null;
+            completed_at: number | string | null;
+            auto_continues: number | string;
+            turn_started_at: number | string;
+          }
+        | undefined;
+      const admission = admitAutoContinue({
+        turn: row
+          ? {
+              newest: {
+                id: row.id,
+                status: row.status,
+                terminalReason: row.terminal_reason,
+                completedAt:
+                  row.completed_at === null ? null : Number(row.completed_at),
+              },
+              autoContinues: Number(row.auto_continues),
+              startedAt: Number(row.turn_started_at),
+            }
+          : null,
+        stoppedRunId: options.autoContinueOf,
+        nowMs: now,
+      });
+      if (!admission.admit) {
+        return {
+          claimed: false,
+          activeRunId: null,
+          autoContinueRefused: admission.code,
+        };
+      }
+    }
+
     const continuationOrder =
       normalizeContinuationOrder(options?.continuationOrder) ??
       (await nextContinuationOrder(tx, threadId, turnId));
     const inserted = await tx.execute({
-      sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+      sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload, continuation_order, auto_continue_of) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
       args: [
         runId,
         threadId,
@@ -1170,6 +1227,7 @@ export async function tryClaimRunSlot(
         options?.dispatchMode ?? null,
         options?.dispatchPayload ?? null,
         continuationOrder,
+        options?.autoContinueOf ?? null,
       ],
     });
     if ((inserted.rowsAffected ?? 0) !== 1) {

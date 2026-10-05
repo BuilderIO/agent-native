@@ -436,7 +436,8 @@ const messages = {
     resolveThread: "थ्रेड हल करें",
     reopenThread: "थ्रेड फिर खोलें",
     hideReplies: "जवाब छिपाएं",
-    replyCount: "{{count}} जवाब",
+    replyCount_one: "{{count}} जवाब",
+    replyCount_other: "{{count}} जवाब",
     title: "टिप्पणियां",
     addComment: "टिप्पणी जोड़ें",
     close: "बंद करें",
@@ -957,8 +958,8 @@ const messages = {
           "दी गई कंपनी की वेबसाइट पढ़ें और कंपनी के बारे में प्रस्तुति बनाएं। तथ्य गढ़ने के बजाय पहुंच की विफलताओं की जानकारी दें।",
       },
     },
-    connectBuilderIo: "Builder.io कनेक्ट करें",
-    connectingBuilder: "Builder.io से कनेक्ट हो रहा है…",
+    connectBuilderIo: "Builder.io इस्तेमाल करें",
+    connectingBuilder: "Builder.io सेट अप हो रहा है…",
     recent: "हाल के",
     starters: {
       pitch: {

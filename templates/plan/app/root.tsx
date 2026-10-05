@@ -141,12 +141,20 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+function isPrivatePlanEditorPath(pathname: string): boolean {
+  return /^\/(?:plans|recaps)\/[^/]+\/?$/.test(pathname);
+}
+
 function DbSyncSetup() {
   const qc = useQueryClient();
+  const location = useLocation();
   useNavigationState();
   useDbSync({
     queryClient: qc,
     ignoreSource: TAB_ID,
+    realtime: isPrivatePlanEditorPath(location.pathname)
+      ? { reason: "collaborators can edit and comment on this open plan" }
+      : undefined,
   });
   return null;
 }

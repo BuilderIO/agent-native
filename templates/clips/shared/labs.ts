@@ -9,6 +9,10 @@ export function isLabEnabled(
   lab: Pick<LabDefinition, "key" | "defaultEnabled">,
 ): boolean {
   const value = values[lab.key];
+  if (value && typeof value === "object") {
+    if ("error" in value) return false;
+    if ("enabled" in value) return value.enabled === true;
+  }
   return value === undefined ? lab.defaultEnabled === true : value === true;
 }
 

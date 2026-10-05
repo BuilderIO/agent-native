@@ -3,8 +3,8 @@ name: review-prs
 description: >-
   Review recent BuilderIO/agent-native human pull requests, approve eligible
   internal PRs, and merge changes that are ready by Steve's bar. Use for
-  scheduled or manual PR sweeps; flag unresolved major product or UX decisions
-  to Steve.
+  scheduled or manual PR sweeps; flag external non-bug work and unresolved major
+  product or UX decisions to Steve.
 user-invocable: true
 scope: dev
 metadata:
@@ -19,10 +19,11 @@ internal author policy below. Treat approval as a trust decision. Never
 approve an external or unverified author.
 
 Approval and merge readiness are separate. A **Ready to merge by Steve's bar**
-result means merge the PR under the guarded merge procedure below. Do not hand
-it off because `REVIEW_REQUIRED` is set, the author is external, or another
-human approval is absent. Escalate only unresolved major product or UX
-decisions to Steve.
+result means merge the PR under the guarded merge procedure below. For a
+confirmed external author, only a clear bug fix enters evidence review and the
+possible merge flow; external authors are never eligible for an approval
+review. Surface other external work for Steve's explicit approval before a full
+review or merge; a scheduled or manual sweep is not that approval.
 
 ## Selection and evidence
 
@@ -45,8 +46,12 @@ author and draft state:
    membership, or source links; do not take any review action; and do not add
    them to the end-of-run recap.
 
- - For remaining human PRs, read the current review summary to determine
-   whether the PR already has a current, non-dismissed `APPROVED` review.
+ - Verify each remaining human author's current BuilderIO membership using the
+   organization membership API below. For a confirmed nonmember, apply the
+   external-contribution scope gate before reading review summaries or entering
+   the evidence sweep. For all PRs that pass that gate, read the current review
+   summary to determine whether the PR already has a current, non-dismissed
+   `APPROVED` review.
 
  - Reuse that review as the code assessment only after verifying the reviewer
    is a different, current BuilderIO member and is eligible under the PR's
@@ -56,11 +61,11 @@ author and draft state:
    newer commit, comment, review, or check result exists; the PR still enters
    the merge-readiness pass and recap.
 
-All remaining non-draft human PRs enter the evidence sweep below. For
-PRs with a verified eligible current-head approval and no newer event, skip
-duplicate code review but check merge readiness and merge when ready. Eligible
-Liam PRs with only older-head approvals enter the sweep so the current head can
-be reviewed.
+All non-draft human PRs that pass the author and external-scope gates enter the
+evidence sweep below. For PRs with a verified eligible current-head approval and
+no newer event, skip duplicate code review but check merge readiness and merge
+when ready. Eligible Liam PRs with only older-head approvals enter the sweep so
+the current head can be reviewed.
 
 For every PR you inspect, read:
 
@@ -91,6 +96,27 @@ infer membership from a display name, email, company claim, branch name,
 `authorAssociation`, or a familiar-looking bot. If author membership cannot be
 verified, do not approve. External authors are never auto-approved, even when
 the patch looks safe or the issue is obviously valid.
+
+## External-contribution scope gate
+
+For an author the membership API confirms is not a current BuilderIO member,
+continue into the normal evidence sweep only for a clear bug fix: a change that
+corrects a specific reported or reproducible defect by restoring intended
+behavior. A feature, improvement, refactor, new or changed product behavior, or
+mixed bug-fix-and-enhancement scope is not a clear bug fix. If the title, issue,
+and initial diff do not establish a clear bug fix, treat it as non-bug work.
+
+For external non-bug work, stop before the full code review, approval or review
+action, merge-readiness disposition, author-facing draft, or merge. Report it to
+Steve as **Needs Steve's approval for scope**, with the PR link, author, stated
+scope, and why it is not a clear bug fix. Wait for Steve's explicit go-ahead on
+that PR before continuing. Invoking or scheduling `review-prs`, approving a
+different PR, or prior approval of another external contribution does not
+authorize it. If membership is unknown, use the existing unknown-membership
+policy; do not classify the author as external. The scope gate does not apply
+solely because membership could not be verified. Keep the no-approval outcome,
+report the missing membership check, and assess merge readiness under the
+existing unknown-membership policy.
 
 ## Liamdebeasi approval policy
 
@@ -268,8 +294,12 @@ merge scope and must remain completely untouched.
 For a PR that fails an approval gate, do not submit an approval. Flag the exact
 concern and the evidence needed to resolve it. External or unverified authors
 never receive an approval review, but their PRs can still be merged when they
-meet the readiness gate below. If GitHub or organization membership is
-unavailable, preserve the no-approval outcome and name the missing check.
+meet the readiness gate below. Confirmed external bug fixes must also pass the
+external-contribution scope gate; confirmed external non-bug work remains
+stopped at Steve's approval gate. For unknown membership, do not apply the
+external scope gate solely because verification failed; preserve the
+no-approval outcome, assess readiness under the existing unknown-membership
+policy, and name the missing check.
 
 ## Merge-ready disposition and handoff
 

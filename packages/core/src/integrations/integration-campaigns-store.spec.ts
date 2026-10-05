@@ -15,6 +15,11 @@ vi.mock("../db/ddl-guard.js", () => ({
   ensureIndexExists: ensureIndexExistsMock,
 }));
 
+vi.mock("./pending-tasks-store.js", () => ({
+  ensurePendingTasksTable: vi.fn(async () => {}),
+  MAX_RECOVERABLE_PENDING_TASK_AGE_MS: 24 * 60 * 60 * 1000,
+}));
+
 async function loadStore() {
   vi.resetModules();
   return import("./integration-campaigns-store.js");
@@ -268,8 +273,10 @@ describe("integration campaigns store", () => {
       sqlOf(query).includes("SELECT id FROM integration_campaigns"),
     )?.[0];
     expect(sqlOf(select!)).toContain("lease_expires_at <= ?");
+    expect(sqlOf(select!)).toContain("task.created_at >= ?");
     expect(sqlOf(select!)).not.toContain("UPDATE");
     expect(argsOf(select!)).toEqual([
+      expect.any(Number),
       expect.any(Number),
       expect.any(Number),
       100,

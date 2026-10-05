@@ -626,7 +626,7 @@ const enUS = {
       "Get an email when a generation you started finishes or fails.",
     builderDescriptionReady: "Connected for managed generation.",
     builderDescriptionManaged:
-      "Connect Builder for managed image generation and storage. Video generation is available when enabled for your space.",
+      "Use Builder.io for managed image generation and storage. Video generation is available when enabled for your space.",
     builderDescriptionDisabled:
       "Image generation is disabled here; Builder video may still be available.",
     builderLookupFailed:
@@ -658,6 +658,9 @@ const enUS = {
       "Add Builder, Gemini, or OpenAI before generating new assets.",
     enterValueFirst: "Enter a value first.",
     saveFailed: "Save failed",
+    scopeRoleUnavailable:
+      "Couldn't load your organization role, so keys can't be saved yet.",
+    retry: "Retry",
     builderConnectedTo: "Connected to {{orgName}}.",
     manage: "Manage",
     addKeys: "Add keys",
@@ -3972,7 +3975,7 @@ export const messagesByLocale = {
         "此处已停用图像生成；Builder 视频生成功能仍可能可用。",
       builderLookupFailed: "无法检查 Builder 访问权限。重试以刷新连接状态。",
       builderDescriptionManaged:
-        "连接 Builder 即可使用托管图像生成和存储。若你的空间已启用视频生成功能，也可使用该功能。",
+        "使用 Builder.io 即可使用托管图像生成和存储。若你的空间已启用视频生成功能，也可使用该功能。",
       builderDescriptionReady: "连接管理一代。",
       builderManaged:
         "Builder 管理图像生成。若你的空间已启用视频生成功能，即可使用。",
@@ -3984,6 +3987,8 @@ export const messagesByLocale = {
       noManualOptions: "该项目没有可用的手动设置选项。",
       objectStorage: "对象存储",
       saveFailed: "保存失败",
+      scopeRoleUnavailable: "无法加载你在组织中的角色，因此暂时无法保存密钥。",
+      retry: "重试",
       builderConnectedTo: "已连接到 {{orgName}}。",
       generation: "生成",
       storage: "存储",
@@ -4818,7 +4823,7 @@ export const messagesByLocale = {
       builderLookupFailed:
         "No se pudo comprobar el acceso a Builder. Vuelve a intentarlo para actualizar el estado de la conexión.",
       builderDescriptionManaged:
-        "Conecta Builder para usar la generación y el almacenamiento de imágenes gestionados. La generación de vídeo está disponible si se habilita para tu espacio.",
+        "Usa Builder.io para la generación y el almacenamiento de imágenes gestionados. La generación de vídeo está disponible si se habilita para tu espacio.",
       builderDescriptionReady: "Conectado para generación gestionada.",
       builderManaged:
         "Builder gestiona la generación de imágenes. La generación de vídeo está disponible si se habilita para tu espacio.",
@@ -4831,6 +4836,9 @@ export const messagesByLocale = {
         "No hay opciones de configuración manual disponibles para este artículo.",
       objectStorage: "Almacenamiento de objetos",
       saveFailed: "Error al guardar",
+      scopeRoleUnavailable:
+        "No se pudo cargar tu rol en la organización, así que aún no se pueden guardar claves.",
+      retry: "Reintentar",
       builderConnectedTo: "Conectado a {{orgName}}.",
       generation: "Generación",
       storage: "Almacenamiento",
@@ -5326,7 +5334,7 @@ export const messagesByLocale = {
       builderLookupFailed:
         "Impossible de vérifier l’accès à Builder. Réessayez pour actualiser l’état de la connexion.",
       builderDescriptionManaged:
-        "Connectez Builder pour gérer la génération et le stockage d’images. La génération vidéo est disponible si elle est activée pour votre espace.",
+        "Utilisez Builder.io pour gérer la génération et le stockage d’images. La génération vidéo est disponible si elle est activée pour votre espace.",
       builderDescriptionReady: "Connecté pour une génération gérée.",
       builderManaged:
         "Builder gère la génération d’images. La génération vidéo est disponible si elle est activée pour votre espace.",
@@ -5339,6 +5347,9 @@ export const messagesByLocale = {
         "Aucune option de configuration manuelle n'est disponible pour cet élément.",
       objectStorage: "Stockage d'objets",
       saveFailed: "Échec de l'enregistrement",
+      scopeRoleUnavailable:
+        "Impossible de charger votre rôle dans l’organisation. Les clés ne peuvent pas encore être enregistrées.",
+      retry: "Réessayer",
       builderConnectedTo: "Connecté à {{orgName}}.",
       generation: "Génération",
       storage: "Stockage",
@@ -5816,7 +5827,7 @@ export const messagesByLocale = {
         "Erhalte eine E-Mail, wenn eine von dir gestartete Generierung fertig ist oder fehlschlägt.",
       builderDescriptionReady: "Für verwaltete Generierung verbunden.",
       builderDescriptionManaged:
-        "Verbinde Builder für verwaltete Bildgenerierung und Speicherung. Videogenerierung ist verfügbar, wenn sie für deinen Space aktiviert ist.",
+        "Nutze Builder.io für verwaltete Bildgenerierung und Speicherung. Videogenerierung ist verfügbar, wenn sie für deinen Space aktiviert ist.",
       builderDescriptionDisabled:
         "Die Bildgenerierung ist hier deaktiviert; die Videogenerierung mit Builder kann weiterhin verfügbar sein.",
       builderLookupFailed:
@@ -5846,6 +5857,9 @@ export const messagesByLocale = {
       enterValueFirst: "Geben Sie zunächst einen Wert ein.",
       manualKeys: "Manuelle Schlüssel",
       saveFailed: "Speichern fehlgeschlagen",
+      scopeRoleUnavailable:
+        "Deine Rolle in der Organisation konnte nicht geladen werden, daher können noch keine Schlüssel gespeichert werden.",
+      retry: "Erneut versuchen",
       builderConnectedTo: "Verbunden mit {{orgName}}.",
       manage: "Verwalten",
       addKeys: "Schlüssel hinzufügen",
@@ -6205,7 +6219,7 @@ export const messagesByLocale = {
         "開始した生成が完了または失敗したときにメールを受け取ります。",
       builderDescriptionReady: "管理された生成に接続済みです。",
       builderDescriptionManaged:
-        "Builder に接続すると、画像生成と保存を管理できます。動画生成はスペースで有効な場合に利用できます。",
+        "Builder.io を使うと、画像生成と保存を管理できます。動画生成はスペースで有効な場合に利用できます。",
       builderDescriptionDisabled:
         "ここでは画像生成が無効です。Builder の動画生成は引き続き利用できる場合があります。",
       builderLookupFailed:
@@ -6234,6 +6248,9 @@ export const messagesByLocale = {
       enterValueFirst: "先に値を入力してください。",
       manualKeys: "手動キー",
       saveFailed: "保存に失敗しました",
+      scopeRoleUnavailable:
+        "組織でのロールを読み込めなかったため、まだキーを保存できません。",
+      retry: "再試行",
       builderConnectedTo: "{{orgName}} に接続済みです。",
       manage: "管理",
       addKeys: "キーを追加",
@@ -6590,7 +6607,7 @@ export const messagesByLocale = {
         "내가 시작한 생성이 완료되거나 실패하면 이메일을 받습니다.",
       builderDescriptionReady: "관리형 생성에 연결되었습니다.",
       builderDescriptionManaged:
-        "이미지 생성 및 저장을 관리하려면 Builder를 연결하세요. 동영상 생성은 워크스페이스에서 사용 설정된 경우 이용할 수 있습니다.",
+        "이미지 생성 및 저장을 관리하려면 Builder.io를 사용하세요. 동영상 생성은 워크스페이스에서 사용 설정된 경우 이용할 수 있습니다.",
       builderDescriptionDisabled:
         "여기서는 이미지 생성이 비활성화되어 있습니다. Builder 동영상 생성은 계속 사용할 수 있을 수 있습니다.",
       builderLookupFailed:
@@ -6619,6 +6636,9 @@ export const messagesByLocale = {
       enterValueFirst: "먼저 값을 입력하세요.",
       manualKeys: "수동 키",
       saveFailed: "저장 실패",
+      scopeRoleUnavailable:
+        "조직 역할을 불러오지 못해 아직 키를 저장할 수 없습니다.",
+      retry: "다시 시도",
       builderConnectedTo: "{{orgName}}에 연결되었습니다.",
       manage: "관리",
       addKeys: "키 추가",
@@ -6984,7 +7004,7 @@ export const messagesByLocale = {
       builderLookupFailed:
         "Não foi possível verificar o acesso ao Builder. Tente novamente para atualizar o estado da conexão.",
       builderDescriptionManaged:
-        "Conecte o Builder para gerenciar a geração e o armazenamento de imagens. A geração de vídeo fica disponível quando ativada para seu espaço.",
+        "Use o Builder.io para gerenciar a geração e o armazenamento de imagens. A geração de vídeo fica disponível quando ativada para seu espaço.",
       builderDescriptionReady: "Conectado para geração gerenciada.",
       builderManaged:
         "O Builder gerencia a geração de imagens. A geração de vídeo fica disponível quando ativada para seu espaço.",
@@ -6997,6 +7017,9 @@ export const messagesByLocale = {
         "Nenhuma opção de configuração manual está disponível para este item.",
       objectStorage: "Armazenamento de objetos",
       saveFailed: "Falha ao salvar",
+      scopeRoleUnavailable:
+        "Não foi possível carregar sua função na organização, então ainda não é possível salvar chaves.",
+      retry: "Tentar novamente",
       builderConnectedTo: "Conectado a {{orgName}}.",
       generation: "Geração",
       storage: "Armazenamento",
@@ -7467,7 +7490,7 @@ export const messagesByLocale = {
         "आपके द्वारा शुरू किया गया जनरेशन पूरा या विफल होने पर ईमेल पाएँ।",
       builderDescriptionReady: "Managed generation के लिए connected.",
       builderDescriptionManaged:
-        "प्रबंधित इमेज जनरेशन और स्टोरेज के लिए Builder कनेक्ट करें। वीडियो जनरेशन आपके स्पेस में सक्षम होने पर उपलब्ध है।",
+        "प्रबंधित इमेज जनरेशन और स्टोरेज के लिए Builder.io का उपयोग करें। वीडियो जनरेशन आपके स्पेस में सक्षम होने पर उपलब्ध है।",
       builderDescriptionDisabled:
         "यहां छवि निर्माण बंद है; Builder वीडियो निर्माण फिर भी उपलब्ध हो सकता है।",
       builderLookupFailed:
@@ -7495,6 +7518,9 @@ export const messagesByLocale = {
       enterValueFirst: "पहले एक मान दर्ज करें.",
       manualKeys: "मैनुअल कुंजियाँ",
       saveFailed: "सहेजना विफल",
+      scopeRoleUnavailable:
+        "आपकी संगठन भूमिका लोड नहीं हो सकी, इसलिए अभी कुंजियाँ सहेजी नहीं जा सकतीं।",
+      retry: "फिर से प्रयास करें",
       builderConnectedTo: "{{orgName}} से कनेक्ट है।",
       manage: "प्रबंधित करें",
       addKeys: "कुंजियाँ जोड़ें",
@@ -7858,7 +7884,7 @@ export const messagesByLocale = {
       builderLookupFailed:
         "تعذّر التحقق من الوصول إلى Builder. أعد المحاولة لتحديث حالة الاتصال.",
       builderDescriptionManaged:
-        "اربط Builder لإدارة إنشاء الصور وتخزينها. يتوفر إنشاء الفيديو عند تفعيله لمساحتك.",
+        "استخدم Builder.io لإدارة إنشاء الصور وتخزينها. يتوفر إنشاء الفيديو عند تفعيله لمساحتك.",
       builderDescriptionReady: "متصل للجيل المدار.",
       builderManaged:
         "يدير Builder إنشاء الصور. يتوفر إنشاء الفيديو عند تفعيله لمساحتك.",
@@ -7870,6 +7896,9 @@ export const messagesByLocale = {
       noManualOptions: "لا تتوفر خيارات الإعداد اليدوي لهذا العنصر.",
       objectStorage: "تخزين الكائنات",
       saveFailed: "فشل الحفظ",
+      scopeRoleUnavailable:
+        "تعذّر تحميل دورك في المؤسسة، لذا لا يمكن حفظ المفاتيح بعد.",
+      retry: "إعادة المحاولة",
       builderConnectedTo: "متصل بـ {{orgName}}.",
       generation: "الإنشاء",
       storage: "التخزين",

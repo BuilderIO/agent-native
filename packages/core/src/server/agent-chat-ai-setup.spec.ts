@@ -245,8 +245,12 @@ describe("Agent-Native chat AI setup gate", () => {
     const queueBlock = plugin.slice(queueStart, queueEnd);
     expect(queueBlock).toContain('mutation.type === "append"');
     expect(queueBlock).toContain('mutation.type === "moveToTop"');
+    const mutationIndex = queueBlock.indexOf(
+      "mutateThreadQueuedMessages(threadId, mutation)",
+    );
+    expect(mutationIndex).toBeGreaterThan(-1);
     expect(queueBlock.indexOf("requireAgentChatAiSetup()")).toBeLessThan(
-      queueBlock.indexOf("const result = await mutateThreadQueuedMessages("),
+      mutationIndex,
     );
   });
 

@@ -218,7 +218,7 @@ export default {
       tokenLabel: "Figma アクセストークン",
       tokenPlaceholder: "Figma アクセストークンを貼り付け",
       connecting: "接続中…",
-      connect: "接続",
+      connect: "Builder.io を使う",
       getToken: "トークンを取得",
       importFrame: "フレームをインポート",
       chooseFrame: "フレームを選択",
@@ -1376,6 +1376,16 @@ export default {
         "読み取り専用プレビューでは PNG キャプチャを利用できません",
       pngSaveError: "PNG を保存できませんでした",
       pngExportError: "PNG をエクスポートできませんでした",
+      exportTooLarge:
+        "エクスポートが大きすぎます。リクエストの上限は 5 MB です。埋め込みリソースかラスター寸法を小さくして、もう一度お試しください。",
+      exportResourcesUnavailable:
+        "画像、フォント、スタイルシートのいずれかを利用できないため、正確にレンダリングできませんでした。リソースを確認して、もう一度お試しください。",
+      exportTimedOut:
+        "エクスポートがタイムアウトしました。もう一度試すか、デザインのサイズを小さくしてください。",
+      exportBusy:
+        "別のエクスポートをレンダリング中です。少し待ってからもう一度お試しください。",
+      exportChromiumUnavailable:
+        "レンダラーを起動できないため、エクスポートを利用できません。しばらくしてからもう一度お試しください。",
       pdfExportError: "PDF をエクスポートできませんでした",
       pdfDownloaded: "PDF をダウンロードしました",
       pdfAllScreensDownloaded: "PDFがダウンロードされました（すべての画面）",
@@ -1745,8 +1755,8 @@ export default {
     designPromptTitle: "最初のデザインを作りましょう",
     recent: "最近",
     browseAllTemplates: "すべて見る",
-    connectBuilderIo: "Builder.io に接続",
-    connectingBuilder: "Builder.io に接続中…",
+    connectBuilderIo: "Builder.io を使う",
+    connectingBuilder: "Builder.io を設定中…",
     pageTitle: "Design",
     searchPlaceholder: "デザインを検索...",
     newDesign: "新しいDesign",

@@ -813,7 +813,7 @@ export function IntegrationsPage({ appName }: IntegrationsPageProps) {
           onOpenChange={setCustomOpen}
           presentation="modal"
           integrations={NO_CATALOG}
-          defaultScope="user"
+          defaultScope="org"
           canCreateOrgMcp={mcp.canCreateOrgMcp}
           hasOrg={mcp.hasOrg}
           onCreateMcpServer={(args) => mcp.createServer.mutateAsync(args)}

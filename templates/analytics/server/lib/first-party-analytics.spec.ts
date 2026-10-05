@@ -1,6 +1,12 @@
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 
+import { resetAppConfigForTests } from "@agent-native/core/app-config";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { PGlite } = createRequire(
+  new URL("../../../../packages/core/package.json", import.meta.url),
+)("@electric-sql/pglite");
 
 const execute = vi.fn();
 const rollupMocks = vi.hoisted(() => ({
@@ -21,6 +27,10 @@ const backendMocks = vi.hoisted(() => ({
 const exceptionMocks = vi.hoisted(() => ({
   ingest: vi.fn(),
   recordFailure: vi.fn(),
+}));
+const sessionEventIndexMocks = vi.hoisted(() => ({
+  record: vi.fn(),
+  catalog: vi.fn(),
 }));
 const deliveryMocks = vi.hoisted(() => ({
   queueMissing: vi.fn(),
@@ -87,6 +97,10 @@ vi.mock("./error-capture.js", () => ({
   ingestAnalyticsExceptionEvents: exceptionMocks.ingest,
   recordErrorIngestFailure: exceptionMocks.recordFailure,
 }));
+vi.mock("./session-event-index.js", () => ({
+  recordSessionEventIndex: sessionEventIndexMocks.record,
+  recordEventCatalog: sessionEventIndexMocks.catalog,
+}));
 vi.mock("./first-party-analytics-health.js", () => ({
   classifyFirstPartyAnalyticsQuery: healthMocks.classify,
   queryOutcomeFromError: healthMocks.outcome,
@@ -107,6 +121,7 @@ vi.mock("./first-party-analytics-backend.js", () => ({
 import {
   isMarketingWebsiteSessionEvent,
   normalizeAnalyticsTimestamp,
+  parseAnalyticsTrackPayload,
   queryFirstPartyAnalytics,
   recordAnalyticsEvents,
   resolveAnalyticsEventDimensions,
@@ -158,6 +173,10 @@ beforeEach(() => {
     }));
   backendMocks.query.mockReset();
   exceptionMocks.ingest.mockReset();
+  sessionEventIndexMocks.record.mockReset();
+  sessionEventIndexMocks.record.mockResolvedValue(undefined);
+  sessionEventIndexMocks.catalog.mockReset();
+  sessionEventIndexMocks.catalog.mockResolvedValue(undefined);
   exceptionMocks.recordFailure.mockReset();
   deliveryMocks.queueMissing.mockReset();
   deliveryMocks.queueMissing.mockReturnValue(false);
@@ -445,6 +464,95 @@ describe("recordAnalyticsEvents", () => {
     );
   });
 
+  it.each(["postgres", "dual", "bigquery"] as const)(
+    "indexes session events in Postgres at ingest with the %s sink",
+    async (sink) => {
+      backendMocks.get.mockResolvedValueOnce({
+        sink,
+        table:
+          sink === "postgres"
+            ? null
+            : "builder-3b0a2.analytics.first_party_analytics_events_raw",
+        backfillCursor: sink === "postgres" ? null : "evt_last",
+        backfillCompleted: sink === "bigquery",
+      });
+      let openTransactions = 0;
+      let catalogSawOpenTransaction = false;
+      analyticsDbMocks.db.transaction.mockImplementationOnce(
+        async (callback: (transaction: unknown) => unknown) => {
+          openTransactions += 1;
+          try {
+            return await callback(analyticsDbMocks.db);
+          } finally {
+            openTransactions -= 1;
+          }
+        },
+      );
+      sessionEventIndexMocks.catalog.mockImplementationOnce(async () => {
+        catalogSawOpenTransaction = openTransactions > 0;
+      });
+
+      await recordAnalyticsEvents("anpk_test", [
+        {
+          event: "recording_started",
+          properties: { sessionId: "rs_1", app: "clips" },
+        },
+      ]);
+
+      expect(sessionEventIndexMocks.record).toHaveBeenCalledOnce();
+      expect(sessionEventIndexMocks.record).toHaveBeenCalledWith(
+        analyticsDbMocks.db,
+        [
+          expect.objectContaining({
+            eventName: "recording_started",
+            ownerEmail: "owner@example.com",
+          }),
+        ],
+        expect.any(String),
+      );
+      expect(sessionEventIndexMocks.catalog).toHaveBeenCalledOnce();
+      expect(catalogSawOpenTransaction).toBe(false);
+    },
+  );
+
+  it("replaces a lone surrogate in an event name instead of failing the batch", async () => {
+    // JSON can carry half of a surrogate pair as an escape like \ud83d.
+    const parsed = parseAnalyticsTrackPayload(
+      JSON.stringify({
+        publicKey: "anpk_test",
+        events: [{ event: "clip_\uD83D", properties: { sessionId: "rs_1" } }],
+      }),
+    );
+    await recordAnalyticsEvents(parsed.publicKey, parsed.events);
+
+    expect(sessionEventIndexMocks.record).toHaveBeenCalledWith(
+      analyticsDbMocks.db,
+      [expect.objectContaining({ eventName: "clip_\uFFFD" })],
+      expect.any(String),
+    );
+  });
+
+  it("does not index session events when persistence fails", async () => {
+    rollupMocks.upsert.mockRejectedValueOnce(new Error("rollup unavailable"));
+
+    await expect(
+      recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
+    ).rejects.toThrow();
+
+    expect(sessionEventIndexMocks.record).not.toHaveBeenCalled();
+    expect(sessionEventIndexMocks.catalog).not.toHaveBeenCalled();
+  });
+
+  it("fails the batch when its sessions cannot be indexed or marked incomplete", async () => {
+    sessionEventIndexMocks.record.mockRejectedValueOnce(
+      new Error("gap marker write failed"),
+    );
+
+    await expect(
+      recordAnalyticsEvents("anpk_test", [{ event: "pageview" }]),
+    ).rejects.toThrow("gap marker write failed");
+  });
+
   it("enforces the Postgres volume limit during dual writes", async () => {
     backendMocks.get.mockResolvedValueOnce({
       sink: "dual",
@@ -511,6 +619,91 @@ describe("recordAnalyticsEvents", () => {
     ).resolves.toMatchObject({ accepted: 2 });
 
     expect(exceptionMocks.recordFailure).toHaveBeenCalledWith(2, failure);
+  });
+
+  it("keeps test identities out of analytics tables but routes their exceptions to error issues", async () => {
+    const result = await recordAnalyticsEvents("anpk_test", [
+      { event: "pageview", userId: "real@example.com" },
+      { event: "pageview", userId: "qa+autoz@builder.io" },
+      { event: "signup", properties: { user_email: "probe@agents.test" } },
+      { event: "$exception", properties: { error: "real", app: "analytics" } },
+      {
+        event: "$exception",
+        properties: {
+          error: "qa",
+          app: "analytics",
+          test_identity: true,
+          test_identity_email: "qa+autoz@builder.io",
+        },
+      },
+    ]);
+
+    expect(result).toMatchObject({ accepted: 2, suppressedTestIdentity: 3 });
+    expect(analyticsDbMocks.insertValues).toHaveBeenCalledWith([
+      expect.objectContaining({
+        eventName: "pageview",
+        userId: "real@example.com",
+      }),
+      expect.objectContaining({ eventName: "$exception" }),
+    ]);
+    expect(rollupMocks.upsert.mock.calls[0]?.[0]).toHaveLength(2);
+    const [, sources] = exceptionMocks.ingest.mock.calls[0]!;
+    expect(
+      sources.map((source: { derived: { testIdentity: boolean } }) => [
+        source.derived.testIdentity,
+      ]),
+    ).toEqual([[false], [true]]);
+  });
+
+  it("does not take a sender's test_identity flag as proof of a test identity", async () => {
+    const result = await recordAnalyticsEvents("anpk_test", [
+      {
+        event: "pageview",
+        userId: "real@example.com",
+        properties: { test_identity: true },
+      },
+      {
+        event: "$exception",
+        userId: "real@example.com",
+        properties: { error: "real", app: "analytics", test_identity: true },
+      },
+    ]);
+
+    expect(result).toMatchObject({ accepted: 2, suppressedTestIdentity: 0 });
+    const [, sources] = exceptionMocks.ingest.mock.calls[0]!;
+    expect(sources[0].derived.testIdentity).toBe(false);
+  });
+
+  it("checks deployment-configured test identities a browser cannot know", async () => {
+    vi.stubEnv("AGENT_NATIVE_TEST_IDENTITY_EMAILS", "qa@corp.com");
+    resetAppConfigForTests();
+    try {
+      const result = await recordAnalyticsEvents("anpk_test", [
+        { event: "pageview", userId: "qa@corp.com" },
+        { event: "pageview", userId: "dev@corp.com" },
+      ]);
+      expect(result).toMatchObject({ accepted: 1, suppressedTestIdentity: 1 });
+    } finally {
+      vi.unstubAllEnvs();
+      resetAppConfigForTests();
+    }
+  });
+
+  it("checks the identity a sender puts only in the event context", async () => {
+    vi.stubEnv("AGENT_NATIVE_TEST_IDENTITY_EMAILS", "qa@corp.com");
+    resetAppConfigForTests();
+    try {
+      const result = await recordAnalyticsEvents("anpk_test", [
+        { event: "pageview", context: { email: "qa@corp.com" } },
+        { event: "pageview", context: { user_email: "qa@corp.com" } },
+        { event: "pageview", context: { traits: { email: "qa@corp.com" } } },
+        { event: "pageview", context: { email: "dev@corp.com" } },
+      ]);
+      expect(result).toMatchObject({ accepted: 1, suppressedTestIdentity: 3 });
+    } finally {
+      vi.unstubAllEnvs();
+      resetAppConfigForTests();
+    }
   });
 
   it("preserves SQL exception issues while warehouse delivery is pending", async () => {
@@ -881,9 +1074,91 @@ describe("scopedAnalyticsSql", () => {
     );
 
     expect(scoped.sql).toContain(
-      "FROM (SELECT * FROM analytics_user_days WHERE tenant_key = $1 AND event_date <= $2)",
+      "FROM (SELECT * FROM analytics_user_days WHERE tenant_key = $1 AND event_date <= $2 AND NOT (",
     );
     expect(scoped.args).toEqual(["user:alice@example.com", "2026-07-01"]);
+  });
+
+  it("excludes test identities from every source that carries an identity", async () => {
+    const client = await PGlite.create("memory://");
+    try {
+      await client.query(
+        "CREATE TABLE analytics_events (org_id text, owner_email text, event_date text, timestamp text, user_id text)",
+      );
+      await client.query(
+        "CREATE TABLE session_recordings (org_id text, owner_email text, started_at text, user_id text)",
+      );
+      for (const userId of [
+        "real@example.com",
+        null,
+        "qa+autoz@builder.io",
+        "bot@agents.test",
+      ]) {
+        await client.query(
+          "INSERT INTO analytics_events VALUES (NULL, 'alice@example.com', '2026-07-01', '2026-07-01T00:00:00Z', $1)",
+          [userId],
+        );
+        await client.query(
+          "INSERT INTO session_recordings VALUES (NULL, 'alice@example.com', '2026-07-01T00:00:00Z', $1)",
+          [userId],
+        );
+      }
+      const count = async (sql: string, includeTestIdentities?: boolean) => {
+        const scoped = scopedAnalyticsSql(
+          sql,
+          { userEmail: "alice@example.com", orgId: null },
+          "2026-07-01",
+          { includeTestIdentities },
+        );
+        const result = (await client.query(scoped.sql, scoped.args)) as {
+          rows: Array<{ n: number }>;
+        };
+        return Number(result.rows[0]!.n);
+      };
+
+      expect(await count("SELECT COUNT(*) AS n FROM analytics_events")).toBe(2);
+      expect(await count("SELECT COUNT(*) AS n FROM session_recordings")).toBe(
+        2,
+      );
+      expect(
+        await count("SELECT COUNT(*) AS n FROM analytics_events", true),
+      ).toBe(4);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("leaves identity-free daily rollups unfiltered and renders the filter for BigQuery", async () => {
+    const { renderFirstPartyAnalyticsBigQuerySql } = await vi.importActual<
+      typeof import("./first-party-analytics-backend.js")
+    >("./first-party-analytics-backend.js");
+    const rollups = scopedAnalyticsSql(
+      "SELECT SUM(event_count) AS events FROM analytics_event_daily_rollups",
+      { userEmail: "alice@example.com", orgId: null },
+      "2026-07-01",
+    );
+    expect(rollups.sql).not.toContain("NOT (");
+
+    const events = scopedAnalyticsSql(
+      "SELECT COUNT(*) AS n FROM analytics_events",
+      { userEmail: "alice@example.com", orgId: "org_123" },
+      "2026-07-01",
+    );
+    expect(events.sql.match(/AND NOT \(strpos\(/g)).toHaveLength(2);
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      events.sql,
+      events.args,
+      {
+        projectId: "builder-3b0a2",
+        datasetId: "analytics",
+        tableId: "first_party_analytics_events_raw",
+        fullyQualified:
+          "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      },
+    );
+    expect(rendered).toMatch(
+      /AND NOT \(strpos\(lower\(trim\(COALESCE\(user_id, ''\)\)\), '@'\) > 1 AND [^]*\)\) QUALIFY ROW_NUMBER\(\)/,
+    );
   });
 });
 

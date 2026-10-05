@@ -59,10 +59,14 @@ import { ContentStartupShell } from "./components/layout/ContentStartupShell";
 import { CONTENT_STARTUP_SIDEBAR_SCRIPT } from "./components/layout/sidebar-preferences";
 import { LocalFolderLiveSync } from "./components/LocalFolderLiveSync";
 import { useDbSync } from "./hooks/use-db-sync";
+import { startPageOpenDocumentReads } from "./hooks/use-documents";
 import { useNavigationState } from "./hooks/use-navigation-state";
 import { i18nCatalog } from "./i18n";
 import { CONTENT_COMMAND_MENU_OPEN_EVENT } from "./lib/content-command-menu";
 import { CONTENT_STARTUP_PAGE_HINTS_SCRIPT } from "./lib/page-startup-hints";
+import { isPersonalLanding } from "./lib/content-landing";
+import { readLastLocationHintForAnyAccount } from "./lib/last-location-hint";
+import { CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT } from "./lib/page-icon-row-hint";
 
 import stylesheet from "./global.css?url";
 import katexStylesheet from "katex/dist/katex.min.css?url";
@@ -213,6 +217,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           dangerouslySetInnerHTML={{
             __html:
               CONTENT_STARTUP_SIDEBAR_SCRIPT +
+              CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT +
               CONTENT_STARTUP_PAGE_HINTS_SCRIPT,
           }}
         />
@@ -390,6 +395,20 @@ export default function Root() {
   const commandTrigger = useRef<HTMLElement | null>(null);
   const location = useLocation();
   const loaderData = useLoaderData<typeof loader>();
+  useEffect(() => {
+    // A load of /home reads its likely page alongside the session check
+    // rather than after the app mounts behind it.
+    if (!isPersonalLanding(location)) return;
+    const documentId = readLastLocationHintForAnyAccount();
+    if (!documentId) return;
+    const search = new URLSearchParams(location.search);
+    startPageOpenDocumentReads(queryClient, documentId, {
+      databaseId: search.get("databaseId"),
+      databaseDocumentId: search.get("databaseDocumentId"),
+    });
+    // Only the load itself; navigating to /home later mounts it directly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useCommandMenuShortcut(
     useCallback(() => {
       commandTrigger.current =

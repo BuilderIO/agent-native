@@ -78,6 +78,13 @@ export type ReactRuntimeRelationshipKind =
   | "style"
   | "metadata";
 
+export interface ReactGridPlacement {
+  column: number;
+  columnEnd: number;
+  row: number;
+  rowEnd: number;
+}
+
 export interface ReactRuntimeRelationship {
   kind: ReactRuntimeRelationshipKind;
   subjectAnchorIds: readonly string[];
@@ -85,6 +92,7 @@ export interface ReactRuntimeRelationship {
   screenId?: string;
   sourceScreenId?: string;
   targetScreenId?: string;
+  gridPlacement?: ReactGridPlacement;
   description?: string;
 }
 
@@ -137,6 +145,7 @@ export interface ReactSemanticHandoff {
     screenId?: string;
     sourceScreenId?: string;
     targetScreenId?: string;
+    gridPlacement?: ReactGridPlacement;
     description?: string;
   };
   versionHashes: ReactSourceVersionHash[];
@@ -177,6 +186,7 @@ export interface BuildRuntimeReactStructureMoveHandoffInput {
   subjectAnchor: ReactSourceAnchor;
   targetAnchor: ReactSourceAnchor;
   placement: "before" | "after" | "inside";
+  gridPlacement?: ReactGridPlacement;
   sourceScreenId: string;
   targetScreenId: string;
 }
@@ -506,6 +516,23 @@ export function buildReactSemanticHandoff(
       "Runtime relationships must reference ids present in the bounded source anchor list.",
     );
   }
+  const gridPlacement = input.runtimeRelationship.gridPlacement;
+  if (
+    gridPlacement &&
+    (!Number.isInteger(gridPlacement.column) ||
+      gridPlacement.column < 1 ||
+      !Number.isInteger(gridPlacement.columnEnd) ||
+      gridPlacement.columnEnd <= gridPlacement.column ||
+      !Number.isInteger(gridPlacement.row) ||
+      gridPlacement.row < 1 ||
+      !Number.isInteger(gridPlacement.rowEnd) ||
+      gridPlacement.rowEnd <= gridPlacement.row)
+  ) {
+    return anchorFailure(
+      "invalid-runtime-relationship",
+      "Grid placement must identify a positive, non-empty row and column range.",
+    );
+  }
 
   const versionHashes: ReactSourceVersionHash[] = [];
   for (const entry of input.versionHashes ?? []) {
@@ -577,6 +604,7 @@ export function buildReactSemanticHandoff(
               ),
             }
           : {}),
+        ...(gridPlacement ? { gridPlacement } : {}),
         ...(bounded(
           input.runtimeRelationship.description,
           MAX_DESCRIPTION_LENGTH,
@@ -642,12 +670,15 @@ export function buildRuntimeReactStructureMoveHandoff(
   const subjectAnchor = { ...input.subjectAnchor, id: "subject" };
   const targetAnchor = { ...input.targetAnchor, id: "target" };
   const operation = input.placement === "inside" ? "reparent" : "move";
+  const gridCellDescription = input.gridPlacement
+    ? ` in grid column ${input.gridPlacement.column} and row ${input.gridPlacement.row}`
+    : "";
   return buildReactSemanticHandoff({
     operation,
     desiredChange:
       input.placement === "inside"
-        ? `Move the runtime React subject from screen "${sourceScreenId}" inside the target anchor in screen "${targetScreenId}" while preserving the intended visual order and behavior.`
-        : `Move the runtime React subject from screen "${sourceScreenId}" ${input.placement} the target anchor in screen "${targetScreenId}" while preserving the intended visual order and behavior.`,
+        ? `Move the runtime React subject from screen "${sourceScreenId}" inside the target anchor${gridCellDescription} in screen "${targetScreenId}" while preserving the intended visual order and behavior.`
+        : `Move the runtime React subject from screen "${sourceScreenId}" ${input.placement} the target anchor${gridCellDescription} in screen "${targetScreenId}" while preserving the intended visual order and behavior.`,
     sourceAnchors: [subjectAnchor, targetAnchor],
     runtimeRelationship: {
       kind: input.placement,
@@ -656,6 +687,7 @@ export function buildRuntimeReactStructureMoveHandoff(
       screenId: targetScreenId,
       sourceScreenId,
       targetScreenId,
+      gridPlacement: input.gridPlacement,
       description: `Runtime React ${operation} from screen "${sourceScreenId}" to screen "${targetScreenId}" with placement "${input.placement}". Verify both source anchors and their surrounding control flow before editing either file.`,
     },
     versionHashes: [],

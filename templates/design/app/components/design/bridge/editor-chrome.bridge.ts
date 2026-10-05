@@ -2082,6 +2082,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var runtimeLayerSnapshotReservationDirty = false;
   var runtimeLayerSnapshotReservationReadinessRequestId: number | null = null;
   var runtimeLayerSnapshotPendingReadinessRequestId: number | null = null;
+  var runtimeLayerSnapshotPostGeneration = 0;
+  var runtimeLayerSnapshotPendingPostReadinessRequestId: number | null = null;
   var lastRuntimeLayerSnapshotHtml = "";
   var lastRuntimeLayerSnapshotReservationToken = "";
   var runtimeDocumentId =
@@ -2168,91 +2170,45 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     | { ok: true; html: string; nodeCount: number; documentId: string }
     | { ok: false; reason: "snapshot-unavailable" | "snapshot-too-large" } {
     if (!document.body) return { ok: false, reason: "snapshot-unavailable" };
-    var snapshotComputedProperties = [
-      "box-sizing",
-      "display",
-      "position",
-      "inset",
-      "top",
-      "right",
-      "bottom",
-      "left",
-      "width",
-      "height",
-      "min-width",
-      "min-height",
-      "max-width",
-      "max-height",
-      "margin",
-      "padding",
-      "flex",
-      "flex-flow",
-      "flex-grow",
-      "flex-shrink",
-      "flex-basis",
-      "align-items",
-      "align-self",
-      "align-content",
-      "justify-content",
-      "justify-items",
-      "justify-self",
-      "gap",
-      "grid-template-columns",
-      "grid-template-rows",
-      "grid-column",
-      "grid-row",
-      "order",
-      "overflow",
-      "overflow-x",
-      "overflow-y",
-      "background-color",
-      "background-image",
-      "background-position",
-      "background-size",
-      "background-repeat",
-      "border",
-      "border-top",
-      "border-right",
-      "border-bottom",
-      "border-left",
-      "border-radius",
-      "box-shadow",
-      "opacity",
-      "transform",
-      "transform-origin",
-      "color",
-      "font-family",
-      "font-size",
-      "font-style",
-      "font-weight",
-      "line-height",
-      "letter-spacing",
-      "text-align",
-      "text-decoration",
-      "text-transform",
-      "white-space",
-      "object-fit",
-      "object-position",
-      "clip-path",
-      "visibility",
-    ];
-    function inlineSnapshotComputedStyle(
-      sourceNode: Element,
+    var snapshotFailures: string[] = [];
+
+    function cloneRuntimeStylesheet(
+      sourceNode: HTMLStyleElement | HTMLLinkElement,
       cloneNode: Element,
-    ): void {
-      var computed = getComputedStyle(sourceNode);
-      var parts: string[] = [];
-      for (
-        var propertyIndex = 0;
-        propertyIndex < snapshotComputedProperties.length;
-        propertyIndex += 1
-      ) {
-        var property = snapshotComputedProperties[propertyIndex];
-        var value = computed.getPropertyValue(property);
-        if (value) parts.push(property + ":" + value);
+    ): Element {
+      try {
+        if (!sourceNode.sheet) throw new Error("stylesheet unavailable");
+        var cssText = Array.from(sourceNode.sheet.cssRules, function (rule) {
+          return rule.cssText;
+        }).join("\n");
+        if (sourceNode instanceof HTMLStyleElement) {
+          (cloneNode as HTMLStyleElement).textContent = cssText;
+          return cloneNode;
+        }
+        var style = document.createElement("style");
+        Array.from(cloneNode.attributes).forEach(function (attribute) {
+          if (
+            !/^(?:href|rel|crossorigin|integrity|referrerpolicy|fetchpriority|as)$/i.test(
+              attribute.name,
+            )
+          ) {
+            style.setAttribute(attribute.name, attribute.value);
+          }
+        });
+        style.setAttribute(
+          "data-agent-native-stylesheet-base",
+          sourceNode.href,
+        );
+        style.textContent = cssText;
+        return style;
+      } catch {
+        if (!snapshotFailures.includes("stylesheet-cssom-unavailable")) {
+          snapshotFailures.push("stylesheet-cssom-unavailable");
+        }
+        return cloneNode;
       }
-      cloneNode.setAttribute("style", parts.join(";"));
     }
+
     var sourceNodes = Array.prototype.slice.call(
       document.body.querySelectorAll("*"),
     ) as Element[];
@@ -2268,16 +2224,87 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     ) {
       var sourceNode = sourceNodes[index];
       var cloneNode = cloneNodes[index];
+      var sourceIsStylesheet =
+        sourceNode instanceof HTMLStyleElement ||
+        (sourceNode instanceof HTMLLinkElement &&
+          sourceNode.relList.contains("stylesheet"));
       if (
         excludedRoot?.contains(sourceNode) ||
-        !isRuntimeLayerVisualNode(sourceNode)
+        (!isRuntimeLayerVisualNode(sourceNode) && !sourceIsStylesheet)
       ) {
         cloneNode.setAttribute("data-an-runtime-layer-remove", "true");
         continue;
       }
+      if (!isRuntimeLayerVisualNode(sourceNode)) {
+        if (
+          sourceNode instanceof HTMLStyleElement ||
+          sourceNode instanceof HTMLLinkElement
+        ) {
+          var clonedStylesheet = cloneRuntimeStylesheet(sourceNode, cloneNode);
+          if (clonedStylesheet !== cloneNode)
+            cloneNode.replaceWith(clonedStylesheet);
+        }
+        continue;
+      }
       var runtimeNodeId = ensureRuntimeLayerNodeId(sourceNode);
       cloneNode.setAttribute("data-agent-native-node-id", runtimeNodeId);
-      inlineSnapshotComputedStyle(sourceNode, cloneNode);
+      cloneNode.removeAttribute("data-agent-native-runtime-locked");
+      if (
+        sourceNode instanceof HTMLInputElement &&
+        cloneNode instanceof HTMLInputElement
+      ) {
+        if (sourceNode.type === "file") {
+          if (sourceNode.files?.length) {
+            snapshotFailures.push("form-state-unavailable");
+          }
+        } else if (sourceNode.type !== "hidden") {
+          var inputValue =
+            sourceNode.type === "password"
+              ? "x".repeat(sourceNode.value.length)
+              : sourceNode.value;
+          cloneNode.setAttribute("value", inputValue);
+          if (sourceNode.checked) cloneNode.setAttribute("checked", "");
+          else cloneNode.removeAttribute("checked");
+          if (sourceNode.indeterminate) {
+            snapshotFailures.push("form-state-unavailable");
+          }
+        }
+      } else if (
+        sourceNode instanceof HTMLTextAreaElement &&
+        cloneNode instanceof HTMLTextAreaElement
+      ) {
+        cloneNode.textContent = sourceNode.value;
+      } else if (
+        sourceNode instanceof HTMLOptionElement &&
+        cloneNode instanceof HTMLOptionElement
+      ) {
+        if (sourceNode.selected) cloneNode.setAttribute("selected", "");
+        else cloneNode.removeAttribute("selected");
+      }
+      if (
+        sourceNode instanceof HTMLVideoElement ||
+        (sourceNode instanceof HTMLAudioElement && sourceNode.controls)
+      ) {
+        snapshotFailures.push("visual-media");
+      }
+      if (sourceNode instanceof HTMLCanvasElement) {
+        snapshotFailures.push("canvas-unavailable");
+      }
+      if (sourceNode instanceof HTMLIFrameElement) {
+        snapshotFailures.push("embedded-document-unavailable");
+      }
+      if (sourceNode.localName === "foreignobject") {
+        snapshotFailures.push("foreign-object-unavailable");
+      }
+      if (
+        sourceNode instanceof HTMLImageElement &&
+        cloneNode instanceof HTMLImageElement
+      ) {
+        if (sourceNode.currentSrc) {
+          cloneNode.setAttribute("src", sourceNode.currentSrc);
+        }
+        cloneNode.removeAttribute("srcset");
+      }
       var provenance = elementDebugProvenance(sourceNode);
       if (provenance.sourceFile) {
         if (provenance.framework) {
@@ -2362,7 +2389,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       });
     cloneBody
       .querySelectorAll(
-        "script,style,template,noscript,link,meta,title,iframe,object,embed,base,foreignObject,video,audio,source,track,animate,set",
+        "script,template,noscript,meta,title,iframe,object,embed,base,foreignObject,video,audio,source,track,animate,set,link:not([rel~='stylesheet'])",
       )
       .forEach(function (node) {
         node.remove();
@@ -2395,9 +2422,52 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       "data-agent-native-node-id",
       ensureRuntimeLayerNodeId(document.body),
     );
-    inlineSnapshotComputedStyle(document.body, cloneBody);
     cloneBody.setAttribute("data-an-runtime-layer-snapshot", "true");
-    var html = "<!doctype html><html>" + cloneBody.outerHTML + "</html>"; // i18n-ignore serialized runtime-layer HTML payload, not visible UI copy
+    var cloneHtml = document.documentElement.cloneNode(false) as HTMLElement;
+    var cloneHead = document.createElement("head");
+    Array.from(document.head?.children ?? []).forEach(function (node) {
+      if (
+        node instanceof HTMLStyleElement &&
+        (node.hasAttribute("data-agent-native-editor-chrome-style") ||
+          node.hasAttribute("data-agent-native-runtime-state-previews") ||
+          node.hasAttribute("data-agent-native-editing-safety-style"))
+      ) {
+        return;
+      }
+      if (
+        node instanceof HTMLStyleElement ||
+        (node instanceof HTMLLinkElement && node.relList.contains("stylesheet"))
+      ) {
+        if (
+          (node instanceof HTMLStyleElement && node.sheet?.disabled) ||
+          (node instanceof HTMLLinkElement && node.disabled)
+        ) {
+          return;
+        }
+        var cloneNode = node.cloneNode(true) as Element;
+        cloneHead.appendChild(cloneRuntimeStylesheet(node, cloneNode));
+      }
+    });
+    Array.from(document.adoptedStyleSheets ?? []).forEach(function (sheet) {
+      try {
+        var adoptedStyle = document.createElement("style");
+        adoptedStyle.textContent = Array.from(sheet.cssRules, function (rule) {
+          return rule.cssText;
+        }).join("\n");
+        cloneHead.appendChild(adoptedStyle);
+      } catch {
+        snapshotFailures.push("adopted-stylesheet-unavailable");
+      }
+    });
+    if (snapshotFailures.length > 0) {
+      cloneHtml.setAttribute(
+        "data-agent-native-export-resource-failures",
+        snapshotFailures.join(","),
+      );
+    }
+    cloneHtml.appendChild(cloneHead);
+    cloneHtml.appendChild(cloneBody);
+    var html = "<!doctype html>" + cloneHtml.outerHTML; // i18n-ignore serialized runtime-layer HTML payload, not visible UI copy
     if (html.length > 2_000_000)
       return { ok: false, reason: "snapshot-too-large" };
     return {
@@ -2405,6 +2475,550 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       html: html,
       nodeCount: nodeCount,
       documentId: runtimeDocumentId,
+    };
+  }
+
+  async function inlineRuntimeSnapshotResources(
+    html: string,
+    maxSerializedRequestBytes?: number,
+  ): Promise<{
+    html: string;
+    complete: boolean;
+    errorCode?: "export_too_large" | "export_resources_unavailable";
+  }> {
+    var resourceAbortController = new AbortController();
+    var resourceSignal = resourceAbortController.signal;
+    var resourceTimedOut = false;
+    var resourceBudgetExceeded = false;
+    var resourceTimeoutSignal = AbortSignal.timeout(15_000);
+    resourceTimeoutSignal.addEventListener(
+      "abort",
+      function () {
+        resourceTimedOut = true;
+        resourceAbortController.abort();
+      },
+      { once: true },
+    );
+    var parsed = new DOMParser().parseFromString(html, "text/html");
+    var resourceData = new Map<string, string>();
+    var resourceRequests = new Map<string, Promise<string | null>>();
+    var totalBytes = 0;
+    var complete = true;
+    var maxResourceBytes = 4_000_000;
+    var maxTotalBytes = 8_000_000;
+    var failures = (
+      parsed.documentElement.getAttribute(
+        "data-agent-native-export-resource-failures",
+      ) || ""
+    )
+      .split(",")
+      .filter(Boolean);
+
+    function markFailure(reason: string): void {
+      complete = false;
+      if (!failures.includes(reason)) failures.push(reason);
+    }
+
+    async function readBoundedBody(response: Response): Promise<Blob | null> {
+      if (!response.body) return new Blob([]);
+      var reader = response.body.getReader();
+      var chunks: BlobPart[] = [];
+      var resourceBytes = 0;
+      try {
+        while (true) {
+          var result = await reader.read();
+          if (result.done) break;
+          var chunk = result.value;
+          if (
+            resourceBytes + chunk.byteLength > maxResourceBytes ||
+            totalBytes + chunk.byteLength > maxTotalBytes
+          ) {
+            resourceBudgetExceeded = true;
+            markFailure("export-resource-size-limit");
+            try {
+              await reader.cancel();
+            } catch {
+              markFailure("resource-cancel");
+            }
+            resourceAbortController.abort();
+            return null;
+          }
+          resourceBytes += chunk.byteLength;
+          totalBytes += chunk.byteLength;
+          chunks.push(
+            chunk.buffer.slice(
+              chunk.byteOffset,
+              chunk.byteOffset + chunk.byteLength,
+            ) as ArrayBuffer,
+          );
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      return new Blob(chunks, {
+        type: response.headers.get("content-type") || "",
+      });
+    }
+
+    function cssCodeMask(css: string): Uint8Array {
+      var mask = new Uint8Array(css.length);
+      for (var index = 0; index < css.length; index += 1) {
+        var character = css[index];
+        if (character === "/" && css[index + 1] === "*") {
+          var commentEnd = css.indexOf("*/", index + 2);
+          index = commentEnd < 0 ? css.length : commentEnd + 1;
+        } else if (character === "'" || character === '"') {
+          var quote = character;
+          for (index += 1; index < css.length; index += 1) {
+            if (css[index] === "\\") index += 1;
+            else if (css[index] === quote) break;
+          }
+        } else if (character === "\\") {
+          index += 1;
+        } else {
+          mask[index] = 1;
+        }
+      }
+      return mask;
+    }
+
+    function cssNameCharacter(character: string | undefined): boolean {
+      return !!character && /[\w-\\]/.test(character);
+    }
+
+    function findCssUrlTokens(
+      css: string,
+    ): Array<{ start: number; end: number; value: string }> {
+      var codeMask = cssCodeMask(css);
+      var tokens: Array<{ start: number; end: number; value: string }> = [];
+      for (var index = 0; index < css.length; index += 1) {
+        if (
+          !codeMask[index] ||
+          css.slice(index, index + 3).toLowerCase() !== "url" ||
+          cssNameCharacter(css[index - 1]) ||
+          css[index + 3] !== "("
+        ) {
+          continue;
+        }
+        var quote = "";
+        var end = -1;
+        for (var cursor = index + 4; cursor < css.length; cursor += 1) {
+          var character = css[cursor];
+          if (character === "/" && css[cursor + 1] === "*") {
+            var commentEnd = css.indexOf("*/", cursor + 2);
+            if (commentEnd < 0) break;
+            cursor = commentEnd + 1;
+          } else if (quote) {
+            if (character === "\\") cursor += 1;
+            else if (character === quote) quote = "";
+          } else if (character === "'" || character === '"') {
+            quote = character;
+          } else if (character === "\\") {
+            cursor += 1;
+          } else if (character === ")") {
+            end = cursor + 1;
+            break;
+          }
+        }
+        if (end < 0) continue;
+        var value = css.slice(index + 4, end - 1).trim();
+        if (value.startsWith("'") || value.startsWith('"')) {
+          var valueQuote = value[0];
+          var valueEnd = -1;
+          for (var valueIndex = 1; valueIndex < value.length; valueIndex += 1) {
+            if (value[valueIndex] === "\\") valueIndex += 1;
+            else if (value[valueIndex] === valueQuote) {
+              valueEnd = valueIndex;
+              break;
+            }
+          }
+          if (valueEnd < 0 || value.slice(valueEnd + 1).trim()) continue;
+          value = value.slice(1, valueEnd);
+        } else {
+          value = value.replace(/\/\*[\s\S]*?\*\//g, "").trim();
+        }
+        if (value) tokens.push({ start: index, end: end, value: value });
+        index = end - 1;
+      }
+      return tokens;
+    }
+
+    async function resourceDataUrl(
+      rawUrl: string,
+      baseUrl: string,
+    ): Promise<string | null> {
+      var url: URL;
+      try {
+        url = new URL(rawUrl, baseUrl);
+      } catch {
+        markFailure("resource-url-invalid");
+        return null;
+      }
+      if (url.protocol === "data:" || rawUrl.startsWith("#")) return rawUrl;
+      if (
+        url.protocol !== "http:" &&
+        url.protocol !== "https:" &&
+        url.protocol !== "blob:"
+      ) {
+        markFailure("resource-protocol-unsupported");
+        return null;
+      }
+      var resourceKind = /\.(?:woff2?|ttf|otf)(?:$|\?)/i.test(url.pathname)
+        ? "font"
+        : /\.(?:png|jpe?g|gif|webp|avif|svg)(?:$|\?)/i.test(url.pathname)
+          ? "image"
+          : /\.css(?:$|\?)/i.test(url.pathname)
+            ? "stylesheet"
+            : "other";
+      var fragment = url.hash;
+      url.hash = "";
+      var key = url.href;
+      var cached = resourceData.get(key);
+      if (cached) return cached + fragment;
+      var pendingRequest = resourceRequests.get(key);
+      if (!pendingRequest) {
+        pendingRequest = (async function () {
+          try {
+            var response = await fetch(key, {
+              credentials: "same-origin",
+              signal: resourceSignal,
+            });
+            if (!response.ok) throw new Error("resource unavailable");
+            var blob = await readBoundedBody(response);
+            if (!blob) return null;
+            var dataUrl: string = await new Promise(function (resolve, reject) {
+              var reader = new FileReader();
+              reader.onload = function () {
+                resolve(typeof reader.result === "string" ? reader.result : "");
+              };
+              reader.onerror = function () {
+                reject(reader.error || new Error("resource encoding failed"));
+              };
+              reader.readAsDataURL(blob);
+            });
+            if (!dataUrl) throw new Error("resource encoding failed");
+            return dataUrl;
+          } catch {
+            markFailure(
+              resourceTimedOut
+                ? "resource-timeout"
+                : resourceBudgetExceeded
+                  ? "export-resource-size-limit"
+                  : "resource-fetch-" + resourceKind,
+            );
+            return null;
+          }
+        })();
+        resourceRequests.set(key, pendingRequest);
+      }
+      try {
+        var dataUrl = await pendingRequest;
+        if (!dataUrl) return null;
+        resourceData.set(key, dataUrl);
+        return dataUrl + fragment;
+      } finally {
+        if (resourceRequests.get(key) === pendingRequest)
+          resourceRequests.delete(key);
+      }
+    }
+
+    async function inlineCssUrls(
+      css: string,
+      baseUrl: string,
+    ): Promise<string> {
+      var matches = findCssUrlTokens(css);
+      var resourceGroups = new Map<string, string>();
+      var resourceKeys: Array<string | null> = [];
+      var resourceFragments: string[] = [];
+      for (var matchIndex = 0; matchIndex < matches.length; matchIndex += 1) {
+        var rawUrl = matches[matchIndex]!.value;
+        if (
+          !rawUrl ||
+          rawUrl.startsWith("#") ||
+          /^(?:data|about):/i.test(rawUrl)
+        ) {
+          resourceKeys.push(null);
+          resourceFragments.push("");
+          continue;
+        }
+        try {
+          var resourceUrl = new URL(rawUrl, baseUrl);
+          var fragment = resourceUrl.hash;
+          resourceUrl.hash = "";
+          var key = resourceUrl.href;
+          resourceGroups.set(key, key);
+          resourceKeys.push(key);
+          resourceFragments.push(fragment);
+        } catch {
+          var invalidKey = "invalid:" + rawUrl;
+          resourceGroups.set(invalidKey, rawUrl);
+          resourceKeys.push(invalidKey);
+          resourceFragments.push("");
+        }
+      }
+      var resourceEntries = Array.from(resourceGroups.entries());
+      var resourceResults = new Map<string, string | null>();
+      var nextResourceIndex = 0;
+      var resourceWorkers = Array.from(
+        { length: Math.min(4, resourceEntries.length) },
+        async function () {
+          while (nextResourceIndex < resourceEntries.length) {
+            var resourceIndex = nextResourceIndex++;
+            var entry = resourceEntries[resourceIndex]!;
+            resourceResults.set(
+              entry[0],
+              await resourceDataUrl(entry[1], baseUrl),
+            );
+          }
+        },
+      );
+      await Promise.all(resourceWorkers);
+      var replacements = matches.map(function (_match, index) {
+        var key = resourceKeys[index];
+        if (!key) return null;
+        var dataUrl = resourceResults.get(key);
+        return dataUrl ? { dataUrl: dataUrl + resourceFragments[index] } : null;
+      });
+      var result = "";
+      var cursor = 0;
+      for (var index = 0; index < matches.length; index += 1) {
+        var match = matches[index]!;
+        var replacement = replacements[index];
+        result += css.slice(cursor, match.start);
+        result += replacement
+          ? 'url("' + replacement.dataUrl + '")'
+          : css.slice(match.start, match.end);
+        cursor = match.end;
+      }
+      return result + css.slice(cursor);
+    }
+
+    async function inlineStylesheet(
+      css: string,
+      baseUrl: string,
+      importedFrom: string[],
+      depth: number,
+    ): Promise<string> {
+      if (depth > 8) {
+        markFailure("stylesheet-import-depth");
+        return css;
+      }
+      var codeMask = cssCodeMask(css);
+      var importExpression =
+        /@import\s+(?:url\(\s*)?(['"]?)([^'")\s]+)\1\s*\)?\s*([^;]*);/gi;
+      var imports = Array.from(css.matchAll(importExpression)).filter(
+        function (match) {
+          var start = match.index ?? 0;
+          return codeMask[start] === 1 && !cssNameCharacter(css[start - 1]);
+        },
+      );
+      if (imports.length === 0) return inlineCssUrls(css, baseUrl);
+
+      var result = "";
+      var cursor = 0;
+      for (
+        var importIndex = 0;
+        importIndex < imports.length;
+        importIndex += 1
+      ) {
+        var importMatch = imports[importIndex]!;
+        var start = importMatch.index ?? cursor;
+        result += css.slice(cursor, start);
+        var rawUrl = String(importMatch[2] || "").trim();
+        if (!rawUrl || /^(?:data|about):/i.test(rawUrl)) {
+          result += importMatch[0];
+          cursor = start + importMatch[0].length;
+          continue;
+        }
+        try {
+          var importedUrl = new URL(rawUrl, baseUrl);
+          importedUrl.hash = "";
+          if (importedFrom.indexOf(importedUrl.href) !== -1) {
+            throw new Error("cyclic stylesheet import");
+          }
+          var importedResponse = await fetch(importedUrl.href, {
+            credentials: "same-origin",
+            signal: resourceSignal,
+          });
+          if (!importedResponse.ok) throw new Error("stylesheet unavailable");
+          var importedBlob = await readBoundedBody(importedResponse);
+          if (!importedBlob) {
+            result += importMatch[0];
+            cursor = start + importMatch[0].length;
+            continue;
+          }
+          var importedCss = await inlineStylesheet(
+            await importedBlob.text(),
+            importedUrl.href,
+            importedFrom.concat(importedUrl.href),
+            depth + 1,
+          );
+          var importedDataUrl: string = await new Promise(
+            function (resolve, reject) {
+              var reader = new FileReader();
+              reader.onload = function () {
+                resolve(typeof reader.result === "string" ? reader.result : "");
+              };
+              reader.onerror = function () {
+                reject(reader.error || new Error("stylesheet encoding failed"));
+              };
+              reader.readAsDataURL(
+                new Blob([importedCss], { type: "text/css;charset=utf-8" }),
+              );
+            },
+          );
+          if (!importedDataUrl) throw new Error("stylesheet encoding failed");
+          var importQualifier = String(importMatch[3] || "").trim();
+          result +=
+            '@import url("' +
+            importedDataUrl +
+            '")' +
+            (importQualifier ? " " + importQualifier : "") +
+            ";";
+        } catch {
+          markFailure(
+            resourceTimedOut
+              ? "resource-timeout"
+              : resourceBudgetExceeded
+                ? "export-resource-size-limit"
+                : "stylesheet-import",
+          );
+          result += importMatch[0];
+        }
+        cursor = start + importMatch[0].length;
+      }
+      result += css.slice(cursor);
+      return inlineCssUrls(result, baseUrl);
+    }
+
+    var externalStylesheets = Array.from(
+      parsed.querySelectorAll<HTMLLinkElement>("link[rel~='stylesheet']"),
+    );
+    for (
+      var sheetIndex = 0;
+      sheetIndex < externalStylesheets.length;
+      sheetIndex += 1
+    ) {
+      var link = externalStylesheets[sheetIndex]!;
+      var replacementStyle = parsed.createElement("style");
+      if (link.media) replacementStyle.media = link.media;
+      if (link.title) replacementStyle.title = link.title;
+      try {
+        var sheetUrl = new URL(
+          link.getAttribute("href") || "",
+          document.baseURI,
+        );
+        var sheetResponse = await fetch(sheetUrl.href, {
+          credentials: "same-origin",
+          signal: resourceSignal,
+        });
+        if (!sheetResponse.ok) throw new Error("stylesheet unavailable");
+        var sheetBlob = await readBoundedBody(sheetResponse);
+        if (!sheetBlob) {
+          link.replaceWith(replacementStyle);
+          continue;
+        }
+        replacementStyle.textContent = await inlineStylesheet(
+          await sheetBlob.text(),
+          sheetUrl.href,
+          [sheetUrl.href],
+          0,
+        );
+      } catch {
+        markFailure(
+          resourceTimedOut
+            ? "resource-timeout"
+            : resourceBudgetExceeded
+              ? "export-resource-size-limit"
+              : "stylesheet-link",
+        );
+      }
+      link.replaceWith(replacementStyle);
+    }
+
+    var styledNodes = Array.from(
+      parsed.querySelectorAll<HTMLElement>("[style], style"),
+    );
+    for (var styleIndex = 0; styleIndex < styledNodes.length; styleIndex += 1) {
+      var styledNode = styledNodes[styleIndex]!;
+      if (styledNode.localName === "style") {
+        var stylesheetBaseUrl =
+          styledNode.getAttribute("data-agent-native-stylesheet-base") ||
+          document.baseURI;
+        styledNode.removeAttribute("data-agent-native-stylesheet-base");
+        styledNode.textContent = await inlineStylesheet(
+          styledNode.textContent || "",
+          stylesheetBaseUrl,
+          [],
+          0,
+        );
+      } else {
+        styledNode.setAttribute(
+          "style",
+          await inlineCssUrls(
+            styledNode.getAttribute("style") || "",
+            document.baseURI,
+          ),
+        );
+      }
+    }
+
+    var imageNodes = Array.from(
+      parsed.querySelectorAll<HTMLElement>(
+        "img[src], image[href], image[xlink\\:href]",
+      ),
+    );
+    for (var imageIndex = 0; imageIndex < imageNodes.length; imageIndex += 1) {
+      var image = imageNodes[imageIndex]!;
+      var attribute = image.hasAttribute("src")
+        ? "src"
+        : image.hasAttribute("href")
+          ? "href"
+          : "xlink:href";
+      var source = image.getAttribute(attribute);
+      if (!source || /^(?:data|about):/i.test(source)) continue;
+      var dataSource = await resourceDataUrl(source, document.baseURI);
+      if (dataSource) image.setAttribute(attribute, dataSource);
+      else markFailure("image-fetch");
+      if (image.localName === "img") image.removeAttribute("srcset");
+    }
+
+    var tooLarge = failures.includes("export-resource-size-limit");
+    var outputHtml = "<!doctype html>" + parsed.documentElement.outerHTML;
+    if (maxSerializedRequestBytes !== undefined) {
+      var requestBody = JSON.stringify({
+        html: outputHtml,
+        width: Number.MAX_SAFE_INTEGER,
+        height: Number.MAX_SAFE_INTEGER,
+        scale: 4,
+      });
+      tooLarge =
+        tooLarge ||
+        new TextEncoder().encode(requestBody).byteLength >
+          maxSerializedRequestBytes;
+      if (tooLarge && !failures.includes("export-request-size-limit")) {
+        failures.push("export-request-size-limit");
+        complete = false;
+      }
+    }
+
+    if (!complete) {
+      parsed.documentElement.setAttribute(
+        "data-agent-native-export-resource-failures",
+        failures.join(","),
+      );
+      outputHtml = "<!doctype html>" + parsed.documentElement.outerHTML;
+    }
+    return {
+      html: outputHtml,
+      complete: complete,
+      ...(!complete
+        ? {
+            errorCode: tooLarge
+              ? ("export_too_large" as const)
+              : ("export_resources_unavailable" as const),
+          }
+        : {}),
     };
   }
 
@@ -2421,6 +3035,41 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     }
     runtimeLayerSnapshotTimer = null;
     runtimeLayerSnapshotMaxTimer = null;
+    var postGeneration = ++runtimeLayerSnapshotPostGeneration;
+    if (Number.isSafeInteger(readinessRequestId)) {
+      runtimeLayerSnapshotPendingPostReadinessRequestId =
+        readinessRequestId as number;
+    }
+    var postReadinessRequestId =
+      runtimeLayerSnapshotPendingPostReadinessRequestId ?? undefined;
+    function clearPendingPostReadiness(): void {
+      if (
+        postReadinessRequestId !== undefined &&
+        runtimeLayerSnapshotPendingPostReadinessRequestId ===
+          postReadinessRequestId
+      ) {
+        runtimeLayerSnapshotPendingPostReadinessRequestId = null;
+      }
+    }
+    function postSnapshotTooLargeError(): void {
+      (window.parent as Window).postMessage(
+        {
+          type: "agent-native:runtime-layer-snapshot-error",
+          payload: {
+            ok: false,
+            reason: "snapshot-too-large",
+            requestId,
+            documentId: runtimeDocumentId,
+            ...(Number.isSafeInteger(postReadinessRequestId)
+              ? { readinessRequestId: postReadinessRequestId }
+              : {}),
+            ...(reservationToken ? { reservationToken: reservationToken } : {}),
+          },
+        },
+        "*",
+      );
+      clearPendingPostReadiness();
+    }
     var snapshot = serializeRuntimeLayerSnapshot();
     if (!snapshot.ok) {
       (window.parent as Window).postMessage(
@@ -2430,52 +3079,93 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             ...snapshot,
             requestId,
             documentId: runtimeDocumentId,
-            ...(Number.isSafeInteger(readinessRequestId)
-              ? { readinessRequestId }
+            ...(Number.isSafeInteger(postReadinessRequestId)
+              ? { readinessRequestId: postReadinessRequestId }
               : {}),
             ...(reservationToken ? { reservationToken } : {}),
           },
         },
         "*",
       );
+      clearPendingPostReadiness();
       return;
     }
-    var snapshotReservationToken = reservationToken || "";
-    if (
-      snapshot.html === lastRuntimeLayerSnapshotHtml &&
-      snapshotReservationToken === lastRuntimeLayerSnapshotReservationToken &&
-      !Number.isSafeInteger(readinessRequestId)
-    ) {
-      (window.parent as Window).postMessage(
-        {
-          type: "agent-native:runtime-layer-snapshot-unchanged",
-          payload: {
-            requestId,
-            documentId: snapshot.documentId,
-            ...(Number.isSafeInteger(readinessRequestId)
-              ? { readinessRequestId }
-              : {}),
-            ...(reservationToken ? { reservationToken } : {}),
+    void inlineRuntimeSnapshotResources(snapshot.html, 5_000_000)
+      .then(function (inlined) {
+        if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
+        snapshot.html = inlined.html;
+        if (
+          inlined.errorCode === "export_too_large" ||
+          snapshot.html.length > 14_000_000
+        ) {
+          postSnapshotTooLargeError();
+          return;
+        }
+        var snapshotReservationToken = reservationToken || "";
+        if (
+          snapshot.html === lastRuntimeLayerSnapshotHtml &&
+          snapshotReservationToken ===
+            lastRuntimeLayerSnapshotReservationToken &&
+          !Number.isSafeInteger(postReadinessRequestId)
+        ) {
+          (window.parent as Window).postMessage(
+            {
+              type: "agent-native:runtime-layer-snapshot-unchanged",
+              payload: {
+                requestId,
+                documentId: snapshot.documentId,
+                ...(Number.isSafeInteger(postReadinessRequestId)
+                  ? { readinessRequestId: postReadinessRequestId }
+                  : {}),
+                ...(reservationToken ? { reservationToken } : {}),
+              },
+            },
+            "*",
+          );
+          clearPendingPostReadiness();
+          return;
+        }
+        if (requestId !== undefined) snapshot.requestId = requestId;
+        if (Number.isSafeInteger(postReadinessRequestId)) {
+          snapshot.readinessRequestId = postReadinessRequestId;
+        }
+        if (reservationToken) snapshot.reservationToken = reservationToken;
+        var snapshotMessage = {
+          type: "agent-native:runtime-layer-snapshot",
+          payload: snapshot,
+        };
+        if (
+          new TextEncoder().encode(JSON.stringify(snapshotMessage)).byteLength >
+          5_000_000
+        ) {
+          postSnapshotTooLargeError();
+          return;
+        }
+        lastRuntimeLayerSnapshotHtml = snapshot.html;
+        lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
+        (window.parent as Window).postMessage(snapshotMessage, "*");
+        clearPendingPostReadiness();
+      })
+      .catch(function () {
+        if (postGeneration !== runtimeLayerSnapshotPostGeneration) return;
+        (window.parent as Window).postMessage(
+          {
+            type: "agent-native:runtime-layer-snapshot-error",
+            payload: {
+              ok: false,
+              reason: "snapshot-unavailable",
+              requestId,
+              documentId: runtimeDocumentId,
+              ...(Number.isSafeInteger(postReadinessRequestId)
+                ? { readinessRequestId: postReadinessRequestId }
+                : {}),
+              ...(reservationToken ? { reservationToken } : {}),
+            },
           },
-        },
-        "*",
-      );
-      return;
-    }
-    lastRuntimeLayerSnapshotHtml = snapshot.html;
-    lastRuntimeLayerSnapshotReservationToken = snapshotReservationToken;
-    if (requestId !== undefined) snapshot.requestId = requestId;
-    if (Number.isSafeInteger(readinessRequestId)) {
-      snapshot.readinessRequestId = readinessRequestId;
-    }
-    if (reservationToken) snapshot.reservationToken = reservationToken;
-    (window.parent as Window).postMessage(
-      {
-        type: "agent-native:runtime-layer-snapshot",
-        payload: snapshot,
-      },
-      "*",
-    );
+          "*",
+        );
+        clearPendingPostReadiness();
+      });
   }
 
   function requestRuntimeLayerSnapshot(readinessRequestId?: number): void {
@@ -6635,6 +7325,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
   var activeCrossScreenComputedSize:
     | { width?: number; height?: number }
     | undefined;
+  var activeCrossScreenGridSpan: { columns: number; rows: number } | undefined;
   var activeCrossScreenDeleteRequestId: string | undefined = undefined;
   var activeCrossScreenDragIdentity: {
     selector: string;
@@ -10132,10 +10823,11 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         }
         var cs = window.getComputedStyle(el);
         var box = borderBoxDimensions(cs);
-        var radii = cornerRadiusMap(cs, box.width, box.height)[pos] || {
-          x: 0,
-          y: 0,
-        };
+        var radii = normalizeCornerRadiusMap(
+          cornerRadiusMap(cs, box.width, box.height),
+          box.width,
+          box.height,
+        )[pos] || { x: 0, y: 0 };
         var west = pos.indexOf("w") !== -1;
         var north = pos.indexOf("n") !== -1;
         var targetGeometry = radiusViewportBoxGeometry(
@@ -13322,21 +14014,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
-  function isDirectCornerRadiusValue(value) {
-    var trimmed = typeof value === "string" ? value.trim() : "";
-    if (!trimmed) return false;
-    var parts = trimmed.split(/\s+/);
-    return (
-      parts.length <= 2 &&
-      parts.every(function (part) {
-        return (
-          /^[-+]?(?:\d*\.\d+|\d+\.?\d*)(?:px|%)$/i.test(part) ||
-          /^[-+]?0(?:\.0*)?$/.test(part)
-        );
-      })
-    );
-  }
-
   function borderBoxDimensions(cs) {
     var width = readPx(cs.width);
     var height = readPx(cs.height);
@@ -13797,7 +14474,37 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
-  function radiusDragMaximums(corner, radii, width, height) {
+  function normalizeCornerRadiusMap(radii, width, height) {
+    var scale = 1;
+    [
+      { size: width, sum: radii.nw.x + radii.ne.x },
+      { size: width, sum: radii.sw.x + radii.se.x },
+      { size: height, sum: radii.nw.y + radii.sw.y },
+      { size: height, sum: radii.ne.y + radii.se.y },
+    ].forEach(function (side) {
+      if (side.sum > side.size && side.sum > 0) {
+        scale = Math.min(scale, side.size / side.sum);
+      }
+    });
+    if (scale === 1) return radii;
+    var normalized = {};
+    Object.keys(radii).forEach(function (corner) {
+      normalized[corner] = {
+        x: radii[corner].x * scale,
+        y: radii[corner].y * scale,
+      };
+    });
+    return normalized;
+  }
+
+  function radiusDragMaximums(
+    corner,
+    radii,
+    width,
+    height,
+    minimumRadius,
+    allowBeyondHalf,
+  ) {
     var horizontalNeighbor =
       corner === "nw"
         ? radii.ne.x
@@ -13815,8 +14522,38 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             ? radii.ne.y
             : radii.nw.y;
     return {
-      x: Math.max(0, Math.min(width / 2, width - horizontalNeighbor)),
-      y: Math.max(0, Math.min(height / 2, height - verticalNeighbor)),
+      x: Math.max(
+        minimumRadius ? minimumRadius.x : 0,
+        Math.max(
+          0,
+          Math.min(
+            allowBeyondHalf ? width : width / 2,
+            width - horizontalNeighbor,
+          ),
+        ),
+      ),
+      y: Math.max(
+        minimumRadius ? minimumRadius.y : 0,
+        Math.max(
+          0,
+          Math.min(
+            allowBeyondHalf ? height : height / 2,
+            height - verticalNeighbor,
+          ),
+        ),
+      ),
+    };
+  }
+
+  function uniformCornerRadiusMaximums(corner, radii, width, height) {
+    var topRoom = width - radii.nw.x - radii.ne.x;
+    var bottomRoom = width - radii.sw.x - radii.se.x;
+    var leftRoom = height - radii.nw.y - radii.sw.y;
+    var rightRoom = height - radii.ne.y - radii.se.y;
+    var origin = radii[corner] || { x: 0, y: 0 };
+    return {
+      x: origin.x + Math.max(0, Math.min(topRoom, bottomRoom)) / 2,
+      y: origin.y + Math.max(0, Math.min(leftRoom, rightRoom)) / 2,
     };
   }
 
@@ -16314,19 +17051,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     );
   }
 
-  function isAutoLayoutFlowTarget(el: Element | null): boolean {
-    if (!el) return false;
-    if (isAutoLayoutElement(el)) return true;
-    if (
-      el.getAttribute("data-an-primitive") !== "frame" ||
-      !isAutoLayoutElement(el.parentElement)
-    ) {
-      return false;
-    }
-    var position = window.getComputedStyle(el).position;
-    return position !== "absolute" && position !== "fixed";
-  }
-
   var BRIDGE_REPLACED_TAGS: Record<string, boolean> = {
     img: true,
     video: true,
@@ -16517,6 +17241,59 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       : target.anchor.parentElement;
   }
 
+  function dropContentSize(el: Element): { width: number; height: number } {
+    var html = el as HTMLElement;
+    var style = window.getComputedStyle(el);
+    var rect = el.getBoundingClientRect();
+    var scaleX = html.offsetWidth ? rect.width / html.offsetWidth : 1;
+    var scaleY = html.offsetHeight ? rect.height / html.offsetHeight : 1;
+    return {
+      width:
+        (html.clientWidth -
+          readPx(style.paddingLeft) -
+          readPx(style.paddingRight)) *
+        scaleX,
+      height:
+        (html.clientHeight -
+          readPx(style.paddingTop) -
+          readPx(style.paddingBottom)) *
+        scaleY,
+    };
+  }
+
+  function dropFitsContainer(
+    container: Element,
+    sourceWidth: number,
+    sourceHeight: number,
+  ): boolean {
+    var size = dropContentSize(container);
+    return size.width >= sourceWidth && size.height >= sourceHeight;
+  }
+
+  function dropFitsAutoLayoutFallback(
+    container: Element,
+    sourceWidth: number,
+    sourceHeight: number,
+  ): boolean {
+    // Direct targets fit both axes; only ancestor fallback may use flex's main
+    // axis.
+    if (dropFitsContainer(container, sourceWidth, sourceHeight)) return true;
+    var style = window.getComputedStyle(container);
+    var singleLineFlex =
+      (style.display === "flex" || style.display === "inline-flex") &&
+      style.flexWrap !== "wrap" &&
+      style.flexWrap !== "wrap-reverse";
+    if (!singleLineFlex) return false;
+    var size = dropContentSize(container);
+    if (style.flexDirection.indexOf("row") === 0) {
+      return size.width >= sourceWidth;
+    }
+    if (style.flexDirection.indexOf("column") === 0) {
+      return size.height >= sourceHeight;
+    }
+    return false;
+  }
+
   function isOutsideIframeViewport(clientX: number, clientY: number): boolean {
     return (
       clientX < 0 ||
@@ -16659,6 +17436,47 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       : eventPerformance.timeOrigin + ev.timeStamp;
   }
 
+  function gridItemAxisSpanForSource(
+    el: Element,
+    layout: ReturnType<typeof gridTrackLayoutForElement>,
+    axis: "column" | "row",
+  ): number | null {
+    var styles = window.getComputedStyle(el);
+    var startValue =
+      axis === "column" ? styles.gridColumnStart : styles.gridRowStart;
+    var endValue = axis === "column" ? styles.gridColumnEnd : styles.gridRowEnd;
+    var authoredSpan =
+      endValue.trim().match(/^span\s+(\d+)$/) ||
+      startValue.trim().match(/^span\s+(\d+)$/);
+    if (authoredSpan) return Math.max(1, Number(authoredSpan[1]));
+    var start = gridLinePosition(startValue, layout, axis);
+    var end = gridLinePosition(endValue, layout, axis);
+    if (start !== null && end !== null) {
+      return Math.max(1, Math.abs(end - start));
+    }
+    var startIsAuto = startValue.trim() === "auto" || startValue.trim() === "";
+    var endIsAuto = endValue.trim() === "auto" || endValue.trim() === "";
+    if ((startIsAuto && endIsAuto) || (start !== null && endIsAuto)) return 1;
+    if (startIsAuto && end !== null) return 1;
+    return null;
+  }
+
+  function crossScreenGridSpanForElement(el: Element | null) {
+    if (!el) return undefined;
+    var parent = el.parentElement;
+    while (parent && window.getComputedStyle(parent).display === "contents") {
+      parent = parent.parentElement;
+    }
+    if (!parent) return undefined;
+    var display = window.getComputedStyle(parent).display;
+    if (display !== "grid" && display !== "inline-grid") return undefined;
+    var layout = gridTrackLayoutForElement(parent);
+    var columns = gridItemAxisSpanForSource(el, layout, "column");
+    var rows = gridItemAxisSpanForSource(el, layout, "row");
+    if (columns === null || rows === null) return undefined;
+    return { columns: columns, rows: rows };
+  }
+
   function postCrossScreenDrag(
     phase: "start" | "move" | "end" | "cancel",
     el?: Element | null,
@@ -16687,6 +17505,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       activeCrossScreenStyleSnapshot = undefined;
       activeCrossScreenSourceHtml = undefined;
       activeCrossScreenComputedSize = undefined;
+      activeCrossScreenGridSpan = undefined;
       activeCrossScreenDragIdentity = null;
       activeCrossScreenDeleteRequestId = undefined;
       (window.parent as Window).postMessage(
@@ -16719,6 +17538,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         activeCrossScreenStyleSnapshot,
         computed,
       );
+      activeCrossScreenGridSpan = crossScreenGridSpanForElement(el ?? null);
       var startSourceId = getSourceId(el ?? null);
       var startProvenance = nodeProvenanceForSourceId(
         startSourceId,
@@ -16776,6 +17596,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         pointerOffset,
         styleSnapshot: activeCrossScreenStyleSnapshot,
         sourceComputedSize: activeCrossScreenComputedSize,
+        sourceGridSpan: activeCrossScreenGridSpan,
         styleSnapshotCaptureFailed: activeCrossScreenStyleSnapshot === null,
         modifiers: options?.modifiers,
         duplicate: options?.duplicate === true ? true : undefined,
@@ -16799,6 +17620,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       activeCrossScreenStyleSnapshot = undefined;
       activeCrossScreenSourceHtml = undefined;
       activeCrossScreenComputedSize = undefined;
+      activeCrossScreenGridSpan = undefined;
       activeCrossScreenDragIdentity = null;
       activeCrossScreenDeleteRequestId = undefined;
     }
@@ -16891,8 +17713,14 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (!el || el === document.documentElement) return false;
     if (isOverlayElement(el) || isLayerInteractionBlocked(el)) return false;
     if (el === document.body) return true;
-    var primitiveKind = el.getAttribute("data-an-primitive");
-    if (primitiveKind && primitiveKind !== "frame") return false;
+    var primitiveKind = (
+      el.getAttribute("data-an-primitive") ||
+      el.getAttribute("data-agent-native-primitive") ||
+      ""
+    ).toLowerCase();
+    if (primitiveKind && !BRIDGE_ADOPTING_PRIMITIVES[primitiveKind]) {
+      return false;
+    }
     var tag = (el.tagName || "").toLowerCase();
     if (
       BRIDGE_LEAF_TAGS.indexOf(tag) !== -1 ||
@@ -17145,6 +17973,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     if (styles.display !== "grid" && styles.display !== "inline-grid") {
       return null;
     }
+    for (var pseudo of ["::before", "::after"]) {
+      var pseudoStyles = window.getComputedStyle(container, pseudo);
+      if (
+        pseudoStyles.content !== "none" &&
+        pseudoStyles.content !== "normal" &&
+        pseudoStyles.display !== "none" &&
+        pseudoStyles.position !== "absolute" &&
+        pseudoStyles.position !== "fixed"
+      ) {
+        return null;
+      }
+    }
     var trackLayout = gridTrackLayoutForElement(container);
     if (trackLayout) {
       trackLayout = expandGridTrackLayoutForAuthoredChildren(
@@ -17234,13 +18074,81 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             rect.bottom > cellTop
           );
         });
+        var displacedFootprint = null;
+        if (displaced && trackLayout) {
+          var displacedColumn = gridItemAxisPlacement(
+            displaced,
+            trackLayout,
+            "column",
+          );
+          var displacedRow = gridItemAxisPlacement(
+            displaced,
+            trackLayout,
+            "row",
+          );
+          var displacedColumnIndex =
+            displacedColumn.start !== null
+              ? styles.direction === "rtl"
+                ? trackLayout.columnBounds.length -
+                  displacedColumn.start -
+                  displacedColumn.span +
+                  1
+                : displacedColumn.start - 1
+              : null;
+          var firstDisplacedColumn =
+            displacedColumnIndex !== null && displacedColumnIndex >= 0
+              ? trackLayout.columnBounds[displacedColumnIndex]
+              : null;
+          var lastDisplacedColumn =
+            displacedColumnIndex !== null && displacedColumnIndex >= 0
+              ? trackLayout.columnBounds[
+                  displacedColumnIndex + displacedColumn.span - 1
+                ]
+              : null;
+          var firstDisplacedRow =
+            displacedRow.start !== null
+              ? trackLayout.rowBounds[displacedRow.start - 1]
+              : null;
+          var lastDisplacedRow =
+            displacedRow.start !== null
+              ? trackLayout.rowBounds[
+                  displacedRow.start + displacedRow.span - 2
+                ]
+              : null;
+          if (
+            firstDisplacedColumn &&
+            lastDisplacedColumn &&
+            firstDisplacedRow &&
+            lastDisplacedRow
+          ) {
+            displacedFootprint = {
+              left: Math.min(
+                firstDisplacedColumn.start,
+                lastDisplacedColumn.start,
+              ),
+              top: Math.min(firstDisplacedRow.start, lastDisplacedRow.start),
+              width:
+                Math.max(firstDisplacedColumn.end, lastDisplacedColumn.end) -
+                Math.min(firstDisplacedColumn.start, lastDisplacedColumn.start),
+              height:
+                Math.max(firstDisplacedRow.end, lastDisplacedRow.end) -
+                Math.min(firstDisplacedRow.start, lastDisplacedRow.start),
+            };
+          }
+        }
+        var insertionFootprint = displacedFootprint || {
+          left: cellLeft,
+          top: cellTop,
+          width: cellRight - cellLeft,
+          height: cellBottom - cellTop,
+        };
         var autoFlow = (styles.gridAutoFlow || "row").split(/\s+/);
         var gridAxis = autoFlow[0] === "column" ? "y" : "x";
         var pointer = gridAxis === "x" ? clientX : clientY;
         var midpoint =
           gridAxis === "x"
-            ? (cellLeft + cellRight) / 2
-            : (cellTop + cellBottom) / 2;
+            ? insertionFootprint.left + insertionFootprint.width / 2
+            : insertionFootprint.top + insertionFootprint.height / 2;
         return {
           anchor: container,
           placement: "inside",
@@ -17252,12 +18160,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             : "inside",
           axis: gridAxis,
           dropMode: "flow-insert",
-          guideRect: {
-            left: cellLeft,
-            top: cellTop,
-            width: cellRight - cellLeft,
-            height: cellBottom - cellTop,
-          },
+          guideRect: insertionFootprint,
           guideMode: displaced ? "grid-line" : "grid-cell",
           guidePlacement: pointer <= midpoint + 0.5 ? "before" : "after",
           ...(autoFlow[0] === "column" && !sourceHasAuthoredPlacement
@@ -17462,14 +18365,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         containerStyles.display === "inline-grid") &&
       (containerStyles.gridTemplateColumns || "").split(" ").filter(Boolean)
         .length > 1;
-    var reverseFlow =
-      !multiTrackGrid &&
-      ((axis === "x" &&
-        (containerStyles.flexDirection === "row" ||
-          containerStyles.flexDirection === "row-reverse") &&
-        (containerStyles.flexDirection === "row-reverse") !==
-          (containerStyles.direction === "rtl")) ||
-        (axis === "y" && containerStyles.flexDirection === "column-reverse"));
+    var reverseFlow = isReverseFlexFlow(containerStyles, axis);
     var best: Element | null = null;
     var bestDistance = Infinity;
     var placement = "after";
@@ -17504,6 +18400,22 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     };
   }
 
+  (
+    window as Window & {
+      __agentNativeDesignNearestChildInsertionTarget?: (
+        container: Element,
+        clientX: number,
+        clientY: number,
+      ) => {
+        anchor: Element;
+        placement: string;
+        axis: string;
+        dropMode: string;
+      } | null;
+    }
+  ).__agentNativeDesignNearestChildInsertionTarget =
+    nearestChildInsertionTarget;
+
   function screenRootFlowInsertionTargetForPoint(
     clientX: number,
     clientY: number,
@@ -17526,6 +18438,21 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       clientX,
       clientY,
       excludeEls,
+    );
+  }
+
+  function isReverseFlexFlow(styles: CSSStyleDeclaration, axis: string) {
+    var multiTrackGrid =
+      (styles.display === "grid" || styles.display === "inline-grid") &&
+      (styles.gridTemplateColumns || "").split(" ").filter(Boolean).length > 1;
+    return (
+      !multiTrackGrid &&
+      ((axis === "x" &&
+        (styles.flexDirection === "row" ||
+          styles.flexDirection === "row-reverse") &&
+        (styles.flexDirection === "row-reverse") !==
+          (styles.direction === "rtl")) ||
+        (axis === "y" && styles.flexDirection === "column-reverse"))
     );
   }
 
@@ -18231,9 +19158,13 @@ declare var __INITIAL_SOURCE_HEAD__: string;
             ? childRect.left + childRect.width / 2
             : childRect.top + childRect.height / 2;
         var childPointer = parentAxis === "x" ? clientX : clientY;
+        var before = childPointer < childCenter;
+        if (isReverseFlexFlow(window.getComputedStyle(parent), parentAxis)) {
+          before = !before;
+        }
         return {
           anchor: cursor,
-          placement: childPointer < childCenter ? "before" : "after",
+          placement: before ? "before" : "after",
           axis: parentAxis,
           dropMode: "flow-insert",
         };
@@ -18541,18 +19472,6 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       }
     }
   }
-  function gridLineIndexAtCoordinate(
-    bounds: Array<{ start: number; end: number }>,
-    coordinate: number,
-  ): number | null {
-    for (var index = 0; index < bounds.length; index += 1) {
-      if (Math.abs(bounds[index].start - coordinate) < 1) return index + 1;
-    }
-    var last = bounds[bounds.length - 1];
-    return last && Math.abs(last.end - coordinate) < 1
-      ? bounds.length + 1
-      : null;
-  }
   function gridLinePosition(
     value: string,
     layout: ReturnType<typeof gridTrackLayoutForElement>,
@@ -18564,27 +19483,23 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var negative = value.trim().match(/^-(\d+)$/);
     if (negative) {
       var bounds = axis === "column" ? layout.columnBounds : layout.rowBounds;
-      var coordinates = withGridAreaProbe(layout.container, function (probe) {
+      return withGridAreaProbe(layout.container, function (probe) {
         if (axis === "column") probe.style.gridRow = "1 / 1";
         else probe.style.gridColumn = "1 / 1";
-        if (axis === "column") probe.style.gridColumn = "1 / 1";
-        else probe.style.gridRow = "1 / 1";
-        var first = probe.getBoundingClientRect();
         if (axis === "column") probe.style.gridColumn = `${value} / ${value}`;
         else probe.style.gridRow = `${value} / ${value}`;
         var resolved = probe.getBoundingClientRect();
-        return axis === "column"
-          ? { first: first.left, resolved: resolved.left }
-          : { first: first.top, resolved: resolved.top };
+        var coordinate = axis === "column" ? resolved.left : resolved.top;
+        for (var line = 1; line <= bounds.length + 1; line += 1) {
+          if (axis === "column") probe.style.gridColumn = `${line} / ${line}`;
+          else probe.style.gridRow = `${line} / ${line}`;
+          var candidate = probe.getBoundingClientRect();
+          var candidateCoordinate =
+            axis === "column" ? candidate.left : candidate.top;
+          if (Math.abs(candidateCoordinate - coordinate) < 1) return line;
+        }
+        return null;
       });
-      var firstLine = gridLineIndexAtCoordinate(bounds, coordinates.first);
-      var resolvedLine = gridLineIndexAtCoordinate(
-        bounds,
-        coordinates.resolved,
-      );
-      return firstLine !== null && resolvedLine !== null
-        ? resolvedLine - firstLine + 1
-        : null;
     }
     var name = value.trim();
     if (!name || name === "auto" || name.startsWith("span ")) return null;
@@ -18630,16 +19545,18 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var span = authoredSpan
       ? Number(authoredSpan[1])
       : start !== null && end !== null
-        ? end - start
+        ? Math.abs(end - start)
         : geometricRange
           ? geometricRange.end - geometricRange.start
           : 1;
     span = Math.max(1, span);
     if (start === null && end !== null && authoredSpan) start = end - span;
+    var areaStart =
+      start !== null && end !== null ? Math.min(start, end) : start;
     return {
       authoredStart: start,
       hasAuthoredPlacement: hasAuthoredPlacement,
-      start: start ?? (geometricRange ? geometricRange.start + 1 : null),
+      start: areaStart ?? (geometricRange ? geometricRange.start + 1 : null),
       span,
     };
   }
@@ -21914,8 +22831,8 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     function applyFreeDropSizeGuard(target, ev) {
       if (
         !target ||
-        target.placement !== "inside" ||
-        target.dropMode !== "flow-insert"
+        (target.dropMode !== "flow-insert" &&
+          target.dropMode !== "absolute-container")
       ) {
         return target;
       }
@@ -21928,23 +22845,94 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         container === dragEl ||
         container === document.body ||
         container === document.documentElement ||
-        !isAutoLayoutFlowTarget(container)
+        !isContainerDropTarget(container)
       ) {
         return target;
       }
       var crect = container.getBoundingClientRect();
       if (
-        crect.width >= dragElStartRect.width &&
-        crect.height >= dragElStartRect.height
+        dropFitsContainer(
+          container,
+          dragElStartRect.width,
+          dragElStartRect.height,
+        )
       ) {
         return target;
       }
-      var parent = container.parentElement;
-      if (!parent) return null;
       var pointerX = ev ? ev.clientX : crect.left + crect.width / 2;
       var pointerY = ev ? ev.clientY : crect.top + crect.height / 2;
       var excluded = [dragEl].concat(groupOthers || []);
-      return nearestChildInsertionTarget(parent, pointerX, pointerY, excluded);
+      var parent = container.parentElement;
+      // A screen's body is the board boundary, not another fitting ancestor.
+      while (
+        parent &&
+        parent !== document.documentElement &&
+        parent !== document.body
+      ) {
+        var parentIsFlow = isAutoLayoutElement(parent);
+        var parentIsAbsolute =
+          isAbsolutePrimitiveContainer(parent) ||
+          isFreeformRelativeContainer(parent);
+        if (
+          isContainerDropTarget(parent) &&
+          parent !== dragEl &&
+          (parentIsFlow || parentIsAbsolute)
+        ) {
+          var parentFits = parentIsFlow
+            ? dropFitsAutoLayoutFallback(
+                parent,
+                dragElStartRect.width,
+                dragElStartRect.height,
+              )
+            : dropFitsContainer(
+                parent,
+                dragElStartRect.width,
+                dragElStartRect.height,
+              );
+          if (parentFits) {
+            if (parentIsFlow) {
+              return (
+                nearestChildInsertionTarget(
+                  parent,
+                  pointerX,
+                  pointerY,
+                  excluded,
+                ) || {
+                  anchor: parent,
+                  placement: "inside",
+                  axis: parentFlowAxis(parent),
+                  dropMode: "flow-insert",
+                }
+              );
+            }
+            return {
+              anchor: parent,
+              placement: "inside",
+              axis: "y",
+              dropMode: "absolute-container",
+            };
+          }
+        }
+        parent = parent.parentElement;
+      }
+      var containerPrimitive = (
+        container.getAttribute("data-an-primitive") ||
+        container.getAttribute("data-agent-native-primitive") ||
+        ""
+      ).toLowerCase();
+      if (
+        isAutoLayoutElement(container) &&
+        container.parentElement === document.body &&
+        containerPrimitive !== "frame"
+      ) {
+        return nearestChildInsertionTarget(
+          document.body,
+          pointerX,
+          pointerY,
+          excluded,
+        );
+      }
+      return null;
     }
     function cancelAutoLayoutTargetResolution(): void {
       pendingAutoLayoutTargetPoint = null;
@@ -23828,23 +24816,24 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     var borderBox = borderBoxDimensions(cs);
     var elWidthPx = borderBox.width;
     var elHeightPx = borderBox.height;
-    var authoredRadiusValue = radiusEl.style[cornerProperty];
-    var originRadius = resolveCornerRadiusXY(
-      isDirectCornerRadiusValue(authoredRadiusValue)
-        ? authoredRadiusValue
-        : cs[cornerProperty],
-      elWidthPx,
-      elHeightPx,
-    );
-    var maxRadius = radiusDragMaximums(
-      corner,
-      cornerRadiusMap(cs, elWidthPx, elHeightPx),
-      elWidthPx,
-      elHeightPx,
-    );
+    var authoredRadii = cornerRadiusMap(cs, elWidthPx, elHeightPx);
+    var radii = normalizeCornerRadiusMap(authoredRadii, elWidthPx, elHeightPx);
+    var radiiWereNormalized = radii !== authoredRadii;
+    var originRadius = radii[corner] || { x: 0, y: 0 };
+    var wholeShape = radiusPrimitiveKind(radiusEl) === "rectangle" && !e.altKey;
+    var maxRadius =
+      wholeShape && radiiWereNormalized
+        ? uniformCornerRadiusMaximums(corner, radii, elWidthPx, elHeightPx)
+        : radiusDragMaximums(
+            corner,
+            radii,
+            elWidthPx,
+            elHeightPx,
+            wholeShape ? null : originRadius,
+            radiiWereNormalized || e.altKey,
+          );
     var maxRadiusX = maxRadius.x;
     var maxRadiusY = maxRadius.y;
-    var wholeShape = radiusPrimitiveKind(radiusEl) === "rectangle" && !e.altKey;
     var radiusStyleProperties = [
       "border-radius",
       "border-top-left-radius",
@@ -23886,8 +24875,43 @@ declare var __INITIAL_SOURCE_HEAD__: string;
       var x = Math.max(0, Math.min(maxRadiusX, Math.round(nextX * 100) / 100));
       var y = Math.max(0, Math.min(maxRadiusY, Math.round(nextY * 100) / 100));
       var value = x === y ? x + "px" : x + "px " + y + "px";
-      if (wholeShape) {
+      if (wholeShape && radiiWereNormalized) {
+        var deltaX = x - originRadius.x;
+        var deltaY = y - originRadius.y;
+        Object.keys(CORNER_RADIUS_PROPERTY_BY_HANDLE).forEach(
+          function (radiusCorner) {
+            var radius = radii[radiusCorner] || { x: 0, y: 0 };
+            var nextCornerX = Math.max(
+              0,
+              Math.round((radius.x + deltaX) * 100) / 100,
+            );
+            var nextCornerY = Math.max(
+              0,
+              Math.round((radius.y + deltaY) * 100) / 100,
+            );
+            var cornerValue =
+              nextCornerX === nextCornerY
+                ? nextCornerX + "px"
+                : nextCornerX + "px " + nextCornerY + "px";
+            radiusEl.style[CORNER_RADIUS_PROPERTY_BY_HANDLE[radiusCorner]] =
+              cornerValue;
+          },
+        );
+      } else if (wholeShape) {
         radiusEl.style.borderRadius = x === y ? value : x + "px / " + y + "px";
+      } else if (radiiWereNormalized) {
+        Object.keys(CORNER_RADIUS_PROPERTY_BY_HANDLE).forEach(
+          function (radiusCorner) {
+            var radius =
+              radiusCorner === corner ? { x: x, y: y } : radii[radiusCorner];
+            var radiusValue =
+              radius.x === radius.y
+                ? radius.x + "px"
+                : radius.x + "px " + radius.y + "px";
+            radiusEl.style[CORNER_RADIUS_PROPERTY_BY_HANDLE[radiusCorner]] =
+              radiusValue;
+          },
+        );
       } else {
         radiusEl.style[cornerProperty] = value;
       }
@@ -23946,7 +24970,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return;
       }
       var finalRadius = resolveCornerRadiusXY(
-        wholeShape
+        wholeShape && !radiiWereNormalized
           ? radiusEl.style.borderRadius || cs.borderRadius
           : radiusEl.style[cornerProperty] || cs[cornerProperty],
         elWidthPx,
@@ -23963,8 +24987,15 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         return;
       }
       var styles = {};
-      if (wholeShape) {
+      if (wholeShape && !radiiWereNormalized) {
         styles.borderRadius = radiusEl.style.borderRadius;
+      } else if (radiiWereNormalized) {
+        Object.keys(CORNER_RADIUS_PROPERTY_BY_HANDLE).forEach(
+          function (radiusCorner) {
+            var property = CORNER_RADIUS_PROPERTY_BY_HANDLE[radiusCorner];
+            styles[property] = radiusEl.style[property];
+          },
+        );
       } else {
         styles[cornerProperty] = radiusEl.style[cornerProperty];
       }
@@ -27059,6 +28090,41 @@ declare var __INITIAL_SOURCE_HEAD__: string;
         rejectInsert("html");
         return;
       }
+      var rawInsertGridPlacement = e.data.gridPlacement;
+      var insertGridPlacement =
+        rawInsertGridPlacement &&
+        Number.isInteger(rawInsertGridPlacement.column) &&
+        Number.isInteger(rawInsertGridPlacement.columnEnd) &&
+        Number.isInteger(rawInsertGridPlacement.row) &&
+        Number.isInteger(rawInsertGridPlacement.rowEnd) &&
+        rawInsertGridPlacement.column > 0 &&
+        rawInsertGridPlacement.row > 0 &&
+        rawInsertGridPlacement.columnEnd > rawInsertGridPlacement.column &&
+        rawInsertGridPlacement.rowEnd > rawInsertGridPlacement.row
+          ? {
+              column: rawInsertGridPlacement.column,
+              columnEnd: rawInsertGridPlacement.columnEnd,
+              row: rawInsertGridPlacement.row,
+              rowEnd: rawInsertGridPlacement.rowEnd,
+            }
+          : null;
+      if (
+        rawInsertGridPlacement &&
+        (!insertGridPlacement ||
+          insertPlacement !== "inside" ||
+          !["grid", "inline-grid"].includes(
+            window.getComputedStyle(insertAnchor).display,
+          ))
+      ) {
+        rejectInsert("grid-placement");
+        return;
+      }
+      if (insertGridPlacement) {
+        (parsedInsertEl as HTMLElement).style.gridColumn =
+          insertGridPlacement.column + " / " + insertGridPlacement.columnEnd;
+        (parsedInsertEl as HTMLElement).style.gridRow =
+          insertGridPlacement.row + " / " + insertGridPlacement.rowEnd;
+      }
       var insertNodeId = parsedInsertEl.getAttribute(
         "data-agent-native-node-id",
       );
@@ -27105,6 +28171,7 @@ declare var __INITIAL_SOURCE_HEAD__: string;
           isAbsolutePrimitiveContainer(insertAnchor)
             ? "absolute-container"
             : "flow-insert",
+        gridPlacement: insertGridPlacement || undefined,
       };
       if (existingInsertEl) {
         if (existingInsertEl.contains(insertAnchor)) {
@@ -27928,6 +28995,9 @@ declare var __INITIAL_SOURCE_HEAD__: string;
     repair: function () {
       observeEditorChromeHost();
       repairEditorChromeHost();
+    },
+    inlineExportResources: function (html: string) {
+      return inlineRuntimeSnapshotResources(html, 5_000_000);
     },
     updateConfig: function (next) {
       if (!next || typeof next !== "object") return;

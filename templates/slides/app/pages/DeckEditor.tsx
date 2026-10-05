@@ -3401,6 +3401,7 @@ export default function DeckEditor() {
     agentPresent: slideAgentPresent,
   } = useCollaborativeDoc({
     docId: slideDocId,
+    activityResource: id ? { resourceType: "deck", resourceId: id } : undefined,
     requestSource: TAB_ID,
     user: currentUser,
   });
@@ -4251,6 +4252,11 @@ export default function DeckEditor() {
             currentUserEmail={session?.email ?? null}
             selectedThreadId={selectedCommentThreadId}
             selectedThreadRequestId={selectedCommentThreadRequestId}
+            onThreadResolved={(threadId) =>
+              setSelectedCommentThreadId((current) =>
+                current === threadId ? null : current,
+              )
+            }
             onBeforeCommentSubmit={flushCommentWrites}
             onSelectSlide={handleSlideSelection}
             pendingComment={

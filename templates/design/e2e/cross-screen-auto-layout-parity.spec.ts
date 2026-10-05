@@ -24,9 +24,22 @@ const DESTINATION_SCREEN = `<!doctype html>
   <head><meta charset="utf-8" /><title>Auto layout destination</title></head>
   <body style="margin:0;position:relative;min-height:780px;width:1000px;height:780px;background:#111827;color:#fff;font-family:system-ui,sans-serif">
     <section data-agent-native-node-id="destination-flow" data-agent-native-layer-name="Destination Flow" data-an-primitive="frame"
-      style="position:absolute;left:80px;top:100px;width:360px;min-height:180px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;padding:16px;background:#334155">
+      style="position:absolute;left:80px;top:100px;width:360px;min-height:260px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;padding:16px;background:#334155">
       <div data-agent-native-node-id="destination-anchor" data-agent-native-layer-name="Destination Anchor"
         style="box-sizing:border-box;flex:0 0 56px;width:180px;height:56px;background:#94a3b8;color:#0f172a">Anchor</div>
+    </section>
+  </body>
+</html>`;
+
+const REVERSE_DESTINATION_SCREEN = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;position:relative;min-height:780px;width:1000px;height:780px;background:#111827;color:#fff">
+    <section data-agent-native-node-id="destination-flow" data-agent-native-layer-name="Destination Flow" data-an-primitive="frame"
+      style="position:absolute;left:80px;top:100px;width:360px;min-height:120px;box-sizing:border-box;display:flex;flex-direction:row-reverse;align-items:flex-start;gap:12px;padding:16px;background:#334155">
+      <div data-agent-native-node-id="destination-anchor" data-agent-native-layer-name="Destination Anchor"
+        style="box-sizing:border-box;flex:0 0 100px;width:100px;height:56px;background:#94a3b8;color:#0f172a">Anchor</div>
+      <div data-agent-native-node-id="destination-tail" data-agent-native-layer-name="Destination Tail"
+        style="box-sizing:border-box;flex:0 0 80px;width:80px;height:56px;background:#64748b;color:#f8fafc">Tail</div>
     </section>
   </body>
 </html>`;
@@ -751,6 +764,101 @@ test.describe("physical cross-screen auto-layout parity", () => {
       "screen-source",
     );
     await settleReload(page);
+  });
+
+  test("Screen to Screen keeps reverse-flex DOM order and draws the guide on the physical edge", async ({
+    page,
+  }) => {
+    const design = await createDesign(
+      page,
+      (id) =>
+        test.info().annotations.push({ type: "design-id", description: id }),
+      { destinationContent: REVERSE_DESTINATION_SCREEN },
+    );
+    await gotoEditor(page, design.id);
+    await settleScreens(page, design.sourceId, design.destinationId);
+
+    const destination = await boxFor(
+      page,
+      design.destinationId,
+      "destination-flow",
+    );
+    const anchor = await boxFor(
+      page,
+      design.destinationId,
+      "destination-anchor",
+    );
+    const release = {
+      x: anchor.x + anchor.width + 6,
+      y: anchor.y + anchor.height / 2,
+    };
+    expect(release.x).toBeLessThan(destination.x + destination.width);
+    const sourceBefore = await fileContent(page, design.id, "index.html");
+    const destinationBefore = await fileContent(
+      page,
+      design.id,
+      "destination.html",
+    );
+    const held = await dragScreenNode(
+      page,
+      design.sourceId,
+      "screen-source",
+      release,
+      async () => {
+        expect(await fileContent(page, design.id, "index.html")).toBe(
+          sourceBefore,
+        );
+        expect(await fileContent(page, design.id, "destination.html")).toBe(
+          destinationBefore,
+        );
+      },
+    );
+    expect(held.sourceVisible).toBe(true);
+    expectGhostToPreserveGrabOffset(held);
+    expectGuideAfterChildAlongX(held, anchor);
+
+    await waitForMove(
+      page,
+      design.id,
+      "index.html",
+      "destination.html",
+      "screen-source",
+    );
+    const order = () =>
+      designFrame(page, design.destinationId)
+        .locator('[data-agent-native-node-id="destination-flow"]')
+        .evaluate((node) =>
+          Array.from(node.children).map((child) =>
+            child.getAttribute("data-agent-native-node-id"),
+          ),
+        );
+    await expect
+      .poll(order)
+      .toEqual(["screen-source", "destination-anchor", "destination-tail"]);
+    await page.keyboard.press(`${PRIMARY}+z`);
+    await expect
+      .poll(() =>
+        readMoveState(
+          page,
+          design.id,
+          "index.html",
+          "destination.html",
+          "screen-source",
+        ),
+      )
+      .toEqual({ sourceHas: true, destinationHas: false });
+    await page.keyboard.press(`${PRIMARY}+Shift+z`);
+    await waitForMove(
+      page,
+      design.id,
+      "index.html",
+      "destination.html",
+      "screen-source",
+    );
+    await settleReload(page);
+    await expect
+      .poll(order)
+      .toEqual(["screen-source", "destination-anchor", "destination-tail"]);
   });
 
   test("G1: physical drop selects the eligible inner auto-layout frame and its held insertion slot", async ({

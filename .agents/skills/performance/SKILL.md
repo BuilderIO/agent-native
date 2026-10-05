@@ -154,6 +154,12 @@ duplicate the provider transport, auth, quota, and cache implementation.
   loading skeleton wait on a serial chain.
 - Load the visible page from one read where possible, and **lazy-load**
   secondary / below-the-fold data after first paint.
+- When a read needs an id that another read returns, keep this browser's last
+  copy of that id in localStorage and start the read from it as the app
+  hydrates. The server's answer still decides where the page goes, and a read
+  it doesn't use is dropped. Content's `last-location-hint.ts` names the page
+  `/home` will reopen, so that page's read starts before application state
+  answers.
 
 ## 5. Poll cheaply; compute once
 
@@ -380,7 +386,8 @@ with an icon, a page the fixture account can only view, a page with open
 comments and a pending suggestion, and a collection page whose saved view
 sorts and filters.
 Then look at the saved frames: the check proves nothing moved, and the frames
-show whether what appeared looked right.
+show whether what appeared looked right. The report's `documentAfterSession`
+is how long the page's read waited after the session arrived.
 
 ## Checklist — run before shipping a list/read or a new table
 
