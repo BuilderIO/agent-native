@@ -11,7 +11,7 @@ const { values } = parseArgs({
 const baseUrl = values["base-url"]?.replace(/\/$/, "");
 if (!baseUrl) {
   throw new Error(
-    "--base-url is required, e.g. --base-url http://127.0.0.1:8097 (the server must run with AUTH_DISABLED=1)",
+    "--base-url is required: the Design server's URL (it must run with AUTH_DISABLED=1)",
   );
 }
 const copies = Number(values.copies);
