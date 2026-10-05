@@ -2064,6 +2064,83 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).toBe(false);
   });
 
+  it("clears a stale missing submission result after passive readiness confirms reconnection", async () => {
+    chatMocks.readiness = {
+      canChat: false,
+      missing: false,
+      state: "unknown",
+    };
+    chatMocks.fetchProviderState.mockResolvedValue("missing");
+    const props = baseProps({ providerStatusChecksEnabled: true });
+    await mount(props);
+
+    await act(async () => {
+      await expect(chatMocks.composerProps.onBeforeSubmit()).resolves.toBe(
+        false,
+      );
+    });
+    expect(chatMocks.composerProps.disabled).toBe(true);
+    expect(chatMocks.setupCardProps).not.toBeNull();
+
+    chatMocks.readiness = {
+      canChat: true,
+      missing: false,
+      state: "configured",
+    };
+    await act(async () => {
+      root.render(<AgentKitAssistantChat {...props} />);
+    });
+
+    expect(chatMocks.composerProps.disabled).toBe(false);
+    expect(chatMocks.composerProps.submissionDisabled).toBe(false);
+    expect(container.querySelector('[data-testid="builder-setup-card"]')).toBe(
+      null,
+    );
+  });
+
+  it("ignores an older missing readiness preflight that resolves after a configured result", async () => {
+    chatMocks.readiness = {
+      canChat: false,
+      missing: false,
+      state: "unknown",
+    };
+    let resolveFirst!: (state: "configured" | "missing") => void;
+    let resolveSecond!: (state: "configured" | "missing") => void;
+    chatMocks.fetchProviderState
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFirst = resolve;
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveSecond = resolve;
+        }),
+      );
+    await mount(baseProps({ providerStatusChecksEnabled: true }));
+
+    let firstPreflight!: Promise<boolean>;
+    let secondPreflight!: Promise<boolean>;
+    await act(async () => {
+      firstPreflight = chatMocks.composerProps.onBeforeSubmit();
+      secondPreflight = chatMocks.composerProps.onBeforeSubmit();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      resolveSecond("configured");
+      await expect(secondPreflight).resolves.toBe(true);
+    });
+    await act(async () => {
+      resolveFirst("missing");
+      await expect(firstPreflight).resolves.toBe(true);
+    });
+
+    expect(chatMocks.composerProps.disabled).toBe(false);
+    expect(chatMocks.composerProps.submissionDisabled).toBe(false);
+    expect(chatMocks.setupCardProps).toBeNull();
+  });
+
   it("keeps the composer editable when the host blocks submission", async () => {
     await mount(
       baseProps({

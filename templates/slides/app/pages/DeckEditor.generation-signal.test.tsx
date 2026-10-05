@@ -526,7 +526,7 @@ describe("DeckEditor generation signal wiring", () => {
       { id: "q1", question: "What should the deck focus on?" },
     ];
     mocks.guidedQuestionPayload = { threadId: "generation-thread" };
-    mocks.targetTabId = "generation-thread";
+    mocks.targetTabId = "generation-chat-tab";
     mocks.attemptGenerating = true;
     const openChat = vi.fn();
     window.addEventListener("agent-panel:open", openChat);
@@ -545,7 +545,16 @@ describe("DeckEditor generation signal wiring", () => {
     act(() => {
       window.dispatchEvent(
         new CustomEvent("agentNative.chatSubmitTarget", {
-          detail: { submitMessageId: "submit-1", tabId: "generation-thread" },
+          detail: { submitMessageId: "submit-1", tabId: "generation-chat-tab" },
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: {
+            isRunning: true,
+            threadId: "generation-thread",
+            tabId: "generation-chat-tab",
+          },
         }),
       );
     });
@@ -562,6 +571,14 @@ describe("DeckEditor generation signal wiring", () => {
   });
 
   it("routes a reopened deck answer to its original chat thread", async () => {
+    window.sessionStorage.setItem(
+      "slides:new-deck-generation-active:deck-1",
+      JSON.stringify({
+        submitMessageId: "submit-restored-question",
+        tabId: "generation-chat-tab",
+        conversationThreadId: "generation-thread",
+      }),
+    );
     mocks.guidedQuestionQuestions = [
       { id: "q1", question: "What should the deck focus on?" },
     ];
@@ -592,8 +609,9 @@ describe("DeckEditor generation signal wiring", () => {
         context: "Audience: executives",
         submit: true,
         chatTarget: "local",
-        targetTabId: "generation-thread",
+        targetTabId: "generation-chat-tab",
       }),
+      expect.objectContaining({ submitMessageId: expect.any(String) }),
     );
   });
 
@@ -828,10 +846,15 @@ describe("DeckEditor generation signal wiring", () => {
 
   it("restores a pending guided question and opens its owning chat on a plain deck route", async () => {
     const submitMessageId = "submit-pending-question";
+    const tabId = "pending-question-tab";
     const threadId = "pending-question-thread";
     window.sessionStorage.setItem(
       `slides:new-deck-generation-active:deck-1`,
-      JSON.stringify({ submitMessageId, tabId: threadId }),
+      JSON.stringify({
+        submitMessageId,
+        tabId,
+        conversationThreadId: threadId,
+      }),
     );
     mocks.guidedQuestions = [
       {
@@ -854,7 +877,7 @@ describe("DeckEditor generation signal wiring", () => {
         dispatchEvent.mock.calls.some(
           ([event]) =>
             event.type === "agent-chat:open-thread" &&
-            (event as CustomEvent).detail?.threadId === threadId,
+            (event as CustomEvent).detail?.threadId === tabId,
         ),
       ).toBe(true);
       expect(

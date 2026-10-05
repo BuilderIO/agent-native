@@ -235,7 +235,7 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     expect(result.current().questions?.length).toBe(1);
   });
 
-  it("renders a thread-scoped question when the host has not recovered its thread", async () => {
+  it("hides a thread-scoped question until its owner thread is known", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) =>
@@ -254,7 +254,8 @@ describe("useGuidedQuestionFlow scoped reads", () => {
       refetchInterval: false,
     });
 
-    expect(result.current().questions?.length).toBe(1);
+    expect(result.current().questions).toBeNull();
+    expect(result.current().payload).toBeNull();
   });
 
   it("renders a payload with no threadId in any chat", async () => {

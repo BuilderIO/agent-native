@@ -1096,10 +1096,10 @@ function payloadBelongsToThread(
   threadId: string | undefined,
 ): boolean {
   const requestedThread = threadId?.trim();
-  if (!requestedThread) return true;
   const asker =
     typeof payload.threadId === "string" ? payload.threadId.trim() : "";
   if (!asker) return true;
+  if (!requestedThread) return false;
   return asker === requestedThread;
 }
 

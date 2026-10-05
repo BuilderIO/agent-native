@@ -1163,8 +1163,21 @@ const AgentKitAssistantChatBody = forwardRef<
   });
   const [submissionReadiness, setSubmissionReadiness] =
     useState<AgentEngineConfiguredState | null>(null);
+  const readinessRequestIdRef = useRef(0);
+  const passiveReadinessRef = useRef(readiness.state);
+  const providerReadinessPassRef = useRef(false);
+  const latestSubmissionReadinessRef = useRef(readiness.state);
   useEffect(() => {
+    if (passiveReadinessRef.current !== readiness.state) {
+      passiveReadinessRef.current = readiness.state;
+      readinessRequestIdRef.current += 1;
+      providerReadinessPassRef.current = false;
+      latestSubmissionReadinessRef.current = readiness.state;
+      setSubmissionReadiness(null);
+      return;
+    }
     if (submissionReadiness === readiness.state) {
+      latestSubmissionReadinessRef.current = readiness.state;
       setSubmissionReadiness(null);
     }
   }, [readiness.state, submissionReadiness]);
@@ -1186,9 +1199,7 @@ const AgentKitAssistantChatBody = forwardRef<
       : providerChecksEnabled
         ? effectiveReadiness
         : "configured";
-  const providerReadinessPassRef = useRef(false);
   const composerPreflightRunActiveRef = useRef<boolean | null>(null);
-  const latestSubmissionReadinessRef = useRef(effectiveReadiness);
   const retryProviderStatus = useCallback(() => {
     window.dispatchEvent(new Event("agent-engine:configured-changed"));
   }, []);
@@ -1869,8 +1880,12 @@ const AgentKitAssistantChatBody = forwardRef<
 
   const refreshProviderReadiness = useCallback(async () => {
     if (!providerChecksEnabled) return "configured";
+    const requestId = ++readinessRequestIdRef.current;
     invalidateClientStatusRequest("/_agent-native/agent-engine/status");
     const nextReadiness = await fetchAgentEngineConfiguredState(true);
+    if (requestId !== readinessRequestIdRef.current) {
+      return latestSubmissionReadinessRef.current;
+    }
     latestSubmissionReadinessRef.current = nextReadiness;
     setSubmissionReadiness(nextReadiness);
     return nextReadiness;

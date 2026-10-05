@@ -520,6 +520,7 @@ export default function DeckEditor() {
     generating: newDeckGenerationGenerating,
     submitMessageId: restoredGenerationSubmitId,
     tabId: newDeckGenerationTabId,
+    conversationThreadId: newDeckGenerationThreadId,
     questionContinuationPending,
     submitQuestionContinuation: submitTrackedQuestionContinuation,
   } = useNewDeckGenerationRun(
@@ -634,7 +635,7 @@ export default function DeckEditor() {
   const emptyGenerationRecoveryRef = useRef<string | null>(null);
   const [retryEmptyGenerationPending, setRetryEmptyGenerationPending] =
     useState(false);
-  const questionFlowThreadIdRef = useRef<string | null>(null);
+  const questionFlowTargetTabIdRef = useRef<string | null>(null);
   const submitQuestionContinuation = useCallback(
     ({ message, context }: { message: string; context: string }) => {
       if (!generationSubmitId) {
@@ -644,8 +645,8 @@ export default function DeckEditor() {
           submit: true,
           chatTarget: "local",
           openSidebar: true,
-          ...(questionFlowThreadIdRef.current
-            ? { targetTabId: questionFlowThreadIdRef.current }
+          ...(questionFlowTargetTabIdRef.current
+            ? { targetTabId: questionFlowTargetTabIdRef.current }
             : {}),
         });
       }
@@ -1875,7 +1876,7 @@ export default function DeckEditor() {
   } = useGuidedQuestionFlow({
     stateKey: "guided-questions",
     browserTabId: TAB_ID,
-    threadId: newDeckGenerationTabId ?? undefined,
+    threadId: newDeckGenerationThreadId ?? undefined,
     queryKey: ["guided-questions"],
     submitMessage: "Here are my answers — go ahead and create the slides.",
     skipMessage:
@@ -1898,8 +1899,7 @@ export default function DeckEditor() {
     onSubmitMessage: submitQuestionContinuation,
     onSkipMessage: submitQuestionContinuation,
   });
-  questionFlowThreadIdRef.current =
-    questionFlowPayload?.threadId ?? newDeckGenerationTabId;
+  questionFlowTargetTabIdRef.current = newDeckGenerationTabId;
 
   const showQuestionFlow = Boolean(questionFlowQuestions?.length);
   const pendingQuestionKey =
