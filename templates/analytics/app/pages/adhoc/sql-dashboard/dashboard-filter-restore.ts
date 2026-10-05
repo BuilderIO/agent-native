@@ -15,9 +15,43 @@ export type DashboardFilterRestoreProgress =
     }
   | { status: "complete" };
 
+export interface DashboardFilterPreferenceSaveGuard {
+  filters: Record<string, string>;
+  viewId?: string;
+  previousFilters: Record<string, string>;
+  previousViewId?: string;
+}
+
 export interface DashboardFilterRestoreStep {
   progress: DashboardFilterRestoreProgress;
   restore: DashboardFilterRestore | null;
+}
+
+export function canPersistDashboardFilterPreference(
+  progress: DashboardFilterRestoreProgress,
+): boolean {
+  return progress.status === "complete";
+}
+
+export function dashboardFilterPreferenceSaveState(
+  guard: DashboardFilterPreferenceSaveGuard | null,
+  currentFilters: Record<string, string>,
+  currentViewId: string | undefined,
+): "none" | "pending" | "applied" | "changed" {
+  if (!guard) return "none";
+  if (
+    sameDashboardFilterMap(guard.filters, currentFilters) &&
+    guard.viewId === currentViewId
+  ) {
+    return "applied";
+  }
+  if (
+    sameDashboardFilterMap(guard.previousFilters, currentFilters) &&
+    guard.previousViewId === currentViewId
+  ) {
+    return "pending";
+  }
+  return "changed";
 }
 
 export function dashboardFilterParams(
@@ -61,14 +95,14 @@ export function resolveDashboardFilterRestoreStep({
   defaultView,
   savedFilters,
   viewsState,
-  savedFiltersSettled,
+  savedFiltersState,
   progress,
 }: {
   searchParams: URLSearchParams;
   defaultView: { id: string; filters: Record<string, string> } | undefined;
   savedFilters: Record<string, string> | undefined;
   viewsState: "loading" | "error" | "success";
-  savedFiltersSettled: boolean;
+  savedFiltersState: "loading" | "error" | "success";
   progress: DashboardFilterRestoreProgress;
 }): DashboardFilterRestoreStep {
   if (progress.status === "complete") return { progress, restore: null };
@@ -90,7 +124,10 @@ export function resolveDashboardFilterRestoreStep({
   if (viewsState === "loading") return { progress, restore: null };
 
   if (viewsState === "error") {
-    if (progress.status === "fallback-applied" || !savedFiltersSettled) {
+    if (
+      progress.status === "fallback-applied" ||
+      savedFiltersState !== "success"
+    ) {
       return { progress, restore: null };
     }
     const filters = nonEmptyFilters(savedFilters);
@@ -112,7 +149,7 @@ export function resolveDashboardFilterRestoreStep({
     };
   }
 
-  if (!savedFiltersSettled) return { progress, restore: null };
+  if (savedFiltersState !== "success") return { progress, restore: null };
 
   const filters = nonEmptyFilters(savedFilters);
   return {

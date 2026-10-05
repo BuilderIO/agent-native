@@ -140,9 +140,12 @@ import { useAutoFocusSelect } from "@/lib/use-auto-focus-select";
 import BlankDashboard from "../BlankDashboard";
 import { DashboardSkeleton } from "../DashboardSkeleton";
 import {
+  canPersistDashboardFilterPreference,
   dashboardFilterParams,
+  dashboardFilterPreferenceSaveState,
   resolveDashboardFilterRestoreStep,
   sameDashboardFilterMap,
+  type DashboardFilterPreferenceSaveGuard,
   type DashboardFilterRestoreProgress,
 } from "./dashboard-filter-restore";
 import {
@@ -918,7 +921,8 @@ function SqlDashboardPageContent({
   const filterRestoreProgress = useRef<DashboardFilterRestoreProgress>({
     status: "pending",
   });
-  const skipFilterPreferenceSave = useRef<Record<string, string> | null>(null);
+  const skipFilterPreferenceSave =
+    useRef<DashboardFilterPreferenceSaveGuard | null>(null);
 
   useEffect(() => {
     filterRestoreProgress.current = { status: "pending" };
@@ -1041,7 +1045,11 @@ function SqlDashboardPageContent({
         : dashboardViewsSettled
           ? "error"
           : "loading",
-      savedFiltersSettled: filtersLoaded || filtersError,
+      savedFiltersState: filtersLoaded
+        ? "success"
+        : filtersError
+          ? "error"
+          : "loading",
       progress: previousProgress,
     });
     filterRestoreProgress.current = restoreStep.progress;
@@ -1061,7 +1069,12 @@ function SqlDashboardPageContent({
     }
 
     if (filterRestore.source === "dashboard-default") {
-      skipFilterPreferenceSave.current = filterRestore.filters;
+      skipFilterPreferenceSave.current = {
+        filters: filterRestore.filters,
+        viewId: filterRestore.viewId,
+        previousFilters: dashboardFilterParams(searchParams),
+        previousViewId: searchParams.get("view") ?? undefined,
+      };
     }
 
     setSearchParams(
@@ -1120,7 +1133,8 @@ function SqlDashboardPageContent({
       reportScreenshot ||
       !loaded ||
       !dashboard?.filters?.length ||
-      !dashboardId
+      !dashboardId ||
+      !canPersistDashboardFilterPreference(filterRestoreProgress.current)
     )
       return;
     clearTimeout(saveTimer.current);
@@ -1131,10 +1145,18 @@ function SqlDashboardPageContent({
           currentFilters[k] = v;
         }
       });
-      if (skipFilterPreferenceSave.current) {
-        const skippedFilters = skipFilterPreferenceSave.current;
+      const filterPreferenceSaveState = dashboardFilterPreferenceSaveState(
+        skipFilterPreferenceSave.current,
+        currentFilters,
+        searchParams.get("view") ?? undefined,
+      );
+      if (filterPreferenceSaveState === "applied") {
         skipFilterPreferenceSave.current = null;
-        if (sameDashboardFilterMap(skippedFilters, currentFilters)) return;
+        return;
+      }
+      if (filterPreferenceSaveState === "pending") return;
+      if (filterPreferenceSaveState === "changed") {
+        skipFilterPreferenceSave.current = null;
       }
       if (sameDashboardFilterMap(savedFilters?.filters, currentFilters)) return;
       saveFilterPref({ filters: currentFilters });
@@ -1148,6 +1170,10 @@ function SqlDashboardPageContent({
     savedFilters,
     saveFilterPref,
     reportScreenshot,
+    filtersLoaded,
+    filtersError,
+    dashboardViewsLoaded,
+    dashboardViewsSettled,
   ]);
 
   const enqueueDashboardSave = useCallback(
