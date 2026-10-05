@@ -501,8 +501,12 @@ export function AgentParticipantView({
 
 const UUID_PATTERN =
   /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+const ACTIVITY_TOOL_VALUE_LIMIT = 2_000;
+const ACTIVITY_TOOL_NODE_LIMIT = 160;
+const ACTIVITY_TOOL_DEPTH_LIMIT = 8;
 
 function isUuid(value: string): boolean {
+  if (value.length > 64) return false;
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
     value.trim(),
   );
@@ -574,37 +578,133 @@ function resolveObjectLabel(
   return humanizeAgentLabel(object.label) || humanizeAgentKind(object.kind);
 }
 
-function activityToolValue(value: unknown): unknown {
+type ActivityToolValueBudget = {
+  nodes: number;
+  remainingCharacters: number;
+  ancestors: WeakSet<object>;
+  truncated: boolean;
+};
+
+function activityToolValue(
+  value: unknown,
+  budget: ActivityToolValueBudget,
+  depth = 0,
+): unknown {
+  if (budget.nodes >= ACTIVITY_TOOL_NODE_LIMIT) {
+    budget.truncated = true;
+    return undefined;
+  }
+  budget.nodes++;
+  if (depth > ACTIVITY_TOOL_DEPTH_LIMIT) {
+    budget.truncated = true;
+    return "[Truncated]";
+  }
   if (typeof value === "string") {
     if (isUuid(value)) return "[ID]";
-    const text = hideUuids(value);
-    return text.trim() ? text : "[ID]";
-  }
-  if (Array.isArray(value)) {
-    const items = value
-      .map(activityToolValue)
-      .filter((item) => item !== undefined);
-    return items.length ? items : undefined;
+    const sourceLimit = budget.remainingCharacters + 36;
+    let text = hideUuids(value.slice(0, sourceLimit));
+    if (value.length > sourceLimit) {
+      text = text.slice(0, Math.max(0, text.length - 36));
+      budget.truncated = true;
+    }
+    const safeText = text.slice(0, budget.remainingCharacters);
+    budget.remainingCharacters -= safeText.length;
+    if (text.length > safeText.length) budget.truncated = true;
+    if (!text.trim()) return "[ID]";
+    if (!safeText.trim()) return "[Truncated]";
+    return safeText;
   }
   if (value && typeof value === "object") {
-    const entries = Object.entries(value)
-      .filter(([key]) => !isUuid(key))
-      .flatMap(([key, child]) => {
-        const safeValue = activityToolValue(child);
-        return safeValue === undefined ? [] : [[key, safeValue] as const];
-      });
-    return entries.length ? Object.fromEntries(entries) : undefined;
+    if (budget.ancestors.has(value)) {
+      budget.truncated = true;
+      return "[Circular]";
+    }
+    budget.ancestors.add(value);
+    if (Array.isArray(value)) {
+      const items: unknown[] = [];
+      let visited = 0;
+      for (let index = 0; index < value.length; index++) {
+        if (budget.nodes >= ACTIVITY_TOOL_NODE_LIMIT) break;
+        visited++;
+        const descriptor = Object.getOwnPropertyDescriptor(
+          value,
+          String(index),
+        );
+        if (!descriptor || !("value" in descriptor)) continue;
+        const safeValue = activityToolValue(
+          descriptor.value,
+          budget,
+          depth + 1,
+        );
+        if (safeValue !== undefined) items.push(safeValue);
+      }
+      if (visited < value.length) {
+        budget.truncated = true;
+        items.push("[Truncated]");
+      }
+      budget.ancestors.delete(value);
+      return items.length ? items : undefined;
+    }
+
+    const result: Record<string, unknown> = Object.create(null);
+    let included = 0;
+    for (const key in value) {
+      if (budget.nodes >= ACTIVITY_TOOL_NODE_LIMIT) {
+        budget.truncated = true;
+        break;
+      }
+      budget.nodes++;
+      if (!Object.hasOwn(value, key) || isUuid(key)) continue;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !("value" in descriptor)) continue;
+      const keyLimit = budget.remainingCharacters + 36;
+      let safeKey = hideUuids(key.slice(0, keyLimit));
+      if (key.length > keyLimit) {
+        safeKey = safeKey.slice(0, Math.max(0, safeKey.length - 36));
+        budget.truncated = true;
+      }
+      const boundedKey = safeKey.slice(0, budget.remainingCharacters);
+      if (safeKey.length > boundedKey.length) budget.truncated = true;
+      safeKey = boundedKey;
+      if (!safeKey.trim()) continue;
+      budget.remainingCharacters -= safeKey.length;
+      const safeValue = activityToolValue(descriptor.value, budget, depth + 1);
+      if (safeValue === undefined) continue;
+      result[safeKey] = safeValue;
+      included++;
+    }
+    budget.ancestors.delete(value);
+    return included ? result : undefined;
   }
   return value;
 }
 
+function createActivityToolValueBudget(): ActivityToolValueBudget {
+  return {
+    nodes: 0,
+    remainingCharacters: ACTIVITY_TOOL_VALUE_LIMIT - 64,
+    ancestors: new WeakSet(),
+    truncated: false,
+  };
+}
+
+function formatActivityText(value: string): string {
+  const budget = createActivityToolValueBudget();
+  const safeValue = activityToolValue(value, budget);
+  if (typeof safeValue !== "string") return "";
+  return budget.truncated ? `${safeValue}…` : safeValue;
+}
+
 function formatActivityToolValue(value: unknown): string | undefined {
-  const safeValue = activityToolValue(value);
+  const budget = createActivityToolValueBudget();
+  const safeValue = activityToolValue(value, budget);
   if (safeValue === undefined) return undefined;
-  const text = formatToolDiagnostic(safeValue);
+  const formatted = formatToolDiagnostic(safeValue);
+  const text = budget.truncated ? `${formatted ?? ""}\n[Truncated]` : formatted;
   if (!text?.trim()) return undefined;
-  const limit = 2_000;
-  return text.length > limit ? `${text.slice(0, limit).trimEnd()}…` : text;
+  return text.length > ACTIVITY_TOOL_VALUE_LIMIT
+    ? `${text.slice(0, ACTIVITY_TOOL_VALUE_LIMIT).trimEnd()}…`
+    : text;
 }
 
 function activityLabel(activity: AgentActivity, workingLabel: string): string {
@@ -824,7 +924,10 @@ export function AgentActivityItem({
           {activity.summary?.map((part, index) => {
             const safePart =
               part.type === "text"
-                ? { ...part, text: hideUuids(part.text).trim() }
+                ? {
+                    ...part,
+                    text: part.text.trim() ? formatActivityText(part.text) : "",
+                  }
                 : part;
             return safePart.type === "text" && !safePart.text ? null : (
               <AgentMessagePartView
@@ -985,9 +1088,11 @@ function formatToolDiagnostic(value: unknown): string | undefined {
 function toolToActivity(tool: AgentToolCall): AgentActivity {
   const failed = tool.status === "failed";
   const errorMessage = failed
-    ? ((tool.error?.message?.trim() ? tool.error.message : undefined) ??
-      formatToolDiagnostic(tool.output) ??
-      formatToolDiagnostic(tool.error?.details))
+    ? ((tool.error?.message?.trim()
+        ? formatActivityToolValue(tool.error.message)
+        : undefined) ??
+      formatActivityToolValue(tool.output) ??
+      formatActivityToolValue(tool.error?.details))
     : undefined;
   return {
     id: tool.id,
@@ -1868,7 +1973,9 @@ export function AgentTaskItem({
   const progress = task.progress
     ? `${task.progress.completed}/${task.progress.total}`
     : undefined;
-  const title = humanizeAgentLabel(task.title) || agentName || labels.tasks;
+  const title =
+    humanizeAgentLabel(task.title) ||
+    (task.assignedAgentId ? agentName : labels.tasks);
   const detail = readableText(task.detail);
   const object =
     task.object ??
