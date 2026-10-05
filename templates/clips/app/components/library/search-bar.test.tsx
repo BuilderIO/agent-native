@@ -188,6 +188,7 @@ describe("SearchBar command-menu handoff", () => {
             title: "Clip title",
             description: "",
             thumbnailUrl: null,
+            trashedAt: "2026-09-22T12:00:00.000Z",
             durationMs: 30_000,
             matchType: "transcript",
             snippet: "A matching transcript excerpt",
@@ -219,6 +220,7 @@ describe("SearchBar command-menu handoff", () => {
 
     expect(container.textContent).toContain("Transcript");
     expect(container.textContent).toContain("Match at 0:02 in video");
+    expect(container.textContent).toContain("navigation.trash");
 
     const result = container.querySelector<HTMLElement>('[role="option"]');
     expect(result).not.toBeNull();

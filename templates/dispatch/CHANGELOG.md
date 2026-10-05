@@ -3,6 +3,16 @@
 All notable user-facing changes to Agent-Native Dispatch are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-01
+
+### Improved
+
+- Dispatch workspace pages show content-shaped skeletons while loading
+
+### Fixed
+
+- Dispatch pages load without repeated dependency re-optimization during development
+
 ## 2026-09-30
 
 ### Improved

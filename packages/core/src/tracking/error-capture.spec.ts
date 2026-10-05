@@ -374,12 +374,12 @@ describe("tracking captureException", () => {
     registerTrackingProvider({ name: "qa-exception", track });
 
     captureException(new Error("boom"), {
-      userId: "person@example.test",
+      userId: "person@example.com",
       orgId: "org_1",
     });
 
     const [event] = track.mock.calls[0];
-    expect(event.userId).toBe("person@example.test");
+    expect(event.userId).toBe("person@example.com");
     expect(event.properties.orgId).toBe("org_1");
   });
 

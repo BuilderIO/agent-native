@@ -3,10 +3,25 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-02
+
+### Fixed
+
+- Cross-screen drag targets no longer jump when an earlier screen sends a late move.
+- Cross-screen drags continue when focus moves between screens
+
 ## 2026-10-01
 
 ### Fixed
 
+- A prompt you send before connecting AI is sent automatically once you connect.
+- Cross-Screen drags now apply modifier keys reliably when the source screen loses focus.
+- Cross-screen drops now respect modifier keys at release.
+- Home prompt suggestions no longer fail when the model's answer runs long.
+- Live visual edits stay in sync when your app hot reloads
+- New prompts no longer add the default design system automatically
+- Selecting a layer keeps its indentation and icon visible in the layer tree
+- The home page no longer fails when AI suggestions are unavailable.
 - Visual edits leave the pending canvas after your coding agent applies and acknowledges them.
 - Cmd/Ctrl+K opens the command menu again while the prompt box is focused
 - Dragging absolute layers out of a nested frame preserves their selected stacking order in the receiving frame.

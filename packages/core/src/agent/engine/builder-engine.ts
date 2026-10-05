@@ -90,7 +90,7 @@ export const BUILDER_CAPABILITIES: EngineCapabilities = {
 export const BUILDER_SUPPORTED_MODELS = BUILDER_MODEL_CONFIG.supportedModels;
 
 const BUILDER_RECONNECT_MESSAGE =
-  "Builder authentication failed. Reconnect Builder (free tier available) via Settings.";
+  "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).";
 const DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
 const MAX_HOSTED_FOREGROUND_BUILDER_GATEWAY_TIMEOUT_MS = 45_000;
 const MAX_BACKGROUND_BUILDER_GATEWAY_TIMEOUT_MS = 14 * 60_000;

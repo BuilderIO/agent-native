@@ -253,8 +253,6 @@ const overrides = {
   },
   landing: {
     previousPageUnavailable: "您先前的頁面已無法使用，因此我們開啟了歡迎頁面。",
-    requestedPageUnavailable:
-      "該頁面對你的帳戶不可用，因此我們開啟了歡迎頁面。",
     saveFailed: "無法儲存您的位置",
     workspaceWelcomeUnavailableTitle: "這裡尚未開啟任何內容",
     workspaceWelcomeUnavailableDescription:
@@ -312,6 +310,9 @@ const overrides = {
   },
   empty: {
     noPageTitle: "未選取頁面",
+    signedInAs: "目前登入帳號：{{email}}",
+    goToMyPages: "前往我的頁面",
+    switchAccount: "切換帳號",
     noPageDescription: "從側邊欄選取頁面，或建立新頁面開始。",
     documentUnavailable: "檔案不可用",
     documentUnavailableDescription:
@@ -1391,7 +1392,7 @@ const overrides = {
     attached: "Attached",
     bodyDiff: "內文差異",
     builderIsntConnectedGoBackToConnectYour:
-      "Builder 未連線。請先返回並連線你的帳戶。",
+      "Builder 尚未連線。請返回並先使用 Builder.io。",
     calculate: "Calculate",
     calendarBy: "行事曆依據",
     cancel: "Cancel",
@@ -1408,7 +1409,7 @@ const overrides = {
     collapseAllGroups: "折疊所有分組",
     color: "Color",
     connectYourBuilderAccountToBrowseItsSpaces:
-      "連線你的 Builder 帳戶以瀏覽其空間和模型。",
+      "使用 Builder 帳戶瀏覽其空間和模型。",
     connectedSources: "已連線的來源",
     couldntSyncRetry: "無法同步 · 重試",
     databasePagePreview: "集合頁面預覽",

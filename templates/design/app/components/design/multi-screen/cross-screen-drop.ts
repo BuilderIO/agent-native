@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 
 import type { PortableStyleSnapshot } from "../types";
 import { screenLocalRectToBoardGeometry } from "./coordinate-transforms";
+import { geometryContainsPoint } from "./frame-geometry";
 import { SURFACE_PADDING } from "./overview-layout";
 import type {
   CrossScreenDropAxis,
@@ -13,6 +14,33 @@ import type {
   FrameGeometry,
   Point,
 } from "./types";
+
+export function getCrossScreenSourceGeometry(args: {
+  renderedGeometry?: FrameGeometry;
+  persistedGeometry?: FrameGeometry;
+}): FrameGeometry | undefined {
+  return args.renderedGeometry ?? args.persistedGeometry;
+}
+
+export function getBoardDropRoute(args: {
+  point: Point;
+  viewportGeometry?: FrameGeometry;
+  renderGeometry?: FrameGeometry;
+  sourceScreenGeometry?: FrameGeometry;
+}): "board-hit-test" | "board-root" | null {
+  const { point, viewportGeometry, renderGeometry, sourceScreenGeometry } =
+    args;
+  if (
+    !viewportGeometry ||
+    !geometryContainsPoint(viewportGeometry, point) ||
+    (sourceScreenGeometry && geometryContainsPoint(sourceScreenGeometry, point))
+  ) {
+    return null;
+  }
+  return renderGeometry && geometryContainsPoint(renderGeometry, point)
+    ? "board-hit-test"
+    : "board-root";
+}
 
 export function isPointerInsideSourceIframe(args: {
   iframeX: number;
@@ -113,17 +141,35 @@ export function isCrossScreenHitTestAnchorRect(
   );
 }
 
+export function isCrossScreenGridPlacement(
+  value: unknown,
+): value is { column: number; columnEnd: number; row: number; rowEnd: number } {
+  if (!value || typeof value !== "object") return false;
+  const placement = value as Record<string, unknown>;
+  return (
+    Number.isInteger(placement.column) &&
+    Number.isInteger(placement.columnEnd) &&
+    Number.isInteger(placement.row) &&
+    Number.isInteger(placement.rowEnd) &&
+    Number(placement.column) > 0 &&
+    Number(placement.row) > 0 &&
+    Number(placement.columnEnd) > Number(placement.column) &&
+    Number(placement.rowEnd) > Number(placement.row)
+  );
+}
+
 export function getCrossScreenDropGuideForHitTest(args: {
   hit: CrossScreenHitTestResult;
   targetGeometry: FrameGeometry;
   targetMetadata: { width: number; height: number };
 }): CrossScreenDropGuide | null {
-  const rect = args.hit.anchorRect;
+  const rect = args.hit.guideRect ?? args.hit.anchorRect;
   if (!rect) return null;
   const placement = args.hit.placement ?? "inside";
   const axis = args.hit.axis ?? "y";
   return {
     placement,
+    guidePlacement: args.hit.guidePlacement ?? placement,
     axis,
     boardRect: screenLocalRectToBoardGeometry(
       rect,
@@ -139,6 +185,7 @@ export function getCrossScreenDropGuideStyle(args: {
   scale: number;
 }): CSSProperties {
   const { boardRect, placement, axis } = args.guide;
+  const guidePlacement = args.guide.guidePlacement ?? placement;
   const left = args.pan.x + (SURFACE_PADDING + boardRect.x) * args.scale;
   const top = args.pan.y + (SURFACE_PADDING + boardRect.y) * args.scale;
   const width = Math.max(1, boardRect.width * args.scale);
@@ -161,7 +208,7 @@ export function getCrossScreenDropGuideStyle(args: {
   }
 
   if (axis === "x") {
-    const x = placement === "before" ? left : left + width;
+    const x = guidePlacement === "before" ? left : left + width;
     const lineLeft = x - 1;
     return {
       left: lineLeft,
@@ -178,7 +225,7 @@ export function getCrossScreenDropGuideStyle(args: {
     };
   }
 
-  const y = placement === "before" ? top : top + height;
+  const y = guidePlacement === "before" ? top : top + height;
   const lineTop = y - 1;
   return {
     left,

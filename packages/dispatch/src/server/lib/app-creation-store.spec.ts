@@ -527,24 +527,45 @@ describe("listWorkspaceApps", () => {
     warn.mockRestore();
   });
 
-  it.each([401, 403])(
-    "still rejects a denied registry read when no deployment manifest can answer (%i)",
-    async (status) => {
-      const fetchMock = vi.fn(async () => new Response("denied", { status }));
-      vi.stubGlobal("fetch", fetchMock);
-      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
-      vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
-      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "");
+  it("still rejects a registry read denied for this deployment's credentials when no manifest can answer (401)", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response("denied", { status: 401 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "");
 
-      await expect(
-        runWithRequestContext({ userEmail: "dev@example.test" }, () =>
-          listWorkspaceApps({ includeAgentCards: false }),
-        ),
-      ).rejects.toThrow(
-        `Workspace apps gateway rejected the request with HTTP ${status}.`,
-      );
-    },
-  );
+    await expect(
+      runWithRequestContext({ userEmail: "dev@example.test" }, () =>
+        listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toThrow(
+      "Workspace apps gateway rejected the request with HTTP 401.",
+    );
+  });
+
+  it("serves the deployment's own app list when the registry refuses this reader (403)", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response("denied", { status: 403 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://agent-workspace.builder.io");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", "");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("denied the registry read with HTTP 403"),
+    );
+    warn.mockRestore();
+  });
 
   it("falls back to local manifests when the hosted registry route is missing", async () => {
     const fetchMock = vi.fn(
@@ -1799,7 +1820,7 @@ describe("startWorkspaceAppCreation", () => {
       providerLabel: "Builder.io",
     });
     expect(result.message).toContain("Builder.io is not connected");
-    expect(result.message).toContain("Connect Builder.io");
+    expect(result.message).toContain("Use Builder.io");
     expect(result.message).not.toContain("try again");
   });
 
@@ -1880,7 +1901,7 @@ describe("startWorkspaceAppCreation", () => {
 
     expect(result.mode).toBe("builder");
     expect(result.connectRequired).toBeUndefined();
-    expect(result.message).not.toContain("Connect Builder.io");
+    expect(result.message).not.toContain("Use Builder.io");
   });
 
   it("provisions and remembers the workspace Builder project when none is configured", async () => {

@@ -185,6 +185,8 @@ const messages = {
       changeStatistics: "Estadisticas de cambios",
       untitledPlan: "Plan sin titulo",
       saveFailed: "No se pudo guardar",
+      openFailed:
+        "No se pudo abrir este plan para editarlo. Recarga la página para intentarlo de nuevo.",
     },
     imageViewer: {
       actualSize: "Tamano real",

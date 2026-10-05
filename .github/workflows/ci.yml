@@ -84,7 +84,7 @@ jobs:
         env:
           CI_FULL: ${{ steps.scope.outputs.full }}
           TARGETED_WORKSPACE_FILTERS: ${{ steps.scope.outputs.test_workspace_filters }}
-          LANES: 2
+          LANES: 8
         run: |
           set -euo pipefail
           if [ "$CI_FULL" = "true" ]; then
@@ -220,6 +220,14 @@ jobs:
           pnpm exec playwright install --only-shell --force chromium
           pnpm --filter @agent-native/creative-context exec playwright install --only-shell --force chromium
 
+      - name: Allow the downloaded Chromium sandbox
+        run: |
+          if [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" == "1" ]]; then
+            browser_path="$HOME/.cache/ms-playwright/**/chrome-headless-shell"
+            printf 'abi <abi/4.0>,\ninclude <tunables/global>\n\nprofile design-playwright-chromium %s flags=(unconfined) {\n  userns,\n}\n' "$browser_path" | sudo tee /etc/apparmor.d/design-playwright-chromium >/dev/null
+            sudo apparmor_parser -r /etc/apparmor.d/design-playwright-chromium
+          fi
+
       - name: Run core fast-test shard
         if: matrix.coreShard != ''
         run: >-
@@ -253,6 +261,35 @@ jobs:
           --exclude "**/*.perf.test.ts"
           --exclude "**/create-e2e.spec.ts"
 
+      - name: Run package fast-test shards for lane
+        if: toJSON(matrix.packageShards) != '[]'
+        env:
+          PACKAGE_SHARDS: ${{ toJSON(matrix.packageShards) }}
+        run: |
+          set -uo pipefail
+          excludes=(
+            --exclude "**/*.db.test.ts"
+            --exclude "**/*.integration.spec.ts"
+            --exclude "**/*.integration.test.ts"
+            --exclude "**/*.e2e.spec.ts"
+            --exclude "**/*.e2e.test.ts"
+            --exclude "**/e2e/**"
+            --exclude "**/*.live.spec.ts"
+            --exclude "**/*.live.test.ts"
+            --exclude "**/*.perf.spec.ts"
+            --exclude "**/*.perf.test.ts"
+            --exclude "**/create-e2e.spec.ts"
+          )
+          status=0
+          while IFS=$'\t' read -r name shard; do
+            echo "::group::$name ($shard)"
+            pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            echo "::endgroup::"
+          done < <(
+            node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(`${name}\t${shard}`)'
+          )
+          exit "$status"
+
   test-targeted:
     name: Fast tests targeted ${{ matrix.lane }}
     needs: change-scope
@@ -283,6 +320,14 @@ jobs:
         run: |
           pnpm exec playwright install --only-shell --force chromium
           pnpm --filter @agent-native/creative-context exec playwright install --only-shell --force chromium
+
+      - name: Allow the downloaded Chromium sandbox
+        run: |
+          if [[ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" == "1" ]]; then
+            browser_path="$HOME/.cache/ms-playwright/**/chrome-headless-shell"
+            printf 'abi <abi/4.0>,\ninclude <tunables/global>\n\nprofile design-playwright-chromium %s flags=(unconfined) {\n  userns,\n}\n' "$browser_path" | sudo tee /etc/apparmor.d/design-playwright-chromium >/dev/null
+            sudo apparmor_parser -r /etc/apparmor.d/design-playwright-chromium
+          fi
 
       - name: Run core fast-test shard
         if: matrix.coreShard != ''
@@ -337,6 +382,35 @@ jobs:
           --exclude "**/*.perf.test.ts"
           --exclude "**/create-e2e.spec.ts"
 
+      - name: Run package fast-test shards for lane
+        if: toJSON(matrix.packageShards) != '[]'
+        env:
+          PACKAGE_SHARDS: ${{ toJSON(matrix.packageShards) }}
+        run: |
+          set -uo pipefail
+          excludes=(
+            --exclude "**/*.db.test.ts"
+            --exclude "**/*.integration.spec.ts"
+            --exclude "**/*.integration.test.ts"
+            --exclude "**/*.e2e.spec.ts"
+            --exclude "**/*.e2e.test.ts"
+            --exclude "**/e2e/**"
+            --exclude "**/*.live.spec.ts"
+            --exclude "**/*.live.test.ts"
+            --exclude "**/*.perf.spec.ts"
+            --exclude "**/*.perf.test.ts"
+            --exclude "**/create-e2e.spec.ts"
+          )
+          status=0
+          while IFS=$'\t' read -r name shard; do
+            echo "::group::$name ($shard)"
+            pnpm --filter "$name" run test --shard="$shard" "${excludes[@]}" || status=1
+            echo "::endgroup::"
+          done < <(
+            node -e 'for (const { name, shard } of JSON.parse(process.env.PACKAGE_SHARDS)) console.log(`${name}\t${shard}`)'
+          )
+          exit "$status"
+
   design-canvas-interaction-acceptance:
     name: Design canvas interaction acceptance
     needs: change-scope
@@ -371,9 +445,11 @@ jobs:
             e2e/drag-and-drop.reparenting-rules.spec.ts \
             e2e/drag-and-drop.auto-layout-parity.spec.ts \
             e2e/cross-screen-auto-layout-parity.spec.ts \
+            e2e/drag-out-of-screen-to-board.spec.ts \
+            e2e/parity-drag-reparent.spec.ts \
             e2e/corner-radius-handle-drag.spec.ts \
             e2e/parity-vector-endpoints.spec.ts \
-            --grep "physical|reparenting rules|canvas corner-radius handle follows the drag and persists the radius|vector endpoint controls|endpoint marker references unique" \
+            --grep "physical|reparenting rules|canvas corner-radius handle follows the drag and persists the radius|vector endpoint controls|endpoint marker references unique|a layer dragged below the rendered Screen card moves to the board|a drag released inside rendered Hug overflow stays in its source Screen|a held screen child dropped beyond the rendered board window persists at that canvas point" \
             --workers=1
 
   fast-tests:
@@ -522,6 +598,9 @@ jobs:
         with:
           restore-dist-cache: "true"
 
+      - name: Create isolated Content row-mutation database
+        run: psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d content_migration_test -c "CREATE DATABASE content_row_mutation_test"
+
       - name: Run Content DB tests
         run: pnpm test:content-db
 
@@ -545,7 +624,7 @@ jobs:
           pnpm --filter content exec vitest --run actions/upsert-database-item-by-key.db.test.ts --config vitest.config.ts
         env:
           CONTENT_MIGRATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
-          CONTENT_ROW_MUTATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
+          CONTENT_ROW_MUTATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_row_mutation_test
 
   core-integration-tests:
     name: Core integration tests
@@ -614,11 +693,38 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --only-shell --with-deps chromium
 
-      - name: Check selection direction and chat typing while slide text editing remains active
+      - name: Check chat typing while slide text editing remains active
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --typing-chat
 
-      - name: Check line-edge caret navigation in slide text
+      - name: Check platform-aware line-edge caret navigation in slide text
+        working-directory: templates/slides
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa
+
+  slides-macos-caret-qa:
+    name: Slides caret navigation in macOS
+    needs: change-scope
+    if: ${{ needs.change-scope.outputs.slides_chat_e2e == 'true' }}
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Restore Playwright browser cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/Library/Caches/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --only-shell chromium
+
+      - name: Check platform-aware line-edge caret navigation in slide text
         working-directory: templates/slides
         run: pnpm exec tsx scripts/edit-fidelity/run.ts --caret-qa
 
@@ -673,7 +779,7 @@ jobs:
 
       - name: Check mixed rich-text authoring operations in Chromium
         working-directory: templates/slides
-        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --steps 80
+        run: pnpm exec tsx scripts/edit-fidelity/run.ts --authoring-fuzz --seed 2 --steps 80
 
   brain-evals:
     name: Brain evals
