@@ -7,7 +7,6 @@ import {
   IconCopy,
   IconDatabase,
   IconFileSearch,
-  IconInfoCircle,
   IconRefresh,
   IconSearch,
   IconTool,
@@ -788,10 +787,6 @@ function ThreadDetail({ detail }: { detail: ThreadDebugResponse }) {
     (total, run) => total + run.events.length,
     0,
   );
-  const toolCount = detail.runs.reduce(
-    (total, run) => total + summarizeEvents(run.events).toolStarts,
-    0,
-  );
 
   return (
     <div className="min-w-0">
@@ -850,55 +845,10 @@ function ThreadDetail({ detail }: { detail: ThreadDebugResponse }) {
 
       <Tabs defaultValue="timeline" className="p-5">
         <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
           <TabsTrigger value="transcript">Transcript</TabsTrigger>
           <TabsTrigger value="technical">Technical</TabsTrigger>
         </TabsList>
-
-        <TabsContent value="overview" className="mt-4 space-y-4">
-          <div className="flex items-start gap-2 border-b pb-4 text-sm text-muted-foreground">
-            <IconInfoCircle className="mt-0.5 size-4 shrink-0" />
-            <p className="max-w-2xl leading-relaxed">
-              This is the compact readout. Open Timeline for the last meaningful
-              signals, Transcript for persisted messages and tool calls, or
-              Technical for raw records.
-            </p>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            <EvidenceStat
-              label="Created"
-              value={formatDate(detail.thread.createdAt)}
-            />
-            <EvidenceStat
-              label="Updated"
-              value={formatDate(detail.thread.updatedAt)}
-            />
-            <EvidenceStat label="Source" value={detail.source.label} />
-            <EvidenceStat
-              label="Messages"
-              value={detail.messages.length.toLocaleString()}
-            />
-            <EvidenceStat
-              label="Retained events"
-              value={eventCount.toLocaleString()}
-            />
-            <EvidenceStat
-              label="Tool starts"
-              value={toolCount.toLocaleString()}
-            />
-          </div>
-          {detail.messages.length === 0 && eventCount > 0 ? (
-            <div className="flex items-start gap-2 rounded-lg border bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
-              <IconActivity className="mt-0.5 size-4 shrink-0" />
-              <span>
-                No persisted messages are available, but this run retained{" "}
-                {eventCount.toLocaleString()} execution events. The timeline is
-                the authoritative audit trail for this run.
-              </span>
-            </div>
-          ) : null}
-        </TabsContent>
 
         <TabsContent value="timeline" className="mt-4 space-y-5">
           {detail.runs.length > 0 ? (
