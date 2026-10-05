@@ -31,6 +31,12 @@ const mocks = vi.hoisted(() => ({
   attemptTimedOut: false,
   attemptCanContinueAfterStall: false,
   targetTabId: "target-tab",
+  guidedQuestions: [] as Array<{
+    id: string;
+    type: "freeform";
+    question: string;
+  }>,
+  guidedFlowOptions: null as { threadId?: string } | null,
   scopedCalls: [] as Array<{ attemptId: string | null; tabId: string | null }>,
   startedTabId: null as string | null,
   analyticsSessionId: "session-1",
@@ -181,11 +187,14 @@ vi.mock(
     ...(await importOriginal<
       typeof import("@agent-native/toolkit/app/chat/agentkit-chat")
     >()),
-    useGuidedQuestionFlow: (options: unknown) => {
+    useGuidedQuestionFlow: (options: { threadId?: string }) => {
       mocks.guidedQuestionFlowOptions.push(options);
+      mocks.guidedFlowOptions = options;
       return {
         payload: mocks.guidedQuestionPayload,
-        questions: mocks.guidedQuestionQuestions,
+        questions: mocks.guidedQuestionQuestions.length
+          ? mocks.guidedQuestionQuestions
+          : mocks.guidedQuestions,
         handleSubmit: vi.fn(),
         handleSkip: vi.fn(),
         refetchPendingQuestion: vi.fn(async () => false),
@@ -420,6 +429,8 @@ describe("DeckEditor generation signal wiring", () => {
     };
     mocks.hasPendingDeckWrites = false;
     mocks.scopedCalls = [];
+    mocks.guidedQuestions = [];
+    mocks.guidedFlowOptions = null;
     mocks.listeners.clear();
     mocks.sendToAgentChat.mockClear();
     mocks.sendToAgentChatAndConfirm.mockClear();
@@ -813,6 +824,48 @@ describe("DeckEditor generation signal wiring", () => {
       expect(screen.getByRole("alert").querySelector("button")).toBeTruthy();
       expect(screen.queryByTestId("generating-preview")).toBeNull();
     });
+  });
+
+  it("restores a pending guided question and opens its owning chat on a plain deck route", async () => {
+    const submitMessageId = "submit-pending-question";
+    const threadId = "pending-question-thread";
+    window.sessionStorage.setItem(
+      `slides:new-deck-generation-active:deck-1`,
+      JSON.stringify({ submitMessageId, tabId: threadId }),
+    );
+    mocks.guidedQuestions = [
+      {
+        id: "deck-style",
+        type: "freeform",
+        question: "What style should the deck use?",
+      },
+    ];
+    const dispatchEvent = vi.spyOn(window, "dispatchEvent");
+    router = createMemoryRouter(
+      [{ path: "/deck/:id", element: <DeckEditor /> }],
+      { initialEntries: ["/deck/deck-1"] },
+    );
+
+    render(<RouterProvider router={router} />);
+
+    await waitFor(() => {
+      expect(mocks.guidedFlowOptions?.threadId).toBe(threadId);
+      expect(
+        dispatchEvent.mock.calls.some(
+          ([event]) =>
+            event.type === "agent-chat:open-thread" &&
+            (event as CustomEvent).detail?.threadId === threadId,
+        ),
+      ).toBe(true);
+      expect(
+        dispatchEvent.mock.calls.some(
+          ([event]) => event.type === "agent-panel:open",
+        ),
+      ).toBe(true);
+    });
+    expect(
+      screen.queryByRole("button", { name: "deckEditor.tryAgain" }),
+    ).toBeNull();
   });
 
   it("does not carry the prior tab into a retry or enable its stale failure", async () => {

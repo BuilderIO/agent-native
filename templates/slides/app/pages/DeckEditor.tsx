@@ -513,9 +513,24 @@ export default function DeckEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const generationSubmitId = searchParams.get("generationSubmitId");
+  const routeGenerationSubmitId = searchParams.get("generationSubmitId");
+  const isNewDeckGenerationRouteFromUrl =
+    searchParams.get("generating") === "1" || Boolean(routeGenerationSubmitId);
+  const {
+    generating: newDeckGenerationGenerating,
+    submitMessageId: restoredGenerationSubmitId,
+    tabId: newDeckGenerationTabId,
+    questionContinuationPending,
+    submitQuestionContinuation: submitTrackedQuestionContinuation,
+  } = useNewDeckGenerationRun(
+    id ?? "",
+    isNewDeckGenerationRouteFromUrl,
+    routeGenerationSubmitId,
+  );
+  const generationSubmitId =
+    routeGenerationSubmitId ?? restoredGenerationSubmitId;
   const isNewDeckGenerationRoute =
-    searchParams.get("generating") === "1" || Boolean(generationSubmitId);
+    isNewDeckGenerationRouteFromUrl || Boolean(restoredGenerationSubmitId);
   const { session, isLoading: sessionLoading } = useSession();
   const {
     getDeck,
@@ -619,16 +634,6 @@ export default function DeckEditor() {
   const emptyGenerationRecoveryRef = useRef<string | null>(null);
   const [retryEmptyGenerationPending, setRetryEmptyGenerationPending] =
     useState(false);
-  const {
-    generating: newDeckGenerationGenerating,
-    tabId: newDeckGenerationTabId,
-    questionContinuationPending,
-    submitQuestionContinuation: submitTrackedQuestionContinuation,
-  } = useNewDeckGenerationRun(
-    id ?? "",
-    isNewDeckGenerationRoute,
-    generationSubmitId,
-  );
   const questionFlowThreadIdRef = useRef<string | null>(null);
   const submitQuestionContinuation = useCallback(
     ({ message, context }: { message: string; context: string }) => {
@@ -1897,12 +1902,21 @@ export default function DeckEditor() {
     questionFlowPayload?.threadId ?? newDeckGenerationTabId;
 
   const showQuestionFlow = Boolean(questionFlowQuestions?.length);
+  const pendingQuestionKey =
+    questionFlowQuestions?.map((question) => question.id).join(":") ?? "";
+  useEffect(() => {
+    if (!pendingQuestionKey) return;
+    if (newDeckGenerationTabId) {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId: newDeckGenerationTabId },
+        }),
+      );
+    }
+    window.dispatchEvent(new Event("agent-panel:open"));
+  }, [id, newDeckGenerationTabId, pendingQuestionKey]);
   const waitingOnNewDeckQuestions =
     showQuestionFlow || questionContinuationPending;
-  useEffect(() => {
-    if (!showQuestionFlow) return;
-    window.dispatchEvent(new CustomEvent("agent-panel:open"));
-  }, [showQuestionFlow]);
   const { isNewDeckCreation, phase: newDeckGenerationPhase } =
     useNewDeckGeneration({
       deckId: id ?? "",
@@ -2218,10 +2232,9 @@ export default function DeckEditor() {
   ]);
 
   useEffect(() => {
-    const submitMessageId = searchParams.get("generationSubmitId");
     if (
       !id ||
-      !submitMessageId ||
+      !generationSubmitId ||
       !shouldClearNewDeckGenerationRun({
         generating: newDeckGenerationGenerating || newDeckGenerationSignal,
         waitingOnQuestions: waitingOnNewDeckQuestions,
@@ -2233,7 +2246,7 @@ export default function DeckEditor() {
     let cancelled = false;
     void refetchPendingQuestion().then((stillWaiting) => {
       if (cancelled || stillWaiting) return;
-      clearNewDeckGenerationRun(id, submitMessageId);
+      clearNewDeckGenerationRun(id, generationSubmitId);
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -2247,6 +2260,7 @@ export default function DeckEditor() {
       cancelled = true;
     };
   }, [
+    generationSubmitId,
     id,
     newDeckGenerationGenerating,
     newDeckGenerationSignal,

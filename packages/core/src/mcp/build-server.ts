@@ -7,6 +7,7 @@ import type {
   Tool,
 } from "@modelcontextprotocol/server";
 
+import { verifyA2AOrganizationIdentity } from "../a2a/organization-identity.js";
 import {
   actionCallEmitsChange,
   actionChangeResource,
@@ -32,6 +33,7 @@ import { getAppConfig } from "../app-config/store.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
+import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import {
   buildDeepLink,
   isAgentNativeOpenUrl,
@@ -2647,13 +2649,14 @@ export function getBearerToken(
   return match?.[1]?.trim() || undefined;
 }
 
-function addSecretCandidate(
-  candidates: string[],
-  secret: string | null | undefined,
-): void {
-  const trimmed = secret?.trim();
-  if (!trimmed || candidates.includes(trimmed)) return;
-  candidates.push(trimmed);
+export class McpIdentityVerificationUnavailableError extends Error {
+  readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    super("MCP identity verification is temporarily unavailable");
+    this.name = "McpIdentityVerificationUnavailableError";
+    this.cause = cause;
+  }
 }
 
 async function verifyA2AJwtForMcp(
@@ -2668,46 +2671,110 @@ async function verifyA2AJwtForMcp(
     return null;
   }
 
-  const candidateSecrets: string[] = [];
-  addSecretCandidate(candidateSecrets, process.env.A2A_SECRET);
-
   const orgDomain =
     typeof unverifiedPayload.org_domain === "string"
-      ? unverifiedPayload.org_domain
+      ? unverifiedPayload.org_domain.trim().toLowerCase()
       : undefined;
-  if (orgDomain) {
-    try {
-      const { getA2ASecretByDomain } = await import("../org/context.js");
-      addSecretCandidate(
-        candidateSecrets,
-        await getA2ASecretByDomain(orgDomain),
-      );
-    } catch {
-      // DB not ready or org lookup unavailable — fall back to other candidates.
-    }
-  }
-
   const firstPartyMcp = unverifiedPayload.agent_native_first_party_mcp === true;
   const audiences = firstPartyMcp ? mcpAudienceList(resourceUrl) : null;
   if (firstPartyMcp && !audiences?.length) return null;
 
-  for (const secret of candidateSecrets) {
-    const encodedSecret = new TextEncoder().encode(secret);
+  const verifyWithSecret = async (secret: string) => {
     for (const audience of audiences ?? [undefined]) {
       try {
         const { payload } = await jose.jwtVerify(
           token,
-          encodedSecret,
+          new TextEncoder().encode(secret),
           audience ? { audience } : undefined,
         );
         return payload as Record<string, unknown>;
       } catch {
-        // Try the next candidate without exposing which secret matched.
+        // coercion-ok: bad signature or audience rejects this candidate; credential lookup failures throw separately.
       }
+    }
+    return null;
+  };
+
+  const globalSecret = readDeployCredentialEnv("A2A_SECRET")?.trim();
+  if (globalSecret) {
+    const payload = await verifyWithSecret(globalSecret);
+    if (payload) {
+      const tokenScope =
+        typeof payload.scope === "string" ? payload.scope : undefined;
+      const firstPartyMcp = payload.agent_native_first_party_mcp === true;
+      const hasOrganizationClaim =
+        Object.prototype.hasOwnProperty.call(payload, "org_id") &&
+        payload.org_id !== null;
+      const locallyIssuedConnectToken =
+        tokenScope === MCP_CONNECT_SCOPE && !firstPartyMcp;
+      const unclaimedFirstPartyToken = firstPartyMcp && !hasOrganizationClaim;
+      if (locallyIssuedConnectToken || unclaimedFirstPartyToken) {
+        return payload;
+      }
+
+      let verifiedOrganization:
+        | Awaited<ReturnType<typeof verifyA2AOrganizationIdentity>>
+        | undefined;
+      try {
+        verifiedOrganization = await verifyA2AOrganizationIdentity(payload);
+      } catch (error) {
+        throw new McpIdentityVerificationUnavailableError(error);
+      }
+      if (verifiedOrganization === null) return null;
+      return verifiedOrganization
+        ? {
+            ...payload,
+            org_id: verifiedOrganization.orgId,
+            org_domain: verifiedOrganization.orgDomain,
+          }
+        : payload;
     }
   }
 
-  return null;
+  if (!orgDomain) return null;
+  let organization: {
+    orgId: string;
+    orgDomain: string;
+    secret: string;
+  } | null;
+  try {
+    const { resolveA2AOrganizationCredentialsByDomain } =
+      await import("../org/context.js");
+    organization = await resolveA2AOrganizationCredentialsByDomain(orgDomain);
+  } catch (error) {
+    throw new McpIdentityVerificationUnavailableError(error);
+  }
+  if (!organization) return null;
+
+  const payload = await verifyWithSecret(organization.secret);
+  if (!payload) return null;
+  const verifiedDomain =
+    typeof payload.org_domain === "string"
+      ? payload.org_domain.trim().toLowerCase()
+      : "";
+  const email = typeof payload.sub === "string" ? payload.sub.trim() : "";
+  const claimedOrgId = payload.org_id;
+  if (
+    !email ||
+    verifiedDomain !== organization.orgDomain ||
+    (typeof claimedOrgId !== "undefined" &&
+      (typeof claimedOrgId !== "string" ||
+        claimedOrgId.trim() !== organization.orgId))
+  ) {
+    return null;
+  }
+
+  try {
+    const { isOrgMemberForA2A } = await import("../org/membership.js");
+    if (!(await isOrgMemberForA2A(organization.orgId, email))) return null;
+  } catch (error) {
+    throw new McpIdentityVerificationUnavailableError(error);
+  }
+  return {
+    ...payload,
+    org_id: organization.orgId,
+    org_domain: organization.orgDomain,
+  };
 }
 
 function mcpAudienceList(resource: string | string[] | undefined): string[] {
@@ -2799,11 +2866,31 @@ function orgIdFromConnectTokenResolution(
   if (resolution.status === "claimed" || resolution.status === "found") {
     return resolution.orgId;
   }
-  // A connect token with no row here was not issued for any org this app
-  // knows. Its `org_domain` claim must not grant that domain's org, so it
-  // runs Personal.
+  // A first-party cross-app token with no row here was not issued for any org
+  // this app knows. Its `org_domain` claim must not grant that domain's org.
   if (resolution.status === "missing") return null;
   return undefined;
+}
+
+function matchesStoredConnectTokenIdentity(
+  resolution: ConnectTokenOrgResolution,
+  input: {
+    ownerEmail: string | undefined;
+    orgId: string | null | undefined;
+  },
+): boolean {
+  const stored =
+    resolution.status === "found"
+      ? resolution
+      : resolution.status === "claimed"
+        ? resolution.storedConnectToken
+        : undefined;
+  if (!stored || !input.ownerEmail?.trim()) return false;
+  return (
+    stored.ownerEmail.trim().toLowerCase() ===
+      input.ownerEmail.trim().toLowerCase() &&
+    (input.orgId === undefined || stored.orgId === input.orgId)
+  );
 }
 
 export type VerifyAuthResult = {
@@ -2831,9 +2918,10 @@ export type VerifyAuthResult = {
  * They also carry the subject's address, which an email change retires; a
  * credential signed for it before the change is refused, Personal or not.
  *
- * Cross-app A2A JWTs, first-party MCP tokens included, are not checked: their
- * `org_id`, like `org_domain`, is the signing app's assertion, and the caller
- * may have no membership row in this app's database.
+ * Shared-secret A2A org claims must resolve against local metadata before they
+ * become request scope. A sibling app's user roster is not this app's roster;
+ * locally issued connect credentials instead use their stored JTI owner and
+ * organization.
  */
 async function admitIssuedCredential(
   result: VerifyAuthResult & { identity: MCPCallerIdentity },
@@ -2908,7 +2996,7 @@ export async function verifyAuth(
   } = {},
 ): Promise<VerifyAuthResult> {
   const accessTokens = getAccessTokens();
-  const hasA2ASecret = !!process.env.A2A_SECRET?.trim();
+  const hasA2ASecret = !!readDeployCredentialEnv("A2A_SECRET")?.trim();
   const token = getBearerToken(authHeader);
   if (token) {
     const oauthIdentity = await verifyMcpOAuthAccessToken(
@@ -2928,6 +3016,15 @@ export async function verifyAuth(
       );
       if (orgResolution.status === "unavailable") {
         return { authed: false, unavailable: true };
+      }
+      if (
+        oauthIdentity.clientId === MCP_CONNECT_OAUTH_CLIENT_ID &&
+        !matchesStoredConnectTokenIdentity(orgResolution, {
+          ownerEmail: oauthIdentity.userEmail,
+          orgId: oauthIdentity.orgId,
+        })
+      ) {
+        return { authed: false };
       }
       const orgId = orgIdFromConnectTokenResolution(orgResolution);
       const admitted = await admitIssuedCredential(
@@ -2969,7 +3066,15 @@ export async function verifyAuth(
 
   if (!token) return { authed: false };
 
-  const payload = await verifyA2AJwtForMcp(token, options.resourceUrl);
+  let payload: Record<string, unknown> | null;
+  try {
+    payload = await verifyA2AJwtForMcp(token, options.resourceUrl);
+  } catch (error) {
+    if (error instanceof McpIdentityVerificationUnavailableError) {
+      return { authed: false, unavailable: true };
+    }
+    throw error;
+  }
   if (payload) {
     const tokenScope =
       typeof payload.scope === "string" ? payload.scope : undefined;
@@ -3001,6 +3106,18 @@ export async function verifyAuth(
     if (orgResolution.status === "unavailable") {
       return { authed: false, unavailable: true };
     }
+
+    if (tokenScope === MCP_CONNECT_SCOPE && !firstPartyMcp) {
+      if (
+        !matchesStoredConnectTokenIdentity(orgResolution, {
+          ownerEmail: typeof payload.sub === "string" ? payload.sub : undefined,
+          orgId: orgIdClaim.orgId,
+        })
+      ) {
+        return { authed: false };
+      }
+    }
+
     const orgId = orgIdFromConnectTokenResolution(orgResolution);
     const verified = {
       authed: true,
@@ -3033,15 +3150,10 @@ export async function verifyAuth(
     return admitted;
   }
 
-  if (accessTokens.length === 0 && !hasA2ASecret) {
-    if (options.allowDevOpen === false) {
-      return { authed: false };
-    }
-    return {
-      authed: true,
-      identity: deriveStaticTokenIdentity(ownerEmailHeader),
-      fullSurface: !!(ownerEmailHeader && ownerEmailHeader.trim()),
-    };
+  if (accessTokens.length === 0) {
+    // A supplied bearer that failed JWT verification must not fall through to
+    // dev-open auth or reuse a forwarded owner-email hint.
+    return { authed: false };
   }
 
   // Try ACCESS_TOKEN / ACCESS_TOKENS exact match. Static tokens carry no
