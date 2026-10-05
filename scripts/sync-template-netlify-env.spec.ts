@@ -210,7 +210,7 @@ describe("staleTraceSamplerDefaults", () => {
     ).toEqual([["OTEL_TRACES_SAMPLER_ARG", "0.01"]]);
   });
 
-  it("leaves the ratio alone when the source sets it or the default still applies", () => {
+  it("leaves the ratio alone when the source sets it, the sampler ignores it, or the default still applies", () => {
     expect(
       staleTraceSamplerDefaults("production", {
         sampler: "traceidratio",
@@ -218,6 +218,9 @@ describe("staleTraceSamplerDefaults", () => {
       }),
     ).toEqual([]);
     expect(staleTraceSamplerDefaults("production", {})).toEqual([]);
+    expect(
+      staleTraceSamplerDefaults("production", { sampler: "always_on" }),
+    ).toEqual([]);
     expect(
       staleTraceSamplerDefaults("branch:beta", { sampler: "always_on" }),
     ).toEqual([]);

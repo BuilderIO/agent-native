@@ -219,6 +219,11 @@ const PUBLIC_KEY_EXACT = new Set([
 const PUBLIC_KEY_PREFIXES = HOSTED_TEMPLATE_ENV_ALLOWLIST_PREFIXES;
 const PRODUCTION_URL_KEYS = new Set(["APP_URL", "BETTER_AUTH_URL"]);
 const PRODUCTION_TRACE_SAMPLER_RATIO = "0.01";
+// Only these samplers read OTEL_TRACES_SAMPLER_ARG as a ratio.
+const RATIO_TRACE_SAMPLERS = new Set([
+  "traceidratio",
+  "parentbased_traceidratio",
+]);
 const TELEMETRY_SERVICE_NAMESPACE = "agent-native";
 const TEMPLATE_PROD_URL_BY_NAME = new Map([
   ...TEMPLATES.map((template) => [template.name, template.prodUrl]).filter(
@@ -653,8 +658,8 @@ export function staleTraceSamplerDefaults(
   context: string,
   configured: { sampler?: string; samplerArg?: string } = {},
 ): Array<readonly [string, string]> {
-  if (context !== "production" || !configured.sampler) return [];
-  if (configured.samplerArg) return [];
+  if (context !== "production" || configured.samplerArg) return [];
+  if (!RATIO_TRACE_SAMPLERS.has(configured.sampler ?? "")) return [];
   return [["OTEL_TRACES_SAMPLER_ARG", PRODUCTION_TRACE_SAMPLER_RATIO]];
 }
 
