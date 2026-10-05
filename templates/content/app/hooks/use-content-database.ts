@@ -769,10 +769,16 @@ export function useContentDatabase(
       meta: { contentDatabaseSystemRole: options?.systemRole },
     },
   );
-  const page = tableQuery ? pageQuery.data : undefined;
+  const pageRead = tableQuery
+    ? contentDatabaseItemsPageReadState(
+        pageQuery.data,
+        pageQuery.isPlaceholderData,
+        pageQuery.isError,
+      )
+    : undefined;
+  const page = pageRead?.page;
   const baseFailed = baseQuery.isError && baseQuery.data === undefined;
-  const pageFailed =
-    Boolean(tableQuery) && pageQuery.isError && page === undefined;
+  const pageFailed = Boolean(tableQuery) && pageRead?.failed === true;
   const data =
     page &&
     baseQuery.data &&
@@ -796,7 +802,7 @@ export function useContentDatabase(
     itemsSettled:
       baseQuery.isError ||
       (tableQuery
-        ? pageQuery.isError || (page !== undefined && !!baseQuery.data)
+        ? pageRead?.settled === true || (page !== undefined && !!baseQuery.data)
         : baseQuery.data !== undefined),
     // No rows for the requested view could be read. After a failed sorted or
     // filtered read, `data` still holds the base read's rows in stored order;
@@ -813,6 +819,19 @@ export function useContentDatabase(
     isError: tableQuery ? pageQuery.isError : baseQuery.isError,
     error: tableQuery ? pageQuery.error : baseQuery.error,
     refetch: tableQuery ? pageQuery.refetch : baseQuery.refetch,
+  };
+}
+
+export function contentDatabaseItemsPageReadState<T>(
+  data: T | undefined,
+  isPlaceholderData: boolean,
+  isError: boolean,
+) {
+  const page = isPlaceholderData ? undefined : data;
+  return {
+    page,
+    failed: isError && page === undefined,
+    settled: isError || page !== undefined,
   };
 }
 

@@ -43,7 +43,7 @@ function rememberHint(
   defaultValue: string,
 ) {
   const hints = readStoredHints(key);
-  if ((hints[documentId] ?? defaultValue) === value) return;
+  if (value === defaultValue && hints[documentId] === undefined) return;
   delete hints[documentId];
   if (value !== defaultValue) hints[documentId] = value;
   const ids = Object.keys(hints);

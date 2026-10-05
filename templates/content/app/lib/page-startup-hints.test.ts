@@ -58,6 +58,20 @@ describe("page icon row hint", () => {
     expect(readPageIconRowHint("page-204")).toBe("icon");
   });
 
+  it("refreshes a page's recency when its remembered row is unchanged", () => {
+    for (let index = 0; index < 200; index += 1) {
+      rememberPageIconRow(`page-${index}`, "icon");
+    }
+
+    rememberPageIconRow("page-0", "icon");
+    rememberPageIconRow("page-200", "icon");
+
+    expect(readPageIconRowHint("page-0")).toBe("icon");
+    expect(readPageIconRowHint("page-1")).toBe("add");
+    expect(readPageIconRowHint("page-2")).toBe("icon");
+    expect(readPageIconRowHint("page-200")).toBe("icon");
+  });
+
   it("ignores a malformed hint", () => {
     localStorage.setItem("content-page-icon-rows-v1", "not json");
     expect(readPageIconRowHint("page-1")).toBe("add");

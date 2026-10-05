@@ -2982,15 +2982,10 @@ function DatabaseTable({
     viewConfig,
   ]);
 
-  const exactViewUnavailable =
-    !!exactRequestedViewId &&
-    ((database.isError && !database.itemsFailed) ||
-      isContentDatabaseUnavailable(database.data) ||
-      (!!data &&
-        !resolveRequestedDatabaseView(
-          normalizeClientDatabaseViewConfig(data.database.viewConfig),
-          exactRequestedViewId,
-        )));
+  const exactViewUnavailable = exactRequestedDatabaseViewUnavailable(
+    exactRequestedViewId,
+    database.data,
+  );
   useRecordContentVisit(
     { documentId: document.id, databaseId, viewId: activeView.id },
     foreground &&
@@ -13709,6 +13704,21 @@ export function resolveRequestedDatabaseView(
   if (!requestedViewId) return config;
   if (!config.views.some((view) => view.id === requestedViewId)) return null;
   return selectDatabaseView(config, requestedViewId);
+}
+
+export function exactRequestedDatabaseViewUnavailable(
+  requestedViewId: string | null | undefined,
+  data: ContentDatabaseResponse | undefined,
+): boolean {
+  return (
+    !!requestedViewId &&
+    (isContentDatabaseUnavailable(data) ||
+      (!!data &&
+        !resolveRequestedDatabaseView(
+          normalizeClientDatabaseViewConfig(data.database.viewConfig),
+          requestedViewId,
+        )))
+  );
 }
 
 export function addDatabaseView(

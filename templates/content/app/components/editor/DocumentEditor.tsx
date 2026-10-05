@@ -494,6 +494,26 @@ export function documentEditorReservesInlineReviewSpace(args: {
   );
 }
 
+export function documentEditorReviewReadsSettled(args: {
+  isLocalFileDocument: boolean;
+  hasThreads: boolean;
+  hasSuggestions: boolean;
+  commentsFetching: boolean;
+  suggestionsFetching: boolean;
+  commentsError: boolean;
+  suggestionsError: boolean;
+}) {
+  return (
+    args.isLocalFileDocument ||
+    (args.hasThreads &&
+      args.hasSuggestions &&
+      !args.commentsFetching &&
+      !args.suggestionsFetching &&
+      !args.commentsError &&
+      !args.suggestionsError)
+  );
+}
+
 export function suggestionPresentation(
   suggestion: Pick<ResourceSuggestion, "id" | "status" | "operations">,
   currentMarkdown: string,
@@ -6292,9 +6312,12 @@ function PageEditorSessionBody({
     null,
   );
   const appliedSuggestionLinkRef = useRef<string | null>(null);
-  const { data: threads, isLoading: commentsLoading } = useComments(
-    !isLocalFileDocument ? documentId : null,
-  );
+  const {
+    data: threads,
+    isLoading: commentsLoading,
+    isFetching: commentsFetching,
+    isError: commentsError,
+  } = useComments(!isLocalFileDocument ? documentId : null);
   const commentAi = useCommentAiRequests(documentId, {
     enabled: !isLocalFileDocument && canComment,
   });
@@ -6361,9 +6384,15 @@ function PageEditorSessionBody({
   });
   // A failed read says nothing about whether the page still has open review,
   // so the remembered margin holds until both reads answer.
-  const reviewReadsSettled =
-    isLocalFileDocument ||
-    (threads !== undefined && suggestionsQuery.data !== undefined);
+  const reviewReadsSettled = documentEditorReviewReadsSettled({
+    isLocalFileDocument,
+    hasThreads: threads !== undefined,
+    hasSuggestions: suggestionsQuery.data !== undefined,
+    commentsFetching,
+    suggestionsFetching: suggestionsQuery.isFetching,
+    commentsError,
+    suggestionsError: suggestionsQuery.isError,
+  });
   const pageHadOpenReview = useMemo(
     () => host === "page" && readPageShapeHint(documentId) === "review",
     [documentId, host],
@@ -6381,8 +6410,7 @@ function PageEditorSessionBody({
       host !== "page" ||
       document.database ||
       isLocalFileDocument ||
-      threads === undefined ||
-      suggestionsQuery.data === undefined
+      !reviewReadsSettled
     )
       return;
     rememberPageShape(documentId, hasOpenReview ? "review" : "page");
@@ -6392,8 +6420,13 @@ function PageEditorSessionBody({
     hasOpenReview,
     host,
     isLocalFileDocument,
+    reviewReadsSettled,
     suggestionsQuery.data,
+    suggestionsQuery.isError,
+    suggestionsQuery.isFetching,
     threads,
+    commentsFetching,
+    commentsError,
   ]);
   const showDesktopInfoPanel = utilityPanel === "info" && hasUtilityRailSpace;
   const showDesktopRightRail = showInlineComments || showDesktopInfoPanel;
