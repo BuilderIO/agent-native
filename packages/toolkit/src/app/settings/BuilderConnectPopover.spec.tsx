@@ -262,6 +262,7 @@ describe("BuilderConnectPopover before the status read resolves", () => {
         trigger(),
       ),
     );
+    expect(document.querySelector("[data-testid='consent']")).toBeNull();
     click(connectButton());
 
     const consent = document.querySelector("[data-testid='consent']");

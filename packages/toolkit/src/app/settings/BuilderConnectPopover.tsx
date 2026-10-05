@@ -52,7 +52,7 @@ export function BuilderConnectPopover({
 }: BuilderConnectPopoverProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const previousAccountExistsRef = useRef(flow.accountExists === true);
+  const provisioningAttemptRef = useRef(false);
   const capabilityResolved = flow.statusResolved === true;
   const showPopover =
     (defaultProvisionAccount && !capabilityResolved) ||
@@ -63,17 +63,20 @@ export function BuilderConnectPopover({
   const settledCount = flow.statusReadSettledCount ?? 0;
 
   useEffect(() => {
-    const newlyFoundAccount =
-      flow.accountExists === true && !previousAccountExistsRef.current;
-    previousAccountExistsRef.current = flow.accountExists === true;
-    if (newlyFoundAccount) setOpen(true);
-  }, [flow.accountExists]);
+    if (flow.accountExists && provisioningAttemptRef.current) {
+      provisioningAttemptRef.current = false;
+      setOpen(true);
+    } else if (!flow.connecting) {
+      provisioningAttemptRef.current = false;
+    }
+  }, [flow.accountExists, flow.connecting]);
 
   const start = (provisionAccount?: boolean) => {
     const shouldProvision =
       provisionAccount ??
       (flow.agentNativeProvisioningEnabled === true &&
         (defaultProvisionAccount || flow.provisionAccount === true));
+    if (shouldProvision) provisioningAttemptRef.current = true;
     setOpen(false);
     if (onConnect) {
       onConnect(shouldProvision);
