@@ -445,10 +445,12 @@ jobs:
             e2e/drag-and-drop.reparenting-rules.spec.ts \
             e2e/drag-and-drop.auto-layout-parity.spec.ts \
             e2e/cross-screen-auto-layout-parity.spec.ts \
+            e2e/drag-out-of-screen-to-board.spec.ts \
+            e2e/parity-drag-reparent.spec.ts \
             e2e/corner-radius-handle-drag.spec.ts \
             e2e/parity-vector-endpoints.spec.ts \
             e2e/responsive-overview-regressions.spec.ts \
-            --grep "physical|reparenting rules|canvas corner-radius handle follows the drag and persists the radius|vector endpoint controls|endpoint marker references unique|overview screen creation and duplicate undo/redo keep screens selected and visible" \
+            --grep "physical|reparenting rules|canvas corner-radius handle follows the drag and persists the radius|vector endpoint controls|endpoint marker references unique|a layer dragged below the rendered Screen card moves to the board|a drag released inside rendered Hug overflow stays in its source Screen|a held screen child dropped beyond the rendered board window persists at that canvas point|overview screen creation and duplicate undo/redo keep screens selected and visible" \
             --workers=1
 
   fast-tests:
