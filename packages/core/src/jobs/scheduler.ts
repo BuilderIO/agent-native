@@ -30,6 +30,10 @@ import {
   type AutomationFailure,
 } from "./automation-outcome.js";
 import {
+  inspectAutomationRecovery,
+  type AutomationResume,
+} from "./automation-recovery.js";
+import {
   backgroundRunCutOffReason,
   checkBackgroundAutomationCredentials,
   isBackgroundAutomationRunActive,
@@ -275,6 +279,7 @@ async function processRecurringJobsWithLease(
       resource: Resource;
       meta: JobFrontmatter;
       body: string;
+      resume?: AutomationResume;
     }> = [];
     const pausedRechecks: PausedRecheck[] = [];
 
@@ -310,6 +315,47 @@ async function processRecurringJobsWithLease(
       }
 
       if (meta.lastStatus === "running") {
+        const recovery = meta.schedule
+          ? await inspectAutomationRecovery(resource, meta, now)
+          : null;
+        if (recovery?.state === "active") continue;
+        if (recovery?.state === "resume") {
+          dueJobCandidates.push({
+            key: `${resource.owner}:${resource.path}`,
+            resource,
+            meta,
+            body,
+            resume: recovery.resume,
+          });
+          continue;
+        }
+        if (recovery?.state === "settle") {
+          meta.lastStatus = recovery.status;
+          meta.lastError = recovery.error;
+          if (meta.schedule && isValidCron(meta.schedule))
+            meta.nextRun = nextOccurrence(
+              meta.schedule,
+              now,
+              meta.timezone,
+            ).toISOString();
+          if (
+            await updateResource(
+              resource,
+              meta,
+              body,
+              recovery.status === "success"
+                ? CLEAR_FAILURE_STATE
+                : { lastErrorCode: recovery.errorCode },
+            )
+          )
+            await finishAutomationRun(
+              recovery.history.id,
+              recovery.status,
+              recovery.error,
+              recovery.errorCode,
+            );
+          continue;
+        }
         if (isBackgroundAutomationRunActive(meta, now)) continue;
         meta.lastStatus = "error";
         meta.lastError =
@@ -449,9 +495,16 @@ async function processRecurringJobsWithLease(
       dispatchedAt,
     });
     const outcomes = await Promise.allSettled(
-      dueJobs.map(({ key, resource, meta, body }) => {
+      dueJobs.map(({ key, resource, meta, body, resume }) => {
         startedJobKeys.add(key);
-        return executeJob(resource, meta, body, deps, now).finally(() => {
+        return executeJob(
+          resource,
+          meta,
+          body,
+          deps,
+          now,
+          resume ? { historyId: resume.historyId, resume } : {},
+        ).finally(() => {
           _activeScheduledJobs.delete(key);
         });
       }),
@@ -530,6 +583,7 @@ interface JobExecutionResult {
 }
 
 interface ExecuteJobOptions {
+  resume?: AutomationResume;
   advanceSchedule?: boolean;
   historyId?: string;
   manual?: boolean;
@@ -864,7 +918,7 @@ async function executeJob(
     return { status: "skipped", error };
   }
 
-  meta.lastRun = now.toISOString();
+  if (!options.resume) meta.lastRun = now.toISOString();
   meta.lastStatus = "running";
   meta.lastError = undefined;
   if (!(await updateResource(resource, meta, body))) {
@@ -989,6 +1043,12 @@ async function executeJob(
         usageLabel: `${options.manual ? "manual-automation" : "recurring-job"}:${jobName}`,
         requestContext,
         ...(options.historyId ? { historyId: options.historyId } : {}),
+        ...(options.resume
+          ? {
+              resume: options.resume,
+              hardDeadlineAt: options.resume.hardDeadlineAt,
+            }
+          : {}),
         ...(options.manual ? { manual: true } : {}),
         actionCaller: "automation" as const,
         actionAutomation: {
@@ -1012,7 +1072,12 @@ async function executeJob(
     return { status: "success", runId: result.runId };
   } catch (err) {
     const failure = classifyAutomationFailure(err);
-    const reportedError = withDeliveryNote(failure.message);
+    if (failure.code === "background_automation_claim_lost")
+      return { status: "skipped" };
+    const reportedError = withDeliveryNote(
+      failure.message,
+      failure.deliveryNote,
+    );
     await recordExecutionOutcome(
       resource,
       {

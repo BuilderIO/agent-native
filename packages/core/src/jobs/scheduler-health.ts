@@ -12,7 +12,7 @@ const TABLE = "automation_scheduler_health";
 const DEFAULT_APP_ID = "default";
 const MAX_ERROR_LENGTH = 500;
 
-export const AUTOMATION_SCHEDULER_LEASE_MS = 10 * 60_000;
+export const AUTOMATION_SCHEDULER_LEASE_MS = 2 * 60_000;
 export const AUTOMATION_SCHEDULER_LEASE_RENEWAL_MS = 60_000;
 
 export const AUTOMATION_SCHEDULER_HEALTH_MIGRATIONS: MigrationEntry[] = [

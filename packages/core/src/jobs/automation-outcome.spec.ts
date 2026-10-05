@@ -24,6 +24,20 @@ import {
 
 const NOW = new Date("2026-10-01T12:00:00.000Z");
 
+it("keeps confirmed delivery evidence when a long runtime error is truncated", () => {
+  const deliveryNote =
+    "Completed steps confirmed by the run journal: send-test-email. Unfinished steps were not confirmed.";
+  const error = Object.assign(new Error("Failure ".repeat(100)), {
+    errorCode: "http_502",
+    deliveryNote,
+  });
+  const failure = classifyAutomationFailure(error);
+  const transition = applyAutomationFailure({ enabled: true }, failure, NOW);
+  expect(transition.patch.lastError).toContain(deliveryNote);
+  expect(transition.patch.lastError!.length).toBeLessThanOrEqual(500);
+  expect(transition.patch.lastError).not.toContain("No delivery was confirmed");
+});
+
 function codedError(message: string, errorCode: string): Error {
   return Object.assign(new Error(message), { errorCode });
 }

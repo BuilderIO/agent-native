@@ -455,9 +455,12 @@ describe("runBackgroundAutomation — thread transcript", () => {
       },
     );
 
-    expect(updateThreadDataMock).toHaveBeenCalledTimes(1);
+    expect(updateThreadDataMock).toHaveBeenCalledTimes(2);
+    expect(
+      JSON.parse(updateThreadDataMock.mock.calls[0]![1] as string).messages,
+    ).toHaveLength(1);
     const [, threadData, title, , messageCount] =
-      updateThreadDataMock.mock.calls[0];
+      updateThreadDataMock.mock.calls.at(-1)!;
     expect(title).toBe("Job: Slack Feedback — Aug 17, 2026");
     expect(messageCount).toBe(2);
     expect(JSON.parse(threadData as string).messages).toHaveLength(2);
@@ -1140,6 +1143,69 @@ describe("runBackgroundAutomation — preconditions fail before any thread or ru
 });
 
 describe("runBackgroundAutomation — a failed run reports its own cause", () => {
+  it.each(["{}", "unreadable JSON"])(
+    "does not replay the edited job when original recovery context is missing or unreadable (%s)",
+    async (threadData) => {
+      const runStore = await import("../agent/run-store.js");
+      const history = await import("./run-history.js");
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+      getThreadMock.mockResolvedValueOnce({
+        id: "thread-1",
+        title: "Job",
+        preview: "",
+        threadData,
+        messageCount: 0,
+      });
+      const spies = [
+        vi.spyOn(runStore, "getRunTurnRef").mockResolvedValue({
+          threadId: "thread-1",
+          turnId: "crashed-turn",
+        }),
+        vi.spyOn(runStore, "getCurrentTurnEventsForThread").mockResolvedValue([
+          {
+            type: "tool_done",
+            tool: "send-test-email",
+            id: "sent-email",
+            result: "Delivered",
+            completedSideEffect: true,
+          },
+        ]),
+        vi.spyOn(history, "finishAutomationRun").mockResolvedValue(undefined),
+      ];
+      try {
+        await expect(
+          runBackgroundAutomation(
+            runOptions(precondition("missing-original"), {
+              historyId: "crashed-history",
+              resume: {
+                historyId: "crashed-history",
+                threadId: "thread-1",
+                turnId: "crashed-turn",
+                previousRunId: "crashed-worker",
+                hardDeadlineAt: Date.now() + 60_000,
+              },
+            }),
+            standardDeps,
+          ),
+        ).rejects.toBeDefined();
+        expect(runAgentLoopDirectWithSoftTimeout).not.toHaveBeenCalled();
+        expect(await countRowsWithPrefix("job-missing-original")).toBe(0);
+        expect(history.finishAutomationRun).toHaveBeenCalledWith(
+          "crashed-history",
+          "error",
+          expect.stringContaining(
+            "Completed steps confirmed by the run journal: send-test-email",
+          ),
+          expect.any(String),
+        );
+      } finally {
+        spies.forEach((spy) => spy.mockRestore());
+      }
+    },
+  );
+
   it("surfaces the run's error instead of 'ended with status: errored'", async () => {
     const { runAgentLoopDirectWithSoftTimeout } =
       await import("../agent/run-loop-with-resume.js");

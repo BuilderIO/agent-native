@@ -12,12 +12,13 @@ import {
   resolveEngine,
 } from "../agent/engine/index.js";
 import { resolveMainChatMaxOutputTokens } from "../agent/engine/output-tokens.js";
-import type { AgentEngine } from "../agent/engine/types.js";
+import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import {
   actionsToEngineTools,
   filterInitialEngineTools,
   resolveOwnerEngineApiKey,
   runAgentLoop,
+  appendAgentLoopContinuation,
   type ActionEntry,
 } from "../agent/production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
@@ -28,14 +29,27 @@ import {
   startRun,
   type ActiveRun,
 } from "../agent/run-manager.js";
-import { claimBackgroundRun, insertRun } from "../agent/run-store.js";
+import {
+  claimBackgroundRun,
+  insertRun,
+  tryClaimRunSlot,
+  getCurrentTurnRunEventsForThread,
+  getRunTurnRef,
+  getCurrentTurnEventsForThread,
+} from "../agent/run-store.js";
 import {
   buildAssistantMessage,
   buildUserMessage,
   extractThreadMeta,
   foldAssistantTurn,
   upsertUserMessage,
+  threadDataToEngineMessages,
+  threadMessageTextForEngine,
 } from "../agent/thread-data-builder.js";
+import {
+  classifyToolCallJournal,
+  buildResumeJournalNote,
+} from "../agent/tool-call-journal.js";
 import { attachToolSearch } from "../agent/tool-search.js";
 import {
   lookupOwnerAccount,
@@ -48,10 +62,10 @@ import {
   updateThreadData,
   withThreadDataLock,
 } from "../chat-threads/store.js";
+import { automationRecoveryMessagesForLocale } from "../localization/automation-recovery-messages.js";
 import { queryOrgMembers } from "../org/context.js";
 import {
   organizationIdFromResourceOwner,
-  organizationResourceOwner,
   type Resource,
 } from "../resources/store.js";
 import { captureError } from "../server/capture-error.js";
@@ -76,6 +90,11 @@ import {
   type AutomationFailure,
 } from "./automation-outcome.js";
 import {
+  deliveryNoteForEvents,
+  automationHistoryOwner,
+  type AutomationResume,
+} from "./automation-recovery.js";
+import {
   recoveredFactoryOwnerOrgId,
   type JobFrontmatter,
 } from "./frontmatter.js";
@@ -89,10 +108,12 @@ export const BACKGROUND_RUN_HARD_TIMEOUT_MS = 10 * 60_000;
 
 export class BackgroundAutomationRunError extends Error {
   readonly errorCode: string;
-  constructor(message: string, errorCode: string) {
+  readonly deliveryNote?: string;
+  constructor(message: string, errorCode: string, deliveryNote?: string) {
     super(message);
     this.name = "BackgroundAutomationRunError";
     this.errorCode = errorCode;
+    this.deliveryNote = deliveryNote;
   }
 }
 
@@ -124,6 +145,7 @@ interface AutomationRunRef {
 }
 
 export interface BackgroundAutomationRunOptions {
+  resume?: AutomationResume;
   automation: BackgroundAutomationContext;
   ownerEmail: string;
   orgId?: string;
@@ -508,11 +530,11 @@ export async function runBackgroundAutomation(
     historyId = options.historyId;
   } else {
     try {
-      const historyOwner = options.orgId
-        ? organizationResourceOwner(options.orgId)
-        : automation.resource.owner === "__shared__"
-          ? options.ownerEmail
-          : automation.resource.owner;
+      const historyOwner = automationHistoryOwner(
+        automation.resource,
+        options.ownerEmail,
+        options.orgId,
+      );
       historyId = await startAutomationRun({
         owner: historyOwner,
         automation: automation.name,
@@ -536,7 +558,10 @@ export async function runBackgroundAutomation(
   }
 
   let result: BackgroundAutomationRunResult;
-  const runIdRef: AutomationRunRef = { current: null };
+  const runIdRef: AutomationRunRef = {
+    current: options.resume?.previousRunId ?? null,
+    threadId: options.resume?.threadId,
+  };
   try {
     result = await executeBackgroundAutomation(
       options,
@@ -545,7 +570,25 @@ export async function runBackgroundAutomation(
       runIdRef,
     );
   } catch (err) {
+    if (
+      err instanceof BackgroundAutomationRunError &&
+      err.errorCode === "background_automation_claim_lost"
+    )
+      throw err;
     const failure = classifyAutomationFailure(err);
+    if (runIdRef.current) {
+      try {
+        const ref = await getRunTurnRef(runIdRef.current);
+        if (!ref)
+          throw new Error(`Automation run ${runIdRef.current} has no turn`);
+        failure.deliveryNote = deliveryNoteForEvents(
+          await getCurrentTurnEventsForThread(ref.threadId, ref.turnId),
+        );
+      } catch (error) {
+        console.error("[automations] Could not read delivery evidence:", error);
+        failure.deliveryNote = deliveryNoteForEvents(null);
+      }
+    }
     // Same transition the scheduler persists, so the run that pauses the
     // automation is the one that tells its owner.
     const transition = applyAutomationFailure(
@@ -587,15 +630,21 @@ export async function runBackgroundAutomation(
         ? pausedMessage(
             failure.code,
             transition.consecutiveFailures,
-            failure.message,
+            failure.deliveryNote
+              ? withDeliveryNote(failure.message, failure.deliveryNote)
+              : failure.message,
           )
-        : withDeliveryNote(failure.message),
+        : withDeliveryNote(failure.message, failure.deliveryNote),
       failure.code,
       // A precondition failure repeats identically until fixed, so only the
       // run that pauses the automation emails its owner.
       !(failure.precondition && !transition.pause),
     );
-    throw err;
+    throw new BackgroundAutomationRunError(
+      failure.message,
+      failure.code,
+      failure.deliveryNote,
+    );
   }
   await recordRunOutcome(historyId, "success");
   return result;
@@ -643,7 +692,7 @@ async function persistBackgroundAutomationTurn(input: {
   threadId: string;
   threadTitle: string;
   prompt: string;
-  run: ActiveRun;
+  run: Pick<ActiveRun, "runId" | "turnId" | "startedAt" | "events">;
   persistFailure?: { message: string; errorCode: string };
 }): Promise<void> {
   await withThreadDataLock(input.threadId, async () => {
@@ -670,7 +719,11 @@ async function persistBackgroundAutomationTurn(input: {
 
     repo = upsertUserMessage(
       repo,
-      buildUserMessage({ text: input.prompt, runId: input.run.runId }),
+      buildUserMessage({
+        text: input.prompt,
+        runId: input.run.turnId,
+        turnId: input.run.turnId,
+      }),
     );
     const events = [...(input.run.events ?? [])];
     if (input.persistFailure) {
@@ -853,17 +906,78 @@ async function executeBackgroundAutomation(
       assertHardDeadline(options.hardDeadlineAt);
       const systemPrompt = await deps.getSystemPrompt(ownerEmail);
       assertHardDeadline(options.hardDeadlineAt);
-      const thread = await createThread(ownerEmail, {
-        title: threadTitle,
-        orgId: orgId ?? null,
-      });
+      const thread = options.resume
+        ? await getThread(options.resume.threadId)
+        : await createThread(ownerEmail, {
+            title: threadTitle,
+            orgId: orgId ?? null,
+          });
+      if (!thread)
+        throw new Error(
+          `Automation recovery thread ${options.resume?.threadId} was not found`,
+        );
       assertHardDeadline(options.hardDeadlineAt);
       const runId = createRunId(options.runIdPrefix);
-      if (runIdRef) {
-        runIdRef.current = runId;
-        runIdRef.threadId = thread.id;
+      const turnId = options.resume?.turnId ?? runId;
+      let executionPrompt = prompt;
+      let messages: EngineMessage[] = [
+        { role: "user", content: [{ type: "text", text: prompt }] },
+      ];
+      if (options.resume) {
+        const saved = JSON.parse(
+          "threadData" in thread ? thread.threadData || "{}" : "{}",
+        );
+        const original = Array.isArray(saved.messages)
+          ? saved.messages
+              .map((entry: any) => entry.message ?? entry)
+              .find(
+                (message: any) =>
+                  message.role === "user" &&
+                  (message.metadata?.custom?.submittedTurnId === turnId ||
+                    message.metadata?.custom?.submittedRunId === turnId),
+              )
+          : undefined;
+        const originalPrompt = original
+          ? threadMessageTextForEngine(original)
+          : "";
+        if (!originalPrompt.trim())
+          throw new BackgroundAutomationRunError(
+            automationRecoveryMessagesForLocale().missingPrompt,
+            "background_automation_resume_context_missing",
+          );
+        executionPrompt = originalPrompt;
+        const events = await getCurrentTurnRunEventsForThread(
+          thread.id,
+          turnId,
+        );
+        const partial = buildAssistantMessage(
+          events,
+          options.resume.previousRunId,
+          { turnId, suppressInternalContinuation: true },
+        );
+        const resumed = threadDataToEngineMessages(
+          {
+            messages: [
+              buildUserMessage({
+                text: originalPrompt,
+                runId: turnId,
+                turnId,
+              }),
+              ...(partial ? [partial] : []),
+            ],
+          },
+          { includeToolCalls: true },
+        );
+        const journalNote = buildResumeJournalNote(
+          classifyToolCallJournal(events.map(({ event }) => event)),
+        );
+        appendAgentLoopContinuation(
+          resumed,
+          "run_timeout",
+          journalNote ? { journalNote } : {},
+        );
+        messages = resumed;
       }
-      await recordRunThread(historyId, thread.id, runId);
       assertHardDeadline(options.hardDeadlineAt);
 
       const maxHardTimeoutMs = Math.min(
@@ -880,15 +994,38 @@ async function executeBackgroundAutomation(
       let hardTimedOut = false;
 
       assertHardDeadline(options.hardDeadlineAt);
-      await insertRun(runId, thread.id, undefined, {
-        dispatchMode: "background",
-      });
+      if (options.resume) {
+        const claim = await tryClaimRunSlot(thread.id, runId, undefined, {
+          turnId,
+          dispatchMode: "background",
+        });
+        if (!claim.claimed)
+          throw new BackgroundAutomationRunError(
+            `Automation recovery could not claim turn ${turnId}`,
+            "background_automation_claim_lost",
+          );
+      } else {
+        await insertRun(runId, thread.id, turnId, {
+          dispatchMode: "background",
+        });
+      }
       const claimedOwnRun = await claimBackgroundRun(runId);
       if (!claimedOwnRun) {
         throw new Error(
           `Background automation "${automation.name}" (run "${runId}") could not claim its own freshly-inserted run row`,
         );
       }
+      if (runIdRef) {
+        runIdRef.current = runId;
+        runIdRef.threadId = thread.id;
+      }
+      await persistBackgroundAutomationTurn({
+        threadId: thread.id,
+        threadTitle,
+        prompt: executionPrompt,
+        run: { runId, turnId, startedAt: Date.now(), events: [] },
+      });
+      await recordRunThread(historyId, thread.id, runId);
       const hardTimeoutMs = Math.min(
         maxHardTimeoutMs,
         options.hardDeadlineAt === undefined
@@ -907,12 +1044,7 @@ async function executeBackgroundAutomation(
               systemPrompt,
               tools,
               availableTools,
-              messages: [
-                {
-                  role: "user" as const,
-                  content: [{ type: "text" as const, text: prompt }],
-                },
-              ],
+              messages,
               actions,
               send,
               signal,
@@ -923,6 +1055,7 @@ async function executeBackgroundAutomation(
               actionCaller: options.actionCaller,
               automation: options.actionAutomation,
               runId,
+              turnId,
               maxIterations: automation.meta.maxIterations,
               maxRunInputTokens: automation.meta.maxRunInputTokens,
               reasoningEffort: normalizeReasoningEffortForRequest(
@@ -983,7 +1116,7 @@ async function executeBackgroundAutomation(
               await persistBackgroundAutomationTurn({
                 threadId: thread.id,
                 threadTitle,
-                prompt,
+                prompt: executionPrompt,
                 run,
                 persistFailure,
               });
@@ -1022,6 +1155,8 @@ async function executeBackgroundAutomation(
             backgroundFunction: true,
             recoverChunkBoundaries: true,
             dispatchMode: "background",
+            turnId,
+            runRowAlreadyInserted: true,
             noProgressTimeoutMs: options.noProgressTimeoutMs,
             backgroundNoProgressTimeoutMs:
               options.backgroundNoProgressTimeoutMs,

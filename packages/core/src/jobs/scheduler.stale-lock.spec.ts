@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import * as runStore from "../agent/run-store.js";
+import { getThread } from "../chat-threads/store.js";
 import * as runHistory from "./run-history.js";
 import { processRecurringJobs, runJobNow } from "./scheduler.js";
 
@@ -49,6 +51,15 @@ vi.mock("../chat-threads/store.js", () => ({
 }));
 
 vi.mock("../agent/production-agent.js", () => ({
+  appendAgentLoopContinuation: (
+    messages: unknown[],
+    _reason: string,
+    options: { journalNote?: string },
+  ) =>
+    messages.push({
+      role: "user",
+      content: [{ type: "text", text: options.journalNote }],
+    }),
   actionsToEngineTools: vi.fn(() => []),
   getOwnerActiveApiKey: vi.fn(async () => "test-api-key"),
   resolveOwnerEngineApiKey: vi.fn(async () => ({
@@ -236,7 +247,130 @@ describe("stale automation run-lock recovery across trigger types", () => {
     expect(runAgentLoopMock).toHaveBeenCalledOnce();
   });
 
-  it("does not touch automation history when the stale-lock reset loses its CAS", async () => {
+  it("resumes a killed scheduled firing on its next tick with its completed email and original turn", async () => {
+    const startedAt = Date.now() - 120_000;
+    const lastRun = new Date(startedAt).toISOString();
+    const resource = {
+      id: "resource-killed",
+      owner: "owner@agent-native.test",
+      path: "jobs/digest.md",
+      content: [
+        "---",
+        'schedule: "*/2 * * * *"',
+        "enabled: true",
+        "lastStatus: running",
+        `lastRun: ${lastRun}`,
+        "---",
+        "Send the email, then open a ticket.",
+      ].join("\n"),
+    };
+    resourceListAllOwnersMock.mockResolvedValueOnce([resource]);
+    const emailEvents = [
+      {
+        type: "tool_start" as const,
+        tool: "send-test-email",
+        id: "email-1",
+        input: { to: "ops@example.com" },
+      },
+      {
+        type: "tool_done" as const,
+        tool: "send-test-email",
+        id: "email-1",
+        result: "Email delivered",
+        completedSideEffect: true,
+      },
+    ];
+    const spies = [
+      vi.spyOn(runHistory, "listAutomationRuns").mockResolvedValue([
+        {
+          id: "queued-newer",
+          path: resource.path,
+          runId: null,
+          threadId: null,
+          startedAt: Date.now(),
+          finishedAt: null,
+        },
+        {
+          id: "history-killed",
+          path: resource.path,
+          runId: "job-killed",
+          threadId: "thread-1",
+          startedAt,
+          finishedAt: null,
+        },
+      ] as any),
+      vi.spyOn(runStore, "reapIfStale").mockResolvedValue(true),
+      vi.spyOn(runStore, "getRunById").mockResolvedValue({
+        id: "job-killed",
+        status: "errored",
+        errorCode: "stale_run",
+      } as any),
+      vi
+        .spyOn(runStore, "getRunTurnRef")
+        .mockResolvedValue({ threadId: "thread-1", turnId: "job-killed" }),
+      vi.spyOn(runStore, "countRunsForTurn").mockResolvedValue(1),
+      vi.spyOn(runStore, "getCurrentTurnRunEventsForThread").mockResolvedValue(
+        emailEvents.map((event, seq) => ({
+          runId: "job-killed",
+          seq,
+          event,
+        })),
+      ),
+      vi
+        .spyOn(runStore, "tryClaimRunSlot")
+        .mockResolvedValue({ claimed: true, activeRunId: null }),
+    ];
+    try {
+      vi.mocked(getThread).mockResolvedValueOnce({
+        id: "thread-1",
+        title: "Job",
+        threadData: JSON.stringify({
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "Send the email, then open the original ticket.",
+                },
+              ],
+              metadata: { custom: { submittedTurnId: "job-killed" } },
+            },
+          ],
+        }),
+      } as any);
+      await processRecurringJobs({
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+        engine: testEngine,
+        model: "test-model",
+      });
+      expect(createThreadMock).not.toHaveBeenCalled();
+      expect(runAgentLoopMock).toHaveBeenCalledOnce();
+      const loop = runAgentLoopMock.mock.calls[0]![0];
+      expect(loop).toMatchObject({
+        threadId: "thread-1",
+        turnId: "job-killed",
+      });
+      expect(JSON.stringify(loop.messages)).toContain("Email delivered");
+      expect(JSON.stringify(loop.messages)).toContain("Already completed");
+      expect(JSON.stringify(loop.messages)).toContain("send-test-email");
+      expect(runStore.tryClaimRunSlot).toHaveBeenCalledWith(
+        "thread-1",
+        expect.any(String),
+        undefined,
+        expect.objectContaining({ turnId: "job-killed" }),
+      );
+      expect(resourcePutMock.mock.calls.at(-1)![2]).toContain(
+        "lastStatus: success",
+      );
+      expect(resourcePutMock.mock.calls.at(-1)![2]).toContain(lastRun);
+    } finally {
+      spies.forEach((spy) => spy.mockRestore());
+    }
+  });
+
+  it("does not write automation history when the stale-lock reset loses its CAS", async () => {
     const stuckLastRun = new Date(Date.now() - 11 * 60 * 1000).toISOString();
     const stuckContent = [
       "---",
@@ -262,6 +396,7 @@ describe("stale automation run-lock recovery across trigger types", () => {
     ]);
     resourcePutIfCurrentMock.mockResolvedValueOnce(null);
     const listAutomationRunsSpy = vi.spyOn(runHistory, "listAutomationRuns");
+    const finishAutomationRunSpy = vi.spyOn(runHistory, "finishAutomationRun");
 
     await processRecurringJobs({
       getActions: () => ({}),
@@ -272,5 +407,6 @@ describe("stale automation run-lock recovery across trigger types", () => {
 
     expect(resourcePutMock).not.toHaveBeenCalled();
     expect(listAutomationRunsSpy).not.toHaveBeenCalled();
+    expect(finishAutomationRunSpy).not.toHaveBeenCalled();
   });
 });
