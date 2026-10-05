@@ -113,6 +113,112 @@ const testEngine = {
 } as any;
 
 describe("runBackgroundAutomation — background-run self-claim", () => {
+  it.each([
+    { triggerType: undefined, manual: false, timezone: "America/New_York" },
+    {
+      triggerType: "schedule" as const,
+      manual: false,
+      timezone: "America/New_York",
+    },
+    {
+      triggerType: "event" as const,
+      manual: false,
+      timezone: "America/New_York",
+    },
+    {
+      triggerType: "webhook" as const,
+      manual: false,
+      timezone: "America/New_York",
+    },
+    {
+      triggerType: "schedule" as const,
+      manual: true,
+      timezone: "America/New_York",
+    },
+    { triggerType: "schedule" as const, manual: false, timezone: undefined },
+    { triggerType: "schedule" as const, manual: false, timezone: "not/a-zone" },
+  ])(
+    "gives $triggerType runs (manual=$manual, timezone=$timezone) chat's current date, time and timezone",
+    async ({ triggerType, manual, timezone }) => {
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+      vi.stubEnv("TZ", "UTC");
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date("2026-10-06T00:26:52Z"));
+
+      try {
+        await runBackgroundAutomation(
+          {
+            automation: {
+              name: "clock-check",
+              meta: {
+                schedule: "*/2 * * * *",
+                enabled: true,
+                timezone,
+                triggerType,
+              },
+              body: "Report the current time.",
+              resource: {
+                owner: "alice@agent-native.test",
+                path: "jobs/clock-check.md",
+              } as any,
+            },
+            ownerEmail: "alice@agent-native.test",
+            prompt: "Report the current time.",
+            threadTitle: "Job: clock-check",
+            runIdPrefix: "job-clock-check",
+            usageLabel: "clock-check",
+            manual,
+          },
+          {
+            getActions: () => ({}),
+            getSystemPrompt: async () => {
+              // Setup can take time; inject the clock when execution starts.
+              vi.setSystemTime(new Date("2026-10-06T00:28:52Z"));
+              return "system";
+            },
+            engine: testEngine,
+          },
+        );
+
+        const input = vi
+          .mocked(runAgentLoopDirectWithSoftTimeout)
+          .mock.calls.at(-1)?.[0];
+        const eastern = timezone === "America/New_York";
+        const expectedTimezone = eastern ? "America/New_York" : "UTC";
+        expect(input?.systemPrompt).toContain("currentDate: 2026-10-06");
+        expect(input?.systemPrompt).toContain(
+          `currentDateInTimezone: ${eastern ? "2026-10-05" : "2026-10-06"}`,
+        );
+        expect(input?.systemPrompt).toContain(
+          `currentTimezone: ${expectedTimezone}`,
+        );
+        expect(input?.systemPrompt).toMatch(
+          /^system[\s\S]*<\/runtime-context>$/,
+        );
+        expect(input?.systemPrompt).not.toContain("currentUtc:");
+        expect(input?.messages[0].content).toEqual([
+          {
+            type: "text",
+            text: expect.stringMatching(
+              /^Report the current time\.[\s\S]*currentUtc: 2026-10-06T00:28:52\.000Z/,
+            ),
+          },
+        ]);
+        expect(JSON.stringify(input?.messages)).toContain(
+          `currentTimezone: ${expectedTimezone}`,
+        );
+        expect(JSON.stringify(input?.messages)).toContain(
+          eastern ? "8:28:52 PM EDT" : "12:28:52 AM UTC",
+        );
+      } finally {
+        vi.useRealTimers();
+        vi.unstubAllEnvs();
+      }
+    },
+  );
+
   it("keeps the outer hard timeout at the ten-minute background budget", () => {
     expect(BACKGROUND_RUN_HARD_TIMEOUT_MS).toBe(10 * 60_000);
   });
