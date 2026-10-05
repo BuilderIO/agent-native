@@ -644,22 +644,54 @@ async function action<T = any>(
   body: Record<string, unknown>,
   method: "DELETE" | "GET" | "POST" = "POST",
 ): Promise<T> {
+  const timeoutMs = 30_000;
   const res = await page.evaluate(
-    async ({ name, body, method }: any) => {
+    async ({ name, body, method, timeoutMs }: any) => {
       const url =
         method === "GET"
           ? `/_agent-native/actions/${name}?${new URLSearchParams(body)}`
           : `/_agent-native/actions/${name}`;
-      const r = await fetch(url, {
+      const controller = new AbortController();
+      let timeoutId: number | undefined;
+      const request = fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: method === "GET" ? undefined : JSON.stringify(body),
+        signal: controller.signal,
+      }).then(async (response) => ({
+        ok: response.ok,
+        status: response.status,
+        text: await response.text(),
+      }));
+      const timeout = new Promise<{
+        ok: false;
+        status: 0;
+        text: string;
+      }>((resolve) => {
+        timeoutId = window.setTimeout(() => {
+          controller.abort();
+          resolve({
+            ok: false,
+            status: 0,
+            text: `timed out after ${timeoutMs}ms`,
+          });
+        }, timeoutMs);
       });
-      return { ok: r.ok, status: r.status, text: await r.text() };
+      try {
+        return await Promise.race([request, timeout]);
+      } finally {
+        if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      }
     },
-    { name, body, method },
+    { name, body, method, timeoutMs },
   );
-  if (!res.ok) throw new Error(`${name} returned HTTP ${res.status}`);
+  if (!res.ok) {
+    throw new Error(
+      res.status === 0
+        ? `${name} request ${res.text}`
+        : `${name} returned HTTP ${res.status}`,
+    );
+  }
   try {
     return JSON.parse(res.text);
   } catch {
@@ -686,15 +718,39 @@ async function getSlideContent(page: Page, deckId: string, slideId: string) {
 }
 
 async function ensureSignedIn(page: Page) {
-  const status = () =>
-    page.evaluate(
-      async () =>
-        (await fetch("/_agent-native/actions/list-decks?limit=1")).status,
+  const requestStatus = async (url: string, method = "GET") => {
+    const timeoutMs = 30_000;
+    const result = await page.evaluate(
+      async ({ url, method, timeoutMs }: any) => {
+        const controller = new AbortController();
+        let timeoutId: number | undefined;
+        const request = fetch(url, {
+          method,
+          signal: controller.signal,
+        }).then((response) => ({ status: response.status }));
+        const timeout = new Promise<{ timedOut: true }>((resolve) => {
+          timeoutId = window.setTimeout(() => {
+            controller.abort();
+            resolve({ timedOut: true });
+          }, timeoutMs);
+        });
+        try {
+          return await Promise.race([request, timeout]);
+        } finally {
+          if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+        }
+      },
+      { url, method, timeoutMs },
     );
+    if ("timedOut" in result) {
+      throw new CouldNotRun(`${url} timed out after ${timeoutMs}ms`);
+    }
+    return result.status;
+  };
+  const status = () =>
+    requestStatus("/_agent-native/actions/list-decks?limit=1");
   if ((await status()) === 200) return;
-  await page.evaluate(() =>
-    fetch("/_agent-native/auth/local-dev", { method: "POST" }),
-  );
+  await requestStatus("/_agent-native/auth/local-dev", "POST");
   const after = await status();
   if (after !== 200)
     throw new CouldNotRun(
@@ -713,13 +769,16 @@ async function settle(page: Page) {
     // The renderer injects a webfont stylesheet per slide font, and a face
     // starts loading only once text using it lays out, so `fonts.ready` can
     // resolve before the slide's font was even requested (display=swap then
-    // paints the fallback). Bounded: an offline stylesheet never loads.
+    // paints the fallback). A failed font request can also leave it pending.
     const frame = () =>
       new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     // Imported-font stylesheets are appended by a passive effect after render.
     await frame();
     for (let i = 0; i < 20; i++) {
-      await document.fonts.ready;
+      await Promise.race([
+        document.fonts.ready,
+        new Promise((resolve) => setTimeout(resolve, 500)),
+      ]);
       await frame();
       const sheetPending = Array.from(
         document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]'),
