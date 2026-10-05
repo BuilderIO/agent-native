@@ -164,6 +164,157 @@ describe("runDoctorScan", () => {
     ]);
   });
 
+  it("reports server plugins without a default export", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "server/plugins/side-effect.ts":
+        'import { registerThing } from "../thing";\nregisterThing();\n',
+      "server/plugins/named.js": "export const plugin = () => {};\n",
+      "server/plugins/commented.ts":
+        '// export default defineNitroPlugin(() => {});\nconst s = "export default x";\n',
+      "server/plugins/nested/helper.ts": "registerThing();\n",
+      "server/plugins/module.mjs": "registerThing();\n",
+      "server/plugins/view.tsx": "registerThing();\n",
+      "server/plugins/types.d.ts": "export type Foo = string;\n",
+      "server/plugins/declared.d.ts": "export default function init(): void;\n",
+    });
+    const report = runDoctorScan({
+      root,
+      only: ["server-plugin-default-export"],
+    });
+
+    expect(report.ok).toBe(false);
+    expect(report.findings.map((f) => f.file)).toEqual([
+      "server/plugins/commented.ts",
+      "server/plugins/declared.d.ts",
+      "server/plugins/module.mjs",
+      "server/plugins/named.js",
+      "server/plugins/nested/helper.ts",
+      "server/plugins/side-effect.ts",
+      "server/plugins/types.d.ts",
+      "server/plugins/view.tsx",
+    ]);
+    expect(report.findings[0]).toEqual(
+      expect.objectContaining({
+        guard: "server-plugin-default-export",
+        line: 1,
+      }),
+    );
+    expect(report.findings[0]?.message).toContain(
+      "export default defineNitroPlugin(...)",
+    );
+    expect(report.findings[0]?.message).toContain(
+      "move registration-only code to `server/`",
+    );
+  });
+
+  it("accepts every runtime default-export form and skips ignored files", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "server/plugins/direct.ts":
+        "export default defineNitroPlugin(() => {});\n",
+      "server/plugins/aliased.ts":
+        "const plugin = defineNitroPlugin(() => {});\nexport { plugin as default };\n",
+      "server/plugins/reexport.ts": 'export { default } from "../auth";\n',
+      "server/plugins/reexport-named.js":
+        'export { authPlugin as default } from "../auth";\n',
+      "server/plugins/namespace.ts": 'export * as default from "../auth";\n',
+      "server/plugins/mixed.ts":
+        "const plugin = defineNitroPlugin(() => {});\nexport { type Foo, plugin as default };\n",
+      "server/plugins/no-space.ts": "export default(nitroApp) => {};\n",
+      "server/plugins/merged.ts":
+        "interface Plugin {}\nconst Plugin = defineNitroPlugin(() => {});\nexport default Plugin;\n",
+      "server/plugins/reexport-shadowed.ts":
+        'interface plugin {\n  name: string;\n}\nexport { plugin as default } from "../shared/plugin";\n',
+      "server/plugins/dollar.ts":
+        "interface plugin$ {}\nconst plugin$ = defineNitroPlugin(() => {});\nexport default plugin$;\n",
+      "server/plugins/postfix.ts":
+        "let i = 0; const r = i++ / 2 + i-- / 2; export { r as default };\n",
+      "server/plugins/commonjs.cjs": "module.exports = () => {};\n",
+      "server/plugins/commonjs-default.cjs": "exports.default = () => {};\n",
+      "server/plugins/view.tsx": [
+        "const note = <p>Don't panic</p>;",
+        "const view = <span>Ready</span>; export default () => view;",
+        "",
+      ].join("\n"),
+      "server/plugins/jsx-text.tsx": [
+        "const el = <p>Don't</p>; export default () => <p>It's fine</p>;",
+        "const link = <a>https://example.com</a>; export const x = 1;",
+        "",
+      ].join("\n"),
+      "server/plugins/jsx-url.jsx":
+        "const el = <p>https://example.com</p>; export default () => el;\n",
+      "server/plugins/crlf.ts":
+        'const s = "a\\\r\nb"; export default () => s;\r\n',
+      "server/plugins/same-line.tsx": [
+        "const Panel = () => <p>Don't worry, it's \"fine\"</p>; export default Panel;",
+        "",
+      ].join("\n"),
+      "server/plugins/side-effect.spec.ts": "registerThing();\n",
+      "server/plugins/side-effect.test.js": "registerThing();\n",
+      "server/plugins/nested/side-effect.spec.tsx": "registerThing();\n",
+      "server/plugins/side-effect.test.mjs": "registerThing();\n",
+      "server/plugins/README.md": "notes\n",
+    });
+    const report = runDoctorScan({
+      root,
+      only: ["server-plugin-default-export"],
+    });
+
+    expect(report.findings).toEqual([]);
+    expect(report.ok).toBe(true);
+  });
+
+  it("finds the default export after regex literals and nested templates", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "server/plugins/tricky.ts": [
+        'const strip = (v: string) => v.replace(/^("|\')|(("|\')$)/g, "");',
+        "const half = total / 2 / count;",
+        "if (ready) /it's/.test(value);",
+        "const ratio = (a + b) / 2 / (c || 1);",
+        'const n = "8" / 2; const m = `${n}` / 4;',
+        'const msg = `a ${list.map((x) => `b ${x} \'`).join("`")} c`;',
+        "export default defineNitroPlugin(() => {});",
+        "",
+      ].join("\n"),
+    });
+    const report = runDoctorScan({
+      root,
+      only: ["server-plugin-default-export"],
+    });
+
+    expect(report.findings).toEqual([]);
+  });
+
+  it("does not count a type-only default export", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "server/plugins/types-only.ts":
+        "type Plugin = () => void;\nexport type { Plugin as default };\n",
+      "server/plugins/inline-type.ts":
+        "type Plugin = () => void;\nexport { type Plugin as default };\n",
+      "server/plugins/interface.ts":
+        "export default interface Plugin {\n  run(): void;\n}\n",
+      "server/plugins/interface-named.ts":
+        "interface Plugin {\n  run(): void;\n}\nexport { Plugin as default };\n",
+      "server/plugins/alias-default.ts":
+        "type Plugin<T = void> = () => T;\nexport default Plugin;\n",
+    });
+    const report = runDoctorScan({
+      root,
+      only: ["server-plugin-default-export"],
+    });
+
+    expect(report.findings.map((f) => f.file)).toEqual([
+      "server/plugins/alias-default.ts",
+      "server/plugins/inline-type.ts",
+      "server/plugins/interface-named.ts",
+      "server/plugins/interface.ts",
+      "server/plugins/types-only.ts",
+    ]);
+  });
+
   it("respects disabledGuards from agent-native.json", () => {
     const root = makeTempAppRoot({
       ...VIOLATION_FILES,
@@ -906,6 +1057,19 @@ describe("--strict escalation (shouldFailBuild / runDoctorBuildHook)", () => {
     expect(result.report.ok).toBe(false);
     expect(result.ok).toBe(false);
     expect(err.join("\n")).toMatch(/fix them before the build can continue/);
+  });
+
+  it("build hook fails before bundling when a server plugin has no default export", async () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "server/plugins/register.ts": "registerThing();\n",
+    });
+    const { io, err } = captureIo();
+    const result = await runDoctorBuildHook({ cwd: root }, io);
+    expect(result.ok).toBe(false);
+    expect(err.join("\n")).toContain(
+      "[server-plugin-default-export] server/plugins/register.ts:1",
+    );
   });
 
   it("build hook fails when --strict (build) is passed and findings exist", async () => {

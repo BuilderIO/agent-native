@@ -15,6 +15,10 @@ export { scanIdentityColumnsRegistered } from "./identity-columns-registered.js"
 export { scanLocalhostFallback } from "./no-localhost-fallback.js";
 export { scanResourceActionAccess } from "./resource-action-access.js";
 export type { LocalhostFallbackOptions } from "./no-localhost-fallback.js";
+export {
+  hasDefaultExport,
+  scanServerPluginDefaultExport,
+} from "./server-plugin-default-export.js";
 export { scanUnscopedCredentials } from "./no-unscoped-credentials.js";
 export { scanUnscopedQueries } from "./no-unscoped-queries.js";
 export type { UnscopedQueriesOptions } from "./no-unscoped-queries.js";

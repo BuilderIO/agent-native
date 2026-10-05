@@ -2,6 +2,7 @@ import path from "node:path";
 
 import {
   lineColForOffset,
+  maskNonCode,
   readFileSafe,
   relPosix,
   walk,
@@ -12,71 +13,6 @@ const EMPTY_MIGRATIONS_RE = /\brunMigrations\s*\(\s*\[\s*\]/g;
 const ALLOW_MARKER_RE = /guard:allow-empty-migrations\s*[—-]\s*\S/;
 const SOURCE_EXTENSIONS = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/i;
 const TEST_FILE = /\.(?:spec|test)\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/i;
-
-function maskNonCode(source: string): string {
-  const output = source.split("");
-  let state: "code" | "line" | "block" | "single" | "double" | "template" =
-    "code";
-  let escaped = false;
-
-  for (let index = 0; index < source.length; index += 1) {
-    const char = source[index] ?? "";
-    const next = source[index + 1] ?? "";
-
-    if (state === "code") {
-      if (char === "/" && next === "/") {
-        output[index] = output[index + 1] = " ";
-        state = "line";
-        index += 1;
-      } else if (char === "/" && next === "*") {
-        output[index] = output[index + 1] = " ";
-        state = "block";
-        index += 1;
-      } else if (char === "'") {
-        output[index] = " ";
-        state = "single";
-      } else if (char === '"') {
-        output[index] = " ";
-        state = "double";
-      } else if (char === "`") {
-        output[index] = " ";
-        state = "template";
-      }
-      continue;
-    }
-
-    if (char !== "\n" && char !== "\r") output[index] = " ";
-    if (state === "line") {
-      if (char === "\n") state = "code";
-      continue;
-    }
-    if (state === "block") {
-      if (char === "*" && next === "/") {
-        output[index + 1] = " ";
-        state = "code";
-        index += 1;
-      }
-      continue;
-    }
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (char === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (
-      (state === "single" && char === "'") ||
-      (state === "double" && char === '"') ||
-      (state === "template" && char === "`")
-    ) {
-      state = "code";
-    }
-  }
-
-  return output.join("");
-}
 
 function hasAdjacentAllow(source: string, line: number): boolean {
   const lines = source.split(/\r?\n/);
