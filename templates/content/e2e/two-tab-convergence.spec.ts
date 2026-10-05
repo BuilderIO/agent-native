@@ -14,11 +14,14 @@ import {
   EDITOR,
   EDITOR_BODY,
   expectEditorReady,
+  getDocument,
+  getPreviewDraft,
   integrityFailures,
   Markers,
   observeIntegrity,
+  postAction,
+  RequestGate,
   SaveGate,
-  SessionGate,
   TabSet,
   typeAtParagraphEnd,
   writeScenarioRecord,
@@ -252,7 +255,7 @@ test.describe("two tabs editing one page at beta cadence", () => {
       async (s) => {
         const tab = await s.tabs.open("A", s.id);
         const saves = await SaveGate.install(tab);
-        const session = await SessionGate.install(tab);
+        const session = await RequestGate.session(tab);
         await s.tabs.showOnly(tab);
 
         saves.holdArrivals();
@@ -304,6 +307,97 @@ test.describe("two tabs editing one page at beta cadence", () => {
         s.notes.heldSaves = saves.heldCount;
       },
     );
+  });
+
+  test("refreshing after a save was cut off reopens the editor without asking which version to keep", async ({
+    context,
+  }, testInfo) => {
+    await runScenario("refresh-mid-save", testInfo, context, async (s) => {
+      const a = await s.tabs.open("A", s.id);
+      const b = await s.tabs.open("B", s.id);
+      const aSaves = await SaveGate.install(a);
+      const bSaves = await SaveGate.install(b);
+      const recoveries = await RequestGate.action(
+        a,
+        "resolve-preview-document-draft",
+      );
+      await s.tabs.showAll();
+      // A's save never reaches the server. B holds A's words through
+      // collaboration and saves them with its own, so the recovery draft A
+      // keeps for its failed save matches the page B leaves.
+      aSaves.holdArrivals();
+      bSaves.holdArrivals();
+      const aMarker = s.markers.next("A");
+      await typeAtParagraphEnd(a, "Alpha paragraph", ` ${aMarker}`);
+      await aSaves.waitForHeld();
+      await s.tabs.waitForText(b, aMarker);
+      const bMarker = s.markers.next("B");
+      await typeAtParagraphEnd(b, "Charlie paragraph", ` ${bMarker}`);
+      await bSaves.waitForHeld();
+      await s.tabs.waitForText(a, bMarker);
+      aSaves.pass();
+      bSaves.pass();
+      await aSaves.cutOff();
+      await expect
+        .poll(
+          async () => (await getPreviewDraft(s.reader, s.id))?.content ?? "",
+          {
+            message: "A's failed save should leave a recovery draft",
+            timeout: 30_000,
+          },
+        )
+        .toContain(bMarker);
+      await bSaves.release();
+      await s.tabs.quiet();
+      const draft = await getPreviewDraft(s.reader, s.id);
+      const page = await getDocument(s.reader, s.id);
+      s.notes.draftMatchesPage = draft?.content === page.content;
+      const noticesBeforeRefresh = s.tabs.record(a).recovery.length;
+      recoveries.hold();
+      await a.reload({ waitUntil: "domcontentloaded" });
+      let reopenedWith: "recovery" | "discarded" | null = null;
+      for (const until = Date.now() + 60_000; !reopenedWith; ) {
+        if (recoveries.queued) reopenedWith = "recovery";
+        else if (!(await getPreviewDraft(s.reader, s.id)))
+          reopenedWith = "discarded";
+        else if (Date.now() > until)
+          throw new Error("the reopened tab never settled its draft");
+        else await delay(200);
+      }
+      s.notes.reopenedWith = reopenedWith;
+      if (reopenedWith === "recovery") {
+        // The page moves on without a word changing while the reopened tab
+        // files the draft, as another tab's save of the same text does.
+        await postAction(s.reader, "update-document", {
+          id: s.id,
+          description: "Touched while the tab reopened",
+        });
+      }
+      await recoveries.release();
+      const chooser = a.getByText("Choose which version to keep");
+      await expect
+        .poll(
+          async () =>
+            (await chooser.isVisible()) ||
+            !(await getPreviewDraft(s.reader, s.id)),
+          {
+            message: "the reopened tab never settled its draft",
+            timeout: 30_000,
+          },
+        )
+        .toBe(true);
+      const afterRefresh = s.tabs
+        .record(a)
+        .recovery.slice(noticesBeforeRefresh);
+      s.notes.recoveryAfterRefresh = afterRefresh;
+      expect(
+        await chooser.isVisible(),
+        "the reopened tab asked which of two identical versions to keep",
+      ).toBe(false);
+      expect(afterRefresh, "recovery notices after the refresh").toEqual([]);
+      await expectEditorReady(a);
+      await typeAtParagraphEnd(a, "Bravo paragraph", ` ${s.markers.next("A")}`);
+    });
   });
 
   test("alternating edits in different paragraphs keep both tabs' text", async ({

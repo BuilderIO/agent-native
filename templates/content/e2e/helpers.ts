@@ -68,6 +68,22 @@ export async function getDocument(page: Page, id: string) {
   return JSON.parse(text) as { content?: string; revision?: string };
 }
 
+/** The signed-in reader's recovery draft for a page, or null when none is kept. */
+export async function getPreviewDraft(page: Page, documentId: string) {
+  const response = await page.request.get(
+    "/_agent-native/actions/get-preview-document-draft",
+    { params: { documentId }, headers: ACTION_HEADERS },
+  );
+  const text = await response.text();
+  expect(
+    response.ok(),
+    `get-preview-document-draft (${response.status()}): ${text}`,
+  ).toBe(true);
+  return (
+    JSON.parse(text) as { draft: { title: string; content: string } | null }
+  ).draft;
+}
+
 export const PAGE_PARAGRAPHS = [
   "Alpha paragraph edited from the first tab.",
   "Bravo paragraph stays untouched.",
@@ -455,6 +471,7 @@ export class TabSet {
 }
 
 type Held = { release: () => Promise<void> };
+type HeldSave = Held & { cutOff: () => Promise<void> };
 
 /**
  * Controls when one tab's saves reach the server and when their answers
@@ -465,7 +482,7 @@ type Held = { release: () => Promise<void> };
 export class SaveGate {
   private mode: "pass" | "arrival" | "answer" = "pass";
   private latencyMs = 0;
-  private queue: Held[] = [];
+  private queue: HeldSave[] = [];
   heldCount = 0;
 
   private constructor(private readonly page: Page) {}
@@ -516,12 +533,25 @@ export class SaveGate {
     for (const item of held) await item.release();
   }
 
+  /**
+   * Fail every held save as a dropped connection does: the tab sees each
+   * request fail, whether or not the server applied it.
+   */
+  async cutOff(): Promise<void> {
+    const held = this.queue;
+    this.queue = [];
+    for (const item of held) await item.cutOff();
+  }
+
   private async handle(route: Route) {
     if (route.request().method() !== "POST") return route.continue();
     if (this.latencyMs > 0) await delay(this.latencyMs);
     if (this.mode === "arrival") {
       this.heldCount++;
-      this.queue.push({ release: () => forward(() => route.continue()) });
+      this.queue.push({
+        release: () => forward(() => route.continue()),
+        cutOff: () => forward(() => route.abort("aborted")),
+      });
       return;
     }
     if (this.mode === "answer") {
@@ -535,6 +565,7 @@ export class SaveGate {
       }
       this.queue.push({
         release: () => forward(() => route.fulfill({ response })),
+        cutOff: () => forward(() => route.abort("aborted")),
       });
       return;
     }
@@ -543,25 +574,34 @@ export class SaveGate {
 }
 
 /**
- * Holds the session read so a page can open before it knows who is signed
- * in, as it does once the browser's 30 s session cache has expired.
+ * Holds one kind of request until released: the session read, so a page can
+ * open before it knows who is signed in, as it does once the browser's 30 s
+ * session cache has expired; or an action, so a race lands in one order.
  */
-export class SessionGate {
+export class RequestGate {
   private holding = false;
   private queue: Held[] = [];
 
   private constructor() {}
 
-  static async install(page: Page): Promise<SessionGate> {
-    const gate = new SessionGate();
+  static async install(page: Page, pathname: string): Promise<RequestGate> {
+    const gate = new RequestGate();
     await page.route(
-      (url) => url.pathname === SESSION_PATH,
+      (url) => url.pathname === pathname,
       (route) => {
         if (!gate.holding) return route.continue();
         gate.queue.push({ release: () => forward(() => route.continue()) });
       },
     );
     return gate;
+  }
+
+  static session(page: Page): Promise<RequestGate> {
+    return RequestGate.install(page, SESSION_PATH);
+  }
+
+  static action(page: Page, name: string): Promise<RequestGate> {
+    return RequestGate.install(page, `/_agent-native/actions/${name}`);
   }
 
   hold() {

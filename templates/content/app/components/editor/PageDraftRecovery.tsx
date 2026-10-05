@@ -37,6 +37,17 @@ import { RecoveryComparison } from "./RecoveryComparison";
 
 type DraftRecoveryFailure = "conflict" | "error";
 
+// A tab whose save fails keeps a draft of its text, and another tab holding
+// the same text through collaboration can still save it. Once the page holds
+// the draft, filing it in History or offering it in the chooser repeats the
+// page.
+function pageHoldsDraft(
+  draft: { title: string; content: string },
+  page: { title: string; content: string },
+): boolean {
+  return draft.title === page.title && draft.content === page.content;
+}
+
 export function PageDraftRecovery({
   document,
   children,
@@ -489,29 +500,33 @@ export function PageDraftRecovery({
           return;
         }
       }
-      const result = await updateDraft.mutateAsync({
-        operation: "delete",
-        documentId: document.id,
-        expectedVersion: draft.version,
-        expectedTitle: draft.title,
-        expectedContent: draft.content,
-        ...(draft.editorSessionId
-          ? { expectedEditorSessionId: draft.editorSessionId }
-          : {}),
-        ...(typeof draft.editGeneration === "number"
-          ? { expectedEditGeneration: draft.editGeneration }
-          : {}),
-      });
-      if (result.status !== "deleted")
-        throw new Error("The saved draft changed during recovery.");
-      await queryClient.refetchQueries(documentQueryFilter(document.id));
-      await drafts.refetch();
+      await discardDraft(draft);
     } catch {
       setFailure("error");
       await drafts.refetch();
     } finally {
       setBusy(false);
     }
+  }
+
+  async function discardDraft(settled: NonNullable<typeof draft>) {
+    const result = await updateDraft.mutateAsync({
+      operation: "delete",
+      documentId: document.id,
+      expectedVersion: settled.version,
+      expectedTitle: settled.title,
+      expectedContent: settled.content,
+      ...(settled.editorSessionId
+        ? { expectedEditorSessionId: settled.editorSessionId }
+        : {}),
+      ...(typeof settled.editGeneration === "number"
+        ? { expectedEditGeneration: settled.editGeneration }
+        : {}),
+    });
+    if (result.status !== "deleted")
+      throw new Error("The saved draft changed during recovery.");
+    await queryClient.refetchQueries(documentQueryFilter(document.id));
+    await drafts.refetch();
   }
 
   async function resolveConflict(
@@ -531,6 +546,10 @@ export function PageDraftRecovery({
           conflictDocument?.updatedAt ?? document.updatedAt,
       });
       if (result.status === "document_conflict") {
+        if (result.document && pageHoldsDraft(draft, result.document)) {
+          await discardDraft(draft);
+          return;
+        }
         setFailure("conflict");
         setConflictDocument(result.document ?? null);
         return;
@@ -599,6 +618,11 @@ export function PageDraftRecovery({
       return;
     const attempt = `${draft.editorSessionId}:${draft.editGeneration}:${draft.version}:${document.updatedAt}`;
     if (automaticRecoveryRef.current === attempt) return;
+    if (pageHoldsDraft(draft, document)) {
+      automaticRecoveryRef.current = attempt;
+      void settleDraft(false);
+      return;
+    }
     if (draft.baseDocumentUpdatedAt === document.updatedAt) {
       automaticRecoveryRef.current = attempt;
       void settleDraft(true);
