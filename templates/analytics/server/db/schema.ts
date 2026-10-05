@@ -8,6 +8,7 @@ import {
   createSharesTable,
   uniqueIndex,
 } from "@agent-native/core/db/schema";
+import { sql } from "drizzle-orm";
 import { boolean } from "drizzle-orm/pg-core";
 
 export * from "./schema-monitoring.js";
@@ -76,14 +77,25 @@ export const dashboardRevisions = table(
   }),
 );
 
-export const dashboardViews = table("dashboard_views", {
-  id: text("id").primaryKey(),
-  dashboardId: text("dashboard_id").notNull(),
-  name: text("name").notNull(),
-  filters: text("filters").notNull().default("{}"),
-  createdBy: text("created_by"),
-  createdAt: text("created_at").notNull().default(now()),
-});
+export const dashboardViews = table(
+  "dashboard_views",
+  {
+    id: text("id").primaryKey(),
+    dashboardId: text("dashboard_id").notNull(),
+    name: text("name").notNull(),
+    filters: text("filters").notNull().default("{}"),
+    isDefault: boolean("is_default").notNull().default(false),
+    createdBy: text("created_by"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (t) => ({
+    defaultDashboardViewIdx: uniqueIndex(
+      "dashboard_views_default_per_dashboard_idx",
+    )
+      .on(t.dashboardId)
+      .where(sql`${t.isDefault} = true`),
+  }),
+);
 
 export const dashboardReportSubscriptions = table(
   "dashboard_report_subscriptions",

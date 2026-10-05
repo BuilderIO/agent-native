@@ -783,11 +783,11 @@ const messages: ToolkitAgentChatTranslation = {
     "{{count}} in der Warteschlange – Folgenachricht senden...",
   "queue.remove": "Aus Warteschlange entfernen",
   "queue.sendNow": "Jetzt senden",
-  "queue.sendNowHint": "Jetzt senden (stoppt die aktuelle Antwort)",
-  "queue.steer": "Steuern",
-  "queue.steerHint": "Diese Nachricht als Nächstes senden",
+  "queue.sendNowHint":
+    "Stoppt die aktuelle Antwort und sendet dann diese Nachricht",
+  "queue.sendNext": "Als Nächstes senden",
+  "queue.sendNextHint": "Nach Abschluss der aktuellen Antwort senden",
   "queue.moreActions": "Weitere Aktionen",
-  "queue.moveToTop": "Nach oben verschieben",
   "recovery.connectingBuilder": "Builder.io wird eingerichtet",
   "recovery.copyDebug": "Debug-Informationen kopieren",
   "recovery.copyFailed": "Kopieren fehlgeschlagen",
@@ -1111,6 +1111,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.upload": "Hochladen",
   "composer.uploadFailed":
     "Die ausgewählte Datei konnte nicht hochgeladen werden.",
+  "composer.unsupportedFileType": "Dieser Dateityp wird nicht unterstützt.",
   "composer.useAttachedContext": "Verwende den angehängten Kontext.",
   "mentions.commands": "Befehle",
   "mentions.learnMore": "Mehr erfahren",

@@ -51,12 +51,12 @@ const ALLOW_LIST: Array<[string, string, string]> = [
   [
     "tabs.tsx",
     "design",
-    "line-variant tabs with underline active state for Design Home library",
+    "line-variant tabs with underline active state for Design home filters",
   ],
   [
     "tabs.tsx",
     "slides",
-    "line-variant tabs with underline active state for Slides Home library",
+    "line-variant tabs with underline active state for Slides home filters",
   ],
 
   ["textarea.tsx", "assets", "autoGrow behavior for asset forms"],
@@ -102,12 +102,12 @@ const LOCAL_IMPLEMENTATION_ALLOW_LIST: Array<
   [
     "design",
     "tabs.tsx",
-    "uses the line variant with an underline active state in Design Home library",
+    "uses line-variant tabs with an underline for Design home filters",
   ],
   [
     "slides",
     "tabs.tsx",
-    "uses the line variant with an underline active state in Slides Home library",
+    "uses line-variant tabs with an underline for Slides home filters",
   ],
 ];
 
