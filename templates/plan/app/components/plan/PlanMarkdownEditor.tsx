@@ -67,8 +67,12 @@ export function PlanMarkdownEditor({
     awareness,
     isSynced: collabSynced,
     initialization,
+    requestSync,
   } = useCollaborativeDoc({
     docId,
+    activityResource: planId
+      ? { resourceType: "plan", resourceId: planId }
+      : undefined,
     requestSource: TAB_ID,
     user: collabUser ?? undefined,
   });
@@ -181,6 +185,7 @@ export function PlanMarkdownEditor({
         interactive={editorEditable}
         ydoc={collabEnabled ? ydoc : null}
         collabSynced={collabEnabled ? collabSynced : true}
+        requestCollabSync={collabEnabled ? requestSync : undefined}
         awareness={collabEnabled ? awareness : null}
         user={collabEnabled ? collabUser : null}
       />

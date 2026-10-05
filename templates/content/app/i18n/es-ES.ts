@@ -262,7 +262,7 @@ const databaseExactEnglish = {
     "Analizando ambos orígenes para encontrar una clave compartida",
   bodyDiff: "Diferencia del cuerpo",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder no está conectado. Vuelve para conectar tu cuenta primero.",
+    "Builder no está conectado. Vuelve y usa Builder.io primero.",
   calendarBy: "Calendario por",
   checkingBuilderConnection: "Comprobando conexión de Builder",
   clearAll: "Borrar todo",
@@ -274,7 +274,7 @@ const databaseExactEnglish = {
   collapseAllGroups: "Contraer todos los grupos",
   collapseAll: "Contraer todo",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "Conecta tu cuenta de Builder para explorar sus espacios y modelos.",
+    "Usa tu cuenta de Builder para explorar sus espacios y modelos.",
   connectedSources: "Fuentes conectadas",
   couldntSyncRetry: "No se pudo sincronizar · Reintentar",
   countAll: "Contar todo",
@@ -1227,8 +1227,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "Tu página anterior ya no está disponible, así que abrimos la página de bienvenida.",
-  requestedPageUnavailable:
-    "Esa página no está disponible para tu cuenta, así que abrimos la página de bienvenida.",
   saveFailed: "No se pudo guardar tu ubicación",
   workspaceWelcomeUnavailableTitle: "Todavía no hay nada abierto aquí",
   workspaceWelcomeUnavailableDescription:
@@ -1634,6 +1632,9 @@ const overrides = {
   },
   empty: {
     noPageTitle: "Ninguna página seleccionada",
+    signedInAs: "Sesión iniciada como {{email}}",
+    goToMyPages: "Ir a mis páginas",
+    switchAccount: "Cambiar de cuenta",
     noPageDescription:
       "Selecciona una página en la barra lateral o crea una nueva para empezar.",
     newPage: "Nueva página",

@@ -16,6 +16,7 @@ import { openAiAppsConfig } from "./openai-apps.js";
 import { pluginsConfig } from "./plugins.js";
 import { privateBlobConfig } from "./private-blob.js";
 import { runtimeConfig } from "./runtime.js";
+import { testIdentityConfig } from "./test-identity.js";
 import { workspaceConfig } from "./workspace.js";
 
 export const appConfigSchema = z.object({
@@ -35,6 +36,7 @@ export const appConfigSchema = z.object({
   plugins: pluginsConfig.prefault({}),
   privateBlob: privateBlobConfig.prefault({}),
   runtime: runtimeConfig.prefault({}),
+  testIdentity: testIdentityConfig.prefault({}),
   workspace: workspaceConfig.prefault({}),
 });
 

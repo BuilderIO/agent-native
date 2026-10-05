@@ -184,14 +184,13 @@ export default defineAction({
       ownerParticipant.name = ownerName;
     }
 
-    const visibility =
-      args.visibility ??
-      (await getDefaultRecordingVisibility(
+    try {
+      const visibility = await getDefaultRecordingVisibility(
         orgId,
         actionContext?.userEmail ?? ownerEmail,
-      ));
+        args.visibility,
+      );
 
-    try {
       await db.insert(schema.meetings).values({
         id,
         organizationId: orgId ?? null,

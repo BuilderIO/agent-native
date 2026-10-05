@@ -35,7 +35,7 @@ describe("sendBuilderPopupErrorPage", () => {
     const html = sendBuilderPopupErrorPage(
       event,
       502,
-      "Couldn't create your Builder account. Try again or connect an existing account.",
+      "Couldn't create your Builder.io account. Try again or sign in with an existing account.",
       { parentOrigin: "https://beta.brain.agent-native.com", code: "x" },
     );
 
@@ -43,7 +43,7 @@ describe("sendBuilderPopupErrorPage", () => {
     expect(event.res.headers.get("content-type")).toBe(
       "text/html; charset=utf-8",
     );
-    expect(html).toContain("Couldn't create your Builder account.");
+    expect(html).toContain("Couldn't create your Builder.io account.");
     expect(html).toContain("builder-connect-error");
   });
 

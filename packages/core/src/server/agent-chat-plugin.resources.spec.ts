@@ -25,6 +25,11 @@ const routeHarness = vi.hoisted(() => ({
   initPromises: [] as Promise<void>[],
 }));
 
+const threadStoreMocks = vi.hoisted(() => ({
+  mutateThreadQueuedMessages: vi.fn(),
+  resolveThreadAccess: vi.fn(),
+}));
+
 function runtimeSkillsFromBundle(bundle: { skills?: Record<string, any> }) {
   return Object.values(bundle.skills ?? {}).filter(
     (skill: any) => skill?.meta?.scope !== "dev",
@@ -87,6 +92,18 @@ vi.mock("./auth.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./auth.js")>()),
   getSession: (...args: any[]) => mocks.getSession(...args),
 }));
+
+vi.mock("../chat-threads/store.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../chat-threads/store.js")>();
+  return {
+    ...actual,
+    mutateThreadQueuedMessages: (...args: any[]) =>
+      threadStoreMocks.mutateThreadQueuedMessages(...args),
+    resolveThreadAccess: (...args: any[]) =>
+      threadStoreMocks.resolveThreadAccess(...args),
+  };
+});
 
 import {
   createAgentChatPlugin,
@@ -222,6 +239,8 @@ function meta(id: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   routeHarness.initPromises.length = 0;
+  threadStoreMocks.mutateThreadQueuedMessages.mockReset();
+  threadStoreMocks.resolveThreadAccess.mockReset();
   mocks.getSession.mockResolvedValue(null);
   mocks.loadAgentsBundle.mockResolvedValue({
     workspaceAgentsMd: "",
@@ -343,11 +362,57 @@ async function fetchWithRequestContext(
   h3App: ReturnType<typeof createApp>,
   path: string,
   context: { userEmail?: string; orgId?: string; orgScope?: "personal" },
+  init?: RequestInit,
 ) {
   return runWithRequestContext(context, () =>
-    h3App.fetch(new Request(`http://example.test${path}`)),
+    h3App.fetch(new Request(`http://example.test${path}`, init)),
   );
 }
+
+describe("agent chat queued-message route", () => {
+  it("returns a typed conflict when a claimed queue item was removed", async () => {
+    const h3App = await mountResourceRoutes();
+    const threadId = "thread-claim-race";
+    const messageId = "queued-claim-race";
+    const mutation = {
+      type: "claim",
+      messageId,
+      claimId: "claim-race",
+    };
+    threadStoreMocks.resolveThreadAccess.mockResolvedValue({
+      id: threadId,
+      scope: null,
+    });
+    mocks.getSession.mockResolvedValue({ email: "user@example.test" });
+    threadStoreMocks.mutateThreadQueuedMessages.mockRejectedValueOnce(
+      new Error(`Unknown queued message: ${messageId}`),
+    );
+
+    const response = await fetchWithRequestContext(
+      h3App,
+      `/_agent-native/agent-chat/threads/${threadId}/queued`,
+      { userEmail: "user@example.test" },
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mutation }),
+      },
+    );
+
+    const responseBody = await response.json();
+    expect(response.status, JSON.stringify(responseBody)).toBe(409);
+    expect(threadStoreMocks.resolveThreadAccess).toHaveBeenCalled();
+    expect(responseBody).toEqual({
+      error: `Unknown queued message: ${messageId}`,
+      code: "queued_message_missing",
+      retryable: false,
+    });
+    expect(threadStoreMocks.mutateThreadQueuedMessages).toHaveBeenCalledWith(
+      threadId,
+      mutation,
+    );
+  });
+});
 
 describe("agent chat resource route organization scopes", () => {
   it("keeps Lab-gated bundled skills out of the slash picker for disabled users", async () => {

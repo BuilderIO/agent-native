@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { useCallback } from "react";
 
 import {
@@ -6,9 +7,6 @@ import {
   type BuilderConnectionScope,
 } from "../settings/useBuilderStatus.js";
 
-const DEFAULT_TITLE = "Builder connect";
-const DEFAULT_DESCRIPTION =
-  "Connect Builder.io for managed model access, browser automation, and workspace identity. Free tier available.";
 const DEFAULT_TRACKING_SOURCE = "setup_connections_page";
 
 export interface BuilderConnectCardControllerOptions {
@@ -30,7 +28,7 @@ export type BuilderConnectCardStatus =
   | { kind: "connected"; label: string };
 
 export interface BuilderConnectCardAction {
-  label: "Connect Builder.io";
+  label: string;
   pending: boolean;
   disabled: boolean;
   onPress: (provisionAccount?: boolean) => void;
@@ -58,12 +56,13 @@ function isScopeConnected(
 }
 
 export function useBuilderConnectCardController({
-  title = DEFAULT_TITLE,
-  description = DEFAULT_DESCRIPTION,
+  title,
+  description,
   trackingSource = DEFAULT_TRACKING_SOURCE,
   onConnected,
   scope,
 }: BuilderConnectCardControllerOptions = {}): BuilderConnectCardViewModel {
+  const t = useT();
   const handleConnected = useCallback(
     ({ orgName }: { orgName: string | null }) => onConnected?.(orgName),
     [onConnected],
@@ -91,8 +90,10 @@ export function useBuilderConnectCardController({
       : { kind: "ready", label: "Ready to connect" };
 
   return {
-    title,
-    description,
+    title: title ?? t("agentChat.setup.connectBuilder"),
+    description:
+      description ??
+      t("agentChat.settingsShell.integrations.builderDescription"),
     status,
     configured,
     pending: flow.connecting,
@@ -103,7 +104,7 @@ export function useBuilderConnectCardController({
       configured || !canConnect
         ? null
         : {
-            label: "Connect Builder.io",
+            label: t("agentChat.setup.connectBuilder"),
             pending: flow.connecting,
             disabled: flow.connecting,
             onPress: handlePress,

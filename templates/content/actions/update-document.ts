@@ -37,6 +37,7 @@ import {
   readDocumentBodyIntents,
   recordDocumentBodyIntent,
 } from "../server/lib/document-body-intents.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { propagateDocumentTitle } from "../server/lib/document-title-propagation.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
@@ -574,6 +575,7 @@ export default defineAction({
         ? `Document update conflicted for ${args.id}`
         : `Updated document ${args.id}`,
   },
+  changeResource: (input) => documentChangeResource(input.id),
   run: async (
     args,
     ctx,

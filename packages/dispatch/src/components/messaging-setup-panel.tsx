@@ -27,6 +27,10 @@ import {
 } from "@agent-native/core/integrations/catalog";
 import { channelIcon } from "@agent-native/toolkit/app/integrations";
 import {
+  useCredentialSaveScope,
+  WhoField,
+} from "@agent-native/toolkit/app/settings";
+import {
   IconBrandSlack,
   IconCheck,
   IconChevronRight,
@@ -36,7 +40,7 @@ import {
   IconInfoCircle,
   IconLoader2,
 } from "@tabler/icons-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -187,6 +191,8 @@ export function MessagingSetupPanel() {
   const [budgets, setBudgets] = useState<ClientIntegrationUsageBudget[]>([]);
   const [scopeBudget, setScopeBudget] = useState<Record<string, string>>({});
   const [savingScope, setSavingScope] = useState<string | null>(null);
+  const credentialScope = useCredentialSaveScope();
+  const whoId = useId();
 
   const refreshStatuses = async () => {
     setLoading(true);
@@ -275,6 +281,8 @@ export function MessagingSetupPanel() {
     platform: IntegrationCatalogEntry,
     keys: string[],
   ) => {
+    const scope = credentialScope.scope;
+    if (!scope) return;
     const vars = keys
       .map((key) => ({ key, value: envValues[key]?.trim() || "" }))
       .filter((item) => item.value);
@@ -286,7 +294,7 @@ export function MessagingSetupPanel() {
 
     setSavingKeysFor(platform.id);
     try {
-      await saveIntegrationEnvVars(vars);
+      await saveIntegrationEnvVars(vars, { scope });
 
       toast.success(`${platform.name} credentials saved`);
       setEnvValues((current) => {
@@ -969,45 +977,74 @@ export function MessagingSetupPanel() {
                               (envKey) =>
                                 !envStatusByKey.get(envKey.key)?.configured,
                             ) ? (
-                              <Button
-                                variant="outline"
-                                onClick={() =>
-                                  saveEnvKeys(
-                                    platform,
-                                    legacyEnvKeys.map((envKey) => envKey.key),
-                                  )
-                                }
-                                disabled={savingKeysFor === platform.id}
-                              >
-                                {savingKeysFor === platform.id
-                                  ? "Saving..."
-                                  : "Save credentials"}
-                              </Button>
+                              <>
+                                {credentialScope.canChoose &&
+                                credentialScope.scope ? (
+                                  <WhoField
+                                    id={`${whoId}-${platform.id}-legacy`}
+                                    choice
+                                    scope={credentialScope.scope}
+                                    disabled={savingKeysFor === platform.id}
+                                    onChange={credentialScope.setScope}
+                                  />
+                                ) : null}
+                                <Button
+                                  variant="outline"
+                                  onClick={() =>
+                                    saveEnvKeys(
+                                      platform,
+                                      legacyEnvKeys.map((envKey) => envKey.key),
+                                    )
+                                  }
+                                  disabled={
+                                    savingKeysFor === platform.id ||
+                                    !credentialScope.scope
+                                  }
+                                >
+                                  {savingKeysFor === platform.id
+                                    ? "Saving..."
+                                    : "Save credentials"}
+                                </Button>
+                              </>
                             ) : null}
                           </div>
                         </CollapsibleContent>
                       </Collapsible>
                     ) : null}
                     {missingRequiredCredentials ? (
-                      <Button
-                        variant="outline"
-                        onClick={() =>
-                          saveEnvKeys(
-                            platform,
-                            envKeys.map((k) => k.key),
-                          )
-                        }
-                        disabled={savingKeysFor === platform.id}
-                      >
-                        {savingKeysFor === platform.id ? (
-                          <>
-                            <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Saving...
-                          </>
-                        ) : (
-                          "Save credentials"
-                        )}
-                      </Button>
+                      <>
+                        {credentialScope.canChoose && credentialScope.scope ? (
+                          <WhoField
+                            id={`${whoId}-${platform.id}`}
+                            choice
+                            scope={credentialScope.scope}
+                            disabled={savingKeysFor === platform.id}
+                            onChange={credentialScope.setScope}
+                          />
+                        ) : null}
+                        <Button
+                          variant="outline"
+                          onClick={() =>
+                            saveEnvKeys(
+                              platform,
+                              envKeys.map((k) => k.key),
+                            )
+                          }
+                          disabled={
+                            savingKeysFor === platform.id ||
+                            !credentialScope.scope
+                          }
+                        >
+                          {savingKeysFor === platform.id ? (
+                            <>
+                              <IconLoader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Saving...
+                            </>
+                          ) : (
+                            "Save credentials"
+                          )}
+                        </Button>
+                      </>
                     ) : null}
                   </DisclosureSection>
 

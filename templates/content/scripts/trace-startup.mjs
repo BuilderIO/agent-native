@@ -17,8 +17,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 // links to --click-path and time the new document).
 //
 // Layout stability: --stability follows every element marked
-// `data-startup-anchor` (the title, the body, the sidebar's Search row, section
-// headers, and first Files row, on placeholders and real elements alike) on
+// `data-startup-anchor` (the title, the body, a collection's tabs row and table,
+// the sidebar's Search row, section headers, and first Files row, on
+// placeholders and real elements alike) on
 // every animation frame from the first frame it appears, and reports how far
 // each moved. A run fails when any anchor moves more than --max-shift pixels
 // (default 2). The script exits 1 when any run fails, and 2 when a run found
@@ -302,6 +303,12 @@ function bestSignal(name, element, painted, dom, observed) {
   return { [key]: value ?? null, [`${name}MeasuredBy`]: source };
 }
 
+function firstRequest(requests, path) {
+  return requests
+    .filter((request) => request.path === path)
+    .sort((a, b) => a.start - b.start)[0];
+}
+
 function summarizeRun(result) {
   const requests = result.requests;
   const listDocumentsPaged = requests.filter(
@@ -309,6 +316,8 @@ function summarizeRun(result) {
       request.path === "actions/list-documents" &&
       Number(new URLSearchParams(request.search).get("offset") ?? 0) > 0,
   ).length;
+  const session = firstRequest(requests, "auth/session");
+  const getDocument = firstRequest(requests, "actions/get-document");
   return {
     ...bestSignal(
       "body",
@@ -332,6 +341,10 @@ function summarizeRun(result) {
     getDocumentRequests: requests.filter(
       (request) => request.path === "actions/get-document",
     ).length,
+    // How long the page's read waited after the session arrived; negative
+    // when it started first.
+    documentAfterSession:
+      session && getDocument ? getDocument.start - session.end : null,
     listDocumentsPaged,
     redirectOffset: result.redirectOffset ?? 0,
     visibility: result.visibility,
@@ -389,6 +402,7 @@ async function waitForBody(page, since, documentId) {
   while (Date.now() - started < timeoutMs) {
     // A client-side redirect (for example `/` to `/home`) replaces the
     // document mid-poll; keep polling the new one.
+    // A collection page has no body; it is ready once its rows are drawn.
     const done = await page
       .evaluate(
         ([s, id]) =>
@@ -403,7 +417,10 @@ async function waitForBody(page, since, documentId) {
               (entry) =>
                 entry.startTime >= s &&
                 (!id || entry.detail?.documentId === id),
-            ),
+            ) ||
+          (s === 0 &&
+            !!document.documentElement.dataset
+              .contentDatabaseRowsVisibleDocumentId),
         [since, documentId],
       )
       .catch(() => false);
@@ -522,7 +539,12 @@ for (let run = 0; run < runs; run += 1) {
     await waitForBody(page, 0);
     await page.waitForTimeout(settleMs);
     const targetId = clickPath.split("/").pop();
-    const since = await page.evaluate(() => performance.now());
+    // The target page's anchors share names with the source page's, so the
+    // baseline starts over at the click.
+    const since = await page.evaluate(() => {
+      window.__startupTrace.anchors = {};
+      return performance.now();
+    });
     await page
       .locator(`a[href="${clickPath}"]`)
       .filter({ visible: true })
@@ -587,11 +609,13 @@ const report = {
     sidebarUsable: percentile(metric("sidebarUsable"), 50),
     editable: percentile(metric("editable"), 50),
     frameworkRequests: percentile(metric("frameworkRequests"), 50),
+    documentAfterSession: percentile(metric("documentAfterSession"), 50),
   },
   p90: {
     bodyVisible: percentile(metric("bodyVisible"), 90),
     sidebarUsable: percentile(metric("sidebarUsable"), 90),
     editable: percentile(metric("editable"), 90),
+    documentAfterSession: percentile(metric("documentAfterSession"), 90),
   },
   max: {
     sessionRequests: Math.max(...metric("sessionRequests")),

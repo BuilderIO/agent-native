@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 function readDatabaseSource() {
   return [
     "./database/DatabaseView.tsx",
+    "./database/DatabaseViewSkeleton.tsx",
     "./database/ContentTable.tsx",
     "./database/settings.tsx",
     "./database/shared.tsx",
@@ -24,8 +25,9 @@ describe("document database layout", () => {
     const source = readDatabaseSource();
 
     expect(source).toContain(
-      '<div className="mt-4 min-w-0 w-full max-w-full">',
+      '"mt-4 min-w-0 w-full max-w-full"',
     );
+    expect(source).toContain("<div className={DATABASE_VIEW_CLASS_NAME}>");
     expect(source).toContain(
       "mb-1 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-1",
     );

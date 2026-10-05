@@ -1,3 +1,4 @@
+import type { LabStates } from "@agent-native/core/client/labs/use-lab";
 import type { CoreSettingsPageId } from "@agent-native/core/navigation/settings-redirects";
 import type { OrgRole } from "@agent-native/core/org/types";
 import type { ComponentType } from "react";
@@ -39,6 +40,7 @@ export interface SettingsPageContext {
   soloDeploymentAdmin: boolean;
   appId: string | null;
   labs: Readonly<Record<string, boolean>>;
+  labStates?: Readonly<LabStates>;
   flags: Readonly<Record<string, boolean>>;
 }
 
