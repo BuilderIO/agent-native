@@ -1,7 +1,6 @@
 # Design — Agent Guide
 
-Design is an agent-native prototyping app. The agent creates and edits
-interactive HTML prototypes, design systems, variants, and handoffs through
+Design agents build prototypes, systems, variants, and handoffs through
 actions against shared SQL state.
 
 ## Skills
@@ -69,19 +68,16 @@ Read the relevant skill before deeper work in that area.
   solid fills. The first layer in source order supplies the result paint; the original
   operands remain editable under the Subtract layer. Other shapes, custom
   markup, non-solid paints, and non-sibling selections are not converted.
-- Source modes are `inline`, `localhost`, and `fusion`; see `full-app-build`.
-  Public `/design/:id` links are read-only; public
-  `/visual-edit/:id` links allow DOM-only localhost edits, signed in or out.
-  Source writes remain editor-gated. The design-scoped
-  `capability:visual-edit` scopes localhost handoff actions, not an account
-  session or access to other designs. Shared snapshots default off; only a
-  signed-in editor can opt in and publish, and viewers get no snapshot while
-  off. `get-visual-edit-prompt` returns the pending handoff; external agents
-  call `get-visual-edit-pending`, browser agents use the page-local tool.
+- Source modes: `inline`, `localhost`, and `fusion` (`full-app-build`). Public
+  `/design/:id` is read-only; `/visual-edit/:id` allows DOM-only localhost
+  edits. Source writes and snapshot publishing require editor access.
+  `capability:visual-edit` scopes handoff actions. External agents use
+  `get-visual-edit-pending`; browser agents use the page-local tool.
 
 ## Application State
 
 - `navigation` — current view, design id, file id, and related UI state.
+- `visual-edit` — last project and connection; same-connection opens resume unless `newDesign` is true.
 - `navigate` — moves the UI in the tab that asked; auto-deleted after the
   client consumes it.
 - `design-selection` — active screen, selected element, overview mode,

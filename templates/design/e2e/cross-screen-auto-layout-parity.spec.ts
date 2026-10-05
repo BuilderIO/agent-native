@@ -24,9 +24,39 @@ const DESTINATION_SCREEN = `<!doctype html>
   <head><meta charset="utf-8" /><title>Auto layout destination</title></head>
   <body style="margin:0;position:relative;min-height:780px;width:1000px;height:780px;background:#111827;color:#fff;font-family:system-ui,sans-serif">
     <section data-agent-native-node-id="destination-flow" data-agent-native-layer-name="Destination Flow" data-an-primitive="frame"
-      style="position:absolute;left:80px;top:100px;width:360px;min-height:180px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;padding:16px;background:#334155">
+      style="position:absolute;left:80px;top:100px;width:360px;min-height:260px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;padding:16px;background:#334155">
       <div data-agent-native-node-id="destination-anchor" data-agent-native-layer-name="Destination Anchor"
         style="box-sizing:border-box;flex:0 0 56px;width:180px;height:56px;background:#94a3b8;color:#0f172a">Anchor</div>
+    </section>
+  </body>
+</html>`;
+
+const REVERSE_DESTINATION_SCREEN = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;position:relative;min-height:780px;width:1000px;height:780px;background:#111827;color:#fff">
+    <section data-agent-native-node-id="destination-flow" data-agent-native-layer-name="Destination Flow" data-an-primitive="frame"
+      style="position:absolute;left:80px;top:100px;width:360px;min-height:120px;box-sizing:border-box;display:flex;flex-direction:row-reverse;align-items:flex-start;gap:12px;padding:16px;background:#334155">
+      <div data-agent-native-node-id="destination-anchor" data-agent-native-layer-name="Destination Anchor"
+        style="box-sizing:border-box;flex:0 0 100px;width:100px;height:56px;background:#94a3b8;color:#0f172a">Anchor</div>
+      <div data-agent-native-node-id="destination-tail" data-agent-native-layer-name="Destination Tail"
+        style="box-sizing:border-box;flex:0 0 80px;width:80px;height:56px;background:#64748b;color:#f8fafc">Tail</div>
+    </section>
+  </body>
+</html>`;
+
+const WRAPPED_DESTINATION_SCREEN = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;position:relative;min-height:780px;width:1000px;height:780px;background:#111827;color:#fff">
+    <section data-agent-native-node-id="destination-flow" data-agent-native-layer-name="Wrapped Destination Flow" data-an-primitive="frame"
+      style="position:absolute;left:80px;top:100px;width:360px;height:260px;box-sizing:border-box;display:flex;flex-direction:row;flex-wrap:wrap;align-content:flex-start;align-items:flex-start;gap:12px;padding:16px;background:#334155">
+      <div data-agent-native-node-id="wrapped-first" data-agent-native-layer-name="Wrapped First"
+        style="box-sizing:border-box;flex:0 0 140px;width:140px;height:56px;background:#94a3b8;color:#0f172a">First</div>
+      <div data-agent-native-node-id="wrapped-second" data-agent-native-layer-name="Wrapped Second"
+        style="box-sizing:border-box;flex:0 0 140px;width:140px;height:56px;background:#64748b;color:#f8fafc">Second</div>
+      <div data-agent-native-node-id="wrapped-third" data-agent-native-layer-name="Wrapped Third"
+        style="box-sizing:border-box;flex:0 0 140px;width:140px;height:56px;background:#64748b;color:#f8fafc">Third</div>
+      <div data-agent-native-node-id="wrapped-fourth" data-agent-native-layer-name="Wrapped Fourth"
+        style="box-sizing:border-box;flex:0 0 140px;width:140px;height:56px;background:#64748b;color:#f8fafc">Fourth</div>
     </section>
   </body>
 </html>`;
@@ -751,6 +781,269 @@ test.describe("physical cross-screen auto-layout parity", () => {
       "screen-source",
     );
     await settleReload(page);
+  });
+
+  test("Screen to Screen keeps reverse-flex DOM order and draws the guide on the physical edge", async ({
+    page,
+  }) => {
+    const design = await createDesign(
+      page,
+      (id) =>
+        test.info().annotations.push({ type: "design-id", description: id }),
+      { destinationContent: REVERSE_DESTINATION_SCREEN },
+    );
+    await gotoEditor(page, design.id);
+    await settleScreens(page, design.sourceId, design.destinationId);
+
+    const destination = await boxFor(
+      page,
+      design.destinationId,
+      "destination-flow",
+    );
+    const anchor = await boxFor(
+      page,
+      design.destinationId,
+      "destination-anchor",
+    );
+    const release = {
+      x: anchor.x + anchor.width + 6,
+      y: anchor.y + anchor.height / 2,
+    };
+    expect(release.x).toBeLessThan(destination.x + destination.width);
+    const sourceBefore = await fileContent(page, design.id, "index.html");
+    const destinationBefore = await fileContent(
+      page,
+      design.id,
+      "destination.html",
+    );
+    const held = await dragScreenNode(
+      page,
+      design.sourceId,
+      "screen-source",
+      release,
+      async () => {
+        expect(await fileContent(page, design.id, "index.html")).toBe(
+          sourceBefore,
+        );
+        expect(await fileContent(page, design.id, "destination.html")).toBe(
+          destinationBefore,
+        );
+      },
+    );
+    expect(held.sourceVisible).toBe(true);
+    expectGhostToPreserveGrabOffset(held);
+    expectGuideAfterChildAlongX(held, anchor);
+
+    await waitForMove(
+      page,
+      design.id,
+      "index.html",
+      "destination.html",
+      "screen-source",
+    );
+    const order = () =>
+      designFrame(page, design.destinationId)
+        .locator('[data-agent-native-node-id="destination-flow"]')
+        .evaluate((node) =>
+          Array.from(node.children).map((child) =>
+            child.getAttribute("data-agent-native-node-id"),
+          ),
+        );
+    await expect
+      .poll(order)
+      .toEqual(["screen-source", "destination-anchor", "destination-tail"]);
+    await page.keyboard.press(`${PRIMARY}+z`);
+    await expect
+      .poll(() =>
+        readMoveState(
+          page,
+          design.id,
+          "index.html",
+          "destination.html",
+          "screen-source",
+        ),
+      )
+      .toEqual({ sourceHas: true, destinationHas: false });
+    await page.keyboard.press(`${PRIMARY}+Shift+z`);
+    await waitForMove(
+      page,
+      design.id,
+      "index.html",
+      "destination.html",
+      "screen-source",
+    );
+    await settleReload(page);
+    await expect
+      .poll(order)
+      .toEqual(["screen-source", "destination-anchor", "destination-tail"]);
+  });
+
+  test("Screen to Screen inserts after the hovered item on a wrapped second row and persists through history", async ({
+    page,
+  }) => {
+    const design = await createDesign(
+      page,
+      (id) =>
+        test.info().annotations.push({ type: "design-id", description: id }),
+      { destinationContent: WRAPPED_DESTINATION_SCREEN },
+    );
+    await gotoEditor(page, design.id);
+    await settleScreens(page, design.sourceId, design.destinationId);
+
+    const destinationFrame = designFrame(page, design.destinationId);
+    const first = await boxFor(page, design.destinationId, "wrapped-first");
+    const second = await boxFor(page, design.destinationId, "wrapped-second");
+    const third = await boxFor(page, design.destinationId, "wrapped-third");
+    const fourth = await boxFor(page, design.destinationId, "wrapped-fourth");
+    expect(Math.abs(first.y - second.y)).toBeLessThan(1);
+    expect(third.y).toBeGreaterThan(first.y + first.height);
+    expect(Math.abs(third.y - fourth.y)).toBeLessThan(1);
+    expect(
+      await destinationFrame
+        .locator('[data-agent-native-node-id="destination-flow"]')
+        .evaluate((node) => getComputedStyle(node).flexWrap),
+    ).toBe("wrap");
+
+    const sourceBefore = await fileContent(page, design.id, "index.html");
+    const destinationBefore = await fileContent(
+      page,
+      design.id,
+      "destination.html",
+    );
+    const sourceBeforeBox = await boxFor(
+      page,
+      design.sourceId,
+      "screen-source",
+    );
+    const release = {
+      x: fourth.x + fourth.width + 6,
+      y: fourth.y + fourth.height / 2,
+    };
+    const held = await dragScreenNode(
+      page,
+      design.sourceId,
+      "screen-source",
+      release,
+      async () => {
+        expect(await fileContent(page, design.id, "index.html")).toBe(
+          sourceBefore,
+        );
+        expect(await fileContent(page, design.id, "destination.html")).toBe(
+          destinationBefore,
+        );
+      },
+    );
+    expect(held.guide).toBeGreaterThan(0);
+    expect(held.ghost).toBeGreaterThan(0);
+    expect(held.sourceVisible).toBe(true);
+    expectGhostToPreserveGrabOffset(held);
+    expectGuideAfterChildAlongX(held, fourth);
+
+    const destinationOrder = () =>
+      destinationFrame
+        .locator('[data-agent-native-node-id="destination-flow"]')
+        .evaluate((node) =>
+          Array.from(node.children).map((child) =>
+            child.getAttribute("data-agent-native-node-id"),
+          ),
+        );
+    await waitForMove(
+      page,
+      design.id,
+      "index.html",
+      "destination.html",
+      "screen-source",
+    );
+    await expect
+      .poll(destinationOrder)
+      .toEqual([
+        "wrapped-first",
+        "wrapped-second",
+        "wrapped-third",
+        "wrapped-fourth",
+        "screen-source",
+      ]);
+    await expect
+      .poll(() =>
+        destinationFrame
+          .locator('[data-agent-native-node-id="screen-source"]')
+          .evaluate((node) => ({
+            position: getComputedStyle(node).position,
+            parent: node.parentElement?.getAttribute(
+              "data-agent-native-node-id",
+            ),
+          })),
+      )
+      .toEqual({ position: "static", parent: "destination-flow" });
+
+    const expectSourceOnWrappedThirdRow = async () => {
+      await expect
+        .poll(async () => {
+          const [firstBox, sourceBox] = await Promise.all([
+            boxFor(page, design.destinationId, "wrapped-first"),
+            boxFor(page, design.destinationId, "screen-source"),
+          ]);
+          return Math.abs(sourceBox.x - firstBox.x);
+        })
+        .toBeLessThan(2);
+      await expect
+        .poll(async () => {
+          const [firstBox, thirdBox, sourceBox] = await Promise.all([
+            boxFor(page, design.destinationId, "wrapped-first"),
+            boxFor(page, design.destinationId, "wrapped-third"),
+            boxFor(page, design.destinationId, "screen-source"),
+          ]);
+          const rowStep = thirdBox.y - firstBox.y;
+          return Math.abs(sourceBox.y - (thirdBox.y + rowStep));
+        })
+        .toBeLessThan(2);
+    };
+    await expectSourceOnWrappedThirdRow();
+
+    await page.keyboard.press(`${PRIMARY}+z`);
+    await expect
+      .poll(() =>
+        readMoveState(
+          page,
+          design.id,
+          "index.html",
+          "destination.html",
+          "screen-source",
+        ),
+      )
+      .toEqual({ sourceHas: true, destinationHas: false });
+    await expect
+      .poll(async () => {
+        const sourceBox = await boxFor(page, design.sourceId, "screen-source");
+        return Math.abs(sourceBox.x - sourceBeforeBox.x);
+      })
+      .toBeLessThan(2);
+    await expect
+      .poll(async () => {
+        const sourceBox = await boxFor(page, design.sourceId, "screen-source");
+        return Math.abs(sourceBox.y - sourceBeforeBox.y);
+      })
+      .toBeLessThan(2);
+    await page.keyboard.press(`${PRIMARY}+Shift+z`);
+    await waitForMove(
+      page,
+      design.id,
+      "index.html",
+      "destination.html",
+      "screen-source",
+    );
+    await expectSourceOnWrappedThirdRow();
+    await settleReload(page);
+    await expect
+      .poll(destinationOrder)
+      .toEqual([
+        "wrapped-first",
+        "wrapped-second",
+        "wrapped-third",
+        "wrapped-fourth",
+        "screen-source",
+      ]);
+    await expectSourceOnWrappedThirdRow();
   });
 
   test("G1: physical drop selects the eligible inner auto-layout frame and its held insertion slot", async ({

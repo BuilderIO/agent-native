@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { documentChangeResource } from "../server/lib/document-change-resource.js";
 import {
   blocksStorageTarget,
   isBlocksPropertyType,
@@ -90,6 +91,7 @@ export default defineAction({
     value: z.unknown().describe("Value for the property type"),
     expectedBlocksFieldRevision: z.number().int().nonnegative().optional(),
   }),
+  changeResource: (input) => documentChangeResource(input.documentId),
   run: async ({
     documentId,
     databaseId,
@@ -267,14 +269,18 @@ export default defineAction({
         databaseId: database.id,
         properties:
           (
-            await listPropertiesForDatabaseDocuments(database.id, [
-              {
-                ...document,
-                content:
-                  target === "document_body" ? content : document.content,
-                updatedAt: now,
-              },
-            ])
+            await listPropertiesForDatabaseDocuments(
+              database.id,
+              [
+                {
+                  ...document,
+                  content:
+                    target === "document_body" ? content : document.content,
+                  updatedAt: now,
+                },
+              ],
+              { includeBlocksFieldIdentity: true },
+            )
           ).get(documentId) ?? [],
       };
     }
@@ -491,9 +497,11 @@ export default defineAction({
       documentId,
       databaseId: database.id,
       properties:
-        (await listPropertiesForDatabaseDocuments(database.id, [document])).get(
-          documentId,
-        ) ?? [],
+        (
+          await listPropertiesForDatabaseDocuments(database.id, [document], {
+            includeBlocksFieldIdentity: true,
+          })
+        ).get(documentId) ?? [],
     };
   },
 });

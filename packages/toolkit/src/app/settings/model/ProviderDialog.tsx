@@ -171,7 +171,7 @@ function ProviderDialogContent(props: ProviderDialogProps) {
   const failed = listing.isError || models.isError;
   return (
     <DialogContent
-      className="max-w-lg"
+      className="flex max-w-lg flex-col"
       closeLabel={t("agentChat.settingsInfra.close")}
       aria-describedby={undefined}
     >
@@ -496,7 +496,7 @@ function ProviderDialogForm({
   if (restricted) {
     return (
       <DialogContent
-        className="max-w-lg"
+        className="flex max-w-lg flex-col"
         closeLabel={t("agentChat.settingsInfra.close")}
         aria-describedby={undefined}
       >
@@ -537,215 +537,220 @@ function ProviderDialogForm({
 
   return (
     <DialogContent
-      className="max-w-lg"
+      className="flex max-w-lg flex-col overflow-hidden"
       closeLabel={t("agentChat.settingsInfra.close")}
       aria-describedby={undefined}
     >
-      <DialogHeader>
+      <DialogHeader className="shrink-0">
         <DialogTitle>{title}</DialogTitle>
       </DialogHeader>
       <form
-        className="grid gap-5"
+        className="flex min-h-0 flex-col gap-5"
         onSubmit={(event) => {
           event.preventDefault();
           void save();
         }}
       >
-        {mode === "add" ? (
-          <div className="grid gap-2">
-            <Label htmlFor={ids.provider}>{t(`${K}provider`)}</Label>
-            <Select
-              value={provider}
-              onValueChange={(value) =>
-                chooseProvider(value as AgentProviderId)
-              }
-              disabled={saving}
-            >
-              <SelectTrigger id={ids.provider} autoFocus>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {choices.map((id) => (
-                  <SelectItem key={id} value={id}>
-                    <span className="flex items-center gap-2">
-                      <BrandLogo
-                        logoId={PROVIDER_LOGO_IDS[id]}
-                        fallback={IconServer}
-                        size="sm"
-                      />
-                      {providerLabel(id)}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        ) : null}
-
-        <div className="grid gap-2">
-          <Label htmlFor={ids.key}>
-            {isOllama ? t(`${K}endpointUrl`) : t(`${K}apiKey`)}
-          </Label>
-          {replacing ? (
-            <Input
-              ref={keyInputRef}
-              id={ids.key}
-              type={isOllama ? "url" : "password"}
-              value={keyValue}
-              autoComplete="off"
-              spellCheck={false}
-              autoFocus={mode !== "add"}
-              disabled={saving}
-              placeholder={
-                isOllama
-                  ? OLLAMA_PLACEHOLDER
-                  : t(`${K}keyPlaceholder`, { provider: name })
-              }
-              aria-invalid={keyError || check.state === "failed"}
-              aria-describedby={`${ids.key}-hint`}
-              onChange={(event) => {
-                setKeyValue(event.target.value);
-                setKeyError(false);
-              }}
-            />
-          ) : (
-            <div className="flex h-9 items-center justify-between gap-2 rounded-md border border-input bg-background ps-3 pe-1.5">
-              <span className="truncate font-mono text-sm">
-                {isOllama ? existing?.endpoint : existing?.masked}
-              </span>
-              <Button
-                type="button"
-                variant="secondary"
-                size="xs"
-                disabled={saving}
-                onClick={() => {
-                  setReplacing(true);
-                  window.requestAnimationFrame(() =>
-                    keyInputRef.current?.focus(),
-                  );
-                }}
-              >
-                {isOllama ? t(`${K}change`) : t(`${K}replace`)}
-              </Button>
-            </div>
-          )}
-          <KeyHint
-            id={`${ids.key}-hint`}
-            provider={provider}
-            name={name}
-            replacing={replacing}
-            keyError={keyError}
-            savedRejected={savedRejected}
-            hasValue={!!keyValue.trim()}
-            recheck={recheck}
-            updatedAt={existing?.updatedAt ?? null}
-            formatDate={(value, options) =>
-              formatters.formatDate(value, options)
-            }
-            onRecheck={runRecheck}
-          />
-        </div>
-
-        {isOpenAi ? (
-          endpointOpen ? (
+        <div className="-mx-2 grid min-h-0 gap-5 overflow-y-auto px-2">
+          {mode === "add" ? (
             <div className="grid gap-2">
-              <Label htmlFor={ids.endpoint}>{t(`${K}endpointUrl`)}</Label>
+              <Label htmlFor={ids.provider}>{t(`${K}provider`)}</Label>
+              <Select
+                value={provider}
+                onValueChange={(value) =>
+                  chooseProvider(value as AgentProviderId)
+                }
+                disabled={saving}
+              >
+                <SelectTrigger id={ids.provider} autoFocus>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {choices.map((id) => (
+                    <SelectItem key={id} value={id}>
+                      <span className="flex items-center gap-2">
+                        <BrandLogo
+                          logoId={PROVIDER_LOGO_IDS[id]}
+                          fallback={IconServer}
+                          size="sm"
+                        />
+                        {providerLabel(id)}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
+
+          <div className="grid gap-2">
+            <Label htmlFor={ids.key}>
+              {isOllama ? t(`${K}endpointUrl`) : t(`${K}apiKey`)}
+            </Label>
+            {replacing ? (
               <Input
-                id={ids.endpoint}
-                type="url"
-                value={endpoint}
+                ref={keyInputRef}
+                id={ids.key}
+                type={isOllama ? "url" : "password"}
+                value={keyValue}
                 autoComplete="off"
                 spellCheck={false}
+                autoFocus={mode !== "add"}
                 disabled={saving}
-                placeholder={GATEWAY_PLACEHOLDER}
-                onChange={(event) => setEndpoint(event.target.value)}
+                placeholder={
+                  isOllama
+                    ? OLLAMA_PLACEHOLDER
+                    : t(`${K}keyPlaceholder`, { provider: name })
+                }
+                aria-invalid={keyError || check.state === "failed"}
+                aria-describedby={`${ids.key}-hint`}
+                onChange={(event) => {
+                  setKeyValue(event.target.value);
+                  setKeyError(false);
+                }}
               />
-              <p className="text-xs leading-5 text-muted-foreground">
-                {t(`${K}endpointHint`)}
-              </p>
-            </div>
-          ) : (
-            <button
-              type="button"
-              className="justify-self-start text-sm font-medium text-foreground underline-offset-4 hover:underline"
-              onClick={() => setEndpointOpen(true)}
-            >
-              {t(`${K}addEndpoint`)}
-            </button>
-          )
-        ) : null}
-
-        <div className="grid gap-2">
-          <div className="flex min-h-5 items-center justify-between gap-2">
-            <span id={ids.models} className="text-sm font-medium leading-none">
-              {t(`${K}models`)}
-            </span>
-            {listReady && available.length > 0 ? (
-              <button
-                type="button"
-                className="text-sm font-medium text-foreground underline-offset-4 hover:underline"
-                onClick={() => setChecked(allChecked ? [] : [...available])}
-              >
-                {allChecked ? t(`${K}clear`) : t(`${K}selectAll`)}
-              </button>
-            ) : null}
-          </div>
-          <div
-            role="group"
-            aria-labelledby={ids.models}
-            className="h-44 overflow-y-auto rounded-md border border-input"
-          >
-            <ModelsBox
-              idPrefix={ids.models}
-              check={check}
-              listReady={listReady}
-              available={available}
-              checked={checked}
-              isOllama={isOllama}
+            ) : (
+              <div className="flex h-9 items-center justify-between gap-2 rounded-md border border-input bg-background ps-3 pe-1.5">
+                <span className="truncate font-mono text-sm">
+                  {isOllama ? existing?.endpoint : existing?.masked}
+                </span>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="xs"
+                  disabled={saving}
+                  onClick={() => {
+                    setReplacing(true);
+                    window.requestAnimationFrame(() =>
+                      keyInputRef.current?.focus(),
+                    );
+                  }}
+                >
+                  {isOllama ? t(`${K}change`) : t(`${K}replace`)}
+                </Button>
+              </div>
+            )}
+            <KeyHint
+              id={`${ids.key}-hint`}
+              provider={provider}
               name={name}
-              disabled={saving}
-              onToggle={(model, on) =>
-                setChecked((previous) =>
-                  on
-                    ? available.filter(
-                        (item) => item === model || previous.includes(item),
-                      )
-                    : previous.filter((item) => item !== model),
-                )
+              replacing={replacing}
+              keyError={keyError}
+              savedRejected={savedRejected}
+              hasValue={!!keyValue.trim()}
+              recheck={recheck}
+              updatedAt={existing?.updatedAt ?? null}
+              formatDate={(value, options) =>
+                formatters.formatDate(value, options)
               }
+              onRecheck={runRecheck}
             />
           </div>
-          <p className="text-xs leading-5 text-muted-foreground">
-            {fromService && serviceLabel
-              ? t(`${K}modelsHintService`, { service: serviceLabel })
-              : t(`${K}modelsHint`)}
-          </p>
+
+          {isOpenAi ? (
+            endpointOpen ? (
+              <div className="grid gap-2">
+                <Label htmlFor={ids.endpoint}>{t(`${K}endpointUrl`)}</Label>
+                <Input
+                  id={ids.endpoint}
+                  type="url"
+                  value={endpoint}
+                  autoComplete="off"
+                  spellCheck={false}
+                  disabled={saving}
+                  placeholder={GATEWAY_PLACEHOLDER}
+                  onChange={(event) => setEndpoint(event.target.value)}
+                />
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {t(`${K}endpointHint`)}
+                </p>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="justify-self-start text-sm font-medium text-foreground underline-offset-4 hover:underline"
+                onClick={() => setEndpointOpen(true)}
+              >
+                {t(`${K}addEndpoint`)}
+              </button>
+            )
+          ) : null}
+
+          <div className="grid gap-2">
+            <div className="flex min-h-5 items-center justify-between gap-2">
+              <span
+                id={ids.models}
+                className="text-sm font-medium leading-none"
+              >
+                {t(`${K}models`)}
+              </span>
+              {listReady && available.length > 0 ? (
+                <button
+                  type="button"
+                  className="text-sm font-medium text-foreground underline-offset-4 hover:underline"
+                  onClick={() => setChecked(allChecked ? [] : [...available])}
+                >
+                  {allChecked ? t(`${K}clear`) : t(`${K}selectAll`)}
+                </button>
+              ) : null}
+            </div>
+            <div
+              role="group"
+              aria-labelledby={ids.models}
+              className="h-44 overflow-y-auto rounded-md border border-input"
+            >
+              <ModelsBox
+                idPrefix={ids.models}
+                check={check}
+                listReady={listReady}
+                available={available}
+                checked={checked}
+                isOllama={isOllama}
+                name={name}
+                disabled={saving}
+                onToggle={(model, on) =>
+                  setChecked((previous) =>
+                    on
+                      ? available.filter(
+                          (item) => item === model || previous.includes(item),
+                        )
+                      : previous.filter((item) => item !== model),
+                  )
+                }
+              />
+            </div>
+            <p className="text-xs leading-5 text-muted-foreground">
+              {fromService && serviceLabel
+                ? t(`${K}modelsHintService`, { service: serviceLabel })
+                : t(`${K}modelsHint`)}
+            </p>
+          </div>
+
+          {listing.hasOrganization ? (
+            <WhoField
+              id={ids.who}
+              hint={whoHint(
+                t,
+                replaceTarget ? "manage" : mode,
+                mode === "add" && whoChoice && !replaceTarget,
+                orgName,
+              )}
+              choice={mode === "add" && whoChoice && !replaceTarget}
+              scope={scope}
+              disabled={saving}
+              onChange={setScope}
+            />
+          ) : null}
+
+          {error ? (
+            <Alert variant="destructive">
+              <IconAlertCircle />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : null}
         </div>
 
-        {listing.hasOrganization ? (
-          <WhoField
-            id={ids.who}
-            hint={whoHint(
-              t,
-              replaceTarget ? "manage" : mode,
-              mode === "add" && whoChoice && !replaceTarget,
-              orgName,
-            )}
-            choice={mode === "add" && whoChoice && !replaceTarget}
-            scope={scope}
-            disabled={saving}
-            onChange={setScope}
-          />
-        ) : null}
-
-        {error ? (
-          <Alert variant="destructive">
-            <IconAlertCircle />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        ) : null}
-
-        <DialogFooter className="gap-2 sm:space-x-0">
+        <DialogFooter className="shrink-0 gap-2 sm:space-x-0">
           {mode === "manage" ? (
             <Button
               type="button"

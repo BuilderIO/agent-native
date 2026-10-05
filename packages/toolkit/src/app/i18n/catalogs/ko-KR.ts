@@ -1178,6 +1178,7 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.connectPlaceholder": "AI를 연결하여 채팅 시작...",
   "setup.connectToChat": "AI를 연결하여 채팅",
   "setup.connectToStart": "AI를 연결하여 채팅 시작",
+  "setup.modelListUnavailable": "모델을 불러오지 못했습니다.",
   "setup.providerStatusUnavailable":
     "AI를 사용할 수 있는지 확인할 수 없습니다.",
   "agentNativeClips.meetingAsk.placeholder": "무엇이든 물어보세요",
@@ -1921,6 +1922,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.labsFootnote":
     "이 새롭고 불안정한 기능에는 버그가 있을 수 있습니다.",
   "settingsShell.appGroup.labsLoadError": "실험실 기능을 불러오지 못했습니다.",
+  "settingsShell.appGroup.labsReadError":
+    "저장된 선택 항목을 읽을 수 없습니다. 다시 설정하려면 켜기 또는 끄기를 선택하세요.",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}}을(를) 변경하지 못했습니다. 다시 시도하세요.",
   "settingsShell.appGroup.mcpAbout":

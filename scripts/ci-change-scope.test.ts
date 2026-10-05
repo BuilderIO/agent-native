@@ -129,7 +129,7 @@ test("selects only docs checks for an all-docs change set", () => {
   const scope = classifyChangedPaths([
     "packages/core/docs/content/actions.mdx",
     "packages/docs/public/architecture.svg",
-    "README.md",
+    "CONTRIBUTING.md",
   ]);
 
   assert.equal(scope.docsOnly, true);
@@ -139,6 +139,29 @@ test("selects only docs checks for an all-docs change set", () => {
       .filter(([, enabled]) => enabled)
       .map(([name]) => name),
     ["lint", "changeset"],
+  );
+});
+
+test("runs the guards for a README-only change set", () => {
+  for (const paths of [
+    ["README.md"],
+    ["packages/core/README.md", ".changeset/readme-link-tags.md"],
+    ["templates/chat/README.md", "packages/core/CHANGELOG.md"],
+  ]) {
+    const scope = classifyChangedPaths(paths);
+
+    assert.equal(scope.docsOnly, true, paths.join(", "));
+    assert.equal(scope.full, false, paths.join(", "));
+    assert.equal(scope.checks.guards, true, paths.join(", "));
+    assert.equal(scope.checks.lint, true, paths.join(", "));
+    assert.equal(scope.checks.typecheck, false, paths.join(", "));
+    assert.equal(scope.checks.build, false, paths.join(", "));
+    assert.equal(scope.checks.fast_tests, false, paths.join(", "));
+  }
+
+  assert.equal(
+    classifyChangedPaths(["docs/guide.md", "CHANGELOG.md"]).checks.guards,
+    false,
   );
 });
 
@@ -395,6 +418,8 @@ test("selects focused Design canvas interaction acceptance for its runtime depen
     "templates/design/e2e/chrome-geometry.reference.ts",
     "templates/design/e2e/global-setup.ts",
     "templates/design/e2e/global-teardown.ts",
+    "templates/design/e2e/drag-out-of-screen-to-board.spec.ts",
+    "templates/design/e2e/parity-drag-reparent.spec.ts",
     "templates/design/e2e/parity-vector-endpoints.spec.ts",
     "templates/design/e2e/corner-radius-handle-drag.spec.ts",
     "templates/design/e2e/helpers.ts",
@@ -772,6 +797,6 @@ test("does not run code checks for a mixed docs-only package change", () => {
     Object.entries(scope.checks)
       .filter(([, enabled]) => enabled)
       .map(([name]) => name),
-    ["lint", "changeset"],
+    ["lint", "guards", "changeset"],
   );
 });

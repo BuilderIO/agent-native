@@ -7,6 +7,10 @@ import {
 
 let _initPromise: Promise<void> | undefined;
 export const MAX_PENDING_TASK_ATTEMPTS = 3;
+// A task is an agent turn answering a message. A day later that reply would no
+// longer answer it, so older unfinished rows are never run again and no longer
+// hold their thread's queue. The rows themselves are left exactly as they are.
+export const MAX_RECOVERABLE_PENDING_TASK_AGE_MS = 24 * 60 * 60 * 1000;
 
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
@@ -286,24 +290,29 @@ export async function claimPendingTask(
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
+  const recoverableSince = now - MAX_RECOVERABLE_PENDING_TASK_AGE_MS;
 
+  // An expired processing row still holds the thread while it shows recent
+  // activity, so a turn that is actually running is never overlapped.
   const result = await client.execute({
     sql: `UPDATE integration_pending_tasks
          SET status = ?, attempts = attempts + 1, updated_at = ?,
              last_dispatch_outcome = COALESCE(?, last_dispatch_outcome)
-         WHERE id = ? AND status = 'pending'
+         WHERE id = ? AND status = 'pending' AND created_at >= ?
            AND NOT EXISTS (
              SELECT 1 FROM integration_pending_tasks active
              WHERE active.platform = integration_pending_tasks.platform
                AND active.external_thread_id = integration_pending_tasks.external_thread_id
                AND active.status = 'processing'
                AND active.id <> integration_pending_tasks.id
+               AND (active.created_at >= ? OR active.updated_at >= ?)
            )
            AND NOT EXISTS (
              SELECT 1 FROM integration_pending_tasks earlier
              WHERE earlier.platform = integration_pending_tasks.platform
                AND earlier.external_thread_id = integration_pending_tasks.external_thread_id
                AND earlier.status = 'pending'
+               AND earlier.created_at >= ?
                AND (
                  earlier.created_at < integration_pending_tasks.created_at
                  OR (
@@ -313,7 +322,16 @@ export async function claimPendingTask(
                )
            )
          RETURNING id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, dispatch_attempts, last_dispatch_at, last_dispatch_outcome, dispatch_scope, error_message, created_at, updated_at, completed_at`,
-    args: ["processing", now, options?.dispatchOutcome ?? null, id],
+    args: [
+      "processing",
+      now,
+      options?.dispatchOutcome ?? null,
+      id,
+      recoverableSince,
+      recoverableSince,
+      recoverableSince,
+      recoverableSince,
+    ],
   });
   const rows = result.rows ?? [];
 
@@ -349,8 +367,13 @@ export async function getNextPendingTaskForThread(
   const { rows } = await getDbExec().execute({
     sql: `SELECT id, dispatch_scope FROM integration_pending_tasks
       WHERE platform = ? AND external_thread_id = ? AND status = 'pending'
+        AND created_at >= ?
       ORDER BY created_at ASC, id ASC LIMIT 1`,
-    args: [platform, externalThreadId],
+    args: [
+      platform,
+      externalThreadId,
+      Date.now() - MAX_RECOVERABLE_PENDING_TASK_AGE_MS,
+    ],
   });
   return rows[0]?.id
     ? {

@@ -6,10 +6,16 @@ import {
   assertResourceKey,
   installResourceChangeCapture,
   registerAfterWriteDrain,
+  resourceChangeCaptureFingerprint,
+  resourceChangeCaptureInstalled,
   resourceChangeTriggerNames,
   type ResourceChangeSource,
 } from "../resource-changes/store.js";
-import { ensureSearchIndexTables } from "./index-store.js";
+import {
+  ensureSearchIndexTables,
+  invalidateSearchIndex,
+  raiseSearchIndexTarget,
+} from "./index-store.js";
 
 /** The change-feed consumer name the search index subscribes as. */
 export const SEARCH_CHANGE_CONSUMER = "search";
@@ -138,27 +144,47 @@ export function searchableResourceSource(
 }
 
 /**
- * A named migration that creates the search tables and installs change
- * capture on the registration's table. Add it to the app's `runMigrations`
- * list with the app's next version number.
+ * A named migration that creates the search tables, raises the index's
+ * target to the registration's version, and installs change capture on the
+ * registration's table. Add it to the app's `runMigrations`
+ * list with the app's next version number. It's recorded under `name` plus a
+ * fingerprint of the capture SQL, so a release that changes that SQL installs
+ * it again.
  */
 export function searchIndexMigration(
   registration: SearchableResourceRegistration,
   entry: { version: number; name: string },
 ): MigrationEntry {
+  const source = searchableResourceSource(registration);
   return {
     version: entry.version,
-    name: entry.name,
+    // Under the bare name, a database that recorded an earlier build's
+    // capture would never get this one, and search would stay on the
+    // fallback for good.
+    name: `${entry.name}@${resourceChangeCaptureFingerprint(source)}`,
     sql: {},
     run: async (exec) => {
       await ensureSearchIndexTables(exec);
+      // Before capture exists: a build still running a lower version would
+      // otherwise see this capture, finish a rebuild at its own version, and
+      // answer from rows it didn't write.
+      const target = await raiseSearchIndexTarget(exec, registration);
+      // A newer build owns the index and its capture, which this build's
+      // older SQL would replace.
+      if (target > registration.version) return;
+      const hadCapture = await resourceChangeCaptureInstalled(exec, source);
       const installed = await installResourceChangeCapture(
         exec,
-        searchableResourceSource(registration),
+        source,
         SEARCH_CHANGE_CONSUMER,
       );
-      // A busy table: try again on the next boot rather than block writes.
+      // A busy table: try again at the next migration run, which serverless
+      // hosts reach only at their next release, rather than block writes.
       if (!installed) return deferMigration();
+      // Writes made while capture was missing were never recorded. A search
+      // that saw it missing has already discarded the finished index, but
+      // nothing guarantees one ran.
+      if (!hadCapture) await invalidateSearchIndex(exec, registration);
     },
   };
 }
