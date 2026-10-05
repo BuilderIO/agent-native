@@ -19,19 +19,40 @@ export function sidebarRowClassName(active = false) {
 export const sidebarShowMoreClassName =
   "grid h-7 w-full items-center gap-0 rounded p-0 pe-1.5 text-start text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring";
 
-export function revealActiveSidebarRow(row: HTMLElement | null) {
+const SIDEBAR_ROW_PLACEHOLDER = "[data-sidebar-row-placeholder]";
+
+// The open page scrolls into view in Files unless another section already
+// shows it. Rows still loading may be that section, or may push the row once
+// they arrive, so the check waits until the sidebar has no placeholder rows.
+// Returns a cleanup that stops a check still waiting.
+export function revealActiveSidebarRow(
+  row: HTMLElement | null,
+): (() => void) | undefined {
   const viewport = row?.closest<HTMLElement>(
     "[data-radix-scroll-area-viewport]",
   );
-  if (!row || !viewport) return;
-  const bounds = viewport.getBoundingClientRect();
-  const alreadyVisible = Array.from(
-    viewport.querySelectorAll<HTMLElement>('[aria-current="page"]'),
-  ).some((element) => {
-    const rect = element.getBoundingClientRect();
-    return rect.bottom > bounds.top && rect.top < bounds.bottom;
+  if (!row || !viewport) return undefined;
+  const reveal = () => {
+    const bounds = viewport.getBoundingClientRect();
+    const alreadyVisible = Array.from(
+      viewport.querySelectorAll<HTMLElement>('[aria-current="page"]'),
+    ).some((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.bottom > bounds.top && rect.top < bounds.bottom;
+    });
+    if (!alreadyVisible) row.scrollIntoView({ block: "nearest" });
+  };
+  if (!viewport.querySelector(SIDEBAR_ROW_PLACEHOLDER)) {
+    reveal();
+    return undefined;
+  }
+  const observer = new MutationObserver(() => {
+    if (viewport.querySelector(SIDEBAR_ROW_PLACEHOLDER)) return;
+    observer.disconnect();
+    if (row.isConnected) reveal();
   });
-  if (!alreadyVisible) row.scrollIntoView({ block: "nearest" });
+  observer.observe(viewport, { childList: true, subtree: true });
+  return () => observer.disconnect();
 }
 
 export function SidebarRowIcon({ icon }: { icon: ReactNode }) {
@@ -109,6 +130,7 @@ export function SidebarRowsSkeleton({
     <div
       key={index}
       aria-hidden="true"
+      data-sidebar-row-placeholder=""
       {...(index === 0 ? firstRowProps : {})}
       className="flex h-7 items-center gap-1.5 px-1.5"
     >
@@ -121,7 +143,9 @@ export function SidebarRowsSkeleton({
       />
     </div>
   ));
-  const moreRow = more ? <div aria-hidden="true" className="h-7" /> : null;
+  const moreRow = more ? (
+    <div aria-hidden="true" data-sidebar-row-placeholder="" className="h-7" />
+  ) : null;
   if (!framed) {
     return (
       <>

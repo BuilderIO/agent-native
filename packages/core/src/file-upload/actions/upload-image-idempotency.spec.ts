@@ -54,7 +54,7 @@ describe("upload-image idempotency receipts", () => {
       action.run({ data: "data:image/png;base64,AQ==", filename: "image.png" }),
     ).resolves.toEqual({
       error:
-        "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
+        "No object storage is connected. Use Builder.io's managed storage (free) or configure your own S3-compatible storage keys in Settings → File uploads.",
       configured: false,
     });
   });

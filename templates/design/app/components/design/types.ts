@@ -87,6 +87,12 @@ export interface RuntimeStructureInsertRequest {
     pendingNodeId?: string | null;
   };
   placement: "before" | "after" | "inside";
+  gridPlacement?: {
+    column: number;
+    columnEnd: number;
+    row: number;
+    rowEnd: number;
+  };
 }
 
 export interface RuntimeStructureDeleteRequest {

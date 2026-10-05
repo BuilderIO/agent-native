@@ -18,8 +18,9 @@ import type {
   AuthPageProps,
   AuthView,
 } from "@agent-native/core/shared/auth-page-types";
+import { resolveLaneEndpoint } from "@agent-native/core/shared/environment-lanes";
 import { toPublicFrameworkPath } from "@agent-native/core/shared/framework-route-prefix";
-import { isQaTestEmail } from "@agent-native/core/shared/qa-test-email";
+import { isTestIdentityEmail } from "@agent-native/core/shared/qa-test-email";
 import { DEPLOY_SETTINGS_REQUIRED_CODE } from "@agent-native/core/shared/runtime-config";
 import {
   isVerificationLinkInvalid,
@@ -240,7 +241,7 @@ function trackAuth(
   properties: Record<string, unknown> = {},
   email: string,
 ): void {
-  if (!isValidEmail(email) || isQaTestEmail(email)) return;
+  if (!isValidEmail(email) || isTestIdentityEmail(email)) return;
   if (
     isSyntheticTrafficValue(
       (
@@ -272,9 +273,11 @@ function trackAuth(
         return "";
       }
     })();
-    const endpoint =
+    const endpoint = resolveLaneEndpoint(
       config.agentNativeAnalyticsEndpoint ??
-      "https://analytics.agent-native.com/track";
+        "https://analytics.agent-native.com/track",
+      window.location.hostname,
+    );
     const legacyProperties = { app, ...properties };
     const events: Array<{
       name: string;

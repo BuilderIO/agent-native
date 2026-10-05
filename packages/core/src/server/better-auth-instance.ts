@@ -2192,6 +2192,7 @@ async function createBetterAuthInstance(
         appSender,
         disableClickTracking: true,
         templateId: CORE_MAGIC_LINK_EMAIL_ID,
+        authCritical: true,
       });
     },
   });
@@ -2232,6 +2233,7 @@ async function createBetterAuthInstance(
           appSender,
           disableClickTracking: true,
           templateId: CORE_RESET_PASSWORD_EMAIL_ID,
+          authCritical: true,
         });
       },
     },
@@ -2270,6 +2272,7 @@ async function createBetterAuthInstance(
           templateId: emailChange
             ? CORE_CHANGE_EMAIL_VERIFICATION_EMAIL_ID
             : CORE_VERIFY_SIGNUP_EMAIL_ID,
+          authCritical: true,
         });
       },
       afterEmailVerification: async (user, request) => {
@@ -2318,6 +2321,7 @@ async function createBetterAuthInstance(
             ...renderedEmail,
             disableClickTracking: true,
             templateId: CORE_CHANGE_EMAIL_CONFIRMATION_EMAIL_ID,
+            authCritical: true,
           });
         },
       },
@@ -2586,8 +2590,12 @@ export async function buildDatabaseConfig(): Promise<
   assertHostedRuntimeDatabase();
 
   const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
-  const { buildResilientNeonPool, buildResilientPostgresJsClient, isNeonUrl } =
-    await import("../db/create-get-db.js");
+  const {
+    buildResilientNeonPool,
+    buildResilientPostgresJsClient,
+    isNeonUrl,
+    scopeDbToPoolTransactions,
+  } = await import("../db/create-get-db.js");
 
   if (isPgliteUrl(url)) {
     const { drizzle } = await loadPgliteDrizzle();
@@ -2614,9 +2622,12 @@ export async function buildDatabaseConfig(): Promise<
     );
     guardNeonPool(_neonAuthPool, url, "db/neon-auth");
     const { drizzle } = await import("drizzle-orm/neon-serverless");
-    const db = drizzle(buildResilientNeonPool(_neonAuthPool), {
-      schema: pgAuthSchema,
-    });
+    const db = scopeDbToPoolTransactions(
+      drizzle(buildResilientNeonPool(_neonAuthPool), {
+        schema: pgAuthSchema,
+      }),
+      _neonAuthPool,
+    );
     const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
     return drizzleAdapter(db, {
       provider: "pg",
@@ -2631,9 +2642,12 @@ export async function buildDatabaseConfig(): Promise<
     postgres(url, pgPoolOptions(url)),
   );
   const { drizzle } = await import("drizzle-orm/postgres-js");
-  const db = drizzle(buildResilientPostgresJsClient(sql), {
-    schema: pgAuthSchema,
-  });
+  const db = scopeDbToPoolTransactions(
+    drizzle(buildResilientPostgresJsClient(sql), {
+      schema: pgAuthSchema,
+    }),
+    sql,
+  );
   const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
   return drizzleAdapter(db, {
     provider: "pg",

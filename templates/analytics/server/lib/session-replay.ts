@@ -13,7 +13,11 @@ import {
   readPrivateBlob,
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
-import { recordChange, runWithRequestContext } from "@agent-native/core/server";
+import {
+  isTestIdentity,
+  recordChange,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import {
   accessFilter,
   resolveAccess,
@@ -45,6 +49,8 @@ import {
   resolveAnalyticsEventDimensions,
   touchPublicKeyLastUsedAt,
 } from "./first-party-analytics.js";
+import { MAX_SESSION_ID_LENGTH } from "./indexed-text.js";
+import { parseIngestBody } from "./request-errors.js";
 import {
   pruneSessionEventIndex,
   sessionEventFilterConditions,
@@ -993,8 +999,7 @@ function deriveReplaySignals({
 export function parseSessionReplayIngestPayload(
   raw: unknown,
 ): ParsedSessionReplayIngest {
-  const body =
-    typeof raw === "string" && raw.trim() ? JSON.parse(raw) : replayRecord(raw);
+  const body = replayRecord(parseIngestBody(raw));
   const publicKey =
     replayString(body.publicKey) ||
     replayString(body.writeKey) ||
@@ -1022,6 +1027,15 @@ export function parseSessionReplayIngestPayload(
     replayString(body.recording_id) ||
     replayString(body.replayId) ||
     sessionId;
+  if (
+    sessionId.length > MAX_SESSION_ID_LENGTH ||
+    clientRecordingId.length > MAX_SESSION_ID_LENGTH
+  ) {
+    throw replayError(
+      `Replay session and recording ids must be at most ${MAX_SESSION_ID_LENGTH} characters`,
+      400,
+    );
+  }
   const metadata = replayRecord(body.metadata);
   assertReplayMetadataCap(metadata);
 
@@ -1410,20 +1424,28 @@ function replayListSearchCondition(query: string | undefined) {
   );
 }
 
+export type SessionReplayIngestResult =
+  | { skipped: "test-identity"; acceptedChunks: 0 }
+  | {
+      recordingId: string;
+      sessionId: string;
+      acceptedChunks: number;
+      duplicateChunks: number;
+      chunkCount: number;
+      eventCount: number;
+      totalBytes: number;
+    };
+
 export async function recordSessionReplayChunks(
   input: ParsedSessionReplayIngest,
   context: SessionReplayIngestContext = {},
-): Promise<{
-  recordingId: string;
-  sessionId: string;
-  acceptedChunks: number;
-  duplicateChunks: number;
-  chunkCount: number;
-  eventCount: number;
-  totalBytes: number;
-}> {
+): Promise<SessionReplayIngestResult> {
   const key = await resolveReplayPublicKey(input.publicKey);
   await assertReplayKeyBudget(key, context);
+  // Test identities run every flow but never land in replay metrics.
+  if (isTestIdentity(input.userId)) {
+    return { skipped: "test-identity", acceptedChunks: 0 };
+  }
   const db = getDb() as any;
   const ingestedAt = replayTimestamp(context.now) ?? replayNowIso();
   const clampedInput = clampReplayIngestTiming(input, ingestedAt);

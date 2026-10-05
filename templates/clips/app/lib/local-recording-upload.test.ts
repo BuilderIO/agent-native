@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   readRecoverableRecordingBackup: vi.fn(),
   updateRecordingBackupMeta: vi.fn(async () => ({})),
   deleteRecordingBackup: vi.fn(async () => {}),
+  getRecordingBackupMeta: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -29,11 +30,13 @@ vi.mock("./recording-backup", async (importOriginal) => {
     readRecoverableRecordingBackup: mocks.readRecoverableRecordingBackup,
     updateRecordingBackupMeta: mocks.updateRecordingBackupMeta,
     deleteRecordingBackup: mocks.deleteRecordingBackup,
+    getRecordingBackupMeta: mocks.getRecordingBackupMeta,
   };
 });
 
 import {
   classifyLocalUploadFailure,
+  discardLocalRecording,
   LocalRecordingUploadError,
   uploadLocalRecording,
 } from "./local-recording-upload";
@@ -108,6 +111,54 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+describe("discardLocalRecording", () => {
+  function trashedIds() {
+    return mocks.callAction.mock.calls
+      .filter((call) => call[0] === "trash-recording")
+      .map((call) => (call[1] as { id: string }).id)
+      .sort();
+  }
+
+  it("trashes the original take row along with retry rows", async () => {
+    mocks.getRecordingBackupMeta.mockResolvedValue(
+      copy({
+        localOnly: false,
+        serverRecordingId: "retry-2",
+        staleServerRecordingIds: ["local-1", "retry-1"],
+      }).meta,
+    );
+
+    await discardLocalRecording("local-1");
+
+    expect(trashedIds()).toEqual(["local-1", "retry-1", "retry-2"]);
+    expect(mocks.callAction).toHaveBeenCalledWith("trash-recording", {
+      id: "local-1",
+      skipIfReady: true,
+    });
+    expect(mocks.deleteRecordingBackup).toHaveBeenCalledWith("local-1");
+  });
+
+  it("trashes nothing for a local-only copy that never uploaded", async () => {
+    mocks.getRecordingBackupMeta.mockResolvedValue(copy().meta);
+
+    await discardLocalRecording("local-1");
+
+    expect(trashedIds()).toEqual([]);
+    expect(mocks.deleteRecordingBackup).toHaveBeenCalledWith("local-1");
+  });
+
+  it("still trashes the original take row when the copy is unreadable", async () => {
+    mocks.getRecordingBackupMeta.mockRejectedValue(
+      new DOMException("read failed", "UnknownError"),
+    );
+
+    await discardLocalRecording("local-1");
+
+    expect(trashedIds()).toEqual(["local-1"]);
+    expect(mocks.deleteRecordingBackup).toHaveBeenCalledWith("local-1");
+  });
+});
+
 describe("classifyLocalUploadFailure", () => {
   it("names the cause instead of falling back to unknown", () => {
     expect(classifyLocalUploadFailure({ networkError: true })).toBe("network");
@@ -115,7 +166,7 @@ describe("classifyLocalUploadFailure", () => {
       classifyLocalUploadFailure({
         status: 503,
         message:
-          "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage to upload clips.",
+          "Video storage is not connected yet. Use Builder.io (free tier available) or configure S3-compatible storage to upload clips.",
       }),
     ).toBe("storage_setup_required");
     expect(
@@ -218,7 +269,7 @@ describe("uploadLocalRecording", () => {
       json(
         {
           error:
-            "Video storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage to upload clips.",
+            "Video storage is not connected yet. Use Builder.io (free tier available) or configure S3-compatible storage to upload clips.",
         },
         503,
       ),

@@ -8,10 +8,7 @@ import type {
   BrainSourceProvider,
 } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
-import {
-  listAccessibleAudienceIds,
-  refreshSlackPrivateChannelAudience,
-} from "./audiences.js";
+import { listAccessibleAudienceIds } from "./audiences.js";
 import {
   BrainCaptureBlockedError,
   createCapture,
@@ -245,28 +242,6 @@ interface SlackListResponse {
   response_metadata?: { next_cursor?: string };
 }
 
-interface SlackMembersResponse {
-  members?: string[];
-  response_metadata?: { next_cursor?: string };
-}
-
-interface SlackUserInfoResponse {
-  user?: {
-    deleted?: boolean;
-    is_app_user?: boolean;
-    is_bot?: boolean;
-    is_workflow_bot?: boolean;
-    profile?: { email?: string };
-  };
-}
-
-type SlackUserEmailCacheEntry =
-  | { kind: "human"; email: string }
-  | { kind: "non-human" }
-  | { kind: "unresolved" };
-type SlackUserEmailCache = Map<string, SlackUserEmailCacheEntry>;
-
-const SLACK_USER_LOOKUP_CONCURRENCY = 4;
 const SLACK_THREAD_CAPTURE_CONCURRENCY = 4;
 const GRANOLA_NOTE_CAPTURE_CONCURRENCY = 4;
 const CONNECTOR_SYNC_LEASE_MS = 10 * 60 * 1_000;
@@ -1073,94 +1048,6 @@ async function slackPermalink(
   return data.permalink ?? null;
 }
 
-async function slackPrivateChannelMemberEmails(
-  token: string,
-  channelId: string,
-  userEmailCache: SlackUserEmailCache,
-): Promise<string[] | null> {
-  const memberIds = new Set<string>();
-  const seenCursors = new Set<string>();
-  let cursor: string | undefined;
-  while (true) {
-    const response = await slackApi<SlackMembersResponse>(
-      token,
-      "conversations.members",
-      { channel: channelId, limit: 1_000, cursor },
-    );
-    if (
-      !Array.isArray(response.members) ||
-      response.members.some(
-        (memberId) => typeof memberId !== "string" || !memberId,
-      )
-    ) {
-      return null;
-    }
-    for (const memberId of response.members) {
-      memberIds.add(memberId);
-    }
-    const nextCursor = response.response_metadata?.next_cursor?.trim();
-    if (!nextCursor) break;
-    if (seenCursors.has(nextCursor)) return null;
-    seenCursors.add(nextCursor);
-    cursor = nextCursor;
-  }
-  const userIds = Array.from(memberIds);
-  if (
-    userIds.some((userId) => userEmailCache.get(userId)?.kind === "unresolved")
-  ) {
-    return null;
-  }
-
-  const uncachedUserIds = userIds.filter(
-    (userId) => !userEmailCache.has(userId),
-  );
-  for (
-    let offset = 0;
-    offset < uncachedUserIds.length;
-    offset += SLACK_USER_LOOKUP_CONCURRENCY
-  ) {
-    const batch = uncachedUserIds.slice(
-      offset,
-      offset + SLACK_USER_LOOKUP_CONCURRENCY,
-    );
-    await Promise.all(
-      batch.map(async (userId) => {
-        const user = await slackApi<SlackUserInfoResponse>(
-          token,
-          "users.info",
-          { user: userId },
-        );
-        const slackUser = user.user;
-        if (
-          slackUser?.deleted === true ||
-          slackUser?.is_app_user === true ||
-          slackUser?.is_bot === true ||
-          slackUser?.is_workflow_bot === true
-        ) {
-          userEmailCache.set(userId, { kind: "non-human" });
-          return;
-        }
-        const email = slackUser?.profile?.email?.trim().toLowerCase();
-        userEmailCache.set(
-          userId,
-          email ? { kind: "human", email } : { kind: "unresolved" },
-        );
-      }),
-    );
-    if (
-      batch.some((userId) => userEmailCache.get(userId)?.kind === "unresolved")
-    ) {
-      return null;
-    }
-  }
-
-  const emails = userIds.flatMap((userId) => {
-    const entry = userEmailCache.get(userId);
-    return entry?.kind === "human" ? [entry.email] : [];
-  });
-  return Array.from(new Set(emails)).sort();
-}
-
 function configuredSlackChannelIds(config: Record<string, unknown>) {
   return new Set(
     slackChannelRefsFromConfig(config).filter((value) =>
@@ -1175,7 +1062,6 @@ async function createSlackThreadCapture(input: {
   messages: SlackMessage[];
   permalink: string | null;
   syncRunId?: string;
-  memberEmails?: string[] | null;
 }) {
   const normalized = normalizeSlackThreadCapture({
     channel: input.channel,
@@ -1193,11 +1079,7 @@ async function createSlackThreadCapture(input: {
       content: normalized.content,
       capturedAt: normalized.capturedAt,
       metadata: normalized.metadata,
-      audience: {
-        kind: input.channel.is_private ? "slack-private-channel" : "org",
-        memberEmails: input.memberEmails ?? undefined,
-        upstreamRefHash: input.channel.id,
-      },
+      audience: { kind: "org", upstreamRefHash: input.channel.id },
     });
     return { capture, blocked: false };
   } catch (error) {
@@ -2468,7 +2350,6 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
     }
     const channels = [...channelsById.values()];
     stats.eligibleChannels = channels.length;
-    const userEmailCache: SlackUserEmailCache = new Map();
 
     const channelsToScan = includePublicChannels
       ? (() => {
@@ -2510,29 +2391,6 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
         stats.publicChannelsAlreadyJoined =
           Number(stats.publicChannelsAlreadyJoined) + 1;
       }
-      const privateMemberEmails = channel.is_private
-        ? await slackPrivateChannelMemberEmails(
-            token,
-            channel.id,
-            userEmailCache,
-          )
-        : null;
-      if (channel.is_private) {
-        if (privateMemberEmails === null) {
-          stats.rejectedChannels = Number(stats.rejectedChannels) + 1;
-          continue;
-        }
-        await refreshSlackPrivateChannelAudience({
-          source,
-          channelId: channel.id,
-          memberEmails: privateMemberEmails,
-        });
-        if (!privateMemberEmails.length) {
-          stats.rejectedChannels = Number(stats.rejectedChannels) + 1;
-          continue;
-        }
-      }
-
       stats.scannedChannels = Number(stats.scannedChannels) + 1;
       const channelCursor = nextCursor.channels?.[channel.id] ?? {};
       const pendingLatest =
@@ -2579,7 +2437,6 @@ async function syncSlack(source: SourceRow): Promise<ConnectorSyncResult> {
                 messages: thread.messages?.length ? thread.messages : [message],
                 permalink,
                 syncRunId: runId,
-                memberEmails: privateMemberEmails,
               });
             }),
           );
@@ -2838,26 +2695,6 @@ export async function refreshSlackThreadCapture(
         `Slack thread refresh rejected for channel ${channelId}: it matches a Brain public-channel exclusion`,
       );
     }
-    const memberEmails = channel.is_private
-      ? await slackPrivateChannelMemberEmails(token, channel.id, new Map())
-      : null;
-    if (channel.is_private) {
-      if (memberEmails === null) {
-        throw new Error(
-          `Slack private channel ${channel.id} has no resolvable member emails; refusing to refresh without an ACL`,
-        );
-      }
-      if (!memberEmails.length) {
-        await refreshSlackPrivateChannelAudience({
-          source,
-          channelId: channel.id,
-          memberEmails,
-        });
-        throw new Error(
-          `Slack private channel ${channel.id} has no human members; refusing to refresh a capture`,
-        );
-      }
-    }
     const [thread, permalink] = await Promise.all([
       slackApi<SlackRepliesResponse>(token, "conversations.replies", {
         channel: channel.id,
@@ -2872,7 +2709,6 @@ export async function refreshSlackThreadCapture(
       messages: thread.messages ?? [],
       permalink,
       syncRunId: runId,
-      memberEmails,
     });
     const stats = {
       channelId: channel.id,

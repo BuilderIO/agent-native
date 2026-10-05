@@ -129,7 +129,7 @@ const messages = {
       "Google Picker needs GOOGLE_PICKER_API_KEY and GOOGLE_PICKER_APP_ID.",
     imageUploadFailed: "Image upload failed",
     imageUploadNeedsBuilder:
-      "Connect object storage to upload images: connect Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
+      "Set up object storage to upload images: use Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
     sentToAgent: "Sent to agent",
     imageUploadGenericError: "Something went wrong uploading this image.",
     uploading: "Uploading…",
@@ -439,7 +439,8 @@ const messages = {
     resolveThread: "Resolve thread",
     reopenThread: "Reopen thread",
     hideReplies: "Hide replies",
-    replyCount: "{{count}} replies",
+    replyCount_one: "{{count}} reply",
+    replyCount_other: "{{count}} replies",
     title: "Comments",
     addComment: "Add comment",
     close: "Close",
@@ -757,7 +758,7 @@ const messages = {
     tryAgain: "Try again",
     imageUploadFailed: "Image upload failed",
     imageUploadNeedsBuilder:
-      "Connect object storage to upload images: connect Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
+      "Set up object storage to upload images: use Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
     imageAdded: "Image added",
     imageUploadError: "Something went wrong uploading this image.",
     exportFailed: "Export failed",
@@ -967,8 +968,8 @@ const messages = {
           "Read the supplied company website and create a presentation about the company. Report access failures instead of inventing facts.",
       },
     },
-    connectBuilderIo: "Connect Builder.io",
-    connectingBuilder: "Connecting Builder.io…",
+    connectBuilderIo: "Use Builder.io",
+    connectingBuilder: "Setting up Builder.io…",
     recent: "Recent",
     starters: {
       pitch: {
@@ -992,7 +993,7 @@ const messages = {
     fileStorageStatusUnavailable:
       "Couldn't check object storage. Retry before uploading files.",
     fileStorageSetupRequired:
-      "No object storage is connected. Connect Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
+      "No object storage is connected. Use Builder.io (free) or add your own S3-compatible storage keys in Settings → File uploads.",
     decksTitle: "Decks",
     deckLengthQuestion: "How long should this deck be?",
     deckLengthHeader: "Deck length",
@@ -1007,9 +1008,13 @@ const messages = {
     all: "All",
     showMineDecks: "Show decks created by me",
     mine: "Mine",
+    ownedByAnyone: "Owned by anyone",
+    ownedByMe: "Owned by me",
+    sharedWithMe: "Shared with me",
     createDeckOrVisual: "Create a presentation",
     noMineDecks: "No decks created by you yet.",
     noDecksMatchSearch: "No decks match your search.",
+    noDecksMatchFilter: "No decks match the current filter.",
     deleteDeckTitle: "Delete Deck?",
     deleteDeckDescription:
       "This will permanently delete this deck and all its slides. This action cannot be undone.",
@@ -1024,7 +1029,7 @@ const messages = {
     addDesignSystem: "+ Design system",
     importFrom: "Import from",
     referenceFileStorageUnavailable:
-      "File storage is not configured. Connect Builder.io or another file provider to import reference files.",
+      "File storage is not configured. Use Builder.io or another file provider to import reference files.",
     attachedFiles: "Attached",
     imported: "Imported",
     importedReferenceDeck: "Imported reference deck",

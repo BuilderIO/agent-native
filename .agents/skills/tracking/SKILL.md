@@ -110,6 +110,8 @@ Multiple providers can be active simultaneously. All receive every event.
 
 Browser-side `trackEvent()` also forwards to Agent-Native Analytics when `VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` is present. Use `VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT` to override the default browser endpoint. The built-in Agent-Native Analytics sender is quiet on localhost/local dev by default; set `AGENT_NATIVE_ANALYTICS_ALLOW_LOCALHOST=true` only for an intentional local ingestion test.
 
+An app served from a hosted beta host (`beta.*.agent-native.com`) reports to beta Analytics: `resolveLaneEndpoint` moves an endpoint on a production lane host to its beta lane for browser events, auth-page events, replay uploads, and server events. A new sender that reads the analytics endpoint must pass it through `resolveLaneEndpoint` too, or beta traffic splits. Beta and production Analytics share one database, so an ingest change runs on beta traffic first, and checking it on beta proves the merged code rather than production's. An endpoint on any other host is left as configured.
+
 ## Error Capture
 
 Exceptions fan out through `server/capture-error.ts` to every registered
@@ -342,7 +344,7 @@ Other framework-level baseline events:
   `AGENT_NATIVE_HTTP_TELEMETRY_SAMPLE_RATE` on the server and
   `VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE` in the browser.
 - `signup` from Better Auth user creation, with `auth_provider`, `auth_user_id`, and first-touch referral attribution (`referral_source`, `referrer_user`, `referral_medium`, `referral_campaign`, `utm_*`, `first_touch_path`, `landing_referrer` — see "Referral / viral attribution" above)
-- `builder connect clicked` and `builder connect popup blocked` from browser Connect Builder CTAs
+- `builder connect clicked` and `builder connect popup blocked` from browser Use Builder.io CTAs
 - `builder connect started`, `builder connect succeeded`, `builder connect failed`, `builder disconnect succeeded`, and `builder disconnect failed` from the Builder connection routes, with LLM connection context when resolvable
 - `$ai_generation` from instrumented agent loops, with PostHog AI Observability fields such as `$ai_trace_id`, `$ai_session_id`, `$ai_model`, `$ai_provider`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency`, `$ai_total_cost_usd`, and mirrored Agent-Native query fields such as `run_id`, `thread_id`, `cost_cents_x100`, `duration_ms`, `tool_calls`, and `status`. A bounded `tools` array contains names, start offsets, durations, statuses, and coarse error classes only; interrupted tools and failed runs remain visible, and delegated runs include protocol/task/parent-run/parent-turn correlation. Prompt, tool argument, result, and output content is excluded unless `captureToolResults` is opted in (see the `observability` skill), in which case each failed tool call also carries a `error_message` string truncated to 500 characters and already scrubbed of bearer tokens, API keys, and key/value secret patterns.
 

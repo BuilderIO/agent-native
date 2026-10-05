@@ -68,9 +68,9 @@ export default defineAction({
           kind: "connect-builder" as const,
           label: "Make this a real app",
           description:
-            "Connect Builder.io (free tier available) to unlock React components, live props, " +
+            "Use Builder.io (free tier available) to unlock React components, live props, " +
             "data states, branches, and one-click deploys.",
-          primaryAction: "Connect Builder.io",
+          primaryAction: "Use Builder.io",
           connectUrl,
         },
         message:

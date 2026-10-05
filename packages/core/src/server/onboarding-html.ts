@@ -1402,7 +1402,7 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
             learnMoreUrl:
               marketing.learnMoreUrl ??
               (marketingSlug
-                ? `https://agent-native.com/apps/${marketingSlug}`
+                ? `https://agent-native.com/apps/${marketingSlug}?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more`
                 : undefined),
           }
         : undefined,

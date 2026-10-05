@@ -14,6 +14,7 @@ import {
   ANALYTICS_CLIENT_PLATFORM_PROPERTY,
   type AnalyticsClientPlatform,
 } from "../shared/analytics-platform.js";
+import { resolveLaneEndpoint } from "../shared/environment-lanes.js";
 import {
   classifyErrorNoise,
   type ErrorNoiseFrame,
@@ -23,7 +24,7 @@ import {
   type LlmConnectionStatus,
 } from "../shared/llm-connection.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
-import { isQaTestEmail } from "../shared/qa-test-email.js";
+import { isTestIdentityEmail } from "../shared/qa-test-email.js";
 import { isSyntheticTrafficValue } from "../shared/test-traffic.js";
 import { toPostHogExceptionProperties } from "../tracking/posthog-exception.js";
 import { getAnalyticsClientPlatform } from "./analytics-platform.js";
@@ -152,6 +153,11 @@ export type TrackingIdentityUser = {
   email?: string;
   username?: string;
   authUserId?: string;
+  /**
+   * The session endpoint's `testIdentity`: covers identities the deployment
+   * configured, which the built-in matcher here cannot see.
+   */
+  testIdentity?: boolean;
 };
 
 type TrackingIdentity = {
@@ -160,6 +166,7 @@ type TrackingIdentity = {
   userEmail?: string;
   userName?: string;
   orgId?: string | null;
+  testIdentity?: boolean;
 };
 
 let _getDefaultProps: GetDefaultProps | null = null;
@@ -238,6 +245,8 @@ const FIRST_TOUCH_QUERY_FIELDS = [
   "gclid",
   "msclkid",
   "vector_source",
+  "site_referrer",
+  "site_landing_path",
 ] as const;
 const FIRST_TOUCH_COOKIE_FIELD_PRIORITY = [
   "gclid",
@@ -252,6 +261,8 @@ const FIRST_TOUCH_COOKIE_FIELD_PRIORITY = [
   "utm_term",
   "landing_path",
   "landing_referrer",
+  "site_referrer",
+  "site_landing_path",
   "landed_at",
 ] as const satisfies readonly (keyof FirstTouchAttribution)[];
 
@@ -270,6 +281,8 @@ export interface FirstTouchAttribution {
   vector_source?: string;
   landing_path?: string;
   landing_referrer?: string;
+  site_referrer?: string;
+  site_landing_path?: string;
   landed_at?: string;
   capture_truncated?: string;
 }
@@ -393,12 +406,19 @@ function readTrackingString(value: unknown): string | undefined {
 function isQaTrackingIdentity(identity: TrackingIdentity | null): boolean {
   return Boolean(
     identity &&
-    (isQaTestEmail(identity.userId) || isQaTestEmail(identity.userEmail)),
+    (identity.testIdentity === true ||
+      isTestIdentityEmail(identity.userId) ||
+      isTestIdentityEmail(identity.userEmail)),
   );
 }
 
 function isQaTrackingUser(user: TrackingIdentityUser | null): boolean {
-  return Boolean(user && (isQaTestEmail(user.id) || isQaTestEmail(user.email)));
+  return Boolean(
+    user &&
+    (user.testIdentity === true ||
+      isTestIdentityEmail(user.id) ||
+      isTestIdentityEmail(user.email)),
+  );
 }
 
 function stopSessionReplayForAuthClear(
@@ -449,6 +469,7 @@ function setTrackingIdentityFromSession(data: unknown): void {
     ...(email ? { userEmail: email } : {}),
     ...(userName ? { userName } : {}),
     orgId: readTrackingString(session.orgId) ?? null,
+    ...(session.testIdentity === true ? { testIdentity: true } : {}),
   };
 }
 
@@ -705,6 +726,16 @@ export function getFirstTouchAttribution(): FirstTouchAttribution | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Store the visitor's first touch now instead of in `configureTracking()`,
+ * for a page that reads it before tracking starts. It runs once per page
+ * load, so tracking's own capture is then a no-op.
+ */
+export function captureAttribution(): void {
+  if (isSyntheticBrowserTraffic()) return;
+  captureFirstTouchAttribution();
 }
 
 function isLocalAnalyticsHostname(hostname: string | undefined): boolean {
@@ -993,6 +1024,7 @@ export function setSentryUser(
         ...(user.email ? { userEmail: user.email } : {}),
         ...(user.username ? { userName: user.username } : {}),
         orgId: orgId ?? null,
+        ...(user.testIdentity === true ? { testIdentity: true } : {}),
       };
     } else {
       clearTrackingIdentity();
@@ -2030,12 +2062,14 @@ function sendAgentNativeAnalytics(
       ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
   if (!publicKey) return;
 
-  const endpoint =
+  const endpoint = resolveLaneEndpoint(
     _agentNativeAnalyticsEndpoint ||
-    window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsEndpoint ||
-    (import.meta.env as Record<string, string | undefined>)
-      ?.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
-    AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT;
+      window.__AGENT_NATIVE_CONFIG__?.agentNativeAnalyticsEndpoint ||
+      (import.meta.env as Record<string, string | undefined>)
+        ?.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
+      AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT,
+    window.location.hostname,
+  );
   const userId =
     typeof properties.userId === "string" ? properties.userId : undefined;
   const body = JSON.stringify({

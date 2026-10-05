@@ -1,5 +1,4 @@
 import { useCodeMode } from "@agent-native/core/client/agent-chat";
-import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   getBrowserTabId,
   setClientAppState,
@@ -229,6 +228,8 @@ import {
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import { messagesByLocale } from "@/i18n-data";
+import { readPageShapeHint, rememberPageShape } from "@/lib/page-startup-hints";
+import { startupAnchor } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
 
 import { resolveBuilderCmsWriteEffect } from "../../../../actions/_builder-cms-write-adapter.js";
@@ -299,9 +300,21 @@ import {
   DatabaseTableGrid,
   DatabaseTableLayout,
 } from "./DatabaseTableGrid";
+import {
+  DATABASE_VIEW_CLASS_NAME,
+  DATABASE_VIEW_CONSTRAINTS_ROW_CLASS_NAME,
+  DATABASE_VIEW_TABS_ROW_CLASS_NAME,
+  DatabaseViewSkeleton,
+} from "./DatabaseViewSkeleton";
 import { DatabaseFormView } from "./FormView";
 import { DatabaseGalleryView } from "./GalleryView";
 import { DatabaseListView } from "./ListView";
+import {
+  DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
+  databaseNavigationStateFitsKeepaliveBudget,
+  databaseVisibleItemSummaries,
+  fitDatabaseNavigationState,
+} from "./navigation-state";
 import {
   databaseItemCanDuplicate,
   databaseItemCanRemoveFromDatabase,
@@ -895,6 +908,7 @@ function DatabaseTable({
   const [hydratedDatabaseId, setHydratedDatabaseId] = useState<string | null>(
     null,
   );
+  const [drawnDatabaseId, setDrawnDatabaseId] = useState<string | null>(null);
   const [viewConfig, setViewConfig] = useState<ContentDatabaseViewConfig>(
     defaultDatabaseViewConfig(),
   );
@@ -985,7 +999,7 @@ function DatabaseTable({
     exactRequestedViewId,
     searchParams.get(viewSelectionSearchParam),
   );
-  const personalViewDatabaseId = data?.database.id ?? null;
+  const personalViewDatabaseId = databaseId;
   const newDatabaseRowLabel = isWorkspaceCatalog
     ? t("sidebar.addWorkspace")
     : dbText("newPage");
@@ -1348,12 +1362,46 @@ function DatabaseTable({
     clientQueryExpandedItemLimit,
     data?.pagination?.limit ?? items.length,
   );
+  // A failed read has no rows to expand, so calendar and timeline views would
+  // otherwise count it as an expansion still pending and never draw.
   const isDatabaseViewLoading =
-    isDatabaseInitialLoading ||
-    isClientQueryExpansionPending ||
-    (database.isFetching && Boolean(tableQuery));
+    !database.itemsFailed &&
+    (isDatabaseInitialLoading ||
+      isClientQueryExpansionPending ||
+      (database.isFetching && Boolean(tableQuery)));
+  // Until the saved view resolves and its first rows land, the view draws its
+  // placeholder; after that, later reads keep the view on screen.
+  const firstViewPending =
+    drawnDatabaseId !== databaseId &&
+    !(
+      hydratedDatabaseId === databaseId &&
+      database.itemsSettled &&
+      !isDatabaseViewLoading
+    );
+  const constraintsBarHeld = databaseConstraintsBarIsVisible({
+    forceShow: false,
+    constraintCount: visibleConstraintCount,
+    filterCount: filters.length,
+    hasPersonalQueryChanges: personalQueryDirty,
+  });
   useEffect(() => {
-    if (isDatabaseViewLoading) return;
+    if (firstViewPending) return;
+    setDrawnDatabaseId(databaseId);
+    if (renderMode === "page") {
+      rememberPageShape(
+        document.id,
+        constraintsBarHeld ? "database-constrained" : "database",
+      );
+    }
+  }, [
+    constraintsBarHeld,
+    databaseId,
+    document.id,
+    firstViewPending,
+    renderMode,
+  ]);
+  useEffect(() => {
+    if (isDatabaseViewLoading || firstViewPending) return;
     window.document.documentElement.dataset.contentDatabaseRowsVisibleDocumentId =
       document.id;
     window.dispatchEvent(
@@ -1361,7 +1409,7 @@ function DatabaseTable({
         detail: { documentId: document.id },
       }),
     );
-  }, [document.id, isDatabaseViewLoading]);
+  }, [document.id, firstViewPending, isDatabaseViewLoading]);
   useEffect(() => {
     if (clientQueryExpandedItemLimit === databaseRequestItemLimit) return;
     setDatabaseRequestItemLimit(clientQueryExpandedItemLimit);
@@ -1786,17 +1834,23 @@ function DatabaseTable({
       selectedItems,
       previewItem,
     });
-    fetch(
-      agentNativePath(
-        `/_agent-native/application-state/navigation:${getBrowserTabId()}`,
-      ),
-      {
-        method: "PUT",
-        keepalive: true,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(state),
-      },
-    ).catch(() => {});
+    // The route writes a bare navigation state to the same key from Root,
+    // whose effects run after this one in the same commit. Writing after the
+    // commit keeps this fuller state from being overwritten by it.
+    const timer = setTimeout(() => {
+      const navigationState = fitDatabaseNavigationState(state);
+      void setClientAppState(
+        `navigation:${getBrowserTabId()}`,
+        navigationState,
+        {
+          keepalive:
+            databaseNavigationStateFitsKeepaliveBudget(navigationState),
+        },
+      ).catch(() => {
+        // Navigation sync is best-effort; the next view change rewrites it.
+      });
+    });
+    return () => clearTimeout(timer);
   }, [
     activeView,
     effectiveFrozenColumnIds,
@@ -2796,21 +2850,28 @@ function DatabaseTable({
     orderedProperties,
     visibleItems,
   ]);
+  // The page read already carries the saved views, so the view resolves
+  // without waiting for the rows, and the first rows read is the saved view's.
+  const viewSourceDatabase =
+    data?.database ??
+    (document.database?.id === expectedDatabaseId
+      ? document.database
+      : undefined);
   useEffect(() => {
-    if (!data?.database.id) return;
+    if (!viewSourceDatabase) return;
     if (personalView.isLoading) return;
     const localSharedConfig = personalQueryDirty
       ? databaseViewConfigWithSavedQueryState(viewConfig, savedViewConfig)
       : viewConfig;
     if (
-      hydratedDatabaseIdRef.current === data.database.id &&
-      databaseViewStateKey(data.database.id, localSharedConfig) !==
-        databaseViewStateKey(data.database.id, savedViewConfig)
+      hydratedDatabaseIdRef.current === viewSourceDatabase.id &&
+      databaseViewStateKey(viewSourceDatabase.id, localSharedConfig) !==
+        databaseViewStateKey(viewSourceDatabase.id, savedViewConfig)
     )
       return;
-    hydratedDatabaseIdRef.current = data.database.id;
+    hydratedDatabaseIdRef.current = viewSourceDatabase.id;
     const nextSavedViewConfig = normalizeClientDatabaseViewConfig(
-      data.database.viewConfig,
+      viewSourceDatabase.viewConfig,
     );
     const personalViewConfig = applyPersonalDatabaseViewOverrides(
       nextSavedViewConfig,
@@ -2838,12 +2899,12 @@ function DatabaseTable({
       );
     }
     const nextKey = databaseViewStateKey(
-      data.database.id,
+      viewSourceDatabase.id,
       reconciled.viewConfig,
     );
-    setHydratedDatabaseId(data.database.id);
-    const mutationContract = data.mutationContract;
-    if (mutationContract && data.configurationRevision) {
+    setHydratedDatabaseId(viewSourceDatabase.id);
+    const mutationContract = data?.mutationContract;
+    if (data && mutationContract && data.configurationRevision) {
       const { authorityScope: _authorityScope, ...target } =
         mutationContract.target;
       viewSetupRevisionRef.current = {
@@ -2865,13 +2926,14 @@ function DatabaseTable({
       ),
     );
     setViewConfig((current) =>
-      databaseViewStateKey(data.database.id, current) === nextKey
+      databaseViewStateKey(viewSourceDatabase.id, current) === nextKey
         ? current
         : reconciled.viewConfig,
     );
   }, [
+    viewSourceDatabase?.id,
+    viewSourceDatabase?.viewConfig,
     data?.database.id,
-    data?.database.viewConfig,
     data?.configurationRevision,
     data?.mutationContract,
     personalView.data?.overrides,
@@ -2934,15 +2996,10 @@ function DatabaseTable({
     viewConfig,
   ]);
 
-  const exactViewUnavailable =
-    !!exactRequestedViewId &&
-    (database.isError ||
-      isContentDatabaseUnavailable(database.data) ||
-      (!!data &&
-        !resolveRequestedDatabaseView(
-          normalizeClientDatabaseViewConfig(data.database.viewConfig),
-          exactRequestedViewId,
-        )));
+  const exactViewUnavailable = exactRequestedDatabaseViewUnavailable(
+    exactRequestedViewId,
+    database.data,
+  );
   useRecordContentVisit(
     { documentId: document.id, databaseId, viewId: activeView.id },
     foreground &&
@@ -3032,9 +3089,38 @@ function DatabaseTable({
     );
   }
 
+  if (firstViewPending) {
+    // An exact view the page read does not list resolves only from the
+    // collection read, so a failed first read would otherwise hold the
+    // placeholder forever.
+    if (database.itemsFailed && !personalView.isLoading) {
+      return (
+        <QueryErrorState
+          compact
+          onRetry={() => void database.retryItems()}
+          retrying={database.itemsRetrying}
+        />
+      );
+    }
+    return (
+      <DatabaseViewSkeleton
+        anchored={renderMode === "page"}
+        constraints={
+          hydratedDatabaseId === databaseId
+            ? constraintsBarHeld
+            : renderMode === "page" &&
+              readPageShapeHint(document.id) === "database-constrained"
+        }
+      />
+    );
+  }
+
   return (
-    <div className="mt-4 min-w-0 w-full max-w-[calc(100vw-var(--content-sidebar-width,0px)-1.5rem)]">
-      <div className="mb-1 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-1">
+    <div className={DATABASE_VIEW_CLASS_NAME}>
+      <div
+        {...(renderMode === "page" ? startupAnchor("database-tabs") : {})}
+        className={DATABASE_VIEW_TABS_ROW_CLASS_NAME}
+      >
         <DatabaseViewTabs
           assetScopeDocumentId={databaseDocumentId}
           viewConfig={viewConfig}
@@ -3293,7 +3379,13 @@ function DatabaseTable({
         );
       })}
 
-      {activeView.type === "form" ? (
+      {database.itemsFailed ? (
+        <QueryErrorState
+          compact
+          onRetry={() => void database.retryItems()}
+          retrying={database.itemsRetrying}
+        />
+      ) : activeView.type === "form" ? (
         <DatabaseFormView
           databaseId={databaseId}
           databaseDocumentId={document.id}
@@ -3472,6 +3564,7 @@ function DatabaseTable({
         />
       ) : (
         <DatabaseTableView
+          startupAnchored={renderMode === "page"}
           columnOrderIds={activeView.tableColumnOrderIds ?? []}
           databaseId={databaseId}
           databaseSystemRole={data?.database.systemRole}
@@ -3565,7 +3658,9 @@ function DatabaseTable({
         />
       )}
 
-      {hasMoreItems && !isClientQueryExpansionPending ? (
+      {hasMoreItems &&
+      !isClientQueryExpansionPending &&
+      !database.itemsFailed ? (
         <div className="flex items-center justify-center border-t border-border/45 py-3">
           <Button
             type="button"
@@ -4056,33 +4151,7 @@ export function databaseViewSummaries(
   }));
 }
 
-export const DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT = 50;
-
-export function databaseVisibleItemSummaries(
-  items: ContentDatabaseItem[],
-  visibleProperties: DocumentProperty[] = [],
-  limit = DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
-) {
-  return items.slice(0, limit).map((item) => ({
-    itemId: item.id,
-    documentId: item.document.id,
-    title: databaseItemPreviewTitle(item),
-    position: item.position,
-    properties: visibleProperties.map((property) => {
-      const itemProperty =
-        item.properties.find(
-          (candidate) => candidate.definition.id === property.definition.id,
-        ) ?? property;
-      return {
-        propertyId: property.definition.id,
-        name: property.definition.name,
-        type: property.definition.type,
-        value: itemProperty.value,
-        text: propertyValueText(itemProperty),
-      };
-    }),
-  }));
-}
+export { DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT, databaseVisibleItemSummaries };
 
 export function databaseCalculationSummaries(
   calculations: Record<string, DatabaseColumnCalculation> | undefined,
@@ -5159,6 +5228,7 @@ function DatabaseTableView({
   hasSearch,
   totalCount,
   constrained,
+  startupAnchored,
   rowsAreManuallyOrdered,
   wrapCells,
   columnWrapOverrides,
@@ -5219,6 +5289,7 @@ function DatabaseTableView({
   hasSearch: boolean;
   totalCount: number;
   constrained: boolean;
+  startupAnchored: boolean;
   rowsAreManuallyOrdered: boolean;
   wrapCells: boolean;
   columnWrapOverrides: Record<string, boolean>;
@@ -5843,6 +5914,7 @@ function DatabaseTableView({
       >
         <DatabaseTableColumnOrder.Provider value={columnOrderIds}>
           <div
+            {...(startupAnchored ? startupAnchor("database-table") : {})}
             ref={tableViewportRef}
             className="relative w-full min-w-0 max-w-full"
           >
@@ -6229,6 +6301,20 @@ export function databaseViewRequiresCompleteClientDataset(args: {
   );
 }
 
+export function databaseConstraintsBarIsVisible(args: {
+  forceShow: boolean;
+  constraintCount: number;
+  filterCount: number;
+  hasPersonalQueryChanges: boolean;
+}) {
+  return (
+    args.forceShow ||
+    args.constraintCount > 0 ||
+    args.filterCount > 0 ||
+    args.hasPersonalQueryChanges
+  );
+}
+
 function DatabaseActiveConstraintsBar({
   documentId,
   items,
@@ -6290,10 +6376,12 @@ function DatabaseActiveConstraintsBar({
 }) {
   const filterEntries = filters.map((filter, index) => ({ filter, index }));
   if (
-    !forceShow &&
-    constraintCount === 0 &&
-    filterEntries.length === 0 &&
-    !hasPersonalQueryChanges
+    !databaseConstraintsBarIsVisible({
+      forceShow,
+      constraintCount,
+      filterCount: filters.length,
+      hasPersonalQueryChanges,
+    })
   )
     return null;
   const hasSearchOrSortConstraints =
@@ -6308,7 +6396,9 @@ function DatabaseActiveConstraintsBar({
   const hasSortFilterDivider = sorts.length > 0 && filterEntries.length > 0;
 
   return (
-    <ContentTableConstraintBar className="min-h-8 gap-1 py-0.5 text-muted-foreground">
+    <ContentTableConstraintBar
+      className={DATABASE_VIEW_CONSTRAINTS_ROW_CLASS_NAME}
+    >
       {sorts.map((sort, index) => (
         <DatabaseInlineSortControl
           key={`${sort.key}-${index}`}
@@ -8508,7 +8598,7 @@ function DatabaseSettingsSourcePanel({
                 ) : (
                   <IconExternalLink className="mr-1.5 size-3.5" />
                 )}
-                Connect Builder
+                Use Builder.io
               </Button>
             </BuilderConnectPopover>
           </div>
@@ -13614,6 +13704,21 @@ export function resolveRequestedDatabaseView(
   if (!requestedViewId) return config;
   if (!config.views.some((view) => view.id === requestedViewId)) return null;
   return selectDatabaseView(config, requestedViewId);
+}
+
+export function exactRequestedDatabaseViewUnavailable(
+  requestedViewId: string | null | undefined,
+  data: ContentDatabaseResponse | undefined,
+): boolean {
+  return (
+    !!requestedViewId &&
+    (isContentDatabaseUnavailable(data) ||
+      (!!data &&
+        !resolveRequestedDatabaseView(
+          normalizeClientDatabaseViewConfig(data.database.viewConfig),
+          requestedViewId,
+        )))
+  );
 }
 
 export function addDatabaseView(

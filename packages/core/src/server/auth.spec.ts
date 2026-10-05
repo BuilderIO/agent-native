@@ -6310,6 +6310,32 @@ describe("server/auth", () => {
       expect(result).toEqual({ error: "Not authenticated" });
     });
 
+    it("marks configured test identities on the session without exposing the list", async () => {
+      defineAppConfig({
+        testIdentity: { emails: ["@qa.acme.co", "release-bot@acme.co"] },
+      });
+      let email = "lead@qa.acme.co";
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app, { getSession: async () => ({ email }) });
+      const sessionHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/session",
+      )?.[1];
+
+      const flagged = await sessionHandler(
+        createMockEvent({ path: "/_agent-native/auth/session" }),
+      );
+      expect(flagged).toMatchObject({ email, testIdentity: true });
+      expect(JSON.stringify(flagged)).not.toContain("release-bot");
+
+      email = "person@acme.co";
+      const regular = await sessionHandler(
+        createMockEvent({ path: "/_agent-native/auth/session" }),
+      );
+      expect(regular).toMatchObject({ email, testIdentity: false });
+      expect(JSON.stringify(regular)).not.toContain("qa.acme.co");
+    });
+
     it("returns a retryable status when session resolution is unavailable", async () => {
       vi.stubEnv("NODE_ENV", "production");
       delete process.env.ACCESS_TOKEN;
@@ -8868,7 +8894,34 @@ describe("server/auth", () => {
       delete process.env.ACCESS_TOKENS;
       delete process.env.A2A_SECRET;
 
-      const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
+      // The token names org-123, so its owner must still be a member there.
+      const mockExecute = vi.fn(async ({ sql }: { sql: string }) => {
+        if (/to_regclass\('identity_retired_emails'\)/.test(sql)) {
+          return { rows: [{ present: false }] };
+        }
+        if (/FROM org_members/.test(sql)) {
+          return {
+            rows: [{ role: "member", federation_removal_pending_at: null }],
+          };
+        }
+        if (/FROM organizations/.test(sql)) {
+          return { rows: [{ identity_authority: null, identity_id: null }] };
+        }
+        if (
+          /SELECT org_id, owner_email, kind FROM mcp_connect_tokens/.test(sql)
+        ) {
+          return {
+            rows: [
+              {
+                org_id: "org-123",
+                owner_email: "owner@plans.test",
+                kind: "personal",
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      });
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
@@ -8909,6 +8962,68 @@ describe("server/auth", () => {
         token,
         orgId: "org-123",
       });
+    });
+
+    it("answers an action route with a retryable 503, not a 401, when the bearer's org membership cannot be checked", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("BETTER_AUTH_SECRET", "test-secret-for-mcp-oauth-bearer");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+      delete process.env.A2A_SECRET;
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
+
+      const mockExecute = vi.fn(async ({ sql }: { sql: string }) => {
+        if (/FROM org_members/.test(sql)) {
+          throw new Error("connection terminated");
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isLocalDatabase: () => true,
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        getBetterAuth: async () => undefined,
+        getBetterAuthSync: () => null,
+      }));
+
+      const { signMcpOAuthAccessToken, MCP_OAUTH_DEFAULT_SCOPE } =
+        await import("../mcp/oauth-token.js");
+      const { MCP_CONNECT_OAUTH_CLIENT_ID } =
+        await import("../mcp/connect-store.js");
+      const token = await signMcpOAuthAccessToken({
+        ownerEmail: "owner@plans.test",
+        orgId: "org-123",
+        orgDomain: "plans.test",
+        clientId: MCP_CONNECT_OAUTH_CLIENT_ID,
+        scope: MCP_OAUTH_DEFAULT_SCOPE,
+        resource: "http://localhost/_agent-native/mcp",
+        issuer: "http://localhost",
+        jti: "jti-connect-unavailable-test",
+        expiresIn: "30d",
+      });
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      const event = createMockEvent({
+        path: "/_agent-native/actions/import-visual-plan-source",
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      await expect(guard(event)).resolves.toEqual({
+        error: "Organization membership could not be verified. Retry shortly.",
+      });
+      expect(event.res.status).toBe(503);
+      expect(event.res.headers.get("retry-after")).toBe("5");
+      consoleError.mockRestore();
     });
 
     it("does not resolve connect-minted MCP OAuth bearer tokens outside action routes", async () => {

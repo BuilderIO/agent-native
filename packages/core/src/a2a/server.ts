@@ -126,6 +126,18 @@ function audienceForRoute(
     : routeAudience;
 }
 
+/**
+ * MCP connect tokens and MCP OAuth access tokens can be signed with the A2A
+ * secret, but they are long-lived bearers whose revocation and membership
+ * checks live in the MCP endpoint's `verifyAuth`. A2A callers sign a
+ * short-lived token per call, so an MCP credential is never an A2A token.
+ */
+function isMcpCredential(payload: jose.JWTPayload): boolean {
+  return (
+    payload.scope === "mcp-connect" || payload.typ === "agent-native-mcp-oauth"
+  );
+}
+
 function tokenHasAudienceClaim(token: string): boolean {
   return typeof jose.decodeJwt(token).aud !== "undefined";
 }
@@ -144,8 +156,8 @@ function isDirectReadSkill(skill: AgentSkill): boolean {
  * plus any org-level secret for that domain), then verifies the JWT — checking
  * `aud`/`iss` when the token carries them and `exp` always. Returns the
  * caller's email (`sub`) and org domain on success, or `{ email: null,
- * orgDomain: null }` on any failure (malformed, bad signature, expired, or no
- * secret configured), never throwing.
+ * orgDomain: null }` on any failure (malformed, bad signature, expired, no
+ * secret configured, or an MCP credential), never throwing.
  *
  * Exported so workspaces can accept A2A callers on the HTTP action route with
  * the same routine — including org-level fallback secrets — instead of
@@ -251,6 +263,7 @@ export async function verifyA2AToken(
           new TextEncoder().encode(secret),
           verifyOptions,
         );
+        if (isMcpCredential(payload)) return { email: null, orgDomain: null };
         const orgId =
           typeof payload.org_id === "string" && payload.org_id.trim()
             ? payload.org_id.trim()

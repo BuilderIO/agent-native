@@ -48,6 +48,9 @@ export function classifyInitialUploadFailure(error: unknown): {
         : typeof error === "string"
           ? error
           : "";
+  const isSignedUrlFailure = /builder\.io signed-url request failed/i.test(
+    message,
+  );
   const messageStatus = /\b(?:failed|failure|error)\s*\((\d{3})\)/i.exec(
     message,
   )?.[1];
@@ -64,11 +67,13 @@ export function classifyInitialUploadFailure(error: unknown): {
       ? details.failureStage
       : "multipart_start";
   const failureCode = normalizeRecordingFailureCode(details.failureCode);
+  // A nested signed-URL response does not mean the account needs reauthorization.
   const storageSetupRequired =
     failureCode === "storage_setup_required" ||
     details.errorCode === "builder_oauth_reauthorization_required" ||
     details.errorCode === "builder_credentials_rejected" ||
-    /credentials?[^.\n]*(?:not configured|missing)|not connected|reconnect builder(?:\.io)?|scope mismatch|missing its space id/i.test(
+    (!isSignedUrlFailure && (httpStatus === 401 || httpStatus === 403)) ||
+    /credentials?[^.\n]*(?:not configured|missing)|not connected|(?:reconnect|use) builder(?:\.io)?|scope mismatch|missing its space id/i.test(
       message,
     );
 
@@ -114,9 +119,10 @@ export default defineAction({
     const { organizationId } = await requireOrganizationAccess(
       args.organizationId,
     );
-    const defaultVisibility = await getDefaultRecordingVisibility(
+    const visibility = await getDefaultRecordingVisibility(
       organizationId,
       actionContext?.userEmail ?? ownerEmail,
+      args.visibility,
     );
 
     const spaceIds = await validateRecordingScope(db, {
@@ -144,7 +150,7 @@ export default defineAction({
       uploadLeaseExpiresAt: uploadLeaseExpiry(),
       hasAudio: args.hasAudio ?? true,
       hasCamera: args.hasCamera ?? false,
-      visibility: args.visibility ?? defaultVisibility,
+      visibility,
       width: args.width ?? 0,
       height: args.height ?? 0,
       ownerEmail,

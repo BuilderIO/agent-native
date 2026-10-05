@@ -198,6 +198,22 @@ vi.mock("./oauth-store.js", () => ({
   }),
 }));
 
+// The real membership check, with a switch to force its answer.
+const membershipOverride = vi.hoisted(() => ({
+  answer: null as null | "not-member" | "unavailable",
+}));
+vi.mock("./credential-membership.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./credential-membership.js")>();
+  return {
+    ...actual,
+    checkCredentialOrgMembership: async (
+      input: Parameters<typeof actual.checkCredentialOrgMembership>[0],
+    ) =>
+      membershipOverride.answer ?? actual.checkCredentialOrgMembership(input),
+  };
+});
+
 const { handleMcpRequest } = await import("./server.js");
 
 interface MakeEventOpts {
@@ -3580,6 +3596,181 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
+  it("keeps external action links external for desktop clients", async () => {
+    const projectUrl =
+      "https://beta.builder.io/app/projects/test-project/test-app?spaceId=test-space";
+    const externalLinkConfig = {
+      ...config,
+      actions: {
+        ...config.actions,
+        "echo-thing": {
+          ...config.actions["echo-thing"],
+          link: () => ({
+            label: "Open project",
+            view: "project",
+            url: projectUrl,
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 32,
+        method: "tools/call",
+        params: { name: "echo-thing", arguments: { value: "hello" } },
+      },
+      {
+        headers: {
+          "x-agent-native-mcp-full-catalog": "1",
+          "x-agent-native-open-target": "desktop",
+        },
+        config: externalLinkConfig,
+      },
+    );
+
+    expect(out.result.content[1].text).toBe(
+      `\n\n[Open project →](${projectUrl})`,
+    );
+    expect(out.result._meta["agent-native/openLink"]).toMatchObject({
+      webUrl: projectUrl,
+      desktopUrl: projectUrl,
+    });
+  });
+
+  it("keeps foreign open-route URLs external for desktop clients", async () => {
+    const externalUrl =
+      "https://outside.example/_agent-native/open?view=project&id=test";
+    const externalLinkConfig = {
+      ...config,
+      actions: {
+        ...config.actions,
+        "echo-thing": {
+          ...config.actions["echo-thing"],
+          link: () => ({ label: "Open project", url: externalUrl }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 33,
+        method: "tools/call",
+        params: { name: "echo-thing", arguments: { value: "hello" } },
+      },
+      {
+        headers: {
+          "x-agent-native-mcp-full-catalog": "1",
+          "x-agent-native-open-target": "desktop",
+        },
+        config: externalLinkConfig,
+      },
+    );
+
+    expect(out.result.content[1].text).toBe(
+      `\n\n[Open project →](${externalUrl})`,
+    );
+    expect(out.result._meta["agent-native/openLink"]).toMatchObject({
+      webUrl: externalUrl,
+      desktopUrl: externalUrl,
+    });
+  });
+
+  it("resolves protocol-relative external open routes for desktop clients", async () => {
+    const externalUrl =
+      "https://outside.example/_agent-native/open?view=project&id=test";
+    const externalLinkConfig = {
+      ...config,
+      actions: {
+        ...config.actions,
+        "echo-thing": {
+          ...config.actions["echo-thing"],
+          link: () => ({
+            label: "Open project",
+            url: "//outside.example/_agent-native/open?view=project&id=test",
+          }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 37,
+        method: "tools/call",
+        params: { name: "echo-thing", arguments: { value: "hello" } },
+      },
+      {
+        headers: {
+          "x-agent-native-mcp-full-catalog": "1",
+          "x-agent-native-open-target": "desktop",
+        },
+        config: externalLinkConfig,
+      },
+    );
+
+    expect(out.result.content[1].text).toBe(
+      `\n\n[Open project →](${externalUrl})`,
+    );
+    expect(out.result._meta["agent-native/openLink"]).toMatchObject({
+      webUrl: externalUrl,
+      desktopUrl: externalUrl,
+    });
+  });
+
+  it("recognizes open routes under a configured framework prefix", async () => {
+    const originalPrefix =
+      process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+    process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+      "/_platform";
+    try {
+      const customPrefixConfig = {
+        ...config,
+        actions: {
+          ...config.actions,
+          "echo-thing": {
+            ...config.actions["echo-thing"],
+            link: () => ({
+              label: "Open project",
+              url: "/_platform/open?view=project&id=test",
+            }),
+          },
+        },
+      };
+      const out = await callWeb(
+        {
+          jsonrpc: "2.0",
+          id: 35,
+          method: "tools/call",
+          params: { name: "echo-thing", arguments: { value: "hello" } },
+        },
+        {
+          headers: {
+            "x-agent-native-mcp-full-catalog": "1",
+            "x-agent-native-open-target": "desktop",
+          },
+          config: customPrefixConfig,
+        },
+      );
+
+      expect(out.result._meta["agent-native/openLink"]).toMatchObject({
+        webUrl:
+          "https://mail.agent-native.com/_platform/open?view=project&id=test&agentSidebar=closed",
+        desktopUrl:
+          "agentnative://open?view=project&id=test&agentSidebar=closed",
+      });
+    } finally {
+      if (originalPrefix === undefined) {
+        delete process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX;
+      } else {
+        process.env.AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX =
+          originalPrefix;
+      }
+    }
+  });
+
   it("serializes bounded action images as MCP image content without exposing base64 in text or structured content", async () => {
     const png = "aGVsbG8=";
     const imageConfig = {
@@ -3671,6 +3862,56 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(actionChangeMocks.writeMarker).toHaveBeenCalledOnce();
     expect(actionChangeMocks.writeMarker).toHaveBeenCalledWith({
       actionName: "update-thing",
+      owner: "oauth@example.com",
+      orgId: "org-from-email",
+    });
+  });
+
+  it("scopes a direct MCP call's action change to the resource it declares", async () => {
+    actionChangeMocks.writeMarker.mockClear();
+    resolveOrgIdForEmailMock.mockResolvedValue("org-from-email");
+    const scopedConfig = {
+      ...config,
+      actions: {
+        "update-thing": {
+          tool: {
+            description: "Update a thing",
+            parameters: {
+              type: "object" as const,
+              properties: { id: { type: "string" } },
+            },
+          },
+          readOnly: false,
+          changeResource: (
+            _input: { id: string },
+            result: { thingId: string },
+          ) => ({
+            resourceType: "thing",
+            resourceId: result.thingId,
+          }),
+          run: async () => ({ updated: true, thingId: "thing-1" }),
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 304,
+        method: "tools/call",
+        params: { name: "update-thing", arguments: { id: "thing-1" } },
+      },
+      {
+        headers: await mcpAppsFullCatalogHeaders(),
+        config: scopedConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(actionChangeMocks.writeMarker).toHaveBeenCalledWith({
+      actionName: "update-thing",
+      resourceType: "thing",
+      resourceId: "thing-1",
       owner: "oauth@example.com",
       orgId: "org-from-email",
     });
@@ -4115,6 +4356,54 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(JSON.stringify(out.result.structuredContent)).not.toContain(
       "test-ticket",
     );
+  });
+
+  it("resolves protocol-relative foreign open routes in MCP App metadata", async () => {
+    const externalUrl =
+      "https://outside.example/_agent-native/open?view=project&id=test";
+    const externalNetworkPath =
+      "//outside.example/_agent-native/open?view=project&id=test";
+    const embedConfig = {
+      ...config,
+      actions: {
+        "open-app-embed": {
+          tool: { description: "Open a project" },
+          run: async () => ({
+            app: "mail",
+            url: "/_agent-native/embed/start?ticket=test-ticket",
+            embedStartUrl: "/_agent-native/embed/start?ticket=test-ticket",
+            deepLinkUrl: externalNetworkPath,
+            embed: true,
+          }),
+          readOnly: true,
+          mcpApp: {
+            resource: {
+              title: "Open app",
+              description: "Open the app inline.",
+              html: "<!doctype html><html><body>Open app</body></html>",
+            },
+          },
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 36,
+        method: "tools/call",
+        params: { name: "open-app-embed", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: embedConfig,
+      },
+    );
+
+    expect(out.result._meta["agent-native/openLink"]).toMatchObject({
+      webUrl: externalUrl,
+      desktopUrl: externalUrl,
+    });
   });
 
   it("mints hidden embed-session metadata for same-origin MCP App path results", async () => {
@@ -4986,6 +5275,45 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect((res as any).message).toContain(
       "npx -y @agent-native/core@latest reconnect https://mail.agent-native.com",
     );
+  });
+
+  it("answers 503 without an auth challenge when the token's org membership cannot be checked", async () => {
+    process.env.BETTER_AUTH_SECRET = "oauth-secret-at-least-32-characters-long";
+    const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth@example.com",
+      orgId: "org_123",
+      clientId: "client-123",
+      scope: "mcp:read",
+      resource: "https://mail.agent-native.com/mcp",
+      issuer: "https://mail.agent-native.com",
+    });
+    const request = () =>
+      makeWebEvent({
+        method: "POST",
+        body: { jsonrpc: "2.0", id: 11, method: "tools/list", params: {} },
+        headers: { authorization: `Bearer ${token}` },
+      });
+    try {
+      membershipOverride.answer = "unavailable";
+      const unavailable = request();
+      const res = await handleMcpRequest(unavailable, config as any);
+      expect(unavailable._status).toBe(503);
+      expect(
+        unavailable._responseHeaders?.["www-authenticate"],
+      ).toBeUndefined();
+      expect(unavailable._responseHeaders?.["retry-after"]).toBe("5");
+      expect(res).toMatchObject({ error: "Service Unavailable" });
+
+      membershipOverride.answer = "not-member";
+      const removed = request();
+      await handleMcpRequest(removed, config as any);
+      expect(removed._status).toBe(401);
+      expect(removed._responseHeaders?.["www-authenticate"]).toBeTruthy();
+    } finally {
+      membershipOverride.answer = null;
+      delete process.env.BETTER_AUTH_SECRET;
+    }
   });
 
   it("preserves the legacy MCP resource in its OAuth challenge", async () => {

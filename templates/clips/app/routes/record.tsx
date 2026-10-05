@@ -1733,7 +1733,7 @@ export default function RecordRoute() {
           markStorageConfigured(status);
           if (!status.configured) {
             throw new Error(
-              "No video storage configured. Connect storage: Builder.io (free tier storage + AI) or S3-compatible storage.",
+              "No video storage configured. Use Builder.io (free tier storage + AI) or S3-compatible storage.",
             );
           }
         }
@@ -2758,13 +2758,14 @@ export default function RecordRoute() {
   // A copy left by another visit is taken only once this tab holds its lock;
   // one that another tab owns is never uploaded or deleted from here.
   const openRecoveredCopy = useCallback(
-    async (recordingId: string) => {
+    async (recordingId: string): Promise<boolean> => {
       const status = await holdLocalCopy(recordingId);
       if (status === "busy") {
         toast.info(t("recordRoute.localRecordingOpenElsewhere"));
-        return;
+        return false;
       }
       enterPendingUploadRef.current(recordingId);
+      return true;
     },
     [holdLocalCopy, t],
   );
@@ -2778,8 +2779,11 @@ export default function RecordRoute() {
     [location.search],
   );
   const sessionEmail = authSession?.email ?? null;
+  // A discarded copy stays locked until deleted; reopening it reads as "busy".
+  const resumedLocalRecordingIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!resumeLocalRecordingId || !sessionEmail) return;
+    if (resumedLocalRecordingIdRef.current === resumeLocalRecordingId) return;
     if (uiState !== "idle" || pendingLocalRef.current) return;
     let cancelled = false;
     void (async () => {
@@ -2805,7 +2809,9 @@ export default function RecordRoute() {
         void navigate("/record", { replace: true });
         return;
       }
-      await openRecoveredCopyRef.current(resumeLocalRecordingId);
+      if (await openRecoveredCopyRef.current(resumeLocalRecordingId)) {
+        resumedLocalRecordingIdRef.current = resumeLocalRecordingId;
+      }
     })();
     return () => {
       cancelled = true;
@@ -3370,9 +3376,13 @@ export default function RecordRoute() {
     discardAutoPausedRef.current = false;
     const intent = discardPrompt;
     setDiscardPrompt(null);
-    if (intent === "restart") void restart();
-    else void doCancel();
-  }, [discardPrompt, doCancel, restart]);
+    if (intent === "restart") {
+      void restart();
+    } else {
+      void doCancel();
+      void navigate("/library");
+    }
+  }, [discardPrompt, doCancel, navigate, restart]);
 
   // "Try again" after a failure never deletes a copy that may still exist:
   // a stored copy goes to the finish-upload step, a memory-only one asks.

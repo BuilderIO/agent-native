@@ -17,13 +17,13 @@ En una implementación de producción estándar con la [ejecución de código en
 
 ## Builder.io: edición visual en producción {#builderio}
 
-[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) es un flujo de trabajo gestionado independiente con capacidad de código donde un agente puede modificar la UI de tu aplicación en producción. Conecta tu repositorio a Builder.io (nivel gratuito disponible) y solicita cambios de UI directamente. No necesitas volver a implementar.
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) es un flujo de trabajo gestionado independiente con capacidad de código donde un agente puede modificar la UI de tu aplicación en producción. Usa Builder.io con tu repositorio (nivel gratuito disponible) y solicita cambios de UI directamente. No necesitas volver a implementar.
 
-**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
+La acción **Usa Builder.io** en Configuración inicia Builder OAuth (`builder:ai:invoke`) con una devolución de llamada HTTPS del mismo origen en `/_agent-native/builder/callback`. Así, los dominios alojados como Railway funcionan sin una lista de dominios permitidos. Las claves privadas `BUILDER_*` antiguas siguen como alternativa en tiempo de ejecución para las conexiones existentes.
 
 **Cómo funciona:**
 
-1. Conecta tu repositorio nativo del agente a Builder.io (nivel gratuito disponible)
+1. Usa Builder.io con tu repositorio agent-native (nivel gratuito disponible)
 2. Builder.io proporciona un frame en la nube con el agente, edición visual y colaboración en tiempo real
 3. Solicita al agente que realice cambios en la UI. Edita tus componentes, rutas y estilos en vivo
 4. Los cambios se confirman de vuelta en tu repositorio

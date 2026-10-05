@@ -1,6 +1,7 @@
 import { getAppConfig } from "../app-config/index.js";
 import { getRequestContext } from "../server/request-context.js";
-import { isQaTestEmail } from "../shared/qa-test-email.js";
+import { isTestIdentity } from "../server/test-identity.js";
+import { resolveLaneEndpoint } from "../shared/environment-lanes.js";
 import { reshapeTrackedExceptionProperties } from "./posthog-exception.js";
 import { registerTrackingProvider } from "./registry.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
@@ -105,6 +106,16 @@ function isLocalhostUrl(value: string | undefined): boolean {
     );
   } catch {
     return false;
+  }
+}
+
+function hostnameOf(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    return new URL(url).hostname;
+  } catch {
+    // coercion-ok: An unparseable app URL names no lane, so the endpoint stays as configured.
+    return undefined;
   }
 }
 
@@ -245,11 +256,13 @@ export function sendPostHogEvent(
   const requestContext = getRequestContext();
   if (
     requestContext?.isSyntheticTraffic === true ||
-    isQaTestEmail(distinctId) ||
-    isQaTestEmail(requestContext?.userEmail) ||
-    isQaTestEmail(properties.email) ||
-    isQaTestEmail(properties.userEmail) ||
-    isQaTestEmail(properties.user_email)
+    [
+      distinctId,
+      requestContext?.userEmail,
+      properties.email,
+      properties.userEmail,
+      properties.user_email,
+    ].some(isTestIdentity)
   ) {
     return false;
   }
@@ -410,6 +423,7 @@ function createAgentNativeAnalyticsProvider(
   const flushImmediately = agentNativeAnalyticsFlushesImmediately();
   return {
     name: "agent-native-analytics",
+    acceptsTestIdentityExceptions: true,
     track(event: TrackingEvent) {
       enqueue(
         endpoint,
@@ -483,9 +497,12 @@ export function registerBuiltinProviders(): void {
     registerTrackingProvider(
       createAgentNativeAnalyticsProvider(
         agentNativePublicKey,
-        (
-          agentNativeEndpoint || AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT
-        ).replace(/\/+$/, ""),
+        resolveLaneEndpoint(
+          (
+            agentNativeEndpoint || AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT
+          ).replace(/\/+$/, ""),
+          hostnameOf(getAppConfig().app.url),
+        ),
       ),
     );
   }

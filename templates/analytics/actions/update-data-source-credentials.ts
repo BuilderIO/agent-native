@@ -9,6 +9,7 @@ import {
   optionalCredentialKeys,
   partitionCredentialUpdate,
 } from "../server/lib/credential-keys";
+import { resolveCredentialSaveScope } from "../server/lib/credential-save-scope";
 import {
   deleteCredential,
   hasCredential,
@@ -84,9 +85,10 @@ export default defineAction({
         }),
       )
       .min(1),
+    scope: z.enum(["user", "org"]).optional(),
   }),
   agentTool: false,
-  run: async ({ vars }, actionContext?: ActionRunContext) => {
+  run: async ({ vars, scope }, actionContext?: ActionRunContext) => {
     const recognized = vars.filter((v) => ALLOWED_KEYS.has(v.key));
     if (recognized.length === 0) {
       throw new Error("No recognized credential keys in request");
@@ -112,6 +114,7 @@ export default defineAction({
 
     const ctx = tryRequestCredentialContext();
     if (!ctx) throw new Error("Sign in to save credentials");
+    const saveScope = await resolveCredentialSaveScope(ctx, scope);
 
     const changedKeys = new Set([...toSave.map(({ key }) => key), ...toDelete]);
     const affectedProviders = credentialProviderConfigs.filter((provider) =>
@@ -130,10 +133,10 @@ export default defineAction({
     );
 
     for (const { key, value } of toSave) {
-      await saveCredential(key, value, ctx);
+      await saveCredential(key, value, { ...ctx, scope: saveScope });
     }
     for (const key of toDelete) {
-      await deleteCredential(key, ctx);
+      await deleteCredential(key, { ...ctx, scope: saveScope });
     }
 
     const savedKeys = new Set(toSave.map((v) => v.key));

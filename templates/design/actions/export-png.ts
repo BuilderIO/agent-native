@@ -98,7 +98,7 @@ export default defineAction({
       }
       fail(
         "The PNG was rendered but could not be returned because file storage is not configured. " +
-          "Connect or reconnect Builder.io in Settings → File uploads, or register a custom file provider.",
+          "Use Builder.io in Settings → File uploads, or register a custom file provider.",
         {
           errorCode: "file_storage_not_configured",
           details: { designId: result.designId, fileId: result.fileId },

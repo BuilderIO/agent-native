@@ -56,7 +56,15 @@ authorization-code + PKCE at
 Access tokens are audience-bound to the exact MCP URL and carry user/org
 identity plus `mcp:read`, `mcp:write`, `mcp:apps`, and/or `offline_access`;
 advertising `offline_access` lets hosts such as ChatGPT retain refresh access.
-Refresh tokens are stored hashed and rotate. Keep `ACCESS_TOKEN` and `pnpm exec agent-native connect` for
+Refresh tokens are stored hashed and are not rotated: a refresh returns the
+same token and slides its 365-day expiry. MCP OAuth and connect tokens carry
+the org chosen when they were issued, so `verifyAuth` and the token endpoint
+re-check live org membership on every use. A removed member gets a 401 or
+`invalid_grant`; a failed check answers a retryable 503. Offboarding revokes
+their MCP refresh and connect tokens instead of transferring them. Cross-app A2A
+tokens are not re-checked, because their `org_id` is the signing app's
+assertion, and the A2A endpoint rejects MCP credentials.
+Keep `ACCESS_TOKEN` and `pnpm exec agent-native connect` for
 local stdio proxying and fallback clients. The CLI
 uses the OAuth-native URL-only entry for Claude Code/Claude Code CLI by
 default; use the Connect page or `npx @agent-native/core@latest connect --token <token>` when a
@@ -243,7 +251,7 @@ Full runbook + flow detail: [Cross-App SSO doc](/docs/cross-app-sso).
 
 Apps can connect to Builder via the `cli-auth` flow and persist shared browser credentials in `.env`. Agents then use the built-in `get-browser-connection` tool to provision a real browser session via AI Services.
 
-Signed-in users connect Builder.io through OAuth as one of two connections.
+Signed-in users use Builder.io through one of two OAuth connections.
 Owners and admins connect the organization's connection, which every member
 uses. Members can add a personal connection that only they use, ahead of the
 organization's; owners and admins get none. Roles are enforced on the server

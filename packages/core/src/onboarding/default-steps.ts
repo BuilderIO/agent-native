@@ -76,7 +76,7 @@ const JEV_KEY_METHOD: OnboardingMethod = {
   kind: "form",
   label: "Decision model (Jev)",
   description:
-    "Optional direct Jev API key for smarter tool and skill selection. Builder-managed Jev may be available through Connect Builder, so both are not required.",
+    "Optional direct Jev API key for smarter tool and skill selection. Builder-managed Jev may be available through Builder.io, so both are not required.",
   badge: "recommended",
   payload: {
     writeScope: "user",
@@ -100,7 +100,7 @@ const llmStep: OnboardingStep = {
     {
       id: "builder",
       kind: "builder-cli-auth",
-      label: "Connect Builder",
+      label: "Use Builder.io",
       description: "Builder.io's free tier includes AI credits.",
       primary: true,
       badge: "free",
@@ -263,7 +263,7 @@ const emailStep: OnboardingStep = {
       description:
         "See which variables each email provider needs and how to set them.",
       payload: {
-        url: "https://www.agent-native.com/docs/deployment#email-provider",
+        url: "https://www.agent-native.com/docs/deployment?utm_source=app&utm_medium=product&utm_content=onboarding-email-provider#email-provider",
         external: true,
       },
     },
@@ -400,9 +400,9 @@ const fileStorageStep: OnboardingStep = {
     {
       id: "builder",
       kind: "builder-cli-auth",
-      label: "Connect Builder",
+      label: "Use Builder.io",
       description:
-        "Builder includes managed file storage alongside its AI connection.",
+        "Builder.io includes managed file storage alongside its AI service.",
       primary: true,
       badge: "free",
       payload: { scope: "llm" },

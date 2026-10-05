@@ -7,6 +7,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Google Slides imports keep skipped slides and their images in the right place.
 - Heading text stays intact when Backspace joins it into a styled block.
 - Slide text editing now preserves formatting and caret placement across browsers.
 

@@ -962,7 +962,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Agents can search and read connected GitHub repositories when auditing tracking events.
 - Dashboards can now include extension panels that embed a sandboxed extension inline instead of a SQL chart
-- Set up session replay storage from settings: connect Builder.io or add S3-compatible storage
+- Set up session replay storage from settings: use Builder.io or add S3-compatible storage
 
 ### Improved
 

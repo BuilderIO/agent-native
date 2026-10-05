@@ -440,6 +440,7 @@ export interface GuidedQuestionFlowProps {
   isSubmitting?: boolean;
   isSubmissionBlocked?: boolean;
   providerStatus?: AgentEngineConfiguredState;
+  modelListUnavailable?: boolean;
   onRetryProviderStatus?: () => void;
   showProviderStatusGate?: boolean;
   className?: string;
@@ -447,9 +448,11 @@ export interface GuidedQuestionFlowProps {
 
 export function GuidedQuestionProviderGate({
   providerStatus,
+  modelListUnavailable = false,
   onRetry,
 }: {
   providerStatus: AgentEngineConfiguredState;
+  modelListUnavailable?: boolean;
   onRetry?: () => void;
 }) {
   const t = useT();
@@ -469,14 +472,22 @@ export function GuidedQuestionProviderGate({
       className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
       role="status"
     >
-      <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
-      <button
-        type="button"
-        className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={onRetry}
-      >
-        {t("agentChat.common.retry")}
-      </button>
+      <span>
+        {t(
+          modelListUnavailable
+            ? "agentChat.setup.modelListUnavailable"
+            : "agentChat.setup.providerStatusUnavailable",
+        )}
+      </span>
+      {onRetry ? (
+        <button
+          type="button"
+          className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={onRetry}
+        >
+          {t("agentChat.common.retry")}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -492,6 +503,7 @@ export function GuidedQuestionFlow({
   isSubmitting = false,
   isSubmissionBlocked = false,
   providerStatus = "configured",
+  modelListUnavailable = false,
   onRetryProviderStatus,
   showProviderStatusGate = true,
   className,
@@ -570,6 +582,7 @@ export function GuidedQuestionFlow({
           <div className="guided-question-provider-gate mt-3">
             <GuidedQuestionProviderGate
               providerStatus={providerStatus}
+              modelListUnavailable={modelListUnavailable}
               onRetry={onRetryProviderStatus}
             />
           </div>

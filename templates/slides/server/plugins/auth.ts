@@ -6,7 +6,8 @@ export default createAuthPlugin({
   workspaceAppPublicPaths: ["/"],
   marketing: {
     appName: "Slides",
-    learnMoreUrl: "https://agent-native.com/apps/slides",
+    learnMoreUrl:
+      "https://agent-native.com/apps/slides?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline:
       "Your AI agent builds, edits, and refines presentations alongside you.",
     features: [

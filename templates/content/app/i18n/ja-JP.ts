@@ -255,7 +255,7 @@ const databaseExactEnglish = {
   analyzingBothSourcesForASharedKey: "正在分析两个来源的共享键",
   bodyDiff: "正文差异",
   builderIsntConnectedGoBackToConnectYour:
-    "Builder 未连接。请先返回并连接你的账户。",
+    "Builder は未接続です。戻ってから Builder.io をご利用ください。",
   calendarBy: "日历依据",
   checkingBuilderConnection: "正在检查 Builder 连接",
   clearAll: "全部清除",
@@ -267,7 +267,7 @@ const databaseExactEnglish = {
   collapseAllGroups: "折叠所有分组",
   collapseAll: "全部折叠",
   connectYourBuilderAccountToBrowseItsSpaces:
-    "连接你的 Builder 账户以浏览其空间和模型。",
+    "Builder アカウントを使ってスペースとモデルを閲覧できます。",
   connectedSources: "已连接的来源",
   couldntSyncRetry: "无法同步 · 重试",
   countAll: "全部计数",
@@ -952,8 +952,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "前回のページを利用できないため、ようこそページを開きました。",
-  requestedPageUnavailable:
-    "そのページはお使いのアカウントでは利用できないため、ようこそページを開きました。",
   saveFailed: "現在位置を保存できませんでした",
   workspaceWelcomeUnavailableTitle: "まだ何も開かれていません",
   workspaceWelcomeUnavailableDescription:
@@ -1350,6 +1348,9 @@ const overrides = {
   },
   empty: {
     noPageTitle: "ページが選択されていません",
+    signedInAs: "ログイン中のアカウント: {{email}}",
+    goToMyPages: "自分のページへ",
+    switchAccount: "アカウントを切り替える",
     noPageDescription:
       "サイドバーからページを選ぶか、新しいページを作成してください。",
     newPage: "新しいページ",

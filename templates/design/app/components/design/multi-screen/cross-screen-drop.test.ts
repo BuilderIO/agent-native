@@ -4,11 +4,47 @@ import { describe, expect, it } from "vitest";
 import {
   COMPACT_CROSS_SCREEN_GHOST_PX,
   captureCrossScreenSourceHtmlSnapshot,
+  getBoardDropRoute,
+  getCrossScreenSourceGeometry,
   getCrossScreenGhostStyle,
+  isCrossScreenGridPlacement,
   isPointerInsideSourceIframe,
   validateCrossScreenSourceHtmlSnapshot,
 } from "./cross-screen-drop";
 import { SURFACE_PADDING } from "./overview-layout";
+
+describe("getCrossScreenSourceGeometry", () => {
+  const viewportGeometry = { x: 0, y: 0, width: 1200, height: 800 };
+  const persistedGeometry = { x: 100, y: 100, width: 320, height: 200 };
+  const renderedGeometry = { ...persistedGeometry, height: 560 };
+
+  it("keeps drops in visible Hug overflow inside the source Screen", () => {
+    const sourceGeometry = getCrossScreenSourceGeometry({
+      renderedGeometry,
+      persistedGeometry,
+    });
+    expect(
+      getBoardDropRoute({
+        point: { x: 140, y: 500 },
+        viewportGeometry,
+        sourceScreenGeometry: sourceGeometry,
+      }),
+    ).toBeNull();
+    expect(
+      getBoardDropRoute({
+        point: { x: 140, y: 500 },
+        viewportGeometry,
+        sourceScreenGeometry: persistedGeometry,
+      }),
+    ).toBe("board-root");
+  });
+
+  it("falls back to persisted geometry until rendered bounds are available", () => {
+    expect(getCrossScreenSourceGeometry({ persistedGeometry })).toBe(
+      persistedGeometry,
+    );
+  });
+});
 
 describe("isPointerInsideSourceIframe", () => {
   it("treats a pointer past the iframe's own reported viewport as OUTSIDE", () => {
@@ -121,6 +157,28 @@ describe("cross-screen source HTML snapshots", () => {
         "root",
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("cross-screen grid placements", () => {
+  it("accepts positive track ranges and rejects invalid message data", () => {
+    expect(
+      isCrossScreenGridPlacement({
+        column: 3,
+        columnEnd: 4,
+        row: 2,
+        rowEnd: 3,
+      }),
+    ).toBe(true);
+    expect(
+      isCrossScreenGridPlacement({
+        column: 3,
+        columnEnd: 3,
+        row: 2,
+        rowEnd: 3,
+      }),
+    ).toBe(false);
+    expect(isCrossScreenGridPlacement(null)).toBe(false);
   });
 });
 

@@ -1,4 +1,4 @@
-import { resolveAccess } from "@agent-native/core/sharing";
+import { resolveAccess, type ResolvedAccess } from "@agent-native/core/sharing";
 
 import { schema } from "../server/db/index.js";
 import type {
@@ -11,9 +11,15 @@ import { parseDatabaseViewConfig } from "./_property-utils.js";
 export async function getDatabaseSetupContract(
   database: typeof schema.contentDatabases.$inferSelect,
   mutationContract: ContentDatabaseMutationContract,
+  options: {
+    /** The caller's role on the database page, when this request resolved it. */
+    accessRole?: ResolvedAccess["role"] | null;
+  } = {},
 ): Promise<ContentDatabaseSetupContract> {
-  const access = await resolveAccess("document", database.documentId);
-  const role = access?.role;
+  const role =
+    options.accessRole !== undefined
+      ? (options.accessRole ?? undefined)
+      : (await resolveAccess("document", database.documentId))?.role;
   const canEdit = role === "editor" || role === "admin" || role === "owner";
   const target = {
     spaceId: mutationContract.target.spaceId,

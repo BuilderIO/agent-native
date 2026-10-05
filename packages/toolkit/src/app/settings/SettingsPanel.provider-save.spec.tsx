@@ -574,14 +574,14 @@ describe("AgentSettingsContent provider save", () => {
       'input[type="password"]',
     );
     if (!key) throw new Error("Missing API key input");
-    await changeInput(key, "sk-obviously-fake-openai-key");
+    await changeInput(key, "obviously-fake-openai-value");
 
     await click(buttonNamed("Save"));
 
     expect(fixture.providerSettingsRequests).toEqual([
       {
         key: "OPENAI_API_KEY",
-        value: "sk-obviously-fake-openai-key",
+        value: "obviously-fake-openai-value",
         scope: "org",
         defaultModel: {
           engine: "ai-sdk:openai",
@@ -593,6 +593,52 @@ describe("AgentSettingsContent provider save", () => {
     expect(document.body.textContent).toContain(
       "Changes take effect on next conversation",
     );
+    act(() => root.unmount());
+  });
+
+  it("lets an admin save a new key just for themselves", async () => {
+    const fixture = createFetchFixture({
+      envKeys: [
+        { key: "ANTHROPIC_API_KEY", configured: true },
+        { key: "OPENAI_API_KEY", configured: false },
+      ],
+      listResponse: () =>
+        json({
+          engines: [anthropic, openai],
+          current: { engine: "anthropic", model: "claude-sonnet-5" },
+          canUpdateDefault: true,
+        }),
+      providerSettingsResponse: () =>
+        json({
+          ok: true,
+          key: "OPENAI_API_KEY",
+          scope: "user",
+          defaultModel: { status: "skipped", reason: "not-allowed" },
+        }),
+    });
+    const { root } = await renderSettings(fixture.fetchMock);
+    await chooseOpenAi();
+    const personal = document.querySelector<HTMLElement>(
+      '[role="radio"][value="user"]',
+    );
+    expect(
+      document
+        .querySelector('[role="radio"][value="org"]')
+        ?.getAttribute("aria-checked"),
+    ).toBe("true");
+    if (!personal) throw new Error("Missing Personal choice");
+    await click(personal);
+    const key = document.querySelector<HTMLInputElement>(
+      'input[type="password"]',
+    );
+    if (!key) throw new Error("Missing API key input");
+    await changeInput(key, "obviously-fake-openai-value");
+
+    await click(buttonNamed("Save"));
+
+    expect(fixture.providerSettingsRequests).toEqual([
+      expect.objectContaining({ key: "OPENAI_API_KEY", scope: "user" }),
+    ]);
     act(() => root.unmount());
   });
 
@@ -622,13 +668,13 @@ describe("AgentSettingsContent provider save", () => {
     if (!key) throw new Error("Missing API key input");
     expect(buttonNamed("Save").disabled).toBe(true);
 
-    await changeInput(key, "sk-obviously-fake-openai-key");
+    await changeInput(key, "obviously-fake-openai-value");
     await click(buttonNamed("Save"));
 
     expect(fixture.providerSettingsRequests).toEqual([
       {
         key: "OPENAI_API_KEY",
-        value: "sk-obviously-fake-openai-key",
+        value: "obviously-fake-openai-value",
         scope: "user",
       },
     ]);
@@ -668,7 +714,7 @@ describe("AgentSettingsContent provider save", () => {
       'input[type="password"]',
     );
     if (!key) throw new Error("Missing API key input");
-    await changeInput(key, "sk-obviously-fake-openai-key");
+    await changeInput(key, "obviously-fake-openai-value");
     await click(buttonNamed("Save"));
 
     expect(fixture.providerSettingsRequests).toEqual([
@@ -709,7 +755,7 @@ describe("AgentSettingsContent provider save", () => {
       'input[type="password"]',
     );
     if (!key) throw new Error("Missing API key input");
-    await changeInput(key, "sk-obviously-fake-openai-key");
+    await changeInput(key, "obviously-fake-openai-value");
 
     expect(buttonNamed("Save").disabled).toBe(true);
     expect(document.body.textContent).toContain(
