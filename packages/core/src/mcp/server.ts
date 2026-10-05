@@ -239,6 +239,22 @@ function responseStatusFromEvent(event: H3Event): number {
     : 200;
 }
 
+function responseStatusFromError(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const status = error as { status?: unknown; statusCode?: unknown };
+  for (const candidate of [status.status, status.statusCode]) {
+    if (
+      typeof candidate === "number" &&
+      Number.isInteger(candidate) &&
+      candidate >= 100 &&
+      candidate <= 599
+    ) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
 function directoryProfileUnavailable(
   event: H3Event,
   validationError: McpDirectoryProfileValidationError,
@@ -477,7 +493,7 @@ export async function handleMcpRequest(
         : responseStatusFromEvent(event);
     return result;
   } catch (error) {
-    status = 500;
+    status = responseStatusFromError(error) ?? 500;
     throw error;
   } finally {
     if (isDirectoryRequest) {

@@ -316,7 +316,10 @@ vi.mock("h3", () => ({
 }));
 
 vi.mock("../server/h3-helpers.js", () => ({
-  readBody: vi.fn(async (event: any) => event._body ?? {}),
+  readBody: vi.fn(async (event: any) => {
+    if (event._bodyError) throw event._bodyError;
+    return event._body ?? {};
+  }),
 }));
 
 vi.mock("../server/framework-request-handler.js", () => ({
@@ -1117,6 +1120,38 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       expect(event.res.status).toBe(401);
       expect(requestLogs).toEqual([
         { method: "POST", status: 401, durationMs: expect.any(Number) },
+      ]);
+    } finally {
+      consoleInfo.mockRestore();
+    }
+  });
+
+  it("logs the status from thrown H3 errors in directory mode", async () => {
+    const requestLogs: Array<Record<string, any>> = [];
+    const consoleInfo = vi
+      .spyOn(console, "info")
+      .mockImplementation((...args: any[]) => {
+        if (args[0] === "[mcp:directory] request") requestLogs.push(args[1]);
+      });
+    try {
+      const event = makeWebEvent({});
+      event._bodyError = Object.assign(new Error("Malformed request body"), {
+        status: 400,
+      });
+      const directoryConfig = {
+        ...config,
+        directoryProfile: slidesDirectoryProfile,
+      };
+
+      await expect(
+        handleMcpRequest(
+          event,
+          directoryConfig as any,
+          MCP_DIRECTORY_ROUTE_PREFIX,
+        ),
+      ).rejects.toMatchObject({ status: 400 });
+      expect(requestLogs).toEqual([
+        { method: "POST", status: 400, durationMs: expect.any(Number) },
       ]);
     } finally {
       consoleInfo.mockRestore();
