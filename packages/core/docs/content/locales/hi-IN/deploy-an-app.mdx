@@ -1,14 +1,113 @@
 ---
 title: "ऐप deploy करें"
-description: "Agent-Native app को Nitro target पर build और deploy करें।"
+description: "हर standalone Agent-Native deployment जिन चरणों का पालन करता है, और आपके host की guide कहां मिलेगी।"
 ---
 
 # ऐप deploy करें
 
-Steps और provider commands के लिए [पूरा English app deployment guide](/docs/deploy-an-app) देखें।
+किसी standalone Agent-Native ऐप को deploy करने से वह एक असली database के साथ
+internet पर आ जाता है, ताकि दूसरे लोग sign up करके उसका इस्तेमाल कर सकें। हर
+hosting guide यही पांच चरण अपनाती है। यह page बताता है कि हर चरण क्या करता है और
+host चुनने में आपकी मदद करता है। फिर हर host की guide सटीक commands देती है।
 
-[Getting Started](/docs/getting-started) से शुरू करें। Build या deploy करने से पहले hosting provider की environment settings में `DATABASE_URL` सेट करें, केवल local `.env` में नहीं। `openssl rand -hex 32` से stable `BETTER_AUTH_SECRET` बनाकर वहीं सहेजें। **Continue as local dev** केवल local development के लिए है; deployed app signup और login उपयोग करता है। [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify) या [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) चुनें।
+<Callout tone="info">
 
-अगर `pnpm` आपके `PATH` में उपलब्ध नहीं है, तो generated app के अंदर `corepack enable` चलाएँ।
+Node.js `22.22+` आवश्यक है।
 
-एक origin के पीछे कई apps के लिए [Workspace Deployment](/docs/workspace-deployment) देखें।
+</Callout>
+
+## Host चुनें {#choose-a-host}
+
+| Host                                                | ऐप कहां चलता है                                         |
+| --------------------------------------------------- | ------------------------------------------------------ |
+| [Node.js](/docs/node-js)                            | आपके द्वारा manage किया जाने वाला server, जैसे virtual machine |
+| [Docker](/docs/docker)                              | आपके द्वारा manage किए जाने वाले server या container host पर एक container |
+| [Vercel](/docs/vercel)                              | Vercel की hosting, जिसमें कोई server manage नहीं करना पड़ता |
+| [Netlify](/docs/netlify)                            | Netlify की hosting, जिसमें कोई server manage नहीं करना पड़ता |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | Cloudflare का network, जिसमें कोई server manage नहीं करना पड़ता |
+
+जब आप उस machine पर पूरा नियंत्रण चाहते हैं जिस पर ऐप चलता है, तब Node.js या
+Docker चुनें। जब आप चाहते हैं कि host आपके लिए ऐप चलाए और उसे HTTPS के साथ एक
+public address दे, तब Vercel, Netlify, या Cloudflare Workers चुनें।
+
+## हर deployment इन चरणों का पालन करता है {#the-steps-every-deployment-follows}
+
+### चरण 1: ऐप बनाएं {#step-1-create-the-app}
+
+एक standalone ऐप बनाएं और उसकी dependencies install करें। Guides उदाहरण के रूप
+में Chat template का इस्तेमाल करती हैं, लेकिन आप किसी भी template से शुरू कर सकते
+हैं या पहले से मौजूद अपना ऐप इस्तेमाल कर सकते हैं। [Getting Started](/docs/getting-started)
+बताता है कि ऐप को local रूप से कैसे बनाएं और चलाएं।
+
+### चरण 2: Environment secrets configure करें {#step-2-configure-environment-secrets}
+
+ऐप अपनी production settings environment variables से पढ़ता है:
+
+| Variable             | आवश्यक | उद्देश्य                                                   |
+| -------------------- | ------ | ---------------------------------------------------------- |
+| `DATABASE_URL`       | हां    | ऐप को उसके PostgreSQL database से connect करता है          |
+| `BETTER_AUTH_SECRET` | हां    | User sessions sign करता है                                 |
+| `BETTER_AUTH_URL`    | नहीं   | वह public address सेट करता है जिससे लोग आपके ऐप तक पहुंचते हैं |
+
+इन variables को अपने host की environment settings में save करें, सिर्फ ऐप की
+local `.env` file में नहीं। हर guide बताती है कि उसके host पर यह कैसे करें।
+
+`DATABASE_URL` को किसी persistent PostgreSQL database की ओर point करना चाहिए, जैसे
+Neon, Supabase, या Amazon RDS। [Database provider guides](/docs/neon) बताती हैं कि
+connection string कहां मिलती है। `BETTER_AUTH_SECRET` सभी deploys में एक जैसा रहना
+चाहिए, क्योंकि इसे बदलने से हर user sign out हो जाता है। Custom domain या reverse
+proxy इस्तेमाल करते समय `BETTER_AUTH_URL` सेट करें।
+
+[Deployment environment reference](/docs/deployment-environment-variables) बाकी
+सभी production settings की सूची देता है।
+
+### चरण 3: Migrate करें {#step-3-migrate}
+
+Migrations आपके database में वे tables बनाती और update करती हैं जिनकी ऐप को
+ज़रूरत है। इन्हें पहली visit से पहले production database के against चलाएं, और हर
+upgrade के बाद फिर से चलाएं:
+
+```bash
+pnpm migrate:production
+```
+
+यह चरण skip न करें। Production में, और खास तौर पर serverless hosts पर, ऐप हमेशा
+missing tables खुद नहीं बनाता। ऐसे में कोई missing table पहली असली query को fail
+कर देती है।
+
+### चरण 4: Build करें {#step-4-build}
+
+अपने host के लिए ऐप build करें। हर guide `NITRO_PRESET` सेट करती है ताकि build
+वही format बनाए जिसकी उस host को ज़रूरत है, जैसे `node`, `vercel`, `netlify`, या
+`cloudflare_module`।
+
+### चरण 5: Deploy करें {#step-5-deploy}
+
+Build को start या upload करें। Node.js और Docker पर, आप server या container खुद
+start करते हैं। Vercel, Netlify, और Cloudflare Workers पर, एक command-line tool
+build upload करता है और ऐप का public address print करता है।
+
+<Callout tone="warning">
+
+Production में local development database का इस्तेमाल न करें। यह data को उस
+machine पर store करता है जो ऐप चला रही है, इसलिए ज़्यादातर hosts पर वह खो जाता है।
+**Continue as local dev** shortcut भी सिर्फ local development के दौरान काम करता
+है। Deployed ऐप sign-up और sign-in flow इस्तेमाल करता है, जो आपके production
+database और auth secret पर आधारित है।
+
+</Callout>
+
+## Deployment जांचें {#check-the-deployment}
+
+पहले deploy के बाद, ऐप का public address खोलें और जांचें कि:
+
+- आप account बना सकते हैं और sign in कर सकते हैं।
+- आपका बनाया गया data page reload करने के बाद भी मौजूद रहता है।
+- आपके ऐप में इस्तेमाल होने वाला हर OAuth sign-in या webhook public address की ओर point करता है।
+
+## आगे क्या है {#whats-next}
+
+- [**तैनाती: पर्यावरण चर**](/docs/deployment-environment-variables) - production settings की पूरी सूची
+- [**डेटाबेस**](/docs/server-database#production) - production database connections
+- [**सुरक्षा**](/docs/security) - production security checklist
+- [**तैनाती**](/docs/deployment) - hosting targets और prerequisites की तुलना करें

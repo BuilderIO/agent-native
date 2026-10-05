@@ -1,14 +1,102 @@
 ---
 title: "部署應用程式"
-description: "將 Agent-Native 應用程式建置並部署到 Nitro 目標。"
+description: "每次部署獨立 Agent-Native 應用程式都要遵循的步驟，以及在哪裡找到適合你主機的指南。"
 ---
 
 # 部署應用程式
 
-步驟和各供應商的指令，請參閱[完整的英文應用程式部署指南](/docs/deploy-an-app)。
+部署獨立的 Agent-Native 應用程式會把它放到網際網路上，並連接一個真正的資料庫，讓其他人
+可以註冊並使用它。每篇代管指南都遵循相同的五個步驟。本頁說明每個步驟的作用，並協助你
+選擇主機。接著，每個主機的指南會提供確切的指令。
 
-從[入門指南](/docs/getting-started)開始。建置或部署前，請在託管提供者的環境設定中儲存 `DATABASE_URL`，而不只是在本機 `.env`。使用 `openssl rand -hex 32` 產生穩定的 `BETTER_AUTH_SECRET` 並儲存在同一位置。**Continue as local dev** 僅限本機使用；已部署的應用程式使用註冊與登入。可選擇 [Node.js](/docs/node-js)、[Docker](/docs/docker)、[Vercel](/docs/vercel)、[Netlify](/docs/netlify) 或 [Cloudflare Workers](/docs/cloudflare#cloudflare-workers)。
+<Callout tone="info">
 
-如果 `pnpm` 不在 `PATH` 中，請在產生的應用程式內執行 `corepack enable`。
+需要 Node.js `22.22+`。
 
-若要在單一來源下執行多個應用程式，請使用[工作區部署](/docs/workspace-deployment)。
+</Callout>
+
+## 選擇主機 {#choose-a-host}
+
+| 主機                                                      | 應用程式的執行位置                       |
+| --------------------------------------------------------- | ---------------------------------------- |
+| [Node.js](/docs/node-js)                                  | 由你管理的伺服器，例如虛擬機器           |
+| [Docker](/docs/docker)                                    | 由你管理的伺服器或容器主機上的容器       |
+| [Vercel](/docs/vercel)                                    | Vercel 的代管服務，不需要管理伺服器      |
+| [Netlify](/docs/netlify)                                  | Netlify 的代管服務，不需要管理伺服器     |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | Cloudflare 的網路，不需要管理伺服器      |
+
+如果你想完全掌控執行應用程式的機器，請選擇 Node.js 或 Docker。如果你希望由主機替你執行
+應用程式，並為它提供一個支援 HTTPS 的公開網址，請選擇 Vercel、Netlify 或 Cloudflare Workers。
+
+## 每次部署都要遵循的步驟 {#the-steps-every-deployment-follows}
+
+### 步驟 1：建立應用程式 {#step-1-create-the-app}
+
+建立一個獨立應用程式並安裝它的相依套件。各篇指南以 Chat 範本為例，但你可以從任何範本開始，
+也可以使用你已經有的應用程式。[入門指南](/docs/getting-started)說明了如何在本機建立和執行
+應用程式。
+
+### 步驟 2：設定環境密鑰 {#step-2-configure-environment-secrets}
+
+應用程式會從環境變數讀取其正式環境設定：
+
+| 變數                 | 必要 | 用途                                     |
+| -------------------- | ---- | ---------------------------------------- |
+| `DATABASE_URL`       | 是   | 將應用程式連線到它的 PostgreSQL 資料庫   |
+| `BETTER_AUTH_SECRET` | 是   | 為使用者工作階段簽章                     |
+| `BETTER_AUTH_URL`    | 否   | 設定使用者連到你的應用程式時使用的公開網址 |
+
+請把這些變數儲存到主機的環境設定中，而不只是儲存在應用程式本機的 `.env` 檔案中。每篇指南
+都會說明如何在對應的主機上完成這個步驟。
+
+`DATABASE_URL` 必須指向一個持久性的 PostgreSQL 資料庫，例如 Neon、Supabase 或 Amazon RDS。
+[資料庫提供者指南](/docs/neon)說明了在哪裡找到連線字串。`BETTER_AUTH_SECRET` 必須在每次
+部署之間保持不變，因為變更它會讓所有使用者都被登出。使用自訂網域或反向代理時，請設定
+`BETTER_AUTH_URL`。
+
+[部署環境參考](/docs/deployment-environment-variables)列出了其他所有正式環境設定。
+
+### 步驟 3：遷移 {#step-3-migrate}
+
+遷移會在你的資料庫中建立和更新應用程式所需的資料表。請在第一次造訪之前針對正式環境資料庫
+執行它，並在每次升級之後再執行一次：
+
+```bash
+pnpm migrate:production
+```
+
+請不要略過這個步驟。在正式環境中，尤其是在無伺服器主機上，應用程式不一定會自動建立缺少的
+資料表。缺少的資料表會讓第一次真正的查詢失敗。
+
+### 步驟 4：建置 {#step-4-build}
+
+為你的主機建置應用程式。每篇指南都會設定 `NITRO_PRESET`，讓建置產生該主機預期的格式，
+例如 `node`、`vercel`、`netlify` 或 `cloudflare_module`。
+
+### 步驟 5：部署 {#step-5-deploy}
+
+啟動或上傳建置。在 Node.js 和 Docker 上，你需要自行啟動伺服器或容器。在 Vercel、Netlify
+和 Cloudflare Workers 上，命令列工具會上傳建置並輸出應用程式的公開網址。
+
+<Callout tone="warning">
+
+請不要在正式環境中使用本機開發資料庫。它會把資料儲存在執行應用程式的機器上，因此在大多數
+主機上資料都會遺失。**Continue as local dev** 捷徑也只在本機開發期間有效。已部署的應用程式
+會使用由你的正式環境資料庫和驗證密鑰支援的註冊與登入流程。
+
+</Callout>
+
+## 檢查部署 {#check-the-deployment}
+
+第一次部署之後，開啟應用程式的公開網址並檢查以下幾點：
+
+- 你可以建立帳號並登入。
+- 你建立的資料在重新載入頁面後仍然存在。
+- 應用程式使用的所有 OAuth 登入或 webhook 都指向該公開網址。
+
+## 接下來呢 {#whats-next}
+
+- [**部署環境變數**](/docs/deployment-environment-variables) - 正式環境設定的完整清單
+- [**資料庫**](/docs/server-database#production) - 正式環境資料庫連線
+- [**安全**](/docs/security) - 正式環境安全性檢查清單
+- [**部署**](/docs/deployment) - 比較各個代管目標及其先決條件

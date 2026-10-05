@@ -1,14 +1,113 @@
 ---
 title: "Fazer deploy de um app"
-description: "Construa e publique um app Agent-Native em um destino Nitro."
+description: "Os passos que toda implantação independente do Agent-Native segue e onde encontrar o guia do seu host."
 ---
 
 # Fazer deploy de um app
 
-Consulte o [guia completo em inglês para fazer deploy de um app](/docs/deploy-an-app) para ver as etapas e os comandos de cada provedor.
+Implantar um app independente do Agent-Native o coloca na internet com um banco de dados
+real, para que outras pessoas possam se cadastrar e usá-lo. Todos os guias de hospedagem seguem
+os mesmos cinco passos. Esta página explica o que cada passo faz e ajuda você a escolher um
+host. Depois, o guia de cada host traz os comandos exatos.
 
-Comece pelo [guia de início](/docs/getting-started). Antes do build ou deploy, defina `DATABASE_URL` nas configurações de ambiente do provedor de hospedagem, não apenas no `.env` local. Gere um `BETTER_AUTH_SECRET` estável com `openssl rand -hex 32` e salve-o no mesmo lugar. **Continue as local dev** funciona apenas localmente; o app publicado usa cadastro e login. Escolha [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify) ou [Cloudflare Workers](/docs/cloudflare#cloudflare-workers).
+<Callout tone="info">
 
-Se `pnpm` não estiver disponível no `PATH`, execute `corepack enable` dentro do app gerado.
+É necessário o Node.js `22.22+`.
 
-Para vários apps em uma origem, use [Deploy de workspace](/docs/workspace-deployment).
+</Callout>
+
+## Escolha um host {#choose-a-host}
+
+| Host                                                | Onde o app é executado                                 |
+| --------------------------------------------------- | ------------------------------------------------------ |
+| [Node.js](/docs/node-js)                            | Um servidor que você gerencia, como uma máquina virtual |
+| [Docker](/docs/docker)                              | Um contêiner em um servidor ou host de contêineres que você gerencia |
+| [Vercel](/docs/vercel)                              | A hospedagem da Vercel, sem nenhum servidor para gerenciar |
+| [Netlify](/docs/netlify)                            | A hospedagem da Netlify, sem nenhum servidor para gerenciar |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | A rede da Cloudflare, sem nenhum servidor para gerenciar |
+
+Escolha Node.js ou Docker quando quiser controle total sobre a máquina em que o app
+é executado. Escolha Vercel, Netlify ou Cloudflare Workers quando quiser que o host
+execute o app para você e dê a ele um endereço público com HTTPS.
+
+## Os passos que toda implantação segue {#the-steps-every-deployment-follows}
+
+### Passo 1: Crie o app {#step-1-create-the-app}
+
+Crie um app independente e instale as dependências. Os guias usam o template Chat
+como exemplo, mas você pode começar de qualquer template ou usar um app que
+já tenha. [Primeiros passos](/docs/getting-started) explica como criar
+e executar um app localmente.
+
+### Passo 2: Configure os segredos do ambiente {#step-2-configure-environment-secrets}
+
+O app lê as configurações de produção a partir de variáveis de ambiente:
+
+| Variável             | Obrigatória | Finalidade                                                   |
+| -------------------- | ----------- | ------------------------------------------------------------ |
+| `DATABASE_URL`       | Sim         | Conecta o app ao seu banco de dados PostgreSQL               |
+| `BETTER_AUTH_SECRET` | Sim         | Assina as sessões dos usuários                               |
+| `BETTER_AUTH_URL`    | Não         | Define o endereço público que as pessoas usam para acessar o seu app |
+
+Salve essas variáveis nas configurações de ambiente do seu host, não apenas no arquivo
+`.env` local do app. Cada guia mostra como fazer isso no respectivo host.
+
+`DATABASE_URL` precisa apontar para um banco de dados PostgreSQL persistente, como Neon,
+Supabase ou Amazon RDS. Os [guias de provedores de banco de dados](/docs/neon) mostram onde
+encontrar a string de conexão. `BETTER_AUTH_SECRET` precisa continuar igual em todas as
+implantações, porque alterá-lo desconecta todos os usuários. Defina `BETTER_AUTH_URL` quando
+usar um domínio personalizado ou um proxy reverso.
+
+A [referência de variáveis de ambiente de implantação](/docs/deployment-environment-variables)
+lista todas as outras configurações de produção.
+
+### Passo 3: Execute as migrações {#step-3-migrate}
+
+As migrações criam e atualizam as tabelas de que o app precisa no seu banco de dados. Execute-as
+usando o banco de dados de produção antes do primeiro acesso e novamente depois de cada
+atualização:
+
+```bash
+pnpm migrate:production
+```
+
+Não pule este passo. Em produção, e principalmente em hosts serverless, o
+app nem sempre cria sozinho as tabelas que faltam. Uma tabela ausente faz então
+a primeira consulta real falhar.
+
+### Passo 4: Faça o build {#step-4-build}
+
+Faça o build do app para o seu host. Cada guia define `NITRO_PRESET` para que o build
+gere o formato que esse host espera, como `node`, `vercel`, `netlify` ou
+`cloudflare_module`.
+
+### Passo 5: Implante {#step-5-deploy}
+
+Inicie ou envie o build. No Node.js e no Docker, você mesmo inicia o servidor ou o
+contêiner. Na Vercel, na Netlify e no Cloudflare Workers, uma ferramenta de linha de comando
+envia o build e mostra o endereço público do app.
+
+<Callout tone="warning">
+
+Não use o banco de dados de desenvolvimento local em produção. Ele armazena os dados na
+máquina que executa o app, então eles se perdem na maioria dos hosts. O atalho **Continue as local
+dev** também só funciona durante o desenvolvimento local. Um app implantado usa
+o fluxo de cadastro e login apoiado pelo seu banco de dados de produção e pelo seu segredo de
+autenticação.
+
+</Callout>
+
+## Verifique a implantação {#check-the-deployment}
+
+Depois da primeira implantação, abra o endereço público do app e verifique se:
+
+- Você consegue criar uma conta e fazer login.
+- Os dados que você cria continuam lá depois de recarregar a página.
+- Qualquer login com OAuth ou webhook que o seu app usa aponta para o endereço público.
+
+## O que vem a seguir {#whats-next}
+
+- [**Implantação: Variáveis de Ambiente**](/docs/deployment-environment-variables) - a lista completa de configurações de produção
+- [**Banco de dados**](/docs/server-database#production) - conexões com o banco de dados de produção
+- [**Segurança**](/docs/security) - a checklist de segurança para produção
+- [**Implantação**](/docs/deployment) - compare destinos de hospedagem e pré-requisitos

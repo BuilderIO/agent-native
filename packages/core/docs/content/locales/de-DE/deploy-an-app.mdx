@@ -1,14 +1,122 @@
 ---
 title: "Eine App bereitstellen"
-description: "Eine Agent-Native App auf einem Nitro-Ziel erstellen und bereitstellen."
+description: "Die Schritte, denen jedes Deployment einer eigenständigen Agent-Native-App folgt, und wo Sie die Anleitung für Ihren Hoster finden."
 ---
 
 # Eine App bereitstellen
 
-Folge dem [vollständigen englischen Leitfaden zum Bereitstellen einer App](/docs/deploy-an-app) für die Schritte und Anbieterbefehle.
+Wenn Sie eine eigenständige Agent-Native-App bereitstellen, bringen Sie sie mit
+einer echten Datenbank ins Internet. So können sich andere Personen registrieren
+und sie nutzen. Jede Hosting-Anleitung folgt denselben fünf Schritten. Diese
+Seite erklärt, was jeder Schritt bewirkt, und hilft Ihnen bei der Wahl eines
+Hosters. Die Anleitung des jeweiligen Hosters nennt dann die genauen Befehle.
 
-Beginne mit [Erste Schritte](/docs/getting-started). Setze vor dem Build oder Deployment `DATABASE_URL` in den Umgebungseinstellungen des Hosting-Anbieters, nicht nur in der lokalen `.env`. Erzeuge mit `openssl rand -hex 32` ein stabiles `BETTER_AUTH_SECRET` und speichere es dort ebenfalls. **Continue as local dev** gilt nur lokal; die bereitgestellte App verwendet Registrierung und Anmeldung. Wähle [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify) oder [Cloudflare Workers](/docs/cloudflare#cloudflare-workers).
+<Callout tone="info">
 
-Wenn `pnpm` nicht auf dem `PATH` verfügbar ist, führen Sie im erzeugten Projekt `corepack enable` aus.
+Node.js `22.22+` ist erforderlich.
 
-Für mehrere Apps unter einer Origin nutze [Workspace-Deployment](/docs/workspace-deployment).
+</Callout>
+
+## Einen Hoster wählen {#choose-a-host}
+
+| Hoster                                              | Wo die App läuft                                       |
+| --------------------------------------------------- | ------------------------------------------------------ |
+| [Node.js](/docs/node-js)                            | Auf einem Server, den Sie verwalten, zum Beispiel einer virtuellen Maschine |
+| [Docker](/docs/docker)                              | In einem Container auf einem Server oder Container-Hoster, den Sie verwalten |
+| [Vercel](/docs/vercel)                              | Im Hosting von Vercel, ohne Server, den Sie verwalten müssen |
+| [Netlify](/docs/netlify)                            | Im Hosting von Netlify, ohne Server, den Sie verwalten müssen |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | Im Netzwerk von Cloudflare, ohne Server, den Sie verwalten müssen |
+
+Wählen Sie Node.js oder Docker, wenn Sie die volle Kontrolle über die Maschine
+haben möchten, auf der die App läuft. Wählen Sie Vercel, Netlify oder Cloudflare
+Workers, wenn der Hoster die App für Sie betreiben und ihr eine öffentliche
+Adresse mit HTTPS geben soll.
+
+## Die Schritte, denen jedes Deployment folgt {#the-steps-every-deployment-follows}
+
+### Schritt 1: Die App erstellen {#step-1-create-the-app}
+
+Erstellen Sie eine eigenständige App und installieren Sie ihre Abhängigkeiten.
+Die Anleitungen verwenden das Chat-Template als Beispiel, Sie können aber mit
+jedem Template beginnen oder eine bereits vorhandene App verwenden.
+[Erste Schritte](/docs/getting-started) erklärt, wie Sie eine App lokal
+erstellen und ausführen.
+
+### Schritt 2: Umgebungs-Secrets konfigurieren {#step-2-configure-environment-secrets}
+
+Die App liest ihre Produktionseinstellungen aus Umgebungsvariablen:
+
+| Variable             | Erforderlich | Zweck                                                                 |
+| -------------------- | ------------ | --------------------------------------------------------------------- |
+| `DATABASE_URL`       | Ja           | Verbindet die App mit ihrer PostgreSQL-Datenbank                      |
+| `BETTER_AUTH_SECRET` | Ja           | Signiert Benutzersitzungen                                            |
+| `BETTER_AUTH_URL`    | Nein         | Legt die öffentliche Adresse fest, über die Ihre App erreichbar ist   |
+
+Speichern Sie diese Variablen in den Umgebungseinstellungen Ihres Hosters, nicht
+nur in der lokalen `.env`-Datei der App. Jede Anleitung zeigt, wie das bei ihrem
+Hoster funktioniert.
+
+`DATABASE_URL` muss auf eine persistente PostgreSQL-Datenbank zeigen, zum
+Beispiel Neon, Supabase oder Amazon RDS. Die
+[Anleitungen zu Datenbankanbietern](/docs/neon) zeigen, wo Sie den
+Verbindungsstring finden. `BETTER_AUTH_SECRET` muss über alle Deployments hinweg
+unverändert bleiben, denn eine Änderung meldet alle Benutzer ab. Setzen Sie
+`BETTER_AUTH_URL`, wenn Sie eine eigene Domain oder einen Reverse Proxy
+verwenden.
+
+Die [Referenz der Umgebungsvariablen für das Deployment](/docs/deployment-environment-variables)
+listet alle weiteren Produktionseinstellungen auf.
+
+### Schritt 3: Migrieren {#step-3-migrate}
+
+Migrationen erstellen und aktualisieren die Tabellen, die die App in Ihrer
+Datenbank braucht. Führen Sie sie vor dem ersten Aufruf und nach jedem Upgrade
+erneut gegen die Produktionsdatenbank aus:
+
+```bash
+pnpm migrate:production
+```
+
+Überspringen Sie diesen Schritt nicht. In der Produktion, und besonders auf
+Serverless-Hostern, erstellt die App fehlende Tabellen nicht immer selbst. Eine
+fehlende Tabelle lässt dann die erste echte Abfrage fehlschlagen.
+
+### Schritt 4: Bauen {#step-4-build}
+
+Bauen Sie die App für Ihren Hoster. Jede Anleitung setzt `NITRO_PRESET`, damit
+der Build das Format erzeugt, das der Hoster erwartet, zum Beispiel `node`,
+`vercel`, `netlify` oder `cloudflare_module`.
+
+### Schritt 5: Bereitstellen {#step-5-deploy}
+
+Starten Sie den Build oder laden Sie ihn hoch. Bei Node.js und Docker starten
+Sie den Server oder Container selbst. Bei Vercel, Netlify und Cloudflare Workers
+lädt ein Kommandozeilenwerkzeug den Build hoch und gibt die öffentliche Adresse
+der App aus.
+
+<Callout tone="warning">
+
+Verwenden Sie die lokale Entwicklungsdatenbank nicht in der Produktion. Sie
+speichert Daten auf der Maschine, auf der die App läuft, und geht daher bei den
+meisten Hostern verloren. Auch die Abkürzung **Continue as local
+dev** funktioniert nur während der lokalen Entwicklung. Eine bereitgestellte App
+verwendet den Registrierungs- und Anmeldeablauf, der auf Ihrer
+Produktionsdatenbank und Ihrem Auth-Secret beruht.
+
+</Callout>
+
+## Das Deployment prüfen {#check-the-deployment}
+
+Öffnen Sie nach dem ersten Deployment die öffentliche Adresse der App und prüfen
+Sie Folgendes:
+
+- Sie können ein Konto erstellen und sich anmelden.
+- Daten, die Sie erstellen, sind nach dem Neuladen der Seite noch vorhanden.
+- Jede OAuth-Anmeldung und jeder Webhook, den Ihre App verwendet, zeigt auf die öffentliche Adresse.
+
+## Was kommt als nächstes? {#whats-next}
+
+- [**Umgebungsvariablen für das Deployment**](/docs/deployment-environment-variables) - die vollständige Liste der Produktionseinstellungen
+- [**Datenbank**](/docs/server-database#production) - Verbindungen zur Produktionsdatenbank
+- [**Sicherheit**](/docs/security) - die Sicherheits-Checkliste für die Produktion
+- [**Deployment**](/docs/deployment) - Hosting-Ziele und Voraussetzungen vergleichen

@@ -1,14 +1,101 @@
 ---
 title: "部署应用"
-description: "将 Agent-Native 应用构建并部署到 Nitro 目标。"
+description: "每次部署独立 Agent-Native 应用都要遵循的步骤，以及在哪里找到适合你主机的指南。"
 ---
 
 # 部署应用
 
-有关步骤和各提供商命令，请参阅[完整的英文应用部署指南](/docs/deploy-an-app)。
+部署独立的 Agent-Native 应用会把它放到互联网上，并连接一个真正的数据库，这样其他人
+就可以注册并使用它。每篇托管指南都遵循相同的五个步骤。本页介绍每个步骤的作用，并帮助你
+选择主机。随后，每个主机的指南会给出确切的命令。
 
-从[入门指南](/docs/getting-started)开始。构建或部署前，请在托管提供商的环境设置中保存 `DATABASE_URL`，而不只是本地 `.env`。使用 `openssl rand -hex 32` 生成稳定的 `BETTER_AUTH_SECRET` 并保存在同一位置。**Continue as local dev** 仅限本地使用；部署后的应用使用注册和登录。可选择 [Node.js](/docs/node-js)、[Docker](/docs/docker)、[Vercel](/docs/vercel)、[Netlify](/docs/netlify) 或 [Cloudflare Workers](/docs/cloudflare#cloudflare-workers)。
+<Callout tone="info">
 
-如果 `pnpm` 不在 `PATH` 中，请在生成的应用内运行 `corepack enable`。
+需要 Node.js `22.22+`。
 
-如果要在一个来源下运行多个应用，请使用[工作区部署](/docs/workspace-deployment)。
+</Callout>
+
+## 选择主机 {#choose-a-host}
+
+| 主机                                                      | 应用的运行位置                           |
+| --------------------------------------------------------- | ---------------------------------------- |
+| [Node.js](/docs/node-js)                                  | 由你管理的服务器，例如虚拟机             |
+| [Docker](/docs/docker)                                    | 由你管理的服务器或容器主机上的容器       |
+| [Vercel](/docs/vercel)                                    | Vercel 的托管服务，无需管理服务器        |
+| [Netlify](/docs/netlify)                                  | Netlify 的托管服务，无需管理服务器       |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | Cloudflare 的网络，无需管理服务器        |
+
+如果你想完全掌控运行应用的机器，请选择 Node.js 或 Docker。如果你希望由主机替你运行应用，
+并为它提供一个支持 HTTPS 的公共地址，请选择 Vercel、Netlify 或 Cloudflare Workers。
+
+## 每次部署都要遵循的步骤 {#the-steps-every-deployment-follows}
+
+### 第 1 步：创建应用 {#step-1-create-the-app}
+
+创建一个独立应用并安装它的依赖。各篇指南以 Chat 模板为例，但你可以从任何模板开始，
+也可以使用你已有的应用。[入门指南](/docs/getting-started)介绍了如何在本地创建和运行应用。
+
+### 第 2 步：配置环境密钥 {#step-2-configure-environment-secrets}
+
+应用从环境变量中读取其生产设置：
+
+| 变量                 | 必填 | 用途                                 |
+| -------------------- | ---- | ------------------------------------ |
+| `DATABASE_URL`       | 是   | 将应用连接到它的 PostgreSQL 数据库   |
+| `BETTER_AUTH_SECRET` | 是   | 为用户会话签名                       |
+| `BETTER_AUTH_URL`    | 否   | 设置用户访问你的应用时使用的公共地址 |
+
+请把这些变量保存到主机的环境设置中，而不只是保存在应用本地的 `.env` 文件中。每篇指南
+都会介绍如何在对应的主机上完成这一步。
+
+`DATABASE_URL` 必须指向一个持久的 PostgreSQL 数据库，例如 Neon、Supabase 或 Amazon RDS。
+[数据库提供商指南](/docs/neon)介绍了在哪里查找连接字符串。`BETTER_AUTH_SECRET` 必须在
+各次部署之间保持不变，因为更改它会让所有用户都被登出。使用自定义域名或反向代理时，
+请设置 `BETTER_AUTH_URL`。
+
+[部署环境参考](/docs/deployment-environment-variables)列出了其他所有生产设置。
+
+### 第 3 步：迁移 {#step-3-migrate}
+
+迁移会在你的数据库中创建和更新应用所需的表。请在首次访问之前针对生产数据库运行它，
+并在每次升级之后再次运行：
+
+```bash
+pnpm migrate:production
+```
+
+请不要跳过这一步。在生产环境中，尤其是在无服务器主机上，应用并不总是会自动创建缺失的表。
+缺失的表会导致第一次真正的查询失败。
+
+### 第 4 步：构建 {#step-4-build}
+
+为你的主机构建应用。每篇指南都会设置 `NITRO_PRESET`，让构建生成该主机期望的格式，
+例如 `node`、`vercel`、`netlify` 或 `cloudflare_module`。
+
+### 第 5 步：部署 {#step-5-deploy}
+
+启动或上传构建。在 Node.js 和 Docker 上，你需要自己启动服务器或容器。在 Vercel、Netlify
+和 Cloudflare Workers 上，命令行工具会上传构建并输出应用的公共地址。
+
+<Callout tone="warning">
+
+请不要在生产环境中使用本地开发数据库。它把数据存储在运行应用的机器上，因此在大多数主机上
+数据都会丢失。**Continue as local dev** 快捷方式也只在本地开发期间有效。已部署的应用使用
+由你的生产数据库和身份验证密钥支持的注册和登录流程。
+
+</Callout>
+
+## 检查部署 {#check-the-deployment}
+
+首次部署之后，打开应用的公共地址并检查以下几点：
+
+- 你可以创建账户并登录。
+- 你创建的数据在重新加载页面后仍然存在。
+- 应用使用的所有 OAuth 登录或 webhook 都指向该公共地址。
+
+## 下一步 {#whats-next}
+
+- [**部署环境变量**](/docs/deployment-environment-variables) - 生产设置的完整列表
+- [**数据库**](/docs/server-database#production) - 生产数据库连接
+- [**安全**](/docs/security) - 生产安全检查清单
+- [**部署**](/docs/deployment) - 比较各个托管目标及其前提条件
