@@ -25,6 +25,25 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
+vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
+  useOnboarding: () => ({
+    loading: false,
+    error: null,
+    profile: {
+      capabilities: [
+        {
+          id: "decision-model",
+          label: "Decision model",
+          builderIncluded: true,
+          service: "decision-model",
+          whyKey: "decisionModel.why",
+          why: "The agent can use a decision model.",
+        },
+      ],
+    },
+  }),
+}));
+
 // The real consent popover, so these tests prove the card's account creation
 // goes through it rather than through a stand-in.
 vi.mock("@agent-native/toolkit/app/settings", async (importOriginal) => ({
@@ -170,6 +189,25 @@ describe("StorageSetupCard", () => {
     expect(mocks.start).toHaveBeenCalledExactlyOnceWith({
       provisionAccount: true,
     });
+  });
+
+  it("expands included services with help tooltips in the shared popover", async () => {
+    await renderCard();
+
+    await clickConnect();
+    const includedServices = bodyButton(
+      "agentChat.onboarding.builderMoreServices",
+    );
+    expect(includedServices).toBeDefined();
+
+    await act(async () => includedServices?.click());
+
+    expect(document.body.textContent).toContain("Decision model");
+    expect(
+      document.body.querySelector(
+        'button[aria-label="agentChat.onboarding.capability.about"]',
+      ),
+    ).toBeDefined();
   });
 
   it("keeps connecting an existing account in the popover", async () => {

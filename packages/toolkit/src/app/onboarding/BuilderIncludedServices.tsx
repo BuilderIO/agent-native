@@ -9,6 +9,7 @@ import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "@agent-native/toolkit/ui/tooltip";
 import {
@@ -88,25 +89,29 @@ function CapabilityRows({
 }) {
   const t = useT();
 
-  return capabilities.map((capability) => {
-    const copy = capabilityCopy(t, capability);
-    return (
-      <div
-        key={capability.id}
-        className="flex items-center gap-2 rounded-md px-2 py-1"
-      >
-        <IconCheck
-          aria-hidden="true"
-          className="shrink-0 text-muted-foreground"
-          size={15}
-        />
-        <span className="text-xs text-foreground">{copy.label}</span>
-        {copy.why ? (
-          <CapabilityInfoButton label={copy.label} why={copy.why} />
-        ) : null}
-      </div>
-    );
-  });
+  return (
+    <TooltipProvider>
+      {capabilities.map((capability) => {
+        const copy = capabilityCopy(t, capability);
+        return (
+          <div
+            key={capability.id}
+            className="flex items-center gap-2 rounded-md px-2 py-1"
+          >
+            <IconCheck
+              aria-hidden="true"
+              className="shrink-0 text-muted-foreground"
+              size={15}
+            />
+            <span className="text-xs text-foreground">{copy.label}</span>
+            {copy.why ? (
+              <CapabilityInfoButton label={copy.label} why={copy.why} />
+            ) : null}
+          </div>
+        );
+      })}
+    </TooltipProvider>
+  );
 }
 
 export function BuilderIncludedServices({
