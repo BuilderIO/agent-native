@@ -33,8 +33,9 @@ export async function ensureTable(): Promise<void> {
 
 /**
  * Key for `pg_advisory_xact_lock(hashtextextended(key, 0))`. Rekey takes it
- * for both addresses and credential issuance for its owner, each before any
- * row lock, so issuance cannot write a grant for an address mid-rekey.
+ * for both addresses, offboarding for the removed member, and credential
+ * issuance for its owner, each before any row lock, so issuance cannot write
+ * a grant for an address mid-rekey or mid-offboard.
  */
 export function identityCredentialLockKey(email: string): string {
   return `identity-credentials:${email.trim().toLowerCase()}`;

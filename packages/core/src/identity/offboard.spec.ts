@@ -34,6 +34,7 @@ import {
   __resetAppIdentityColumnsForTests,
   registerIdentityColumns,
 } from "./rekey.js";
+import { identityCredentialLockKey } from "./retired-emails.js";
 
 function dbExec(db: Awaited<ReturnType<typeof createTestPglite>>): DbExec {
   const wrap = (client: {
@@ -142,6 +143,41 @@ describe("offboardMember", () => {
     ).toBe(true);
     expect(db.execute).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ["an organization", "org-1"],
+    ["the whole account", undefined],
+  ])(
+    "takes the Personal issuance lock before any row lock when offboarding from %s",
+    async (_scope, orgId) => {
+      const queries: Array<{ sql: string; args?: unknown[] }> = [];
+      const tx = {
+        execute: vi.fn(async (query: { sql: string; args?: unknown[] }) => {
+          queries.push(query);
+          if (query.sql.includes("information_schema.columns"))
+            return { rows: [], rowsAffected: 0 };
+          if (query.sql.startsWith("SELECT"))
+            return { rows: [{ id: "row" }], rowsAffected: 0 };
+          return { rows: [], rowsAffected: 1 };
+        }),
+      };
+      await offboardMember(
+        { execute: vi.fn(), transaction: async (run: any) => run(tx) },
+        "Old@Example.test",
+        { transferTo: "new@example.test", orgId },
+      );
+      const lock = queries.findIndex(({ sql }) =>
+        sql.includes("pg_advisory_xact_lock"),
+      );
+      expect(lock).toBe(0);
+      expect(queries[lock].args).toEqual([
+        identityCredentialLockKey("old@example.test"),
+      ]);
+      expect(
+        queries.findIndex(({ sql }) => sql.includes("FOR UPDATE")),
+      ).toBeGreaterThan(lock);
+    },
+  );
 
   it("sweeps first-time Connect and OAuth issuance committed before the member lock and keeps grants revoked after re-add", async () => {
     pglite = await createTestPglite();

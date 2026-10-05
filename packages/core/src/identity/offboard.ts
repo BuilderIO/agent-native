@@ -7,6 +7,7 @@ import {
   sessionUserColumn,
   type IdentityColumn,
 } from "./rekey.js";
+import { identityCredentialLockKey } from "./retired-emails.js";
 
 export type OffboardMemberOptions = {
   transferTo: string;
@@ -90,6 +91,12 @@ export async function offboardMember(
 
   const run = async (tx: DbExec): Promise<OffboardMemberResult> => {
     const orgId = options.orgId?.trim() || null;
+    // Personal issuance has no membership row to wait on; this lock makes an
+    // in-flight issuer commit before the sweep or find its grant swept.
+    await tx.execute({
+      sql: "SELECT pg_advisory_xact_lock(hashtextextended(?, 0::bigint))",
+      args: [identityCredentialLockKey(oldEmail)],
+    });
     const successor = await tx.execute({
       sql: orgId
         ? `SELECT 1 FROM org_members
