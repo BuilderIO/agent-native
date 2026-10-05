@@ -1,5 +1,3 @@
-import { wrapLoad } from "./ocean-common.wgsl";
-
 struct NormalFoamUniforms {
   resolution: f32,
   worldSize: f32,

@@ -5,22 +5,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { HeroBackground } from "./hero-background";
 
-const { oceanMount, shaderMount } = vi.hoisted(() => ({
-  oceanMount: vi.fn(),
-  shaderMount: vi.fn(),
-}));
+const { waveMount } = vi.hoisted(() => ({ waveMount: vi.fn() }));
 
-vi.mock("./hero-shader-background", () => ({
-  HeroShaderBackground: () => {
-    shaderMount();
-    return <div data-testid="webgl-wave" />;
-  },
-}));
-
-vi.mock("./ocean/hero-ocean-background", () => ({
-  HeroOceanBackground: () => {
-    oceanMount();
-    return <div data-testid="ocean" />;
+vi.mock("@agent-native/toolkit/app/shared", () => ({
+  WaveBackground: () => {
+    waveMount();
+    return <div data-testid="shared-wave" />;
   },
 }));
 
@@ -31,12 +21,11 @@ afterEach(() => {
     configurable: true,
     value: undefined,
   });
-  oceanMount.mockClear();
-  shaderMount.mockClear();
+  waveMount.mockClear();
 });
 
 describe("HeroBackground", () => {
-  it("uses the WebGL wave without probing an available WebGPU adapter", () => {
+  it("renders the shared Toolkit wave on the homepage", () => {
     const requestAdapter = vi.fn(async () => ({ name: "adapter" }));
     Object.defineProperty(navigator, "gpu", {
       configurable: true,
@@ -45,8 +34,8 @@ describe("HeroBackground", () => {
 
     render(<HeroBackground />);
 
-    expect(screen.getByTestId("webgl-wave")).toBeDefined();
+    expect(screen.getByTestId("shared-wave")).toBeDefined();
     expect(requestAdapter).not.toHaveBeenCalled();
-    expect(oceanMount).not.toHaveBeenCalled();
+    expect(waveMount).toHaveBeenCalledOnce();
   });
 });

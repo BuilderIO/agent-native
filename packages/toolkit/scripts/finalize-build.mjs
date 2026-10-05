@@ -20,7 +20,8 @@ function walk(dir) {
   return files;
 }
 for (const sourceFile of walk("src")) {
-  if (extname(sourceFile) !== ".css") continue;
+  const extension = extname(sourceFile);
+  if (extension !== ".css" && extension !== ".wgsl") continue;
   const output = join("dist", relative("src", sourceFile));
   mkdirSync(dirname(output), { recursive: true });
   copyFileSync(sourceFile, output);
@@ -29,11 +30,17 @@ for (const sourceFile of walk("src")) {
 const missing = [];
 for (const sourceFile of walk("src")) {
   const extension = extname(sourceFile);
-  if (extension !== ".ts" && extension !== ".tsx" && extension !== ".css") {
+  if (
+    extension !== ".ts" &&
+    extension !== ".tsx" &&
+    extension !== ".css" &&
+    extension !== ".wgsl"
+  ) {
     continue;
   }
   if (
     /\.(?:spec|test)\.(?:ts|tsx)$/.test(sourceFile) ||
+    sourceFile.endsWith(".d.ts") ||
     sourceFile.endsWith(".e2e-host.tsx")
   ) {
     continue;
@@ -41,6 +48,12 @@ for (const sourceFile of walk("src")) {
 
   const relativeSource = relative("src", sourceFile);
   const withoutExtension = relativeSource.slice(0, -extension.length);
+
+  if (extension === ".wgsl") {
+    const output = join("dist", relativeSource);
+    if (!existsSync(output)) missing.push(output);
+    continue;
+  }
 
   if (extension === ".css") {
     const output = join("dist", `${withoutExtension}.css`);

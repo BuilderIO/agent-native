@@ -270,7 +270,9 @@
         "remark-gfm",
         "shiki",
         "sonner",
-        "tailwind-merge"
+        "tailwind-merge",
+        "vgpu",
+        "@webgpu/types"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -377,7 +379,9 @@
         "remark-gfm",
         "shiki",
         "sonner",
-        "tailwind-merge"
+        "tailwind-merge",
+        "vgpu",
+        "@webgpu/types"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -458,7 +462,9 @@
         "remark-gfm",
         "shiki",
         "sonner",
-        "tailwind-merge"
+        "tailwind-merge",
+        "vgpu",
+        "@webgpu/types"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -579,7 +585,9 @@
         "remark-gfm",
         "shiki",
         "sonner",
-        "tailwind-merge"
+        "tailwind-merge",
+        "vgpu",
+        "@webgpu/types"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -662,7 +670,7 @@
       "label": "Toolkit app Auth",
       "catalog": "toolkit-ui",
       "catalogItems": ["app-auth"],
-      "entrypoints": ["./app/auth"],
+      "entrypoints": ["./app/auth", "./app/auth/server"],
       "strategy": "source-copy",
       "sourceEntries": ["src/app/auth"],
       "targetRoot": "app/components/agent-native/toolkit",
@@ -670,7 +678,9 @@
         "@agent-native/core",
         "@tabler/icons-react",
         "react",
-        "react-dom"
+        "react-dom",
+        "vgpu",
+        "@webgpu/types"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -690,6 +700,7 @@
         "@agent-native/core/shared/runtime-config",
         "@agent-native/core/shared/sign-in-journey",
         "@agent-native/core/shared/ssr-session-bootstrap",
+        "@agent-native/core/server",
         "@agent-native/core/shared/test-traffic"
       ]
     },
@@ -845,7 +856,9 @@
         "remark-gfm",
         "shiki",
         "sonner",
-        "tailwind-merge"
+        "tailwind-merge",
+        "vgpu",
+        "@webgpu/types"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -953,7 +966,9 @@
         "remark-gfm",
         "shiki",
         "sonner",
-        "tailwind-merge"
+        "tailwind-merge",
+        "vgpu",
+        "@webgpu/types"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -1081,7 +1096,9 @@
         "remark-gfm",
         "shiki",
         "sonner",
-        "tailwind-merge"
+        "tailwind-merge",
+        "vgpu",
+        "@webgpu/types"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
@@ -1199,7 +1216,9 @@
         "remark-gfm",
         "shiki",
         "sonner",
-        "tailwind-merge"
+        "tailwind-merge",
+        "vgpu",
+        "@webgpu/types"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [

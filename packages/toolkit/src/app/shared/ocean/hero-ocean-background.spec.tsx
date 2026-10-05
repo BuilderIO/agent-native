@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { hexToLinearRgb } from "./brand-colors";
@@ -98,23 +98,26 @@ describe("hexToLinearRgb", () => {
 
 describe("HeroOceanBackground", () => {
   it("fills the hero section behind the grid and is hidden from assistive tech", async () => {
-    const { container } = render(<HeroOceanBackground onError={vi.fn()} />);
+    const { container } = render(
+      <HeroOceanBackground onError={vi.fn()} onReady={vi.fn()} />,
+    );
     const box = container.firstElementChild as HTMLElement;
     expect(box.getAttribute("aria-hidden")).toBe("true");
     expect(box.className).toContain("absolute");
     expect(box.className).toContain("inset-0");
     expect(box.className).toContain("z-[-1]");
-    expect(box.querySelector("canvas")).not.toBeNull();
+    const canvas = box.querySelector("canvas");
+    expect(canvas).not.toBeNull();
+    expect(canvas?.style.width).toBe("100%");
+    expect(canvas?.style.height).toBe("100%");
     expect(box.style.opacity).toBe("0");
-    await waitFor(() =>
-      expect(box.style.opacity).toBe("var(--b-hero-ocean-opacity)"),
-    );
+    await waitFor(() => expect(box.style.opacity).toBe("0.3"));
     await waitFor(() => expect(createRenderer).toHaveBeenCalled());
   });
 
   it("loads the GPU runtime in an effect, not during render", async () => {
     const onError = vi.fn();
-    render(<HeroOceanBackground onError={onError} />);
+    render(<HeroOceanBackground onError={onError} onReady={vi.fn()} />);
     expect(createRenderer).not.toHaveBeenCalled();
     await waitFor(() => {
       if (onError.mock.calls.length) throw onError.mock.calls[0]![0];
@@ -123,7 +126,7 @@ describe("HeroOceanBackground", () => {
   });
 
   it("pushes brand colours through on a theme change", async () => {
-    render(<HeroOceanBackground onError={vi.fn()} />);
+    render(<HeroOceanBackground onError={vi.fn()} onReady={vi.fn()} />);
     await waitFor(() => expect(createRenderer).toHaveBeenCalled());
 
     for (const cb of mutationCallbacks) cb();
@@ -136,7 +139,7 @@ describe("HeroOceanBackground", () => {
   });
 
   it("pauses when scrolled out of view and resumes when back", async () => {
-    render(<HeroOceanBackground onError={vi.fn()} />);
+    render(<HeroOceanBackground onError={vi.fn()} onReady={vi.fn()} />);
     await waitFor(() => expect(createRenderer).toHaveBeenCalled());
 
     for (const cb of intersectionCallbacks) cb([{ isIntersecting: false }]);
@@ -147,7 +150,9 @@ describe("HeroOceanBackground", () => {
   });
 
   it("tracks body mouse movement relative to the hero bounds", async () => {
-    const { container } = render(<HeroOceanBackground onError={vi.fn()} />);
+    const { container } = render(
+      <HeroOceanBackground onError={vi.fn()} onReady={vi.fn()} />,
+    );
     const box = container.firstElementChild as HTMLElement;
     vi.spyOn(box, "getBoundingClientRect").mockReturnValue({
       left: 10,
@@ -179,7 +184,9 @@ describe("HeroOceanBackground", () => {
   });
 
   it("remaps the active pointer on scroll and fades it on window blur", async () => {
-    const { container } = render(<HeroOceanBackground onError={vi.fn()} />);
+    const { container } = render(
+      <HeroOceanBackground onError={vi.fn()} onReady={vi.fn()} />,
+    );
     const box = container.firstElementChild as HTMLElement;
     const rect = {
       left: 10,
@@ -216,7 +223,9 @@ describe("HeroOceanBackground", () => {
   });
 
   it("disposes the GPU and both observers on unmount", async () => {
-    const { unmount } = render(<HeroOceanBackground onError={vi.fn()} />);
+    const { unmount } = render(
+      <HeroOceanBackground onError={vi.fn()} onReady={vi.fn()} />,
+    );
     await waitFor(() => expect(createRenderer).toHaveBeenCalled());
 
     const before = disconnected.length;
@@ -229,7 +238,9 @@ describe("HeroOceanBackground", () => {
   });
 
   it("does not construct a renderer when unmounted before the import lands", async () => {
-    const { unmount } = render(<HeroOceanBackground onError={vi.fn()} />);
+    const { unmount } = render(
+      <HeroOceanBackground onError={vi.fn()} onReady={vi.fn()} />,
+    );
     unmount();
     await Promise.resolve();
     expect(createRenderer).not.toHaveBeenCalled();
@@ -240,22 +251,26 @@ describe("HeroOceanBackground", () => {
     renderer.firstFrame = new Promise<void>((resolve) => {
       drawFirstFrame = resolve;
     });
-    const { container } = render(<HeroOceanBackground onError={vi.fn()} />);
+    const onReady = vi.fn();
+    const { container } = render(
+      <HeroOceanBackground onError={vi.fn()} onReady={onReady} />,
+    );
     const box = container.firstElementChild as HTMLElement;
 
     await waitFor(() => expect(createRenderer).toHaveBeenCalled());
     expect(box.style.opacity).toBe("0");
 
     drawFirstFrame();
-    await waitFor(() =>
-      expect(box.style.opacity).toBe("var(--b-hero-ocean-opacity)"),
-    );
+    await waitFor(() => expect(box.style.opacity).toBe("0.3"));
+    expect(onReady).toHaveBeenCalledOnce();
     renderer.firstFrame = Promise.resolve();
   });
 
   it("never fades in when the renderer fails before drawing", async () => {
     renderer.firstFrame = Promise.reject(new Error("device lost"));
-    const { container } = render(<HeroOceanBackground onError={vi.fn()} />);
+    const { container } = render(
+      <HeroOceanBackground onError={vi.fn()} onReady={vi.fn()} />,
+    );
     const box = container.firstElementChild as HTMLElement;
 
     await waitFor(() => expect(createRenderer).toHaveBeenCalled());
@@ -269,7 +284,7 @@ describe("HeroOceanBackground", () => {
     createRenderer.mockImplementationOnce(() => {
       throw new Error("no device");
     });
-    render(<HeroOceanBackground onError={onError} />);
+    render(<HeroOceanBackground onError={onError} onReady={vi.fn()} />);
     await waitFor(() => expect(onError).toHaveBeenCalled());
   });
 });

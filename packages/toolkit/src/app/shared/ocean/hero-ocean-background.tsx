@@ -5,9 +5,11 @@ import type { OceanRenderer } from "./renderer";
 import { OCEAN_TUNING } from "./tuning";
 
 const FADE_IN_MS = 700;
+const FIRST_FRAME_TIMEOUT_MS = 6000;
 
 export interface HeroOceanBackgroundProps {
   onError: (error: unknown) => void;
+  onReady: () => void;
   frameRate?: number;
   className?: string;
 }
@@ -16,6 +18,7 @@ type PointerTarget = readonly [number, number, number];
 
 export function HeroOceanBackground({
   onError,
+  onReady,
   frameRate = 30,
   className = "absolute inset-0 z-[-1]",
 }: HeroOceanBackgroundProps) {
@@ -23,7 +26,9 @@ export function HeroOceanBackground({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [ready, setReady] = useState(false);
   const onErrorRef = useRef(onError);
+  const onReadyRef = useRef(onReady);
   onErrorRef.current = onError;
+  onReadyRef.current = onReady;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -33,6 +38,12 @@ export function HeroOceanBackground({
     let renderer: OceanRenderer | undefined;
     let cancelled = false;
     const cleanups: (() => void)[] = [];
+    const firstFrameTimeout = window.setTimeout(
+      () =>
+        onErrorRef.current(new Error("The ocean wave did not draw a frame")),
+      FIRST_FRAME_TIMEOUT_MS,
+    );
+    cleanups.push(() => window.clearTimeout(firstFrameTimeout));
     let pointerTarget: PointerTarget = [0, 0, 0];
     let lastPointer: readonly [number, number] | undefined;
 
@@ -96,7 +107,11 @@ export function HeroOceanBackground({
 
         void renderer.firstFrame
           .then(() => {
-            if (!cancelled) setReady(true);
+            window.clearTimeout(firstFrameTimeout);
+            if (!cancelled) {
+              setReady(true);
+              onReadyRef.current();
+            }
           })
           .catch(() => {});
 
@@ -138,6 +153,7 @@ export function HeroOceanBackground({
     <div
       ref={containerRef}
       aria-hidden="true"
+      data-agent-native-wave="true"
       // Opacity is inline rather than a class because it animates between 0
       // and a token value; the page background remains visible until the
       // first wave frame is ready.
@@ -148,7 +164,11 @@ export function HeroOceanBackground({
         ...(mask ? { maskImage: mask, WebkitMaskImage: mask } : {}),
       }}
     >
-      <canvas ref={canvasRef} className="block h-full w-full" />
+      <canvas
+        ref={canvasRef}
+        className="block h-full w-full"
+        style={{ display: "block", height: "100%", width: "100%" }}
+      />
     </div>
   );
 }

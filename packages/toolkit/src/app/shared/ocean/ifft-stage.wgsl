@@ -1,5 +1,3 @@
-import { PI, cmul, wrapLoad } from "./ocean-common.wgsl";
-
 struct IfftStageUniforms {
   resolution: f32,
   subtransformSize: f32,

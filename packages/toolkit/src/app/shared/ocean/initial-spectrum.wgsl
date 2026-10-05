@@ -1,5 +1,3 @@
-import { PI, G } from "./ocean-common.wgsl";
-
 struct InitialSpectrumUniforms {
   resolution: f32,
   size: f32,

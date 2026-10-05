@@ -30,7 +30,11 @@ function srgbToLinear(channel: number): number {
 }
 
 export function readOceanColors(element: Element): OceanColors {
-  void element;
+  const styles = getComputedStyle(element);
+  const fg = hexToLinearRgb(styles.getPropertyValue("--b-hero-shader-fg"));
+  const bg = hexToLinearRgb(styles.getPropertyValue("--b-bg-page"));
+  if (fg && bg) return { fg, bg };
+
   const root = document.documentElement;
   const dark = root.classList.contains("dark")
     ? true

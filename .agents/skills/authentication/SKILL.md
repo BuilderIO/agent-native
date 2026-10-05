@@ -35,6 +35,23 @@ design with `overrideTransactionalEmail(id, render)` from a server plugin, never
 by editing `better-auth-instance.ts` call sites. See
 `/docs/deployment#email-templates`.
 
+## Hosted Sign-In Pages and the Shared Wave
+
+- First-party server auth plugins use `createToolkitAuthPlugin` from
+  `@agent-native/toolkit/app/auth/server`. It server-renders `AuthPage` and
+  `ResetPasswordPage` before hydration. Direct Core `createAuthPlugin` calls
+  leave generic fallback markup in the response and can flash before React
+  replaces it.
+- `AuthPage` uses Toolkit's full-page `WaveBackground` for every auth view.
+  The Agent-Native homepage hero and Calendar booking use the same renderer:
+  Calendar's animated FFT ocean wave with its WebGL fallback. Do not substitute
+  the older Starfield shader, a gradient, a signup-only strip, or a copied
+  renderer. `StarfieldBackground` is only a compatibility export for older
+  callers.
+- Hosted marketing apps keep auth enabled at `/` so the public root response
+  contains the full server-rendered sign-in page. Keep session decisions out of
+  public SSR; `RequireSession` resolves signed-in app navigation in the client.
+
 > **Never** use `local@localhost` as a fallback identity in app code
 > (`getRequestUserEmail() ?? "local@localhost"`, `session?.email ?? "local@localhost"`,
 > etc.). There is no dev auth shim. That pattern pools every unauthenticated

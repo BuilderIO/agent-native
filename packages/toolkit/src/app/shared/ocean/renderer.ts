@@ -17,25 +17,31 @@ import {
   type Target,
 } from "vgpu";
 
-import bloomBlurWgsl from "./bloom-blur.wgsl";
-import bloomBrightWgsl from "./bloom-bright.wgsl";
-import bloomCompositeWgsl from "./bloom-composite.wgsl";
+import bloomBlurWgsl from "./bloom-blur.wgsl?raw";
+import bloomBrightWgsl from "./bloom-bright.wgsl?raw";
+import bloomCompositeWgsl from "./bloom-composite.wgsl?raw";
 import { oceanCamera } from "./camera";
-import ifftStageWgsl from "./ifft-stage.wgsl";
-import initialSpectrumWgsl from "./initial-spectrum.wgsl";
-import noiseWgsl from "./noise.wgsl";
-import normalFoamWgsl from "./normal-foam.wgsl";
+import ifftStageSource from "./ifft-stage.wgsl?raw";
+import initialSpectrumSource from "./initial-spectrum.wgsl?raw";
+import noiseWgsl from "./noise.wgsl?raw";
+import normalFoamSource from "./normal-foam.wgsl?raw";
 import { DEFAULT_OCEAN_COLORS, type OceanColors } from "./ocean-colors";
+import oceanCommonWgsl from "./ocean-common.wgsl?raw";
 import {
   createIfftStageTable,
   OCEAN_RESOLUTION,
   type IfftStage,
   type SimulationTargetName,
 } from "./ocean-graph";
-import particlesWgsl from "./particles.wgsl";
-import presentWgsl from "./present.wgsl";
-import spectrumWgsl from "./spectrum.wgsl";
+import particlesWgsl from "./particles.wgsl?raw";
+import presentWgsl from "./present.wgsl?raw";
+import spectrumSource from "./spectrum.wgsl?raw";
 import { gaussianCoefficients, OCEAN_TUNING } from "./tuning";
+
+const ifftStageWgsl = `${oceanCommonWgsl}\n${ifftStageSource}`;
+const initialSpectrumWgsl = `${oceanCommonWgsl}\n${initialSpectrumSource}`;
+const normalFoamWgsl = `${oceanCommonWgsl}\n${normalFoamSource}`;
+const spectrumWgsl = `${oceanCommonWgsl}\n${spectrumSource}`;
 
 type Output = Surface | Target;
 
@@ -369,7 +375,7 @@ function buildGraph(
     ),
     output: simulationTargets[spec.output],
   }));
-  const displacement = ifft.at(-1)!.output;
+  const displacement = ifft[ifft.length - 1]!.output;
   const normals = configuredEffect(
     gpu,
     normalFoamWgsl,
@@ -406,6 +412,7 @@ function buildGraph(
       uniforms: {
         luminosityThreshold: OCEAN_TUNING.bloom.threshold,
         smoothWidth: OCEAN_TUNING.bloom.smoothWidth,
+        _pad0: [0, 0],
       },
       tDiffuse: scene,
       linearSampler,
@@ -448,6 +455,7 @@ function buildGraph(
         bloomRadius: OCEAN_TUNING.bloom.radius,
         bloomFactors0: [1, 0.8, 0.6, 0.4],
         bloomFactors1: [0.2, 0, 0, 0],
+        _pad0: [0, 0],
       },
       blurTexture1: levels[0]!.vertical,
       blurTexture2: levels[1]!.vertical,
@@ -549,6 +557,7 @@ function presentUniforms(colors: OceanColors) {
     fgColor: [...colors.fg, 1] as const,
     bgColor: [...colors.bg, 1] as const,
     brightness: OCEAN_TUNING.present.brightness,
+    _pad: [0, 0, 0] as const,
   };
 }
 
