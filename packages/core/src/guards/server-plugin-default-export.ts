@@ -61,31 +61,41 @@ function loaderFor(file: string): Loader {
   return "js";
 }
 
+// Parameter decorators only parse with legacy decorators, which an app may
+// enable in its tsconfig; retry with them before giving up on a file.
+const TSCONFIG_VARIANTS = [
+  "{}",
+  JSON.stringify({ compilerOptions: { experimentalDecorators: true } }),
+];
+
+function isBuildFailure(error: unknown): boolean {
+  return error instanceof Error && Array.isArray(Reflect.get(error, "errors"));
+}
+
 /** The module's runtime export names after TypeScript erasure, or `null` when
  * esbuild cannot parse it (the real build reports that error itself). */
 export function runtimeExports(source: string, file: string): string[] | null {
-  try {
-    const result = buildSync({
-      stdin: { contents: source, loader: loaderFor(file), sourcefile: file },
-      bundle: false,
-      write: false,
-      metafile: true,
-      format: "esm",
-      jsx: "preserve",
-      tsconfigRaw: "{}",
-      logLevel: "silent",
-    });
-    const output = Object.values(result.metafile.outputs).find(
-      (entry) => entry.entryPoint,
-    );
-    return output?.exports ?? [];
-  } catch (error) {
-    // esbuild reports syntax errors as a BuildFailure with an `errors` list.
-    if (error instanceof Error && Array.isArray(Reflect.get(error, "errors"))) {
-      return null;
+  for (const tsconfigRaw of TSCONFIG_VARIANTS) {
+    try {
+      const result = buildSync({
+        stdin: { contents: source, loader: loaderFor(file), sourcefile: file },
+        bundle: false,
+        write: false,
+        metafile: true,
+        format: "esm",
+        jsx: "preserve",
+        tsconfigRaw,
+        logLevel: "silent",
+      });
+      const output = Object.values(result.metafile.outputs).find(
+        (entry) => entry.entryPoint,
+      );
+      return output?.exports ?? [];
+    } catch (error) {
+      if (!isBuildFailure(error)) throw error;
     }
-    throw error;
   }
+  return null;
 }
 
 export function scanServerPluginDefaultExport(

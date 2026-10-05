@@ -422,6 +422,24 @@ describe("runDoctorScan", () => {
     },
   );
 
+  it("checks plugins that use legacy parameter decorators", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "server/plugins/decorated.ts":
+        "class Service {\n  constructor(@Inject() token: string) {}\n}\nregisterThing(Service);\n",
+      "server/plugins/decorated-ok.ts":
+        'class Service {\n  constructor(@Inject() token: string) {}\n}\nexport default defineNitroPlugin(() => new Service("x"));\n',
+    });
+    const report = runDoctorScan({
+      root,
+      only: ["server-plugin-default-export"],
+    });
+
+    expect(report.findings.map((f) => f.file)).toEqual([
+      "server/plugins/decorated.ts",
+    ]);
+  });
+
   it("leaves files esbuild cannot parse to the real build", () => {
     const root = makeTempAppRoot({
       ...CLEAN_FILES,
