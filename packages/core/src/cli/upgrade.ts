@@ -14,8 +14,13 @@ import {
 } from "../package-lifecycle/migration-manifest.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
 import type { MigrationCodemodResult } from "./migration-codemod.js";
+import { addMinimumReleaseAgeExclude } from "./workspace-yaml.js";
 
 const AGENT_NATIVE_SCOPE = "@agent-native/";
+// New workspaces exclude every first-party package from pnpm's release-age
+// gate; older ones only excluded core, so same-day dependencies of a fresh
+// core release failed to install.
+const AGENT_NATIVE_RELEASE_AGE_EXCLUDE = '"@agent-native/*"';
 const PINNABLE_VERSION = "latest";
 const PINNABLE_SECTIONS = [
   "dependencies",
@@ -655,6 +660,42 @@ function applyBumps(pkg: PackageJsonLike, bumps: AgentNativeDepBump[]): void {
   }
 }
 
+function alignReleaseAgeExclude(
+  project: UpgradeProject,
+  dryRun: boolean,
+): UpgradeRunResult["steps"][number] | null {
+  const file = path.join(project.root, "pnpm-workspace.yaml");
+  if (!fs.existsSync(file)) return null;
+  const current = fs.readFileSync(file, "utf-8");
+  let updated: string;
+  try {
+    updated = addMinimumReleaseAgeExclude(
+      current,
+      AGENT_NATIVE_RELEASE_AGE_EXCLUDE,
+    );
+  } catch (error) {
+    return {
+      id: "release-age",
+      status: "skipped",
+      detail: `Could not update pnpm-workspace.yaml (${error instanceof Error ? error.message : String(error)}); add ${AGENT_NATIVE_RELEASE_AGE_EXCLUDE} to minimumReleaseAgeExclude by hand`,
+    };
+  }
+  if (updated === current) return null;
+  if (dryRun) {
+    return {
+      id: "release-age",
+      status: "planned",
+      detail: `Add ${AGENT_NATIVE_RELEASE_AGE_EXCLUDE} to minimumReleaseAgeExclude in pnpm-workspace.yaml`,
+    };
+  }
+  fs.writeFileSync(file, updated);
+  return {
+    id: "release-age",
+    status: "ok",
+    detail: `Added ${AGENT_NATIVE_RELEASE_AGE_EXCLUDE} to minimumReleaseAgeExclude in pnpm-workspace.yaml`,
+  };
+}
+
 export function detectUpgradeProject(cwd: string): UpgradeProject | null {
   const start = path.resolve(cwd);
   let dir = start;
@@ -1187,6 +1228,9 @@ export async function runUpgrade(
       detail: `Updated ${doctor.bumps.length} @agent-native/* dependency pin(s)`,
     });
   }
+
+  const releaseAgeStep = alignReleaseAgeExclude(project, dryRun);
+  if (releaseAgeStep) result.steps.push(releaseAgeStep);
 
   let codemodPlan:
     | {
