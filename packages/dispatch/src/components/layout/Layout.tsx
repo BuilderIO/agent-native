@@ -1582,6 +1582,8 @@ function DispatchLayout({
   const chatFirstCopy = useMemo(() => createDispatchChatFirstCopy(t), [t]);
   const [chatFirstPane, setChatFirstPane] =
     useState<DispatchChatFirstPane | null>(null);
+  const [pendingChatFirstPaneRestore, setPendingChatFirstPaneRestore] =
+    useState<DispatchChatFirstPane | null>(null);
   const [chatFirstNotice, setChatFirstNotice] = useState<string | null>(null);
   const chatFirstSessionWatch = useChatFirstSessionWatch();
   const chatFirstSurfaceTabs = useChatFirstSurfaceTabs(chatFirstSurfaceScope);
@@ -1773,18 +1775,6 @@ function DispatchLayout({
   );
   const resolveChatFirstOpenApp = useCallback(
     (detail: ChatFirstOpenAppDetail) => {
-      if (chatFirstAppsLoading) {
-        pendingChatFirstOpenAppRef.current = detail;
-        return;
-      }
-      if (chatFirstAppsFailed) {
-        pendingChatFirstOpenAppRef.current = null;
-        setChatFirstNotice(
-          "Workspace apps could not be loaded, so the requested app was not opened.",
-        );
-        return;
-      }
-
       const resolution = resolveChatFirstAppTarget(
         detail,
         chatFirstAppRegistrations,
@@ -1793,11 +1783,22 @@ function DispatchLayout({
             typeof window === "undefined" ? undefined : window.location.origin,
         },
       );
-      pendingChatFirstOpenAppRef.current = null;
       if (resolution.status === "unresolved") {
+        if (chatFirstAppsLoading) {
+          pendingChatFirstOpenAppRef.current = detail;
+          return;
+        }
+        pendingChatFirstOpenAppRef.current = null;
+        if (chatFirstAppsFailed) {
+          setChatFirstNotice(
+            "Workspace apps could not be loaded, so the requested app was not opened.",
+          );
+          return;
+        }
         setChatFirstNotice(chatFirstResolutionMessage(resolution.reason));
         return;
       }
+      pendingChatFirstOpenAppRef.current = null;
       if (isDispatchWorkspaceAppId(resolution.target.appId)) {
         closeChatFirstSessionWatch();
         chatFirstSurfaceTabsStore.closeAll();
@@ -1892,6 +1893,7 @@ function DispatchLayout({
       chatFirstSurfaceTabsStore.closeAll();
       setChatFirstNotice(null);
       pendingChatFirstOpenAppRef.current = null;
+      setPendingChatFirstPaneRestore(null);
       chatFirstPaneHydratedRef.current = false;
       return;
     }
@@ -1912,13 +1914,7 @@ function DispatchLayout({
   ]);
 
   useEffect(() => {
-    if (
-      !chatFirstMode ||
-      !isChatRoute ||
-      chatFirstPaneHydratedRef.current ||
-      chatFirstAppsLoading ||
-      chatFirstAppsFailed
-    ) {
+    if (!chatFirstMode || !isChatRoute || chatFirstPaneHydratedRef.current) {
       return;
     }
     chatFirstPaneHydratedRef.current = true;
@@ -1927,25 +1923,7 @@ function DispatchLayout({
     void readClientAppState<unknown>(CHAT_FIRST_PANE_STATE_KEY)
       .then((value) => {
         if (!active) return;
-        const persisted = persistedChatFirstPane(value);
-        if (!persisted) return;
-        const resolution = resolveChatFirstAppTarget(
-          {
-            app: persisted.appId,
-            path: persisted.path,
-            view: persisted.view,
-          },
-          chatFirstAppRegistrations,
-          {
-            currentOrigin:
-              typeof window === "undefined"
-                ? undefined
-                : window.location.origin,
-          },
-        );
-        if (resolution.status === "ready") {
-          openChatFirstPane(resolution.target, persisted.placement);
-        }
+        setPendingChatFirstPaneRestore(persistedChatFirstPane(value));
       })
       .catch(() => {
         if (active) {
@@ -1957,14 +1935,52 @@ function DispatchLayout({
     return () => {
       active = false;
     };
+  }, [chatFirstMode, chatFirstPane, isChatRoute]);
+
+  useEffect(() => {
+    if (!chatFirstMode || !isChatRoute || !pendingChatFirstPaneRestore) return;
+    if (chatFirstPane) {
+      setPendingChatFirstPaneRestore(null);
+      return;
+    }
+    const resolution = resolveChatFirstAppTarget(
+      {
+        app: pendingChatFirstPaneRestore.appId,
+        path: pendingChatFirstPaneRestore.path,
+        view: pendingChatFirstPaneRestore.view,
+      },
+      chatFirstAppRegistrations,
+      {
+        currentOrigin:
+          typeof window === "undefined" ? undefined : window.location.origin,
+      },
+    );
+    if (resolution.status === "ready") {
+      setPendingChatFirstPaneRestore(null);
+      openChatFirstPane(
+        resolution.target,
+        pendingChatFirstPaneRestore.placement,
+      );
+      return;
+    }
+    if (
+      chatFirstAppsLoading ||
+      chatFirstAppsFailed ||
+      chatFirstConnectedAppsQuery.isError
+    ) {
+      return;
+    }
+    setPendingChatFirstPaneRestore(null);
   }, [
     chatFirstAppsFailed,
     chatFirstAppsLoading,
     chatFirstAppRegistrations,
+    chatFirstConnectedAppsQuery.isError,
     chatFirstMode,
     chatFirstPane,
     isChatRoute,
     openChatFirstPane,
+    pendingChatFirstPaneRestore,
   ]);
 
   useEffect(() => {
@@ -2025,7 +2041,7 @@ function DispatchLayout({
 
   useEffect(() => {
     const pending = pendingChatFirstOpenAppRef.current;
-    if (!pending || chatFirstAppsLoading) return;
+    if (!pending) return;
     resolveChatFirstOpenApp(pending);
   }, [
     chatFirstAppsQuery.data,
@@ -2207,7 +2223,7 @@ function DispatchLayout({
         return renderChatFirstAppSurfaceTab({
           registration,
           embedPath: tab.path ?? registration?.path ?? "/",
-          loading: chatFirstAppsLoading,
+          loading: !registration && chatFirstAppsLoading,
           isMobileSurface,
           copy: chatFirstCopy,
         });

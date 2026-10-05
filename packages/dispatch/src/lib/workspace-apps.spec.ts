@@ -352,6 +352,25 @@ describe("workspace app routes", () => {
     }
   });
 
+  it("preserves configured built-in launch paths over canonical defaults", () => {
+    const apps = mergeChatFirstWorkspaceApps(
+      undefined,
+      ["clips"],
+      [
+        {
+          id: "clips",
+          name: "Clips",
+          url: "https://clips.agent-native.com/recordings",
+          source: "builtin",
+        },
+      ],
+    );
+
+    expect(apps.find((app) => app.id === "clips")?.url).toBe(
+      "https://clips.agent-native.com/recordings",
+    );
+  });
+
   it("lets a mounted workspace app override a default row", () => {
     const apps = mergeChatFirstWorkspaceApps(
       [
