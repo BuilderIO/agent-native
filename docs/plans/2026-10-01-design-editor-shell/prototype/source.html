@@ -719,10 +719,11 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .row.tk input.tk-edit { margin-left: 8px; width: 104px; height: 20px; border: 1px solid var(--accent); border-radius: 4px; background: var(--bg); font: 11px/16px var(--mono); padding: 0 4px; color: var(--fg); flex: none; }
 /* Color picker (COLOR-01…05): 252px popover. Custom: the mode's field, eyedropper beside hue and opacity, Previous/New beside them,
    [Mode ▾] and one joined value field, Document colors. Libraries (inspector only): tokens. Both panes share one grid cell. */
-/* Every edge sits on the 8pt grid: 272px wide, 12px inset, one 248px column. The square is 248; the slider row is
+/* Every edge sits on the 8pt grid: 272px wide, 12px padding, one 248px column. The border is an inset ring, like Figma's
+   inside stroke, so it takes no layout space; a real 1px border would push the column off the grid. The square is 248; the slider row is
    eyedropper 24 · 8 · two 16px tracks of 168 · 8 · a 40px Previous/New swatch; the value rows share columns 64 · 64 · 64 · 32
    with 8px gaps (the inspector's trailing 32); document colors are 8 × 24 with 8px gaps. */
-.cpk { position: fixed; z-index: 49; width: 272px; background: var(--popover); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 10%), 0 8px 10px -6px rgb(0 0 0 / 10%); overflow: hidden; font-size: 11px; line-height: 16px; animation: swap .12s ease-out; }
+.cpk { position: fixed; z-index: 49; width: 272px; background: var(--popover); color: var(--fg); border-radius: 6px; box-shadow: inset 0 0 0 1px var(--border), 0 20px 25px -5px rgb(0 0 0 / 10%), 0 8px 10px -6px rgb(0 0 0 / 10%); overflow: hidden; font-size: 11px; line-height: 16px; animation: swap .12s ease-out; }
 .cpk-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--border); }
 .cpk-head .tabs { display: flex; gap: 4px; margin-left: -8px; }
 .cpk-head .acts { display: flex; align-items: center; gap: 4px; }
@@ -767,7 +768,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .cpk-grid button[aria-pressed="true"] { box-shadow: 0 0 0 1px var(--fg), inset 0 0 0 1px rgb(255 255 255 / 60%); }
 .cpk-lsearch { height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 12px; color: var(--muted-fg); border-bottom: 1px solid var(--border); }
 .cpk-lsearch input { flex: 1; min-width: 0; border: 0; background: none; outline: none; font-size: 12px; color: var(--fg); }
-.cpk-llabel { padding: 10px 12px 4px; font-weight: 600; color: var(--muted-fg); }
+.cpk-llabel { padding: 8px 12px 4px; font-weight: 600; color: var(--muted-fg); }
 .cpk-list { padding: 0 4px 8px; }
 .cpk-lrow { width: 100%; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 4px; font-size: 12px; text-align: left; }
 .cpk-lrow:hover { background: var(--hover); }
