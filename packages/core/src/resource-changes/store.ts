@@ -298,6 +298,13 @@ $an_rc$`,
   ];
 }
 
+/** A hash of the capture SQL for a source, which changes whenever it does. */
+export function resourceChangeCaptureFingerprint(
+  source: ResourceChangeSource,
+): string {
+  return shortHash(resourceChangeTriggerSql(source).join("\n"));
+}
+
 /**
  * Installs change capture for a source and subscribes a consumer to it.
  * Apps call this from a named migration, so the triggers ship with the app's

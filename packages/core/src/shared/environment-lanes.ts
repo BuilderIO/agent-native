@@ -56,6 +56,36 @@ export function resolveEnvironmentTargets(
   };
 }
 
+/**
+ * Moves an endpoint on a production lane host to that host's beta lane when
+ * the calling app is itself served from beta, so beta apps report to beta
+ * Analytics. Both lanes share one database: this picks which build ingests an
+ * event, not where the event is stored. Endpoints on any other host are an
+ * explicit choice and pass through unchanged.
+ */
+export function resolveLaneEndpoint(
+  endpoint: string,
+  appHostname: string | undefined,
+): string {
+  const appHost = appHostname?.trim().toLowerCase().replace(/\.$/, "");
+  if (!appHost || resolveEnvironmentTargets(appHost)?.betaHost !== appHost) {
+    return endpoint;
+  }
+
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    // coercion-ok: A relative endpoint already targets the app's own lane.
+    return endpoint;
+  }
+  const betaHost =
+    ENVIRONMENT_BETA_HOSTS[url.hostname as keyof typeof ENVIRONMENT_BETA_HOSTS];
+  if (!betaHost) return endpoint;
+  url.hostname = betaHost;
+  return url.toString();
+}
+
 export function buildEnvironmentUrl(
   sourceHref: string,
   targetHost: string,
