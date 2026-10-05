@@ -4,12 +4,15 @@ import {
   IconActivity,
   IconAdjustmentsHorizontal,
   IconAlertTriangle,
+  IconArrowLeft,
   IconCopy,
   IconDatabase,
   IconFileSearch,
   IconRefresh,
+  IconRobot,
   IconSearch,
   IconTool,
+  IconUser,
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
@@ -19,6 +22,7 @@ import { DispatchShell } from "../../components/dispatch-shell";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
 import {
   Popover,
   PopoverAnchor,
@@ -32,12 +36,18 @@ import {
   SelectValue,
 } from "../../components/ui/select";
 import { Skeleton } from "../../components/ui/skeleton";
+import { Switch } from "../../components/ui/switch";
 import {
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
 } from "../../components/ui/tabs";
+import {
+  buildConversationRows,
+  defaultConversationRowKey,
+  type ConversationRow,
+} from "../../lib/thread-debug-conversation";
 import { cn } from "../../lib/utils";
 
 export function meta() {
@@ -355,22 +365,6 @@ function eventIsNoise(event: any): boolean {
   ].includes(eventType(event));
 }
 
-function summarizeEvents(events: ThreadRun["events"]) {
-  const toolNames = new Map<string, number>();
-  let toolStarts = 0;
-  for (const entry of events) {
-    if (eventType(entry.event) !== "tool_start") continue;
-    toolStarts += 1;
-    const name = String(entry.event?.tool ?? "tool");
-    toolNames.set(name, (toolNames.get(name) ?? 0) + 1);
-  }
-  return {
-    toolStarts,
-    toolNames: [...toolNames.entries()],
-    meaningful: events.filter((entry) => !eventIsNoise(entry.event)).slice(-12),
-  };
-}
-
 function json(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2);
@@ -386,11 +380,6 @@ function eventLabel(event: any): string {
   if (event.type === "text") return "text";
   if (event.type === "error") return `error · ${event.errorCode ?? "agent"}`;
   return String(event.type ?? "event");
-}
-
-function messageTitle(message: ThreadMessage): string {
-  const role = message.role || "unknown";
-  return `${role.charAt(0).toUpperCase()}${role.slice(1)} ${message.index + 1}`;
 }
 
 function toolParts(message: ThreadMessage): any[] {
@@ -567,54 +556,13 @@ function FailureCard({
   );
 }
 
-function MessageBlock({ message }: { message: ThreadMessage }) {
-  const tools = toolParts(message);
-  return (
-    <div className="rounded-lg bg-card">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <Badge
-            variant={message.role === "assistant" ? "default" : "secondary"}
-          >
-            {message.role}
-          </Badge>
-          <span className="truncate text-sm font-medium text-foreground">
-            {messageTitle(message)}
-          </span>
-        </div>
-        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-          {message.attachments.length > 0 ? (
-            <Badge variant="outline">{message.attachments.length} files</Badge>
-          ) : null}
-          <span>{formatDate(message.createdAt)}</span>
-        </div>
-      </div>
-      <div className="space-y-3 px-3 py-3">
-        {message.text ? (
-          <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
-            {message.text}
-          </div>
-        ) : (
-          <div className="text-sm text-muted-foreground">No text content</div>
-        )}
-        {tools.length > 0 ? (
-          <div className="space-y-2">
-            {tools.map((tool, index) => (
-              <details
-                key={`${message.id ?? message.index}-tool-${index}`}
-                className="rounded-md border bg-muted/30 px-3 py-2"
-              >
-                <summary className="cursor-pointer text-xs font-medium text-foreground">
-                  {tool.toolName ?? tool.name ?? "tool-call"}
-                </summary>
-                <RawBlock value={tool} className="mt-2 max-h-72" />
-              </details>
-            ))}
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
+function toolCounts(message: ThreadMessage): Array<[string, number]> {
+  const counts = new Map<string, number>();
+  for (const tool of toolParts(message)) {
+    const name = String(tool.toolName ?? tool.name ?? "tool-call");
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return [...counts.entries()];
 }
 
 function EvidenceStat({ label, value }: { label: string; value: string }) {
@@ -628,150 +576,254 @@ function EvidenceStat({ label, value }: { label: string; value: string }) {
   );
 }
 
+function runFailed(run: ThreadRun): boolean {
+  return (
+    run.status !== "completed" &&
+    run.status !== "running" &&
+    (run.terminalReason || run.abortReason) !== "user"
+  );
+}
+
 // Runs that fail before the model starts (run_preparation_failed,
 // background_worker_never_started) retain no events, so the run row's own
 // terminal fields are the only record of how they ended.
-function RunEnding({ run }: { run: ThreadRun }) {
+function RunOutcome({ run }: { run: ThreadRun }) {
   const reason = run.terminalReason || run.abortReason;
   const codes = [...new Set([reason, run.errorCode].filter(Boolean))];
   const stage =
     diagnosticStage(run.workerStage) || diagnosticStage(run.diagStage);
-  const failed = run.status !== "completed" && reason !== "user";
+  const failed = runFailed(run);
   return (
-    <div
-      className={cn(
-        "flex items-start gap-3 px-3 py-2.5 text-xs",
-        failed && "bg-destructive/[0.04]",
-      )}
-    >
-      <span className="w-8 shrink-0 font-mono text-muted-foreground">end</span>
-      <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span
-            className={cn(
-              "font-medium",
-              failed ? "text-destructive" : "text-foreground",
-            )}
-          >
-            {run.status}
+    <div className="min-w-0 space-y-1 text-xs">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span
+          className={cn(
+            "font-medium",
+            failed ? "text-destructive" : "text-foreground",
+          )}
+        >
+          {run.status}
+        </span>
+        {codes.map((code) => (
+          <span key={code} className="font-mono text-muted-foreground">
+            {code}
           </span>
-          {codes.map((code) => (
-            <span key={code} className="font-mono text-muted-foreground">
-              {code}
-            </span>
-          ))}
-          {run.completedAt ? (
-            <span className="text-muted-foreground">
-              {formatDate(run.completedAt)}
-            </span>
-          ) : null}
-        </div>
-        {run.errorDetail ? (
-          <div className="whitespace-pre-wrap break-words text-foreground">
-            {run.errorDetail}
-          </div>
-        ) : null}
-        {stage ? (
-          <div className="text-muted-foreground">Last stage: {stage}</div>
-        ) : null}
+        ))}
       </div>
+      {run.errorDetail ? (
+        <div className="whitespace-pre-wrap break-words text-foreground">
+          {run.errorDetail}
+        </div>
+      ) : null}
+      {stage ? (
+        <div className="text-muted-foreground">Last stage: {stage}</div>
+      ) : null}
     </div>
   );
 }
 
-function RunTimeline({ run }: { run: ThreadRun }) {
-  const summary = summarizeEvents(run.events);
+type ThreadRow = ConversationRow<ThreadMessage, ThreadRun>;
+
+function ConversationRowButton({
+  row,
+  selected,
+  onSelect,
+}: {
+  row: ThreadRow;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const run = row.run;
+  const failed = run ? runFailed(run) : false;
+  const isUser = row.kind === "message" && row.message.role === "user";
+  const Icon =
+    row.kind === "run" ? IconAlertTriangle : isUser ? IconUser : IconRobot;
+  const tools = row.kind === "message" ? toolCounts(row.message) : [];
+  const showOutcome =
+    run && (row.kind === "run" || (!isUser && run.status !== "completed"));
+  const time =
+    row.kind === "message" ? row.message.createdAt : (run?.startedAt ?? null);
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-current={selected ? "true" : undefined}
+      className={cn(
+        "flex w-full items-start gap-3 border-b px-4 py-3 text-left transition-colors last:border-b-0",
+        selected ? "bg-accent/70" : "hover:bg-muted/50",
+        row.kind === "run" && failed && !selected && "bg-destructive/[0.04]",
+      )}
+    >
+      <Icon
+        aria-hidden="true"
+        className={cn(
+          "mt-0.5 size-4 shrink-0",
+          row.kind === "run" && failed
+            ? "text-destructive"
+            : "text-muted-foreground",
+        )}
+      />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+          <span className="font-medium text-foreground">
+            {row.kind === "run" ? "Run" : isUser ? "User" : "Agent"}
+          </span>
+          <span className="shrink-0">{formatDate(time)}</span>
+        </div>
+        {row.kind === "message" ? (
+          row.message.text ? (
+            <div className="line-clamp-3 whitespace-pre-wrap break-words text-sm text-foreground">
+              {row.message.text}
+            </div>
+          ) : tools.length === 0 ? (
+            <div className="text-sm text-muted-foreground">No text content</div>
+          ) : null
+        ) : null}
+        {tools.length > 0 || (!isUser && run?.durationMs != null) ? (
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            {tools.map(([name, count]) => (
+              <span
+                key={name}
+                className="inline-flex items-center gap-1 rounded-md bg-muted/60 px-1.5 py-0.5 text-foreground"
+              >
+                <IconTool className="size-3 text-muted-foreground" />
+                {name}
+                {count > 1 ? (
+                  <span className="text-muted-foreground">×{count}</span>
+                ) : null}
+              </span>
+            ))}
+            {!isUser && run?.durationMs != null ? (
+              <span className="text-muted-foreground">
+                {formatDuration(run.durationMs)}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        {showOutcome && run ? <RunOutcome run={run} /> : null}
+      </div>
+    </button>
+  );
+}
+
+function RunRecord({ run }: { run: ThreadRun }) {
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-3">
-        <div className="flex items-center gap-2">
-          <IconActivity className="size-4 text-muted-foreground" />
-          <span className="text-sm font-medium text-foreground">
-            {run.events.length.toLocaleString()} events retained
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {summary.toolStarts} tool starts
-          </span>
-        </div>
-        <span className="text-xs text-muted-foreground">
-          Started {formatDate(run.startedAt)}
-        </span>
+      <RunOutcome run={run} />
+      <div className="grid gap-3 text-xs sm:grid-cols-2">
+        <EvidenceStat label="Run ID" value={run.id} />
+        <EvidenceStat
+          label="Dispatch mode"
+          value={run.dispatchMode || "foreground"}
+        />
+        <EvidenceStat label="Started" value={formatDate(run.startedAt)} />
+        <EvidenceStat
+          label="Duration"
+          value={formatDuration(
+            run.durationMs ??
+              (run.completedAt == null
+                ? null
+                : run.completedAt - run.startedAt),
+          )}
+        />
+        <EvidenceStat
+          label="Last progress"
+          value={formatDate(run.lastProgressAt ?? run.heartbeatAt)}
+        />
+        <EvidenceStat
+          label="In-flight marker"
+          value={formatDate(run.inFlightSince)}
+        />
+        <EvidenceStat
+          label="Recovery payload"
+          value={run.hasDispatchPayload ? "retained" : "not retained"}
+        />
       </div>
-
-      {summary.toolNames.length > 0 ? (
-        <div className="flex flex-wrap gap-2">
-          {summary.toolNames.map(([name, count]) => (
-            <span
-              key={name}
-              className="inline-flex items-center gap-1.5 rounded-md bg-muted/60 px-2 py-1 text-xs text-foreground"
-            >
-              <IconTool className="size-3.5 text-muted-foreground" />
-              {name} <span className="text-muted-foreground">×{count}</span>
-            </span>
-          ))}
-        </div>
-      ) : null}
-
-      <div className="divide-y rounded-lg border">
-        {summary.meaningful.map((entry) => (
-          <div
-            key={`${run.id}-${entry.seq}`}
-            className="flex items-start gap-3 px-3 py-2.5 text-xs"
-          >
-            <span className="w-8 shrink-0 font-mono text-muted-foreground">
-              #{entry.seq}
-            </span>
-            <span className="min-w-0 flex-1 break-words text-foreground">
-              {eventLabel(entry.event)}
-            </span>
-          </div>
-        ))}
-        {run.status === "running" ? (
-          summary.meaningful.length === 0 ? (
-            <div className="px-3 py-4 text-sm text-muted-foreground">
-              No summarized events were retained for this run.
-            </div>
-          ) : null
-        ) : (
-          <RunEnding run={run} />
+      <RawBlock
+        value={Object.fromEntries(
+          Object.entries(run).filter(([key]) => key !== "events"),
         )}
-      </div>
+      />
+    </div>
+  );
+}
 
-      <details className="rounded-lg border">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2.5 text-xs font-medium text-foreground">
-          <span>Show raw event stream</span>
-          <span className="font-normal text-muted-foreground">
-            {run.events.length.toLocaleString()} records
-          </span>
-        </summary>
-        <div className="space-y-2 border-t p-3">
-          {run.events.map((entry) => (
+function RunEvents({ run }: { run: ThreadRun }) {
+  const [showStream, setShowStream] = useState(false);
+  const switchId = `thread-debug-stream-${run.id}`;
+  const events = showStream
+    ? run.events
+    : run.events.filter((entry) => !eventIsNoise(entry.event));
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <Switch
+          id={switchId}
+          checked={showStream}
+          onCheckedChange={setShowStream}
+        />
+        <Label htmlFor={switchId} className="text-xs font-normal">
+          Show stream events
+        </Label>
+      </div>
+      {events.length > 0 ? (
+        <div className="space-y-2">
+          {events.map((entry) => (
             <details
-              key={`${run.id}-raw-${entry.seq}`}
+              key={`${run.id}-event-${entry.seq}`}
               className="rounded-md border bg-muted/20 px-3 py-2"
             >
               <summary className="cursor-pointer text-xs text-foreground">
-                #{entry.seq} {eventLabel(entry.event)}
+                <span className="font-mono text-muted-foreground">
+                  #{entry.seq}
+                </span>{" "}
+                {eventLabel(entry.event)}
               </summary>
               <RawBlock value={entry.event} className="mt-2 max-h-72" />
             </details>
           ))}
         </div>
-      </details>
+      ) : (
+        <div className="text-sm text-muted-foreground">
+          No events were retained for this run.
+        </div>
+      )}
     </div>
   );
 }
 
-function ThreadDetail({ detail }: { detail: ThreadDebugResponse }) {
-  const rawBundle = useMemo(
+type InspectorTab = "message" | "run" | "events" | "traces" | "thread";
+
+function RowInspector({
+  row,
+  detail,
+}: {
+  row: ThreadRow | null;
+  detail: ThreadDebugResponse;
+}) {
+  const [tab, setTab] = useState<InspectorTab>("message");
+  const run = row?.run ?? null;
+  const available: InspectorTab[] = [
+    ...(row?.kind === "message" ? (["message"] as const) : []),
+    ...(run ? (["run", "events", "traces"] as const) : []),
+    "thread",
+  ];
+  const activeTab = available.includes(tab) ? tab : available[0];
+  const traces = useMemo(() => {
+    if (!run) return { summaries: [], spans: [] };
+    const forRun = (record: any) => record?.run_id === run.id;
+    return {
+      summaries: detail.traces.summaries.filter(forRun),
+      spans: detail.traces.spans.filter(forRun),
+    };
+  }, [detail.traces, run]);
+  const threadBundle = useMemo(
     () => ({
       thread: detail.thread,
       debug: detail.debug,
       debugRuns: detail.debugRuns,
       queuedMessages: detail.queuedMessages,
-      threadData: detail.threadData,
-      runs: detail.runs,
-      traces: detail.traces,
       feedback: detail.feedback,
       satisfaction: detail.satisfaction,
       evals: detail.evals,
@@ -779,277 +831,189 @@ function ThreadDetail({ detail }: { detail: ThreadDebugResponse }) {
     }),
     [detail],
   );
-  const primaryRun =
-    detail.runs.find((run) => run.id === detail.lookup?.runId) ??
-    detail.runs[0] ??
-    null;
-  const eventCount = detail.runs.reduce(
-    (total, run) => total + run.events.length,
-    0,
+
+  return (
+    <Tabs
+      value={activeTab}
+      onValueChange={(value) => setTab(value as InspectorTab)}
+      className="p-4"
+    >
+      <TabsList>
+        {available.includes("message") ? (
+          <TabsTrigger value="message">Message</TabsTrigger>
+        ) : null}
+        {run ? (
+          <>
+            <TabsTrigger value="run">Run</TabsTrigger>
+            <TabsTrigger value="events">Events</TabsTrigger>
+            <TabsTrigger value="traces">Traces</TabsTrigger>
+          </>
+        ) : null}
+        <TabsTrigger value="thread">Thread</TabsTrigger>
+      </TabsList>
+
+      {row?.kind === "message" ? (
+        <TabsContent value="message" className="mt-4 space-y-3">
+          {toolParts(row.message).map((tool, index) => (
+            <details
+              key={`${row.key}-tool-${index}`}
+              className="rounded-md border bg-muted/30 px-3 py-2"
+            >
+              <summary className="cursor-pointer text-xs font-medium text-foreground">
+                {tool.toolName ?? tool.name ?? "tool-call"}
+              </summary>
+              <RawBlock value={tool} className="mt-2 max-h-72" />
+            </details>
+          ))}
+          <RawBlock value={row.message} />
+        </TabsContent>
+      ) : null}
+      {run ? (
+        <>
+          <TabsContent value="run" className="mt-4">
+            <RunRecord run={run} />
+          </TabsContent>
+          <TabsContent value="events" className="mt-4">
+            <RunEvents key={run.id} run={run} />
+          </TabsContent>
+          <TabsContent value="traces" className="mt-4 space-y-3">
+            {traces.summaries.length > 0 || traces.spans.length > 0 ? (
+              <>
+                <RawBlock value={traces.summaries} />
+                <RawBlock value={traces.spans} />
+              </>
+            ) : (
+              <div className="text-sm text-muted-foreground">
+                No traces were recorded for this run.
+              </div>
+            )}
+          </TabsContent>
+        </>
+      ) : null}
+      <TabsContent value="thread" className="mt-4 space-y-3">
+        <RawBlock value={threadBundle} />
+        <RawBlock value={detail.rawThreadData} />
+      </TabsContent>
+    </Tabs>
   );
+}
+
+function ThreadDetail({
+  detail,
+  selectedRowKey,
+  onSelectRow,
+  onBack,
+}: {
+  detail: ThreadDebugResponse;
+  selectedRowKey: string | null;
+  onSelectRow: (key: string) => void;
+  onBack?: () => void;
+}) {
+  const rows = useMemo(
+    () => buildConversationRows(detail.messages, detail.runs),
+    [detail.messages, detail.runs],
+  );
+  const activeKey =
+    rows.find((row) => row.key === selectedRowKey)?.key ??
+    defaultConversationRowKey(rows, detail.lookup?.runId);
+  const selectedRow = rows.find((row) => row.key === activeKey) ?? null;
+  const lookupRun =
+    detail.runs.find((run) => run.id === detail.lookup?.runId) ?? null;
 
   return (
     <div className="min-w-0">
-      <div className="border-b px-5 py-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex items-start gap-2 border-b px-5 py-4">
+        {onBack ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="-ml-2 size-8 shrink-0"
+            aria-label="Back to threads"
+            title="Back to threads"
+            onClick={onBack}
+          >
+            <IconArrowLeft className="size-4" />
+          </Button>
+        ) : null}
+        <div className="flex min-w-0 flex-1 flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="truncate text-base font-semibold text-foreground">
               {detail.thread.title || detail.thread.preview || detail.thread.id}
             </div>
-            <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-              <span className="truncate font-mono">
-                {detail.lookup?.runId || detail.thread.id}
-              </span>
-              {detail.lookup?.runId ? (
+            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              <span className="truncate">{detail.thread.ownerEmail}</span>
+              <span aria-hidden="true">·</span>
+              <span>updated {formatDate(detail.thread.updatedAt)}</span>
+              <span aria-hidden="true">·</span>
+              <span className="flex min-w-0 items-center gap-1">
+                <span className="truncate font-mono">
+                  {detail.lookup?.runId || detail.thread.id}
+                </span>
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="size-7 shrink-0"
-                  title="Copy run ID"
-                  aria-label="Copy run ID"
+                  className="size-6 shrink-0"
+                  title={
+                    detail.lookup?.runId ? "Copy run ID" : "Copy thread ID"
+                  }
+                  aria-label={
+                    detail.lookup?.runId ? "Copy run ID" : "Copy thread ID"
+                  }
                   onClick={() =>
                     void navigator.clipboard?.writeText(
-                      detail.lookup?.runId ?? "",
+                      detail.lookup?.runId || detail.thread.id,
                     )
                   }
                 >
                   <IconCopy className="size-3.5" />
                 </Button>
-              ) : null}
+              </span>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {primaryRun ? (
+            {lookupRun ? (
               <Badge
                 variant={
-                  primaryRun.status === "errored" ? "destructive" : "secondary"
+                  lookupRun.status === "errored" ? "destructive" : "secondary"
                 }
               >
-                {primaryRun.status}
+                {lookupRun.status}
               </Badge>
             ) : null}
             <Badge variant="outline">{detail.source.label}</Badge>
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <span className="truncate">{detail.thread.ownerEmail}</span>
-          <span aria-hidden="true">·</span>
-          <span>{detail.messages.length} messages</span>
-          <span aria-hidden="true">·</span>
-          <span>{detail.runs.length} runs</span>
-          <span aria-hidden="true">·</span>
-          <span>updated {formatDate(detail.thread.updatedAt)}</span>
-        </div>
       </div>
 
-      <Tabs defaultValue="timeline" className="p-5">
-        <TabsList>
-          <TabsTrigger value="timeline">Timeline</TabsTrigger>
-          <TabsTrigger value="transcript">Transcript</TabsTrigger>
-          <TabsTrigger value="technical">Technical</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="timeline" className="mt-4 space-y-5">
-          {detail.runs.length > 0 ? (
-            detail.runs.map((run) => (
-              <section
-                key={run.id}
-                className="border-b pb-5 last:border-b-0 last:pb-0"
-              >
-                <div className="mb-3 flex flex-wrap items-center gap-2">
-                  <Badge
-                    variant={
-                      run.status === "errored" ? "destructive" : "outline"
-                    }
-                  >
-                    {run.status}
-                  </Badge>
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {run.id}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {formatDuration(run.durationMs)}
-                  </span>
-                </div>
-                <RunTimeline run={run} />
-              </section>
-            ))
-          ) : (
-            <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-              No retained runs.
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="transcript" className="mt-4 space-y-3">
-          {detail.messages.length > 0 ? (
-            detail.messages.map((message) => (
-              <MessageBlock
-                key={message.id ?? `message-${message.index}`}
-                message={message}
+      <div className="grid lg:grid-cols-2">
+        <section
+          aria-label="Conversation"
+          className="max-h-[760px] min-w-0 overflow-auto border-b lg:border-b-0 lg:border-r"
+        >
+          {rows.length > 0 ? (
+            rows.map((row) => (
+              <ConversationRowButton
+                key={row.key}
+                row={row}
+                selected={row.key === activeKey}
+                onSelect={() => onSelectRow(row.key)}
               />
             ))
           ) : (
-            <div className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-              <div>No persisted messages.</div>
-              {eventCount > 0 ? (
-                <div className="mt-1">
-                  Open Timeline to audit the retained execution events.
-                </div>
-              ) : null}
+            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+              No messages or runs were retained for this thread.
             </div>
           )}
-        </TabsContent>
-
-        <TabsContent value="technical" className="mt-4 space-y-3">
-          <details className="rounded-lg border">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 text-sm font-medium text-foreground">
-              <span>Run records</span>
-              <span className="text-xs font-normal text-muted-foreground">
-                {detail.runs.length} {detail.runs.length === 1 ? "run" : "runs"}
-              </span>
-            </summary>
-            <div className="space-y-4 border-t p-3">
-              {detail.runs.length > 0 ? (
-                detail.runs.map((run) => (
-                  <div key={run.id} className="space-y-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge
-                        variant={
-                          run.status === "errored" ? "destructive" : "outline"
-                        }
-                      >
-                        {run.status}
-                      </Badge>
-                      <span className="break-all font-mono text-xs text-foreground">
-                        {run.id}
-                      </span>
-                    </div>
-                    <div className="grid gap-3 text-xs sm:grid-cols-2 xl:grid-cols-3">
-                      <EvidenceStat
-                        label="Failure code"
-                        value={run.errorCode || "n/a"}
-                      />
-                      <EvidenceStat
-                        label="Terminal reason"
-                        value={run.terminalReason || run.abortReason || "n/a"}
-                      />
-                      <EvidenceStat
-                        label="Dispatch mode"
-                        value={run.dispatchMode || "foreground"}
-                      />
-                      <EvidenceStat
-                        label="Last stage"
-                        value={
-                          diagnosticStage(run.workerStage) ||
-                          diagnosticStage(run.diagStage) ||
-                          "n/a"
-                        }
-                      />
-                      <EvidenceStat
-                        label="Duration"
-                        value={formatDuration(
-                          run.durationMs ??
-                            (run.completedAt == null
-                              ? null
-                              : run.completedAt - run.startedAt),
-                        )}
-                      />
-                      <EvidenceStat
-                        label="Last progress"
-                        value={formatDate(
-                          run.lastProgressAt ?? run.heartbeatAt,
-                        )}
-                      />
-                      <EvidenceStat
-                        label="In-flight marker"
-                        value={formatDate(run.inFlightSince)}
-                      />
-                      <EvidenceStat
-                        label="Recovery payload"
-                        value={
-                          run.hasDispatchPayload ? "retained" : "not retained"
-                        }
-                      />
-                    </div>
-                    {run.errorDetail ? (
-                      <div className="rounded-md bg-destructive/10 px-3 py-2 text-xs leading-relaxed text-destructive">
-                        {run.errorDetail}
-                      </div>
-                    ) : null}
-                  </div>
-                ))
-              ) : (
-                <div className="text-sm text-muted-foreground">
-                  No retained run records.
-                </div>
-              )}
-            </div>
-          </details>
-
-          <details className="rounded-lg border">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 text-sm font-medium text-foreground">
-              <span>Traces, feedback, and evaluations</span>
-              <span className="text-xs font-normal text-muted-foreground">
-                diagnostic records
-              </span>
-            </summary>
-            <div className="grid gap-4 border-t p-3 lg:grid-cols-2">
-              <div>
-                <div className="mb-2 text-xs font-medium text-foreground">
-                  Debug runs
-                </div>
-                <RawBlock
-                  value={
-                    detail.debugRuns.length > 0
-                      ? detail.debugRuns
-                      : (detail.debug ?? {})
-                  }
-                />
-              </div>
-              <div>
-                <div className="mb-2 text-xs font-medium text-foreground">
-                  Trace summaries
-                </div>
-                <RawBlock value={detail.traces.summaries} />
-              </div>
-              <div>
-                <div className="mb-2 text-xs font-medium text-foreground">
-                  Trace spans
-                </div>
-                <RawBlock value={detail.traces.spans} />
-              </div>
-              <div>
-                <div className="mb-2 text-xs font-medium text-foreground">
-                  Feedback and evals
-                </div>
-                <RawBlock
-                  value={{
-                    feedback: detail.feedback,
-                    satisfaction: detail.satisfaction,
-                    evals: detail.evals,
-                    checkpoints: detail.checkpoints,
-                  }}
-                />
-              </div>
-            </div>
-          </details>
-
-          <details className="rounded-lg border">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-3 text-sm font-medium text-foreground">
-              <span>Raw thread bundle</span>
-              <span className="text-xs font-normal text-muted-foreground">
-                JSON
-              </span>
-            </summary>
-            <div className="space-y-3 border-t p-3">
-              <RawBlock value={rawBundle} />
-              <RawBlock value={detail.rawThreadData} />
-            </div>
-          </details>
-        </TabsContent>
-      </Tabs>
+        </section>
+        <section
+          aria-label="Inspector"
+          className="max-h-[760px] min-w-0 overflow-auto"
+        >
+          <RowInspector row={selectedRow} detail={detail} />
+        </section>
+      </div>
     </div>
   );
 }
@@ -1069,6 +1033,7 @@ export default function ThreadDebugRoute() {
   const runId = routeSearchParams.get("runId") || "";
   const threadId = routeSearchParams.get("threadId") || "";
   const inspectSourceId = routeSearchParams.get("inspectSource") || "";
+  const selectedItem = routeSearchParams.get("item");
   const [lookupId, setLookupId] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
 
@@ -1220,7 +1185,22 @@ export default function ThreadDebugRoute() {
           <Skeleton className="mt-6 h-[520px] w-full" />
         </div>
       ) : detail ? (
-        <ThreadDetail detail={detail} />
+        <ThreadDetail
+          detail={detail}
+          selectedRowKey={selectedItem}
+          onSelectRow={(key) => updateRouteState({ item: key })}
+          onBack={
+            mode === "threads"
+              ? () =>
+                  updateRouteState({
+                    threadId: null,
+                    runId: null,
+                    inspectSource: null,
+                    item: null,
+                  })
+              : undefined
+          }
+        />
       ) : (
         <div className="flex min-h-[520px] flex-col items-center justify-center px-5 text-center text-sm text-muted-foreground">
           <IconFileSearch className="mb-2 size-5" />
@@ -1313,6 +1293,7 @@ export default function ThreadDebugRoute() {
                       runId: null,
                       threadId: null,
                       inspectSource: null,
+                      item: null,
                     })
                   }
                 >
@@ -1526,6 +1507,7 @@ export default function ThreadDebugRoute() {
                             inspectSource: failureSourceId(failure),
                             runId: failure.id,
                             threadId: null,
+                            item: null,
                           })
                         }
                       />
@@ -1548,6 +1530,7 @@ export default function ThreadDebugRoute() {
                       runId: null,
                       threadId: null,
                       inspectSource: null,
+                      item: null,
                     })
                   }
                 >
@@ -1677,11 +1660,13 @@ export default function ThreadDebugRoute() {
                                 runId: trimmed,
                                 threadId: null,
                                 inspectSource: null,
+                                item: null,
                               }
                             : {
                                 threadId: trimmed,
                                 runId: null,
                                 inspectSource: null,
+                                item: null,
                               },
                         );
                       }}
@@ -1704,42 +1689,47 @@ export default function ThreadDebugRoute() {
             ) : null}
 
             <div className="overflow-hidden rounded-xl border bg-card">
-              <div className="grid xl:grid-cols-[360px_minmax(0,1fr)]">
-                <section className="min-h-[560px] border-b xl:border-b-0 xl:border-r">
-                  <div className="max-h-[760px] overflow-auto">
-                    {searchLoading ? (
-                      <>
-                        <Skeleton className="mx-4 mt-4 h-16 w-[calc(100%-2rem)]" />
-                        <Skeleton className="mx-4 mt-2 h-16 w-[calc(100%-2rem)]" />
-                        <Skeleton className="mx-4 mt-2 h-16 w-[calc(100%-2rem)]" />
-                      </>
-                    ) : null}
-                    {!searchLoading && searchThreads.length === 0 ? (
-                      <div className="flex min-h-64 flex-col items-center justify-center px-4 text-center text-sm text-muted-foreground">
-                        <IconDatabase className="mb-2 size-5" />
-                        {t("dispatch.pages.threadDebugNoThreads", {
-                          defaultValue: "No threads found.",
-                        })}
-                      </div>
-                    ) : null}
-                    {searchThreads.map((result) => (
-                      <ResultCard
-                        key={result.id}
-                        result={result}
-                        selected={threadId === result.id}
-                        onSelect={() =>
-                          updateRouteState({
-                            threadId: result.id,
-                            runId: null,
-                            inspectSource: null,
-                          })
-                        }
-                      />
-                    ))}
-                  </div>
-                </section>
-                <div className="min-w-0">{detailPane}</div>
-              </div>
+              {runId || threadId ? (
+                detailPane
+              ) : (
+                <div className="grid xl:grid-cols-[360px_minmax(0,1fr)]">
+                  <section className="min-h-[560px] border-b xl:border-b-0 xl:border-r">
+                    <div className="max-h-[760px] overflow-auto">
+                      {searchLoading ? (
+                        <>
+                          <Skeleton className="mx-4 mt-4 h-16 w-[calc(100%-2rem)]" />
+                          <Skeleton className="mx-4 mt-2 h-16 w-[calc(100%-2rem)]" />
+                          <Skeleton className="mx-4 mt-2 h-16 w-[calc(100%-2rem)]" />
+                        </>
+                      ) : null}
+                      {!searchLoading && searchThreads.length === 0 ? (
+                        <div className="flex min-h-64 flex-col items-center justify-center px-4 text-center text-sm text-muted-foreground">
+                          <IconDatabase className="mb-2 size-5" />
+                          {t("dispatch.pages.threadDebugNoThreads", {
+                            defaultValue: "No threads found.",
+                          })}
+                        </div>
+                      ) : null}
+                      {searchThreads.map((result) => (
+                        <ResultCard
+                          key={result.id}
+                          result={result}
+                          selected={threadId === result.id}
+                          onSelect={() =>
+                            updateRouteState({
+                              threadId: result.id,
+                              runId: null,
+                              inspectSource: null,
+                              item: null,
+                            })
+                          }
+                        />
+                      ))}
+                    </div>
+                  </section>
+                  <div className="min-w-0">{detailPane}</div>
+                </div>
+              )}
             </div>
           </TabsContent>
         </Tabs>
