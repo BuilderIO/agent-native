@@ -50,6 +50,7 @@ jobs:
             const coordinatorDeadline = startedAt + 350 * 60_000;
             const pollIntervalMs = 15_000;
             const reservedTags = new Map();
+            let downstreamNotificationFailureUrl;
 
             const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
             const phaseDeadline = (timeoutMs) =>
@@ -504,6 +505,7 @@ jobs:
                 core.warning(
                   `Downstream notification recovery also could not acquire a hosted runner; continuing the desktop and production release: ${recovery.url}`,
                 );
+                downstreamNotificationFailureUrl = recovery.url;
                 return;
               }
               throw new Error(
@@ -805,3 +807,8 @@ jobs:
               .write();
 
             core.info(`Release everything completed from ${releaseBaseSha} through ${releaseSha}.`);
+            if (downstreamNotificationFailureUrl) {
+              throw new Error(
+                `Production releases completed, but downstream package notifications were not delivered: ${downstreamNotificationFailureUrl}`,
+              );
+            }

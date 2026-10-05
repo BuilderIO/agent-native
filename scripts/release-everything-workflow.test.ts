@@ -202,6 +202,13 @@ describe("release everything workflow", () => {
       "await recoverDownstreamNotification()",
       packageTagCheck,
     );
+    const downstreamSettled = source.indexOf(
+      "const downstream = await Promise.allSettled",
+    );
+    const notificationFailure = source.indexOf(
+      "if (downstreamNotificationFailureUrl)",
+      downstreamSettled,
+    );
 
     assert.doesNotThrow(() => new AsyncFunction(source));
     assert.match(source, /allowCompletedFailure = false/);
@@ -227,10 +234,17 @@ describe("release everything workflow", () => {
     assert.match(source, /publish\.conclusion !== "skipped"/);
     assert.match(source, /notify\.conclusion === "success"/);
     assert.match(source, /continuing the desktop and production release/);
+    assert.match(source, /downstreamNotificationFailureUrl = recovery\.url/);
+    assert.match(
+      source,
+      /Production releases completed, but downstream package notifications were not delivered/,
+    );
     assert.ok(stablePublishStart >= 0);
     assert.ok(failureGate > stablePublishStart);
     assert.ok(packageTagCheck > failureGate);
     assert.ok(retryDispatch > packageTagCheck);
+    assert.ok(downstreamSettled >= 0);
+    assert.ok(notificationFailure > downstreamSettled);
   });
 
   it("isolates stable auto-publish lanes from nightly pushes", () => {
