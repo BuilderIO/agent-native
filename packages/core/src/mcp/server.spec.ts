@@ -1400,7 +1400,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           title: "Created artifact",
           html: "<!doctype html><html><body>Created</body></html>",
           _meta: {
-            ui: { domain: "https://stale.example.com" },
+            ui: {
+              domain: "https://stale.example.com",
+              csp: {
+                connectDomains: ["https://slides.agent-native.com"],
+                baseUriDomains: ["https://stale.example.com"],
+              },
+            },
             "openai/widgetDomain": "https://stale.example.com",
           },
         },
@@ -1437,9 +1443,13 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       const resource = await client.readResource({
         uri: "ui://slides/directory-action/shell-v65",
       });
-      expect((resource.contents[0] as any)._meta).toMatchObject({
+      const resourceMeta = (resource.contents[0] as any)._meta;
+      expect(resourceMeta).toMatchObject({
         ui: { domain: "https://slides.agent-native.com" },
         "openai/widgetDomain": "https://slides.agent-native.com",
+      });
+      expect(resourceMeta.ui.csp).toEqual({
+        connectDomains: ["https://slides.agent-native.com"],
       });
 
       const hiddenCall = await client.callTool({

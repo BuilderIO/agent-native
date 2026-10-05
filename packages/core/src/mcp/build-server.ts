@@ -1266,6 +1266,16 @@ function mcpAppUiMeta(
       : {};
   const ui: Record<string, unknown> = { ...existingUi };
   delete ui.domain;
+  if (
+    directoryMode &&
+    ui.csp &&
+    typeof ui.csp === "object" &&
+    !Array.isArray(ui.csp)
+  ) {
+    const csp = { ...(ui.csp as Record<string, unknown>) };
+    delete csp.baseUriDomains;
+    ui.csp = csp;
+  }
   if (resolvedCsp) {
     const csp = { ...resolvedCsp };
     if (directoryMode) delete csp.baseUriDomains;
