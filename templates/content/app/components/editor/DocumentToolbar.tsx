@@ -898,6 +898,7 @@ interface DocumentToolbarProps {
   onUtilityPanelChange: (panel: "info" | "comments" | null) => void;
   showCommentsControl?: boolean;
   commentsTriggerRef?: Ref<HTMLButtonElement>;
+  utilityPanelFocusFallbackRef?: Ref<HTMLButtonElement>;
   databaseExportContext?: DatabaseExportContext | null;
   onOpenBreadcrumbItem?: ToolbarBreadcrumbOpen;
   canUndo?: boolean;
@@ -967,6 +968,7 @@ export function DocumentToolbar({
   onUtilityPanelChange,
   showCommentsControl = true,
   commentsTriggerRef,
+  utilityPanelFocusFallbackRef,
   databaseExportContext,
   onOpenBreadcrumbItem,
   canUndo = false,
@@ -1002,6 +1004,27 @@ export function DocumentToolbar({
   const presenceHidden = foldLevel >= 3;
   const commentsInMenu = foldLevel >= 4;
   const shareInMenu = foldLevel >= 5;
+  const pageActionsRef = useCallback(
+    (node: HTMLButtonElement | null) => {
+      if (typeof utilityPanelFocusFallbackRef === "function") {
+        utilityPanelFocusFallbackRef(node);
+      } else if (utilityPanelFocusFallbackRef) {
+        utilityPanelFocusFallbackRef.current = node;
+      }
+      const escapeTarget = suggesting && !suggestingInMenu ? null : node;
+      if (typeof editorEscapeTargetRef === "function") {
+        editorEscapeTargetRef(escapeTarget);
+      } else if (editorEscapeTargetRef) {
+        editorEscapeTargetRef.current = escapeTarget;
+      }
+    },
+    [
+      editorEscapeTargetRef,
+      suggesting,
+      suggestingInMenu,
+      utilityPanelFocusFallbackRef,
+    ],
+  );
   const navigate = useNavigate();
   const location = useLocation();
   const creativeContextEnabled = useCreativeContextLab();
@@ -1292,7 +1315,9 @@ export function DocumentToolbar({
 
   const handleDbShareOpenChange = useCallback(
     (nextOpen: boolean) => {
-      if (nextOpen || !openShareOnLoad) return;
+      if (nextOpen) return;
+      setShareRequested(false);
+      if (!openShareOnLoad) return;
       const params = new URLSearchParams(location.search);
       params.delete("share");
       const nextSearch = params.toString();
@@ -1568,7 +1593,7 @@ export function DocumentToolbar({
             )
           ) : (
             <Suspense fallback={shareInMenu ? null : unopenedShareControl}>
-              {shareInMenu ? null : shareRequested || openShareOnLoad ? (
+              {shareRequested || openShareOnLoad ? (
                 <ShareButton
                   resourceType="document"
                   resourceId={documentId}
@@ -1662,7 +1687,7 @@ export function DocumentToolbar({
                       : undefined
                   }
                 />
-              ) : (
+              ) : shareInMenu ? null : (
                 unopenedShareControl
               )}
 
@@ -1762,11 +1787,7 @@ export function DocumentToolbar({
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
                   <button
-                    ref={
-                      suggesting && !suggestingInMenu
-                        ? undefined
-                        : editorEscapeTargetRef
-                    }
+                    ref={pageActionsRef}
                     className={cn(
                       "flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground",
                       utilityPanel === "info" && "bg-accent text-foreground",
@@ -1908,6 +1929,14 @@ export function DocumentToolbar({
               {shareInMenu ? (
                 <>
                   <DropdownMenuGroup>
+                    {!isLocalFileDocument ? (
+                      <DropdownMenuItem
+                        onSelect={() => setShareRequested(true)}
+                      >
+                        <IconUserPlus className="me-2 h-4 w-4" />
+                        {t("editor.toolbar.share")}
+                      </DropdownMenuItem>
+                    ) : null}
                     <DropdownMenuItem
                       onSelect={() => void handleCopyPageLink()}
                     >

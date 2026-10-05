@@ -33,6 +33,10 @@ vi.mock("sonner", async (importOriginal) => ({
   ...(await importOriginal<typeof import("sonner")>()),
   toast: { error: vi.fn(), success: vi.fn() },
 }));
+vi.mock("@agent-native/toolkit/app/sharing", () => ({
+  ShareButton: (props: { defaultOpen?: boolean }) =>
+    createElement("div", { "data-share-open": String(props.defaultOpen) }),
+}));
 
 import { DocumentToolbar, toolbarFoldLevel } from "./DocumentToolbar";
 
@@ -233,6 +237,16 @@ describe("DocumentToolbar at narrow widths", () => {
     expect(toolbarButton("editor.toolbar.copyPageLink")).toBeNull();
     expect(toolbarButton("comments.title")).toBeNull();
 
+    const items = await openPageActions();
+    expect(menuItem(items, "editor.toolbar.share")).toBeDefined();
+    await act(async () => menuItem(items, "editor.toolbar.share")!.click());
+    await act(async () => Promise.resolve());
+    expect(container.querySelector('[data-share-open="true"]')).not.toBeNull();
+  });
+
+  it("keeps the existing clipboard action in page actions", async () => {
+    mocks.copy.mockResolvedValue(true);
+    await renderToolbar(118);
     const items = await openPageActions();
     await act(async () =>
       menuItem(items, "editor.toolbar.copyPageLink")!.click(),

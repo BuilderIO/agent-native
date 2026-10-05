@@ -253,7 +253,7 @@ export function Layout({ children }: LayoutProps) {
   }, [location.key]);
 
   useEffect(() => {
-    if (shellLayout.sidebar === "docked") setMobileSidebarOpen(false);
+    if (shellLayout.sidebar !== "drawer") setMobileSidebarOpen(false);
   }, [shellLayout.sidebar]);
 
   const mobileSidebarTrigger = isCompactLayout ? (

@@ -37,6 +37,9 @@ describe("app layout", () => {
     expect(source).toContain("{isCompactLayout ? (");
     expect(source).toContain("}, [location.key])");
     expect(source).toContain(
+      'if (shellLayout.sidebar !== "drawer") setMobileSidebarOpen(false)',
+    );
+    expect(source).toContain(
       'className="w-[85vw] max-w-80 border-sidebar-border bg-sidebar p-0 text-sidebar-foreground"',
     );
     expect(source).not.toContain("md:hidden");
