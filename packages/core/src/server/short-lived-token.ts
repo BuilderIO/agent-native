@@ -153,7 +153,6 @@ export function verifyShortLivedToken(
 
 /** Marks a compact token. Legacy payloads always begin `eyJ`, never `v2_`. */
 export const COMPACT_TOKEN_PREFIX = "v2_";
-const COMPACT_TOKEN_DOMAIN = "agent-access-v2";
 
 interface DecodedCompactClaims {
   e: number;
@@ -167,7 +166,7 @@ export function isCompactShortLivedToken(token: unknown): token is string {
 
 function compactSignature(resourceId: string, payloadStr: string): string {
   return hmacB64(
-    `${COMPACT_TOKEN_DOMAIN}\n${resourceId}\n${payloadStr}`,
+    `agent-access:${COMPACT_TOKEN_PREFIX}\n${resourceId}\n${payloadStr}`,
     getSigningKey(),
   );
 }
