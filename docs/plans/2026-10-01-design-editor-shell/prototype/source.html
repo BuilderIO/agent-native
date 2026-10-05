@@ -726,8 +726,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .cpk-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 8px 12px; border-bottom: 1px solid var(--border); }
 .cpk-head .tabs { display: flex; gap: 4px; margin-left: -8px; }
 .cpk-head .acts { display: flex; align-items: center; gap: 4px; }
-.cpk-contrast { width: 24px; height: 24px; padding: 0; border-radius: 6px; display: grid; place-items: center; font-size: 11px; line-height: 1; font-weight: 600; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
-.cpk-contrast:hover { box-shadow: inset 0 0 0 1px rgb(0 0 0 / 24%); }
+.cpk-contrast { font-size: 11px; line-height: 1; font-weight: 600; }
 .cpk .icon-btn { width: 24px; height: 24px; padding: 0; border-radius: 6px; }
 .cpk .icon-btn:hover { background: var(--hover); }
 .cpk-head .tabs button { height: 24px; padding: 0 8px; border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--muted-fg); }
@@ -760,11 +759,6 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 /* The New swatch's tooltip carries contrast and gamut, in the app's tooltip style, so the swatch stays just the color. */
 .cpk-tip { position: fixed; z-index: 90; pointer-events: none; max-width: 232px; padding: 4px 8px; border-radius: 6px; background: var(--fg); color: var(--bg); font-size: 12px; line-height: 16px; }
 .cpk-tip .sub { opacity: .7; }
-.cpk-tip .ct-h { display: flex; justify-content: space-between; gap: 16px; font-weight: 500; }
-.cpk-tip .ct-h b { font-weight: 600; font-variant-numeric: tabular-nums; }
-.cpk-tip .ct-grid { display: grid; grid-template-columns: auto auto 1fr; column-gap: 12px; row-gap: 2px; margin-top: 6px; padding-top: 6px; border-top: 1px solid rgb(255 255 255 / 15%); }
-.cpk-tip .ct-grid .res { display: inline-flex; align-items: center; gap: 4px; justify-self: end; }
-.cpk-tip .ct-grid .res[data-pass="false"] { color: hsl(38 95% 62%); }
 .cpk-doc { border-top: 1px solid var(--border); padding: 12px; }
 .cpk-doc-h { height: 16px; display: flex; align-items: center; margin-bottom: 8px; color: var(--muted-fg); }
 .cpk-grid { display: grid; grid-template-columns: repeat(8, 24px); gap: 8px; }
@@ -2106,7 +2100,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   const docs = [...new Set(TOKENS.filter(t => t.type === "color" && parseColor(t.value)).map(t => t.value.toLowerCase()))].slice(0, 16);
   const libs = libraries || [];
   const pop = document.createElement("div"); pop.className = "cpk"; pop.setAttribute("role", "dialog"); pop.setAttribute("aria-label", "Color");
-  pop.innerHTML = `${libraries ? `<div class="cpk-head"><span class="tabs" role="tablist"><button role="tab" data-cpk-tab="custom" aria-selected="true">Custom</button><button role="tab" data-cpk-tab="libraries" aria-selected="false">Libraries</button></span><span class="acts">${contrast ? `<button class="cpk-contrast" aria-haspopup="menu" aria-label="Contrast" style="background:${contrast.bg}">Aa</button>` : ""}${canCreate ? `<button class="icon-btn cpk-create" title="Create a color token from this color">${ic("plus")}</button>` : ""}</span></div>` : ""}
+  pop.innerHTML = `${libraries ? `<div class="cpk-head"><span class="tabs" role="tablist"><button role="tab" data-cpk-tab="custom" aria-selected="true">Custom</button><button role="tab" data-cpk-tab="libraries" aria-selected="false">Libraries</button></span><span class="acts">${contrast ? `<button class="icon-btn cpk-contrast" aria-haspopup="menu" aria-label="Contrast">Aa</button>` : ""}${canCreate ? `<button class="icon-btn cpk-create" title="Create a color token from this color">${ic("plus")}</button>` : ""}</span></div>` : ""}
     <div class="cpk-panes">
       <div class="cpk-pane" data-cpk-pane="custom">
         <div class="cpk-sv" role="slider" aria-label="Saturation and brightness"></div>
@@ -2166,18 +2160,12 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   const ratioFor = lin => { if (!contrast) return 0; const b = parseHex(contrast.bg), bg = [b.r, b.g, b.b], fg = fitGamut(lin, inSrgb).map(toGam).map(c => clamp01(c) * 255).map((c, i) => c * C.a + bg[i] * (1 - C.a)); const [l1, l2] = [lum(fg), lum(bg)].sort((x, y) => y - x); return (l1 + 0.05) / (l2 + 0.05); };
   const need = () => contrast?.large ? [3, 4.5] : [4.5, 7];
   // New's tooltip names the swatch and, when it applies, says the color leaves sRGB.
-  let tip = null, tipTimer = 0, tipFor = null;
+  let tip = null, tipTimer = 0;
   const newTipHTML = () => `<div>New</div>${inSrgb(C.lin) ? "" : `<div class="sub">Outside sRGB. Screens without Display P3 show the nearest sRGB color.</div>`}`;
-  // Contrast's tooltip is a small table: the ratio on what's behind the text, then AA and AAA with their thresholds.
-  const contrastTipHTML = () => {
-    const r = ratioFor(C.lin), [aa, aaa] = need(), row = (n, t) => `<span>${n}</span><span class="sub">${t}:1</span><span class="res" data-pass="${r >= t}">${ic(r >= t ? "check" : "alert-triangle", "s12")}${r >= t ? "Passes" : "Fails"}</span>`;
-    return `<div class="ct-h"><span>Contrast</span><b>${(Math.floor(r * 10) / 10).toFixed(1)}:1</b></div><div class="sub">On ${contrast.bg.toUpperCase()} · ${contrast.large ? "large text" : "body text"}</div><div class="ct-grid">${row("AA", aa)}${row("AAA", aaa)}</div>`;
-  };
-  const tipHTML = () => tipFor === "contrast" ? contrastTipHTML() : newTipHTML();
-  const hideTip = () => { clearTimeout(tipTimer); tip?.remove(); tip = null; tipFor = null; };
-  const showTip = which => {
-    hideTip(); tipFor = which; tip = document.createElement("div"); tip.className = "cpk-tip"; tip.setAttribute("role", "tooltip"); tip.innerHTML = tipHTML(); document.body.append(tip);
-    const r = q(which === "contrast" ? ".cpk-contrast" : ".cpk-new").getBoundingClientRect();
+  const hideTip = () => { clearTimeout(tipTimer); tip?.remove(); tip = null; };
+  const showTip = () => {
+    hideTip(); tip = document.createElement("div"); tip.className = "cpk-tip"; tip.setAttribute("role", "tooltip"); tip.innerHTML = newTipHTML(); document.body.append(tip);
+    const r = q(".cpk-new").getBoundingClientRect();
     tip.style.left = Math.max(8, Math.min(innerWidth - tip.offsetWidth - 8, r.right - tip.offsetWidth)) + "px";
     tip.style.top = (r.top - tip.offsetHeight - 6 >= 8 ? r.top - tip.offsetHeight - 6 : r.bottom + 6) + "px";
   };
@@ -2185,10 +2173,10 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   const contrastMenu = () => {
     hideTip();
     const r = ratioFor(C.lin), [aa, aaa] = need();
+    // Each fix shows its level's status on the right and is off once that level passes.
     openMenu(q(".cpk-contrast"), [
-      { label: `Contrast ${(Math.floor(r * 10) / 10).toFixed(1)}:1` },
-      { t: "Fix for AA", k: `${aa}:1`, disabled: r >= aa, run: () => fixContrast(aa) },
-      { t: "Fix for AAA", k: `${aaa}:1`, disabled: r >= aaa, run: () => fixContrast(aaa) },
+      { t: "Fix for AA", k: r >= aa ? "Passes" : `Needs ${aa}:1`, disabled: r >= aa, run: () => fixContrast(aa) },
+      { t: "Fix for AAA", k: r >= aaa ? "Passes" : `Needs ${aaa}:1`, disabled: r >= aaa, run: () => fixContrast(aaa) },
       "-",
       { t: "Ask Agent to fix contrast", run: () => { close(false); askAgentContrast({ ratio: r, aa, bg: contrast.bg, large: contrast.large }); } },
     ], { align: "right" });
@@ -2200,7 +2188,11 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     const darker = ratioFor(at(0)) >= aa ? search(0, L0, true) : null, lighter = ratioFor(at(1)) >= aa ? search(L0, 1, false) : null;
     const L = [darker, lighter].filter(x => x !== null).sort((x, y) => Math.abs(x - L0) - Math.abs(y - L0))[0];
     if (L === undefined) return toast(`No lightness reaches ${aa}:1 at this hue and chroma`);
-    C.lin = at(L); C.wantC = null; update();
+    // The color is written in the current mode, and rounding (a hex code, say) can land just under the threshold,
+    // so step on, away from the failing side, until the written value itself passes.
+    const away = L === darker ? -1 : 1, written = lin => parseColor(formatColor(lin, 1, C.mode, C.okHue)).lin;
+    let L1 = L; for (let k = 0; k < 200 && ratioFor(written(at(L1))) < aa; k++) L1 = clamp01(L1 + away * 0.0005);
+    C.lin = written(at(L1)); C.wantC = null; update();
   };
   const SQ = 248;
   let laidOut = null, drawnFor = null;
@@ -2245,9 +2237,8 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
         + `<button class="icon-btn cpk-copy" aria-label="Copy color"></button>`;
     }
     const cp = q(".cpk-copy"); if (cp) { cp.title = `Copy ${css()}`; cp.innerHTML = ic("copy"); }
-    // The Aa sample is the new color on the text's own background, so low contrast reads faint at a glance.
-    const sample = q(".cpk-contrast"); if (sample) sample.style.color = css();
-    if (tip) tip.innerHTML = tipHTML();
+    const cb = q(".cpk-contrast"); if (cb) cb.title = `Contrast ${(Math.floor(ratioFor(C.lin) * 10) / 10).toFixed(1)}:1 on ${contrast.bg.toUpperCase()}`;
+    if (tip) tip.innerHTML = newTipHTML();
     const now = css().toLowerCase();
     pop.querySelectorAll("[data-cpk-doc]").forEach(b => b.setAttribute("aria-pressed", b.dataset.cpkDoc === now));
   };
@@ -2339,10 +2330,8 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   const key = e => { if (e.key === "Escape" && !document.querySelector(".menu") && !e.target.closest?.(".cpk-tdraft")) { e.preventDefault(); e.stopPropagation(); close(true); } };
   document.addEventListener("pointerdown", outside, true); document.addEventListener("keydown", key, true);
   pop._close = () => close(false);
-  q(".cpk-new").addEventListener("pointerenter", () => { tipTimer = setTimeout(() => showTip("new"), 300); });
+  q(".cpk-new").addEventListener("pointerenter", () => { tipTimer = setTimeout(showTip, 300); });
   q(".cpk-new").addEventListener("pointerleave", hideTip);
-  q(".cpk-contrast")?.addEventListener("pointerenter", () => { if (!document.querySelector(".menu")) tipTimer = setTimeout(() => showTip("contrast"), 300); });
-  q(".cpk-contrast")?.addEventListener("pointerleave", hideTip);
   hsv(); oklch(); paint(); place();
   if (current && libraries) setTab("libraries");
 }
