@@ -23,6 +23,7 @@ import {
 import { createFirstEventAbortController } from "./first-event-timeout.js";
 import { limitProviderTools } from "./limit-provider-tools.js";
 import { isCustomOpenAiBaseUrl } from "./openai-compatible-endpoint.js";
+import { createOpenRouterToolFetch } from "./openrouter-tool-fetch.js";
 import {
   clampThinkingBudgetTokens,
   resolveMaxOutputTokensForEngine,
@@ -643,6 +644,7 @@ class AISDKEngine implements AgentEngine {
     if (this.baseUrl) config.baseURL = this.baseUrl;
     if (this.requestFetch) config.fetch = this.requestFetch;
     if (this.provider === "openrouter") {
+      config.fetch = createOpenRouterToolFetch(this.requestFetch);
       if (this.appName) config.appName = this.appName;
       if (this.appUrl) config.appUrl = this.appUrl;
     }

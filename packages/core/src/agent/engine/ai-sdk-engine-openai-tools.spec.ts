@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
+import { defineAction } from "../../action.js";
 import { createAISDKEngine } from "./ai-sdk-engine.js";
 
 describe("AISDKEngine OpenAI tool wire format", () => {
@@ -49,4 +51,66 @@ describe("AISDKEngine OpenAI tool wire format", () => {
       }),
     ]);
   });
+});
+
+describe("AISDKEngine OpenRouter tool wire format", () => {
+  it.each(["openai/gpt-6-luna", "anthropic/claude-sonnet-5.5"])(
+    "keeps optional action parameters omittable for %s",
+    async (model) => {
+      const bodies: Record<string, any>[] = [];
+      const requestFetch: typeof fetch = async (_input, init) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return new Response(
+          JSON.stringify({ error: { message: "stop", code: 400 } }),
+          { status: 400, headers: { "content-type": "application/json" } },
+        );
+      };
+      const action = defineAction({
+        description: "List events in a date range",
+        schema: z.object({
+          from: z.string(),
+          accountEmails: z.array(z.string().email()).optional(),
+          calendarSourceKeys: z.array(z.string()).optional(),
+          options: z.object({ limit: z.number().optional() }).optional(),
+        }),
+        run: async () => ({ events: [] }),
+      });
+      const engine = createAISDKEngine("openrouter", {
+        apiKey: "test-key",
+        requestFetch,
+      });
+
+      for await (const _ of engine.stream({
+        model,
+        systemPrompt: "",
+        messages: [{ role: "user", content: [{ type: "text", text: "list" }] }],
+        tools: [
+          {
+            name: "list-events",
+            description: action.tool.description,
+            inputSchema: action.tool.parameters,
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      })) {
+        // drain
+      }
+
+      expect(bodies).toHaveLength(1);
+      expect(bodies[0]?.tools).toEqual([
+        {
+          type: "function",
+          function: {
+            name: "list-events",
+            description: action.tool.description,
+            parameters: action.tool.parameters,
+            strict: false,
+          },
+        },
+      ]);
+      expect(bodies[0]?.tools[0].function.parameters.required).toEqual([
+        "from",
+      ]);
+    },
+  );
 });
