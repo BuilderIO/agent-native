@@ -165,8 +165,8 @@ import {
   resolveSuggestionPresentationRange,
   type SuggestionPresentationTransition,
 } from "./suggestions/presentation-rebase";
-import { ContentTableView } from "./table-view";
 import { SuggestingReadOnlyBlocks } from "./suggestions/read-only-blocks";
+import { ContentTableView } from "./table-view";
 import { TableHoverControls } from "./TableHoverControls";
 
 function compareDocumentBodyRevisions(
