@@ -1485,6 +1485,8 @@ export async function instrumentAgentLoop(opts: {
             outputTokens: trip.usage?.outputTokens,
           });
         }
+        // Loops that never bracket model calls get no durations at all: a
+        // failure-only duration here would read as a 100% failure rate.
         if (modelRoundTrips.length === 0 && usage?.usageReported) {
           recordGenAiChat({
             requestModel: loopOpts.model,

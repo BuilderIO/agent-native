@@ -187,6 +187,15 @@ describe("hostedTraceSamplerEnv", () => {
     ]);
   });
 
+  it("keeps a configured sampler or ratio", () => {
+    expect(
+      hostedTraceSamplerEnv("production", { sampler: "always_on" }),
+    ).toEqual([]);
+    expect(hostedTraceSamplerEnv("production", { samplerArg: "0.1" })).toEqual([
+      ["OTEL_TRACES_SAMPLER", "parentbased_traceidratio"],
+    ]);
+  });
+
   it("leaves beta and other contexts on the SDK default", () => {
     expect(hostedTraceSamplerEnv("branch:beta")).toEqual([]);
     expect(hostedTraceSamplerEnv("deploy-preview")).toEqual([]);

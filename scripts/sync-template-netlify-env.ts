@@ -528,9 +528,10 @@ function buildTemplateEnvPlan(
       context,
       values.get("OTEL_RESOURCE_ATTRIBUTES"),
     );
-    const sampler = values.get("OTEL_TRACES_SAMPLER")
-      ? []
-      : hostedTraceSamplerEnv(context);
+    const sampler = hostedTraceSamplerEnv(context, {
+      sampler: values.get("OTEL_TRACES_SAMPLER"),
+      samplerArg: values.get("OTEL_TRACES_SAMPLER_ARG"),
+    });
     for (const [key, value] of [...identity, ...sampler]) {
       const index = entries.findIndex(([entryKey]) => entryKey === key);
       if (index >= 0) entries.splice(index, 1);
@@ -620,11 +621,16 @@ export function hostedTelemetryIdentityEnv(
  */
 export function hostedTraceSamplerEnv(
   context: string,
+  configured: { sampler?: string; samplerArg?: string } = {},
 ): Array<readonly [string, string]> {
-  if (context !== "production") return [];
+  // An explicit sampler owns its argument: a ratio default would change what
+  // e.g. a bare `traceidratio` (SDK default 1.0) samples.
+  if (context !== "production" || configured.sampler) return [];
   return [
     ["OTEL_TRACES_SAMPLER", "parentbased_traceidratio"],
-    ["OTEL_TRACES_SAMPLER_ARG", "0.01"],
+    ...(configured.samplerArg
+      ? []
+      : ([["OTEL_TRACES_SAMPLER_ARG", "0.01"]] as const)),
   ];
 }
 
