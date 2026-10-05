@@ -746,6 +746,30 @@ describe("DatabaseView UI regressions", () => {
     expect(databaseRetryItemsMock).toHaveBeenCalledOnce();
   });
 
+  it.each(["calendar", "timeline"] as const)(
+    "draws a %s view's frame around the retryable error when its first read fails",
+    async (type) => {
+      const view = createDatabaseView("Schedule", "schedule", {}, type);
+      databaseResponse.database.viewConfig = {
+        activeViewId: view.id,
+        views: [view],
+        sorts: view.sorts,
+        filters: view.filters,
+        columnWidths: view.columnWidths,
+      };
+      databaseItemsState.failed = true;
+      databaseQueryState.isError = true;
+      databaseQueryState.unanswered = true;
+
+      await renderDatabaseView();
+
+      expect(
+        container.querySelector('[data-startup-anchor="database-tabs"]'),
+      ).toBeTruthy();
+      expect(findButtonByText(container, "database.retry")).toBeTruthy();
+    },
+  );
+
   it("offers retry when an exact view the page read does not list cannot be read", async () => {
     databaseItemsState.failed = true;
     databaseQueryState.isError = true;

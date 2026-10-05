@@ -1357,10 +1357,13 @@ function DatabaseTable({
     clientQueryExpandedItemLimit,
     data?.pagination?.limit ?? items.length,
   );
+  // A failed read has no rows to expand, so calendar and timeline views would
+  // otherwise count it as an expansion still pending and never draw.
   const isDatabaseViewLoading =
-    isDatabaseInitialLoading ||
-    isClientQueryExpansionPending ||
-    (database.isFetching && Boolean(tableQuery));
+    !database.itemsFailed &&
+    (isDatabaseInitialLoading ||
+      isClientQueryExpansionPending ||
+      (database.isFetching && Boolean(tableQuery)));
   // Until the saved view resolves and its first rows land, the view draws its
   // placeholder; after that, later reads keep the view on screen.
   const firstViewPending =
@@ -3079,7 +3082,7 @@ function DatabaseTable({
     // An exact view the page read does not list resolves only from the
     // collection read, so a failed first read would otherwise hold the
     // placeholder forever.
-    if (database.itemsFailed) {
+    if (database.itemsFailed && !personalView.isLoading) {
       return (
         <QueryErrorState
           compact
