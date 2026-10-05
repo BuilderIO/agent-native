@@ -510,7 +510,7 @@ export async function getContentDatabaseNavigationPage(args: {
         eq(favoriteItems.documentId, schema.documents.id),
       ),
     );
-  const sharedWithRole = (roles: Array<"admin" | "editor">) =>
+  const sharedWithRole = (roles: Array<"admin" | "editor" | "owner">) =>
     db
       .select({ id: roleShares.id })
       .from(roleShares)
@@ -551,8 +551,8 @@ export async function getContentDatabaseNavigationPage(args: {
     )} THEN 'database' ELSE 'page' END`,
     hasChildren: sql<boolean>`${exists(visibleChild)}`,
     isFavorite: sql<boolean>`${exists(favoriteMembership)}`,
-    sharedEditor: sql<boolean>`${exists(sharedWithRole(["admin", "editor"]))}`,
-    sharedManager: sql<boolean>`${exists(sharedWithRole(["admin"]))}`,
+    sharedEditor: sql<boolean>`${exists(sharedWithRole(["admin", "editor", "owner"]))}`,
+    sharedManager: sql<boolean>`${exists(sharedWithRole(["admin", "owner"]))}`,
     rowHash: sql<string>`${rowHash}::text`,
   };
   const membershipRows = (where: SQL | undefined) =>

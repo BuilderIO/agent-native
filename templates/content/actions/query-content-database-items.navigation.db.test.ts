@@ -1375,7 +1375,7 @@ describe("query-content-database-items Files navigation", () => {
   });
 
   it("returns each row's permissions and favorite state from the page read", async () => {
-    for (const role of ["editor", "viewer", "admin"] as const) {
+    for (const role of ["editor", "viewer", "admin", "owner"] as const) {
       await addFile({ id: `row-flags-${role}`, ownerEmail: OTHER });
       await getDb()
         .insert(schema.documentShares)
@@ -1402,10 +1402,11 @@ describe("query-content-database-items Files navigation", () => {
       "membership-row-flags-editor",
       "membership-row-flags-viewer",
       "membership-row-flags-admin",
+      "membership-row-flags-owner",
       "membership-row-flags-favorite",
     ]);
 
-    const roots = await navigate({ parentId: null }, 4);
+    const roots = await navigate({ parentId: null }, 5);
     expect(
       roots.items.map(({ documentId, canEdit, canManage, isFavorite }) => ({
         documentId,
@@ -1428,6 +1429,12 @@ describe("query-content-database-items Files navigation", () => {
       },
       {
         documentId: "row-flags-admin",
+        canEdit: true,
+        canManage: true,
+        isFavorite: false,
+      },
+      {
+        documentId: "row-flags-owner",
         canEdit: true,
         canManage: true,
         isFavorite: false,

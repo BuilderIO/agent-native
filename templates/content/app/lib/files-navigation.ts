@@ -10,6 +10,7 @@ import {
   useQueryClient,
   type QueryClient,
 } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 
 export const FILES_NAVIGATION_PAGE_SIZE = 20;
 
@@ -69,11 +70,8 @@ type FilesNavigationRead =
   | ContentDatabaseUnavailableResponse;
 
 /**
- * Reads one Files page. The first read of a page also asks for the first
- * pages of `expanded` folders under it, and caches each one the server
- * returns under that folder's own key, so open folders draw with the tree
- * instead of one level per round trip. Later reads of the page leave its
- * children to refresh themselves.
+ * Reads one Files page and asks for any expanded folders that do not have a
+ * cached page yet, so opening a cached root can still load its new branches.
  */
 export async function readFilesNavigationPage(
   queryClient: QueryClient,
@@ -81,11 +79,17 @@ export async function readFilesNavigationPage(
   expanded: Iterable<string>,
   signal?: AbortSignal,
 ): Promise<FilesNavigationRead> {
-  const firstRead =
-    queryClient.getQueryData(filesNavigationQueryKey(params)) === undefined;
-  const expand = firstRead
-    ? [...expanded].slice(0, MAX_EXPANDED_IDS_PER_READ)
-    : [];
+  const expand = [...expanded]
+    .filter((parentId) => {
+      const key = filesNavigationQueryKey(
+        filesNavigationPageParams({
+          databaseId: params.databaseId,
+          parentId,
+        }),
+      );
+      return queryClient.getQueryData(key) === undefined;
+    })
+    .slice(0, MAX_EXPANDED_IDS_PER_READ);
   const response = await callAction<FilesNavigationRead>(
     "query-content-database-items",
     expand.length
@@ -132,10 +136,52 @@ export function useFilesNavigationPage(
   expanded: ReadonlySet<string>,
 ) {
   const queryClient = useQueryClient();
-  return useQuery({
+  const expansionKey = JSON.stringify([
+    params.databaseId,
+    params.navigation.parentId,
+    params.navigation.cursor ?? null,
+    [...expanded],
+  ]);
+  const rootReadExpansion = useRef<string | null>(null);
+  const query = useQuery({
     queryKey: filesNavigationQueryKey(params),
-    queryFn: ({ signal }) =>
-      readFilesNavigationPage(queryClient, params, expanded, signal),
+    queryFn: ({ signal }) => {
+      rootReadExpansion.current = expansionKey;
+      return readFilesNavigationPage(queryClient, params, expanded, signal);
+    },
     retry: retryFilesNavigationRead,
   });
+  useEffect(() => {
+    if (
+      !query.data ||
+      "available" in query.data ||
+      query.isFetching ||
+      rootReadExpansion.current === expansionKey
+    ) {
+      return;
+    }
+    const hasMissingBranch = [...expanded].some((parentId) => {
+      const key = filesNavigationQueryKey(
+        filesNavigationPageParams({
+          databaseId: params.databaseId,
+          parentId,
+        }),
+      );
+      return queryClient.getQueryData(key) === undefined;
+    });
+    if (!hasMissingBranch) {
+      rootReadExpansion.current = expansionKey;
+      return;
+    }
+    void query.refetch();
+  }, [
+    expanded,
+    expansionKey,
+    params,
+    query.data,
+    query.isFetching,
+    query.refetch,
+    queryClient,
+  ]);
+  return query;
 }

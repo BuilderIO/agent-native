@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { callAction } = vi.hoisted(() => ({
@@ -14,6 +16,7 @@ import {
   filesNavigationQueryKey,
   openFilesFolderIds,
   readFilesNavigationPage,
+  useFilesNavigationPage,
 } from "./files-navigation";
 import {
   filesRootHintScope,
@@ -145,7 +148,7 @@ describe("Files root hint", () => {
         navigation: {
           parentId: null,
           cursor: undefined,
-          expand: ["folder-a", "folder-b"],
+          expand: ["folder-a"],
         },
       },
       expect.objectContaining({ method: "GET" }),
@@ -158,22 +161,110 @@ describe("Files root hint", () => {
     );
   });
 
-  it("leaves open folders to refresh themselves when a page reads again", async () => {
+  it("requests newly opened branches even when the root page is cached", async () => {
     const queryClient = new QueryClient();
     const params = filesNavigationPageParams({
       databaseId: "files-1",
       parentId: null,
     });
     queryClient.setQueryData(filesNavigationQueryKey(params), page(["kept"]));
-    callAction.mockResolvedValue(page(["fresh"]));
+    callAction.mockResolvedValue({
+      ...page(["fresh"]),
+      branches: { "folder-a": page(["child-a"]) },
+    });
 
     await readFilesNavigationPage(queryClient, params, new Set(["folder-a"]));
 
     expect(callAction).toHaveBeenCalledWith(
       "query-content-database-items",
-      params,
+      {
+        ...params,
+        navigation: { ...params.navigation, expand: ["folder-a"] },
+      },
       expect.objectContaining({ method: "GET" }),
     );
+    expect(
+      queryClient.getQueryData(
+        filesNavigationQueryKey(
+          filesNavigationPageParams({
+            databaseId: "files-1",
+            parentId: "folder-a",
+          }),
+        ),
+      ),
+    ).toEqual(page(["child-a"]));
+  });
+
+  it("refetches a fresh root when a new expanded branch has no cached page", async () => {
+    const queryClient = new QueryClient();
+    const params = filesNavigationPageParams({
+      databaseId: "files-1",
+      parentId: null,
+    });
+    callAction.mockResolvedValue(page(["root"]));
+
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    function Observer({ expanded }: { expanded: string[] }) {
+      useFilesNavigationPage(params, new Set(expanded));
+      return null;
+    }
+
+    try {
+      await act(async () => {
+        root.render(
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(Observer, { expanded: [] }),
+          ),
+        );
+      });
+      await vi.waitFor(() => expect(callAction).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() =>
+        expect(
+          queryClient.getQueryData(filesNavigationQueryKey(params)),
+        ).toEqual(page(["root"])),
+      );
+
+      callAction.mockResolvedValue({
+        ...page(["root"]),
+        branches: { "folder-new": page(["child-new"]) },
+      });
+      await act(async () => {
+        root.render(
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(Observer, { expanded: ["folder-new"] }),
+          ),
+        );
+      });
+
+      await vi.waitFor(() => expect(callAction).toHaveBeenCalledTimes(2));
+      expect(callAction).toHaveBeenLastCalledWith(
+        "query-content-database-items",
+        {
+          ...params,
+          navigation: { ...params.navigation, expand: ["folder-new"] },
+        },
+        expect.objectContaining({ method: "GET" }),
+      );
+      expect(
+        queryClient.getQueryData(
+          filesNavigationQueryKey(
+            filesNavigationPageParams({
+              databaseId: "files-1",
+              parentId: "folder-new",
+            }),
+          ),
+        ),
+      ).toEqual(page(["child-new"]));
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      queryClient.clear();
+    }
   });
 
   it("asks for the open page's ancestors first when more folders are open than one read takes", async () => {
