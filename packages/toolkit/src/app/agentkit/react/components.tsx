@@ -447,10 +447,13 @@ function interactionIcon(kind: string): ReactNode {
 export function AgentObjectReferenceView({
   value: object,
 }: AgentKitRenderProps<AgentObjectReference>) {
-  const { onOpenObject } = useAgentKit();
+  const { onOpenObject, labels } = useAgentKit();
+  const thread = useAgentThread();
   const content = (
     <>
-      <span className="agentkit-object-label">{object.label}</span>
+      <span className="agentkit-object-label">
+        {resolveObjectLabel(object, thread, labels.assistant)}
+      </span>
       {typeof object.metadata?.added === "number" ? (
         <span className="agentkit-diff-added">+{object.metadata.added}</span>
       ) : null}
@@ -477,24 +480,149 @@ export function AgentObjectReferenceView({
 export function AgentParticipantView({
   value: agent,
 }: AgentKitRenderProps<AgentParticipant>) {
+  const { labels } = useAgentKit();
+  const thread = useAgentThread();
   return (
     <AgentIdentityChip
       id={agent.id}
-      name={agent.name}
+      name={resolveAgentName(
+        thread,
+        agent.id,
+        [agent.origin],
+        labels.assistant,
+        agent.name,
+      )}
+      fallbackName={labels.assistant}
       kind={agent.kind}
       status={agent.status}
     />
   );
 }
 
+const UUID_PATTERN =
+  /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    value.trim(),
+  );
+}
+
+function hideUuids(value: string): string {
+  return value.replace(UUID_PATTERN, "");
+}
+
+function readableText(value: string | undefined): string {
+  if (!value) return "";
+  return hideUuids(value)
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .replace(/[,.;:!?]\s*$/g, "")
+    .trim();
+}
+
+function humanizeAgentKind(kind: string): string {
+  return kind
+    .replace(/^agent-native\//, "")
+    .replace(/^mcp__/i, "")
+    .replace(/[._-]+/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function humanizeAgentLabel(value: string): string {
+  const label = readableText(value);
+  if (!label) return "";
+  return /\s/.test(label) ? label : humanizeAgentKind(label);
+}
+
+function resolveAgentName(
+  thread: AgentThreadState,
+  agentId: string | undefined,
+  references: readonly (AgentObjectReference | undefined)[],
+  fallback: string,
+  preferredName?: string,
+): string {
+  const participant = agentId ? thread.agents[agentId] : undefined;
+  const names = [
+    preferredName,
+    participant?.name,
+    participant?.origin?.label,
+    ...references
+      .filter((reference) => reference?.kind === "agent")
+      .map((reference) => reference?.label),
+    participant?.description,
+  ];
+  for (const name of names) {
+    const label = name ? humanizeAgentLabel(name) : "";
+    if (label) return label;
+  }
+  return fallback;
+}
+
+function resolveObjectLabel(
+  object: AgentObjectReference,
+  thread: AgentThreadState,
+  fallback: string,
+): string {
+  if (object.kind === "agent") {
+    return resolveAgentName(thread, object.id, [object], fallback);
+  }
+  if (object.kind === "task") {
+    const title = humanizeAgentLabel(thread.tasks[object.id]?.title ?? "");
+    if (title) return title;
+  }
+  return humanizeAgentLabel(object.label) || humanizeAgentKind(object.kind);
+}
+
+function activityToolValue(value: unknown): unknown {
+  if (typeof value === "string") {
+    if (isUuid(value)) return "[ID]";
+    const text = hideUuids(value);
+    return text.trim() ? text : "[ID]";
+  }
+  if (Array.isArray(value)) {
+    const items = value
+      .map(activityToolValue)
+      .filter((item) => item !== undefined);
+    return items.length ? items : undefined;
+  }
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value)
+      .filter(([key]) => !isUuid(key))
+      .flatMap(([key, child]) => {
+        const safeValue = activityToolValue(child);
+        return safeValue === undefined ? [] : [[key, safeValue] as const];
+      });
+    return entries.length ? Object.fromEntries(entries) : undefined;
+  }
+  return value;
+}
+
+function formatActivityToolValue(value: unknown): string | undefined {
+  const safeValue = activityToolValue(value);
+  if (safeValue === undefined) return undefined;
+  const text = formatToolDiagnostic(safeValue);
+  if (!text?.trim()) return undefined;
+  const limit = 2_000;
+  return text.length > limit ? `${text.slice(0, limit).trimEnd()}…` : text;
+}
+
+function activityLabel(activity: AgentActivity, workingLabel: string): string {
+  const label = readableText(activity.label);
+  if (label.toLowerCase() === "processing") return workingLabel;
+  return humanizeAgentLabel(label) || humanizeAgentKind(activity.kind);
+}
+
 function AgentIdentityChip({
   id,
   name,
+  fallbackName = "Agent",
   kind,
   status,
 }: {
   id: string;
   name: string;
+  fallbackName?: string;
   kind?: string;
   status?: AgentParticipant["status"];
 }) {
@@ -505,7 +633,9 @@ function AgentIdentityChip({
       data-agent-kind={kind}
       data-status={status}
     >
-      <span className="agentkit-agent-name">{name}</span>
+      <span className="agentkit-agent-name">
+        {readableText(name) || fallbackName}
+      </span>
     </span>
   );
 }
@@ -558,7 +688,26 @@ export function AgentInteractionItem({
       AgentParticipantView)
     : undefined;
   const ObjectRenderer = slots.object ?? AgentObjectReferenceView;
-  const object = interaction.object ?? interaction.source;
+  const agentName = resolveAgentName(
+    thread,
+    interaction.agentId,
+    [interaction.source],
+    labels.assistant,
+  );
+  const targetName = resolveAgentName(
+    thread,
+    interaction.targetAgentId,
+    [interaction.object],
+    labels.assistant,
+  );
+  const object =
+    interaction.object ??
+    (interaction.source?.kind === "agent" ? undefined : interaction.source);
+  const label = readableText(interaction.label);
+  const visibleLabel =
+    humanizeAgentLabel(label) ||
+    defaultInteractionLabel({ ...interaction, label: undefined }, labels);
+  const detail = readableText(interaction.detail);
   return (
     <div
       className="agentkit-agent-interaction"
@@ -571,25 +720,25 @@ export function AgentInteractionItem({
       ) : (
         <AgentIdentityChip
           id={interaction.agentId}
-          name={interaction.agentId}
+          name={agentName}
+          fallbackName={labels.assistant}
         />
       )}
-      <span className="agentkit-agent-interaction-label">
-        {defaultInteractionLabel(interaction, labels)}
-      </span>
+      <span className="agentkit-agent-interaction-label">{visibleLabel}</span>
       {target && TargetRenderer ? (
         <TargetRenderer value={target} threadId={threadId} />
       ) : interaction.targetAgentId ? (
         <AgentIdentityChip
           id={interaction.targetAgentId}
-          name={interaction.targetAgentId}
+          name={targetName}
+          fallbackName={labels.assistant}
         />
       ) : null}
       {object ? (
         <ObjectRenderer value={object} threadId={threadId} />
-      ) : interaction.detail ? (
-        <span className="agentkit-agent-interaction-detail">
-          {interaction.detail}
+      ) : detail ? (
+        <span className="agentkit-agent-interaction-detail" title={detail}>
+          {detail}
         </span>
       ) : null}
     </div>
@@ -603,14 +752,31 @@ export function AgentActivityItem({
   const { slots, registry, labels } = useAgentKit();
   const thread = useAgentThread();
   const [open, setOpen] = useState(false);
-  const expandable = Boolean(activity.summary?.length);
   const agent = activity.agentId ? thread.agents[activity.agentId] : undefined;
+  const agentName = resolveAgentName(
+    thread,
+    activity.agentId,
+    [activity.source, activity.object],
+    labels.assistant,
+  );
+  const tool = thread.tools[activity.id];
+  const toolInput = tool ? formatActivityToolValue(tool.input) : undefined;
+  const toolResult = tool ? formatActivityToolValue(tool.output) : undefined;
+  const expandable = Boolean(
+    activity.summary?.length || toolInput || toolResult,
+  );
   const AgentRenderer = agent
     ? (registry.agents?.[agent.kind ?? ""] ??
       slots.agent ??
       AgentParticipantView)
     : undefined;
   const ObjectRenderer = slots.object ?? AgentObjectReferenceView;
+  const object =
+    activity.object ??
+    (activity.source?.kind === "agent" && activity.agentId
+      ? undefined
+      : activity.source);
+  const detail = tool ? "" : readableText(activity.detail);
   return (
     <div
       className="agentkit-activity-item"
@@ -622,16 +788,20 @@ export function AgentActivityItem({
         {agent && AgentRenderer ? (
           <AgentRenderer value={agent} threadId={threadId} />
         ) : activity.agentId ? (
-          <AgentIdentityChip id={activity.agentId} name={activity.agentId} />
+          <AgentIdentityChip
+            id={activity.agentId}
+            name={agentName}
+            fallbackName={labels.assistant}
+          />
         ) : null}
-        <span className="agentkit-activity-label">{activity.label}</span>
-        {activity.object ? (
-          <ObjectRenderer value={activity.object} threadId={threadId} />
-        ) : null}
-        {!activity.object && activity.source ? (
-          <ObjectRenderer value={activity.source} threadId={threadId} />
-        ) : !activity.object && activity.detail ? (
-          <span className="agentkit-activity-detail">{activity.detail}</span>
+        <span className="agentkit-activity-label">
+          {activityLabel(activity, labels.working)}
+        </span>
+        {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
+        {detail ? (
+          <span className="agentkit-activity-detail" title={detail}>
+            {detail}
+          </span>
         ) : null}
         {expandable ? (
           <button
@@ -651,13 +821,37 @@ export function AgentActivityItem({
       </div>
       {open ? (
         <div className="agentkit-activity-summary">
-          {activity.summary?.map((part, index) => (
-            <AgentMessagePartView
-              key={`${activity.id}-summary-${index}`}
-              value={part}
-              threadId={threadId}
-            />
-          ))}
+          {activity.summary?.map((part, index) => {
+            const safePart =
+              part.type === "text"
+                ? { ...part, text: hideUuids(part.text).trim() }
+                : part;
+            return safePart.type === "text" && !safePart.text ? null : (
+              <AgentMessagePartView
+                key={`${activity.id}-summary-${index}`}
+                value={safePart}
+                threadId={threadId}
+              />
+            );
+          })}
+          {toolInput ? (
+            <div className="agentkit-activity-summary-section">
+              <div className="agentkit-activity-summary-label">
+                {labels.toolInput}
+              </div>
+              <pre className="agentkit-activity-summary-value">{toolInput}</pre>
+            </div>
+          ) : null}
+          {toolResult ? (
+            <div className="agentkit-activity-summary-section">
+              <div className="agentkit-activity-summary-label">
+                {labels.toolResult}
+              </div>
+              <pre className="agentkit-activity-summary-value">
+                {toolResult}
+              </pre>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -710,12 +904,18 @@ function RepeatedActivityCluster({
   activities: AgentActivity[];
   threadId: string;
 }) {
-  const { slots, registry } = useAgentKit();
+  const { slots, registry, labels } = useAgentKit();
   const thread = useAgentThread();
   const [open, setOpen] = useState(false);
   const activity = activities[0];
   if (!activity) return null;
   const agent = activity.agentId ? thread.agents[activity.agentId] : undefined;
+  const agentName = resolveAgentName(
+    thread,
+    activity.agentId,
+    [activity.source, activity.object],
+    labels.assistant,
+  );
   const AgentRenderer = agent
     ? (registry.agents?.[agent.kind ?? ""] ??
       slots.agent ??
@@ -739,13 +939,19 @@ function RepeatedActivityCluster({
         {agent && AgentRenderer ? (
           <AgentRenderer value={agent} threadId={threadId} />
         ) : activity.agentId ? (
-          <AgentIdentityChip id={activity.agentId} name={activity.agentId} />
+          <AgentIdentityChip
+            id={activity.agentId}
+            name={agentName}
+            fallbackName={labels.assistant}
+          />
         ) : null}
-        <span className="agentkit-activity-label">{activity.label}</span>
+        <span className="agentkit-activity-label">
+          {activityLabel(activity, labels.working)}
+        </span>
         {activity.object ? (
           <ObjectRenderer value={activity.object} threadId={threadId} />
-        ) : null}
-        {!activity.object && activity.source ? (
+        ) : activity.source &&
+          (activity.source.kind !== "agent" || !activity.agentId) ? (
           <ObjectRenderer value={activity.source} threadId={threadId} />
         ) : null}
         <span className="agentkit-activity-cluster-count">
@@ -1276,7 +1482,9 @@ export function AgentActivityGroup({
         status: "running",
       })
     : undefined;
-  const currentActivityLabel = currentActivity?.label;
+  const currentActivityLabel = currentActivity
+    ? activityLabel(currentActivity, labels.working)
+    : undefined;
   const displayGroups: AgentActivity[][] = [];
   const clusterIdentity = (activity: AgentActivity) => {
     const tool = toolMap.get(activity.id);
@@ -1640,12 +1848,18 @@ export function AgentTaskItem({
   value: task,
   threadId,
 }: AgentKitRenderProps<AgentTask>) {
-  const { slots, registry } = useAgentKit();
+  const { slots, registry, labels } = useAgentKit();
   const thread = useAgentThread();
   const ObjectRenderer = slots.object ?? AgentObjectReferenceView;
   const agent = task.assignedAgentId
     ? thread.agents[task.assignedAgentId]
     : undefined;
+  const agentName = resolveAgentName(
+    thread,
+    task.assignedAgentId,
+    [task.source, task.object],
+    labels.assistant,
+  );
   const AgentRenderer = agent
     ? (registry.agents?.[agent.kind ?? ""] ??
       slots.agent ??
@@ -1654,25 +1868,34 @@ export function AgentTaskItem({
   const progress = task.progress
     ? `${task.progress.completed}/${task.progress.total}`
     : undefined;
+  const title = humanizeAgentLabel(task.title) || agentName || labels.tasks;
+  const detail = readableText(task.detail);
+  const object =
+    task.object ??
+    (task.source?.kind === "agent" && task.assignedAgentId
+      ? undefined
+      : task.source);
+  const showAgent =
+    task.assignedAgentId &&
+    title.toLocaleLowerCase() !== agentName.toLocaleLowerCase();
   return (
     <div className="agentkit-task-row" data-status={task.status}>
       <IconChecklist aria-hidden="true" className="agentkit-icon" />
-      {agent && AgentRenderer ? (
+      {showAgent && agent && AgentRenderer ? (
         <AgentRenderer value={agent} threadId={threadId} />
-      ) : task.assignedAgentId ? (
+      ) : showAgent && task.assignedAgentId ? (
         <AgentIdentityChip
           id={task.assignedAgentId}
-          name={task.assignedAgentId}
+          name={agentName}
+          fallbackName={labels.assistant}
         />
       ) : null}
-      <span className="agentkit-task-title">{task.title}</span>
-      {task.object ? (
-        <ObjectRenderer value={task.object} threadId={threadId} />
-      ) : null}
-      {!task.object && task.source ? (
-        <ObjectRenderer value={task.source} threadId={threadId} />
-      ) : !task.object && task.detail ? (
-        <span className="agentkit-task-detail">{task.detail}</span>
+      <span className="agentkit-task-title">{title}</span>
+      {object ? <ObjectRenderer value={object} threadId={threadId} /> : null}
+      {detail ? (
+        <span className="agentkit-task-detail" title={detail}>
+          {detail}
+        </span>
       ) : null}
       {progress ? (
         <span className="agentkit-task-progress">{progress}</span>

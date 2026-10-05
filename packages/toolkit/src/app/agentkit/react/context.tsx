@@ -213,6 +213,8 @@ export interface AgentKitLabels {
   durationSecondShort: string;
   agents: string;
   tasks: string;
+  toolInput: string;
+  toolResult: string;
   composerLabel: string;
   composerPlaceholder: string;
   queue: string;
@@ -302,6 +304,8 @@ export const defaultAgentKitLabels: AgentKitLabels = {
   durationSecondShort: "s",
   agents: "Agent collaboration",
   tasks: "Agent tasks",
+  toolInput: "Input",
+  toolResult: "Result",
   composerLabel: "Message agent",
   composerPlaceholder: "Ask the agent to explore, build, or explain…",
   queue: "Queued messages",
