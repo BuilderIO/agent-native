@@ -19,6 +19,9 @@ const mocks = vi.hoisted(() => ({
   rowFriction: {} as Record<string, unknown>,
   rowFrictionError: null as Error | null,
   rowFrictionRefetch: vi.fn(),
+  speed: {} as Record<string, unknown>,
+  speedError: null as Error | null,
+  speedRefetch: vi.fn(),
   error: null as Error | null,
   refetch: vi.fn(),
   useActionQuery: vi.fn((name: string) =>
@@ -33,24 +36,35 @@ const mocks = vi.hoisted(() => ({
           isFetching: false,
           refetch: mocks.rowFrictionRefetch,
         }
-      : {
-          data: mocks.pending
-            ? undefined
-            : {
-                recordings: mocks.recordings,
-                total: mocks.total,
-                appCounts: [],
-                ...(mocks.coverage !== undefined
-                  ? { frictionCoverageStartedAt: mocks.coverage }
-                  : {}),
-              },
-          error: mocks.error,
-          isPending: mocks.pending,
-          isLoading: false,
-          isFetching: false,
-          isPlaceholderData: mocks.placeholder,
-          refetch: mocks.refetch,
-        },
+      : name === "list-session-performance"
+        ? {
+            data: mocks.speedError
+              ? undefined
+              : { performance: mocks.speed, coverageStartedAt: null },
+            error: mocks.speedError,
+            isPending: false,
+            isLoading: false,
+            isFetching: false,
+            refetch: mocks.speedRefetch,
+          }
+        : {
+            data: mocks.pending
+              ? undefined
+              : {
+                  recordings: mocks.recordings,
+                  total: mocks.total,
+                  appCounts: [],
+                  ...(mocks.coverage !== undefined
+                    ? { frictionCoverageStartedAt: mocks.coverage }
+                    : {}),
+                },
+            error: mocks.error,
+            isPending: mocks.pending,
+            isLoading: false,
+            isFetching: false,
+            isPlaceholderData: mocks.placeholder,
+            refetch: mocks.refetch,
+          },
   ),
 }));
 
@@ -122,6 +136,8 @@ describe("Sessions empty states", () => {
     mocks.recordings = [];
     mocks.rowFriction = {};
     mocks.rowFrictionError = null;
+    mocks.speed = {};
+    mocks.speedError = null;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -531,26 +547,6 @@ describe("Sessions empty states", () => {
     expect(mocks.labRefetch).toHaveBeenCalledOnce();
   });
 
-  it("says a failed Lab state hid Lab features on a plain link", async () => {
-    mocks.labError = true;
-    await act(async () => {
-      root.render(
-        <MemoryRouter initialEntries={["/sessions"]}>
-          <SessionsTriagePage />
-        </MemoryRouter>,
-      );
-    });
-
-    expect(container.textContent).toContain("sessions.labFeaturesUnavailable");
-    expect(container.textContent).not.toContain("sessions.labStateUnavailable");
-    await act(async () => {
-      Array.from(container.querySelectorAll("button"))
-        .find((button) => button.textContent === "sidebar.retry")
-        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-    expect(mocks.labRefetch).toHaveBeenCalledOnce();
-  });
-
   it("stops holding a friction link when the Lab state hangs", async () => {
     vi.useFakeTimers();
     mocks.labLoading = true;
@@ -670,5 +666,257 @@ describe("Sessions empty states", () => {
       expect.objectContaining({ offset: 0, limit: 100 }),
       expect.anything(),
     );
+  });
+
+  it("keeps a shared slow filter out of the query while the Lab is off", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions?slow=vitals"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    for (const [, args] of mocks.useActionQuery.mock.calls as unknown as [
+      string,
+      Record<string, unknown>,
+    ][]) {
+      expect(args).not.toHaveProperty("slow", expect.anything());
+      expect(args).not.toHaveProperty("includePerformance", expect.anything());
+    }
+    expect(container.textContent).toContain("sessions.speedFilterNeedsLab");
+    expect(
+      Array.from(container.querySelectorAll("button")).some(
+        (button) => button.textContent === "sessions.speed",
+      ),
+    ).toBe(false);
+  });
+
+  type QueryCall = [string, Record<string, unknown>, { enabled?: boolean }];
+  const queryCalls = () =>
+    mocks.useActionQuery.mock.calls as unknown as QueryCall[];
+  const speedCalls = () =>
+    queryCalls().filter(([name]) => name === "list-session-performance");
+  async function renderSessions(path = "/sessions") {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={[path]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+  }
+
+  it("lists sessions without waiting for a Lab state that is loading or hung", async () => {
+    mocks.labLoading = true;
+    mocks.total = 1;
+    mocks.recordings = [recording("r1")];
+    await renderSessions();
+
+    expect(listCalls().length).toBeGreaterThan(0);
+    for (const [, , options] of listCalls()) {
+      expect(options.enabled).toBe(true);
+    }
+    for (const [, , options] of speedCalls()) {
+      expect(options.enabled).toBe(false);
+    }
+    expect(container.querySelector('a[href="/sessions/r1"]')).not.toBeNull();
+  });
+
+  it("lists sessions when the Lab state fails to load", async () => {
+    mocks.labError = true;
+    mocks.total = 1;
+    mocks.recordings = [recording("r1")];
+    await renderSessions();
+
+    for (const [, , options] of listCalls()) {
+      expect(options.enabled).toBe(true);
+    }
+    for (const [, , options] of speedCalls()) {
+      expect(options.enabled).toBe(false);
+    }
+    expect(container.querySelector('a[href="/sessions/r1"]')).not.toBeNull();
+  });
+
+  it("says a failed Lab state hid Lab features on a plain link", async () => {
+    mocks.labError = true;
+    await renderSessions();
+
+    expect(container.textContent).toContain("sessions.labFeaturesUnavailable");
+    expect(container.textContent).not.toContain("sessions.labStateUnavailable");
+    expect(retryButtons()).toHaveLength(1);
+    await click(retryButtons()[0]);
+    expect(mocks.labRefetch).toHaveBeenCalledOnce();
+  });
+
+  it("holds a shared slow link until the Lab state loads", async () => {
+    mocks.labLoading = true;
+    await renderSessions("/sessions?slow=vitals");
+
+    expect(listCalls().length).toBeGreaterThan(0);
+    for (const [, , options] of listCalls()) {
+      expect(options.enabled).toBe(false);
+    }
+  });
+
+  it("loads speed hints beside the list once the Lab is on, without refetching the list", async () => {
+    mocks.labLoading = true;
+    mocks.total = 1;
+    mocks.recordings = [recording("r1")];
+    await renderSessions();
+    mocks.labLoading = false;
+    mocks.labEnabled = true;
+    await renderSessions();
+
+    // One query key for the list across both states: it is fetched once.
+    expect(
+      new Set(listCalls().map(([, args]) => JSON.stringify(args))).size,
+    ).toBe(1);
+    const speed = speedCalls();
+    expect(speed[speed.length - 1]).toEqual([
+      "list-session-performance",
+      { recordingIds: ["r1"] },
+      expect.objectContaining({ enabled: true }),
+    ]);
+  });
+
+  it("marks incomplete speed data and values that hit the ceiling", async () => {
+    mocks.labEnabled = true;
+    mocks.total = 1;
+    mocks.recordings = [recording("r1")];
+    mocks.speed = {
+      r1: {
+        ttfbMs: null,
+        lcpMs: 64_000,
+        inpMs: null,
+        cls: null,
+        slowRequests: null,
+        maxRequestMs: null,
+        atLeast: ["lcpMs"],
+        incomplete: true,
+      },
+    };
+    await renderSessions();
+
+    expect(container.textContent).toContain("LCP sessions.perfAtLeast");
+    expect(container.textContent).toContain("sessions.speedIncomplete");
+    expect(container.textContent).not.toContain("sessions.slowRequestCount");
+  });
+
+  function retryButtons() {
+    return Array.from(container.querySelectorAll("button")).filter(
+      (button) => button.textContent === "sidebar.retry",
+    );
+  }
+
+  function click(button: HTMLButtonElement | undefined) {
+    return act(async () => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  }
+
+  it("says speed hints could not load and retries them", async () => {
+    mocks.labEnabled = true;
+    mocks.total = 1;
+    mocks.recordings = [recording("r1")];
+    mocks.speedError = new Error("Internal Server Error");
+    await renderSessions();
+
+    expect(container.textContent).toContain("sessions.speedUnavailable");
+    await click(retryButtons()[0]);
+    expect(mocks.speedRefetch).toHaveBeenCalledOnce();
+  });
+
+  it("reports row friction and speed hints failing apart, each with its own retry", async () => {
+    mocks.labEnabled = true;
+    mocks.total = 1;
+    mocks.recordings = [recording("r1")];
+    mocks.rowFrictionError = new Error("friction read failed");
+    mocks.speedError = new Error("speed read failed");
+    await renderSessions();
+
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.textContent).toContain("r1@example.com");
+    expect(container.textContent).toContain("sessions.frictionUnavailable");
+    expect(container.textContent).toContain("sessions.speedUnavailable");
+    const [frictionRetry, speedRetry] = retryButtons();
+    await click(frictionRetry);
+    expect(mocks.rowFrictionRefetch).toHaveBeenCalledOnce();
+    expect(mocks.speedRefetch).not.toHaveBeenCalled();
+    await click(speedRetry);
+    expect(mocks.speedRefetch).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    "/sessions?signal=dead_clicks&event=clip_viewed",
+    "/sessions?slow=vitals&event=clip_viewed",
+    "/sessions?signal=dead_clicks&slow=vitals&sort=friction",
+  ])(
+    "says a Lab state that failed to load is why a link's filters are off: %s",
+    async (path) => {
+      mocks.labError = true;
+      await renderSessions(path);
+
+      expect(
+        container.textContent?.split("sessions.labStateUnavailable"),
+      ).toHaveLength(2);
+      expect(container.textContent).not.toContain(
+        "sessions.frictionFiltersNeedLab",
+      );
+      expect(container.textContent).not.toContain(
+        "sessions.speedFilterNeedsLab",
+      );
+      expect(container.textContent).not.toContain(
+        "sessions.eventFiltersNeedLab",
+      );
+      expect(retryButtons()).toHaveLength(1);
+      await click(retryButtons()[0]);
+      expect(mocks.labRefetch).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each([
+    "/sessions?sort=friction",
+    "/sessions?slow=vitals",
+    "/sessions?signal=dead_clicks&slow=requests",
+  ])(
+    "stops holding a Lab-filter link when the Lab state hangs: %s",
+    async (path) => {
+      vi.useFakeTimers();
+      mocks.labLoading = true;
+      await renderSessions(path);
+      expect(listCalls()[listCalls().length - 1][2].enabled).toBe(false);
+
+      await act(async () => {
+        vi.advanceTimersByTime(5_000);
+      });
+
+      const calls = listCalls();
+      expect(calls[calls.length - 1][2].enabled).toBe(true);
+      expect(container.textContent).toContain("sessions.labStateUnavailable");
+    },
+  );
+
+  it("names both a friction and a slow filter the Lab would apply once it reads off", async () => {
+    await renderSessions("/sessions?signal=dead_clicks&slow=vitals");
+
+    expect(container.textContent).toContain("sessions.frictionFiltersNeedLab");
+    expect(container.textContent).toContain("sessions.speedFilterNeedsLab");
+    expect(container.textContent).not.toContain("sessions.labStateUnavailable");
+    for (const [, args] of listCalls()) {
+      expect(args.frictionSignals).toBeUndefined();
+      expect(args.slow).toBeUndefined();
+    }
+  });
+
+  it("sends friction and slow filters together with the Lab on", async () => {
+    mocks.labEnabled = true;
+    await renderSessions("/sessions?signal=dead_clicks&slow=requests");
+
+    expect(listCalls()[listCalls().length - 1][1]).toMatchObject({
+      frictionSignals: ["dead_clicks"],
+      includeFriction: true,
+      slow: "requests",
+    });
   });
 });

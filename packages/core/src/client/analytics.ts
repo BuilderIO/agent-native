@@ -10,6 +10,7 @@ import {
   legacyLifecycleEvent,
   normalizeTrackingDimension,
   PAGE_LOAD_PAGEVIEW_PROPERTY,
+  SLOW_ACTION_RESPONSE_MS,
   withCanonicalTrackingProperties,
   type AgentNativeLifecycleEventName,
 } from "../shared/analytics-events.js";
@@ -52,11 +53,18 @@ import {
   installErrorCapture,
   type CapturedExceptionEvent,
 } from "./error-capture.js";
+import { currentRouteTemplate } from "./route-template.js";
 import type {
   SessionReplayOptions,
   SessionReplayStartResult,
 } from "./session-replay.js";
 import { scrubUrl } from "./url-scrub.js";
+import {
+  installWebVitals,
+  type PageViewVitals,
+  type WebVitalsController,
+  type WebVitalsLocation,
+} from "./web-vitals.js";
 export { scrubUrl } from "./url-scrub.js";
 export {
   addErrorBreadcrumb,
@@ -117,6 +125,8 @@ type GetDefaultProps = (
 type PageviewTrackingState = {
   installed: boolean;
   lastPageviewKey: string | null;
+  webVitalsInstalled?: boolean;
+  webVitals?: WebVitalsController | null;
 };
 
 type AppEntryTrackingState = {
@@ -147,6 +157,7 @@ export type ConfigureTrackingOptions = {
   llmConnectionStatus?: boolean;
   authSessionRefresh?: boolean;
   pageviewTracking?: boolean;
+  webVitals?: boolean;
   sessionReplay?: boolean | SessionReplayOptions;
   errorCapture?: boolean | ErrorCaptureConfigOptions;
 };
@@ -1219,6 +1230,7 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
     }
     if (options.pageviewTracking !== false) {
       installPageviewTracking();
+      if (options.webVitals !== false) installWebVitalsTracking();
     }
     maybeInstallSessionReplay(
       options.sessionReplay,
@@ -2020,6 +2032,7 @@ function installPageviewTracking(): void {
   window.history.pushState = function pushState(...args) {
     const result = originalPushState.apply(this, args);
     syncTrackingContentCaptureForLocation();
+    state.webVitals?.navigate("push");
     schedulePageview("pushState");
     return result;
   };
@@ -2027,14 +2040,50 @@ function installPageviewTracking(): void {
   window.history.replaceState = function replaceState(...args) {
     const result = originalReplaceState.apply(this, args);
     syncTrackingContentCaptureForLocation();
+    state.webVitals?.navigate("replace");
     schedulePageview("replaceState");
     return result;
   };
 
   window.addEventListener("popstate", () => {
     syncTrackingContentCaptureForLocation();
+    state.webVitals?.navigate("push");
     schedulePageview("popstate");
   });
+}
+
+function webVitalsLocation(): WebVitalsLocation {
+  const pathname = window.location.pathname;
+  return {
+    route: currentRouteTemplate(),
+    url: window.location.origin + pathname,
+    pathname,
+  };
+}
+
+function reportPageViewVitals(vitals: PageViewVitals): void {
+  _sessionReplayModuleForCapture?.emitSessionReplayWebVitals?.(vitals);
+  trackEvent("web_vitals", {
+    url: vitals.url,
+    ...(vitals.route ? { route: vitals.route } : {}),
+    navigation_type: vitals.navigationType,
+    ttfb_ms: vitals.ttfbMs,
+    lcp_ms: vitals.lcpMs,
+    inp_ms: vitals.inpMs,
+    cls: vitals.cls,
+  });
+}
+
+function installWebVitalsTracking(): void {
+  const state = getPageviewTrackingState();
+  if (state.webVitalsInstalled) return;
+  state.webVitalsInstalled = true;
+  if (isLocalAnalyticsHostname(window.location.hostname)) return;
+  try {
+    state.webVitals = installWebVitals(webVitalsLocation, reportPageViewVitals);
+  } catch (error) {
+    console.warn("[analytics] Web Vitals capture is unavailable:", error);
+  }
 }
 
 function sendAgentNativeAnalytics(
@@ -2119,6 +2168,7 @@ const REPLAY_UNMARKED_EVENT_NAMES = new Set([
   "session status",
   "session_status",
   "action.response",
+  "web_vitals",
   "agent_chat_lifecycle",
   "session_replay_started",
   "session replay upload rejected",
@@ -2126,7 +2176,17 @@ const REPLAY_UNMARKED_EVENT_NAMES = new Set([
   AGENT_NATIVE_EXCEPTION_EVENT_NAME,
 ]);
 
-function markTrackedEventInSessionReplay(name: string): void {
+function markTrackedEventInSessionReplay(
+  name: string,
+  props: Record<string, unknown>,
+): void {
+  if (
+    name === "action.response" &&
+    typeof props.duration_ms === "number" &&
+    props.duration_ms >= SLOW_ACTION_RESPONSE_MS
+  ) {
+    _sessionReplayModuleForCapture?.emitSessionReplaySlowRequest?.(props);
+  }
   if (REPLAY_UNMARKED_EVENT_NAMES.has(name)) return;
   _sessionReplayModuleForCapture?.emitSessionReplayAnalyticsEvent?.(name);
 }
@@ -2159,7 +2219,9 @@ function trackBrowserEvent(
       sendGtag: !gtagNameMatchesCanonical,
     });
   }
-  if (markInReplay) markTrackedEventInSessionReplay(canonical?.name ?? name);
+  if (markInReplay) {
+    markTrackedEventInSessionReplay(canonical?.name ?? name, props);
+  }
   void recordTrackingEvent(name, props, "client");
   const lifecycle = legacyLifecycleEvent(name, props);
   // The alias describes the same moment, so it gets no second replay marker.

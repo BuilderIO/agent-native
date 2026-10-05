@@ -423,6 +423,39 @@ describe("session replay console/network capture", () => {
     expect(typeof events[0].durationMs).toBe("number");
   });
 
+  it("flags a request the page was hidden for, even if it came back", async () => {
+    const { fetchMock, windowStub } = installBrowser();
+    recordMock.mockReturnValue(vi.fn());
+    let respond: (response: Response) => void = () => {};
+    fetchMock.mockImplementationOnce(
+      () => new Promise<Response>((resolve) => (respond = resolve)),
+    );
+    await startCapture();
+    const doc = document as unknown as {
+      visibilityState: DocumentVisibilityState;
+      addEventListener: ReturnType<typeof vi.fn>;
+    };
+    const setVisibility = (state: DocumentVisibilityState) => {
+      doc.visibilityState = state;
+      for (const [event, listener] of doc.addEventListener.mock.calls) {
+        if (event === "visibilitychange") (listener as () => void)();
+      }
+    };
+
+    const wrappedFetch = windowStub.fetch as typeof fetch;
+    const pending = wrappedFetch("/_agent-native/actions/list-clips");
+    setVisibility("hidden");
+    setVisibility("visible");
+    respond(new Response("{}"));
+    await pending;
+    await wrappedFetch("/_agent-native/actions/list-clips");
+
+    const events = networkEvents();
+    expect(events).toHaveLength(2);
+    expect(events[0]).toMatchObject({ pageHidden: true });
+    expect(events[1]).not.toHaveProperty("pageHidden");
+  });
+
   it("captures network-level fetch failures and rethrows to the caller", async () => {
     const { fetchMock, windowStub } = installBrowser();
     recordMock.mockReturnValue(vi.fn());

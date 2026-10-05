@@ -11,13 +11,17 @@ import {
   listSessionRecordingsPage,
   type SessionRecordingSummary,
 } from "../server/lib/session-replay.js";
-import { assertSessionsTriageLabEnabled } from "../server/lib/sessions-triage-lab.js";
+import {
+  assertSessionsTriageLabEnabled,
+  type SessionsTriageLabFeature,
+} from "../server/lib/sessions-triage-lab.js";
 import { MAX_SESSION_EVENT_CONDITIONS } from "../shared/session-events.js";
 import {
   isSessionFrictionSort,
   SESSION_FRICTION_SIGNALS,
   SESSION_FRICTION_SORTS,
 } from "../shared/session-friction.js";
+import { SLOW_SESSION_FILTERS } from "../shared/session-performance.js";
 
 function resolveScope() {
   const userEmail = getRequestUserEmail();
@@ -141,6 +145,18 @@ export default defineAction({
       .describe(
         "Add each recording's friction: score, signal counts, top signals, failed actions and agent failures grouped by cause, and linked Monitoring error issues. A null part means it was not measured, not zero: `thumbs_down`, `cancelled_runs`, and `quick_backs` can be null alone, and `errorIssues` null means the links are unknown while [] means no issues. Requires the Sessions triage Lab.",
       ),
+    slow: z
+      .enum(SLOW_SESSION_FILTERS)
+      .optional()
+      .describe(
+        "Only slow sessions: vitals = a page view with a poor Core Web Vital (LCP > 4 s, INP > 500 ms, CLS > 0.25, or TTFB > 1.8 s); requests = an action request of 1 s or more (not the 3 s `stalled_requests` friction signal); any = either, plus sessions whose measurements failed to save, since missing data cannot rule them out. Sessions without measurements never match. Requires the Sessions triage Lab.",
+      ),
+    includePerformance: z
+      .boolean()
+      .optional()
+      .describe(
+        "Attach each recording's speed summary as performance, plus performanceCoverageStartedAt: worst measured page-view vitals, slowRequests (null when no request was measured), maxRequestMs, atLeast (fields that hit the measurement ceiling, so each is a floor), and incomplete (some measurements failed to save, so it may be slower). performance is null when never measured. Requires the Sessions triage Lab.",
+      ),
     limit: z.coerce.number().int().min(1).max(100).optional().default(50),
   }),
   http: { method: "GET" },
@@ -150,22 +166,20 @@ export default defineAction({
   grounding: true,
   run: async (args) => {
     const scope = resolveScope();
-    const usesEvents = Boolean(
-      args.didEvents?.length || args.didNotEvents?.length,
-    );
     const frictionApplied = Boolean(
       args.frictionSignals?.length || isSessionFrictionSort(args.sort),
     );
-    const usesFriction = frictionApplied || Boolean(args.includeFriction);
-    if (usesEvents || usesFriction) {
+    const labFeatures: SessionsTriageLabFeature[] = [];
+    if (args.didEvents?.length || args.didNotEvents?.length) {
+      labFeatures.push("events");
+    }
+    if (frictionApplied || args.includeFriction) labFeatures.push("friction");
+    if (args.slow || args.includePerformance) labFeatures.push("speed");
+    if (labFeatures.length) {
       await assertSessionsTriageLabEnabled(
         scope.userEmail,
         scope.orgId,
-        usesEvents && usesFriction
-          ? "events and friction"
-          : usesEvents
-            ? "events"
-            : "friction",
+        labFeatures,
       );
     }
     const { includeFriction, ...filters } = args;

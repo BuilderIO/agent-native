@@ -60,7 +60,16 @@ vi.mock("../server/lib/dashboards-store", () => ({
 vi.mock("../server/lib/first-party-analytics.js", () => ({
   listAnalyticsPublicKeys: vi.fn(async () => []),
 }));
+const getSessionRecordingPerformance = vi.fn(
+  async (_scope: unknown, recordingIds: string[]) => ({
+    performance: Object.fromEntries(
+      recordingIds.map((id) => [id, { slowRequests: 1 }]),
+    ) as Record<string, unknown>,
+    coverageStartedAt: "2026-09-20T00:00:00.000Z" as string | null,
+  }),
+);
 vi.mock("../server/lib/session-replay.js", () => ({
+  getSessionRecordingPerformance,
   getSessionReplaySummary: vi.fn(async () => null),
   listSessionRecordings: vi.fn(async () => []),
   listSessionRecordingsPage,
@@ -518,6 +527,7 @@ describe("view-screen Sessions context", () => {
     expect(on.sessionReplays[0]).toEqual({
       id: "recording-0",
       friction: { score: 3 },
+      performance: { slowRequests: 1 },
     });
     expect(on.sessionReplayPage.fullPageAction.args).toMatchObject({
       frictionSignals: ["dead_clicks"],
@@ -549,16 +559,86 @@ describe("view-screen Sessions context", () => {
     });
   });
 
+  it("applies the slow filter from the URL only while the Lab is on", async () => {
+    listSessionRecordingsPage.mockResolvedValue({
+      recordings: [],
+      total: 0,
+      appCounts: [],
+      performanceCoverageStartedAt: "2026-09-20T00:00:00.000Z",
+    } as never);
+    const url = { pathname: "/sessions", searchParams: { slow: "vitals" } };
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
+    setScreen({ view: "sessions" }, url);
+
+    const on = await runScreen();
+
+    expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ slow: "vitals" }),
+    );
+    expect(on.sessionReplayPage.performanceCoverageStartedAt).toBe(
+      "2026-09-20T00:00:00.000Z",
+    );
+    expect(on.sessionReplayPage.slowFilterNotApplied).toBeUndefined();
+
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(false);
+    const off = await runScreen();
+
+    expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.not.objectContaining({ slow: expect.anything() }),
+    );
+    expect(off.sessionReplayPage.slowFilterNotApplied).toBe("vitals");
+    expect(off.sessionReplayPage.performanceCoverageStartedAt).toBeUndefined();
+  });
+
+  it("reads each row's speed hints beside the list the way the page shows them while the Lab is on", async () => {
+    setScreen(
+      { view: "sessions" },
+      { pathname: "/sessions", searchParams: {} },
+    );
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
+
+    const on = await runScreen();
+
+    expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.not.objectContaining({ includePerformance: expect.anything() }),
+    );
+    expect(getSessionRecordingPerformance).toHaveBeenLastCalledWith(
+      { userEmail: "user@example.test", orgId: "org-1" },
+      Array.from({ length: 25 }, (_, index) => `recording-${index}`),
+    );
+    expect(on.sessionReplays[0].performance).toEqual({ slowRequests: 1 });
+    expect(on.sessionReplayPage.performanceCoverageStartedAt).toBe(
+      "2026-09-20T00:00:00.000Z",
+    );
+    expect(on.sessionReplayPage.fullPageAction.args).toMatchObject({
+      includePerformance: true,
+    });
+
+    getSessionRecordingPerformance.mockClear();
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(false);
+    const off = await runScreen();
+
+    expect(getSessionRecordingPerformance).not.toHaveBeenCalled();
+    expect(off.sessionReplays[0]).not.toHaveProperty("performance");
+    expect(
+      off.sessionReplayPage.fullPageAction.args.includePerformance,
+    ).toBeUndefined();
+  });
+
   it("reports the filters it applied as the screen's active filters", async () => {
     const url = {
       pathname: "/sessions",
       search:
-        "?app=clips&event=clip_viewed&signal=dead_clicks&signal=http_5xx&sort=friction",
+        "?app=clips&event=clip_viewed&signal=dead_clicks&signal=http_5xx&sort=friction&slow=requests",
       searchParams: {
         app: "clips",
         event: "clip_viewed",
         signal: "dead_clicks",
         sort: "friction",
+        slow: "requests",
       },
     };
     isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
@@ -570,6 +650,7 @@ describe("view-screen Sessions context", () => {
       sort: "friction",
       event: ["clip_viewed"],
       signal: ["dead_clicks", "http_5xx"],
+      slow: "requests",
     });
 
     isSessionsTriageLabEnabled.mockResolvedValueOnce(false);
@@ -585,8 +666,8 @@ describe("view-screen Sessions context", () => {
       { view: "sessions" },
       {
         pathname: "/sessions",
-        search: "?signal=dead_clicks",
-        searchParams: { signal: "dead_clicks" },
+        search: "?signal=dead_clicks&slow=vitals",
+        searchParams: { signal: "dead_clicks", slow: "vitals" },
       },
     );
 
@@ -598,6 +679,7 @@ describe("view-screen Sessions context", () => {
       total: 137,
       labStateError: "Couldn't read the Sessions triage Lab state.",
       frictionNotApplied: { signals: ["dead_clicks"], sort: null },
+      slowFilterNotApplied: "vitals",
     });
     expect(log).toHaveBeenCalledWith(
       "[view-screen] Couldn't read the Sessions triage Lab state.",
@@ -607,6 +689,10 @@ describe("view-screen Sessions context", () => {
     expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
       expect.anything(),
       expect.not.objectContaining({ frictionSignals: expect.anything() }),
+    );
+    expect(listSessionRecordingsPage).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.not.objectContaining({ slow: expect.anything() }),
     );
   });
 
@@ -656,7 +742,10 @@ describe("view-screen Sessions context", () => {
 
     expect(out.sessionReplayError).toBeUndefined();
     expect(out.sessionReplays).toHaveLength(25);
-    expect(out.sessionReplays[0]).toEqual({ id: "recording-0" });
+    expect(out.sessionReplays[0]).toEqual({
+      id: "recording-0",
+      performance: { slowRequests: 1 },
+    });
     expect(out.sessionReplayPage.frictionError).toBe(
       "Couldn't read session friction.",
     );
@@ -665,6 +754,38 @@ describe("view-screen Sessions context", () => {
       failure,
     );
     log.mockRestore();
+    expect(out.sessionReplayPage).not.toHaveProperty("performanceError");
+  });
+
+  it("keeps the base list and reports speed hints that fail to load", async () => {
+    isSessionsTriageLabEnabled.mockResolvedValueOnce(true);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const failure = new Error(
+      'relation "analytics_session_performance" does not exist',
+    );
+    getSessionRecordingPerformance.mockRejectedValueOnce(failure);
+    setScreen({ view: "sessions" }, { pathname: "/sessions" });
+
+    const out = await runScreen();
+
+    expect(out.sessionReplayError).toBeUndefined();
+    expect(out.sessionReplays).toHaveLength(25);
+    expect(out.sessionReplays[0]).toEqual({
+      id: "recording-0",
+      friction: { score: 3 },
+    });
+    expect(out.sessionReplayPage.performanceError).toBe(
+      "Couldn't read session speed data.",
+    );
+    expect(log).toHaveBeenCalledWith(
+      "[view-screen] Couldn't read session speed data.",
+      failure,
+    );
+    log.mockRestore();
+    expect(out.sessionReplayPage).not.toHaveProperty(
+      "performanceCoverageStartedAt",
+    );
+    expect(out.sessionReplayPage).not.toHaveProperty("frictionError");
   });
 
   it("carries friction coverage so an empty friction match is not read as zero", async () => {
@@ -756,5 +877,55 @@ describe("view-screen event catalog", () => {
 
     expect(out.page).toBe("event-catalog");
     expect(out.eventCatalog).toEqual({ labEnabled: false });
+  });
+});
+
+describe("view-screen route performance", () => {
+  beforeEach(() => {
+    userEmail = "user@example.test";
+    selectedObjectState.current = null;
+    isSessionsTriageLabEnabled.mockReset();
+  });
+
+  it("asks for the same whole UTC days the page shows, within the 90-day cap", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-02T12:00:00.000Z"));
+    try {
+      isSessionsTriageLabEnabled.mockResolvedValue(true);
+      setScreen(
+        { view: "performance" },
+        {
+          pathname: "/sessions/performance",
+          searchParams: { range: "90d", app: "clips" },
+        },
+      );
+
+      const out = await runScreen();
+
+      expect(out.page).toBe("route-performance");
+      expect(out.routePerformance).toEqual({
+        range: "90d",
+        app: "clips",
+        fullPageAction: {
+          name: "list-route-performance",
+          args: { from: "2026-07-05", to: "2026-10-02", app: "clips" },
+        },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports the Lab as off instead of describing route performance", async () => {
+    isSessionsTriageLabEnabled.mockResolvedValue(false);
+    setScreen(
+      { view: "performance" },
+      { pathname: "/sessions/performance", searchParams: {} },
+    );
+
+    const out = await runScreen();
+
+    expect(out.page).toBe("route-performance");
+    expect(out.routePerformance).toEqual({ labEnabled: false });
   });
 });

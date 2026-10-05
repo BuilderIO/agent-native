@@ -414,3 +414,9 @@ export const AGENT_SIGNALS_VERSION = 1;
  * another tab opened.
  */
 export const PAGE_LOAD_PAGEVIEW_PROPERTY = "page_load_id";
+
+/**
+ * Action telemetry reports every `action.response` at least this slow
+ * unsampled, and marks it on the session replay with its own timing.
+ */
+export const SLOW_ACTION_RESPONSE_MS = 1_000;

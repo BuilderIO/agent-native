@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/server";
 
 import { SESSION_REPLAY_ANALYTICS_EVENT_TAG } from "../../shared/session-events.js";
+import { SESSION_REPLAY_VITALS_EVENT_TAG } from "../../shared/session-performance.js";
 import {
   SESSION_REPLAY_AGENT_ACCESS_PARAM,
   SESSION_REPLAY_AGENT_ACCESS_TOKEN_PREFIX,
@@ -567,9 +568,11 @@ function buildReplayTimeline(events: AgentReplayEvent[]) {
       });
     } else if (
       event.type === RRWEB_EVENT_TYPE.Custom &&
-      // App event markers belong to the Sessions triage Lab; agent timelines
-      // keep their existing shape until that Lab covers agent surfaces.
-      event.data?.tag !== SESSION_REPLAY_ANALYTICS_EVENT_TAG
+      // App event and Web Vitals markers belong to the Sessions triage Lab;
+      // agent timelines keep their existing shape until that Lab covers agent
+      // surfaces.
+      event.data?.tag !== SESSION_REPLAY_ANALYTICS_EVENT_TAG &&
+      event.data?.tag !== SESSION_REPLAY_VITALS_EVENT_TAG
     ) {
       markers.push({
         timestamp,
