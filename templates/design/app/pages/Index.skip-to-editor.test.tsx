@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import type { AgentEngineConfiguredState } from "@agent-native/core/client/agent-chat";
-import { act, type ReactNode } from "react";
+import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,7 +20,6 @@ const mocks = vi.hoisted(() => ({
   generateTitle: vi.fn(),
   navigate: vi.fn(),
   setSearchParams: vi.fn(),
-  headerActions: null as unknown,
   nanoid: vi.fn(() => "design-1"),
   queryClient: {
     setQueryData: vi.fn(),
@@ -239,9 +238,6 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
 vi.mock("@agent-native/toolkit/app-shell", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/toolkit/app-shell")>()),
   useHomeSearchShortcut: vi.fn(),
-  useSetHeaderActions: (actions: unknown) => {
-    mocks.headerActions = actions;
-  },
   useSetPageTitle: () => {},
 }));
 
@@ -375,8 +371,6 @@ vi.mock("@/lib/pending-generation", () => ({
 
 let container: HTMLDivElement;
 let root: Root;
-let headerContainer: HTMLDivElement | null = null;
-let headerRoot: Root | null = null;
 
 beforeEach(async () => {
   localStorage.clear();
@@ -396,7 +390,6 @@ beforeEach(async () => {
   mocks.generateTitle.mockResolvedValue(undefined);
   mocks.queryClient.invalidateQueries.mockResolvedValue(undefined);
   mocks.promptProps = null;
-  mocks.headerActions = null;
   mocks.fullAppBuilding = false;
   mocks.systemsEnabled = true;
   mocks.systemsLoading = false;
@@ -418,12 +411,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await act(async () => {
-    headerRoot?.unmount();
     root.unmount();
   });
-  headerRoot = null;
-  headerContainer?.remove();
-  headerContainer = null;
   container.remove();
   document.body.replaceChildren();
 });
@@ -1038,14 +1027,7 @@ describe("Index search empty state", () => {
     mocks.ownCount = 1;
     await act(async () => root.render(<Index />));
 
-    headerContainer = document.createElement("div");
-    document.body.append(headerContainer);
-    headerRoot = createRoot(headerContainer);
-    await act(async () => {
-      headerRoot?.render(mocks.headerActions as ReactNode);
-    });
-
-    const searchInput = headerContainer.querySelector<HTMLInputElement>(
+    const searchInput = container.querySelector<HTMLInputElement>(
       'input[aria-label="home.searchPlaceholder"]',
     );
     expect(searchInput).not.toBeNull();
@@ -1058,10 +1040,6 @@ describe("Index search empty state", () => {
       )?.set?.call(searchInput, "no matching design");
       searchInput.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    await act(async () => {
-      headerRoot?.render(mocks.headerActions as ReactNode);
-    });
-
     expect(container.textContent).toContain("No designs match your search");
     expect(container.textContent).toContain("Try a different search.");
     expect(container.textContent).not.toContain("home.createFirstDesign");
@@ -1070,17 +1048,10 @@ describe("Index search empty state", () => {
   });
 
   it("keeps searched shared designs visible when the user owns no designs", async () => {
-    mocks.ownCount = 0;
+    mocks.ownCount = 1;
     await act(async () => root.render(<Index />));
 
-    headerContainer = document.createElement("div");
-    document.body.append(headerContainer);
-    headerRoot = createRoot(headerContainer);
-    await act(async () => {
-      headerRoot?.render(mocks.headerActions as ReactNode);
-    });
-
-    const searchInput = headerContainer.querySelector<HTMLInputElement>(
+    const searchInput = container.querySelector<HTMLInputElement>(
       'input[aria-label="home.searchPlaceholder"]',
     );
     expect(searchInput).not.toBeNull();
@@ -1092,10 +1063,6 @@ describe("Index search empty state", () => {
       )?.set?.call(searchInput, "shared design");
       searchInput.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    await act(async () => {
-      headerRoot?.render(mocks.headerActions as ReactNode);
-    });
-
     expect(container.textContent).toContain("home.recent");
     const tabs = container.querySelectorAll<HTMLElement>('[role="tab"]');
     expect(tabs).toHaveLength(2);
@@ -1126,7 +1093,7 @@ describe("home library", () => {
         ?.textContent,
     ).toBe("navigation.templates");
     expect(container.textContent).toContain("navigation.templates");
-    expect(container.textContent).toContain("home.recent");
+    expect(container.textContent).not.toContain("home.recent");
     expect(container.querySelector('a[href="/templates"]')).not.toBeNull();
     mocks.ownCount = 1;
     await act(async () => root.render(<Index />));
@@ -1135,12 +1102,10 @@ describe("home library", () => {
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
     ).toBe("home.recent");
-    expect(localStorage.getItem("design:home-library-tab")).toBe("recent");
   });
 
-  it("restores a saved Recent choice before the design summary completes", async () => {
+  it("defaults to Templates until the accessible-design summary completes", async () => {
     await act(async () => root.unmount());
-    localStorage.setItem("design:home-library-tab", "recent");
     mocks.ownCount = 1;
     mocks.ownStatus = "pending";
     root = createRoot(container);
@@ -1149,12 +1114,18 @@ describe("home library", () => {
     expect(
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
+    ).toBe("navigation.templates");
+    expect(container.textContent).not.toContain("home.recent");
+
+    mocks.ownStatus = "success";
+    await act(async () => root.render(<Index />));
+    expect(
+      container.querySelector('[role="tab"][aria-selected="true"]')
+        ?.textContent,
     ).toBe("home.recent");
   });
 
-  it("does not server-render the home library before restoring its saved tab", () => {
-    localStorage.setItem("design:home-library-tab", "recent");
-
+  it("does not server-render the home library", () => {
     expect(renderToString(<Index />)).not.toContain(
       "agent-prompt-home-library",
     );
@@ -1179,7 +1150,6 @@ describe("home library", () => {
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
     ).toBe("navigation.templates");
-    expect(localStorage.getItem("design:home-library-tab")).toBe("templates");
 
     await act(async () => root.unmount());
     mocks.ownStatus = "success";
@@ -1188,7 +1158,7 @@ describe("home library", () => {
     expect(
       container.querySelector('[role="tab"][aria-selected="true"]')
         ?.textContent,
-    ).toBe("navigation.templates");
+    ).toBe("home.recent");
   });
 
   it("does not treat pending or failed ownership reads as successful empty results", async () => {

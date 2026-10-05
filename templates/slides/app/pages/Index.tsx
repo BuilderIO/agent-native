@@ -23,8 +23,6 @@ import {
 } from "@agent-native/toolkit/agentkit";
 import {
   PromptHome,
-  PromptHomeLibrary,
-  type PromptHomeLibraryTab,
   useHomeSearchShortcut,
   useSetHeaderActions,
   useSetPageTitle,
@@ -89,6 +87,10 @@ import PromptPopover, {
 } from "@/components/editor/PromptDialog";
 import { useSlidesComposerContext } from "@/components/editor/SlidesComposerContext";
 import { usePromptImport } from "@/components/editor/use-prompt-import";
+import {
+  SlidesHomeLibrary,
+  type SlidesHomeLibraryTab,
+} from "@/components/home/SlidesHomeLibrary";
 import { HomeHeaderActions } from "@/components/layout/Header";
 import { useOpenMobileSidebar } from "@/components/layout/Layout";
 import { DeckTemplateLibrary } from "@/components/templates/DeckTemplateLibrary";
@@ -202,31 +204,12 @@ function HomeChrome({ title, actions }: { title: string; actions: ReactNode }) {
   return null;
 }
 const NEW_DECK_DRAFT_SCOPE = "slides-new-deck";
-const HOME_LIBRARY_TAB_STORAGE_KEY = "slides:home-library-tab";
 const PENDING_PROMPT_KEY = "slides:pending-deck-prompt";
 const PENDING_PROMPT_CONTEXT_KEY = "slides:pending-deck-prompt-context";
 const PENDING_PROMPT_MODEL_SELECTION_KEY =
   "slides:pending-deck-model-selection";
 const PENDING_PROMPT_REFERENCE_SELECTION_KEY =
   "slides:pending-deck-reference-selection";
-
-function readStoredHomeLibraryTab(): PromptHomeLibraryTab | undefined {
-  try {
-    const tab = window.localStorage.getItem(HOME_LIBRARY_TAB_STORAGE_KEY);
-    return tab === "templates" || tab === "recent" ? tab : undefined;
-  } catch {
-    // coercion-ok: the tab preference is optional when browser storage is unavailable.
-    return undefined;
-  }
-}
-
-function writeStoredHomeLibraryTab(tab: PromptHomeLibraryTab): void {
-  try {
-    window.localStorage.setItem(HOME_LIBRARY_TAB_STORAGE_KEY, tab);
-  } catch {
-    // coercion-ok: an unavailable preference store preserves the in-memory selection.
-  }
-}
 
 type DeckModelSelection = Pick<
   PromptComposerSubmitOptions,
@@ -639,7 +622,6 @@ export default function Index({ active = true }: { active?: boolean }) {
           prompt,
         }));
   const navigate = useNavigate();
-  useHomeSearchShortcut(isHome);
   const [searchParams, setSearchParams] = useSearchParams();
   const [deckToDelete, setDeckToDelete] = useState<string | null>(null);
   const [workspaceDefaultCandidate, setWorkspaceDefaultCandidate] =
@@ -701,30 +683,20 @@ export default function Index({ active = true }: { active?: boolean }) {
     string | null
   >(null);
   const [deckSearch, setDeckSearch] = useState("");
-  const storedHomeLibraryTab = readStoredHomeLibraryTab();
-  const [homeSection, setHomeSection] = useState<PromptHomeLibraryTab>(
-    storedHomeLibraryTab ?? "templates",
-  );
-  const homeLibraryTabWasSelectedRef = useRef(
-    storedHomeLibraryTab !== undefined,
-  );
+  const [homeSection, setHomeSection] =
+    useState<SlidesHomeLibraryTab>("templates");
+  const homeLibraryTabWasSelectedRef = useRef(false);
   const deckFilterWasSelectedRef = useRef(false);
+  const revealRecentSearch = useCallback(() => {
+    if (decks.length === 0) return false;
+    homeLibraryTabWasSelectedRef.current = true;
+    setHomeSection("recent");
+    return true;
+  }, [decks.length]);
+  useHomeSearchShortcut(isHome, revealRecentSearch);
   useEffect(() => {
     if (deckSearch.trim()) setHomeSection("recent");
   }, [deckSearch]);
-  useEffect(() => {
-    if (
-      isHome &&
-      !homeLibraryTabWasSelectedRef.current &&
-      !loading &&
-      !loadError &&
-      decks.length > 0
-    ) {
-      setHomeSection("recent");
-      writeStoredHomeLibraryTab("recent");
-      homeLibraryTabWasSelectedRef.current = true;
-    }
-  }, [decks.length, isHome, loadError, loading]);
   const [storedDeckFilter, setStoredDeckFilter] = useState<DeckFilter>("mine");
   const referenceDeckAutoRef = useRef(true);
   const [showSignInDialog, setShowSignInDialog] = useState(false);
@@ -779,6 +751,7 @@ export default function Index({ active = true }: { active?: boolean }) {
       sortDecksByRecency(
         decks.filter((deck) => {
           if (deckFilter === "mine" && !deck.createdByMe) return false;
+          if (deckFilter === "not-mine" && deck.createdByMe) return false;
           return (
             normalizedDeckSearch.length === 0 ||
             deck.title.toLowerCase().includes(normalizedDeckSearch)
@@ -879,7 +852,8 @@ export default function Index({ active = true }: { active?: boolean }) {
 
   const setDeckFilter = useCallback(
     (value: string) => {
-      const nextFilter = value === "mine" ? "mine" : "all";
+      const nextFilter: DeckFilter =
+        value === "mine" || value === "not-mine" ? value : "all";
       deckFilterWasSelectedRef.current = true;
       setStoredDeckFilter(nextFilter);
       writeStoredDeckFilter(nextFilter);
@@ -888,6 +862,8 @@ export default function Index({ active = true }: { active?: boolean }) {
           const next = new URLSearchParams(prev);
           if (nextFilter === "mine") {
             next.set("createdBy", "me");
+          } else if (nextFilter === "not-mine") {
+            next.set("createdBy", "not-me");
           } else {
             next.delete("createdBy");
           }
@@ -2372,23 +2348,25 @@ export default function Index({ active = true }: { active?: boolean }) {
     deckCount: decks.length,
   });
   const hasDecks = viewState === "decks";
+  useEffect(() => {
+    if (viewState === "loading") return;
+    if (!hasDecks) {
+      setHomeSection("templates");
+      homeLibraryTabWasSelectedRef.current = false;
+      return;
+    }
+    if (homeLibraryTabWasSelectedRef.current) return;
+
+    setHomeSection("recent");
+    homeLibraryTabWasSelectedRef.current = true;
+  }, [hasDecks, viewState]);
   const homeHeaderActions = useMemo(
     () => (
-      <HomeHeaderActions
-        search={
-          hasDecks ? (
-            <DeckSearchInput
-              value={deckSearch}
-              onChange={setDeckSearch}
-              className="w-full"
-            />
-          ) : null
-        }
-      >
+      <HomeHeaderActions>
         <ImportDeckButton controller={deckImport} />
       </HomeHeaderActions>
     ),
-    [deckImport, deckSearch, hasDecks, setDeckSearch],
+    [deckImport],
   );
   if (isStartingNewDeck) {
     return (
@@ -2422,13 +2400,6 @@ export default function Index({ active = true }: { active?: boolean }) {
               >
                 <IconMenu2 className="size-4" aria-hidden="true" />
               </button>
-            ) : null}
-            {hasDecks ? (
-              <DeckSearchInput
-                value={deckSearch}
-                onChange={setDeckSearch}
-                className="slides-home-mobile-search min-w-0 flex-1"
-              />
             ) : null}
             <div className="slides-home-mobile-import">
               <ImportDeckButton controller={deckImport} />
@@ -2613,11 +2584,15 @@ export default function Index({ active = true }: { active?: boolean }) {
         </div>
       ) : null}
       <ClientOnly>
-        <PromptHomeLibrary
-          value={homeSection}
+        <SlidesHomeLibrary
+          recentVisible={hasDecks}
+          value={
+            hasDecks && !homeLibraryTabWasSelectedRef.current
+              ? "recent"
+              : homeSection
+          }
           onValueChange={(value) => {
             homeLibraryTabWasSelectedRef.current = true;
-            writeStoredHomeLibraryTab(value);
             setHomeSection(value);
           }}
           labels={{
@@ -2631,6 +2606,15 @@ export default function Index({ active = true }: { active?: boolean }) {
                 <IconArrowRight />
               </Link>
             </Button>
+          }
+          search={
+            hasDecks ? (
+              <DeckSearchInput
+                value={deckSearch}
+                onChange={setDeckSearch}
+                className="w-full sm:w-64 sm:shrink-0"
+              />
+            ) : null
           }
           recentActions={
             hasDecks ? (
@@ -2656,13 +2640,16 @@ export default function Index({ active = true }: { active?: boolean }) {
                     onSetWorkspaceDefault={handleSetWorkspaceDefaultDeck}
                   />
                 ))}
-                {visibleDecks.length === 0 && (
-                  <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
-                    {normalizedDeckSearch
-                      ? t("home.noDecksMatchSearch")
-                      : t("home.noMineDecks")}
-                  </div>
-                )}
+                {visibleDecks.length === 0 &&
+                  (normalizedDeckSearch ? (
+                    <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
+                      {t("home.noDecksMatchSearch")}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl bg-card p-6 text-sm text-muted-foreground">
+                      {t("home.noDecksMatchFilter")}
+                    </div>
+                  ))}
               </div>
             )
           }
@@ -2877,7 +2864,7 @@ function DeckSearchInput({
         placeholder={t("root.searchDecks")}
         aria-label={t("root.searchDecks")}
         data-home-search="true"
-        className="h-8 pe-3 ps-9"
+        className="h-9 pe-3 ps-9"
       />
     </div>
   );
