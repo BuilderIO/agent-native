@@ -502,7 +502,7 @@ export function AgentParticipantView({
 }
 
 const UUID_PATTERN =
-  /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+  /(^|[^0-9a-f])([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?=$|[^0-9a-f])/gi;
 const ACTIVITY_TOOL_VALUE_LIMIT = 2_000;
 const ACTIVITY_TOOL_NODE_LIMIT = 160;
 const ACTIVITY_TOOL_DEPTH_LIMIT = 8;
@@ -515,7 +515,7 @@ function isUuid(value: string): boolean {
 }
 
 function hideUuids(value: string): string {
-  return value.replace(UUID_PATTERN, "");
+  return value.replace(UUID_PATTERN, "$1");
 }
 
 function readableText(value: string | undefined): string {
@@ -637,8 +637,9 @@ function activityToolValue(
     const safeText = text.slice(0, budget.remainingCharacters);
     budget.remainingCharacters -= safeText.length;
     if (text.length > safeText.length) budget.truncated = true;
-    if (!text.trim()) return labels.activityValueIdentifierHidden;
-    if (!safeText.trim()) return labels.activityValueOmitted;
+    if (text.length > 0 && safeText.length === 0) {
+      return labels.activityValueOmitted;
+    }
     return safeText;
   }
   if (value && typeof value === "object") {

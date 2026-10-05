@@ -2865,8 +2865,17 @@ describe("AgentChat lifecycle", () => {
       id: "tool-read-file",
       name: "read-file",
       status: "completed",
-      input: { documentId: internalId },
-      output: { documentId: internalId, entries: sparseOutput },
+      input: {
+        documentId: internalId,
+        resource: `document_${internalId}_revision`,
+        empty: "",
+        whitespace: "  ",
+      },
+      output: {
+        documentId: internalId,
+        resource: `document_${internalId}_revision`,
+        entries: sparseOutput,
+      },
     };
     const thread = reduceAgentEvent(createAgentThreadState(threadId), {
       id: "event-read-file",
@@ -2920,6 +2929,11 @@ describe("AgentChat lifecycle", () => {
     expect(details.every((detail) => detail.tabIndex === 0)).toBe(true);
     expect(details[0]?.textContent).toContain("[Identifier hidden]");
     expect(details[1]?.textContent).toContain("[Identifier hidden]");
+    expect(details[0]?.textContent).toContain(
+      '"resource": "document__revision"',
+    );
+    expect(details[0]?.textContent).toContain('"empty": ""');
+    expect(details[0]?.textContent).toContain('"whitespace": "  "');
     expect(details[1]?.textContent).toContain("[Content omitted]");
     expect(details[1]?.textContent).not.toContain(internalId);
     expect(details[1]?.textContent).not.toContain("beyond preview");
