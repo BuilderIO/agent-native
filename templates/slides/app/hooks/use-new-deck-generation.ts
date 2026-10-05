@@ -213,7 +213,15 @@ export function useNewDeckGenerationRun(
       (previous.deckId !== currentRun.deckId ||
         previous.submitMessageId !== currentRun.submitMessageId)
     ) {
-      clearNewDeckGenerationRun(previous.deckId, previous.submitMessageId);
+      const hasRecoverableRun =
+        previous.deckId !== currentRun.deckId &&
+        hasStoredNewDeckGenerationRun(
+          previous.deckId,
+          previous.submitMessageId,
+        );
+      if (!hasRecoverableRun) {
+        clearNewDeckGenerationRun(previous.deckId, previous.submitMessageId);
+      }
     }
     previousRunRef.current = currentRun;
   }, [currentRun.deckId, currentRun.submitMessageId]);
@@ -257,7 +265,11 @@ export function useNewDeckGenerationRun(
         if (
           routeCleanupTokenRef.current === token &&
           runAtExit.submitMessageId &&
-          !runAtExit.tabId
+          !runAtExit.tabId &&
+          !hasStoredNewDeckGenerationRun(
+            runAtExit.deckId,
+            runAtExit.submitMessageId,
+          )
         ) {
           clearNewDeckGenerationRun(
             runAtExit.deckId,
@@ -531,6 +543,13 @@ function getActiveRun(deckId: string): NewDeckGenerationRunReference | null {
     submitMessageId: value.submitMessageId,
     tabId: value.tabId,
   };
+}
+
+function hasStoredNewDeckGenerationRun(
+  deckId: string,
+  submitMessageId: string,
+): boolean {
+  return getActiveRun(deckId)?.submitMessageId === submitMessageId;
 }
 
 function getRunTabId(deckId: string, submitMessageId: string): string | null {

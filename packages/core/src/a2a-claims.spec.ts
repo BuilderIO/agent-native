@@ -46,6 +46,7 @@ describe("verifyA2ATokenWithClaims", () => {
           aud: "https://content.example.com",
           iss: "https://analytics.example.com",
           org_id: "org-1",
+          org_domain: "builder.io",
           jti: "call-1",
           scope: "flags:write",
         }),
@@ -65,6 +66,19 @@ describe("verifyA2ATokenWithClaims", () => {
       email: "operator@example.com",
       orgDomain: null,
     });
+    expect(
+      await verifyA2ATokenWithClaims(
+        await token({
+          aud: "https://content.example.com",
+          org_id: "org-1",
+          jti: "call-1",
+          scope: "flags:write",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects an ID-only organization claim even when local metadata resolves it", async () => {
     expect(
       await verifyA2ATokenWithClaims(
         await token({

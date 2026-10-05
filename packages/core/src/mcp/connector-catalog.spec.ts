@@ -1,6 +1,18 @@
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const issuedConnectTokens = vi.hoisted(
+  () =>
+    new Map<
+      string,
+      {
+        kind: "personal" | "service";
+        ownerEmail: string;
+        orgId: string | null;
+      }
+    >(),
+);
+
 vi.mock("./builtin-tools.js", () => ({
   getBuiltinCrossAppTools: () => ({
     list_apps: {
@@ -74,8 +86,17 @@ vi.mock("./connect-store.js", () => ({
   MCP_CONNECT_OAUTH_CLIENT_ID: "agent-native-connect",
   isJtiRevoked: vi.fn(async () => false),
   touchTokenUsed: vi.fn(async () => {}),
-  lookupConnectTokenOrg: vi.fn(async () => ({ status: "missing" })),
+  lookupConnectTokenOrg: vi.fn(async (jti: string) => {
+    const token = issuedConnectTokens.get(jti);
+    return token
+      ? { status: "found" as const, ...token }
+      : { status: "missing" as const };
+  }),
 }));
+
+beforeEach(() => {
+  issuedConnectTokens.clear();
+});
 
 vi.mock("../server/embed-session.js", () => ({
   createEmbedSessionTicket: vi.fn(async ({ targetPath }: any) => ({
@@ -134,12 +155,23 @@ async function signA2AToken(
   sub: string,
   extraClaims: Record<string, unknown> = {},
 ): Promise<string> {
-  return new jose.SignJWT({
+  const claims = {
     sub,
     scope: "mcp-connect",
     jti: `test-jti-${Math.random().toString(36).slice(2)}`,
     ...extraClaims,
-  })
+  };
+  if (typeof claims.jti === "string" && typeof claims.sub === "string") {
+    issuedConnectTokens.set(claims.jti, {
+      kind: "personal",
+      ownerEmail: claims.sub,
+      orgId:
+        typeof claims.org_id === "string" && claims.org_id.trim()
+          ? claims.org_id.trim()
+          : null,
+    });
+  }
+  return new jose.SignJWT(claims)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("1h")
