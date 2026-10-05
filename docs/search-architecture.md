@@ -348,11 +348,14 @@ Instead:
      Rows whose source is gone are then removed.
    - A rebuild at the same version, after capture was missing, is claimed by
      one process in one statement, so only that process enqueues.
-   - A rebuild records its highest `seq` only if its claim still stands once
-     it has enqueued, and completes only if that `seq` is still recorded.
-     Discarding the index clears both, so a rebuild that was enqueueing or
+   - A rebuild records its highest `seq` only if no other transaction has
+     written its index state since it claimed the rebuild, and completes
+     only if that `seq` is still recorded. Discarding the index or claiming
+     the rebuild again voids both, so a rebuild that was enqueueing or
      finishing when capture went missing starts over, rather than completing
-     without the writes made while capture was gone.
+     without the writes made while capture was gone. The claim is the row's
+     `xmin`, not its timestamp, which a later claim can share. Writes in the
+     claim's own transaction keep its `xmin`, so they aren't detected.
 
    Every claim, index write, and completion carries a fence: it takes effect
    only while the target version is still the drain's own. A process on the

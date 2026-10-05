@@ -1267,6 +1267,57 @@ describe("change capture", () => {
     expect(await indexedIds("completing")).toEqual(["kept", "missed"]);
   });
 
+  it("doesn't count a queue whose rebuild was reclaimed at the same timestamp", async () => {
+    search.resetSearchIndexRuntime();
+    const { registered, tableName } = await isolatedRegistration("same-claim");
+    await run(`INSERT INTO ${tableName} (id, title) VALUES ('kept', 'Kept')`);
+    const stateWhere = `app = 'isolated' AND resource_type = 'same-claim'`;
+    let held = false;
+    const restore = interceptStatements(async (sql, _query, execute) => {
+      if (!held && sql.includes("SET rebuild_high_seq = ?::bigint")) {
+        held = true;
+        const {
+          rows: [claimed],
+        } = await run(
+          `SELECT rebuild_started_at::text AS started FROM search_index_state WHERE ${stateWhere}`,
+        );
+        await dropCapture({
+          app: "isolated",
+          resourceType: "same-claim",
+          table: tableName,
+          idColumn: "id",
+        });
+        await run(
+          `INSERT INTO ${tableName} (id, title) VALUES ('missed', 'Missed')`,
+        );
+        await search.searchIndexMigration(registered, {
+          version: 1,
+          name: "capture-same-claim-again",
+        }).run!(exec());
+        // Another process reclaims the discarded rebuild in a transaction
+        // that began in the same instant, then dies before queueing.
+        await run(
+          `UPDATE search_index_state SET rebuild_started_at = ?::timestamptz WHERE ${stateWhere}`,
+          [(claimed as { started: string }).started],
+        );
+      }
+      return execute();
+    });
+    try {
+      expect(
+        await indexer.drainSearchIndex(registered, Date.now() + 10_000),
+      ).toEqual({ ready: false, reason: "rebuilding" });
+    } finally {
+      restore();
+    }
+    await run(
+      `UPDATE search_index_state SET rebuild_started_at = rebuild_started_at - interval '1 hour' WHERE ${stateWhere}`,
+    );
+    search.resetSearchIndexRuntime();
+    expect(await prepareFully(registered)).toEqual({ ready: true });
+    expect(await indexedIds("same-claim")).toEqual(["kept", "missed"]);
+  });
+
   it("is left to the newer version when an older release migrates later", async () => {
     const { registered, tableName } = await isolatedRegistration("superseded");
     await search.searchIndexMigration(

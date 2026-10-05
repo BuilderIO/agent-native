@@ -446,9 +446,15 @@ function rebuildNeedsQueueing(
  * one, then queues every source row once. Only one process wins either, and
  * from a version bump on, the fence stops older processes. Queueing replaces
  * changes they already hold, so none of their in-flight work can complete
- * what the rebuild queued. The queue counts toward completion only if the
- * claim still stands once it's queued: an invalidation or a later claim
- * meanwhile means it may miss writes.
+ * what the rebuild queued. The queue counts toward completion only if no
+ * other transaction has written the index state since the claim: an
+ * invalidation or a later claim meanwhile means it may miss writes.
+ *
+ * The claim is the row's `xmin`, the transaction that last wrote it, not its
+ * timestamp: `now()` is when a transaction began, so a later claim can carry
+ * the same one. Writes in the claim's own transaction keep its `xmin`, so
+ * nothing may invalidate between this claim and its publish on a shared
+ * transaction.
  */
 async function startRebuild(
   exec: DbExec,
@@ -466,7 +472,7 @@ async function startRebuild(
                   rebuild_high_seq = NULL,
                   rebuild_completed_at = NULL
                 WHERE ${SEARCH_INDEX_STATE_TABLE}.target_version < EXCLUDED.target_version
-                RETURNING rebuild_started_at::text AS claim`,
+                RETURNING xmin::text AS claim`,
           args: [registration.app, registration.type, registration.version],
         })
       : await exec.execute({
@@ -474,7 +480,7 @@ async function startRebuild(
                 WHERE app = ? AND resource_type = ? AND target_version = ?
                   AND rebuild_high_seq IS NULL AND rebuild_completed_at IS NULL
                   AND (rebuild_started_at IS NULL OR rebuild_started_at < now() - make_interval(secs => ?))
-                RETURNING rebuild_started_at::text AS claim`,
+                RETURNING xmin::text AS claim`,
           args: [
             registration.app,
             registration.type,
@@ -493,7 +499,7 @@ async function startRebuild(
   await exec.execute({
     sql: `UPDATE ${SEARCH_INDEX_STATE_TABLE} SET rebuild_high_seq = ?::bigint
           WHERE app = ? AND resource_type = ? AND target_version = ?
-            AND rebuild_started_at = ?::timestamptz`,
+            AND xmin = ?::xid`,
     args: [
       highSeq,
       registration.app,
