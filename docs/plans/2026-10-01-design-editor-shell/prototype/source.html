@@ -2031,12 +2031,24 @@ const linToP3 = lin => mul(XYZ_P3, mul(SRGB_XYZ, lin)).map(toGam);
 const p3ToLin = p => mul(XYZ_SRGB, mul(P3_XYZ, p.map(toLin)));
 const inUnit = v => v.every(c => c >= -1e-4 && c <= 1 + 1e-4);
 const inSrgb = lin => inUnit(lin.map(toGam)), inP3 = lin => inUnit(linToP3(lin));
-// CSS Color 4 gamut mapping, simplified: keep lightness and hue, reduce chroma until the color fits.
+// CSS Color 4 gamut mapping (css-color-4 §13.2): lower OKLCH chroma at the same lightness and hue, and take the
+// clipped color as soon as it's within a just-noticeable difference (ΔEOK 0.02) of the candidate. Matches oklch.com
+// and what browsers are specified to do; plain chroma reduction is paler (oklch(0.9316 0.1317 86.6) gives #ffe6ad, not #ffe383).
+const deltaEOK = (a, b) => { const A = linToOklab(a), B = linToOklab(b); return Math.hypot(A[0] - B[0], A[1] - B[1], A[2] - B[2]); };
+const clipIn = fits => fits === inP3 ? lin => p3ToLin(linToP3(lin).map(clamp01)) : lin => lin.map(toGam).map(clamp01).map(toLin);
 function fitGamut(lin, fits) {
   if (fits(lin)) return lin;
-  const [L, C, h] = linToOklch(lin); let lo = 0, hi = C;
-  for (let i = 0; i < 24; i++) { const m = (lo + hi) / 2; if (fits(oklchToLin([L, m, h]))) lo = m; else hi = m; }
-  return oklchToLin([L, lo, h]);
+  const clip = clipIn(fits), [L, C, h] = linToOklch(lin);
+  if (L >= 1) return [1, 1, 1]; if (L <= 0) return [0, 0, 0];
+  let clipped = clip(lin); if (deltaEOK(clipped, lin) < 0.02) return clipped;
+  let lo = 0, hi = C, inside = true;
+  while (hi - lo > 1e-4) {
+    const m = (lo + hi) / 2, cand = oklchToLin([L, m, h]);
+    if (inside && fits(cand)) { lo = m; continue; }
+    clipped = clip(cand); const e = deltaEOK(clipped, cand);
+    if (e < 0.02) { if (0.02 - e < 1e-4) return clipped; inside = false; lo = m; } else hi = m;
+  }
+  return clip(oklchToLin([L, lo, h]));
 }
 function parseHex(v) {
   let h = String(v).trim().replace(/^#/, "");
@@ -2068,7 +2080,7 @@ function parseColor(v) {
   if (kind.startsWith("hsl")) { const c = hslToRgb({ h: parseFloat(p[0]), s: num(p[1]), l: num(p[2]) }); return { lin: [c.r, c.g, c.b].map(x => toLin(x / 255)), a, mode: "hsl", hue: parseFloat(p[0]) }; }
   if (kind === "color" && p[0] === "display-p3") return { lin: p3ToLin(p.slice(1, 4).map(s => num(s))), a, mode: "p3" };
   if (kind === "color" && p[0] === "srgb") return { lin: p.slice(1, 4).map(s => toLin(num(s))), a, mode: "rgb" };
-  if (kind === "oklch") return { lin: oklchToLin([num(p[0]), num(p[1], 0.4), parseFloat(p[2]) || 0]), a, mode: "oklch", hue: parseFloat(p[2]) || 0 };
+  if (kind === "oklch") { const auth = [num(p[0]) * 100, num(p[1], 0.4), parseFloat(p[2]) || 0]; return { lin: oklchToLin([auth[0] / 100, auth[1], auth[2]]), a, mode: "oklch", hue: auth[2], auth }; }
   return null;
 }
 const r3 = x => +x.toFixed(3);
@@ -2082,10 +2094,11 @@ function formatColor(lin, a, mode, hue = 0) {
   // channel (in sRGB, or in P3 for colors outside it), so simple colors stay short and none drifts on a round trip.
   const write = d => {
     if (mode === "p3") return `color(display-p3 ${linToP3(fitGamut(lin, inP3)).map(clamp01).map(v => +v.toFixed(3 + d)).join(" ")}${a < 1 ? ` / ${r3(a)}` : ""})`;
-    if (mode === "oklch") { const [L, C, h] = linToOklch(fitGamut(lin, inP3)); return `oklch(${+(L * 100).toFixed(1 + d)}% ${+C.toFixed(3 + d)} ${+(C < 2e-4 ? hue : h).toFixed(1 + d)}${A})`; }
+    if (mode === "oklch") { const [L, C, h] = linToOklch(lin); return `oklch(${+(L * 100).toFixed(1 + d)}% ${+C.toFixed(3 + d)} ${+(C < 2e-4 ? hue : h).toFixed(1 + d)}${A})`; }
     const l = rgbToHsl({ r, g, b }); return `hsl(${+(l.s ? l.h : hue).toFixed(d)} ${+(l.s * 100).toFixed(d)}% ${+(l.l * 100).toFixed(d)}%${A})`;
   };
-  const key = l => inSrgb(lin) ? formatColor(l, 1, "hex") : linToP3(fitGamut(l, inP3)).map(c => Math.round(clamp01(c) * 255)).join();
+  // Same color means same 8-bit value in the narrowest space that holds it; past P3, the OKLCH value itself.
+  const key = l => inSrgb(lin) ? formatColor(l, 1, "hex") : inP3(lin) || mode === "p3" ? linToP3(fitGamut(l, inP3)).map(c => Math.round(clamp01(c) * 255)).join() : linToOklch(l).map((v, i) => Math.round(v * [1000, 1000, 10][i])).join();
   const want = key(lin);
   for (let d = 0; d < 3; d++) { const out = write(d); if (key(parseColor(out).lin) === want) return out; }
   return write(3);
@@ -2103,7 +2116,11 @@ const CPK_CHANNELS = {
 function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = null, onPickToken = null, current = null, canCreate = false, contrast = null }) {
   document.querySelector(".cpk")?._close();
   const start = parseColor(value) || { lin: [0, 0, 0], a: 1, mode: "hex" };
-  const C = { lin: start.lin, a: start.a, mode: start.mode, hue: 0, okHue: start.hue ?? 0, wantC: null };
+  // In OKLCH the authored L, C, and H are written verbatim (a palette keeps C 0.1234 on every hue). They hold only while
+  // C.lin is the color they produced: any other edit assigns a new C.lin, so stale authored values can't leak out.
+  const C = { lin: start.lin, a: start.a, mode: start.mode, hue: 0, okHue: start.hue ?? 0, auth: start.auth || null, authLin: start.auth ? start.lin : null };
+  const authored = () => C.mode === "oklch" && C.auth && C.lin === C.authLin;
+  const setAuthored = (L, Cc, H) => { C.auth = [L, Cc, H]; C.okHue = H; C.lin = C.authLin = oklchToLin([L / 100, Cc, H]); };
   const before = value;
   const canEye = "EyeDropper" in window;
   const docs = [...new Set(TOKENS.filter(t => t.type === "color" && parseColor(t.value)).map(t => t.value.toLowerCase()))].slice(0, 16);
@@ -2133,7 +2150,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   };
   const q = sel => pop.querySelector(sel);
   const wide = () => CPK_MODES.find(m => m[0] === C.mode)[2] === "p3";
-  const fitsSpace = lin => wide() ? inP3(lin) : inSrgb(lin);
+  const spaceFits = () => wide() ? inP3 : inSrgb;
   // The square is saturation × brightness over the space's primaries: sRGB, or P3 for the wide modes.
   const hsv = () => {
     const g = (wide() ? linToP3(fitGamut(C.lin, inP3)) : fitGamut(C.lin, inSrgb).map(toGam)).map(clamp01);
@@ -2152,6 +2169,13 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     if (C.mode === "p3") return linToP3(fitGamut(C.lin, inP3)).map(clamp01).map(r3);
     const [L, Ch, h] = oklch(); return [+L.toFixed(1), r3(Ch), Math.round(h) % 360];
   };
+  const exact = () => {
+    if (C.mode === "rgb") return srgbOf();
+    if (C.mode === "hsl") { const g = srgbOf(), l = rgbToHsl({ r: g[0], g: g[1], b: g[2] }); return [l.s ? l.h : C.hue, l.s * 100, l.l * 100]; }
+    if (C.mode === "hsb") { const c = hsv(); return [c.h, c.s * 100, c.v * 100]; }
+    if (C.mode === "p3") return linToP3(fitGamut(C.lin, inP3)).map(clamp01);
+    return authored() ? [...C.auth] : oklch();
+  };
   const write = v => {
     const n = v.map(Number), wrap = h => ((h % 360) + 360) % 360;
     if (C.mode === "hex") { const p = parseColor("#" + String(v[0]).replace(/^#/, "")); if (p) C.lin = p.lin; return; }
@@ -2160,17 +2184,24 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     else if (C.mode === "hsl") { const c = hslToRgb({ h: wrap(n[0]), s: clamp01(n[1] / 100), l: clamp01(n[2] / 100) }); C.hue = wrap(n[0]); C.lin = [c.r, c.g, c.b].map(x => toLin(x / 255)); }
     else if (C.mode === "hsb") { C.hue = wrap(n[0]); C.lin = fromHsv(clamp01(n[1] / 100), clamp01(n[2] / 100), C.hue); }
     else if (C.mode === "p3") C.lin = p3ToLin(n.map(clamp01));
-    // OKLCH keeps the chroma you asked for: a hue or lightness that can't hold it clamps it, and the next one that can gets it back.
-    else { C.okHue = wrap(n[2]); C.lin = fitGamut(oklchToLin([clamp01(n[0] / 100), C.wantC ?? Math.max(0, n[1]), C.okHue]), inP3); }
+    // OKLCH keeps exactly what's authored, even past what a screen can show; each screen maps it, and New's tooltip names the fallbacks.
+    else setAuthored(Math.min(100, Math.max(0, n[0])), Math.max(0, n[1]), wrap(n[2]));
   };
-  const css = (a = C.a) => formatColor(C.lin, a, C.mode, C.mode === "oklch" ? C.okHue : C.hue);
+  const css = (a = C.a) => {
+    if (!authored()) return formatColor(C.lin, a, C.mode, C.mode === "oklch" ? C.okHue : C.hue);
+    const n = x => +(+x).toFixed(6); return `oklch(${n(C.auth[0])}% ${n(C.auth[1])} ${n(C.auth[2])}${a < 1 ? ` / ${Math.round(a * 100)}%` : ""})`;
+  };
   // WCAG 2.2 contrast: the text color in sRGB, blended over what's behind it at its opacity.
   const lum = rgb => { const [r, g, b] = rgb.map(c => toLin(c / 255)); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
   const ratioFor = lin => { if (!contrast) return 0; const b = parseHex(contrast.bg), bg = [b.r, b.g, b.b], fg = fitGamut(lin, inSrgb).map(toGam).map(c => clamp01(c) * 255).map((c, i) => c * C.a + bg[i] * (1 - C.a)); const [l1, l2] = [lum(fg), lum(bg)].sort((x, y) => y - x); return (l1 + 0.05) / (l2 + 0.05); };
   const need = () => contrast?.large ? [3, 4.5] : [4.5, 7];
   // New's tooltip names the swatch and, when it applies, says the color leaves sRGB.
   let tip = null, tipTimer = 0;
-  const newTipHTML = () => `<div>New</div>${inSrgb(C.lin) ? "" : `<div class="sub">Outside sRGB. Screens without Display P3 can't show it exactly.</div>`}`;
+  const newTipHTML = () => [
+    "New",
+    !inSrgb(C.lin) && `Outside sRGB. Falls back to ${formatColor(fitGamut(C.lin, inSrgb), 1, "hex").toUpperCase()} there.`,
+    !inP3(C.lin) && `Outside Display P3 too. Falls back to ${formatColor(fitGamut(C.lin, inP3), 1, "oklch")} there.`,
+  ].filter(Boolean).map((l, i) => `<div class="${i ? "sub" : ""}">${l}</div>`).join("");
   const hideTip = () => { clearTimeout(tipTimer); tip?.remove(); tip = null; };
   const showTip = () => {
     hideTip(); tip = document.createElement("div"); tip.className = "cpk-tip"; tip.setAttribute("role", "tooltip"); tip.innerHTML = newTipHTML(); document.body.append(tip);
@@ -2192,7 +2223,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   };
   // Fix moves OKLCH lightness, keeping hue and chroma, to the passing value nearest the current one.
   const fixContrast = aa => {
-    const [L0, Ch, h] = linToOklch(C.lin), at = L => fitGamut(oklchToLin([L, Ch, h]), fitsSpace);
+    const [L0, Ch, h] = linToOklch(C.lin), at = L => fitGamut(oklchToLin([L, Ch, h]), spaceFits());
     const search = (lo, hi, passAtLo) => { for (let k = 0; k < 24; k++) { const m = (lo + hi) / 2; if ((ratioFor(at(m)) >= aa) === passAtLo) lo = m; else hi = m; } return passAtLo ? lo : hi; };
     const darker = ratioFor(at(0)) >= aa ? search(0, L0, true) : null, lighter = ratioFor(at(1)) >= aa ? search(L0, 1, false) : null;
     const L = [darker, lighter].filter(x => x !== null).sort((x, y) => Math.abs(x - L0) - Math.abs(y - L0))[0];
@@ -2201,7 +2232,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     // so step on, away from the failing side, until the written value itself passes.
     const away = L === darker ? -1 : 1, written = lin => parseColor(formatColor(lin, 1, C.mode, C.okHue)).lin;
     let L1 = L; for (let k = 0; k < 200 && ratioFor(written(at(L1))) < aa; k++) L1 = clamp01(L1 + away * 0.0005);
-    C.lin = written(at(L1)); C.wantC = null; update();
+    C.lin = written(at(L1)); update();
   };
   const SQ = 248;
   let laidOut = null, drawnFor = null;
@@ -2259,29 +2290,27 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     move(e); el.onpointermove = move; el.onpointerup = () => { el.onpointermove = null; };
     el.setPointerCapture(e.pointerId);
   });
-  drag(q(".cpk-sv"), (ev, r) => { const h = hsv().h; C.lin = fromHsv(clamp01((ev.clientX - r.left - 12) / SQ), 1 - clamp01((ev.clientY - r.top - 12) / SQ), h); C.hue = h; C.wantC = null; });
+  drag(q(".cpk-sv"), (ev, r) => { const h = hsv().h; C.lin = fromHsv(clamp01((ev.clientX - r.left - 12) / SQ), 1 - clamp01((ev.clientY - r.top - 12) / SQ), h); C.hue = h; });
   // Hue holds what the mode holds: HSB keeps saturation and brightness; OKLCH keeps lightness and the chroma you set,
   // so every hue reads equally light and the square's knob moves to wherever that color sits.
   const along = (ev, r) => clamp01((ev.clientX - r.left - 8) / (r.width - 16));
   drag(q(".cpk-hue"), (ev, r) => {
     const h = Math.min(359.9, along(ev, r) * 360);
-    if (C.mode === "oklch") { const [L, Ch] = linToOklch(C.lin); C.wantC ??= Ch; C.okHue = h; C.lin = fitGamut(oklchToLin([L, C.wantC, h]), inP3); return; }
-    const c = hsv(); C.hue = h; C.lin = fromHsv(c.s, c.v, h); C.wantC = null;
+    if (C.mode === "oklch") { const [L, Ch] = exact(); setAuthored(L, Ch, +h.toFixed(1)); return; }
+    const c = hsv(); C.hue = h; C.lin = fromHsv(c.s, c.v, h);
   });
   drag(q(".cpk-alpha"), (ev, r) => { C.a = Math.round(along(ev, r) * 100) / 100; });
   // Dragging a channel letter scrubs that one channel, like the inspector's X and W fields.
   pop.addEventListener("pointerdown", e => {
     const pre = e.target.closest("[data-scrub]"); if (!pre) return;
     e.preventDefault();
-    const i = +pre.dataset.scrub, [, , step, min, max] = CPK_CHANNELS[C.mode][i], x0 = e.clientX, start = read(), dec = String(step).split(".")[1]?.length || 0;
-    if (C.mode === "oklch" && i === 1) C.wantC = null;
-    const keepC = C.mode === "oklch" && i !== 1 ? (C.wantC ?? start[1]) : null;
+    // Scrubbing starts from the exact channels, not the rounded fields, so only the dragged channel changes.
+    const i = +pre.dataset.scrub, [, , step, min, max] = CPK_CHANNELS[C.mode][i], x0 = e.clientX, start = exact(), dec = String(step).split(".")[1]?.length || 0;
     const move = ev => {
       const v = [...start], raw = start[i] + (ev.clientX - x0) * step * (ev.shiftKey ? 10 : 1);
       v[i] = +(max === 360 && i !== 1 ? ((raw % 360) + 360) % 360 : Math.min(max, Math.max(min, raw))).toFixed(dec);
-      C.wantC = C.mode === "oklch" ? (i === 1 ? v[1] : keepC) : null;
       write(v); paint(false);
-      const ins = pop.querySelectorAll(".cpk-fields input"); read().forEach((x, k) => { if (ins[k]) ins[k].value = k === i ? v[i] : x; });
+      const ins = pop.querySelectorAll(".cpk-fields input"); read().forEach((x, k) => { if (ins[k]) ins[k].value = x; });
       onInput(css());
     };
     pre.setPointerCapture(e.pointerId); pre.onpointermove = move; pre.onpointerup = () => { pre.onpointermove = null; };
@@ -2289,7 +2318,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   pop.addEventListener("change", e => {
     if (e.target.matches(".cpk-a")) { const n = parseFloat(e.target.value); if (!isNaN(n)) C.a = clamp01(n / 100); return update(); }
     if (!e.target.closest(".cpk-fields")) return;
-    C.wantC = null;
+   
     // Any CSS color pasted into any field is read as the color, then shown in the current mode.
     const pasted = parseColor(e.target.value.trim());
     if (pasted && /[#(]/.test(e.target.value)) Object.assign(C, { lin: pasted.lin, a: pasted.a });
@@ -2304,11 +2333,11 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     if (e.target.closest(".cpk-contrast")) return contrastMenu();
     if (e.target.closest(".cpk-create")) return startCreate();
     const tok = e.target.closest("[data-cpk-token]"); if (tok) { onPickToken?.(libs.find(t => t.cssVar === tok.dataset.cpkToken)); return close(false); }
-    if (e.target.closest(".cpk-prev")) { const p = parseColor(before); if (p) Object.assign(C, { lin: p.lin, a: p.a, mode: p.mode, okHue: p.hue ?? C.okHue, wantC: null }); return update(); }
-    const d = e.target.closest("[data-cpk-doc]"); if (d) { const p = parseColor(d.dataset.cpkDoc); Object.assign(C, { lin: p.lin, a: p.a, wantC: null }); return update(); }
+    if (e.target.closest(".cpk-prev")) { const p = parseColor(before); if (p) { Object.assign(C, { lin: p.lin, a: p.a, mode: p.mode, okHue: p.hue ?? C.okHue }); if (p.auth) { C.auth = p.auth; C.authLin = p.lin; } } return update(); }
+    const d = e.target.closest("[data-cpk-doc]"); if (d) { const p = parseColor(d.dataset.cpkDoc); Object.assign(C, { lin: p.lin, a: p.a }); return update(); }
     const m = e.target.closest(".cpk-mode");
     if (m) return openMenu(m, [...CPK_MODES.filter(x => x[2] === "srgb").map(([k, t]) => ({ t, radio: true, on: C.mode === k, run: () => setMode(k) })), "-", ...CPK_MODES.filter(x => x[2] === "p3").map(([k, t]) => ({ t, radio: true, on: C.mode === k, run: () => setMode(k) }))]);
-    if (e.target.closest(".cpk-eye") && canEye) new window.EyeDropper().open().then(r => { const p = parseColor(r.sRGBHex); if (p) { C.lin = p.lin; C.wantC = null; update(); } }, err => { if (err.name !== "AbortError") toast("Couldn't pick a color from the screen"); });
+    if (e.target.closest(".cpk-eye") && canEye) new window.EyeDropper().open().then(r => { const p = parseColor(r.sRGBHex); if (p) { C.lin = p.lin; update(); } }, err => { if (err.name !== "AbortError") toast("Couldn't pick a color from the screen"); });
   });
   // Create: a named draft row at the top of Libraries with this color. Enter or leaving the row creates the token
   // and binds the fill to it; Esc drops the draft and keeps the picker open.
@@ -2331,7 +2360,8 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     inp.addEventListener("blur", () => setTimeout(() => finish(true)));
   };
   // Switching into an sRGB mode maps a wider color into sRGB; New shows the result before you keep it.
-  const setMode = k => { C.mode = k; C.wantC = null; if (!fitsSpace(C.lin)) C.lin = fitGamut(C.lin, fitsSpace); update(); };
+  // Leaving OKLCH for a narrower mode maps the color into it; OKLCH itself keeps what was authored.
+  const setMode = k => { C.mode = k; if (k !== "oklch" && !spaceFits()(C.lin)) C.lin = fitGamut(C.lin, spaceFits()); update(); };
   let done = false;
   const close = cancelled => { if (done) return; done = true; hideTip(); pop.remove(); document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", key, true); onClose(cancelled); };
   const outside = e => { if (!pop.contains(e.target) && !e.target.closest?.(".menu, .scrim")) close(false); };
