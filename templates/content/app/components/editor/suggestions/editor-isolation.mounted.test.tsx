@@ -28,6 +28,7 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   useT: () => (key: string) => key,
 }));
 
+import { visualEditorInstanceKey } from "../DocumentEditor";
 import { VisualEditor } from "../VisualEditor";
 import { suggestedEditorIsolation } from "./editor-isolation";
 
@@ -75,13 +76,7 @@ describe("a Suggesting session when the Page changes elsewhere", () => {
     });
   }
 
-  async function mountSuggesting(base: string) {
-    const isolation = suggestedEditorIsolation({
-      suggesting: true,
-      canSuggest: true,
-      canEdit: true,
-      collaborationReady: true,
-    });
+  async function mountSuggesting(base: string, { canEdit = true } = {}) {
     const page = {
       draft: base,
       draftUpdatedAt: "2026-10-05T12:00:00.000Z",
@@ -93,7 +88,15 @@ describe("a Suggesting session when the Page changes elsewhere", () => {
       reconcile: vi.fn(),
       snapshot: vi.fn(),
     };
-    const render = () =>
+    const render = () => {
+      const isolation = suggestedEditorIsolation({
+        suggesting: true,
+        canSuggest: true,
+        canEdit,
+        collaborationReady: canEdit,
+        canonicalUpdatedAt: page.updatedAt,
+        draftUpdatedAt: page.draftUpdatedAt,
+      });
       root.render(
         createElement(
           MemoryRouter,
@@ -105,11 +108,17 @@ describe("a Suggesting session when the Page changes elsewhere", () => {
               QueryClientProvider,
               { client: queryClient },
               createElement(VisualEditor, {
+                key: visualEditorInstanceKey({
+                  documentId: "page-suggesting",
+                  documentUpdatedAt: isolation.contentUpdatedAt,
+                  isLocalFileDocument: false,
+                  canEdit,
+                  collabEditorEnabled: canEdit,
+                  hasYDoc: isolation.bindCanonicalYDoc,
+                }),
                 documentId: "page-suggesting",
                 content: page.draft,
-                contentUpdatedAt: isolation.reconcileCanonical
-                  ? page.updatedAt
-                  : page.draftUpdatedAt,
+                contentUpdatedAt: isolation.contentUpdatedAt,
                 contentRevision: isolation.reconcileCanonical
                   ? page.revision
                   : null,
@@ -135,6 +144,7 @@ describe("a Suggesting session when the Page changes elsewhere", () => {
           ),
         ),
       );
+    };
     await act(async () => render());
     await settle();
     const editor = captured.editor!;
@@ -179,9 +189,14 @@ describe("a Suggesting session when the Page changes elsewhere", () => {
     expect(docToNfm(editor.getJSON())).toBe(page.draft);
   });
 
-  it("keeps text the draft has not received yet out of the Page", async () => {
+  it.each([
+    ["an editor", true],
+    ["a commenter", false],
+  ])("keeps text the draft has not received yet for %s", async (_, canEdit) => {
     const { editor, page, canonical, changeElsewhere, typeAtEnd } =
-      await mountSuggesting("First paragraph.\nSecond paragraph.");
+      await mountSuggesting("First paragraph.\nSecond paragraph.", {
+        canEdit,
+      });
 
     // A slash-command draft is held back from onChange until it resolves.
     await typeAtEnd("/quo", true);
@@ -197,6 +212,7 @@ describe("a Suggesting session when the Page changes elsewhere", () => {
     expect(canonical.save).not.toHaveBeenCalled();
     expect(canonical.reconcile).not.toHaveBeenCalled();
     expect(canonical.snapshot).not.toHaveBeenCalled();
+    expect(captured.editor).toBe(editor);
     expect(editor.getText()).toContain("/quo");
   });
 });

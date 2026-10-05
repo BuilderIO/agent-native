@@ -87,6 +87,18 @@ describe("suggestion autosave schedule", () => {
     expect(save).toHaveBeenCalledTimes(2);
   });
 
+  it("tells the caller when no timer will run the save after unmount", () => {
+    const autosave = createSuggestionAutosave();
+    const save = vi.fn();
+
+    expect(queueSuggestionAutosave(autosave, save)).toBe(true);
+    retrySuggestionAutosave(autosave, save);
+    expect(queueSuggestionAutosave(autosave, save)).toBe(true);
+
+    autosave.disposed = true;
+    expect(queueSuggestionAutosave(autosave, save)).toBe(false);
+  });
+
   it("returns to the typing debounce after a successful save", () => {
     const autosave = createSuggestionAutosave();
     const save = vi.fn();

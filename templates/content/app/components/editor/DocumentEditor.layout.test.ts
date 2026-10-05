@@ -601,7 +601,23 @@ describe("document editor layout", () => {
       /onRemoteSnapshotChange=\{\s*suggestionEditorIsolation\.reconcileCanonical\s*\?\s*handleRemoteSnapshotChange\s*:\s*undefined\s*\}/,
     );
     expect(source).toMatch(
-      /contentUpdatedAt=\{[^}]*:\s*suggestionEditorIsolation\.reconcileCanonical\s*\?\s*document\.updatedAt\s*:\s*suggestionDraftUpdatedAt\s*\}/,
+      /contentUpdatedAt=\{[^}]*:\s*suggestionEditorIsolation\.contentUpdatedAt\s*\}/,
+    );
+    expect(source).toMatch(
+      /visualEditorInstanceKey\(\{\s*documentId,\s*documentUpdatedAt:\s*suggestionEditorIsolation\.contentUpdatedAt,/,
+    );
+    expect(source).not.toMatch(/documentUpdatedAt:\s*document\.updatedAt/);
+  });
+
+  // After unmount no timer can run a follow-up save, so a final flush that
+  // finds a save in flight must wait for it and then save the newer draft.
+  it("saves the newer draft after an in-flight save when no timer can follow", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toMatch(
+      /if \(\s*autosave &&\s*queueSuggestionAutosave\([^)]*\)\s*\)\s*return null;\s*await inFlight;/,
     );
   });
 

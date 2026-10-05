@@ -3139,6 +3139,8 @@ function PageEditorSessionBody({
     canSuggest: suggestionCapability.canContinue,
     canEdit: editorCanEdit,
     collaborationReady: collabEditorEnabled,
+    canonicalUpdatedAt: document.updatedAt,
+    draftUpdatedAt: suggestionDraftUpdatedAt,
   });
   canEditRef.current = editorCanEdit;
 
@@ -5303,14 +5305,15 @@ function PageEditorSessionBody({
       if (!autosave && isSubmittingSuggestions) return null;
       const inFlight = suggestionFlushRef.current;
       if (inFlight) {
-        if (autosave) {
+        if (
+          autosave &&
           queueSuggestionAutosave(
             suggestionAutosaveRef.current,
             autosaveSuggestionDraft,
             SUGGESTION_AUTOSAVE_IDLE_MS,
-          );
+          )
+        )
           return null;
-        }
         await inFlight;
       }
       const run = persistSuggestionDraft({ keepMode, autosave });
@@ -8368,7 +8371,8 @@ function PageEditorSessionBody({
                             }
                             key={`${visualEditorInstanceKey({
                               documentId,
-                              documentUpdatedAt: document.updatedAt,
+                              documentUpdatedAt:
+                                suggestionEditorIsolation.contentUpdatedAt,
                               isLocalFileDocument,
                               canEdit,
                               collabEditorEnabled,
@@ -8388,9 +8392,7 @@ function PageEditorSessionBody({
                             contentUpdatedAt={
                               isLocalFileDocument
                                 ? (localContentUpdatedAt ?? document.updatedAt)
-                                : suggestionEditorIsolation.reconcileCanonical
-                                  ? document.updatedAt
-                                  : suggestionDraftUpdatedAt
+                                : suggestionEditorIsolation.contentUpdatedAt
                             }
                             contentRevision={
                               isLocalFileDocument ||

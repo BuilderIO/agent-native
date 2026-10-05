@@ -22,16 +22,21 @@ export function createSuggestionAutosave(): SuggestionAutosave {
   };
 }
 
-/** The draft changed, or a save has to wait for one in flight. */
+/**
+ * The draft changed, or a save has to wait for one in flight. Returns false
+ * once the editor has unmounted, when no timer will run the save.
+ */
 export function queueSuggestionAutosave(
   autosave: SuggestionAutosave,
   save: () => void,
   minimumDelay = 0,
-) {
+): boolean {
+  if (autosave.disposed) return false;
   // Typing must not pull a queued retry earlier, or an outage becomes a
   // request per keystroke.
-  if (autosave.disposed || autosave.retrying) return;
-  setSuggestionAutosaveTimer(autosave, save, minimumDelay, false);
+  if (!autosave.retrying)
+    setSuggestionAutosaveTimer(autosave, save, minimumDelay, false);
+  return true;
 }
 
 /** A save failed; try again after a growing backoff. */
