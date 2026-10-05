@@ -519,7 +519,9 @@ describe("SlideEditor render-phase safety", () => {
     expect(pointerBody.indexOf("const targetIsEditingBlock")).toBeLessThan(
       pointerBody.indexOf("slideCommentThreadAtPoint("),
     );
-    expect(pointerBody).toContain("if (!editingEl && !pinMode && !drawMode)");
+    expect(pointerBody).toContain(
+      "if (!editingEl && !pinMode && !drawMode && !additive)",
+    );
 
     const clickStart = source.indexOf("const handleSlideClick");
     const clickEnd = source.indexOf(

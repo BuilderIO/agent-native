@@ -1,7 +1,11 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { useSendToAgentChat } from "@agent-native/toolkit/app/chat/composer";
+import {
+  useCredentialSaveScope,
+  WhoField,
+} from "@agent-native/toolkit/app/settings";
 import type { CalendarEvent } from "@shared/api";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useId } from "react";
 import { createPortal } from "react-dom";
 
 import { useApolloStatus, useApolloConnect } from "@/hooks/use-apollo";
@@ -40,11 +44,13 @@ export function ApolloSetupPrompt({ onDone }: { onDone?: () => void }) {
   const t = useT();
   const [apiKey, setApiKey] = useState("");
   const connect = useApolloConnect();
+  const { scope, canChoose, setScope } = useCredentialSaveScope();
+  const whoId = useId();
 
   const handleSave = () => {
     const key = apiKey.trim();
-    if (!key) return;
-    connect.mutate(key, { onSuccess: onDone });
+    if (!key || !scope) return;
+    connect.mutate({ apiKey: key, scope }, { onSuccess: onDone });
   };
 
   return (
@@ -69,9 +75,18 @@ export function ApolloSetupPrompt({ onDone }: { onDone?: () => void }) {
           placeholder={t("apollo.apiKeyPlaceholder")}
           className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
         />
+        {canChoose && scope ? (
+          <WhoField
+            id={whoId}
+            choice
+            scope={scope}
+            disabled={connect.isPending}
+            onChange={setScope}
+          />
+        ) : null}
         <button
           onClick={handleSave}
-          disabled={!apiKey.trim() || connect.isPending}
+          disabled={!apiKey.trim() || !scope || connect.isPending}
           className="w-full rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
         >
           {connect.isPending ? t("common.connecting") : t("common.connect")}

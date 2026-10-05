@@ -108,7 +108,7 @@ interface ConnectBuilderAppResult {
  * `connect-builder-app` to determine the current connection state, then
  * offers the appropriate CTA:
  *
- *   - Not connected → "Connect Builder.io" button (opens connectUrl)
+ *   - Not connected → "Use Builder.io" button (starts one-click activation)
  *   - Connected, no project → "Open Builder settings" (configure project ID)
  *   - Fully enabled → "Make it real" button (calls migrate-inline-design-to-app)
  *
@@ -213,7 +213,7 @@ function MakeItRealCard({
   const summary =
     cta.kind === "configure-project"
       ? `Choose a Builder project to enable ${featureLabel}.`
-      : `Connect Builder (free tier available) to enable ${featureLabel}.`;
+      : `Use Builder.io (free tier available) to enable ${featureLabel}.`;
   const primaryLabel =
     cta.kind === "configure-project"
       ? t("designEditor.makeItRealCard.choose")

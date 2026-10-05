@@ -61,6 +61,20 @@ runs:
           packages/*/node_modules/.cache/tsbuildinfo
         key: dist-${{ hashFiles('packages/*/src/**', 'packages/*/package.json', 'scripts/prebuild-workspace-packages.ts', 'pnpm-lock.yaml') }}
 
+    - name: Install native canvas build dependencies
+      if: runner.os == 'Linux' && inputs.install == 'full'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install --yes \
+          pkg-config \
+          libcairo2-dev \
+          libpixman-1-dev \
+          libpango1.0-dev \
+          libjpeg-dev \
+          libgif-dev \
+          librsvg2-dev
+
     - name: Install dependencies
       shell: bash
       run: |

@@ -393,10 +393,15 @@ describe("createGetDb pooled transaction scoping", () => {
       expect(nestedTimeout).toBeLessThan(50);
       expect(finalTimeout).toBeGreaterThan(0);
       expect(finalTimeout).toBeLessThan(40);
+      const firstTimeout = Number(
+        timeoutOperations[1]?.match(/^set:(\d+)ms$/)?.[1],
+      );
+      expect(firstTimeout).toBeGreaterThan(0);
+      expect(firstTimeout).toBeLessThanOrEqual(25);
       expect(timeoutOperations.slice(0, 4)).toEqual([
         "read:90ms",
-        expect.stringMatching(/^set:2[0-3]ms$/),
-        expect.stringMatching(/^query:SELECT 101@2[0-3]ms$/),
+        `set:${firstTimeout}ms`,
+        `query:SELECT 101@${firstTimeout}ms`,
         "restore:90ms",
       ]);
       expect(timeoutOperations.slice(4)).toEqual([

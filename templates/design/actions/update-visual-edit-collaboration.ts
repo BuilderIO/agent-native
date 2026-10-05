@@ -4,6 +4,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
+import { designChangeResource } from "../server/lib/design-change-resource.js";
 import { assertVisualEditAccountEditor } from "../server/lib/visual-edit-collaboration.js";
 import {
   deleteVisualEditSnapshotBlobs,
@@ -99,4 +100,5 @@ export default defineAction({
 
     return { designId, enabled };
   },
+  changeResource: (p, result) => designChangeResource(p.designId, result),
 });

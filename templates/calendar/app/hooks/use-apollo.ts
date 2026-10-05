@@ -1,3 +1,4 @@
+import type { AgentEngineKeyScope } from "@agent-native/core/client/agent-engine-key";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import type { ApolloPersonResult } from "@shared/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -18,7 +19,7 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
 
 export function useApolloStatus() {
   // The raw API key is never sent to the browser. This endpoint returns only
-  // `{ connected }`; the secret stays in the encrypted per-user vault server-side.
+  // `{ connected }`; the secret stays in the encrypted vault server-side.
   const { data } = useQuery<{ connected: boolean } | null>({
     queryKey: ["apollo-status"],
     queryFn: async () => {
@@ -35,10 +36,16 @@ export function useApolloConnect() {
   const qc = useQueryClient();
 
   return useMutation({
-    mutationFn: async (apiKey: string) => {
+    mutationFn: async ({
+      apiKey,
+      scope,
+    }: {
+      apiKey: string;
+      scope: AgentEngineKeyScope;
+    }) => {
       await apiFetch("/api/apollo/key", {
         method: "PUT",
-        body: JSON.stringify({ apiKey }),
+        body: JSON.stringify({ apiKey, scope }),
       });
     },
     onSuccess: () => {

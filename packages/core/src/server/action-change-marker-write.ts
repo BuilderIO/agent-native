@@ -18,6 +18,9 @@ export interface NotifyActionChangeOptions {
   owner?: string;
   orgId?: string;
   requestSource?: string;
+  /** Also notify every user who can read this resource. See `changeResource`. */
+  resourceType?: string;
+  resourceId?: string;
 }
 
 export function actionChangeTarget(
@@ -29,6 +32,9 @@ export function actionChangeTarget(
     owner,
     orgId: owner ? undefined : (options.orgId ?? getRequestOrgId()),
     requestSource: options.requestSource,
+    ...(options.resourceType && options.resourceId
+      ? { resourceType: options.resourceType, resourceId: options.resourceId }
+      : {}),
   };
 }
 

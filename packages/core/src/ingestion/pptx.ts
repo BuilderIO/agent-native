@@ -186,6 +186,7 @@ interface ZipArchive {
 
 export async function parsePptxPresentation(
   fileBuffer: Uint8Array,
+  options: { includeHiddenSlides?: boolean } = {},
 ): Promise<ParsedPptxPresentation> {
   const dependencies = await loadPptxDependencies();
   const loadZip = dependencies.loadZip.bind(dependencies);
@@ -319,7 +320,10 @@ export async function parsePptxPresentation(
       );
       continue;
     }
-    if (stringValue(record(record(slide)?.["p:sld"])?.["@_show"]) === "0") {
+    if (
+      stringValue(record(record(slide)?.["p:sld"])?.["@_show"]) === "0" &&
+      !options.includeHiddenSlides
+    ) {
       hiddenSlideCount += 1;
       continue;
     }

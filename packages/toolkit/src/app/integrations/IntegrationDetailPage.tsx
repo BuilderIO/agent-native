@@ -429,7 +429,7 @@ function IntegrationDetail({
   const [tokenOpen, setTokenOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [removing, setRemoving] = useState<McpServer | null>(null);
-  const [shared, setShared] = useState(false);
+  const [shared, setShared] = useState(true);
   const [connecting, setConnecting] = useState(false);
 
   const name = integration.name;

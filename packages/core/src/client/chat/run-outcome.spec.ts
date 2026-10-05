@@ -387,3 +387,131 @@ describe("decideAfterStreamClosed", () => {
     });
   });
 });
+
+describe("continuing a turn the server stopped at its time limit", () => {
+  const timeLimit = (dispatchMode: string): RunAuthorityRead =>
+    read({
+      status: "truncated",
+      runId: "run-1",
+      turnId: "turn-1",
+      dispatchMode,
+      terminalReason: "run_timeout",
+    });
+  const canContinue = (
+    asked: ReadonlyMap<string, "auto_continue_cap_reached" | null> = new Map(),
+  ) => ({ autoContinue: { asked } });
+
+  it("continues a foreground time-limit stop at once, in the same turn", () => {
+    expect(
+      decideAfterStreamClosed(
+        timeLimit("foreground"),
+        context({ drain: DRAINED, ...canContinue() }),
+      ),
+    ).toEqual({ type: "continue", runId: "run-1", turnId: "turn-1" });
+  });
+
+  it("gives a run the server can still hand off its successor grace first", () => {
+    for (const dispatchMode of [
+      "background-processing",
+      "foreground-self-chain",
+    ]) {
+      expect(
+        decideAfterStreamClosed(
+          timeLimit(dispatchMode),
+          context({ drain: DRAINED, ...canContinue() }),
+        ),
+      ).toMatchObject({ type: "wait" });
+      expect(
+        decideAfterStreamClosed(
+          timeLimit(dispatchMode),
+          context({
+            drain: DRAINED,
+            waitingSinceMs: 1_000_000,
+            nowMs: 1_000_000 + BACKGROUND_FUNCTION_WALL_HEADROOM_MS,
+            ...canContinue(),
+          }),
+        ),
+      ).toEqual({ type: "continue", runId: "run-1", turnId: "turn-1" });
+    }
+  });
+
+  it("never continues after an error, a stop, a cancellation, or a credential or rate limit", () => {
+    for (const state of [
+      { status: "errored", terminalReason: "run_timeout" },
+      { status: "errored", terminalReason: "error:credits-limit-daily" },
+      { status: "errored", terminalReason: "error:provider_rate_limited" },
+      { status: "errored", terminalReason: "missing_api_key" },
+      { status: "aborted", terminalReason: "aborted:user" },
+      { status: "aborted", terminalReason: "aborted:protocol-cancel" },
+      { status: "truncated", terminalReason: "rate_limited" },
+      { status: "truncated", terminalReason: "loop_limit" },
+      { status: "truncated", terminalReason: "stream_ended" },
+    ] as const) {
+      const decision = decideAfterStreamClosed(
+        read({
+          ...state,
+          runId: "run-1",
+          turnId: "turn-1",
+          dispatchMode: "foreground",
+        }),
+        context({
+          drain: DRAINED,
+          waitingSinceMs: 1_000_000,
+          nowMs: 1_000_000 + BACKGROUND_FUNCTION_WALL_HEADROOM_MS,
+          ...canContinue(),
+        }),
+      );
+      expect(decision.type, JSON.stringify(state)).toBe("terminal");
+    }
+  });
+
+  it("ends a turn the server refused to continue as stopped with Continue available", () => {
+    expect(
+      decideAfterStreamClosed(
+        timeLimit("foreground"),
+        context({
+          drain: DRAINED,
+          ...canContinue(new Map([["run-1", "auto_continue_cap_reached"]])),
+        }),
+      ),
+    ).toMatchObject({
+      type: "terminal",
+      outcome: "interrupted",
+      error: { code: "auto_continue_cap_reached", retryable: true },
+    });
+  });
+
+  it("asks once per stopped run, then reports it like any unfinished handoff", () => {
+    const asked = canContinue(new Map([["run-1", null]]));
+    expect(
+      decideAfterStreamClosed(
+        timeLimit("foreground"),
+        context({ drain: DRAINED, ...asked }),
+      ),
+    ).toMatchObject({ type: "wait" });
+    expect(
+      decideAfterStreamClosed(
+        timeLimit("foreground"),
+        context({
+          drain: DRAINED,
+          waitingSinceMs: 1_000_000,
+          nowMs: 1_000_000 + BACKGROUND_FUNCTION_WALL_HEADROOM_MS,
+          ...asked,
+        }),
+      ),
+    ).toMatchObject({
+      type: "terminal",
+      outcome: "interrupted",
+      error: { code: "run_timeout" },
+    });
+  });
+
+  it("keeps the old outcome for a reader that cannot continue a turn", () => {
+    expect(
+      decideAfterStreamClosed(
+        timeLimit("foreground"),
+        context({ drain: DRAINED }),
+      ),
+    ).toMatchObject({ type: "wait" });
+  });
+});

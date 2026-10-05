@@ -53,7 +53,11 @@ export const handleAnalyticsTrack = defineEventHandler(async (event) => {
     const parsed = parseAnalyticsTrackPayload(body);
     const result = await recordAnalyticsEvents(parsed.publicKey, parsed.events);
     setResponseStatus(event, 202);
-    return { success: true, accepted: result.accepted };
+    return {
+      success: true,
+      accepted: result.accepted,
+      suppressedTestIdentity: result.suppressedTestIdentity,
+    };
   } catch (err: any) {
     const message = err?.message || String(err);
     const invalidKey = /invalid analytics public key/i.test(message);
