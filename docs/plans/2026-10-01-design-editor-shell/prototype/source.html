@@ -2119,9 +2119,14 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
       ${libraries ? `<div class="cpk-pane" data-cpk-pane="libraries" aria-hidden="true"><label class="cpk-lsearch">${ic("search", "s14")}<input placeholder="Search" aria-label="Search tokens"></label><div class="cpk-llabel">Design tokens</div><div class="cpk-list">${libs.map(t => `<button class="cpk-lrow" data-cpk-token="${t.cssVar}" title="${t.cssVar}" aria-selected="${t.cssVar === current}"><span class="sw" style="background:${t.value}"></span><span class="grow">${t.name}</span>${t.cssVar === current ? ic("check", "s14") : ""}</button>`).join("")}</div></div>` : ""}
     </div>`;
   document.body.append(pop);
-  const host = (anchor.closest("#tokens, #insp") || anchor).getBoundingClientRect(), ar = anchor.getBoundingClientRect();
-  pop.style.left = (anchor.closest("#insp") ? Math.max(8, host.left - 8 - pop.offsetWidth) : Math.min(innerWidth - pop.offsetWidth - 8, host.right + 8)) + "px";
-  pop.style.top = Math.max(8, Math.min(ar.top, innerHeight - pop.offsetHeight - 8)) + "px";
+  // Placed after the first paint (below), once its full height is known: level with the anchor, kept on screen,
+  // and scrolling inside itself when the window is shorter than the picker.
+  const place = () => {
+    const host = (anchor.closest("#tokens, #insp") || anchor).getBoundingClientRect(), ar = anchor.getBoundingClientRect();
+    pop.style.maxHeight = innerHeight - 16 + "px"; pop.style.overflowY = pop.scrollHeight > innerHeight - 16 ? "auto" : "";
+    pop.style.left = (anchor.closest("#insp") ? Math.max(8, host.left - 8 - pop.offsetWidth) : Math.min(innerWidth - pop.offsetWidth - 8, host.right + 8)) + "px";
+    pop.style.top = Math.max(8, Math.min(ar.top, innerHeight - pop.offsetHeight - 8)) + "px";
+  };
   const q = sel => pop.querySelector(sel);
   const wide = () => CPK_MODES.find(m => m[0] === C.mode)[2] === "p3";
   const fitsSpace = lin => wide() ? inP3(lin) : inSrgb(lin);
@@ -2311,7 +2316,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   const key = e => { if (e.key === "Escape" && !document.querySelector(".menu") && !e.target.closest?.(".cpk-tdraft")) { e.preventDefault(); e.stopPropagation(); close(true); } };
   document.addEventListener("pointerdown", outside, true); document.addEventListener("keydown", key, true);
   pop._close = () => close(false);
-  hsv(); oklch(); paint();
+  hsv(); oklch(); paint(); place();
   if (current && libraries) setTab("libraries");
 }
 
