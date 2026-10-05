@@ -172,7 +172,10 @@ function actorKindClause(kind: AuditActorKind): { sql: string; args: any[] } {
   const callers = [...AGENT_AUDIT_CALLERS];
   const agentCaller = `caller IN (${callers.map(() => "?").join(", ")})`;
   if (kind === "agent") {
-    return { sql: `(actor_kind = ? OR ${agentCaller})`, args: [kind, ...callers] };
+    return {
+      sql: `(actor_kind = ? OR ${agentCaller})`,
+      args: [kind, ...callers],
+    };
   }
   return {
     sql: `(actor_kind = ? AND NOT ${agentCaller})`,

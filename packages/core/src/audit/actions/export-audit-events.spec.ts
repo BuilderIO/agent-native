@@ -169,7 +169,12 @@ describe("export-audit-events", () => {
       makeEvent({ id: "agent-evt", actorKind: "agent", createdAt: 100 }),
     );
     await insertAuditEvent(
-      makeEvent({ id: "human-evt", actorKind: "human", createdAt: 200 }),
+      makeEvent({
+        id: "human-evt",
+        caller: "frontend",
+        actorKind: "human",
+        createdAt: 200,
+      }),
     );
 
     const result = await exportAuditEvents.run(
