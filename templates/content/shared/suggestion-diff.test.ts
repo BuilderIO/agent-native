@@ -425,6 +425,19 @@ describe("suggestion decomposition", () => {
     expectIntactOperations(before, after, operations);
   });
 
+  it("joins adjacent rewritten words into one edit", () => {
+    const before = "A big dog barked.";
+    const after = "A small cat barked.";
+    const operations = markdownSuggestionOperations(before, after);
+    expect(
+      operations.map((item) => [
+        item.before.changedText,
+        item.after.changedText,
+      ]),
+    ).toEqual([["big dog", "small cat"]]);
+    expectIntactOperations(before, after, operations);
+  });
+
   it("never joins edits across a block boundary", () => {
     const before = "Draft\nReady";
     const after = "Final\nShip";

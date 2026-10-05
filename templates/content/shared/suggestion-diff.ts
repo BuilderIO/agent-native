@@ -178,8 +178,11 @@ const WORD_CHARACTER = /[\p{L}\p{M}\p{N}]/u;
  * word edits on both sides when shorter than each edit's longer side: a pure
  * insertion or deletion has an empty side, so measuring the shorter one would
  * never join it and the phrase would stay split. A shared whole word keeps its
- * edits apart, and nothing joins across a line break, so separate word choices
- * and block changes stay separately reviewable.
+ * edits apart, and nothing joins across a line break, so word choices with an
+ * unchanged word between them and edits in different blocks stay separately
+ * reviewable. Adjacent rewritten words with only spacing between them become
+ * one edit on purpose: no spacing rule tells a rewritten phrase from two
+ * independent word swaps, and one edit can never leave a half-accepted phrase.
  */
 function absorbIncidentalEqualities(parts: DiffPart[]): DiffPart[] {
   type Change = { type: "change"; removed: string; inserted: string };
