@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import path from "node:path";
 
 const DIFF_BASE_ENV = ["GUARD_DIFF_BASE", "GITHUB_BASE_REF"];
 
@@ -66,7 +67,7 @@ export function requireAddedLines(cwd, guardName, options) {
 const SOURCE_EXTENSIONS =
   /\.(?:tsx?|jsx?|mjs|cjs|mdx?|css|scss|json|ya?ml|html|sh)$/i;
 
-export function parseUnifiedDiff(diff, cwd) {
+export function parseUnifiedDiff(diff, cwd, pathApi = path) {
   const result = new Map();
   let file = null;
   let line = 0;
@@ -87,8 +88,12 @@ export function parseUnifiedDiff(diff, cwd) {
     }
     if (raw.startsWith("+++ ")) {
       const target = raw.slice(4).trim();
+      // Keys are native absolute paths so a guard can look one up with a
+      // path.join/path.resolve result; a "/"-joined key never matches on Windows.
       file =
-        target === "/dev/null" ? null : `${cwd}/${target.replace(/^b\//, "")}`;
+        target === "/dev/null"
+          ? null
+          : pathApi.resolve(cwd, target.replace(/^b\//, ""));
       continue;
     }
     const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(raw);

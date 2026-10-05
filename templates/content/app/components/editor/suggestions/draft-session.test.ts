@@ -1,4 +1,5 @@
 import type { ResourceSuggestion } from "@agent-native/core/review";
+import { canonicalizeNfm } from "@shared/nfm";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -962,5 +963,91 @@ describe("suggestion draft session", () => {
       },
     );
     expect(creates).toBe(0);
+  });
+});
+
+describe("suggestion drafts on a stored page the editor rewrites", () => {
+  // Agent-written pages keep blank lines and pipe tables; the editor shows
+  // their canonical form, which here differs by more than one diff can span.
+  const rows = Array.from(
+    { length: 60 },
+    (_, index) => `| ${index + 1} | Step **${index + 1}** | Ana | Done |`,
+  );
+  const baseContent = [
+    "## Plan",
+    "",
+    "| # | Step | Owner | Status |",
+    "|---|---|---|---|",
+    ...rows,
+    "",
+    "- Review the old phrase before Friday.",
+    "",
+    "Closing **note**.",
+  ].join("\n");
+  const draftSession = () =>
+    createSuggestionDraftSession({
+      id: "stored-page",
+      baseContent,
+      baseRevision: "revision-stored",
+      startedAt: "2026-10-02T12:00:00.000Z",
+    });
+
+  it("previews a typed edit and anchors it in the stored bytes", () => {
+    const draft = canonicalizeNfm(baseContent).replace(
+      "old phrase",
+      "new wording",
+    );
+    const preview = previewSuggestionDraft(draftSession(), draft, null);
+    expect(preview.status).toBe("ready");
+    if (preview.status !== "ready") return;
+    let applied = baseContent;
+    for (const suggestion of [...preview.suggestions].reverse()) {
+      const operation = suggestion.operations[0] as {
+        anchor: { from: number; to: number };
+        after: { changedText: string };
+      };
+      expect(draft.slice(suggestion.anchor.from, suggestion.anchor.to)).toBe(
+        operation.after.changedText,
+      );
+      applied =
+        applied.slice(0, operation.anchor.from) +
+        operation.after.changedText +
+        applied.slice(operation.anchor.to);
+    }
+    expect(applied).toBe(baseContent.replace("old phrase", "new wording"));
+  });
+
+  it("records a selected replacement at its stored offsets", () => {
+    const session = draftSession();
+    const canonical = canonicalizeNfm(baseContent);
+    expect(
+      recordSuggestionReplacementIntent(
+        session,
+        {
+          beforeText: "old phrase",
+          startOffset: canonical.indexOf("old phrase"),
+        },
+        canonical,
+      ),
+    ).toBe(true);
+    expect(session.replacementIntents).toEqual([
+      {
+        from: baseContent.indexOf("old phrase"),
+        to: baseContent.indexOf("old phrase") + "old phrase".length,
+        beforeText: "old phrase",
+      },
+    ]);
+    expect(
+      suggestionDraftOperations(
+        session,
+        canonical.replace("old phrase", "new wording"),
+      ),
+    ).toMatchObject([
+      {
+        kind: "replace_text",
+        before: { changedText: "old phrase" },
+        after: { changedText: "new wording" },
+      },
+    ]);
   });
 });

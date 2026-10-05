@@ -1,4 +1,5 @@
 import {
+  canonicalizeNfm,
   docToNfm,
   nfmToDoc,
   serializeInlineTextNodeWithOffsets,
@@ -55,7 +56,11 @@ function longestBacktickRun(text: string): number {
   return Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
 }
 
-function formattingRuns(source: string): { runs: TextRun[] } | null {
+function formattingRuns(source: string): {
+  runs: TextRun[];
+  restored: string;
+  canonicalSpans: SourceSpan[];
+} | null {
   const doc = nfmToDoc(source);
   let markerPrefix = "suggestiontextboundary";
   while (source.includes(markerPrefix)) markerPrefix += "z";
@@ -133,12 +138,103 @@ function formattingRuns(source: string): { runs: TextRun[] } | null {
     },
   );
   if (unmappable || runs.some((run) => run.sourceFrom < 0)) return null;
+  const canonicalSpans = runs.map(({ sourceFrom, sourceTo, textOffsets }) => ({
+    from: sourceFrom,
+    to: sourceTo,
+    textOffsets,
+  }));
   if (
     restored !== source &&
     !mapStoredSourceRuns(source, restored, runs, markers, withPlaceholders)
   )
     return null;
-  return { runs };
+  return { runs, restored, canonicalSpans };
+}
+
+type SourceSpan = TextRange & { textOffsets: number[] };
+type SourceSide = "canonical" | "stored";
+
+export type SuggestionSourceAlignment = {
+  canonical: string;
+  map(offset: number, from: SourceSide): number | null;
+};
+
+let lastAlignment: {
+  source: string;
+  alignment: SuggestionSourceAlignment | null;
+} | null = null;
+
+// A draft session maps every keystroke against the same stored base.
+export function suggestionSourceAlignment(
+  source: string,
+): SuggestionSourceAlignment | null {
+  if (lastAlignment?.source !== source)
+    lastAlignment = { source, alignment: sourceAlignment(source) };
+  return lastAlignment.alignment;
+}
+
+// Pairs each text run's canonical and stored bytes. An offset maps inside a
+// run, at a run or gap edge, or inside a gap whose bytes match on both sides;
+// anywhere else the two serializations disagree and the offset has no image.
+function sourceAlignment(source: string): SuggestionSourceAlignment | null {
+  const canonical = canonicalizeNfm(source);
+  const inside = (offset: number, text: string) =>
+    Number.isInteger(offset) && offset >= 0 && offset <= text.length;
+  if (canonical === source)
+    return {
+      canonical,
+      map: (offset) => (inside(offset, source) ? offset : null),
+    };
+  const mapped = formattingRuns(source);
+  if (!mapped || mapped.restored !== canonical) return null;
+  const texts = { canonical, stored: source };
+  const spans: Array<Record<SourceSide, SourceSpan>> = mapped.runs.map(
+    (run, index) => ({
+      canonical: mapped.canonicalSpans[index]!,
+      stored: {
+        from: run.sourceFrom,
+        to: run.sourceTo,
+        textOffsets: run.textOffsets,
+      },
+    }),
+  );
+  return {
+    canonical,
+    map(offset, from) {
+      if (!inside(offset, texts[from])) return null;
+      const to: SourceSide = from === "canonical" ? "stored" : "canonical";
+      type Edge = Record<SourceSide, number>;
+      const gap = (start: Edge, end: Edge) => {
+        if (offset === start[from]) return start[to];
+        if (offset === end[from]) return end[to];
+        return texts[from].slice(start[from], end[from]) ===
+          texts[to].slice(start[to], end[to])
+          ? start[to] + offset - start[from]
+          : null;
+      };
+      let previous: Edge = { canonical: 0, stored: 0 };
+      for (const span of spans) {
+        const own = span[from];
+        const other = span[to];
+        if (offset < own.from)
+          return gap(previous, {
+            canonical: span.canonical.from,
+            stored: span.stored.from,
+          });
+        if (offset <= own.to) {
+          if (offset === own.from) return other.from;
+          if (offset === own.to) return other.to;
+          const index = own.textOffsets.indexOf(offset - own.from);
+          return index < 0 ? null : other.from + other.textOffsets[index]!;
+        }
+        previous = { canonical: span.canonical.to, stored: span.stored.to };
+      }
+      return gap(previous, {
+        canonical: canonical.length,
+        stored: source.length,
+      });
+    },
+  };
 }
 
 function normalizedSourceGap(source: string, from: number, to: number): string {
@@ -153,6 +249,28 @@ function normalizedSourceGap(source: string, from: number, to: number): string {
         `${indent}${number ? "1. " : "- "}`,
     )
     .slice(prefix.length);
+}
+
+const TABLE_TAG = /<\/?(?:table|tr|td|th)\b[^>]*>/;
+
+// Canonical NFM writes a stored pipe table as an HTML table. Both reduce to
+// "|" between cells and a newline between rows, with or without the stored
+// rows' optional outer pipes; the final reparse proves the cells.
+function tableBoundaries(
+  gap: string,
+  startsLine: boolean,
+  endsLine: boolean,
+): string {
+  return `${startsLine ? "\n" : ""}${gap}${endsLine ? "\n" : ""}`
+    .replace(/^[ \t|:-]*$/gm, (line) =>
+      line.includes("|") && line.includes("-") ? "" : line,
+    )
+    .replace(/[ \t]*\|?[ \t]*\n[ \t]*\|?/g, "\n")
+    .replace(/<tr\b[^>]*>\s*<t[dh]\b[^>]*>/g, "\n")
+    .replace(/<t[dh]\b[^>]*>/g, "|")
+    .replace(/<\/?(?:table|tr|td|th)\b[^>]*>/g, "\n")
+    .replace(/\s*\|\s*/g, "|")
+    .replace(/\s*\n\s*/g, "\n");
 }
 
 function mapStoredSourceRuns(
@@ -188,7 +306,20 @@ function mapStoredSourceRuns(
       stored = stored.replace(/\n+$/, "");
       expected = expected.replace(/\n+$/, "");
     }
-    return stored === expected;
+    if (stored === expected) return true;
+    const lineEdges = (text: string, start: number, end: number) =>
+      [
+        start === 0 || /[\r\n]/.test(text[start - 1]!),
+        end === text.length || /[\r\n]/.test(text[end]!),
+      ] as const;
+    return (
+      TABLE_TAG.test(canonical.slice(canonicalFrom, canonicalTo)) &&
+      tableBoundaries(stored, ...lineEdges(source, from, to)) ===
+        tableBoundaries(
+          expected,
+          ...lineEdges(canonical, canonicalFrom, canonicalTo),
+        )
+    );
   };
   let cursor = 0;
   let canonicalCursor = 0;

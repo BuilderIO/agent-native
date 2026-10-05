@@ -113,7 +113,8 @@ pnpm --filter brain action create-source \
 The connector verifies each configured conversation before reading history and
 rejects DMs and MPIMs. Public discovery is opt-in and exclusion patterns are
 applied before capture. Private channels are never silently joined: an operator
-must manually invite the Slack app before validation and membership sync. Cursor
+must manually invite the Slack app before validation. Once invited, the
+channel's screened content is searchable org-wide. Cursor
 state is stored on the source so each sync can pick up where the last one
 stopped, including after Slack rate limiting.
 
