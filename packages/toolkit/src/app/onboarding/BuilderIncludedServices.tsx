@@ -23,6 +23,13 @@ type CapabilityTranslator = (
   options?: Record<string, unknown>,
 ) => string;
 
+const BUILDER_SERVICE_WHY_KEYS: Record<string, string> = {
+  llm: "agentChat.onboarding.capability.llm.why",
+  "file-storage": "agentChat.onboarding.capability.fileStorage.why",
+  "design-system-intelligence": "agentChat.settingsInfra.whyDesignSystem",
+  "system-one": "agentChat.onboarding.capability.systemOne.why",
+};
+
 export function getBuilderIncludedCapabilities(
   capabilities: OnboardingCapability[],
 ) {
@@ -40,13 +47,13 @@ function capabilityCopy(
   t: CapabilityTranslator,
   capability: OnboardingCapability,
 ) {
+  const whyKey = capability.whyKey ?? BUILDER_SERVICE_WHY_KEYS[capability.id];
+
   return {
     label: capability.labelKey
       ? t(capability.labelKey, { defaultValue: capability.label })
       : capability.label,
-    why: capability.whyKey
-      ? t(capability.whyKey, { defaultValue: capability.why })
-      : null,
+    why: whyKey ? t(whyKey, { defaultValue: capability.why }) : null,
   };
 }
 
