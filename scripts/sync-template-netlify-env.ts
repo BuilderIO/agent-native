@@ -646,8 +646,8 @@ export function hostedTraceSamplerEnv(
 
 /**
  * Defaults an earlier sync may have written that the configured sampler now
- * owns. Syncs only upsert, so without removal a stale 1% ratio would keep
- * overriding an explicit sampler's own default.
+ * owns. Syncs only upsert, so a stale 1% ratio would silently keep overriding
+ * an explicit sampler's own default; `--write` refuses to run while one remains.
  */
 export function staleTraceSamplerDefaults(
   context: string,
@@ -734,55 +734,40 @@ async function requestNetlifyEnv(
   return { ok: response.ok, status: response.status };
 }
 
-async function removeGeneratedValue({
+async function readContextValue({
   accountId,
   context,
-  generatedValue,
   key,
   siteId,
   token,
 }: {
   accountId: string;
   context: string;
-  generatedValue: string;
   key: string;
   siteId: string;
   token: string;
-}): Promise<"removed" | "kept" | "absent"> {
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    "User-Agent": "agent-native-template-env-sync",
-  };
-  const read = await fetch(netlifyEnvUrl(accountId, siteId, key), { headers });
+}): Promise<string | null> {
+  const read = await fetch(netlifyEnvUrl(accountId, siteId, key), {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "User-Agent": "agent-native-template-env-sync",
+    },
+  });
   if (read.status === 404) {
     await read.arrayBuffer();
-    return "absent";
+    return null;
   }
   if (!read.ok) {
     await read.arrayBuffer();
     throw new Error(`${key}: read failed with HTTP ${read.status}`);
   }
   const body = (await read.json()) as {
-    values?: Array<{ id?: string; context?: string; value?: string }>;
+    values?: Array<{ context?: string; value?: string }>;
   };
   const apiContext = resolveNetlifyApiContext(context);
-  const generated = (body.values ?? []).find(
-    (entry) => entry.context === apiContext && entry.value === generatedValue,
+  return (
+    body.values?.find((entry) => entry.context === apiContext)?.value ?? null
   );
-  // Anything other than the value this script wrote was set on purpose.
-  if (!generated?.id) return "kept";
-  const valueUrl = netlifyEnvUrl(accountId, siteId, key).replace(
-    "?",
-    `/value/${encodeURIComponent(generated.id)}?`,
-  );
-  const deleted = await fetch(valueUrl, { method: "DELETE", headers });
-  await deleted.arrayBuffer();
-  if (!deleted.ok && deleted.status !== 404) {
-    throw new Error(
-      `${key}: removing stale value failed with HTTP ${deleted.status}`,
-    );
-  }
-  return "removed";
 }
 
 async function deleteNetlifyEnv(
@@ -933,6 +918,37 @@ async function main() {
     );
   }
 
+  if (options.write) {
+    // Checked before any write, and never deleted: a value equal to the
+    // generated default can't be told apart from one an operator set.
+    const stale: string[] = [];
+    for (const plan of plans) {
+      const site = SITE_BY_NAME.get(plan.siteName);
+      if (!site) throw new Error(`Missing site mapping for ${plan.template}.`);
+      for (const [key, generatedValue] of plan.staleGeneratedEntries) {
+        const current = await readContextValue({
+          accountId: options.accountId!,
+          context: options.context,
+          key,
+          siteId: siteIdForContext(site, options.context),
+          token: token!,
+        });
+        if (current === generatedValue) {
+          stale.push(`  - ${plan.template}: ${key}=${generatedValue}`);
+        }
+      }
+    }
+    if (stale.length > 0) {
+      throw new Error(
+        [
+          "Refusing to sync: these sites still carry the generated sampler ratio, which would override the sampler their template now configures.",
+          "Set the ratio in the template env source to keep it, or remove it from the Netlify context, then re-run:",
+          ...stale,
+        ].join("\n"),
+      );
+    }
+  }
+
   console.log(
     options.write
       ? `Writing Netlify env vars for context=${options.context} scopes=${options.scopes.join(",")}`
@@ -971,7 +987,7 @@ async function main() {
     const staleKeys = plan.staleGeneratedEntries.map(([key]) => key);
     if (staleKeys.length > 0) {
       console.log(
-        `  ${options.write ? "checking" : "would check"} for generated default(s) the source now owns: ${staleKeys.join(", ")}`,
+        `  ${options.write ? "checked" : "would check"} for generated default(s) the source now owns: ${staleKeys.join(", ")}`,
       );
     }
 
@@ -983,18 +999,6 @@ async function main() {
     if (!options.write) {
       console.log(`  would sync ${entries.length} key(s)`);
       continue;
-    }
-
-    for (const [key, generatedValue] of plan.staleGeneratedEntries) {
-      const result = await removeGeneratedValue({
-        accountId: options.accountId!,
-        context: options.context,
-        generatedValue,
-        key,
-        siteId: targetSiteId,
-        token: token!,
-      });
-      console.log(`  ${result}: ${key} (generated default)`);
     }
 
     let created = 0;
