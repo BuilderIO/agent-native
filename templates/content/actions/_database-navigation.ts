@@ -510,14 +510,18 @@ export async function getContentDatabaseNavigationPage(args: {
         eq(favoriteItems.documentId, schema.documents.id),
       ),
     );
-  const sharedWithRole = (roles: Array<"admin" | "editor" | "owner">) =>
+  const sharedWithRole = (roles: Array<"admin" | "editor">) =>
     db
       .select({ id: roleShares.id })
       .from(roleShares)
       .where(
         and(
           eq(roleShares.resourceId, schema.documents.id),
-          inArray(roleShares.role, roles),
+          or(
+            inArray(roleShares.role, roles),
+            // Legacy share rows can carry `owner` even though new writes use ShareRole.
+            sql`${roleShares.role} = 'owner'`,
+          ),
           or(
             and(
               eq(roleShares.principalType, "user"),
@@ -551,8 +555,8 @@ export async function getContentDatabaseNavigationPage(args: {
     )} THEN 'database' ELSE 'page' END`,
     hasChildren: sql<boolean>`${exists(visibleChild)}`,
     isFavorite: sql<boolean>`${exists(favoriteMembership)}`,
-    sharedEditor: sql<boolean>`${exists(sharedWithRole(["admin", "editor", "owner"]))}`,
-    sharedManager: sql<boolean>`${exists(sharedWithRole(["admin", "owner"]))}`,
+    sharedEditor: sql<boolean>`${exists(sharedWithRole(["admin", "editor"]))}`,
+    sharedManager: sql<boolean>`${exists(sharedWithRole(["admin"]))}`,
     rowHash: sql<string>`${rowHash}::text`,
   };
   const membershipRows = (where: SQL | undefined) =>

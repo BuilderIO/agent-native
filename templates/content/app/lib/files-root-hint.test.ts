@@ -267,6 +267,100 @@ describe("Files root hint", () => {
     }
   });
 
+  it("uses one expanded read when several branches observe a new folder", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { staleTime: Infinity } },
+    });
+    const rootParams = filesNavigationPageParams({
+      databaseId: "files-1",
+      parentId: null,
+    });
+    const existingBranchParams = filesNavigationPageParams({
+      databaseId: "files-1",
+      parentId: "folder-existing",
+    });
+    const newBranchParams = filesNavigationPageParams({
+      databaseId: "files-1",
+      parentId: "folder-new",
+    });
+    queryClient.setQueryData(
+      filesNavigationQueryKey(rootParams),
+      page(["root"]),
+    );
+    queryClient.setQueryData(
+      filesNavigationQueryKey(existingBranchParams),
+      page(["folder-existing"]),
+    );
+    callAction.mockResolvedValue({
+      ...page(["new-child"]),
+      branches: { "folder-new": page(["new-child"]) },
+    });
+
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    function Observers({ expanded }: { expanded: string[] }) {
+      useFilesNavigationPage(rootParams, new Set(expanded));
+      useFilesNavigationPage(existingBranchParams, new Set(expanded));
+      return expanded.includes("folder-new")
+        ? createElement(NewBranch, { expanded })
+        : null;
+    }
+    function NewBranch({ expanded }: { expanded: string[] }) {
+      useFilesNavigationPage(newBranchParams, new Set(expanded));
+      return null;
+    }
+
+    try {
+      await act(async () => {
+        root.render(
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(Observers, { expanded: [] }),
+          ),
+        );
+      });
+      expect(callAction).not.toHaveBeenCalled();
+
+      await act(async () => {
+        root.render(
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(Observers, { expanded: ["folder-new"] }),
+          ),
+        );
+      });
+
+      await vi.waitFor(() => expect(callAction).toHaveBeenCalledTimes(1));
+      expect(callAction).toHaveBeenCalledWith(
+        "query-content-database-items",
+        {
+          ...newBranchParams,
+          navigation: {
+            ...newBranchParams.navigation,
+            expand: ["folder-new"],
+          },
+        },
+        expect.objectContaining({ method: "GET" }),
+      );
+      expect(
+        queryClient.getQueryData(
+          filesNavigationQueryKey(
+            filesNavigationPageParams({
+              databaseId: "files-1",
+              parentId: "folder-new",
+            }),
+          ),
+        ),
+      ).toEqual(page(["new-child"]));
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      queryClient.clear();
+    }
+  });
+
   it("asks for the open page's ancestors first when more folders are open than one read takes", async () => {
     const queryClient = new QueryClient();
     const params = filesNavigationPageParams({

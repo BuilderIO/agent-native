@@ -16,6 +16,7 @@ export const FILES_NAVIGATION_PAGE_SIZE = 20;
 
 // Most expanded folders one read asks for; the server caps what it returns.
 const MAX_EXPANDED_IDS_PER_READ = 100;
+const pendingExpansionReads = new WeakMap<QueryClient, Set<string>>();
 
 /**
  * The folders the Files tree draws open, most important first: both caps on
@@ -90,32 +91,68 @@ export async function readFilesNavigationPage(
       return queryClient.getQueryData(key) === undefined;
     })
     .slice(0, MAX_EXPANDED_IDS_PER_READ);
-  const response = await callAction<FilesNavigationRead>(
-    "query-content-database-items",
-    expand.length
-      ? { ...params, navigation: { ...params.navigation, expand } }
-      : params,
-    { method: "GET", signal },
-  );
-  if ("available" in response) return response;
-  // A folder left out of `branches`, whether the cap dropped it
-  // (`branchesTruncated`) or it has no children to show, is not seeded as
-  // empty: it reads its own page when it draws.
-  const { branches, branchesTruncated, ...page } = response;
-  for (const [parentId, branch] of Object.entries(branches ?? {})) {
-    const key = filesNavigationQueryKey(
-      filesNavigationPageParams({
-        databaseId: params.databaseId,
-        parentId,
-      }),
-    );
-    // A folder that already has its own page keeps it; that read is the
-    // one its later changes refresh.
-    if (queryClient.getQueryData(key) === undefined) {
-      queryClient.setQueryData(key, branch);
+  const expansionKey =
+    expand.length > 0 ? JSON.stringify([params.databaseId, expand]) : null;
+  let pending: Set<string> | undefined;
+  if (expansionKey) {
+    pending = pendingExpansionReads.get(queryClient);
+    if (!pending) {
+      pending = new Set();
+      pendingExpansionReads.set(queryClient, pending);
     }
+    pending.add(expansionKey);
   }
-  return page;
+  try {
+    const response = await callAction<FilesNavigationRead>(
+      "query-content-database-items",
+      expand.length
+        ? { ...params, navigation: { ...params.navigation, expand } }
+        : params,
+      { method: "GET", signal },
+    );
+    if ("available" in response) return response;
+    // A folder left out of `branches`, whether the cap dropped it
+    // (`branchesTruncated`) or it has no children to show, is not seeded as
+    // empty: it reads its own page when it draws.
+    const { branches, branchesTruncated, ...page } = response;
+    for (const [parentId, branch] of Object.entries(branches ?? {})) {
+      const key = filesNavigationQueryKey(
+        filesNavigationPageParams({
+          databaseId: params.databaseId,
+          parentId,
+        }),
+      );
+      // A folder that already has its own page keeps it; that read is the
+      // one its later changes refresh.
+      if (queryClient.getQueryData(key) === undefined) {
+        queryClient.setQueryData(key, branch);
+      }
+    }
+    return page;
+  } finally {
+    if (expansionKey && pending) pending.delete(expansionKey);
+  }
+}
+
+function isExpansionReadPending(
+  queryClient: QueryClient,
+  databaseId: string,
+  expanded: Iterable<string>,
+) {
+  const expand = [...expanded]
+    .filter((parentId) => {
+      const key = filesNavigationQueryKey(
+        filesNavigationPageParams({ databaseId, parentId }),
+      );
+      return queryClient.getQueryData(key) === undefined;
+    })
+    .slice(0, MAX_EXPANDED_IDS_PER_READ);
+  if (expand.length === 0) return false;
+  return (
+    pendingExpansionReads
+      .get(queryClient)
+      ?.has(JSON.stringify([databaseId, expand])) ?? false
+  );
 }
 
 function retryFilesNavigationRead(failureCount: number, error: unknown) {
@@ -156,6 +193,7 @@ export function useFilesNavigationPage(
       !query.data ||
       "available" in query.data ||
       query.isFetching ||
+      isExpansionReadPending(queryClient, params.databaseId, expanded) ||
       rootReadExpansion.current === expansionKey
     ) {
       return;
