@@ -630,6 +630,42 @@ test("overview screen creation and duplicate undo/redo keep screens selected and
       ).toBeLessThanOrEqual(1);
     };
 
+    const assertDuplicateRespectsBoardGap = async (
+      sourceId: string,
+      duplicateId: string,
+    ) => {
+      await expect
+        .poll(
+          () =>
+            page.evaluate(
+              ({ sourceId, duplicateId }) => {
+                const card = (screenId: string) =>
+                  document
+                    .querySelector(
+                      `[data-frame-id="${CSS.escape(screenId)}"] [data-screen-card]`,
+                    )
+                    ?.getBoundingClientRect();
+                const source = card(sourceId);
+                const duplicate = card(duplicateId);
+                const world = document.querySelector<HTMLElement>(
+                  "[data-multi-screen-canvas-world]",
+                );
+                if (!source || !duplicate || !world) return false;
+                const transform = getComputedStyle(world).transform;
+                const scale =
+                  transform === "none" ? 1 : new DOMMatrixReadOnly(transform).a;
+                return Math.abs(duplicate.left - source.right - 56 * scale) < 1;
+              },
+              { sourceId, duplicateId },
+            ),
+          {
+            message:
+              "Cmd+D should preserve the 56-unit board gap to the right of its source",
+          },
+        )
+        .toBe(true);
+    };
+
     const findEmptyCanvasPoint = async () => {
       await expect(surface).toBeVisible();
       const canvas = await surface.boundingBox();
@@ -705,6 +741,7 @@ test("overview screen creation and duplicate undo/redo keep screens selected and
     await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(
       duplicatedId,
     );
+    await assertDuplicateRespectsBoardGap(drawnId, duplicatedId);
     await page.keyboard.press(
       process.platform === "darwin" ? "Meta+Z" : "Control+Z",
     );
@@ -724,6 +761,7 @@ test("overview screen creation and duplicate undo/redo keep screens selected and
       .poll(async () => (await designFileIds(request, designId)).sort())
       .toEqual([...beforeIds, redoneId].sort());
     await assertCreatedScreenSelectedVisibleWithSingleCameraCommit(redoneId);
+    await assertDuplicateRespectsBoardGap(drawnId, redoneId);
   } finally {
     await action(request, "delete-design", { id: designId }).catch(() => {});
   }
