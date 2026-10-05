@@ -1,35 +1,185 @@
 ---
 title: "Cloudflare"
-description: "使用 cloudflare_module Nitro 預設將 agent-native 應用程式部署到 Cloudflare Workers。"
+description: "使用 Wrangler 將獨立的 Agent-Native 應用程式部署到 Cloudflare Workers。"
 ---
 
 # Cloudflare
 
-## Cloudflare Workers {#cloudflare-workers}
+<a id="cloudflare-workers"></a>
 
-使用 Nitro 原生的模組輸出來產生一個 Cloudflare Worker。這樣可以
-保持 SSR 啟用，並在 `.output/server` 和 `.output/public` 下產生
-Worker 進入點和靜態資源:
+Cloudflare Workers 會在 Cloudflare 的網路上執行你的應用程式，因此不需要架設或維護
+伺服器。建置會把應用程式轉換成一個 Worker，由它處理應用程式的頁面和 API，另外還有
+Cloudflare 直接提供的靜態檔案。Cloudflare 會為應用程式提供一個支援 HTTPS 的公開網址。
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
-});
-```
+本指南會從頭開始示範如何部署一個獨立應用程式。你將建立應用程式，為它設定正式環境
+資料庫和驗證密鑰，準備好資料庫，建置 Worker，把密鑰儲存到 Cloudflare，然後部署它。
 
-使用 Wrangler 建置並部署產生出來的 Worker：
+<Callout tone="info">
+
+需要 Node.js `22.22+`。
+
+</Callout>
+
+你還需要一個 Cloudflare 帳號。請在你自己的電腦上執行本指南中的指令。Cloudflare 的
+命令列工具 Wrangler 會替你把完成的 Worker 上傳到 Cloudflare。
+
+## 步驟 1：建立應用程式 {#step-1-create-the-app}
+
+建立新的獨立應用程式。下面的範例以 Chat 範本建立應用程式，但你可以從任何範本開始。
+進入應用程式的資料夾並安裝相依套件。`corepack enable` 會啟用應用程式所需的 `pnpm`
+版本，因此你不需要自行安裝 `pnpm`。
 
 ```bash
-pnpm build
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+如果你想要，可以把 `my-app` 換成你自己的應用程式名稱。本指南的其餘部分假設你位於
+應用程式的資料夾中。
+
+## 步驟 2：設定環境密鑰 {#step-2-configure-environment-secrets}
+
+應用程式會從環境變數讀取其正式環境設定：
+
+| 變數                 | 必要 | 用途                                     |
+| -------------------- | ---- | ---------------------------------------- |
+| `DATABASE_URL`       | 是   | 將應用程式連線到它的 PostgreSQL 資料庫   |
+| `BETTER_AUTH_SECRET` | 是   | 為使用者工作階段簽章                     |
+| `BETTER_AUTH_URL`    | 否   | 設定使用者連到你的應用程式時使用的公開網址 |
+
+下面的 export 指令讓後續指令能在目前的 shell 中正常運作。部署之前，請把這些變數
+同樣儲存到主機的專案或服務環境設定中。步驟 5 會說明如何在 Cloudflare 中儲存它們。
+
+### 資料庫 URL {#database-url}
+
+在本機開發期間，如果未設定 `DATABASE_URL`，應用程式會把資料儲存在本機資料庫中。
+已部署的應用程式需要一個真正的 PostgreSQL 資料庫，在每次部署之間保留資料。Worker
+無法在請求之間保留檔案，因此資料庫必須位於 Cloudflare Workers 之外。從你的提供者
+複製連線字串並匯出它：
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+[資料庫提供者指南](/docs/neon)說明了在各個提供者處找到連線字串的位置。
+
+<Callout tone="warning">
+
+請選擇持久性的 PostgreSQL 提供者，例如 Neon、Supabase、Amazon RDS 等。
+
+</Callout>
+
+### 驗證密鑰 {#auth-secret}
+
+只需要產生一次，並在每次部署之間保持不變。
+
+應用程式使用 `BETTER_AUTH_SECRET` 為使用者工作階段簽章。如果它變更了，所有已登入的
+使用者都會被登出。下面的指令會產生一個隨機值：
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+請把產生的值儲存在安全的地方，例如密碼管理工具。每次部署時都使用相同的值。
+
+### 公開 URL {#public-url}
+
+選用。在使用自訂網域、反向代理，或需要固定公開來源的驗證/OAuth 流程時設定它。
+
+`BETTER_AUTH_URL` 是使用者連到你的應用程式時使用的公開網址。如果沒有設定，應用程式
+會根據每個傳入的請求推斷自己的網址。在 Cloudflare 提供給你的網址上，這通常沒有問題，
+但當你連接自訂網域時，請設定它，讓登入連結和 OAuth 重新導向使用該網域。
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## 步驟 3：遷移 {#step-3-migrate}
+
+遷移會在你的資料庫中建立和更新應用程式所需的資料表。請在第一次部署之前執行此指令：
+
+```bash
+pnpm migrate:production
+```
+
+這個指令會在你的電腦上執行，並使用你在步驟 2 中匯出的 `DATABASE_URL` 連線到正式
+環境資料庫。升級應用程式之後、部署新版本之前，請再執行一次。
+
+## 步驟 4：建置 {#step-4-build}
+
+將應用程式建置為 Cloudflare Worker：
+
+```bash
+NITRO_PRESET=cloudflare_module pnpm build
+```
+
+`NITRO_PRESET=cloudflare_module` 會依照 Cloudflare Workers 預期的格式建置應用程式。
+建置會把 Worker 寫入 `.output/server` 資料夾，並把靜態檔案寫入 `.output/public` 資料夾。
+
+建置也會把一個 Wrangler 設定檔寫入 `.output/server/wrangler.json`。這個檔案會告訴
+Wrangler 要部署什麼，並為 Worker 命名。名稱來自應用程式的 `package.json`，因此以
+`my-app` 建立的應用程式會成為名為 `my-app` 的 Worker。如果該資料夾是一個設有遠端的
+Git 存放庫，名稱則會取自該存放庫。建置會輸出它選定的名稱。
+
+## 步驟 5：登入並儲存密鑰 {#step-5-log-in-and-save-the-secrets}
+
+從命令列登入 Cloudflare：
+
+```bash
+npx wrangler login
+```
+
+把兩個必要變數以密鑰的形式儲存到 Worker 上：
+
+```bash
+printf '%s' "$DATABASE_URL" | npx wrangler secret put DATABASE_URL --config .output/server/wrangler.json
+```
+
+```bash
+printf '%s' "$BETTER_AUTH_SECRET" | npx wrangler secret put BETTER_AUTH_SECRET --config .output/server/wrangler.json
+```
+
+每個指令都會讀取你在步驟 2 中匯出的值並儲存到 Cloudflare，因此你不需要手動貼上密鑰。
+`--config` 會讓 Wrangler 使用步驟 4 產生的設定檔，讓密鑰儲存到使用建置所選名稱的
+Worker 上。第一次執行時，Worker 還不存在，Wrangler 會詢問是否要建立它。請回答 yes。
+
+如果你有設定 `BETTER_AUTH_URL`，請用同樣的方式儲存它。之後你也可以在 Cloudflare
+資訊主頁的 Worker 設定中查看和變更這些值。
+
+## 步驟 6：部署 {#step-6-deploy}
+
+上傳 Worker 並發布它：
+
+```bash
 npx wrangler deploy --config .output/server/wrangler.json
 ```
 
-你也可以用 `NITRO_PRESET=cloudflare_module` 明確選擇這個預設。
-部署之前請設定一個持久的外部 PostgreSQL 資料庫。Worker 的檔案系統
-不是一個持久的應用程式儲存。
+`--config` 會讓 Wrangler 使用步驟 4 產生的設定檔，這個檔案會告訴它在哪裡找到 Worker
+和靜態檔案。
 
-## 下一步
+指令完成後，會輸出應用程式的網址，該網址以 `workers.dev` 結尾。開啟它並建立第一個帳號。
 
-- [**Deployment**](/docs/deployment) — 在第一次正式部署之前選擇一個持久資料庫和一個預設
-- [**Workspace Deployment**](/docs/workspace-deployment) — 使用 Netlify 或 Vercel 將工作區中的每個應用程式部署到同一來源
-- [**Node.js**](/docs/node-js)、[**Docker**](/docs/docker)、[**Vercel**](/docs/vercel) 和 [**Netlify**](/docs/netlify) — 其他 Nitro 預設
+## 部署更新 {#deploy-updates}
+
+若要發布新版本，請在應用程式的資料夾中再次執行遷移、建置和部署指令：
+
+```bash
+pnpm migrate:production
+
+NITRO_PRESET=cloudflare_module pnpm build
+
+npx wrangler deploy --config .output/server/wrangler.json
+```
+
+密鑰會在每次部署之間持續儲存在 Worker 上，因此你不需要重複步驟 5。
+
+## 接下來呢 {#whats-next}
+
+- [**部署環境變數**](/docs/deployment-environment-variables) - 正式環境設定的完整清單
+- [**SSR 快取**](/docs/ssr-caching) - 頁面快取在代管目標上的運作方式
+- [**部署**](/docs/deployment) - 比較各個代管目標及其先決條件
