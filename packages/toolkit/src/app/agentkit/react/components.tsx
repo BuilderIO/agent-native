@@ -625,6 +625,7 @@ function activityToolValue(
       let visited = 0;
       for (let index = 0; index < value.length; index++) {
         if (budget.nodes >= ACTIVITY_TOOL_NODE_LIMIT) break;
+        budget.nodes++;
         visited++;
         const descriptor = Object.getOwnPropertyDescriptor(
           value,
@@ -942,7 +943,14 @@ export function AgentActivityItem({
               <div className="agentkit-activity-summary-label">
                 {labels.toolInput}
               </div>
-              <pre className="agentkit-activity-summary-value">{toolInput}</pre>
+              <pre
+                role="region"
+                aria-label={labels.toolInput}
+                tabIndex={0}
+                className="agentkit-activity-summary-value"
+              >
+                {toolInput}
+              </pre>
             </div>
           ) : null}
           {toolResult ? (
@@ -950,7 +958,12 @@ export function AgentActivityItem({
               <div className="agentkit-activity-summary-label">
                 {labels.toolResult}
               </div>
-              <pre className="agentkit-activity-summary-value">
+              <pre
+                role="region"
+                aria-label={labels.toolResult}
+                tabIndex={0}
+                className="agentkit-activity-summary-value"
+              >
                 {toolResult}
               </pre>
             </div>

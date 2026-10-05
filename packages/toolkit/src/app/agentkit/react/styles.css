@@ -1502,6 +1502,11 @@ button.agentkit-object {
   overflow-wrap: anywhere;
 }
 
+.agentkit-activity-summary-value:focus-visible {
+  outline: 2px solid var(--agentkit-focus);
+  outline-offset: 2px;
+}
+
 .agentkit-approval,
 .agentkit-connection-request,
 .agentkit-widget {
