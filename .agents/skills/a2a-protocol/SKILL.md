@@ -127,6 +127,9 @@ A2A authenticates with a **short-lived JWT the caller signs**, not a stored
 bearer key. `Authorization: Bearer <jwt>`; claims carry the caller's email and
 org domain; HS256; 15-minute default TTL. There is no per-peer API key
 anywhere in the system, which is why the manifest has no field for one.
+`verifyA2AToken` rejects MCP connect and OAuth tokens even though they can be
+signed with the same secret: they are long-lived MCP credentials, never A2A
+tokens.
 
 Two secrets can sign it:
 

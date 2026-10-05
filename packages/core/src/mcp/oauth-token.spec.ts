@@ -99,6 +99,28 @@ describe("hasMcpOAuthScope", () => {
 });
 
 describe("signMcpOAuthAccessToken + verifyMcpOAuthAccessToken round-trip", () => {
+  it.each([undefined, 1, "2", null])(
+    "rejects a previously signed credential version %j",
+    async (version) => {
+      const token = await new jose.SignJWT({
+        typ: "agent-native-mcp-oauth",
+        ...(version === undefined ? {} : { credential_version: version }),
+        sub: "successor@example.test",
+        org_id: "org-1",
+        scope: baseSign.scope,
+        client_id: baseSign.clientId,
+        resource: baseSign.resource,
+      })
+        .setProtectedHeader({ alg: "HS256" })
+        .setIssuer(baseSign.issuer)
+        .setAudience(baseSign.resource)
+        .setExpirationTime("1h")
+        .setIssuedAt()
+        .sign(new TextEncoder().encode("fallback-auth-secret"));
+      expect(await verifyMcpOAuthAccessToken(token, RESOURCE)).toBeNull();
+    },
+  );
+
   it("verifies a freshly minted token and returns the bound identity & scopes", async () => {
     const token = await signMcpOAuthAccessToken({
       ...baseSign,
@@ -142,6 +164,7 @@ describe("signMcpOAuthAccessToken + verifyMcpOAuthAccessToken round-trip", () =>
     async (orgId) => {
       const token = await new jose.SignJWT({
         typ: "agent-native-mcp-oauth",
+        credential_version: 2,
         sub: baseSign.ownerEmail,
         org_id: orgId,
         scope: baseSign.scope,
@@ -173,6 +196,7 @@ describe("signMcpOAuthAccessToken + verifyMcpOAuthAccessToken round-trip", () =>
     const token = await signMcpOAuthAccessToken(baseSign);
     const decoded = jose.decodeJwt(token) as any;
     expect(decoded.typ).toBe("agent-native-mcp-oauth");
+    expect(decoded.credential_version).toBe(2);
     expect(decoded.iss).toBe(ISSUER);
     expect(decoded.aud).toBe(RESOURCE);
     expect(typeof decoded.jti).toBe("string");
@@ -294,6 +318,7 @@ describe("verifyMcpOAuthAccessToken — secret rotation tolerance", () => {
     delete process.env.A2A_SECRET;
     const token = await new jose.SignJWT({
       typ: "agent-native-mcp-oauth",
+      credential_version: 2,
       sub: "owner@example.com",
       scope: "mcp:read",
       client_id: "client-abc",
@@ -344,6 +369,7 @@ describe("verifyMcpOAuthAccessToken rejection branches", () => {
   it("rejects a token signed with the wrong secret", async () => {
     const wrong = await new jose.SignJWT({
       typ: "agent-native-mcp-oauth",
+      credential_version: 2,
       sub: "owner@example.com",
       scope: "mcp:read",
       client_id: "client-abc",
@@ -361,6 +387,7 @@ describe("verifyMcpOAuthAccessToken rejection branches", () => {
   it("rejects a token with the wrong typ marker (not an MCP OAuth token)", async () => {
     const token = await new jose.SignJWT({
       typ: "some-other-token",
+      credential_version: 2,
       sub: "owner@example.com",
       scope: "mcp:read",
       client_id: "client-abc",
@@ -377,6 +404,7 @@ describe("verifyMcpOAuthAccessToken rejection branches", () => {
   it("rejects a token whose embedded resource claim mismatches the audience", async () => {
     const token = await new jose.SignJWT({
       typ: "agent-native-mcp-oauth",
+      credential_version: 2,
       sub: "owner@example.com",
       scope: "mcp:read",
       client_id: "client-abc",
@@ -393,6 +421,7 @@ describe("verifyMcpOAuthAccessToken rejection branches", () => {
   it("rejects a token missing a subject", async () => {
     const token = await new jose.SignJWT({
       typ: "agent-native-mcp-oauth",
+      credential_version: 2,
       scope: "mcp:read",
       client_id: "client-abc",
       resource: RESOURCE,
@@ -408,6 +437,7 @@ describe("verifyMcpOAuthAccessToken rejection branches", () => {
   it("rejects a token missing a client_id", async () => {
     const token = await new jose.SignJWT({
       typ: "agent-native-mcp-oauth",
+      credential_version: 2,
       sub: "owner@example.com",
       scope: "mcp:read",
       resource: RESOURCE,
@@ -423,6 +453,7 @@ describe("verifyMcpOAuthAccessToken rejection branches", () => {
   it("rejects a token carrying no recognised MCP scope", async () => {
     const token = await new jose.SignJWT({
       typ: "agent-native-mcp-oauth",
+      credential_version: 2,
       sub: "owner@example.com",
       scope: "openid profile",
       client_id: "client-abc",
@@ -439,6 +470,7 @@ describe("verifyMcpOAuthAccessToken rejection branches", () => {
   it("rejects an expired token", async () => {
     const token = await new jose.SignJWT({
       typ: "agent-native-mcp-oauth",
+      credential_version: 2,
       sub: "owner@example.com",
       scope: "mcp:read",
       client_id: "client-abc",
