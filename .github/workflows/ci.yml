@@ -1080,6 +1080,7 @@ jobs:
           pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
+          pnpm --filter @agent-native/otel build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
 
