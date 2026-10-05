@@ -134,6 +134,55 @@ describe("release everything workflow", () => {
     assert.match(source, /Promise\.allSettled/);
   });
 
+  it("recovers only a hosted-runner failure after stable npm publication", () => {
+    const source = String((coordinator.with as Workflow).script);
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
+    const stablePublishStart = source.indexOf(
+      "async function waitForStablePackagePublish",
+    );
+    const failureGate = source.indexOf(
+      "await requireRecoverableStablePublishFailure(completed)",
+    );
+    const packageTagCheck = source.indexOf(
+      "const tagSha = await getRemoteTagSha(packageTag)",
+    );
+    const retryDispatch = source.indexOf(
+      "await recoverDownstreamNotification()",
+      packageTagCheck,
+    );
+
+    assert.doesNotThrow(() => new AsyncFunction(source));
+    assert.match(source, /allowCompletedFailure = false/);
+    assert.match(
+      source,
+      /allowCompletedFailure &&\s*current\.conclusion === "failure"/,
+    );
+    assert.match(
+      source,
+      /async function requireRecoverableStablePublishFailure\(run\)/,
+    );
+    assert.match(source, /Verify stable release merge/);
+    assert.match(source, /Prepare or publish stable npm packages/);
+    assert.match(source, /Notify downstream repos/);
+    assert.match(
+      source,
+      /The job was not acquired by Runner of type hosted even after multiple attempts/,
+    );
+    assert.match(source, /annotation\.annotation_level === "failure"/);
+    assert.match(source, /async function recoverDownstreamNotification\(\)/);
+    assert.match(source, /redispatchDownstream: "true"/);
+    assert.match(source, /releaseType: "patch"/);
+    assert.match(source, /publish\.conclusion !== "skipped"/);
+    assert.match(source, /notify\.conclusion === "success"/);
+    assert.match(source, /continuing the desktop and production release/);
+    assert.ok(stablePublishStart >= 0);
+    assert.ok(failureGate > stablePublishStart);
+    assert.ok(packageTagCheck > failureGate);
+    assert.ok(retryDispatch > packageTagCheck);
+  });
+
   it("isolates stable auto-publish lanes from nightly pushes", () => {
     const group = String((autoPublishWorkflow.concurrency as Workflow).group);
     assert.match(group, /github\.event_name == 'workflow_dispatch'/);
