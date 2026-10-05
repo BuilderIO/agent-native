@@ -331,73 +331,15 @@ function failureLabel(run: RunFailureLike): string {
   return (code && labels[code]) || humanizeIdentifier(code);
 }
 
-function runDiagnosis(run: RunFailureLike): {
-  title: string;
-  summary: string;
-  nextStep: string;
-  code: string;
-} {
+const DIAGNOSIS_TITLES: Record<string, string> = {
+  stale_run: "Worker stopped reporting",
+  background_worker_failed: "Background worker failed during setup",
+};
+
+function runDiagnosis(run: RunFailureLike): { title: string; code: string } {
   const code =
     run.errorCode || run.terminalReason || run.abortReason || "unknown";
-  if (code === "stale_run") {
-    const workerStarted = run.dispatchMode === "background-processing";
-    return {
-      title: "Worker stopped reporting",
-      summary: workerStarted
-        ? "The worker claimed this run, then stopped writing heartbeat or progress signals before it finished. This is a liveness failure, not proof that the provider failed."
-        : "The run stayed active until liveness recovery closed it. No completed result was recorded, so inspect the handoff and retained evidence before blaming a provider.",
-      nextStep: workerStarted
-        ? "Check the last worker stage and database heartbeat writes."
-        : "Check the scheduled background handoff and whether a worker claimed it.",
-      code,
-    };
-  }
-  if (code === "background_worker_never_started") {
-    return {
-      title: "Background worker never started",
-      summary:
-        "The handoff was acknowledged, but no background worker claimed the run.",
-      nextStep:
-        "Check the background route, authentication, and function logs.",
-      code,
-    };
-  }
-  if (code === "background_worker_failed") {
-    return {
-      title: "Background worker failed during setup",
-      summary:
-        "The worker claimed the run but stopped before it could start the turn.",
-      nextStep:
-        "Use the recorded setup stage and worker logs to find the first failure.",
-      code,
-    };
-  }
-  if (code === "builder_gateway_network_error") {
-    return {
-      title: "Gateway stream ended early",
-      summary:
-        run.errorDetail ||
-        "The model stream ended before the run emitted a terminal event.",
-      nextStep:
-        "Retry once; if it repeats, inspect gateway and provider transport health.",
-      code,
-    };
-  }
-  if (code === "aborted:user") {
-    return {
-      title: "Stopped by user",
-      summary: "This run was explicitly aborted and is not a system failure.",
-      nextStep: "No recovery action is required.",
-      code,
-    };
-  }
-  return {
-    title: failureLabel(run),
-    summary:
-      run.errorDetail || "The run ended without a more specific explanation.",
-    nextStep: "Open the timeline and inspect the last recorded stage or event.",
-    code,
-  };
+  return { title: DIAGNOSIS_TITLES[code] ?? failureLabel(run), code };
 }
 
 function eventType(event: any): string {
@@ -687,114 +629,54 @@ function EvidenceStat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function DiagnosisPanel({
-  run,
-  eventCount,
-  toolCount,
-}: {
-  run: ThreadRun;
-  eventCount: number;
-  toolCount: number;
-}) {
-  const diagnosis = runDiagnosis(run);
-  const isStoppedByUser = diagnosis.code === "aborted:user";
-  const isScheduled =
-    run.id?.startsWith("job-") || run.dispatchMode === "background-processing";
-  const workerClaimed = run.dispatchMode === "background-processing";
-  const staleThreshold = isScheduled
-    ? workerClaimed
-      ? "45s after claim"
-      : "90s before claim"
-    : "15s";
+// Runs that fail before the model starts (run_preparation_failed,
+// background_worker_never_started) retain no events, so the run row's own
+// terminal fields are the only record of how they ended.
+function RunEnding({ run }: { run: ThreadRun }) {
+  const reason = run.terminalReason || run.abortReason;
+  const codes = [...new Set([reason, run.errorCode].filter(Boolean))];
+  const stage =
+    diagnosticStage(run.workerStage) || diagnosticStage(run.diagStage);
+  const failed = run.status !== "completed" && reason !== "user";
   return (
-    <section
+    <div
       className={cn(
-        "border-b px-5 py-4",
-        isStoppedByUser ? "bg-muted/20" : "bg-destructive/[0.04]",
+        "flex items-start gap-3 px-3 py-2.5 text-xs",
+        failed && "bg-destructive/[0.04]",
       )}
-      aria-label="Run diagnosis"
     >
-      <div className="flex items-start gap-3">
-        <span
-          aria-hidden="true"
-          className={cn(
-            "mt-1.5 size-2 shrink-0 rounded-full",
-            isStoppedByUser ? "bg-muted-foreground/50" : "bg-destructive",
-          )}
-        />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <h2 className="text-sm font-semibold text-foreground">
-                {diagnosis.title}
-              </h2>
-              <p className="mt-1 max-w-3xl text-sm leading-relaxed text-muted-foreground">
-                {diagnosis.summary}
-              </p>
-            </div>
-            <span className="font-mono text-[11px] text-muted-foreground">
-              {diagnosis.code}
+      <span className="w-8 shrink-0 font-mono text-muted-foreground">end</span>
+      <div className="min-w-0 flex-1 space-y-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span
+            className={cn(
+              "font-medium",
+              failed ? "text-destructive" : "text-foreground",
+            )}
+          >
+            {run.status}
+          </span>
+          {codes.map((code) => (
+            <span key={code} className="font-mono text-muted-foreground">
+              {code}
             </span>
-          </div>
-          <div className="mt-3 flex items-start gap-2 text-xs text-foreground">
-            <IconInfoCircle className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-            <span>
-              <span className="font-medium">Next check:</span>{" "}
-              {diagnosis.nextStep}
+          ))}
+          {run.completedAt ? (
+            <span className="text-muted-foreground">
+              {formatDate(run.completedAt)}
             </span>
-          </div>
+          ) : null}
         </div>
+        {run.errorDetail ? (
+          <div className="whitespace-pre-wrap break-words text-foreground">
+            {run.errorDetail}
+          </div>
+        ) : null}
+        {stage ? (
+          <div className="text-muted-foreground">Last stage: {stage}</div>
+        ) : null}
       </div>
-      <div className="mt-4 grid gap-3 border-t pt-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
-        <EvidenceStat
-          label="Run type"
-          value={isScheduled ? "Scheduled job" : "Interactive chat"}
-        />
-        <EvidenceStat
-          label="Worker claim"
-          value={workerClaimed ? "Claimed" : "Not recorded"}
-        />
-        <EvidenceStat
-          label="Last heartbeat"
-          value={formatDate(run.heartbeatAt)}
-        />
-        <EvidenceStat
-          label="Last progress"
-          value={formatDate(run.lastProgressAt)}
-        />
-        <EvidenceStat label="Stale threshold" value={staleThreshold} />
-        <EvidenceStat
-          label="Recovery payload"
-          value={run.hasDispatchPayload ? "Retained" : "Not retained"}
-        />
-        <EvidenceStat
-          label="Worker stage"
-          value={
-            diagnosticStage(run.workerStage) ||
-            diagnosticStage(run.diagStage) ||
-            "Not recorded"
-          }
-        />
-      </div>
-      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-        <span>
-          Evidence:{" "}
-          <span className="font-medium text-foreground">
-            {eventCount.toLocaleString()}
-          </span>{" "}
-          retained events
-        </span>
-        <span aria-hidden="true">·</span>
-        <span>
-          <span className="font-medium text-foreground">
-            {toolCount.toLocaleString()}
-          </span>{" "}
-          tool starts
-        </span>
-        <span aria-hidden="true">·</span>
-        <span>Liveness uses the newer heartbeat or progress timestamp.</span>
-      </div>
-    </section>
+    </div>
   );
 }
 
@@ -832,24 +714,27 @@ function RunTimeline({ run }: { run: ThreadRun }) {
       ) : null}
 
       <div className="divide-y rounded-lg border">
-        {summary.meaningful.length > 0 ? (
-          summary.meaningful.map((entry) => (
-            <div
-              key={`${run.id}-${entry.seq}`}
-              className="flex items-start gap-3 px-3 py-2.5 text-xs"
-            >
-              <span className="w-8 shrink-0 font-mono text-muted-foreground">
-                #{entry.seq}
-              </span>
-              <span className="min-w-0 flex-1 break-words text-foreground">
-                {eventLabel(entry.event)}
-              </span>
-            </div>
-          ))
-        ) : (
-          <div className="px-3 py-4 text-sm text-muted-foreground">
-            No summarized events were retained for this run.
+        {summary.meaningful.map((entry) => (
+          <div
+            key={`${run.id}-${entry.seq}`}
+            className="flex items-start gap-3 px-3 py-2.5 text-xs"
+          >
+            <span className="w-8 shrink-0 font-mono text-muted-foreground">
+              #{entry.seq}
+            </span>
+            <span className="min-w-0 flex-1 break-words text-foreground">
+              {eventLabel(entry.event)}
+            </span>
           </div>
+        ))}
+        {run.status === "running" ? (
+          summary.meaningful.length === 0 ? (
+            <div className="px-3 py-4 text-sm text-muted-foreground">
+              No summarized events were retained for this run.
+            </div>
+          ) : null
+        ) : (
+          <RunEnding run={run} />
         )}
       </div>
 
@@ -963,15 +848,7 @@ function ThreadDetail({ detail }: { detail: ThreadDebugResponse }) {
         </div>
       </div>
 
-      {primaryRun ? (
-        <DiagnosisPanel
-          run={primaryRun}
-          eventCount={eventCount}
-          toolCount={toolCount}
-        />
-      ) : null}
-
-      <Tabs defaultValue="overview" className="p-5">
+      <Tabs defaultValue="timeline" className="p-5">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>

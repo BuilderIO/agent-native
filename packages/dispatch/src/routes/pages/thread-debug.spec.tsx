@@ -297,7 +297,11 @@ describe("ThreadDebugRoute", () => {
       runId: failedRun.id,
     });
     expect(container.textContent).toContain("Worker stopped reporting");
-    expect(container.textContent).toContain("retained 2 execution events");
+    expect(container.textContent).not.toContain("Next check");
+    expect(container.textContent).toContain(
+      "The run heartbeat stopped while the run was still marked running.",
+    );
+    expect(container.textContent).toContain("Last stage: model");
   });
 
   it("passes valid URL-backed failure filters to the action", async () => {
