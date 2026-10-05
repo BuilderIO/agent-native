@@ -330,6 +330,58 @@ describe("browser analytics pageviews", () => {
     expect(getCookie()).toContain(`an_aid=${latestBody.anonymousId}`);
   });
 
+  it("captures the source forwarded by the marketing site", async () => {
+    const params = new URLSearchParams({
+      site_referrer: "github.com",
+      site_landing_path: "/apps/design",
+    });
+    const { getCookie } = installBrowser(
+      `https://design.agent-native.com/?${params}`,
+    );
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      llmConnectionStatus: false,
+      authSessionRefresh: false,
+      pageviewTracking: false,
+    });
+
+    const value = getCookie().slice("an_ft=".length).split(";", 1)[0]!;
+    expect(JSON.parse(decodeURIComponent(value))).toMatchObject({
+      site_referrer: "github.com",
+      site_landing_path: "/apps/design",
+      landing_path: "/",
+    });
+  });
+
+  it("captures attribution before tracking starts", async () => {
+    installBrowser(
+      "https://agent-native.com/templates/slides?utm_source=youtube&gclid=g-1",
+    );
+    const { captureAttribution, getFirstTouchAttribution } =
+      await freshAnalytics();
+
+    captureAttribution();
+
+    expect(getFirstTouchAttribution()).toMatchObject({
+      utm_source: "youtube",
+      gclid: "g-1",
+      landing_path: "/templates/slides",
+    });
+  });
+
+  it("leaves synthetic traffic uncaptured when capturing early", async () => {
+    const { localStorage } = installBrowser(
+      "https://agent-native.com/?utm_source=youtube",
+    );
+    Object.assign(window, { __AGENT_NATIVE_SYNTHETIC_TRAFFIC__: "beta-e2e" });
+    const { captureAttribution } = await freshAnalytics();
+
+    captureAttribution();
+
+    expect(localStorage.getItem("an_attribution")).toBeNull();
+  });
+
   it("keeps high-value signup attribution when the cookie payload exceeds its budget", async () => {
     const params = new URLSearchParams({
       gclid: "click-id",
@@ -800,6 +852,25 @@ describe("browser analytics pageviews", () => {
       publicKey: "anpk_ssr_config",
       event: "ssr config event",
     });
+  });
+
+  it("sends a beta app's events to beta Analytics", async () => {
+    installBrowser("https://beta.clips.agent-native.com/library");
+    const { analyticsCalls } = installFetch();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      agentNativeAnalyticsPublicKey: "anpk_ssr_config",
+      agentNativeAnalyticsEndpoint:
+        "https://analytics.agent-native.com/api/analytics/track",
+    };
+    const { configureTracking, trackEvent } = await freshAnalytics();
+
+    configureTracking({ pageviewTracking: false });
+    trackEvent("beta_lane_event");
+
+    const [url] = analyticsCalls[0];
+    expect(url).toBe(
+      "https://beta.analytics.agent-native.com/api/analytics/track",
+    );
   });
 
   it("emits canonical browser aliases while retaining legacy events", async () => {

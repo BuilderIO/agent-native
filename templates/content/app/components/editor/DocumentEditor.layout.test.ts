@@ -24,6 +24,7 @@ import {
   visibleSavedSuggestionsDuringDraftMaterialization,
   observeAcceptedCanonicalSettlement,
   documentEditorReservesInlineReviewSpace,
+  documentEditorReviewReadsSettled,
   documentEditorShowsInlineComments,
   documentEditorShowsUtilityPanelSheet,
   dismissDocumentCommentFocus,
@@ -438,6 +439,64 @@ describe("document editor layout", () => {
         preserveInlineReviewSpace: true,
         hasInlineCommentSpace: true,
         isDatabasePage: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps remembered review geometry until cached reads finish refreshing", () => {
+    expect(
+      documentEditorReviewReadsSettled({
+        isLocalFileDocument: false,
+        hasThreads: true,
+        hasSuggestions: true,
+        commentsFetching: true,
+        suggestionsFetching: false,
+        commentsError: false,
+        suggestionsError: false,
+      }),
+    ).toBe(false);
+    expect(
+      documentEditorReviewReadsSettled({
+        isLocalFileDocument: false,
+        hasThreads: true,
+        hasSuggestions: true,
+        commentsFetching: false,
+        suggestionsFetching: true,
+        commentsError: false,
+        suggestionsError: false,
+      }),
+    ).toBe(false);
+    expect(
+      documentEditorReviewReadsSettled({
+        isLocalFileDocument: false,
+        hasThreads: true,
+        hasSuggestions: true,
+        commentsFetching: false,
+        suggestionsFetching: false,
+        commentsError: false,
+        suggestionsError: false,
+      }),
+    ).toBe(true);
+    expect(
+      documentEditorReviewReadsSettled({
+        isLocalFileDocument: false,
+        hasThreads: true,
+        hasSuggestions: true,
+        commentsFetching: false,
+        suggestionsFetching: false,
+        commentsError: true,
+        suggestionsError: false,
+      }),
+    ).toBe(false);
+    expect(
+      documentEditorReviewReadsSettled({
+        isLocalFileDocument: false,
+        hasThreads: true,
+        hasSuggestions: true,
+        commentsFetching: false,
+        suggestionsFetching: false,
+        commentsError: false,
+        suggestionsError: true,
       }),
     ).toBe(false);
   });
@@ -2246,7 +2305,7 @@ describe("document editor layout", () => {
     expect(source).toContain("queriedDocument?.id === documentId");
     expect(source).toContain("documentEditorLoadState");
     expect(source).toMatch(
-      /return \(\s*<DocumentEditorSkeleton\s+title=\{optimisticTitle\}\s+iconRow=\{readPageIconRowHint\(documentId\)\}/,
+      /return \(\s*<DocumentEditorSkeleton\s+title=\{optimisticTitle\}\s+iconRow=\{readPageIconRowHint\(documentId\)\}\s+shape=\{\s*document\s*\?\s*readDocumentShapeHint\(document\)\s*:\s*readPageShapeHint\(documentId\)\s*\}/,
     );
   });
 

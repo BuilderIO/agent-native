@@ -939,8 +939,6 @@ const rawLiterals = {
 const landing = {
   previousPageUnavailable:
     "لم تعد صفحتك السابقة متاحة، لذلك فتحنا صفحة الترحيب.",
-  requestedPageUnavailable:
-    "هذه الصفحة غير متاحة لحسابك، لذلك فتحنا صفحة الترحيب.",
   saveFailed: "تعذر حفظ موضعك",
   workspaceWelcomeUnavailableTitle: "لا يوجد شيء مفتوح هنا بعد",
   workspaceWelcomeUnavailableDescription:
@@ -1338,6 +1336,9 @@ const overrides = {
   },
   empty: {
     noPageTitle: "لم يتم تحديد صفحة",
+    signedInAs: "تم تسجيل الدخول باسم {{email}}",
+    goToMyPages: "الانتقال إلى صفحاتي",
+    switchAccount: "تبديل الحساب",
     noPageDescription: "اختر صفحة من الشريط الجانبي أو أنشئ واحدة جديدة.",
     newPage: "صفحة جديدة",
     createFailed: "فشل إنشاء الصفحة",

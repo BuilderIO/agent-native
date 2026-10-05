@@ -66,6 +66,7 @@ import { CONTENT_COMMAND_MENU_OPEN_EVENT } from "./lib/content-command-menu";
 import { isPersonalLanding } from "./lib/content-landing";
 import { readLastLocationHintForAnyAccount } from "./lib/last-location-hint";
 import { CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT } from "./lib/page-icon-row-hint";
+import { CONTENT_STARTUP_PAGE_HINTS_SCRIPT } from "./lib/page-startup-hints";
 
 import stylesheet from "./global.css?url";
 import katexStylesheet from "katex/dist/katex.min.css?url";
@@ -216,7 +217,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
           dangerouslySetInnerHTML={{
             __html:
               CONTENT_STARTUP_SIDEBAR_SCRIPT +
-              CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT,
+              CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT +
+              CONTENT_STARTUP_PAGE_HINTS_SCRIPT,
           }}
         />
         <meta name="theme-color" content="#10B981" />

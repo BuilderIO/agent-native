@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 
 import type { PortableStyleSnapshot } from "../types";
 import { screenLocalRectToBoardGeometry } from "./coordinate-transforms";
+import { geometryContainsPoint } from "./frame-geometry";
 import { SURFACE_PADDING } from "./overview-layout";
 import type {
   CrossScreenDropAxis,
@@ -13,6 +14,33 @@ import type {
   FrameGeometry,
   Point,
 } from "./types";
+
+export function getCrossScreenSourceGeometry(args: {
+  renderedGeometry?: FrameGeometry;
+  persistedGeometry?: FrameGeometry;
+}): FrameGeometry | undefined {
+  return args.renderedGeometry ?? args.persistedGeometry;
+}
+
+export function getBoardDropRoute(args: {
+  point: Point;
+  viewportGeometry?: FrameGeometry;
+  renderGeometry?: FrameGeometry;
+  sourceScreenGeometry?: FrameGeometry;
+}): "board-hit-test" | "board-root" | null {
+  const { point, viewportGeometry, renderGeometry, sourceScreenGeometry } =
+    args;
+  if (
+    !viewportGeometry ||
+    !geometryContainsPoint(viewportGeometry, point) ||
+    (sourceScreenGeometry && geometryContainsPoint(sourceScreenGeometry, point))
+  ) {
+    return null;
+  }
+  return renderGeometry && geometryContainsPoint(renderGeometry, point)
+    ? "board-hit-test"
+    : "board-root";
+}
 
 export function isPointerInsideSourceIframe(args: {
   iframeX: number;

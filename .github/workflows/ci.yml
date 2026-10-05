@@ -445,9 +445,11 @@ jobs:
             e2e/drag-and-drop.reparenting-rules.spec.ts \
             e2e/drag-and-drop.auto-layout-parity.spec.ts \
             e2e/cross-screen-auto-layout-parity.spec.ts \
+            e2e/drag-out-of-screen-to-board.spec.ts \
+            e2e/parity-drag-reparent.spec.ts \
             e2e/corner-radius-handle-drag.spec.ts \
             e2e/parity-vector-endpoints.spec.ts \
-            --grep "physical|reparenting rules|canvas corner-radius handle follows the drag and persists the radius|vector endpoint controls|endpoint marker references unique" \
+            --grep "physical|reparenting rules|canvas corner-radius handle follows the drag and persists the radius|vector endpoint controls|endpoint marker references unique|a layer dragged below the rendered Screen card moves to the board|a drag released inside rendered Hug overflow stays in its source Screen|a held screen child dropped beyond the rendered board window persists at that canvas point" \
             --workers=1
 
   fast-tests:
@@ -1069,11 +1071,12 @@ jobs:
         with:
           install: no-scripts
 
-      - name: Build recap CLI, AgentKit, core, Toolkit, and creative context
+      - name: Build recap CLI, AgentKit, core, OTel, Toolkit, and creative context
         run: |
           pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
+          pnpm --filter @agent-native/otel build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
 

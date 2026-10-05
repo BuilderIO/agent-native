@@ -1,8 +1,22 @@
 import { gzipSync } from "node:zlib";
 
-import { describe, expect, it } from "vitest";
+import { H3Event } from "h3";
+import { describe, expect, it, vi } from "vitest";
 
-import { decodeSessionReplayRequestBody } from "./session-replay";
+const mocks = vi.hoisted(() => ({
+  record: vi.fn(),
+}));
+
+vi.mock("../lib/session-replay.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/session-replay.js")>()),
+  parseSessionReplayIngestPayload: (body: unknown) => body,
+  recordSessionReplayChunks: mocks.record,
+}));
+
+import {
+  decodeSessionReplayRequestBody,
+  handleSessionReplayIngest,
+} from "./session-replay";
 
 describe("session replay ingest handler", () => {
   it("decodes gzip-compressed replay request bodies", () => {
@@ -65,5 +79,30 @@ describe("session replay ingest handler", () => {
     expect(() =>
       decodeSessionReplayRequestBody(Buffer.from("{}"), "br"),
     ).toThrow("Unsupported replay request content-encoding: br");
+  });
+
+  it("keeps a storage failure's details out of the reply", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const failure = new Error(
+      'Failed query: insert into "session_recordings" params: rec_1,internal-detail',
+    );
+    mocks.record.mockRejectedValueOnce(failure);
+    const event = new H3Event(
+      new Request("https://analytics.example.test/api/analytics/replay", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ publicKey: "anpk_x", sessionId: "s1" }),
+      }),
+    );
+
+    await expect(handleSessionReplayIngest(event)).resolves.toEqual({
+      error: "Internal server error",
+    });
+    expect(event.res.status).toBe(500);
+    expect(log).toHaveBeenCalledWith(
+      "[session-replay] Unexpected request failure:",
+      failure,
+    );
+    log.mockRestore();
   });
 });

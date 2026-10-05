@@ -20,7 +20,10 @@ import {
   useUpdatePreviewDocumentDraft,
 } from "@/hooks/use-documents";
 import { isDocumentCreationPending } from "@/lib/optimistic-document";
-import { readPageIconRowHint } from "@/lib/page-icon-row-hint";
+import {
+  readDocumentShapeHint,
+  readPageIconRowHint,
+} from "@/lib/page-startup-hints";
 
 import { documentBodyHydrationIsPending } from "./body-hydration";
 import { saveDocumentWithRebase } from "./document-save-rebase";
@@ -675,6 +678,7 @@ export function PageDraftRecovery({
       <DocumentEditorSkeleton
         title={document.title}
         iconRow={readPageIconRowHint(document.id)}
+        shape={readDocumentShapeHint(document)}
       />
     );
   if (!draft) return withNotice(null);
@@ -685,6 +689,7 @@ export function PageDraftRecovery({
       <DocumentEditorSkeleton
         title={document.title}
         iconRow={readPageIconRowHint(document.id)}
+        shape={readDocumentShapeHint(document)}
       />
     );
   const savedVersion = conflictDocument ?? document;

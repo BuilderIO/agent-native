@@ -89,7 +89,7 @@ const added = requireAddedLines(REPO_ROOT, "guard-no-blob-column-predicate");
 
 const violations = [];
 for (const [absPath, lineNumbers] of added) {
-  const rel = path.relative(REPO_ROOT, absPath);
+  const rel = path.relative(REPO_ROOT, absPath).replace(/\\/g, "/");
   if (!IN_SCOPE.test(rel) || SKIPPED.test(rel)) continue;
   if (!/\.(ts|tsx|mjs|js)$/.test(rel)) continue;
 
