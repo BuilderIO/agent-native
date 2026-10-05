@@ -17,13 +17,13 @@ description: "每次部署獨立 Agent-Native 應用程式都要遵循的步驟�
 
 ## 選擇主機 {#choose-a-host}
 
-| 主機                                                      | 應用程式的執行位置                       |
-| --------------------------------------------------------- | ---------------------------------------- |
-| [Node.js](/docs/node-js)                                  | 由你管理的伺服器，例如虛擬機器           |
-| [Docker](/docs/docker)                                    | 由你管理的伺服器或容器主機上的容器       |
-| [Vercel](/docs/vercel)                                    | Vercel 的代管服務，不需要管理伺服器      |
-| [Netlify](/docs/netlify)                                  | Netlify 的代管服務，不需要管理伺服器     |
-| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | Cloudflare 的網路，不需要管理伺服器      |
+| 主機                                                      | 應用程式的執行位置                   |
+| --------------------------------------------------------- | ------------------------------------ |
+| [Node.js](/docs/node-js)                                  | 由你管理的伺服器，例如虛擬機器       |
+| [Docker](/docs/docker)                                    | 由你管理的伺服器或容器主機上的容器   |
+| [Vercel](/docs/vercel)                                    | Vercel 的代管服務，不需要管理伺服器  |
+| [Netlify](/docs/netlify)                                  | Netlify 的代管服務，不需要管理伺服器 |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | Cloudflare 的網路，不需要管理伺服器  |
 
 如果你想完全掌控執行應用程式的機器，請選擇 Node.js 或 Docker。如果你希望由主機替你執行
 應用程式，並為它提供一個支援 HTTPS 的公開網址，請選擇 Vercel、Netlify 或 Cloudflare Workers。
@@ -40,10 +40,10 @@ description: "每次部署獨立 Agent-Native 應用程式都要遵循的步驟�
 
 應用程式會從環境變數讀取其正式環境設定：
 
-| 變數                 | 必要 | 用途                                     |
-| -------------------- | ---- | ---------------------------------------- |
-| `DATABASE_URL`       | 是   | 將應用程式連線到它的 PostgreSQL 資料庫   |
-| `BETTER_AUTH_SECRET` | 是   | 為使用者工作階段簽章                     |
+| 變數                 | 必要 | 用途                                       |
+| -------------------- | ---- | ------------------------------------------ |
+| `DATABASE_URL`       | 是   | 將應用程式連線到它的 PostgreSQL 資料庫     |
+| `BETTER_AUTH_SECRET` | 是   | 為使用者工作階段簽章                       |
 | `BETTER_AUTH_URL`    | 否   | 設定使用者連到你的應用程式時使用的公開網址 |
 
 請把這些變數儲存到主機的環境設定中，而不只是儲存在應用程式本機的 `.env` 檔案中。每篇指南

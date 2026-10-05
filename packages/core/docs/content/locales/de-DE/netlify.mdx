@@ -50,11 +50,11 @@ Anleitung geht davon aus, dass Sie sich im Ordner der App befinden.
 
 Die App liest ihre Produktionseinstellungen aus Umgebungsvariablen:
 
-| Variable             | Erforderlich | Zweck                                                                 |
-| -------------------- | ------------ | --------------------------------------------------------------------- |
-| `DATABASE_URL`       | Ja           | Verbindet die App mit ihrer PostgreSQL-Datenbank                      |
-| `BETTER_AUTH_SECRET` | Ja           | Signiert Benutzersitzungen                                            |
-| `BETTER_AUTH_URL`    | Nein         | Legt die öffentliche Adresse fest, über die Ihre App erreichbar ist   |
+| Variable             | Erforderlich | Zweck                                                               |
+| -------------------- | ------------ | ------------------------------------------------------------------- |
+| `DATABASE_URL`       | Ja           | Verbindet die App mit ihrer PostgreSQL-Datenbank                    |
+| `BETTER_AUTH_SECRET` | Ja           | Signiert Benutzersitzungen                                          |
+| `BETTER_AUTH_URL`    | Nein         | Legt die öffentliche Adresse fest, über die Ihre App erreichbar ist |
 
 Mit den folgenden Exporten funktionieren die nächsten Befehle in dieser Shell.
 Speichern Sie vor dem Deployment dieselben Variablen in den Umgebungseinstellungen
@@ -223,11 +223,11 @@ Diese Variablen steuern Keep-Warm. Die Einstellungen für Zeitplan und
 Hintergrund gelten erst, wenn Sie `AGENT_NATIVE_ENABLE_KEEP_WARM` aktiviert
 haben:
 
-| Variable                                    | Wirkung                                                                                                                                                                                                                                  |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Aktiviert das geplante Aufwärmen der Serverfunktion und der Datenbank. Standardmäßig nicht gesetzt.                                                                                                                                      |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Deaktiviert Keep-Warm, auch wenn `AGENT_NATIVE_ENABLE_KEEP_WARM` gesetzt ist. Bleibt zur Kompatibilität mit älteren Setups erhalten.                                                                                                     |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Ändert, wie oft das Aufwärmen läuft, als 5-Feld-Cron-Ausdruck wie `*/5 * * * *`. Der Standardwert ist `* * * * *`, also jede Minute. Ein Wert, der kein gültiger Cron-Ausdruck ist, **lässt den Build fehlschlagen**.                     |
+| Variable                                    | Wirkung                                                                                                                                                                                                                                                    |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Aktiviert das geplante Aufwärmen der Serverfunktion und der Datenbank. Standardmäßig nicht gesetzt.                                                                                                                                                        |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Deaktiviert Keep-Warm, auch wenn `AGENT_NATIVE_ENABLE_KEEP_WARM` gesetzt ist. Bleibt zur Kompatibilität mit älteren Setups erhalten.                                                                                                                       |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Ändert, wie oft das Aufwärmen läuft, als 5-Feld-Cron-Ausdruck wie `*/5 * * * *`. Der Standardwert ist `* * * * *`, also jede Minute. Ein Wert, der kein gültiger Cron-Ausdruck ist, **lässt den Build fehlschlagen**.                                      |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Lässt das Aufwärmen der Hintergrundfunktion aus und wärmt weiterhin die Serverfunktion auf. Das Aufwärmen des Servers ist eine einzige Anfrage. Das Aufwärmen der Hintergrundfunktion startet einen neuen Container, der das Datenbankschema erneut prüft. |
 
 Wenn Ihre Datenbank einen kostenlosen oder anderweitig begrenzten Tarif nutzt,

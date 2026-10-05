@@ -46,10 +46,10 @@ considera que você está dentro da pasta do app.
 
 O app lê as configurações de produção a partir de variáveis de ambiente:
 
-| Variável             | Obrigatória | Finalidade                                                   |
-| -------------------- | ----------- | ------------------------------------------------------------ |
-| `DATABASE_URL`       | Sim         | Conecta o app ao seu banco de dados PostgreSQL               |
-| `BETTER_AUTH_SECRET` | Sim         | Assina as sessões dos usuários                               |
+| Variável             | Obrigatória | Finalidade                                                           |
+| -------------------- | ----------- | -------------------------------------------------------------------- |
+| `DATABASE_URL`       | Sim         | Conecta o app ao seu banco de dados PostgreSQL                       |
+| `BETTER_AUTH_SECRET` | Sim         | Assina as sessões dos usuários                                       |
 | `BETTER_AUTH_URL`    | Não         | Define o endereço público que as pessoas usam para acessar o seu app |
 
 Os exports abaixo fazem os comandos seguintes funcionarem neste shell. Antes de
@@ -207,11 +207,11 @@ de banco de dados.
 Estas variáveis controlam o keep-warm. As configurações de programação e de segundo plano só
 se aplicam depois que você ativa `AGENT_NATIVE_ENABLE_KEEP_WARM`:
 
-| Variável                                    | Efeito                                                                                                                                                                          |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Ativa o aquecimento agendado da função do servidor e do banco de dados. Não definida por padrão.                                                                                |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Desativa o keep-warm mesmo quando `AGENT_NATIVE_ENABLE_KEEP_WARM` está definida. Mantida para compatibilidade com configurações antigas.                                         |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Altera a frequência do aquecimento com uma expressão cron de 5 campos, como `*/5 * * * *`. O padrão é `* * * * *`, a cada minuto. Um valor que não seja um cron válido **faz o build falhar**. |
+| Variável                                    | Efeito                                                                                                                                                                                                                                            |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Ativa o aquecimento agendado da função do servidor e do banco de dados. Não definida por padrão.                                                                                                                                                  |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Desativa o keep-warm mesmo quando `AGENT_NATIVE_ENABLE_KEEP_WARM` está definida. Mantida para compatibilidade com configurações antigas.                                                                                                          |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Altera a frequência do aquecimento com uma expressão cron de 5 campos, como `*/5 * * * *`. O padrão é `* * * * *`, a cada minuto. Um valor que não seja um cron válido **faz o build falhar**.                                                    |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Pula o aquecimento da função em segundo plano e continua aquecendo a função do servidor. Aquecer o servidor é uma única requisição. Aquecer a função em segundo plano inicia um container novo que verifica o schema do banco de dados novamente. |
 
 Se o seu banco de dados estiver em um plano gratuito ou limitado de outra forma, deixe

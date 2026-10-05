@@ -19,13 +19,13 @@ Node.js `22.22+` ist erforderlich.
 
 ## Einen Hoster wählen {#choose-a-host}
 
-| Hoster                                              | Wo die App läuft                                       |
-| --------------------------------------------------- | ------------------------------------------------------ |
-| [Node.js](/docs/node-js)                            | Auf einem Server, den Sie verwalten, zum Beispiel einer virtuellen Maschine |
-| [Docker](/docs/docker)                              | In einem Container auf einem Server oder Container-Hoster, den Sie verwalten |
-| [Vercel](/docs/vercel)                              | Im Hosting von Vercel, ohne Server, den Sie verwalten müssen |
-| [Netlify](/docs/netlify)                            | Im Hosting von Netlify, ohne Server, den Sie verwalten müssen |
-| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | Im Netzwerk von Cloudflare, ohne Server, den Sie verwalten müssen |
+| Hoster                                                    | Wo die App läuft                                                             |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| [Node.js](/docs/node-js)                                  | Auf einem Server, den Sie verwalten, zum Beispiel einer virtuellen Maschine  |
+| [Docker](/docs/docker)                                    | In einem Container auf einem Server oder Container-Hoster, den Sie verwalten |
+| [Vercel](/docs/vercel)                                    | Im Hosting von Vercel, ohne Server, den Sie verwalten müssen                 |
+| [Netlify](/docs/netlify)                                  | Im Hosting von Netlify, ohne Server, den Sie verwalten müssen                |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | Im Netzwerk von Cloudflare, ohne Server, den Sie verwalten müssen            |
 
 Wählen Sie Node.js oder Docker, wenn Sie die volle Kontrolle über die Maschine
 haben möchten, auf der die App läuft. Wählen Sie Vercel, Netlify oder Cloudflare
@@ -46,11 +46,11 @@ erstellen und ausführen.
 
 Die App liest ihre Produktionseinstellungen aus Umgebungsvariablen:
 
-| Variable             | Erforderlich | Zweck                                                                 |
-| -------------------- | ------------ | --------------------------------------------------------------------- |
-| `DATABASE_URL`       | Ja           | Verbindet die App mit ihrer PostgreSQL-Datenbank                      |
-| `BETTER_AUTH_SECRET` | Ja           | Signiert Benutzersitzungen                                            |
-| `BETTER_AUTH_URL`    | Nein         | Legt die öffentliche Adresse fest, über die Ihre App erreichbar ist   |
+| Variable             | Erforderlich | Zweck                                                               |
+| -------------------- | ------------ | ------------------------------------------------------------------- |
+| `DATABASE_URL`       | Ja           | Verbindet die App mit ihrer PostgreSQL-Datenbank                    |
+| `BETTER_AUTH_SECRET` | Ja           | Signiert Benutzersitzungen                                          |
+| `BETTER_AUTH_URL`    | Nein         | Legt die öffentliche Adresse fest, über die Ihre App erreichbar ist |
 
 Speichern Sie diese Variablen in den Umgebungseinstellungen Ihres Hosters, nicht
 nur in der lokalen `.env`-Datei der App. Jede Anleitung zeigt, wie das bei ihrem

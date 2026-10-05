@@ -18,13 +18,13 @@ host. Depois, o guia de cada host traz os comandos exatos.
 
 ## Escolha um host {#choose-a-host}
 
-| Host                                                | Onde o app é executado                                 |
-| --------------------------------------------------- | ------------------------------------------------------ |
-| [Node.js](/docs/node-js)                            | Um servidor que você gerencia, como uma máquina virtual |
-| [Docker](/docs/docker)                              | Um contêiner em um servidor ou host de contêineres que você gerencia |
-| [Vercel](/docs/vercel)                              | A hospedagem da Vercel, sem nenhum servidor para gerenciar |
-| [Netlify](/docs/netlify)                            | A hospedagem da Netlify, sem nenhum servidor para gerenciar |
-| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | A rede da Cloudflare, sem nenhum servidor para gerenciar |
+| Host                                                      | Onde o app é executado                                               |
+| --------------------------------------------------------- | -------------------------------------------------------------------- |
+| [Node.js](/docs/node-js)                                  | Um servidor que você gerencia, como uma máquina virtual              |
+| [Docker](/docs/docker)                                    | Um contêiner em um servidor ou host de contêineres que você gerencia |
+| [Vercel](/docs/vercel)                                    | A hospedagem da Vercel, sem nenhum servidor para gerenciar           |
+| [Netlify](/docs/netlify)                                  | A hospedagem da Netlify, sem nenhum servidor para gerenciar          |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | A rede da Cloudflare, sem nenhum servidor para gerenciar             |
 
 Escolha Node.js ou Docker quando quiser controle total sobre a máquina em que o app
 é executado. Escolha Vercel, Netlify ou Cloudflare Workers quando quiser que o host
@@ -43,10 +43,10 @@ e executar um app localmente.
 
 O app lê as configurações de produção a partir de variáveis de ambiente:
 
-| Variável             | Obrigatória | Finalidade                                                   |
-| -------------------- | ----------- | ------------------------------------------------------------ |
-| `DATABASE_URL`       | Sim         | Conecta o app ao seu banco de dados PostgreSQL               |
-| `BETTER_AUTH_SECRET` | Sim         | Assina as sessões dos usuários                               |
+| Variável             | Obrigatória | Finalidade                                                           |
+| -------------------- | ----------- | -------------------------------------------------------------------- |
+| `DATABASE_URL`       | Sim         | Conecta o app ao seu banco de dados PostgreSQL                       |
+| `BETTER_AUTH_SECRET` | Sim         | Assina as sessões dos usuários                                       |
 | `BETTER_AUTH_URL`    | Não         | Define o endereço público que as pessoas usam para acessar o seu app |
 
 Salve essas variáveis nas configurações de ambiente do seu host, não apenas no arquivo

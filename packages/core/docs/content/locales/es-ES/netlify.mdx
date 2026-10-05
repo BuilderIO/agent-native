@@ -46,10 +46,10 @@ supone que estás dentro de la carpeta de la aplicación.
 
 La aplicación lee su configuración de producción desde variables de entorno:
 
-| Variable             | Obligatoria | Propósito                                                          |
-| -------------------- | ----------- | ------------------------------------------------------------------ |
-| `DATABASE_URL`       | Sí          | Conecta la aplicación con su base de datos PostgreSQL              |
-| `BETTER_AUTH_SECRET` | Sí          | Firma las sesiones de los usuarios                                 |
+| Variable             | Obligatoria | Propósito                                                                      |
+| -------------------- | ----------- | ------------------------------------------------------------------------------ |
+| `DATABASE_URL`       | Sí          | Conecta la aplicación con su base de datos PostgreSQL                          |
+| `BETTER_AUTH_SECRET` | Sí          | Firma las sesiones de los usuarios                                             |
 | `BETTER_AUTH_URL`    | No          | Define la dirección pública que usan las personas para acceder a tu aplicación |
 
 Las exportaciones siguientes hacen que los comandos posteriores funcionen en esta terminal. Antes de
@@ -207,11 +207,11 @@ de base de datos.
 Estas variables controlan keep-warm. La programación y la configuración en segundo plano solo
 se aplican después de activar `AGENT_NATIVE_ENABLE_KEEP_WARM`:
 
-| Variable                                    | Efecto                                                                                                                                                                          |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Activa el calentamiento programado de la función del servidor y la base de datos. No está definida de forma predeterminada.                                                      |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Desactiva keep-warm incluso cuando `AGENT_NATIVE_ENABLE_KEEP_WARM` está definida. Se mantiene por compatibilidad con configuraciones antiguas.                                   |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Cambia la frecuencia del calentamiento con una expresión cron de 5 campos, como `*/5 * * * *`. El valor predeterminado es `* * * * *`, cada minuto. Un valor que no sea un cron válido **hace fallar la compilación**. |
+| Variable                                    | Efecto                                                                                                                                                                                                                                                               |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Activa el calentamiento programado de la función del servidor y la base de datos. No está definida de forma predeterminada.                                                                                                                                          |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Desactiva keep-warm incluso cuando `AGENT_NATIVE_ENABLE_KEEP_WARM` está definida. Se mantiene por compatibilidad con configuraciones antiguas.                                                                                                                       |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Cambia la frecuencia del calentamiento con una expresión cron de 5 campos, como `*/5 * * * *`. El valor predeterminado es `* * * * *`, cada minuto. Un valor que no sea un cron válido **hace fallar la compilación**.                                               |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Omite el calentamiento de la función en segundo plano y sigue calentando la función del servidor. Calentar el servidor es una sola solicitud. Calentar la función en segundo plano inicia un contenedor nuevo que vuelve a comprobar el esquema de la base de datos. |
 
 Si tu base de datos está en un plan gratuito o limitado de otra forma, deja

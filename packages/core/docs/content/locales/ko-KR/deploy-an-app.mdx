@@ -15,13 +15,13 @@ Node.js `22.22+`가 필요합니다.
 
 ## 호스트 선택하기 {#choose-a-host}
 
-| 호스트                                              | 앱이 실행되는 곳                                       |
-| --------------------------------------------------- | ------------------------------------------------------ |
-| [Node.js](/docs/node-js)                            | 가상 머신처럼 직접 관리하는 서버                       |
-| [Docker](/docs/docker)                              | 직접 관리하는 서버나 컨테이너 호스트의 컨테이너        |
-| [Vercel](/docs/vercel)                              | 관리할 서버가 없는 Vercel 호스팅                       |
-| [Netlify](/docs/netlify)                            | 관리할 서버가 없는 Netlify 호스팅                      |
-| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | 관리할 서버가 없는 Cloudflare 네트워크            |
+| 호스트                                                    | 앱이 실행되는 곳                                |
+| --------------------------------------------------------- | ----------------------------------------------- |
+| [Node.js](/docs/node-js)                                  | 가상 머신처럼 직접 관리하는 서버                |
+| [Docker](/docs/docker)                                    | 직접 관리하는 서버나 컨테이너 호스트의 컨테이너 |
+| [Vercel](/docs/vercel)                                    | 관리할 서버가 없는 Vercel 호스팅                |
+| [Netlify](/docs/netlify)                                  | 관리할 서버가 없는 Netlify 호스팅               |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | 관리할 서버가 없는 Cloudflare 네트워크          |
 
 앱이 실행되는 머신을 완전히 제어하고 싶다면 Node.js나 Docker를 선택하세요. 호스트가 앱을 대신 실행하고 HTTPS가 적용된 공개 주소를 제공하기를 원한다면 Vercel, Netlify, Cloudflare Workers를 선택하세요.
 
@@ -35,10 +35,10 @@ Node.js `22.22+`가 필요합니다.
 
 앱은 프로덕션 설정을 환경 변수에서 읽습니다.
 
-| 변수                 | 필수   | 용도                                           |
-| -------------------- | ------ | ---------------------------------------------- |
-| `DATABASE_URL`       | 예     | 앱을 PostgreSQL 데이터베이스에 연결합니다      |
-| `BETTER_AUTH_SECRET` | 예     | 사용자 세션에 서명합니다                       |
+| 변수                 | 필수   | 용도                                          |
+| -------------------- | ------ | --------------------------------------------- |
+| `DATABASE_URL`       | 예     | 앱을 PostgreSQL 데이터베이스에 연결합니다     |
+| `BETTER_AUTH_SECRET` | 예     | 사용자 세션에 서명합니다                      |
 | `BETTER_AUTH_URL`    | 아니요 | 사용자가 앱에 접속하는 공개 주소를 설정합니다 |
 
 이 변수들은 앱의 로컬 `.env` 파일뿐 아니라 호스트의 환경 설정에도 저장하세요. 각 가이드에서 해당 호스트에서 저장하는 방법을 보여 줍니다.

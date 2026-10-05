@@ -18,13 +18,13 @@ Se requiere Node.js `22.22+`.
 
 ## Elige un host {#choose-a-host}
 
-| Host                                                | Dónde se ejecuta la aplicación                         |
-| --------------------------------------------------- | ------------------------------------------------------ |
-| [Node.js](/docs/node-js)                            | Un servidor que administras tú, como una máquina virtual |
-| [Docker](/docs/docker)                              | Un contenedor en un servidor o host de contenedores que administras tú |
-| [Vercel](/docs/vercel)                              | El alojamiento de Vercel, sin ningún servidor que administrar |
-| [Netlify](/docs/netlify)                            | El alojamiento de Netlify, sin ningún servidor que administrar |
-| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | La red de Cloudflare, sin ningún servidor que administrar |
+| Host                                                      | Dónde se ejecuta la aplicación                                         |
+| --------------------------------------------------------- | ---------------------------------------------------------------------- |
+| [Node.js](/docs/node-js)                                  | Un servidor que administras tú, como una máquina virtual               |
+| [Docker](/docs/docker)                                    | Un contenedor en un servidor o host de contenedores que administras tú |
+| [Vercel](/docs/vercel)                                    | El alojamiento de Vercel, sin ningún servidor que administrar          |
+| [Netlify](/docs/netlify)                                  | El alojamiento de Netlify, sin ningún servidor que administrar         |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | La red de Cloudflare, sin ningún servidor que administrar              |
 
 Elige Node.js o Docker cuando quieras tener control total sobre la máquina en la que se ejecuta la
 aplicación. Elige Vercel, Netlify o Cloudflare Workers cuando quieras que el host
@@ -43,10 +43,10 @@ y ejecutar una aplicación en local.
 
 La aplicación lee su configuración de producción desde variables de entorno:
 
-| Variable             | Obligatoria | Propósito                                                          |
-| -------------------- | ----------- | ------------------------------------------------------------------ |
-| `DATABASE_URL`       | Sí          | Conecta la aplicación con su base de datos PostgreSQL              |
-| `BETTER_AUTH_SECRET` | Sí          | Firma las sesiones de los usuarios                                 |
+| Variable             | Obligatoria | Propósito                                                                      |
+| -------------------- | ----------- | ------------------------------------------------------------------------------ |
+| `DATABASE_URL`       | Sí          | Conecta la aplicación con su base de datos PostgreSQL                          |
+| `BETTER_AUTH_SECRET` | Sí          | Firma las sesiones de los usuarios                                             |
 | `BETTER_AUTH_URL`    | No          | Define la dirección pública que usan las personas para acceder a tu aplicación |
 
 Guarda estas variables en la configuración del entorno de tu host, no solo en el archivo

@@ -18,13 +18,13 @@ Node.js `22.22+` आवश्यक है।
 
 ## Host चुनें {#choose-a-host}
 
-| Host                                                | ऐप कहां चलता है                                         |
-| --------------------------------------------------- | ------------------------------------------------------ |
-| [Node.js](/docs/node-js)                            | आपके द्वारा manage किया जाने वाला server, जैसे virtual machine |
-| [Docker](/docs/docker)                              | आपके द्वारा manage किए जाने वाले server या container host पर एक container |
-| [Vercel](/docs/vercel)                              | Vercel की hosting, जिसमें कोई server manage नहीं करना पड़ता |
-| [Netlify](/docs/netlify)                            | Netlify की hosting, जिसमें कोई server manage नहीं करना पड़ता |
-| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | Cloudflare का network, जिसमें कोई server manage नहीं करना पड़ता |
+| Host                                                      | ऐप कहां चलता है                                                           |
+| --------------------------------------------------------- | ------------------------------------------------------------------------- |
+| [Node.js](/docs/node-js)                                  | आपके द्वारा manage किया जाने वाला server, जैसे virtual machine            |
+| [Docker](/docs/docker)                                    | आपके द्वारा manage किए जाने वाले server या container host पर एक container |
+| [Vercel](/docs/vercel)                                    | Vercel की hosting, जिसमें कोई server manage नहीं करना पड़ता               |
+| [Netlify](/docs/netlify)                                  | Netlify की hosting, जिसमें कोई server manage नहीं करना पड़ता              |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | Cloudflare का network, जिसमें कोई server manage नहीं करना पड़ता           |
 
 जब आप उस machine पर पूरा नियंत्रण चाहते हैं जिस पर ऐप चलता है, तब Node.js या
 Docker चुनें। जब आप चाहते हैं कि host आपके लिए ऐप चलाए और उसे HTTPS के साथ एक
@@ -43,10 +43,10 @@ public address दे, तब Vercel, Netlify, या Cloudflare Workers चु�
 
 ऐप अपनी production settings environment variables से पढ़ता है:
 
-| Variable             | आवश्यक | उद्देश्य                                                   |
-| -------------------- | ------ | ---------------------------------------------------------- |
-| `DATABASE_URL`       | हां    | ऐप को उसके PostgreSQL database से connect करता है          |
-| `BETTER_AUTH_SECRET` | हां    | User sessions sign करता है                                 |
+| Variable             | आवश्यक | उद्देश्य                                                       |
+| -------------------- | ------ | -------------------------------------------------------------- |
+| `DATABASE_URL`       | हां    | ऐप को उसके PostgreSQL database से connect करता है              |
+| `BETTER_AUTH_SECRET` | हां    | User sessions sign करता है                                     |
 | `BETTER_AUTH_URL`    | नहीं   | वह public address सेट करता है जिससे लोग आपके ऐप तक पहुंचते हैं |
 
 इन variables को अपने host की environment settings में save करें, सिर्फ ऐप की

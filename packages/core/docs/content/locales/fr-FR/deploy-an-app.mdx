@@ -19,13 +19,13 @@ Node.js `22.22+` est requis.
 
 ## Choisir un hébergeur {#choose-a-host}
 
-| Hébergeur                                           | Où l'application s'exécute                             |
-| --------------------------------------------------- | ------------------------------------------------------ |
-| [Node.js](/docs/node-js)                            | Sur un serveur que vous gérez, par exemple une machine virtuelle |
-| [Docker](/docs/docker)                              | Dans un conteneur sur un serveur ou un hébergeur de conteneurs que vous gérez |
-| [Vercel](/docs/vercel)                              | Sur l'hébergement de Vercel, sans serveur à gérer      |
-| [Netlify](/docs/netlify)                            | Sur l'hébergement de Netlify, sans serveur à gérer     |
-| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | Sur le réseau de Cloudflare, sans serveur à gérer |
+| Hébergeur                                                 | Où l'application s'exécute                                                    |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| [Node.js](/docs/node-js)                                  | Sur un serveur que vous gérez, par exemple une machine virtuelle              |
+| [Docker](/docs/docker)                                    | Dans un conteneur sur un serveur ou un hébergeur de conteneurs que vous gérez |
+| [Vercel](/docs/vercel)                                    | Sur l'hébergement de Vercel, sans serveur à gérer                             |
+| [Netlify](/docs/netlify)                                  | Sur l'hébergement de Netlify, sans serveur à gérer                            |
+| [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) | Sur le réseau de Cloudflare, sans serveur à gérer                             |
 
 Choisissez Node.js ou Docker si vous voulez garder le contrôle total de la
 machine sur laquelle l'application s'exécute. Choisissez Vercel, Netlify ou
@@ -47,11 +47,11 @@ une application en local.
 L'application lit ses paramètres de production depuis des variables
 d'environnement :
 
-| Variable             | Requise | Rôle                                                                   |
-| -------------------- | ------- | ---------------------------------------------------------------------- |
-| `DATABASE_URL`       | Oui     | Connecte l'application à sa base de données PostgreSQL                 |
-| `BETTER_AUTH_SECRET` | Oui     | Signe les sessions utilisateur                                         |
-| `BETTER_AUTH_URL`    | Non     | Définit l'adresse publique utilisée pour accéder à votre application   |
+| Variable             | Requise | Rôle                                                                 |
+| -------------------- | ------- | -------------------------------------------------------------------- |
+| `DATABASE_URL`       | Oui     | Connecte l'application à sa base de données PostgreSQL               |
+| `BETTER_AUTH_SECRET` | Oui     | Signe les sessions utilisateur                                       |
+| `BETTER_AUTH_URL`    | Non     | Définit l'adresse publique utilisée pour accéder à votre application |
 
 Enregistrez ces variables dans les paramètres d'environnement de votre
 hébergeur, pas seulement dans le fichier `.env` local de l'application. Chaque

@@ -47,10 +47,10 @@ pnpm install
 
 ऐप अपनी production settings environment variables से पढ़ता है:
 
-| Variable             | आवश्यक | उद्देश्य                                                   |
-| -------------------- | ------ | ---------------------------------------------------------- |
-| `DATABASE_URL`       | हां    | ऐप को उसके PostgreSQL database से connect करता है          |
-| `BETTER_AUTH_SECRET` | हां    | User sessions sign करता है                                 |
+| Variable             | आवश्यक | उद्देश्य                                                       |
+| -------------------- | ------ | -------------------------------------------------------------- |
+| `DATABASE_URL`       | हां    | ऐप को उसके PostgreSQL database से connect करता है              |
+| `BETTER_AUTH_SECRET` | हां    | User sessions sign करता है                                     |
 | `BETTER_AUTH_URL`    | नहीं   | वह public address सेट करता है जिससे लोग आपके ऐप तक पहुंचते हैं |
 
 नीचे दिए गए exports से आगे के commands इस shell में काम करते हैं। Deploy करने
@@ -211,11 +211,11 @@ Keep-warm **default रूप से बंद** है। Database को ज�
 ये variables keep-warm को नियंत्रित करते हैं। Schedule और background settings तभी
 लागू होती हैं जब आप `AGENT_NATIVE_ENABLE_KEEP_WARM` चालू करते हैं:
 
-| Variable                                    | प्रभाव                                                                                                                                                                          |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Server function और database के लिए scheduled warm-up चालू करता है। Default रूप से unset है।                                                                                          |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | `AGENT_NATIVE_ENABLE_KEEP_WARM` सेट होने पर भी keep-warm बंद करता है। पुराने setups के साथ compatibility के लिए रखा गया है।                                                                 |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Warm-up कितनी बार चलता है, इसे `*/5 * * * *` जैसे 5-field cron expression से बदलता है। Default `* * * * *` है, यानी हर मिनट। जो value valid cron नहीं है, वह **build को fail कर देती है**। |
+| Variable                                    | प्रभाव                                                                                                                                                                                                                            |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Server function और database के लिए scheduled warm-up चालू करता है। Default रूप से unset है।                                                                                                                                       |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | `AGENT_NATIVE_ENABLE_KEEP_WARM` सेट होने पर भी keep-warm बंद करता है। पुराने setups के साथ compatibility के लिए रखा गया है।                                                                                                       |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Warm-up कितनी बार चलता है, इसे `*/5 * * * *` जैसे 5-field cron expression से बदलता है। Default `* * * * *` है, यानी हर मिनट। जो value valid cron नहीं है, वह **build को fail कर देती है**।                                        |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Background function की warming छोड़ देता है और server function की warming जारी रखता है। Server की warming एक request है। Background function की warming एक नया container शुरू करती है जो database schema को फिर से check करता है। |
 
 अगर आपका database free या किसी और तरह से limited plan पर है, तो

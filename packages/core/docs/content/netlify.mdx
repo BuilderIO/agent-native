@@ -209,11 +209,11 @@ database time.
 These variables control keep-warm. The schedule and background settings only
 apply after you turn on `AGENT_NATIVE_ENABLE_KEEP_WARM`:
 
-| Variable                                    | Effect                                                                                                                                                                          |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Turns on the scheduled warm-up for the server function and database. Unset by default.                                                                                          |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Turns keep-warm off even when `AGENT_NATIVE_ENABLE_KEEP_WARM` is set. Kept for compatibility with older setups.                                                                 |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Changes how often the warm-up runs, as a 5-field cron expression such as `*/5 * * * *`. The default is `* * * * *`, every minute. A value that is not valid cron **fails the build**. |
+| Variable                                    | Effect                                                                                                                                                                                                        |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Turns on the scheduled warm-up for the server function and database. Unset by default.                                                                                                                        |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Turns keep-warm off even when `AGENT_NATIVE_ENABLE_KEEP_WARM` is set. Kept for compatibility with older setups.                                                                                               |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Changes how often the warm-up runs, as a 5-field cron expression such as `*/5 * * * *`. The default is `* * * * *`, every minute. A value that is not valid cron **fails the build**.                         |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Skips warming the background function and keeps warming the server function. Warming the server is one request. Warming the background function starts a new container that checks the database schema again. |
 
 If your database is on a free or otherwise limited plan, leave

@@ -53,11 +53,11 @@ l'application.
 L'application lit ses paramètres de production depuis des variables
 d'environnement :
 
-| Variable             | Requise | Rôle                                                                   |
-| -------------------- | ------- | ---------------------------------------------------------------------- |
-| `DATABASE_URL`       | Oui     | Connecte l'application à sa base de données PostgreSQL                 |
-| `BETTER_AUTH_SECRET` | Oui     | Signe les sessions utilisateur                                         |
-| `BETTER_AUTH_URL`    | Non     | Définit l'adresse publique utilisée pour accéder à votre application   |
+| Variable             | Requise | Rôle                                                                 |
+| -------------------- | ------- | -------------------------------------------------------------------- |
+| `DATABASE_URL`       | Oui     | Connecte l'application à sa base de données PostgreSQL               |
+| `BETTER_AUTH_SECRET` | Oui     | Signe les sessions utilisateur                                       |
+| `BETTER_AUTH_URL`    | Non     | Définit l'adresse publique utilisée pour accéder à votre application |
 
 Les exports ci-dessous permettent aux commandes suivantes de fonctionner dans ce
 shell. Avant de déployer, enregistrez ces mêmes variables dans les paramètres
@@ -227,11 +227,11 @@ Ces variables contrôlent le maintien à chaud. Les paramètres de planning et
 d'arrière-plan ne s'appliquent qu'après l'activation de
 `AGENT_NATIVE_ENABLE_KEEP_WARM` :
 
-| Variable                                    | Effet                                                                                                                                                                                                                                                                  |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Active le réchauffement planifié de la fonction serveur et de la base de données. Non défini par défaut.                                                                                                                                                               |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Désactive le maintien à chaud même lorsque `AGENT_NATIVE_ENABLE_KEEP_WARM` est défini. Conservé pour la compatibilité avec les anciennes configurations.                                                                                                               |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Modifie la fréquence du réchauffement, sous la forme d'une expression cron à 5 champs comme `*/5 * * * *`. La valeur par défaut est `* * * * *`, soit chaque minute. Une valeur qui n'est pas une expression cron valide **fait échouer le build**.                      |
+| Variable                                    | Effet                                                                                                                                                                                                                                                                               |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Active le réchauffement planifié de la fonction serveur et de la base de données. Non défini par défaut.                                                                                                                                                                            |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Désactive le maintien à chaud même lorsque `AGENT_NATIVE_ENABLE_KEEP_WARM` est défini. Conservé pour la compatibilité avec les anciennes configurations.                                                                                                                            |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Modifie la fréquence du réchauffement, sous la forme d'une expression cron à 5 champs comme `*/5 * * * *`. La valeur par défaut est `* * * * *`, soit chaque minute. Une valeur qui n'est pas une expression cron valide **fait échouer le build**.                                 |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Ignore le réchauffement de la fonction d'arrière-plan et continue de réchauffer la fonction serveur. Réchauffer le serveur représente une seule requête. Réchauffer la fonction d'arrière-plan démarre un nouveau conteneur qui vérifie de nouveau le schéma de la base de données. |
 
 Si votre base de données utilise une offre gratuite ou limitée d'une autre
