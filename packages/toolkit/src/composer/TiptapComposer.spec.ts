@@ -969,6 +969,87 @@ describe("createTiptapComposerExtensions", () => {
     );
   });
 
+  it("deduplicates concurrent identical files while allowing same-name files with different contents", async () => {
+    let nextAttachmentId = 0;
+    const attachmentAdapter: AttachmentAdapter = {
+      accept: "*",
+      add: async ({ file }) => ({
+        id: String(++nextAttachmentId),
+        type: "document",
+        name: file.name,
+        contentType: file.type,
+        file,
+        status: { type: "requires-action", reason: "composer-send" },
+      }),
+      remove: async () => {},
+      send: async (attachment) => ({
+        ...attachment,
+        status: { type: "complete" },
+        content: [],
+      }),
+    };
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    let harnessRuntime: ReturnType<typeof useLocalRuntime> | undefined;
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter, {
+        adapters: { attachments: attachmentAdapter },
+      });
+      harnessRuntime = runtime;
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "upload-only",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await act(async () => {
+      await Promise.all([
+        focusRef.current!.addAttachment(
+          new File(["same bytes"], "first.png", { type: "image/png" }),
+        ),
+        focusRef.current!.addAttachment(
+          new File(["same bytes"], "second.png", { type: "image/png" }),
+        ),
+      ]);
+    });
+    expect(harnessRuntime?.thread.composer.getState().attachments).toHaveLength(
+      1,
+    );
+
+    await act(async () => {
+      await Promise.all([
+        focusRef.current!.addAttachment(
+          new File(["first report"], "report.txt", { type: "text/plain" }),
+        ),
+        focusRef.current!.addAttachment(
+          new File(["second report"], "report.txt", { type: "text/plain" }),
+        ),
+      ]);
+    });
+    const attachments =
+      harnessRuntime?.thread.composer.getState().attachments ?? [];
+    expect(attachments).toHaveLength(3);
+    expect(attachments.slice(1).map((attachment) => attachment.name)).toEqual([
+      "report.txt",
+      "report.txt",
+    ]);
+  });
+
   it.each([
     [
       "text",

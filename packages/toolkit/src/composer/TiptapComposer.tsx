@@ -290,6 +290,35 @@ export function resolveContextChipBackspaceAction(options: {
 }
 
 const MAX_DOCUMENT_ATTACHMENT_BYTES = 4 * 1024 * 1024;
+const FILE_COMPARISON_CHUNK_BYTES = 64 * 1024;
+
+async function haveSameFileContents(first: Blob, second: Blob) {
+  if (first === second) return true;
+  if (first.size !== second.size) return false;
+
+  for (
+    let offset = 0;
+    offset < first.size;
+    offset += FILE_COMPARISON_CHUNK_BYTES
+  ) {
+    const end = Math.min(offset + FILE_COMPARISON_CHUNK_BYTES, first.size);
+    const [firstChunk, secondChunk] = await Promise.all([
+      first.slice(offset, end).arrayBuffer(),
+      second.slice(offset, end).arrayBuffer(),
+    ]);
+    const firstBytes = new Uint8Array(firstChunk);
+    const secondBytes = new Uint8Array(secondChunk);
+    if (firstBytes.some((byte, index) => byte !== secondBytes[index])) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function isBlob(value: unknown): value is Blob {
+  return typeof Blob !== "undefined" && value instanceof Blob;
+}
 
 function isSameComposerAttachment(
   current: { id: string; file?: unknown },
@@ -2982,12 +3011,51 @@ export function TiptapComposer({
   const draftKeyRef = useRef(draftKey);
   const draftScopeGenerationRef = useRef(0);
   const attachmentCleanupRef = useRef<Promise<void>>(Promise.resolve());
+  const attachmentAddQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingAttachmentFilesRef = useRef(new Map<File, number>());
   const addAttachmentForCurrentScope = useCallback(
     async (file: File) => {
       const scopeGeneration = draftScopeGenerationRef.current;
-      await attachmentCleanupRef.current;
-      if (draftScopeGenerationRef.current !== scopeGeneration) return;
-      return composerRuntime.addAttachment(file);
+      const reservation = attachmentAddQueueRef.current.then(async () => {
+        await attachmentCleanupRef.current;
+        if (draftScopeGenerationRef.current !== scopeGeneration) return false;
+
+        const existingFiles = composerRuntime
+          .getState()
+          .attachments.flatMap((attachment) =>
+            isBlob(attachment.file) ? [attachment.file] : [],
+          );
+        const pendingFiles = [...pendingAttachmentFilesRef.current].flatMap(
+          ([pendingFile, pendingGeneration]) =>
+            pendingGeneration === scopeGeneration ? [pendingFile] : [],
+        );
+        const filesToCompare = [...existingFiles, ...pendingFiles];
+        for (const existingFile of filesToCompare) {
+          if (await haveSameFileContents(file, existingFile)) return false;
+        }
+
+        pendingAttachmentFilesRef.current.set(file, scopeGeneration);
+        return true;
+      });
+      attachmentAddQueueRef.current = reservation.then(
+        () => undefined,
+        () => undefined,
+      );
+
+      if (!(await reservation)) return;
+      if (draftScopeGenerationRef.current !== scopeGeneration) {
+        if (pendingAttachmentFilesRef.current.get(file) === scopeGeneration) {
+          pendingAttachmentFilesRef.current.delete(file);
+        }
+        return;
+      }
+      try {
+        return await composerRuntime.addAttachment(file);
+      } finally {
+        if (pendingAttachmentFilesRef.current.get(file) === scopeGeneration) {
+          pendingAttachmentFilesRef.current.delete(file);
+        }
+      }
     },
     [composerRuntime],
   );
