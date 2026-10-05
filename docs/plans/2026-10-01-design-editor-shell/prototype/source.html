@@ -351,6 +351,8 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 /* Bottom room = toolbar 48 + 8 above + 8 below, so the last content scrolls clear of it. */
 .canvas-inner { padding: 64px 28px 64px; display: flex; justify-content: center; min-width: max-content; }
 .frame-label { position: absolute; transform: translateY(-20px); font-size: 11px; color: var(--muted-fg); display: flex; gap: 6px; }
+/* The page's own colors are Semantic tokens, so a screen's mode (Light or Dark) restyles it; the fallbacks are Light. */
+.page { --page-bg: var(--color-background, hsl(0 0% 100%)); --page-fg: var(--color-foreground, hsl(0 0% 10%)); --page-muted: var(--color-muted-foreground, hsl(0 0% 40%)); --page-card: var(--color-surface, hsl(0 0% 97%)); }
 .page { width: 863px; background: var(--page-bg); color: var(--page-fg); position: relative; transform-origin: top center; }
 .interact .page { cursor: default; }
 .page [data-node], .page-thumb [data-node] { position: relative; }
@@ -361,10 +363,7 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .page .sel-tag, .page .sel-size { letter-spacing: 0; text-transform: none; text-align: left; }
 .page .sel-tag { position: absolute; left: -1px; top: -18px; height: 16px; padding-inline: 4px; background: var(--accent); color: #fff; font: 500 10px/16px var(--font); border-radius: 3px 3px 0 0; white-space: nowrap; pointer-events: none; }
 .page .sel-size { position: absolute; left: 50%; bottom: -20px; transform: translateX(-50%); height: 16px; padding-inline: 4px; background: var(--accent); color: #fff; font: 500 10px/16px var(--font); border-radius: 3px; white-space: nowrap; pointer-events: none; }
-.page.scheme-dark { --page-fg: hsl(0 0% 95%); --page-muted: hsl(0 0% 64%); --page-card: hsl(0 0% 12%); --page-bg: hsl(0 0% 7%); }
-.page.scheme-dark .p-btn { border-color: hsl(0 0% 22%); }
 .page.scheme-dark .p-card { background: var(--page-card); }
-.page.scheme-dark .p-btn.dark { background: hsl(0 0% 96%); color: hsl(0 0% 8%); border-color: hsl(0 0% 96%); }
 .page.scheme-dark .p-code { background: hsl(0 0% 9%); border-color: hsl(0 0% 20%); color: hsl(0 0% 85%); }
 .page.scheme-dark .p-cmd code { border-color: hsl(0 0% 22%); color: hsl(0 0% 85%); }
 .p-nav { display: flex; align-items: center; justify-content: space-between; padding: 20px var(--space-page, 56px); font-size: 13px; }
@@ -377,8 +376,8 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .p-h1 { font-size: 76px; line-height: 1.04; font-weight: var(--font-weight-display, 700); letter-spacing: var(--tracking-display, -0.035em); font-family: var(--font-display, var(--font)); margin: 0; text-wrap: balance; max-width: 700px; }
 .p-sub { font-size: 17px; line-height: 1.35; color: var(--page-muted); max-width: 760px; margin: 0; text-wrap: balance; }
 .p-ctas { display: flex; gap: 16px; }
-.p-btn { height: 46px; padding-inline: 24px; border-radius: var(--radius-button, 23px); font-size: 16px; display: inline-flex; align-items: center; border: 1px solid #e5e5e5; color: var(--page-fg); background: var(--page-bg); }
-.p-btn.dark { background: var(--color-primary, #171717); color: var(--color-on-primary, #fff); border-color: var(--color-primary, #171717); }
+.p-btn { height: 46px; padding-inline: 24px; border-radius: var(--radius-button, 23px); font-size: 16px; display: inline-flex; align-items: center; border: 1px solid var(--color-border, #e5e5e5); color: var(--page-fg); background: var(--page-bg); }
+.p-btn.dark { background: var(--button-bg, #171717); color: var(--button-fg, #fff); border-color: var(--button-bg, #171717); }
 .interact .p-btn:hover { filter: brightness(.94); }
 .p-cmd { display: flex; gap: 16px; align-items: center; }
 .p-cmd code { height: 40px; padding-inline: 16px; border-radius: 20px; border: 1px solid #e5e5e5; display: inline-flex; align-items: center; gap: 12px; font: 14px var(--font); color: #333; }
@@ -714,6 +713,13 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .row.tk[aria-expanded="true"] { background: var(--hover); }
 .row.tk .tk-warn { margin-left: 6px; display: grid; color: var(--warning); flex: none; }
 .row.tk .tk-glyph { color: var(--muted-fg); }
+/* Collections are the sections; the mode select edits one mode of a multi-mode collection. */
+.tk-mode { height: 22px; display: inline-flex; align-items: center; gap: 2px; padding: 0 4px 0 6px; border-radius: 6px; font-size: 11px; color: var(--muted-fg); }
+.tk-mode:hover, .tk-mode[aria-expanded="true"] { background: var(--hover); color: var(--fg); }
+.tk-sub { height: 24px; display: flex; align-items: center; padding-inline: 16px; font-size: 11px; color: var(--muted-fg); }
+.tk-none { height: 32px; display: flex; align-items: center; padding-inline: 16px; font-size: 11px; color: var(--muted-fg); }
+.row.tk .tk-alias { margin-left: 8px; height: 16px; max-width: 104px; padding: 0 4px; border-radius: 4px; background: var(--hover); font: 11px/16px var(--font); color: var(--muted-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; }
+.row.tk:hover .tk-alias { color: var(--fg); background: var(--bg); box-shadow: inset 0 0 0 1px var(--border); }
 .row.tk .tk-val { margin-left: 8px; font: 11px/16px var(--mono); color: var(--muted-fg); max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; text-align: right; }
 .row.tk:hover .tk-val { color: var(--fg); }
 .row.tk input.tk-edit { margin-left: 8px; width: 104px; height: 20px; border: 1px solid var(--accent); border-radius: 4px; background: var(--bg); font: 11px/16px var(--mono); padding: 0 4px; color: var(--fg); flex: none; }
@@ -768,8 +774,11 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .cpk-grid button[aria-pressed="true"] { box-shadow: 0 0 0 1px var(--fg), inset 0 0 0 1px rgb(255 255 255 / 60%); }
 .cpk-lsearch { height: 36px; display: flex; align-items: center; gap: 8px; padding: 0 12px; color: var(--muted-fg); border-bottom: 1px solid var(--border); }
 .cpk-lsearch input { flex: 1; min-width: 0; border: 0; background: none; outline: none; font-size: 12px; color: var(--fg); }
-.cpk-llabel { padding: 8px 12px 4px; font-weight: 600; color: var(--muted-fg); }
+.cpk-llabel { padding: 8px 8px 4px; font-weight: 600; color: var(--muted-fg); }
 .cpk-list { padding: 0 4px 8px; }
+/* Libraries takes the Custom pane's height and scrolls, so a long token list never grows the picker. */
+.cpk-pane[data-cpk-pane="libraries"] { height: 0; min-height: 100%; display: flex; flex-direction: column; }
+.cpk-pane[data-cpk-pane="libraries"] .cpk-list { flex: 1; min-height: 0; overflow: auto; }
 .cpk-lrow { width: 100%; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 4px; font-size: 12px; text-align: left; }
 .cpk-lrow:hover { background: var(--hover); }
 .cpk-lrow[aria-selected="true"] { background: var(--accent-row); }
@@ -1137,7 +1146,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const app = $("#app");
 const S = {
   mode: "design", tool: "select", route: "/home", device: "MacBook Pro 13″", zoom: 67, screenSel: false,
-  selected: "hero-title", tab: "inspector", screens: true, layers: true, panel: "file", labs: false, intInsp: "comments", chat: null, scenario: "none", labsTokens: true, labsCode: true, scheme: "light", layoutGrids: false,
+  selected: "hero-title", tab: "inspector", screens: true, layers: true, panel: "file", labs: false, intInsp: "comments", chat: null, scenario: "none", labsTokens: true, labsCode: true, scheme: "light", layoutGrids: false, frameModes: {},
   collapsed: new Set(), sections: new Set(), history: ["/home"], hIndex: 0, spec: false, grid: false,
 };
 try { const t = localStorage.getItem("des-theme"); if (t) document.documentElement.dataset.theme = t; } catch {}
@@ -1439,10 +1448,23 @@ function renderScreenInspector(el) {
       <div class="g5">${field("Size", wField)}${field("&nbsp;", `<label class="inp"><span class="pre">H</span><input id="screen-h" value="${RESP.h ? RESP.h : "Hug"}" aria-label="Frame height"></label>`, "c3")}</div>`)}
     ${sec("grids", "Layout grids", act("plus", "Add layout grid"), "", { empty: true })}
     ${sec("appearance", "Appearance", act("eye", "Visible"), `<div class="g5">${field("Opacity", inp(ic("grid-dots", "s12"), "100%"))}${field("Corner radius", inp(ic("border-radius", "s12"), "0"), "c3")}</div>`)}
-    ${sec("fill", "Fill", act("plus", "Add fill"), `<div class="fillrow"><button class="inp"><span class="swatch" style="background:#ffffff"></span><span class="hex">FFFFFF</span><span class="pct">100%</span></button></div>`)}
+    ${modesSection()}
+    ${sec("fill", "Fill", act("plus", "Add fill"), `<div class="fillrow"><button class="inp" title="${attr(aliasChain(TOKENS.find(t => t.cssVar === "--color-background"), screenModes()))}"><span class="swatch" style="background:${TOKENS.find(t => t.cssVar === "--color-background")?.value || "#ffffff"}"></span><span class="tok-chip">Background</span><span class="pct">100%</span></button></div>`)}
     ${sec("stroke", "Stroke", act("plus", "Add stroke"), "", { empty: true })}
     ${sec("effects", "Effects", act("plus", "Add effect"), "", { empty: true })}
     ${sec("export", "Export", act("plus", "Add export setting"), `<div class="export-row">${dd("1x")}${dd("PNG")}<label class="inp"><input placeholder="Suffix" aria-label="Suffix" style="padding-left:6px"></label></div>`)}</div>`;
+}
+// A screen picks a mode for each collection that has several (Figma's Apply variable mode). Auto is the first mode
+// here and follows Appearance in Interact, so a Dark preview needs no setting.
+function modesSection() {
+  const cols = COLLECTIONS.filter(c => c.modes.length > 1); if (!cols.length) return "";
+  const own = S.frameModes[S.route] || {};
+  return sec("modes", "Modes", "", cols.map(c => `<div class="g5">${field(c.name, `<button class="inp sel" data-frame-mode="${c.id}" aria-haspopup="menu" aria-expanded="false"><span class="v">${c.modes.includes(own[c.id]) ? own[c.id] : "Auto"}</span>${ic("chevron-down", "s12")}</button>`, "c13")}</div>`).join(""));
+}
+function frameModeMenu(btn) {
+  const c = colOf(btn.dataset.frameMode), own = S.frameModes[S.route] ||= {}, on = c.modes.includes(own[c.id]) ? own[c.id] : "auto";
+  const pick = m => () => { own[c.id] = m; applyTokens(); renderInspector(); renderTokens(); };
+  openMenu(btn, [{ t: "Auto", k: autoMode(c), radio: true, on: on === "auto", run: pick("auto") }, "-", ...c.modes.map(m => ({ t: m, radio: true, on: on === m, run: pick(m) }))]);
 }
 function responsiveSection(id) {
   if (!respOn()) return "";
@@ -1454,6 +1476,7 @@ function responsiveSection(id) {
 document.addEventListener("click", e => {
   const t = e.target;
   if (t.closest?.("[data-select-screen]")) { S.screenSel = true; S.multi = []; renderTree(); renderPage(); renderInspector(); return; }
+  const fm = t.closest?.("[data-frame-mode]"); if (fm) return frameModeMenu(fm);
   const dm = t.closest?.("[data-device-menu]"); if (dm) return openMenu(dm, deviceMenu(), { align: "right" });
   const rm = t.closest?.("[data-route-menu]"); if (rm) return openRouteMenu(rm);
   if (t.closest?.("#screen-reload")) { if (!srcUp()) return retryConnection(); renderPage(); return toast(`Reloaded ${S.route}`); }
@@ -1543,10 +1566,8 @@ const DOCS_LAYERS = [{ id: "docs-nav", name: "Nav", kind: "frame" }, { id: "docs
 // Interact › Appearance. In code this replaces the hard-coded colorScheme: "light" on screen iframes
 // (DesignCanvas.tsx:7323, MultiScreenCanvas.tsx:12205); the iframe's color-scheme drives prefers-color-scheme inside it.
 const SCHEME_LABEL = { light: "Light", dark: "Dark", system: "System" }, SCHEME_ICON = { light: "sun", dark: "moon", system: "device-desktop" };
-function applyScheme() {
-  const dark = S.mode === "interact" && (S.scheme === "dark" || (S.scheme === "system" && matchMedia("(prefers-color-scheme: dark)").matches));
-  $("#page")?.classList.toggle("scheme-dark", dark);
-}
+// Token values come from the screen's modes; scheme-dark styles what isn't a token yet (code blocks).
+function applyScheme() { applyTokens(); }
 function renderTopbar() {
   if (H.active) { $("#topbar").innerHTML = historyTopbar(); return; }
   const r = ROUTES.find(x => x.path === S.route) || ROUTES[0];
@@ -2138,7 +2159,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
         <div class="cpk-val"><div class="cpk-row"><button class="inp sel cpk-mode" aria-haspopup="menu" title="Color mode"></button><label class="inp cpk-op" title="Opacity"><span class="pre">${ic("grid-dots", "s12")}</span><input class="cpk-a" aria-label="Opacity" inputmode="numeric"></label></div><div class="cpk-fields"></div></div>
         <div class="cpk-doc"><div class="cpk-doc-h">Document colors</div><div class="cpk-grid">${docs.map(c => `<button data-cpk-doc="${c}" aria-label="${c}" title="${c}" style="background:${c}"></button>`).join("")}</div></div>
       </div>
-      ${libraries ? `<div class="cpk-pane" data-cpk-pane="libraries" aria-hidden="true"><label class="cpk-lsearch">${ic("search", "s14")}<input placeholder="Search" aria-label="Search tokens"></label><div class="cpk-llabel">Design tokens</div><div class="cpk-list">${libs.map(t => `<button class="cpk-lrow" data-cpk-token="${t.cssVar}" title="${t.cssVar}" aria-selected="${t.cssVar === current}"><span class="sw" style="background:${t.value}"></span><span class="grow">${t.name}</span>${t.cssVar === current ? ic("check", "s14") : ""}</button>`).join("")}</div></div>` : ""}
+      ${libraries ? `<div class="cpk-pane" data-cpk-pane="libraries" aria-hidden="true"><label class="cpk-lsearch">${ic("search", "s14")}<input placeholder="Search" aria-label="Search tokens"></label><div class="cpk-list">${[...new Set(libs.map(t => t.collection))].map(g => `<div class="cpk-llabel" data-cpk-group="${g}">${COLLECTIONS.find(c => c.id === g)?.name || "Design tokens"}</div>${libs.filter(t => t.collection === g).map(t => `<button class="cpk-lrow" data-cpk-token="${t.cssVar}" data-cpk-in="${g}" title="${t.cssVar}" aria-selected="${t.cssVar === current}"><span class="sw" style="background:${t.value}"></span><span class="grow">${t.name}</span>${t.cssVar === current ? ic("check", "s14") : ""}</button>`).join("")}`).join("")}</div></div>` : ""}
     </div>`;
   document.body.append(pop);
   // Placed after the first paint (below), once its full height is known: level with the anchor, kept on screen,
@@ -2327,7 +2348,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     update();
   });
   const setTab = tab => { pop.querySelectorAll("[data-cpk-tab]").forEach(b => b.setAttribute("aria-selected", b.dataset.cpkTab === tab)); pop.querySelectorAll("[data-cpk-pane]").forEach(p => p.setAttribute("aria-hidden", p.dataset.cpkPane !== tab)); if (tab === "libraries") q(".cpk-lsearch input").focus(); };
-  pop.addEventListener("input", e => { if (e.target.closest(".cpk-lsearch")) { const s = e.target.value.toLowerCase(); pop.querySelectorAll("[data-cpk-token]").forEach(b => { b.hidden = !b.textContent.toLowerCase().includes(s) && !b.dataset.cpkToken.includes(s); }); } });
+  pop.addEventListener("input", e => { if (e.target.closest(".cpk-lsearch")) { const s = e.target.value.toLowerCase(); pop.querySelectorAll("[data-cpk-token]").forEach(b => { b.hidden = !b.textContent.toLowerCase().includes(s) && !b.dataset.cpkToken.includes(s); }); pop.querySelectorAll("[data-cpk-group]").forEach(l => { l.hidden = !pop.querySelector(`[data-cpk-in="${l.dataset.cpkGroup}"]:not([hidden])`); }); } });
   pop.addEventListener("click", e => {
     const tab = e.target.closest("[data-cpk-tab]"); if (tab) return setTab(tab.dataset.cpkTab);
     if (e.target.closest(".cpk-copy")) return copyText(css(), `Copied ${css()}`);
@@ -2353,7 +2374,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
       if (!save || !name) return;
       const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "color";
       let cssVar = `--color-${slug}`; for (let n = 2; TOKENS.some(t => t.cssVar === cssVar); n++) cssVar = `--color-${slug}-${n}`;
-      const t = { name, cssVar, value: css(), type: "color", source: "index.html" };
+      const t = mkToken({ name, cssVar, value: css(), type: "color", source: "index.html" });
       TOKENS.push(t); applyTokens(); if (S.panel === "tokens") renderTokens();
       onPickToken?.(t, true); close(false);
     };
@@ -2543,13 +2564,15 @@ document.addEventListener("click", e => {
   const tk = t.closest("[data-toast]"); if (tk) { toast(tk.dataset.toast); return; }
   if (t.closest("[data-tk-open-import]")) { openMenu(t.closest("button"), TOKEN_IMPORT_MENU()); return; }
   if (t.closest("[data-tk-gen]")) { startSkill("Generate tokens"); return; }
+  const tkm = t.closest("[data-tk-mode]"); if (tkm) return tokenModeMenu(tkm);
+  const tka = t.closest("[data-tk-add]"); if (tka) { const c = tka.dataset.tkAdd; return openMenu(tka, [...tokenKindItems(c), "-", { t: "Add mode", run: () => addMode(c) }], { align: "right" }); }
   const tks = t.closest("[data-tk-sec]"); if (tks) { const k = tks.dataset.tkSec; TK.collapsed.has(k) ? TK.collapsed.delete(k) : TK.collapsed.add(k); renderTokens(); return; }
   if (t.closest("[data-fill-menu]")) return fillTokenMenu(t.closest("[data-fill-menu]"));
   if (t.closest("[data-fill]")) return pickFill(t.closest("[data-fill]"));
   if (t.closest("[data-tk-dcolor]")) { const sw = t.closest("[data-tk-dcolor]"), v = $("#tk-dval"); return colorPicker(sw.closest(".row"), v.value, { onInput: x => { v.value = x; sw.style.background = x; }, onClose: () => $("#tk-dval")?.focus() }); }
   const tkr = t.closest(".row.tk"); if (tkr && !tkr.matches("[data-tk-draft]") && !t.closest(".tk-edit")) {
     const tok = TOKENS.find(x => x.cssVar === tkr.dataset.tk);
-    if (tok.type === "color" && isColor(tok.value)) return pickTokenColor(tok, tkr);
+    if (tok.type === "color" && isColor(resolveToken(tok, panelModes()))) return pickTokenColor(tok, tkr);
     TK.editing = tkr.dataset.tk; renderTokens(); return;
   }
   const pin = t.closest("[data-pin]"); if (pin) { if (S.cmOpen === +pin.dataset.pin) closeCard(); else openThread(+pin.dataset.pin); return; }
@@ -2598,7 +2621,7 @@ document.addEventListener("click", e => {
   if (id === "device-btn") return openMenu(t.closest("button"), DEVICES.map(d => ({ t: `${d.name}  ·  ${d.w}`, check: d.name === S.device, run: () => { S.device = d.name; renderTopbar(); renderPage(); } })).concat(["-", { t: "Custom size" }]));
   if (id === "zoom-btn") { const zt = z => () => { S.zoom = z; renderTopbar(); renderPage(); }; return openMenu(t.closest("button"), [{ field: S.zoom + "%" }, { t: "Zoom in", k: "⌘=", run: zt(Math.min(200, S.zoom + 25)) }, { t: "Zoom out", k: "⌘-", run: zt(Math.max(25, S.zoom - 25)) }, { t: "Zoom to fit", k: "⇧1", run: () => zt(fitZoom())() }, { t: "Zoom to 50%", run: zt(50) }, { t: "Zoom to 100%", k: "⇧0", run: zt(100) }, { t: "Zoom to 200%", run: zt(200) }, "-", { t: "Pixel grid", toggle: true, on: true }, { t: "Snap to pixel grid", toggle: true, on: true }, { t: "Layout grids", k: "⌃G", toggle: true, on: S.layoutGrids, run: on => { S.layoutGrids = on; $("#page").classList.toggle("show-grids", on); } }, { t: "Rulers", toggle: true, on: false }, { t: "Multiplayer cursors", toggle: true, on: true }, "-", { t: "Comments", k: "⇧C", toggle: true, on: S.showPins !== false, run: on => { S.showPins = on; renderPins(); } }]); }
   if (id === "app-menu-btn") return openMenu(t.closest("button"), APP_MENU());
-  if (id === "tk-new") return openMenu(t.closest("button"), TOKEN_KINDS.map(k => k === "-" ? k : { icon: k[2], t: k[1], run: () => startTokenDraft(k[0]) }), { align: "right" });
+  if (id === "tk-new") return openMenu(t.closest("button"), [...tokenKindItems("semantic"), "-", { t: "New collection", run: addCollection }], { align: "right" });
   if (id === "tk-import") return openMenu(t.closest("button"), TOKEN_IMPORT_MENU(), { align: "right" });
   if (id === "tk-search") return openTokenSearch();
   if (id === "layer-search") return openLayerSearch();
@@ -3102,23 +3125,75 @@ function restoreSelected() {
 
 /* ───────── tokens (TokensPanel.tsx; actions index-design-tokens / apply-design-token-edit / import-design-tokens) ───────── */
 const TK_TYPES = [["color", "Colors", "palette"], ["typography", "Typography", "letter-case"], ["spacing", "Spacing & Layout", "spacing-vertical"], ["radius", "Radius", "ruler"], ["shadow", "Shadows & Effects", "shadow"], ["other", "Other", "brush"]];
+// Collections are tiers, and a token aliases only into a tier below it: Components → Semantic → Primitives.
+// In DTCG resolver terms each collection is a set, and one with several modes is a modifier (theme: light | dark).
+// A mode with a color scheme is the one Auto picks when the screen's Appearance is that scheme.
+const COLLECTIONS = [
+  { id: "primitives", name: "Primitives", modes: ["Value"] },
+  { id: "semantic", name: "Semantic", modes: ["Light", "Dark"], scheme: { Light: "light", Dark: "dark" } },
+  { id: "components", name: "Components", modes: ["Value"] },
+];
+const colOf = id => COLLECTIONS.find(c => c.id === id) || COLLECTIONS[1];
+const tierOf = t => COLLECTIONS.findIndex(c => c.id === t.collection);
+// A value is either raw CSS or an alias, written as var(--token) so the canvas resolves it like the shipped CSS would.
+const ALIAS = /^var\((--[\w-]+)\)$/;
+const aliasOf = raw => TOKENS.find(x => x.cssVar === String(raw).match(ALIAS)?.[1]) || null;
+// A mode with no value of its own uses the collection's first mode, so a font set once applies in Light and Dark.
+const rawOf = (t, mode) => t.values[mode] ?? t.values[colOf(t.collection).modes[0]] ?? "";
+// The modes a screen shows: its own choice per collection, or Auto, which follows Appearance in Interact.
+const appearanceDark = () => S.mode === "interact" && (S.scheme === "dark" || (S.scheme === "system" && matchMedia("(prefers-color-scheme: dark)").matches));
+const autoMode = c => (appearanceDark() && c.scheme && Object.keys(c.scheme).find(m => c.scheme[m] === "dark")) || c.modes[0];
+function screenModes(route = S.route) {
+  const own = S.frameModes?.[route] || {};
+  return Object.fromEntries(COLLECTIONS.map(c => [c.id, c.modes.includes(own[c.id]) ? own[c.id] : autoMode(c)]));
+}
+// The panel edits one mode per collection; until you pick one it shows what the current screen shows.
+const editMode = id => TK.mode[id] && colOf(id).modes.includes(TK.mode[id]) ? TK.mode[id] : screenModes()[id];
+const panelModes = () => Object.fromEntries(COLLECTIONS.map(c => [c.id, editMode(c.id)]));
+function resolveToken(t, modes, seen = new Set()) {
+  const raw = rawOf(t, modes[t.collection]), target = aliasOf(raw);
+  if (!target || seen.has(t)) return raw;
+  seen.add(t); return resolveToken(target, modes, seen);
+}
+// Primary → Neutral 900 → #171717, for the row's tooltip.
+function aliasChain(t, modes) { const out = [t.name], seen = new Set([t]); let cur = t; for (let x; (x = aliasOf(rawOf(cur, modes[cur.collection]))) && !seen.has(x);) { out.push(x.name); seen.add(x); cur = x; } out.push(resolveToken(t, modes)); return out.join(" → "); }
+// value reads what the current screen shows, so swatches, Document colors, and contrast need no mode;
+// writing it sets the mode the panel is editing, which detaches an alias there.
+function mkToken({ value, values, collection = "semantic", ...rest }) {
+  const t = { ...rest, collection, values: values || { [colOf(collection).modes[0]]: value } };
+  Object.defineProperty(t, "value", { enumerable: true, get() { return resolveToken(this, screenModes()); }, set(v) { this.values[editMode(this.collection)] = v; } });
+  return t;
+}
+const tref = x => `var(${x})`;
 let TOKENS = [
-  { name: "Primary", cssVar: "--color-primary", value: "#171717", type: "color", source: "Agent-Native brand" },
-  { name: "On primary", cssVar: "--color-on-primary", value: "#ffffff", type: "color", source: "Agent-Native brand" },
-  { name: "Surface", cssVar: "--color-surface", value: "#f7f7f7", type: "color", source: "index.html", sourceValues: { "index.html": "#f7f7f7", "docs.html": "#fafafa" } },
-  { name: "Link", cssVar: "--color-link", value: "#0a6bd6", type: "color", source: "index.html" },
-  { name: "Display font", cssVar: "--font-display", value: "Inter", type: "typography", source: "Agent-Native brand" },
-  { name: "Display weight", cssVar: "--font-weight-display", value: "700", type: "typography", source: "index.html" },
+  ["Neutral 0", "--color-neutral-0", "#ffffff"], ["Neutral 50", "--color-neutral-50", "#fafafa"], ["Neutral 200", "--color-neutral-200", "#e5e5e5"], ["Neutral 400", "--color-neutral-400", "#a3a3a3"],
+  ["Neutral 500", "--color-neutral-500", "#737373"], ["Neutral 800", "--color-neutral-800", "#262626"], ["Neutral 900", "--color-neutral-900", "#171717"], ["Neutral 950", "--color-neutral-950", "#0a0a0a"],
+  ["Blue 400", "--color-blue-400", "#60a5fa"], ["Blue 600", "--color-blue-600", "#0a6bd6"],
+].map(([name, cssVar, value]) => ({ name, cssVar, value, type: "color", collection: "primitives", source: "Agent-Native brand" })).concat([
+  { name: "Sans", cssVar: "--font-sans", value: "Inter", type: "typography", collection: "primitives", source: "Agent-Native brand" },
+  { name: "Bold", cssVar: "--font-weight-bold", value: "700", type: "typography", collection: "primitives", source: "Agent-Native brand" },
+  { name: "Background", cssVar: "--color-background", values: { Light: tref("--color-neutral-0"), Dark: tref("--color-neutral-950") }, type: "color", source: "index.html" },
+  { name: "Foreground", cssVar: "--color-foreground", values: { Light: tref("--color-neutral-900"), Dark: tref("--color-neutral-50") }, type: "color", source: "index.html" },
+  { name: "Muted foreground", cssVar: "--color-muted-foreground", values: { Light: tref("--color-neutral-500"), Dark: tref("--color-neutral-400") }, type: "color", source: "index.html" },
+  { name: "Surface", cssVar: "--color-surface", values: { Light: "#f7f7f7", Dark: tref("--color-neutral-900") }, type: "color", source: "index.html", sourceValues: { "index.html": "#f7f7f7", "docs.html": "#fafafa" } },
+  { name: "Border", cssVar: "--color-border", values: { Light: tref("--color-neutral-200"), Dark: tref("--color-neutral-800") }, type: "color", source: "index.html" },
+  { name: "Primary", cssVar: "--color-primary", values: { Light: tref("--color-neutral-900"), Dark: tref("--color-neutral-0") }, type: "color", source: "Agent-Native brand" },
+  { name: "On primary", cssVar: "--color-on-primary", values: { Light: tref("--color-neutral-0"), Dark: tref("--color-neutral-900") }, type: "color", source: "Agent-Native brand" },
+  { name: "Link", cssVar: "--color-link", values: { Light: tref("--color-blue-600"), Dark: tref("--color-blue-400") }, type: "color", source: "index.html" },
+  { name: "Display font", cssVar: "--font-display", value: tref("--font-sans"), type: "typography", source: "Agent-Native brand" },
+  { name: "Display weight", cssVar: "--font-weight-display", value: tref("--font-weight-bold"), type: "typography", source: "index.html" },
   { name: "Display tracking", cssVar: "--tracking-display", value: "-0.035em", type: "typography", source: "index.html" },
   { name: "Page", cssVar: "--space-page", value: "56px", type: "spacing", source: "index.html" },
   { name: "Section", cssVar: "--space-section", value: "64px", type: "spacing", source: "index.html" },
   { name: "Card", cssVar: "--space-card", value: "32px", type: "spacing", source: "index.html" },
-  { name: "Card", cssVar: "--radius-card", value: "24px", type: "radius", source: "Agent-Native brand" },
-  { name: "Button", cssVar: "--radius-button", value: "23px", type: "radius", source: "Agent-Native brand" },
-  { name: "Pill", cssVar: "--radius-pill", value: "13px", type: "radius", source: "index.html" },
-  { name: "Card", cssVar: "--shadow-card", value: "none", type: "shadow", source: "index.html" },
-];
-const TK = { q: "", searching: false, editing: null, draft: null, collapsed: new Set() };
+  { name: "Button background", cssVar: "--button-bg", value: tref("--color-primary"), type: "color", collection: "components", source: "index.html" },
+  { name: "Button text", cssVar: "--button-fg", value: tref("--color-on-primary"), type: "color", collection: "components", source: "index.html" },
+  { name: "Card", cssVar: "--radius-card", value: "24px", type: "radius", collection: "components", source: "Agent-Native brand" },
+  { name: "Button", cssVar: "--radius-button", value: "23px", type: "radius", collection: "components", source: "Agent-Native brand" },
+  { name: "Pill", cssVar: "--radius-pill", value: "13px", type: "radius", collection: "components", source: "index.html" },
+  { name: "Card", cssVar: "--shadow-card", value: "none", type: "shadow", collection: "components", source: "index.html" },
+]).map(mkToken);
+const TK = { q: "", searching: false, editing: null, draft: null, collapsed: new Set(), mode: {} };
 // The + menu mirrors the panel's group order, so a new token lands where the menu said it would.
 // [kind, label, icon, panel group, CSS var prefix, starting value]
 const TOKEN_KINDS = [
@@ -3174,11 +3249,12 @@ document.addEventListener("keydown", e => {
     e.preventDefault(); (SEARCH_BY_REGION[region] || openLayerSearch)(); return;
   }
 }, true);
-function startTokenDraft(kind) {
+// The header's + adds to Semantic, the tier you apply from; a collection's own + adds to that collection.
+function startTokenDraft(kind, collection = "semantic") {
   const [, label, icon, type, prefix, value] = TOKEN_KINDS.find(k => k[0] === kind);
   let slug = "new", n = 2; while (TOKENS.some(t => t.cssVar === prefix + slug)) slug = `new-${n++}`;
-  TK.q = ""; TK.searching = false; TK.editing = null; TK.collapsed.delete(type);
-  TK.draft = { kind, label, icon, type, prefix, slug, value };
+  TK.q = ""; TK.searching = false; TK.editing = null; TK.collapsed.delete(collection);
+  TK.draft = { kind, label, icon, type, prefix, slug, value, collection };
   renderTokens();
 }
 function commitTokenDraft(save) {
@@ -3187,7 +3263,7 @@ function commitTokenDraft(save) {
   const slug = ni.value.trim().toLowerCase().replace(/^--/, "").replace(/[^\w-]+/g, "-").replace(/^-+|-+$/g, ""), cssVar = slug.startsWith(d.prefix.slice(2)) ? "--" + slug : d.prefix + slug, value = vi.value.trim();
   if (save && TOKENS.some(t => t.cssVar === cssVar)) { toast(`${cssVar} already exists`); ni.focus(); return; }
   TK.draft = null;
-  if (save && value && slug) { TOKENS.push({ name: friendly(cssVar), cssVar, value, type: d.type, source: "index.html" }); applyTokens(); toast(`Added ${cssVar}`); }
+  if (save && value && slug) { TOKENS.push(mkToken({ name: friendly(cssVar), cssVar, value, type: d.type, collection: d.collection, source: "index.html" })); applyTokens(); toast(`Added ${cssVar}`); }
   renderTokens();
 }
 const isColor = v => /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v.trim()) || /^(rgba?|hsla?|oklch|color)\(/.test(v.trim());
@@ -3215,12 +3291,16 @@ function textContrastContext(id) {
   const cs = getComputedStyle(el), px = parseFloat(cs.fontSize) / (S.zoom / 100 || 1), bold = +cs.fontWeight >= 700;
   return { bg: bg || "#ffffff", large: px >= 24 || (bold && px >= 18.66) };
 }
+// What you apply first comes first: Semantic, then Components, then the Primitives they're built from.
+const APPLY_ORDER = ["semantic", "components", "primitives"];
+const applyRank = id => { const i = APPLY_ORDER.indexOf(id); return i < 0 ? APPLY_ORDER.length : i; };
+const applyOrder = (list, key = x => x.collection) => list.slice().sort((a, b) => applyRank(key(a)) - applyRank(key(b)));
 function pickFill(btn) {
   const p = PROPS[S.selected], before = { fill: p.fill, fillToken: p.fillToken, fillEdited: p.fillEdited };
   // The label switches between hex and token chip, so re-render the inspector rather than patch one span.
   const sync = () => { applyFills(); renderInspector(); };
   colorPicker(btn, p.fillToken ? TOKENS.find(t => t.cssVar === p.fillToken)?.value : fillCss(p), {
-    libraries: TOKENS.filter(t => t.type === "color"), current: p.fillToken, canCreate: S.labsTokens, contrast: p.text ? textContrastContext(S.selected) : null,
+    libraries: applyOrder(TOKENS.filter(t => t.type === "color")), current: p.fillToken, canCreate: S.labsTokens, contrast: p.text ? textContrastContext(S.selected) : null,
     onInput: v => { p.fill = /^#[0-9a-f]{6}$/i.test(v) ? v.slice(1) : v; p.fillToken = null; p.fillEdited = true; sync(); },
     onPickToken: (t, created) => { p.fillToken = t.cssVar; p.fillEdited = true; sync(); toast(created ? `Created ${t.name} and applied it` : `Fill uses ${t.name}`); },
     onClose: cancelled => { if (cancelled) { Object.assign(p, before); sync(); if (!p.fillEdited) { const el = document.querySelector(`.page [data-node="${S.selected}"]`); if (el) el.style.color = ""; } } },
@@ -3230,53 +3310,101 @@ function pickFill(btn) {
 // on ⌫, the same pattern as W's width tokens (RESP-05). Swapping keeps the fill bound; detaching keeps its color.
 function fillTokenMenu(anchor) {
   const p = PROPS[S.selected], bound = TOKENS.find(t => t.cssVar === p.fillToken);
+  // Semantic colors are the list; deeper tiers sit in submenus, since a fill should rarely skip past Semantic.
   const colors = TOKENS.filter(t => t.type === "color");
+  const [first, ...rest] = applyOrder(COLLECTIONS.filter(c => colors.some(t => t.collection === c.id)), c => c.id);
+  const item = t => ({ t: t.name, k: t.value, radio: true, on: t === bound, run: () => { set({ fillToken: t.cssVar }); toast(bound ? `Swapped ${bound.name} for ${t.name}` : `Fill uses ${t.name}`); } });
   const set = patch => { Object.assign(p, patch, { fillEdited: true }); applyFills(); renderInspector(); };
   openMenu(anchor.closest(".inp") || anchor, [
     ...(bound ? [{ t: "Detach token", k: "⌫", keys: ["Backspace", "Delete"], run: () => { set({ fill: parseHex(bound.value) ? bound.value.replace(/^#/, "") : bound.value, fillToken: null }); toast(`Detached ${bound.name}`); } }, "-"] : []),
-    { label: "Color tokens" },
-    ...colors.map(t => ({ t: t.name, k: t.value, radio: true, on: t === bound, run: () => { set({ fillToken: t.cssVar }); toast(bound ? `Swapped ${bound.name} for ${t.name}` : `Fill uses ${t.name}`); } })),
+    ...(first ? colors.filter(t => t.collection === first.id).map(item) : []),
+    ...(rest.length ? ["-", ...rest.map(c => ({ t: c.name, sub: colors.filter(t => t.collection === c.id).map(item) }))] : []),
   ], { align: "right" });
 }
+// Semantic and Components colors open on Libraries, the tiers below them: picking one aliases this mode to it,
+// and editing on Custom writes a value, which detaches the alias. Primitives hold values, so they get no tabs.
 function pickTokenColor(t, row) {
-  const before = t.value; TK.picking = t.cssVar; row.setAttribute("aria-expanded", "true");
-  colorPicker(row, t.value, {
-    onInput: v => { t.value = v; applyTokens(); row.querySelector(".tk-sw").style.background = v; row.querySelector(".tk-val").textContent = v; },
-    onClose: cancelled => { TK.picking = null; row.setAttribute("aria-expanded", "false"); if (cancelled) { t.value = before; applyTokens(); renderTokens(); } else if (t.value !== before) toast(`${t.cssVar} updated`); },
+  const mode = editMode(t.collection), before = rawOf(t, mode), tier = tierOf(t);
+  const libs = tier > 0 ? TOKENS.filter(x => x.type === "color" && tierOf(x) < tier).sort((a, b) => tierOf(b) - tierOf(a)) : null;
+  const set = raw => { t.values[mode] = raw; applyTokens(); renderTokens(); };
+  TK.picking = t.cssVar; row.setAttribute("aria-expanded", "true");
+  colorPicker(row, resolveToken(t, panelModes()), {
+    libraries: libs, current: aliasOf(before)?.cssVar || null,
+    onInput: v => set(v),
+    onPickToken: x => { set(`var(${x.cssVar})`); toast(`${t.name} uses ${x.name}${colOf(t.collection).modes.length > 1 ? ` in ${mode}` : ""}`); },
+    onClose: cancelled => { TK.picking = null; if (cancelled) set(before); else { renderTokens(); if (rawOf(t, mode) !== before && !aliasOf(rawOf(t, mode))) toast(`${t.cssVar} updated`); } },
   });
 }
 const guessType = (name, v) => isColor(v) ? "color" : /radius|round/.test(name) ? "radius" : /shadow|elev/.test(name) ? "shadow" : /font|text|tracking|leading|weight/.test(name) ? "typography" : /space|gap|pad|margin|size/.test(name) ? "spacing" : "other";
 const KIND_SUFFIX = [["font-size-", " size"], ["font-weight-", " weight"], ["leading-", " line height"], ["tracking-", " tracking"], ["opacity-", " opacity"], ["container-", " container"], ["breakpoint-", " breakpoint"]];
 const friendly = cssVar => { let n = cssVar.replace(/^--/, ""), tail = ""; const k = KIND_SUFFIX.find(([p]) => n.startsWith(p)); if (k) { n = n.slice(k[0].length); tail = k[1]; } else n = n.replace(/^(color|font|space|radius|shadow)-/, ""); return (n.replace(/-/g, " ") + tail).replace(/^./, c => c.toUpperCase()); };
-function applyTokens() { const p = $("#page"); if (!p) return; TOKENS.forEach(t => p.style.setProperty(t.cssVar, t.value)); }
+// The canvas gets each token's raw value in the screen's mode, aliases included, so var() resolves them as shipped CSS does.
+function applyTokens() {
+  const p = $("#page"); if (!p) return; const modes = screenModes();
+  TOKENS.forEach(t => p.style.setProperty(t.cssVar, rawOf(t, modes[t.collection])));
+  p.classList.toggle("scheme-dark", COLLECTIONS.some(c => c.scheme?.[modes[c.id]] === "dark"));
+}
 function upsertTokens(list, source) {
   let n = 0;
-  list.forEach(([cssVar, value]) => { const t = TOKENS.find(x => x.cssVar === cssVar); if (t) { if (t.value !== value) { t.value = value; n++; } } else { TOKENS.push({ name: friendly(cssVar), cssVar, value, type: guessType(cssVar, value), source }); n++; } });
+  list.forEach(([cssVar, value]) => { const t = TOKENS.find(x => x.cssVar === cssVar); if (t) { if (t.value !== value) { t.value = value; n++; } } else { TOKENS.push(mkToken({ name: friendly(cssVar), cssVar, value, type: guessType(cssVar, value), source })); n++; } });
   applyTokens(); return n;
 }
 const parseVars = text => [...text.matchAll(/(--[\w-]+)\s*:\s*([^;\n]+)/g)].map(m => [m[1], m[2].trim()]);
+// An alias must hold the same kind of value: a font family can't point at a weight, though both are Typography.
+const tokenKind = t => t.type === "color" ? "color" : TOKEN_KINDS.filter(k => k !== "-" && t.cssVar.startsWith(k[4])).sort((a, b) => b[4].length - a[4].length)[0]?.[0] || t.type;
+const sameKind = (a, b) => a.type === b.type && tokenKind(a) === tokenKind(b);
+const attr = x => String(x).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+// An alias reads as the token it points to; the tooltip follows the chain to the value.
+function tokenRow(t, modes) {
+  const raw = rawOf(t, modes[t.collection]), target = aliasOf(raw), val = resolveToken(t, modes);
+  const lead = t.type === "color" && isColor(val) ? `<span class="tk-sw" style="background:${val}"></span>` : `<span class="tk-glyph">${ic(TK_TYPES.find(x => x[0] === t.type)?.[2] || "brush", "s14")}</span>`;
+  const clash = tokenConflict(t);
+  const picker = t.type === "color" ? ` aria-haspopup="dialog" aria-expanded="${TK.picking === t.cssVar}"` : "";
+  const tip = `${target ? aliasChain(t, modes) + "\n" : ""}${t.cssVar} · ${t.source}`;
+  const right = TK.editing === t.cssVar ? `<input class="tk-edit" id="tk-edit" value="${attr(target ? `{${target.name}}` : raw)}" spellcheck="false" aria-label="Value for ${attr(t.name)}">`
+    : `${clash ? `<span class="tk-warn" title="${clash}">${ic("alert-triangle", "s14")}</span>` : ""}${target ? `<span class="tk-alias">${target.name}</span>` : `<span class="tk-val">${raw}</span>`}`;
+  return `<div class="row tk" data-tk="${t.cssVar}" title="${attr(tip)}"${picker}><span class="slot ico">${lead}</span><span class="gap"></span><span class="label">${t.name}</span>${right}</div>`;
+}
 function renderTokens() {
   const el = $("#tokens"); if (S.panel !== "tokens") return;
-  const q = TK.q.toLowerCase();
-  const list = TOKENS.filter(t => !q || t.name.toLowerCase().includes(q) || t.cssVar.includes(q) || t.value.toLowerCase().includes(q));
+  const q = TK.q.toLowerCase(), pm = panelModes();
+  const match = t => !q || [t.name, t.cssVar, resolveToken(t, pm), aliasOf(rawOf(t, pm[t.collection]))?.name || ""].some(x => x.toLowerCase().includes(q));
+  const list = TOKENS.filter(match);
   const head = TK.searching || TK.q ? searchHead("tk-q", "Search tokens", TK.q)
     : `<div class="ag-head"><span class="tk-count">${TOKENS.length} token${TOKENS.length === 1 ? "" : "s"}</span><button class="icon-btn" id="tk-search" title="Search tokens  ⌘F">${ic("search")}</button><button class="icon-btn" id="tk-import" title="Import tokens" aria-haspopup="menu" aria-expanded="false">${ic("download")}</button><button class="icon-btn" id="tk-new" aria-haspopup="menu" aria-expanded="false" title="Add token">${ic("plus")}</button></div>`;
-  const groups = TK_TYPES.map(([type, label, icon]) => [type, label, icon, list.filter(t => t.type === type)]).filter(g => g[3].length || TK.draft?.type === g[0]);
-  const body = groups.length ? groups.map(([type, label, icon, items], gi) => {
-    const open = !TK.collapsed.has(type);
-    return `<div class="sec-head ${gi ? "rule" : ""}"><button class="sec-toggle" data-tk-sec="${type}" aria-expanded="${open}"><span class="chev">${ic("chevron-down", "s12")}</span>${label}</button></div>
-      ${open ? `<div class="sec-block">${items.map(t => {
-        const editing = TK.editing === t.cssVar;
-        const lead = t.type === "color" && isColor(t.value) ? `<span class="tk-sw" style="background:${t.value}"></span>` : `<span class="tk-glyph">${ic(icon, "s14")}</span>`;
-        const clash = tokenConflict(t);
-        const picker = t.type === "color" ? ` aria-haspopup="dialog" aria-expanded="${TK.picking === t.cssVar}"` : "";
-        return `<div class="row tk" data-tk="${t.cssVar}" title="${t.cssVar} · ${t.source}"${picker}><span class="slot ico">${lead}</span><span class="gap"></span><span class="label">${t.name}</span>${editing ? `<input class="tk-edit" id="tk-edit" value="${t.value}" spellcheck="false" aria-label="Value for ${t.name}">` : `${clash ? `<span class="tk-warn" title="${clash}">${ic("alert-triangle", "s14")}</span>` : ""}<span class="tk-val">${t.value}</span>`}</div>`;
-      }).join("")}${TK.draft?.type === type ? draftRow(TK.draft) : ""}</div>` : ""}`;
-  }).join("") : (q ? `<div class="tk-empty">No tokens match “${TK.q}”.</div>` : `<div class="tk-empty"><b>No tokens yet</b><span class="acts"><button class="btn secondary" data-tk-open-import>Import</button><button class="btn secondary" data-tk-gen>${ic("sparkles", "s14")}Generate from design</button></span></div>`);
+  // Collections are the sections, in tier order; types group the rows inside each one.
+  const secs = COLLECTIONS.map(c => {
+    const items = list.filter(t => t.collection === c.id), draft = TK.draft?.collection === c.id ? TK.draft : null;
+    if (q && !items.length) return "";
+    const open = !TK.collapsed.has(c.id) || !!draft;
+    const acts = `<div class="sec-actions">${c.modes.length > 1 ? `<button class="tk-mode" data-tk-mode="${c.id}" aria-haspopup="menu" aria-expanded="false" title="Mode to edit">${editMode(c.id)}${ic("chevron-down", "s12")}</button>` : ""}<button class="icon-btn sm" data-tk-add="${c.id}" aria-haspopup="menu" aria-expanded="false" title="Add to ${c.name}">${ic("plus", "s12")}</button></div>`;
+    const groups = TK_TYPES.map(([type, label]) => { const its = items.filter(t => t.type === type); return its.length || draft?.type === type ? `<div class="tk-sub">${label}</div>${its.map(t => tokenRow(t, pm)).join("")}${draft?.type === type ? draftRow(draft) : ""}` : ""; }).join("");
+    return { c, html: `<button class="sec-toggle" data-tk-sec="${c.id}" aria-expanded="${open}"><span class="chev">${ic("chevron-down", "s12")}</span>${c.name}</button>${acts}</div>${open ? `<div class="sec-block">${groups || `<div class="tk-none">No tokens</div>`}</div>` : ""}` };
+  }).filter(Boolean);
+  const body = TOKENS.length && secs.length ? secs.map((x, i) => `<div class="sec-head ${i ? "rule" : ""}">${x.html}`).join("")
+    : (q ? `<div class="tk-empty">No tokens match “${TK.q}”.</div>` : `<div class="tk-empty"><b>No tokens yet</b><span class="acts"><button class="btn secondary" data-tk-open-import>Import</button><button class="btn secondary" data-tk-gen>${ic("sparkles", "s14")}Generate from design</button></span></div>`);
   el.innerHTML = head + `<div class="ag-body">${body}</div>`;
   if (TK.editing) { const i = $("#tk-edit"); i.focus(); i.select(); }
   focusPanelSearch(TK, "tk-q");
   if (TK.draft) { const i = $("#tk-dname"); i.focus(); i.select(); i.closest(".row").scrollIntoView({ block: "nearest" }); }
+}
+// A new mode starts as a copy of the one being edited, so nothing on screen changes until you edit it.
+function addMode(id) {
+  const c = colOf(id), from = editMode(id); let n = c.modes.length + 1; while (c.modes.includes(`Mode ${n}`)) n++;
+  const name = `Mode ${n}`;
+  TOKENS.filter(t => t.collection === id).forEach(t => { t.values[name] = rawOf(t, from); });
+  c.modes.push(name); TK.mode[id] = name; TK.collapsed.delete(id);
+  renderTokens(); if (S.screenSel) renderInspector(); toast(`Added ${name} to ${c.name}`);
+}
+function addCollection() {
+  let n = COLLECTIONS.length + 1; while (COLLECTIONS.some(c => c.name === `Collection ${n}`)) n++;
+  COLLECTIONS.push({ id: `collection-${n}`, name: `Collection ${n}`, modes: ["Value"] });
+  renderTokens(); toast(`Added Collection ${n}`);
+}
+const tokenKindItems = collection => TOKEN_KINDS.map(k => k === "-" ? k : { t: k[1], run: () => startTokenDraft(k[0], collection) });
+function tokenModeMenu(btn) {
+  const c = colOf(btn.dataset.tkMode);
+  openMenu(btn, [...c.modes.map(m => ({ t: m, radio: true, on: editMode(c.id) === m, run: () => { TK.mode[c.id] = m; renderTokens(); } })), "-", { t: "Add mode", run: () => addMode(c.id) }], { align: "right" });
 }
 function draftRow(d) {
   const lead = d.type === "color" ? `<button class="tk-sw" style="background:${d.value}" data-tk-dcolor aria-haspopup="dialog" aria-label="Pick a color"></button>` : `<span class="tk-glyph">${ic(d.icon, "s14")}</span>`;
@@ -3285,8 +3413,12 @@ function draftRow(d) {
 function commitTokenEdit(save) {
   // Re-rendering removes the focused input, which fires focusout; only the first commit counts.
   const i = $("#tk-edit"); if (!i || !TK.editing) return;
-  const t = TOKENS.find(x => x.cssVar === TK.editing); TK.editing = null;
-  if (save && i.value.trim() && t.value !== i.value.trim()) { t.value = i.value.trim(); applyTokens(); toast(`${t.cssVar} updated`); }
+  const t = TOKENS.find(x => x.cssVar === TK.editing), mode = editMode(t.collection), v = i.value.trim(); TK.editing = null;
+  // {Sans} or {--font-sans} aliases a token from a lower tier; anything else is a value.
+  const ref = v.match(/^\{(.+)\}$/)?.[1].trim().toLowerCase();
+  const target = ref && TOKENS.find(x => tierOf(x) < tierOf(t) && sameKind(x, t) && (x.name.toLowerCase() === ref || x.cssVar === ref));
+  if (save && ref && !target) toast(`No ${t.type} token named ${ref} below ${colOf(t.collection).name}`);
+  else if (save && v) { const raw = target ? `var(${target.cssVar})` : v; if (raw !== rawOf(t, mode)) { t.values[mode] = raw; applyTokens(); toast(target ? `${t.name} uses ${target.name}` : `${t.cssVar} updated`); } }
   renderTokens();
 }
 document.addEventListener("input", e => {
@@ -3324,8 +3456,10 @@ function toDtcg() {
   TOKENS.forEach(t => {
     const path = t.cssVar.replace(/^--/, "").split("-");
     let node = root; path.slice(0, -1).forEach(k => node = node[k] ||= {});
-    const [type, value] = dtcgValue(t);
-    node[path[path.length - 1]] = { ...(type ? { $type: type } : {}), $value: value, ...(t.source ? { $extensions: { "com.agent-native.source": t.source } } : {}) };
+    // Aliases export as {group.token} in the first mode; the other modes need the resolver document (TOK-26).
+    const target = aliasOf(rawOf(t, colOf(t.collection).modes[0]));
+    const [type, value] = dtcgValue({ ...t, value: resolveToken(t, Object.fromEntries(COLLECTIONS.map(c => [c.id, c.modes[0]]))) });
+    node[path[path.length - 1]] = { ...(type ? { $type: type } : {}), $value: target ? `{${target.cssVar.replace(/^--/, "").split("-").join(".")}}` : value, ...(t.source ? { $extensions: { "com.agent-native.source": t.source } } : {}) };
   });
   return JSON.stringify(root, null, 2);
 }
@@ -3386,7 +3520,7 @@ function importTokenText(text, source) {
 }
 function upsertTyped(list, source) {
   let n = 0;
-  list.forEach(({ cssVar, value, type, name }) => { const t = TOKENS.find(x => x.cssVar === cssVar); if (t) { if (t.value !== value) { t.value = value; n++; } } else { TOKENS.push({ name, cssVar, value, type, source }); n++; } });
+  list.forEach(({ cssVar, value, type, name }) => { const t = TOKENS.find(x => x.cssVar === cssVar); if (t) { if (t.value !== value) { t.value = value; n++; } } else { TOKENS.push(mkToken({ name, cssVar, value, type, source })); n++; } });
   applyTokens(); return n;
 }
 // Import is a menu like +: each source names what it reads and imports straight away.
