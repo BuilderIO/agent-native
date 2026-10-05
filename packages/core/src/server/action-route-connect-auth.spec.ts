@@ -65,6 +65,9 @@ function mockDb(
     async (query: string | { sql: string; args?: unknown[] }) => {
       const sql = typeof query === "string" ? query : query.sql;
       const args = typeof query === "string" ? [] : (query.args ?? []);
+      if (/to_regclass\('identity_retired_emails'\)/.test(sql)) {
+        return { rows: [{ present: false }] };
+      }
       if (
         /FROM org_members/.test(sql) &&
         opts.memberOf?.includes(String(args[0]))

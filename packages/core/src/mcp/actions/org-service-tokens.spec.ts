@@ -175,6 +175,40 @@ describe("create-org-service-token", () => {
       ).rejects.toMatchObject({ name: "ServiceTokenError", statusCode });
     },
   );
+
+  it.each([
+    ["the caller's role", CTX()],
+    [
+      "the caller's org",
+      { userEmail: "admin@example.com", orgId: null, caller: "http" },
+    ],
+  ])(
+    "answers a membership-store outage reading %s with a retryable 503",
+    async (_label, ctx) => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      dbExecuteMock.mockRejectedValueOnce(new Error("connection terminated"));
+      await expect(
+        createAction.run({ name: "ci" }, ctx as any),
+      ).rejects.toMatchObject({ name: "ServiceTokenError", statusCode: 503 });
+      expect(mintOrgServiceTokenMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    [403, CTX()],
+    [400, { userEmail: "admin@example.com", orgId: null, caller: "http" }],
+  ])(
+    "still answers %i when the template has no org tables",
+    async (statusCode, ctx) => {
+      dbExecuteMock.mockRejectedValueOnce(
+        new Error('relation "org_members" does not exist'),
+      );
+      await expect(
+        createAction.run({ name: "ci" }, ctx as any),
+      ).rejects.toMatchObject({ name: "ServiceTokenError", statusCode });
+      expect(mintOrgServiceTokenMock).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("list-org-service-tokens", () => {
