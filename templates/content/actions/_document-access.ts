@@ -246,6 +246,7 @@ export async function resolveDocumentAccess(
 export async function documentSpaceAuthority(
   id: string,
 ): Promise<{ userEmail: string; orgId: string | null } | null> {
+  // guard:allow-unscoped — reads only the page's space id; nothing is returned unless resolveContentSpaceAccess finds the caller a member of that space.
   const [reference] = await getDb()
     .select({ spaceId: schema.documents.spaceId })
     .from(schema.documents)
