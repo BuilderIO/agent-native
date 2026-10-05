@@ -793,31 +793,11 @@ function RunEvents({ run }: { run: ThreadRun }) {
   );
 }
 
-type InspectorTab = "message" | "run" | "events" | "traces" | "thread";
+type InspectorTab = "message" | "run" | "events" | "traces";
 
-function RowInspector({
-  row,
-  detail,
-}: {
-  row: ThreadRow | null;
-  detail: ThreadDebugResponse;
-}) {
-  const [tab, setTab] = useState<InspectorTab>("message");
-  const run = row?.run ?? null;
-  const available: InspectorTab[] = [
-    ...(row?.kind === "message" ? (["message"] as const) : []),
-    ...(run ? (["run", "events", "traces"] as const) : []),
-    "thread",
-  ];
-  const activeTab = available.includes(tab) ? tab : available[0];
-  const traces = useMemo(() => {
-    if (!run) return { summaries: [], spans: [] };
-    const forRun = (record: any) => record?.run_id === run.id;
-    return {
-      summaries: detail.traces.summaries.filter(forRun),
-      spans: detail.traces.spans.filter(forRun),
-    };
-  }, [detail.traces, run]);
+const THREAD_ITEM = "thread";
+
+function ThreadRecords({ detail }: { detail: ThreadDebugResponse }) {
   const threadBundle = useMemo(
     () => ({
       thread: detail.thread,
@@ -831,6 +811,44 @@ function RowInspector({
     }),
     [detail],
   );
+  return (
+    <div className="space-y-3 p-4">
+      <RawBlock value={threadBundle} />
+      <RawBlock value={detail.rawThreadData} />
+    </div>
+  );
+}
+
+// A user prompt and the agent reply to it share one run. The run belongs to
+// the reply (or to a run row when there was no reply); repeating it on the
+// prompt makes two different rows look identical in the inspector.
+function inspectedRun(row: ThreadRow): ThreadRun | null {
+  if (row.kind === "run") return row.run;
+  return row.message.role === "user" ? null : row.run;
+}
+
+function RowInspector({
+  row,
+  detail,
+}: {
+  row: ThreadRow;
+  detail: ThreadDebugResponse;
+}) {
+  const [tab, setTab] = useState<InspectorTab>("message");
+  const run = inspectedRun(row);
+  const available: InspectorTab[] = [
+    ...(row.kind === "message" ? (["message"] as const) : []),
+    ...(run ? (["run", "events", "traces"] as const) : []),
+  ];
+  const activeTab = available.includes(tab) ? tab : available[0];
+  const traces = useMemo(() => {
+    if (!run) return { summaries: [], spans: [] };
+    const forRun = (record: any) => record?.run_id === run.id;
+    return {
+      summaries: detail.traces.summaries.filter(forRun),
+      spans: detail.traces.spans.filter(forRun),
+    };
+  }, [detail.traces, run]);
 
   return (
     <Tabs
@@ -839,7 +857,7 @@ function RowInspector({
       className="p-4"
     >
       <TabsList>
-        {available.includes("message") ? (
+        {row.kind === "message" ? (
           <TabsTrigger value="message">Message</TabsTrigger>
         ) : null}
         {run ? (
@@ -849,10 +867,9 @@ function RowInspector({
             <TabsTrigger value="traces">Traces</TabsTrigger>
           </>
         ) : null}
-        <TabsTrigger value="thread">Thread</TabsTrigger>
       </TabsList>
 
-      {row?.kind === "message" ? (
+      {row.kind === "message" ? (
         <TabsContent value="message" className="mt-4 space-y-3">
           {toolParts(row.message).map((tool, index) => (
             <details
@@ -890,11 +907,27 @@ function RowInspector({
           </TabsContent>
         </>
       ) : null}
-      <TabsContent value="thread" className="mt-4 space-y-3">
-        <RawBlock value={threadBundle} />
-        <RawBlock value={detail.rawThreadData} />
-      </TabsContent>
     </Tabs>
+  );
+}
+
+function rowMatches(row: ThreadRow, needle: string): boolean {
+  const run = row.kind === "run" ? row.run : null;
+  const haystack = [
+    row.kind === "message" ? row.message.text : "",
+    ...(row.kind === "message"
+      ? toolCounts(row.message).map(([name]) => name)
+      : []),
+    row.run?.status,
+    row.run?.terminalReason,
+    row.run?.abortReason,
+    row.run?.errorCode,
+    row.run?.errorDetail,
+    run?.id,
+  ];
+  return haystack.some(
+    (value) =>
+      typeof value === "string" && value.toLowerCase().includes(needle),
   );
 }
 
@@ -913,9 +946,16 @@ function ThreadDetail({
     () => buildConversationRows(detail.messages, detail.runs),
     [detail.messages, detail.runs],
   );
-  const activeKey =
-    rows.find((row) => row.key === selectedRowKey)?.key ??
-    defaultConversationRowKey(rows, detail.lookup?.runId);
+  const [search, setSearch] = useState("");
+  const needle = search.trim().toLowerCase();
+  const visibleRows = needle
+    ? rows.filter((row) => rowMatches(row, needle))
+    : rows;
+  const showThread = selectedRowKey === THREAD_ITEM;
+  const activeKey = showThread
+    ? null
+    : (rows.find((row) => row.key === selectedRowKey)?.key ??
+      defaultConversationRowKey(rows, detail.lookup?.runId));
   const selectedRow = rows.find((row) => row.key === activeKey) ?? null;
   const lookupRun =
     detail.runs.find((run) => run.id === detail.lookup?.runId) ?? null;
@@ -973,6 +1013,16 @@ function ThreadDetail({
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant={showThread ? "secondary" : "ghost"}
+              size="sm"
+              aria-pressed={showThread}
+              onClick={() => onSelectRow(showThread ? "" : THREAD_ITEM)}
+            >
+              <IconDatabase className="size-4" />
+              Thread data
+            </Button>
             {lookupRun ? (
               <Badge
                 variant={
@@ -993,25 +1043,50 @@ function ThreadDetail({
           className="max-h-[760px] min-w-0 overflow-auto border-b lg:border-b-0 lg:border-r"
         >
           {rows.length > 0 ? (
-            rows.map((row) => (
-              <ConversationRowButton
-                key={row.key}
-                row={row}
-                selected={row.key === activeKey}
-                onSelect={() => onSelectRow(row.key)}
-              />
-            ))
-          ) : (
+            <div className="sticky top-0 z-10 border-b bg-card p-2">
+              <div className="relative">
+                <IconSearch
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                />
+                <Input
+                  type="search"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search messages"
+                  aria-label="Search messages"
+                  className="h-8 pl-8"
+                />
+              </div>
+            </div>
+          ) : null}
+          {visibleRows.map((row) => (
+            <ConversationRowButton
+              key={row.key}
+              row={row}
+              selected={row.key === activeKey}
+              onSelect={() => onSelectRow(row.key)}
+            />
+          ))}
+          {rows.length === 0 ? (
             <div className="px-4 py-8 text-center text-sm text-muted-foreground">
               No messages or runs were retained for this thread.
             </div>
-          )}
+          ) : visibleRows.length === 0 ? (
+            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+              No matching messages.
+            </div>
+          ) : null}
         </section>
         <section
           aria-label="Inspector"
           className="max-h-[760px] min-w-0 overflow-auto"
         >
-          <RowInspector row={selectedRow} detail={detail} />
+          {showThread ? (
+            <ThreadRecords detail={detail} />
+          ) : selectedRow ? (
+            <RowInspector row={selectedRow} detail={detail} />
+          ) : null}
         </section>
       </div>
     </div>
