@@ -96,11 +96,15 @@
   }
 }
 
-.dark {
-  --agent-kit-composer-border-opacity: 0;
-  --agent-kit-composer-focus-border-opacity: 0;
-  --agent-kit-composer-border-color: transparent;
-  --agent-kit-composer-focus-border-color: transparent;
+:is(.dark, :root[data-theme="dark"]) {
+  --agent-kit-composer-border-opacity: 0.4;
+  --agent-kit-composer-focus-border-opacity: 0.65;
+  --agent-kit-composer-border-color: hsl(
+    var(--border) / var(--agent-kit-composer-border-opacity)
+  );
+  --agent-kit-composer-focus-border-color: hsl(
+    var(--border) / var(--agent-kit-composer-focus-border-opacity)
+  );
   --agent-kit-shadow-color: var(--background);
   --agent-kit-control-elevation: 0 0.0625rem 0.125rem
     hsl(var(--agent-kit-shadow-color) / 0.18);
