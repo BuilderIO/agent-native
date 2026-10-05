@@ -14,8 +14,8 @@ the path that matches what you are shipping:
 
 ### :server: [Deploy an app](/docs/deploy-an-app)
 
-Build and launch one standalone app, or deploy one app from a workspace on its
-own domain.
+Build and launch one standalone app on Node.js, Docker, Vercel, Netlify, or
+Cloudflare Workers.
 
 ### :network: [Deploy a workspace](/docs/workspace-deployment)
 
@@ -54,6 +54,12 @@ Generate a stable signing secret with `openssl rand -hex 32`, then set it as
 when it uses signed cross-app requests or background handoffs. The [deployment
 environment reference](/docs/deployment-environment-variables) covers the rest
 of the production configuration.
+
+### Run migrations
+
+Run `pnpm migrate:production` against the production database before the first
+visit. It creates the tables the app needs. Run it again after every upgrade,
+before the new version goes live. Each hosting guide shows where this step fits.
 
 </Steps>
 
@@ -127,8 +133,9 @@ the default rendering, so you can reuse its subject or text.
 
 ## Supported deployment targets
 
-Set a Nitro preset for the target you choose. The app code and database
-contract stay the same.
+Each target has a step-by-step guide. The app code and database stay the same
+whichever target you choose. Only the build preset and the deploy command
+change.
 
 <!-- i18n-copy-ignore: renderer-only Diagram attributes keep this shared UI block in clean mode. -->
 
@@ -258,7 +265,6 @@ settings or production controls:
 - [**Node.js**](/docs/node-js) - run the default Nitro server preset
 - [**Docker**](/docs/docker) - package the Node.js server in a container
 - [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), and [**Cloudflare Workers**](/docs/cloudflare#cloudflare-workers) - configure hosted targets
-- [Nitro's provider list](https://nitro.build/deploy/providers) - see the broader set of presets Nitro supports
 - [**SSR Caching**](/docs/ssr-caching) - configure the public shell cache
 - [**Deployment Environment Variables**](/docs/deployment-environment-variables) - production secrets, runtime flags, and workspace inheritance
 - [**Production Agent Access**](/docs/actions-agent-tools) - control framework tools and code execution
@@ -267,9 +273,9 @@ settings or production controls:
 <a id="self-host-quickstart"></a>
 <a id="skip-ensure-tables"></a>
 
-For compatibility with older links, the local Docker quickstart now lives on
-[Docker](/docs/docker#self-host-quickstart). Schema setup and
-cold-start guidance live in the [deployment environment reference](/docs/deployment-environment-variables#skip-ensure-tables).
+These anchors keep older links working. Self-hosting with a container is covered
+in the [Docker guide](/docs/docker). Schema setup and cold-start guidance live
+in the [deployment environment reference](/docs/deployment-environment-variables#skip-ensure-tables).
 
 ## What's next
 

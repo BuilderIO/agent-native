@@ -1,46 +1,93 @@
 ---
-title: "Deployment"
+title: "तैनाती"
 description: "किसी Agent-Native ऐप या वर्कस्पेस को persistent PostgreSQL database के साथ Nitro-compatible platform पर deploy करें।"
 ---
 
-<!-- i18n-docs-ignore -->
+# तैनाती
 
-# Deployment
-
-<a id="self-host-quickstart"></a>
-<a id="skip-ensure-tables"></a>
-
-Agent-Native apps Nitro पर चलती हैं। अपने deployment के अनुसार रास्ता चुनें:
+Agent-Native ऐप [Nitro](https://nitro.build) पर चलते हैं, इसलिए एक ही ऐप
+Node.js, serverless functions, edge workers, या किसी managed host पर deploy हो
+सकता है। आप जो ship कर रहे हैं, उसके अनुसार रास्ता चुनें:
 
 <Cards columns={2}>
 
-### [ऐप deploy करें](/docs/deploy-an-app)
+### :server: [ऐप deploy करें](/docs/deploy-an-app)
 
-एक standalone app बनाएं और अपने domain पर चलाएं।
+एक standalone ऐप build करें और उसे Node.js, Docker, Vercel, Netlify, या
+Cloudflare Workers पर launch करें।
 
-### [वर्कस्पेस deploy करें](/docs/workspace-deployment)
+### :network: [कार्यस्थान तैनाती](/docs/workspace-deployment)
 
-Shared login के साथ कई apps को एक origin के पीछे चलाएं।
+Shared login और same-origin app-to-app communication के साथ कई ऐप एक origin के
+पीछे build करें।
 
 </Cards>
 
 ## Deploy करने से पहले: persistent database चुनें {#persistent-database}
 
-हर deployed app को persistent PostgreSQL database चाहिए। पहले production deploy से पहले deployment environment में `DATABASE_URL` सेट करें। होस्ट किए गए PostgreSQL प्रदाताओं में [Neon](/docs/neon), [Supabase](/docs/supabase), Railway, Render, [Amazon RDS for PostgreSQL](/docs/aws-rds), [Cloud SQL for PostgreSQL](/docs/cloud-sql) और [Azure Database for PostgreSQL](/docs/azure-postgresql) शामिल हैं। अन्य प्रबंधित सेवाओं और स्वयं-होस्ट किए गए PostgreSQL सर्वरों के लिए [Plain Postgres](/docs/postgres) गाइड देखें।
+हर deployed ऐप को एक persistent PostgreSQL database चाहिए। Local development में
+`data/pglite` वाला PGlite database इस्तेमाल हो सकता है, लेकिन container, preview,
+और serverless filesystems कभी भी reset हो सकते हैं।
 
-Standalone app को stable `BETTER_AUTH_SECRET` चाहिए। Signed cross-app requests वाले workspace को `A2A_SECRET` चाहिए।
+<Steps>
 
-इन values को केवल local `.env` में नहीं, hosting provider की environment settings में सेट करें। Auth secret `openssl rand -hex 32` से बनाएं। Agent-Native में email delivery account शामिल नहीं है; Resend या SendGrid को अलग से connect करें।
+### Provider चुनें
+
+कोई hosted PostgreSQL provider इस्तेमाल करें, जैसे [Neon](/docs/neon),
+[Supabase](/docs/supabase), Railway, Render, [Amazon RDS for PostgreSQL](/docs/aws-rds),
+[Cloud SQL for PostgreSQL](/docs/cloud-sql), या [Azure Database for PostgreSQL](/docs/azure-postgresql)।
+दूसरी managed services और self-hosted PostgreSQL servers के लिए [Plain Postgres](/docs/postgres)
+guide इस्तेमाल करें। Framework connection URL से PostgreSQL configure
+करता है।
+
+### Connection string सेट करें
+
+पहले production deploy से पहले hosting provider की environment-variable या secret
+settings में `DATABASE_URL` सेट करें। Local `.env` सिर्फ आपकी machine को configure
+करती है और deploy command उसे upload नहीं करता।
+
+### Production secrets जोड़ें
+
+`openssl rand -hex 32` से एक stable signing secret बनाएं, फिर standalone ऐप के लिए
+उसे `BETTER_AUTH_SECRET` के रूप में सेट करें। जब कोई workspace signed cross-app
+requests या background handoffs इस्तेमाल करता है, तो उसे `A2A_SECRET` भी चाहिए।
+[Deployment environment reference](/docs/deployment-environment-variables) बाकी
+production configuration बताता है।
+
+### Migrations चलाएं
+
+पहली visit से पहले production database के against `pnpm migrate:production`
+चलाएं। यह वे tables बनाता है जिनकी ऐप को ज़रूरत है। हर upgrade के बाद, नया version
+live होने से पहले, इसे फिर से चलाएं। हर hosting guide बताती है कि यह चरण कहां आता है।
+
+</Steps>
+
+<Callout tone="info">
+
+Workspace में हर ऐप default रूप से root `DATABASE_URL` inherit करता है।
+`<APP_NAME>_DATABASE_URL` सिर्फ तब सेट करें जब किसी एक ऐप को अलग database चाहिए।
+
+</Callout>
 
 ## ईमेल डिलीवरी वैकल्पिक है, लेकिन इसकी सलाह दी जाती है {#email-provider}
 
-ईमेल और पासवर्ड वाले authentication के लिए ईमेल provider आवश्यक नहीं है। इसके बिना deployed apps ईमेल और पासवर्ड से signup और login करती हैं, signup email verification छोड़ देती हैं और magic-link authentication उपलब्ध नहीं कराती हैं।
+ईमेल और पासवर्ड वाले authentication के लिए ईमेल provider आवश्यक नहीं है। इसके
+बिना deployed ऐप ईमेल और पासवर्ड से signup और login इस्तेमाल करता है, signup email
+verification छोड़ देता है और magic-link authentication उपलब्ध नहीं कराता।
 
-अगर आपको magic links, email verification, password resets, invitations या share notifications चाहिए, तो deploy से पहले Resend या SendGrid connect करें। Deployment environment में `RESEND_API_KEY` या `SENDGRID_API_KEY` सेट करें; SendGrid के लिए `EMAIL_FROM` भी चाहिए। Authentication modes के लिए [Authentication](/docs/authentication) देखें।
+Agent-Native में email delivery account शामिल नहीं है। अगर आपको magic links,
+email verification, password resets, invitations या share notifications चाहिए, तो
+deploy से पहले Resend या SendGrid connect करें। Deployment environment में
+`RESEND_API_KEY` या `SENDGRID_API_KEY` सेट करें। SendGrid के लिए `EMAIL_FROM` भी
+चाहिए। उपलब्ध authentication modes के लिए [प्रमाणीकरण](/docs/authentication)
+देखें।
 
 ### Framework emails customize करें {#email-templates}
 
-Framework जो भी email भेजता है, उसका एक default template होता है। अपना design इस्तेमाल करने के लिए server plugin से एक override register करें। Recipient, sender और delivery framework ही तय करता है; message में क्या लिखा है और वह कैसा दिखता है, यह आपका override तय करता है।
+Framework जो भी email भेजता है, उसका एक default template होता है। अपना design
+इस्तेमाल करने के लिए server plugin से एक override register करें। Recipient और
+sender अब भी framework तय करता है और वही message deliver करता है। Message में क्या
+लिखा है और वह कैसा दिखता है, यह आपका override तय करता है।
 
 ```ts
 // server/plugins/email-templates.ts
@@ -70,21 +117,169 @@ export default function registerEmailTemplates(): void {
 | `core.builder-credit-limit`      | `subject`, `heading`, `body`, `upgradeLabel`, `upgradeUrl`                         |
 | `core.resource-shared`           | `recipientEmail`, `sender`, `resource` (`type`, `title`, `url`), `role`, `message` |
 
-हर override को `app` (`name`, `logoUrl`) भी मिलता है। दूसरे argument में default rendering होती है, ताकि आप उसका subject या text दोबारा इस्तेमाल कर सकें।
+हर override को `app` (`name`, `logoUrl`) भी मिलता है। दूसरे argument में default
+rendering होती है, ताकि आप उसका subject या text दोबारा इस्तेमाल कर सकें।
 
-- Props raw values हैं। HTML string में डालने से पहले उन्हें `escapeEmailHtml` से escape करें।
-- Component render करने के लिए `html` की जगह React element के साथ `react` लौटाएं। React props को खुद escape करता है।
-- Default subject रखने के लिए `subject` छोड़ दें। अपने HTML से plain-text body बनाने के लिए `text` छोड़ दें।
-- अगर override error throw करता है, तो send fail हो जाता है। Framework default design पर वापस नहीं जाता। Transactional email preview आपका override render करता है, इसलिए उसे वहीं जांचें।
+- Props raw values हैं। HTML string में डालने से पहले उन्हें `escapeEmailHtml` से
+  escape करें।
+- Component render करने के लिए `html` की जगह React element के साथ `react` लौटाएं।
+  React props को खुद escape करता है।
+- Default subject रखने के लिए `subject` छोड़ दें। अपने HTML से plain-text body
+  बनाने के लिए `text` छोड़ दें।
+- अगर override error throw करता है, तो send fail हो जाता है। Framework default
+  design पर वापस नहीं जाता। Transactional email preview आपका override render करता
+  है, इसलिए उसे वहीं जांचें।
 
-## Supported targets
+## समर्थित deployment targets {#supported-deployment-targets}
 
-Agent-Native [Node.js](/docs/node-js), [Docker](/docs/docker), [Vercel](/docs/vercel), [Netlify](/docs/netlify) और [Cloudflare Workers](/docs/cloudflare#cloudflare-workers) को support करता है।
+हर target के लिए एक step-by-step guide है। आप कोई भी target चुनें, ऐप का code और
+database वही रहते हैं। सिर्फ build preset और deploy command
+बदलते हैं।
 
-Advanced settings, secrets और production values के लिए [Deployment environment variables reference](/docs/deployment-environment-variables) देखें।
+<!-- i18n-copy-ignore: renderer-only Diagram attributes keep this shared UI block in clean mode. -->
 
-## आगे
+<Diagram id="doc-block-deployment-targets" title="समर्थित deployment targets" summary="Agent-Native ऐप Node.js, Docker, Vercel, Netlify, और Cloudflare Workers पर deploy हो सकते हैं।" frame="hide" renderMode="design">
 
-- [ऐप deploy करें](/docs/deploy-an-app)
-- [वर्कस्पेस deploy करें](/docs/workspace-deployment)
-- [Database](/docs/server-database#production)
+```html
+<!-- i18n-copy-ignore: deployment target logo markup is visual-only; labels are unchanged. -->
+<div class="deployment-target-grid">
+  <a class="deployment-target" href="/docs/node-js">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo"
+        src="/integration-logos/nodejs.svg"
+        alt=""
+      />
+    </span>
+    <strong>Node.js</strong>
+  </a>
+  <a class="deployment-target" href="/docs/docker">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo"
+        src="/integration-logos/docker.svg"
+        alt=""
+      />
+    </span>
+    <strong>Docker</strong>
+  </a>
+  <a class="deployment-target" href="/docs/vercel">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo deployment-target-logo-light"
+        src="/integration-logos/vercel.svg"
+        alt=""
+      />
+      <img
+        class="deployment-target-logo deployment-target-logo-dark"
+        src="/integration-logos/vercel-white.svg"
+        alt=""
+        aria-hidden="true"
+      />
+    </span>
+    <strong>Vercel</strong>
+  </a>
+  <a class="deployment-target" href="/docs/netlify">
+    <span class="deployment-target-mark">
+      <!-- i18n-copy-ignore: Netlify's light/dark logo pair is image markup; localized deployment pages have no logo grid. -->
+      <img
+        class="deployment-target-logo deployment-target-logo-light"
+        src="/integration-logos/netlify.svg"
+        alt=""
+      />
+      <img
+        class="deployment-target-logo deployment-target-logo-dark"
+        src="/integration-logos/netlify-darkmode.svg"
+        alt=""
+        aria-hidden="true"
+      />
+    </span>
+    <strong>Netlify</strong>
+  </a>
+  <a class="deployment-target" href="/docs/cloudflare#cloudflare-workers">
+    <span class="deployment-target-mark">
+      <img src="/integration-logos/cloudflare.svg" alt="" />
+    </span>
+    <strong>Cloudflare Workers</strong>
+  </a>
+</div>
+```
+
+```css
+.deployment-target-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.deployment-target {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+.deployment-target:hover {
+  border-color: hsl(var(--primary));
+}
+.deployment-target-mark {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.deployment-target-logo {
+  display: block;
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+}
+.deployment-target-logo-dark {
+  display: none;
+}
+[data-theme="dark"] .deployment-target-logo-light {
+  display: none;
+}
+[data-theme="dark"] .deployment-target-logo-dark {
+  display: block;
+}
+@media (max-width: 640px) {
+  .deployment-target-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+```
+
+</Diagram>
+
+## Advanced deployment {#advanced-deployment}
+
+ऊपर दिए गए रास्ते से शुरू करें। जब आपको provider-specific settings या production
+controls चाहिए, तब इन pages का इस्तेमाल करें:
+
+- [**Node.js**](/docs/node-js) - default Nitro server preset चलाएं
+- [**Docker**](/docs/docker) - Node.js server को container में package करें
+- [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), और [**Cloudflare Workers**](/docs/cloudflare#cloudflare-workers) - hosted targets configure करें
+- [**SSR कैशिंग**](/docs/ssr-caching) - public shell cache configure करें
+- [**तैनाती: पर्यावरण चर**](/docs/deployment-environment-variables) - production secrets, runtime flags, और workspace inheritance
+- [**प्रोडक्शन एजेंट एक्सेस**](/docs/actions-agent-tools) - framework tools और code execution को नियंत्रित करें
+- [**Production में UI अपडेट करना**](/docs/updating-ui-in-production) - managed visual-editing workflow को समझें
+
+<a id="self-host-quickstart"></a>
+<a id="skip-ensure-tables"></a>
+
+ये anchors पुराने links को काम करते रखते हैं। Container के साथ self-hosting
+[Docker guide](/docs/docker) में बताई गई है। Schema setup और cold-start guidance
+[Deployment environment reference](/docs/deployment-environment-variables#skip-ensure-tables) में है।
+
+## आगे क्या है {#whats-next}
+
+- [**ऐप deploy करें**](/docs/deploy-an-app)
+- [**कार्यस्थान तैनाती**](/docs/workspace-deployment)
+- [**डेटाबेस**](/docs/server-database#production)
+- [**सुरक्षा**](/docs/security)
+- [**प्रमाणीकरण**](/docs/authentication)

@@ -3,44 +3,89 @@ title: "النشر"
 description: "انشر تطبيق Agent-Native أو مساحة عمل على منصة متوافقة مع Nitro باستخدام قاعدة بيانات PostgreSQL دائمة."
 ---
 
-<!-- i18n-docs-ignore -->
-
 # النشر
 
-<a id="self-host-quickstart"></a>
-<a id="skip-ensure-tables"></a>
-
-تعمل تطبيقات Agent-Native على Nitro. اختر المسار الذي يناسب ما تريد شحنه:
+تعمل تطبيقات Agent-Native على [Nitro](https://nitro.build)، لذلك يمكن نشر التطبيق
+نفسه على Node.js أو الدوال بدون خوادم أو عمّال الحافة أو موفر استضافة مُدار. اختر
+المسار الذي يناسب ما تريد شحنه:
 
 <Cards columns={2}>
 
-### [نشر تطبيق](/docs/deploy-an-app)
+### :server: [نشر تطبيق](/docs/deploy-an-app)
 
-أنشئ تطبيقًا واحدًا وانشره على نطاقه الخاص.
+ابنِ تطبيقًا مستقلًا واحدًا وشغّله على Node.js أو Docker أو Vercel أو Netlify أو
+Cloudflare Workers.
 
-### [نشر مساحة عمل](/docs/workspace-deployment)
+### :network: [نشر مساحة العمل](/docs/workspace-deployment)
 
-شغّل عدة تطبيقات خلف أصل واحد مع تسجيل دخول مشترك.
+ابنِ عدة تطبيقات خلف أصل واحد مع تسجيل دخول مشترك واتصال بين التطبيقات من الأصل
+نفسه.
 
 </Cards>
 
 ## قبل النشر: اختر قاعدة بيانات دائمة {#persistent-database}
 
-كل تطبيق منشور يحتاج إلى قاعدة بيانات PostgreSQL دائمة. يمكن استخدام قاعدة بيانات PGlite المحلية للتطوير، لكن يجب ضبط `DATABASE_URL` قبل أول نشر إنتاجي. تشمل خيارات PostgreSQL المستضافة [Neon](/docs/neon) و[Supabase](/docs/supabase) وRailway وRender و[Amazon RDS for PostgreSQL](/docs/aws-rds) و[Cloud SQL for PostgreSQL](/docs/cloud-sql) و[Azure Database for PostgreSQL](/docs/azure-postgresql). راجع دليل [Plain Postgres](/docs/postgres) للخدمات المُدارة الأخرى وخوادم PostgreSQL ذاتية الاستضافة.
+كل تطبيق منشور يحتاج إلى قاعدة بيانات PostgreSQL دائمة. يمكن للتطوير المحلي استخدام
+قاعدة بيانات PGlite في `data/pglite`، لكن أنظمة ملفات الحاويات وبيئات المعاينة
+والبيئات بدون خوادم قد تُعاد تهيئتها في أي وقت.
 
-تحتاج التطبيقات المستقلة إلى `BETTER_AUTH_SECRET` ثابت. تحتاج مساحات العمل التي تستخدم الطلبات الموقعة بين التطبيقات إلى `A2A_SECRET`.
+<Steps>
 
-اضبط هذه القيم في إعدادات بيئة موفر الاستضافة، لا في ملف `.env` المحلي فقط. أنشئ سر المصادقة باستخدام `openssl rand -hex 32`. لا يتضمن Agent-Native حسابًا لإرسال البريد؛ يجب ربط Resend أو SendGrid بشكل منفصل.
+### اختيار موفر
+
+استخدم موفر PostgreSQL مستضافًا مثل [Neon](/docs/neon) أو
+[Supabase](/docs/supabase) أو Railway أو Render أو [Amazon RDS for PostgreSQL](/docs/aws-rds)
+أو [Cloud SQL for PostgreSQL](/docs/cloud-sql) أو [Azure Database for PostgreSQL](/docs/azure-postgresql).
+استخدم دليل [Plain Postgres](/docs/postgres) للخدمات المُدارة الأخرى وخوادم
+PostgreSQL ذاتية الاستضافة. يضبط الإطار PostgreSQL من عنوان URL
+للاتصال.
+
+### ضبط سلسلة الاتصال
+
+اضبط `DATABASE_URL` في إعدادات متغيرات البيئة أو الأسرار لدى موفر الاستضافة قبل
+أول نشر إنتاجي. يضبط ملف `.env` المحلي جهازك فقط، ولا يرفعه أمر
+النشر.
+
+### إضافة أسرار الإنتاج
+
+أنشئ سر توقيع ثابتًا باستخدام `openssl rand -hex 32`، ثم اضبطه في
+`BETTER_AUTH_SECRET` للتطبيق المستقل. تحتاج مساحة العمل أيضًا إلى `A2A_SECRET`
+عندما تستخدم طلبات موقّعة بين التطبيقات أو عمليات تسليم في الخلفية. يغطي [مرجع بيئة
+النشر](/docs/deployment-environment-variables) بقية
+إعدادات الإنتاج.
+
+### تشغيل عمليات الترحيل
+
+شغّل `pnpm migrate:production` مقابل قاعدة بيانات الإنتاج قبل أول
+زيارة. ينشئ هذا الأمر الجداول التي يحتاجها التطبيق. شغّله مرة أخرى بعد كل ترقية،
+قبل أن يصبح الإصدار الجديد متاحًا. يوضح كل دليل استضافة موضع هذه الخطوة.
+
+</Steps>
+
+<Callout tone="info">
+
+في مساحة العمل، يرث كل تطبيق `DATABASE_URL` الجذري افتراضيًا. اضبط
+`<APP_NAME>_DATABASE_URL` فقط عندما يحتاج تطبيق واحد إلى قاعدة بيانات مختلفة.
+
+</Callout>
 
 ## تسليم البريد الإلكتروني اختياري، لكنه موصى به {#email-provider}
 
-موفر البريد الإلكتروني ليس مطلوبًا لمصادقة البريد الإلكتروني وكلمة المرور. بدونه، تستخدم التطبيقات المنشورة التسجيل وتسجيل الدخول بالبريد الإلكتروني وكلمة المرور، وتتخطى التحقق من البريد عند التسجيل، ولا تعرض مصادقة الروابط السحرية.
+موفر البريد الإلكتروني ليس مطلوبًا لمصادقة البريد الإلكتروني وكلمة المرور. بدونه،
+يستخدم التطبيق المنشور التسجيل وتسجيل الدخول بالبريد الإلكتروني وكلمة المرور،
+ويتخطى التحقق من البريد عند التسجيل، ولا يعرض مصادقة الروابط السحرية.
 
-اربط Resend أو SendGrid قبل النشر إذا أردت الروابط السحرية أو التحقق من البريد أو إعادة تعيين كلمات المرور أو الدعوات أو إشعارات المشاركة. اضبط `RESEND_API_KEY` أو `SENDGRID_API_KEY` في بيئة النشر؛ ويحتاج SendGrid أيضًا إلى `EMAIL_FROM`. راجع [المصادقة](/docs/authentication) لأنماط المصادقة المتاحة.
+لا يتضمن Agent-Native حسابًا لإرسال البريد. اربط Resend أو SendGrid قبل النشر إذا
+أردت الروابط السحرية أو التحقق من البريد أو إعادة تعيين كلمات المرور أو الدعوات أو
+إشعارات المشاركة. اضبط `RESEND_API_KEY` أو `SENDGRID_API_KEY` في بيئة النشر.
+ويحتاج SendGrid أيضًا إلى `EMAIL_FROM`. راجع [المصادقة](/docs/authentication)
+لأنماط المصادقة المتاحة.
 
 ### تخصيص رسائل البريد في الإطار {#email-templates}
 
-لكل رسالة بريد يرسلها الإطار قالب افتراضي. لاستخدام تصميمك الخاص، سجّل override من إضافة خادم. يظل الإطار هو من يحدد المستلم والمرسل ويسلّم الرسالة؛ أما الـ override فيحدد محتوى الرسالة وشكلها.
+لكل رسالة بريد يرسلها الإطار قالب افتراضي. لاستخدام تصميمك الخاص، سجّل override من
+إضافة خادم. يظل الإطار هو من يحدد المستلم والمرسل ويسلّم الرسالة. أما الـ override
+فيحدد محتوى الرسالة وشكلها.
 
 ```ts
 // server/plugins/email-templates.ts
@@ -70,21 +115,169 @@ export default function registerEmailTemplates(): void {
 | `core.builder-credit-limit`      | `subject`, `heading`, `body`, `upgradeLabel`, `upgradeUrl`                         |
 | `core.resource-shared`           | `recipientEmail`, `sender`, `resource` (`type`, `title`, `url`), `role`, `message` |
 
-يتلقى كل override أيضًا `app` (`name`، `logoUrl`). يحمل الوسيط الثاني العرض الافتراضي، لتتمكن من إعادة استخدام العنوان أو النص.
+يتلقى كل override أيضًا `app` (`name`، `logoUrl`). يحمل الوسيط الثاني العرض
+الافتراضي، لتتمكن من إعادة استخدام العنوان أو النص.
 
-- قيم الـ props خام. اهرب منها باستخدام `escapeEmailHtml` قبل وضعها في سلسلة HTML.
-- أعد `react` مع عنصر React بدلًا من `html` لعرض مكوّن. يتولى React الهروب من الـ props.
-- احذف `subject` للإبقاء على العنوان الافتراضي. احذف `text` لاشتقاق النص العادي من HTML الخاص بك.
-- إذا رمى الـ override خطأ، يفشل الإرسال. لا يعود الإطار إلى التصميم الافتراضي. تعرض معاينة رسائل البريد المعاملاتية الـ override الخاص بك، فتحقق منه هناك.
+- قيم الـ props خام. اهرب منها باستخدام `escapeEmailHtml` قبل وضعها
+  في سلسلة HTML.
+- أعد `react` مع عنصر React بدلًا من `html` لعرض مكوّن.
+  يتولى React الهروب من الـ props.
+- احذف `subject` للإبقاء على العنوان الافتراضي. احذف `text` لاشتقاق
+  النص العادي من HTML الخاص بك.
+- إذا رمى الـ override خطأ، يفشل الإرسال. لا يعود الإطار إلى
+  التصميم الافتراضي. تعرض معاينة رسائل البريد المعاملاتية الـ override الخاص بك،
+  فتحقق منه هناك.
 
-## الأهداف المدعومة
+## أهداف النشر المدعومة {#supported-deployment-targets}
 
-يدعم Agent-Native [Node.js](/docs/node-js) و[Docker](/docs/docker) و[Vercel](/docs/vercel) و[Netlify](/docs/netlify) و[Cloudflare Workers](/docs/cloudflare#cloudflare-workers).
+لكل هدف دليل خطوة بخطوة. تبقى شيفرة التطبيق وقاعدة البيانات كما هي أيًا كان الهدف
+الذي تختاره. يتغير فقط إعداد البناء المسبق وأمر
+النشر.
 
-راجع [مرجع متغيرات بيئة النشر](/docs/deployment-environment-variables) للإعدادات المتقدمة، والأسرار، وإعدادات الإنتاج.
+<!-- i18n-copy-ignore: renderer-only Diagram attributes keep this shared UI block in clean mode. -->
 
-## التالي
+<Diagram id="doc-block-deployment-targets" title="أهداف النشر المدعومة" summary="يمكن نشر تطبيقات Agent-Native على Node.js وDocker وVercel وNetlify وCloudflare Workers." frame="hide" renderMode="design">
 
-- [نشر تطبيق](/docs/deploy-an-app)
-- [نشر مساحة عمل](/docs/workspace-deployment)
-- [قاعدة البيانات](/docs/server-database#production)
+```html
+<!-- i18n-copy-ignore: deployment target logo markup is visual-only; labels are unchanged. -->
+<div class="deployment-target-grid">
+  <a class="deployment-target" href="/docs/node-js">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo"
+        src="/integration-logos/nodejs.svg"
+        alt=""
+      />
+    </span>
+    <strong>Node.js</strong>
+  </a>
+  <a class="deployment-target" href="/docs/docker">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo"
+        src="/integration-logos/docker.svg"
+        alt=""
+      />
+    </span>
+    <strong>Docker</strong>
+  </a>
+  <a class="deployment-target" href="/docs/vercel">
+    <span class="deployment-target-mark">
+      <img
+        class="deployment-target-logo deployment-target-logo-light"
+        src="/integration-logos/vercel.svg"
+        alt=""
+      />
+      <img
+        class="deployment-target-logo deployment-target-logo-dark"
+        src="/integration-logos/vercel-white.svg"
+        alt=""
+        aria-hidden="true"
+      />
+    </span>
+    <strong>Vercel</strong>
+  </a>
+  <a class="deployment-target" href="/docs/netlify">
+    <span class="deployment-target-mark">
+      <!-- i18n-copy-ignore: Netlify's light/dark logo pair is image markup; localized deployment pages have no logo grid. -->
+      <img
+        class="deployment-target-logo deployment-target-logo-light"
+        src="/integration-logos/netlify.svg"
+        alt=""
+      />
+      <img
+        class="deployment-target-logo deployment-target-logo-dark"
+        src="/integration-logos/netlify-darkmode.svg"
+        alt=""
+        aria-hidden="true"
+      />
+    </span>
+    <strong>Netlify</strong>
+  </a>
+  <a class="deployment-target" href="/docs/cloudflare#cloudflare-workers">
+    <span class="deployment-target-mark">
+      <img src="/integration-logos/cloudflare.svg" alt="" />
+    </span>
+    <strong>Cloudflare Workers</strong>
+  </a>
+</div>
+```
+
+```css
+.deployment-target-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.deployment-target {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+.deployment-target:hover {
+  border-color: hsl(var(--primary));
+}
+.deployment-target-mark {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.deployment-target-logo {
+  display: block;
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+}
+.deployment-target-logo-dark {
+  display: none;
+}
+[data-theme="dark"] .deployment-target-logo-light {
+  display: none;
+}
+[data-theme="dark"] .deployment-target-logo-dark {
+  display: block;
+}
+@media (max-width: 640px) {
+  .deployment-target-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+```
+
+</Diagram>
+
+## النشر المتقدم {#advanced-deployment}
+
+ابدأ بالمسار أعلاه. استخدم هذه الصفحات عندما تحتاج إلى إعدادات خاصة بموفر معيّن
+أو عناصر تحكم للإنتاج:
+
+- [**Node.js**](/docs/node-js) - شغّل إعداد خادم Nitro المسبق الافتراضي
+- [**Docker**](/docs/docker) - احزم خادم Node.js في حاوية
+- [**Vercel**](/docs/vercel) و[**Netlify**](/docs/netlify) و[**Cloudflare Workers**](/docs/cloudflare#cloudflare-workers) - اضبط الأهداف المستضافة
+- [**التخزين المؤقت SSR**](/docs/ssr-caching) - اضبط ذاكرة التخزين المؤقت للهيكل العام
+- [**النشر: متغيرات البيئة**](/docs/deployment-environment-variables) - أسرار الإنتاج وأعلام وقت التشغيل والوراثة في مساحة العمل
+- [**وصول الوكيل الإنتاجي**](/docs/actions-agent-tools) - تحكّم في أدوات الإطار وتنفيذ الشيفرة
+- [**تحديث الواجهة في الإنتاج**](/docs/updating-ui-in-production) - افهم سير عمل التحرير المرئي المُدار
+
+<a id="self-host-quickstart"></a>
+<a id="skip-ensure-tables"></a>
+
+تُبقي هذه المراسي الروابط القديمة عاملة. يغطي [دليل Docker](/docs/docker) الاستضافة
+الذاتية باستخدام حاوية. توجد إرشادات إعداد المخطط وبدء التشغيل البارد
+في [مرجع بيئة النشر](/docs/deployment-environment-variables#skip-ensure-tables).
+
+## ما هي الخطوة التالية {#whats-next}
+
+- [**نشر تطبيق**](/docs/deploy-an-app)
+- [**نشر مساحة العمل**](/docs/workspace-deployment)
+- [**قاعدة البيانات**](/docs/server-database#production)
+- [**الأمان**](/docs/security)
+- [**المصادقة**](/docs/authentication)
