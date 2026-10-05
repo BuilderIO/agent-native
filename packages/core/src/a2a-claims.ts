@@ -26,7 +26,9 @@ export async function verifyA2ATokenWithClaims(
         : [];
     if (audiences.length === 0 || audiences.some((value) => !value.trim()))
       return null;
-    const orgId = typeof raw.org_id === "string" ? raw.org_id.trim() : "";
+    const claimedOrgId =
+      typeof raw.org_id === "string" ? raw.org_id.trim() : "";
+    const orgId = identity.orgId?.trim() ?? "";
     const jti = typeof raw.jti === "string" ? raw.jti.trim() : "";
     const scopes =
       typeof raw.scope === "string"
@@ -34,7 +36,7 @@ export async function verifyA2ATokenWithClaims(
         : [];
     const issuer = typeof raw.iss === "string" ? raw.iss.trim() : "";
     const orgDomain = identity.orgDomain?.trim().toLowerCase() ?? "";
-    return orgId && orgDomain && jti
+    return claimedOrgId && claimedOrgId === orgId && orgDomain && jti
       ? {
           email: identity.email,
           orgId,

@@ -1422,6 +1422,32 @@ describe("server/sentry", () => {
     });
   });
 
+  describe("captureAuthError", () => {
+    it("logs signup errors when server Sentry is disabled", async () => {
+      delete process.env.SENTRY_SERVER_DSN;
+      delete process.env.SENTRY_DSN;
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const { captureAuthError } = await import("./sentry.js");
+
+      captureAuthError(
+        new Error(
+          "Failed query: select * from user\nparams: private@example.com",
+        ),
+        { route: "signup", email: "private@example.com" },
+      );
+
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(error.mock.calls[0]?.[0]).toBe(
+        "[agent-native][auth] signup error",
+      );
+      expect(error.mock.calls[0]?.[1]).toContain("Failed query");
+      expect(error.mock.calls[0]?.[1]).toContain("params: <redacted>");
+      expect(error.mock.calls[0]?.[1]).not.toContain("private@example.com");
+      expect(sentryMock.captureException).not.toHaveBeenCalled();
+      error.mockRestore();
+    });
+  });
+
   describe("captureRouteError", () => {
     it("no-ops when Sentry isn't initialized", async () => {
       delete process.env.SENTRY_SERVER_DSN;

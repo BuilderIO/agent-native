@@ -13,6 +13,7 @@ export const MAX_A2A_IDEMPOTENCY_KEY_CHARS = 128;
 const A2A_IDEMPOTENCY_INDEX = "idx_a2a_tasks_owner_scope_idempotency";
 const A2A_RECOVERY_INDEX = "idx_a2a_tasks_recovery_created";
 export const A2A_PERSONAL_OWNER_SCOPE = "__personal__";
+export const A2A_ORG_ID_OWNER_SCOPE_PREFIX = "__a2a_org_id__:";
 const MAX_TASK_LIST_PAGE_SIZE = 100;
 
 export interface A2ATaskListCursor {

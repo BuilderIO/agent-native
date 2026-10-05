@@ -32,6 +32,7 @@ import { getAppConfig } from "../app-config/store.js";
 import { isMcpActionResult } from "../mcp-client/app-result.js";
 import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
+import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import {
   buildDeepLink,
   isAgentNativeOpenUrl,
@@ -2627,13 +2628,14 @@ export function getBearerToken(
   return match?.[1]?.trim() || undefined;
 }
 
-function addSecretCandidate(
-  candidates: string[],
-  secret: string | null | undefined,
-): void {
-  const trimmed = secret?.trim();
-  if (!trimmed || candidates.includes(trimmed)) return;
-  candidates.push(trimmed);
+export class McpIdentityVerificationUnavailableError extends Error {
+  readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    super("MCP identity verification is temporarily unavailable");
+    this.name = "McpIdentityVerificationUnavailableError";
+    this.cause = cause;
+  }
 }
 
 async function verifyA2AJwtForMcp(
@@ -2648,46 +2650,76 @@ async function verifyA2AJwtForMcp(
     return null;
   }
 
-  const candidateSecrets: string[] = [];
-  addSecretCandidate(candidateSecrets, process.env.A2A_SECRET);
-
   const orgDomain =
     typeof unverifiedPayload.org_domain === "string"
-      ? unverifiedPayload.org_domain
+      ? unverifiedPayload.org_domain.trim().toLowerCase()
       : undefined;
-  if (orgDomain) {
-    try {
-      const { getA2ASecretByDomain } = await import("../org/context.js");
-      addSecretCandidate(
-        candidateSecrets,
-        await getA2ASecretByDomain(orgDomain),
-      );
-    } catch {
-      // DB not ready or org lookup unavailable — fall back to other candidates.
-    }
-  }
-
   const firstPartyMcp = unverifiedPayload.agent_native_first_party_mcp === true;
   const audiences = firstPartyMcp ? mcpAudienceList(resourceUrl) : null;
   if (firstPartyMcp && !audiences?.length) return null;
 
-  for (const secret of candidateSecrets) {
-    const encodedSecret = new TextEncoder().encode(secret);
+  const verifyWithSecret = async (secret: string) => {
     for (const audience of audiences ?? [undefined]) {
       try {
         const { payload } = await jose.jwtVerify(
           token,
-          encodedSecret,
+          new TextEncoder().encode(secret),
           audience ? { audience } : undefined,
         );
         return payload as Record<string, unknown>;
       } catch {
-        // Try the next candidate without exposing which secret matched.
+        // coercion-ok: bad signature or audience rejects this candidate; credential lookup failures throw separately.
       }
     }
+    return null;
+  };
+
+  const globalSecret = readDeployCredentialEnv("A2A_SECRET")?.trim();
+  if (globalSecret) {
+    const payload = await verifyWithSecret(globalSecret);
+    if (payload) return payload;
   }
 
-  return null;
+  if (!orgDomain) return null;
+  let organization: {
+    orgId: string;
+    orgDomain: string;
+    secret: string;
+  } | null;
+  try {
+    const { resolveA2AOrganizationCredentialsByDomain } =
+      await import("../org/context.js");
+    organization = await resolveA2AOrganizationCredentialsByDomain(orgDomain);
+  } catch (error) {
+    throw new McpIdentityVerificationUnavailableError(error);
+  }
+  if (!organization) return null;
+
+  const payload = await verifyWithSecret(organization.secret);
+  if (!payload) return null;
+  const verifiedDomain =
+    typeof payload.org_domain === "string"
+      ? payload.org_domain.trim().toLowerCase()
+      : "";
+  const email = typeof payload.sub === "string" ? payload.sub.trim() : "";
+  const claimedOrgId = payload.org_id;
+  if (
+    !email ||
+    verifiedDomain !== organization.orgDomain ||
+    (typeof claimedOrgId !== "undefined" &&
+      (typeof claimedOrgId !== "string" ||
+        claimedOrgId.trim() !== organization.orgId))
+  ) {
+    return null;
+  }
+
+  try {
+    const { isOrgMemberForA2A } = await import("../org/membership.js");
+    if (!(await isOrgMemberForA2A(organization.orgId, email))) return null;
+  } catch (error) {
+    throw new McpIdentityVerificationUnavailableError(error);
+  }
+  return { ...payload, org_id: organization.orgId };
 }
 
 function mcpAudienceList(resource: string | string[] | undefined): string[] {
@@ -2780,7 +2812,7 @@ export async function verifyAuth(
   fullCatalog?: boolean;
 }> {
   const accessTokens = getAccessTokens();
-  const hasA2ASecret = !!process.env.A2A_SECRET?.trim();
+  const hasA2ASecret = !!readDeployCredentialEnv("A2A_SECRET")?.trim();
   const token = getBearerToken(authHeader);
   if (token) {
     const oauthIdentity = await verifyMcpOAuthAccessToken(
@@ -2882,15 +2914,10 @@ export async function verifyAuth(
     };
   }
 
-  if (accessTokens.length === 0 && !hasA2ASecret) {
-    if (options.allowDevOpen === false) {
-      return { authed: false };
-    }
-    return {
-      authed: true,
-      identity: deriveStaticTokenIdentity(ownerEmailHeader),
-      fullSurface: !!(ownerEmailHeader && ownerEmailHeader.trim()),
-    };
+  if (accessTokens.length === 0) {
+    // A supplied bearer that failed JWT verification must not fall through to
+    // dev-open auth or reuse a forwarded owner-email hint.
+    return { authed: false };
   }
 
   // Try ACCESS_TOKEN / ACCESS_TOKENS exact match. Static tokens carry no

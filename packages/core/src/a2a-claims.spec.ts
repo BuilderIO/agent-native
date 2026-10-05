@@ -23,6 +23,7 @@ describe("verifyA2ATokenWithClaims", () => {
     verifyA2ATokenMock.mockResolvedValue({
       email: "operator@example.com",
       orgDomain: "builder.io",
+      orgId: "org-1",
     });
   });
 
@@ -63,6 +64,54 @@ describe("verifyA2ATokenWithClaims", () => {
     verifyA2ATokenMock.mockResolvedValue({
       email: "operator@example.com",
       orgDomain: null,
+    });
+    expect(
+      await verifyA2ATokenWithClaims(
+        await token({
+          aud: "https://content.example.com",
+          org_id: "org-1",
+          jti: "call-1",
+          scope: "flags:write",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("does not create action claims when the shared verifier rejects the subject", async () => {
+    verifyA2ATokenMock.mockResolvedValue({ email: null, orgDomain: null });
+    expect(
+      await verifyA2ATokenWithClaims(
+        await token({
+          aud: "https://content.example.com",
+          org_id: "org-x",
+          jti: "call-1",
+          scope: "flags:write",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("preserves unreadable identity evidence as a failed verification", async () => {
+    verifyA2ATokenMock.mockRejectedValue(
+      new Error("A2A identity verification is temporarily unavailable"),
+    );
+    await expect(
+      verifyA2ATokenWithClaims(
+        await token({
+          aud: "https://content.example.com",
+          org_id: "org-x",
+          jti: "call-1",
+          scope: "flags:write",
+        }),
+      ),
+    ).rejects.toThrow("A2A identity verification is temporarily unavailable");
+  });
+
+  it("does not trust a token org_id different from the verified org id", async () => {
+    verifyA2ATokenMock.mockResolvedValue({
+      email: "operator@example.com",
+      orgDomain: "builder.io",
+      orgId: "org-evil",
     });
     expect(
       await verifyA2ATokenWithClaims(

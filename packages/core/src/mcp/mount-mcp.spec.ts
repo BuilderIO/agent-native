@@ -4,6 +4,7 @@ const mockServerState = vi.hoisted(() => ({
   McpDirectoryProfileValidationError: class extends Error {
     readonly code = "MCP_DIRECTORY_PROFILE_INVALID";
   },
+  McpIdentityVerificationUnavailableError: class extends Error {},
   setResponseHeader: vi.fn(),
   setResponseStatus: vi.fn(),
   validateMcpDirectoryProfile: vi.fn(),
@@ -35,6 +36,8 @@ vi.mock("./build-server.js", () => ({
   createMCPServerForRequest: vi.fn(),
   McpDirectoryProfileValidationError:
     mockServerState.McpDirectoryProfileValidationError,
+  McpIdentityVerificationUnavailableError:
+    mockServerState.McpIdentityVerificationUnavailableError,
   selectMcpActionSurface: vi.fn(),
   validateMcpDirectoryProfile: mockServerState.validateMcpDirectoryProfile,
   validateMcpDirectoryWidgetDomain: vi.fn(),
@@ -88,6 +91,23 @@ describe("mountMCP", () => {
       generalEvent,
       401,
     );
+  });
+
+  it("returns 503 when MCP organization identity evidence is unavailable", async () => {
+    mockServerState.verifyAuth.mockRejectedValue(
+      new mockServerState.McpIdentityVerificationUnavailableError(),
+    );
+    const use = vi.fn();
+    mountMCP({ h3: { use } }, { actions: {} } as any);
+    const handler = use.mock.calls.find(([path]) => path === "/mcp")?.[1];
+    const event = { url: { pathname: "/" } };
+
+    const result = await handler(event);
+
+    expect(result).toEqual({
+      error: "MCP identity verification is temporarily unavailable",
+    });
+    expect(mockServerState.setResponseStatus).toHaveBeenCalledWith(event, 503);
   });
 
   it("mounts the public and legacy protocol paths by default", () => {

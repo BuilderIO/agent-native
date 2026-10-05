@@ -343,7 +343,10 @@ export function captureAuthError(
   },
 ): string | undefined {
   if (getRequestContext()?.isSyntheticTraffic) return undefined;
-  if (!_initSucceeded || !Sentry) return undefined;
+  if (!_initSucceeded || !Sentry) {
+    logSignupErrorWhenSentryUnavailable(error, context.route);
+    return undefined;
+  }
   const sentry = Sentry;
   try {
     return sentry.withScope((scope) => {
@@ -356,8 +359,26 @@ export function captureAuthError(
       return sentry.captureException(error);
     });
   } catch {
+    logSignupErrorWhenSentryUnavailable(error, context.route);
     return undefined;
   }
+}
+
+function logSignupErrorWhenSentryUnavailable(
+  error: unknown,
+  route: string,
+): void {
+  if (route !== "signup") return;
+  const detail =
+    redactErrorStack(error) ??
+    redact(
+      error instanceof Error
+        ? error.message
+        : typeof error === "string"
+          ? error
+          : "Unknown signup error",
+    );
+  console.error("[agent-native][auth] signup error", detail);
 }
 
 export interface RouteErrorContext {

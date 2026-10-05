@@ -6,7 +6,8 @@ vi.mock("./builtin-tools.js", () => ({ getBuiltinCrossAppTools: () => ({}) }));
 const isJtiRevokedMock = vi.fn();
 const touchTokenUsedMock = vi.fn(async () => {});
 const lookupConnectTokenOrgMock = vi.fn();
-const getA2ASecretByDomainMock = vi.fn();
+const resolveA2AOrganizationCredentialsByDomainMock = vi.fn();
+const isOrgMemberForA2AMock = vi.fn();
 const resolveOrgByDomainMock = vi.fn();
 const resolveOrgIdForEmailMock = vi.fn();
 vi.mock("./connect-store.js", () => ({
@@ -17,13 +18,20 @@ vi.mock("./connect-store.js", () => ({
   lookupConnectTokenOrg: (...a: any[]) => lookupConnectTokenOrgMock(...a),
 }));
 vi.mock("../org/context.js", () => ({
-  getA2ASecretByDomain: (...a: any[]) => getA2ASecretByDomainMock(...a),
+  resolveA2AOrganizationCredentialsByDomain: (...a: any[]) =>
+    resolveA2AOrganizationCredentialsByDomainMock(...a),
   resolveOrgByDomain: (...a: any[]) => resolveOrgByDomainMock(...a),
   resolveOrgIdForEmail: (...a: any[]) => resolveOrgIdForEmailMock(...a),
 }));
+vi.mock("../org/membership.js", () => ({
+  isOrgMemberForA2A: (...a: any[]) => isOrgMemberForA2AMock(...a),
+}));
 
-const { resolveMcpIdentityOrgId, verifyAuth } =
-  await import("./build-server.js");
+const {
+  resolveMcpIdentityOrgId,
+  verifyAuth,
+  McpIdentityVerificationUnavailableError,
+} = await import("./build-server.js");
 const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
 
 const SECRET = "verify-auth-secret";
@@ -45,7 +53,8 @@ describe("verifyAuth — connect-token revoke check", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     lookupConnectTokenOrgMock.mockResolvedValue({ status: "missing" });
-    getA2ASecretByDomainMock.mockResolvedValue(null);
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue(null);
+    isOrgMemberForA2AMock.mockResolvedValue(true);
     resolveOrgByDomainMock.mockResolvedValue(null);
     resolveOrgIdForEmailMock.mockResolvedValue(null);
     process.env.A2A_SECRET = SECRET;
@@ -69,7 +78,11 @@ describe("verifyAuth — connect-token revoke check", () => {
 
   it("accepts an ordinary A2A JWT signed with the caller org secret", async () => {
     process.env.A2A_SECRET = "different-global-secret";
-    getA2ASecretByDomainMock.mockResolvedValue("org-a2a-secret");
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+      orgId: "org-builder",
+      orgDomain: "builder.io",
+      secret: "org-a2a-secret",
+    });
     const token = await sign(
       { sub: "a@example.com", org_domain: "builder.io" },
       "org-a2a-secret",
@@ -82,11 +95,76 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(res.authed).toBe(true);
     expect(res.identity).toEqual({
       userEmail: "a@example.com",
+      orgId: "org-builder",
       orgDomain: "builder.io",
     });
     expect(res.fullSurface).toBe(true);
-    expect(getA2ASecretByDomainMock).toHaveBeenCalledWith("builder.io");
+    expect(resolveA2AOrganizationCredentialsByDomainMock).toHaveBeenCalledWith(
+      "builder.io",
+    );
+    expect(isOrgMemberForA2AMock).toHaveBeenCalledWith(
+      "org-builder",
+      "a@example.com",
+    );
     expect(isJtiRevokedMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an org-secret token asserting a user who belongs only to another org", async () => {
+    delete process.env.A2A_SECRET;
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+      orgId: "org-evil",
+      orgDomain: "evil.example",
+      secret: "org-evil-secret",
+    });
+    isOrgMemberForA2AMock.mockResolvedValue(false);
+    const token = await sign(
+      { sub: "alice@acme", org_domain: "evil.example", org_id: "org-evil" },
+      "org-evil-secret",
+    );
+
+    const res = await verifyAuth(`Bearer ${token}`, "alice@acme");
+
+    expect(res).toEqual({ authed: false });
+    expect(isOrgMemberForA2AMock).toHaveBeenCalledWith(
+      "org-evil",
+      "alice@acme",
+    );
+  });
+
+  it("rejects org-secret tokens whose org_id differs from the verified domain org", async () => {
+    delete process.env.A2A_SECRET;
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+      orgId: "org-evil",
+      orgDomain: "evil.example",
+      secret: "org-evil-secret",
+    });
+    const token = await sign(
+      { sub: "alice@acme", org_domain: "evil.example", org_id: "org-acme" },
+      "org-evil-secret",
+    );
+
+    const res = await verifyAuth(`Bearer ${token}`, "alice@acme");
+
+    expect(res).toEqual({ authed: false });
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("preserves unreadable membership evidence instead of returning invalid auth", async () => {
+    process.env.A2A_SECRET = "different-global-secret";
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+      orgId: "org-evil",
+      orgDomain: "evil.example",
+      secret: "org-evil-secret",
+    });
+    isOrgMemberForA2AMock.mockRejectedValue(new Error("database unavailable"));
+    const token = await sign(
+      { sub: "alice@acme", org_domain: "evil.example" },
+      "org-evil-secret",
+    );
+
+    await expect(
+      verifyAuth(`Bearer ${token}`, "alice@acme"),
+    ).rejects.toBeInstanceOf(McpIdentityVerificationUnavailableError);
   });
 
   it("rejects identity-scoped SSO JWTs on the MCP endpoint", async () => {
@@ -484,7 +562,8 @@ describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => 
   beforeEach(() => {
     vi.clearAllMocks();
     lookupConnectTokenOrgMock.mockResolvedValue({ status: "missing" });
-    getA2ASecretByDomainMock.mockResolvedValue(null);
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue(null);
+    isOrgMemberForA2AMock.mockResolvedValue(true);
     resolveOrgByDomainMock.mockResolvedValue(null);
     resolveOrgIdForEmailMock.mockResolvedValue(null);
     delete process.env.A2A_SECRET;

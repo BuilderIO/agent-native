@@ -1008,6 +1008,31 @@ export async function resolveOrgByDomain(
   }
 }
 
+export async function resolveA2AOrganizationCredentialsByDomain(
+  domain: string,
+): Promise<{
+  orgId: string;
+  orgDomain: string;
+  secret: string;
+} | null> {
+  const normalizedDomain = domain.trim().toLowerCase();
+  if (!normalizedDomain) return null;
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT id, allowed_domain, a2a_secret
+          FROM organizations WHERE LOWER(allowed_domain) = ? LIMIT 1`,
+    args: [normalizedDomain],
+  });
+  const row = rows[0] as any;
+  if (!row) return null;
+  const orgId = String(row.id ?? "").trim();
+  const orgDomain = String(row.allowed_domain ?? "")
+    .trim()
+    .toLowerCase();
+  const secret = String(row.a2a_secret ?? "").trim();
+  if (!orgId || orgDomain !== normalizedDomain || !secret) return null;
+  return { orgId, orgDomain, secret };
+}
+
 export async function isSoleOrgDomain(domain: string): Promise<boolean> {
   try {
     const exec = getDbExec();

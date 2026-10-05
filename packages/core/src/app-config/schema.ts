@@ -9,6 +9,7 @@ import { authConfig } from "./auth.js";
 import { dispatchConfig } from "./dispatch.js";
 import { integrationsConfig } from "./integrations.js";
 import { launchDarklyConfig } from "./launchdarkly.js";
+import { mcpConfig } from "./mcp.js";
 import { migrationConfig } from "./migration.js";
 import { observabilityConfig } from "./observability.js";
 import { onboardingConfig } from "./onboarding.js";
@@ -29,6 +30,7 @@ export const appConfigSchema = z.object({
   dispatch: dispatchConfig.prefault({}),
   integrations: integrationsConfig.prefault({}),
   launchDarkly: launchDarklyConfig.prefault({}),
+  mcp: mcpConfig.prefault({}),
   migration: migrationConfig.prefault({}),
   observability: observabilityConfig.prefault({}),
   onboarding: onboardingConfig.prefault({}),

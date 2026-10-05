@@ -16,6 +16,7 @@ import { trackMcpInitialize } from "./analytics.js";
 import {
   createMCPServerForRequest,
   verifyAuth,
+  McpIdentityVerificationUnavailableError,
   getAccessTokens,
   resolveOrgIdFromDomain,
   buildLinkArtifacts,
@@ -289,13 +290,21 @@ export async function handleMcpRequest(
         widgetDomain: requestMeta.origin,
       }
     : config;
-  const authResult = await verifyAuth(authHeader, ownerEmailHeader, {
-    allowDevOpen:
-      isLoopbackRequest(event) &&
-      isLoopbackOrigin(requestMeta.origin) &&
-      (hasLocalOwnerHint || process.env.AGENT_NATIVE_MCP_DEV_OPEN === "1"),
-    resourceUrl: getMcpOAuthAudiences(event, routePath),
-  });
+  let authResult: Awaited<ReturnType<typeof verifyAuth>>;
+  try {
+    authResult = await verifyAuth(authHeader, ownerEmailHeader, {
+      allowDevOpen:
+        isLoopbackRequest(event) &&
+        isLoopbackOrigin(requestMeta.origin) &&
+        (hasLocalOwnerHint || getAppConfig().mcp.allowDevOpen),
+      resourceUrl: getMcpOAuthAudiences(event, routePath),
+    });
+  } catch (error) {
+    if (!(error instanceof McpIdentityVerificationUnavailableError))
+      throw error;
+    setResponseStatus(event, 503);
+    return { error: "MCP identity verification is temporarily unavailable" };
+  }
   if (!authResult.authed) {
     setResponseStatus(event, 401);
     setResponseHeader(

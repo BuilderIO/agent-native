@@ -58,6 +58,7 @@ vi.mock("./task-store.js", () => {
   };
   return {
     A2A_PERSONAL_OWNER_SCOPE: "__personal__",
+    A2A_ORG_ID_OWNER_SCOPE_PREFIX: "__a2a_org_id__:",
     MAX_A2A_IDEMPOTENCY_KEY_CHARS: 128,
     createTask,
     async createOrReuseTask(
@@ -1062,6 +1063,59 @@ describe("handleJsonRpc", () => {
     });
   });
 
+  it("binds task ownership to the verified organization id after domain reassignment", async () => {
+    const ownerEvent = mockEvent();
+    ownerEvent.context = {
+      __a2aVerifiedEmail: "alice@example.org",
+      __a2aOrgDomain: "shared.test",
+      __a2aVerifiedOrgId: "org-acme",
+    };
+
+    const stream = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/stream",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hello" }],
+          },
+        },
+      },
+      ownerEvent,
+      { ...customHandler, streaming: true },
+    );
+    const streamEvents = ownerEvent.node.res._writes.map((chunk: string) =>
+      JSON.parse(chunk.replace(/^data: /, "").trim()),
+    );
+    const taskId = streamEvents.find((entry: any) => entry.result?.id)?.result
+      .id;
+    expect(taskId).toBeTruthy();
+
+    const reassignedDomainEvent = mockEvent();
+    reassignedDomainEvent.context = {
+      __a2aVerifiedEmail: "alice@example.org",
+      __a2aOrgDomain: "shared.test",
+      __a2aVerifiedOrgId: "org-evil",
+    };
+    const denied = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: taskId },
+      },
+      reassignedDomainEvent,
+      customHandler,
+    );
+
+    expect(denied.error).toMatchObject({
+      code: -32001,
+      message: "Task not found",
+    });
+  });
+
   it("handles tasks/get for unknown task", async () => {
     const event = mockEvent();
     const result = await handleJsonRpc(
@@ -1834,6 +1888,78 @@ describe("handleJsonRpc", () => {
     expect(resolveOrgByDomainMock).not.toHaveBeenCalledWith("evil.test");
     expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
   });
+
+  it.each([false, true])(
+    "keeps the verified org-secret binding for async=%s",
+    async (asyncMode) => {
+      resolveOrgByDomainMock.mockRejectedValue(
+        new Error("org registry became unavailable"),
+      );
+      resolveOrgIdForEmailMock.mockResolvedValue("org-y");
+      const contextConfig: A2AConfig = {
+        ...customHandler,
+        handler: async () => ({
+          message: {
+            role: "agent",
+            parts: [
+              {
+                type: "text",
+                text: `${getRequestUserEmail() ?? "none"}|${getRequestOrgId() ?? "none"}`,
+              },
+            ],
+          },
+        }),
+      };
+      const event = mockEvent();
+      event.context = {
+        __a2aVerifiedEmail: "alice@x.example",
+        __a2aOrgDomain: "x.example",
+        __a2aVerifiedOrgId: "org-x",
+      };
+
+      const result = await handleJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "message/send",
+          params: {
+            async: asyncMode,
+            message: { role: "user", parts: [{ type: "text", text: "hi" }] },
+          },
+        },
+        event,
+        contextConfig,
+      );
+
+      expect(result.error).toBeUndefined();
+      if (asyncMode) {
+        const { processA2ATaskFromQueue } = await import("./handlers.js");
+        await processA2ATaskFromQueue(result.result.id, contextConfig);
+      }
+      const followup = await handleJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tasks/get",
+          params: { id: result.result.id },
+        },
+        event,
+        contextConfig,
+      );
+
+      expect(followup.result.status.message.parts[0].text).toBe(
+        "alice@x.example|org-x",
+      );
+      if (asyncMode) {
+        const { getTask } = await import("./task-store.js");
+        expect(
+          (await getTask(result.result.id))?.metadata?.__a2a_processor,
+        ).toEqual(expect.objectContaining({ verifiedOrgId: "org-x" }));
+      }
+      expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
+      expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("restores the queued caller origin without trusting it for identity", async () => {
     const contextConfig: A2AConfig = {

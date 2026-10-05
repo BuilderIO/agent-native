@@ -38,6 +38,7 @@ import {
   pauseProcessingA2ATask,
   MAX_A2A_IDEMPOTENCY_KEY_CHARS,
   A2A_PERSONAL_OWNER_SCOPE,
+  A2A_ORG_ID_OWNER_SCOPE_PREFIX,
 } from "./task-store.js";
 import type {
   A2AApprovedAction,
@@ -350,6 +351,10 @@ export async function processA2ATaskFromQueue(
   const processorMeta = (meta.__a2a_processor ?? {}) as Record<string, unknown>;
   const verifiedEmail = processorMeta.verifiedEmail as string | undefined;
   const orgDomainHint = processorMeta.orgDomainHint as string | undefined;
+  const verifiedOrgId =
+    typeof processorMeta.verifiedOrgId === "string"
+      ? processorMeta.verifiedOrgId
+      : undefined;
   const requestOrigin =
     requestOriginFromMetadata(processorMeta) ?? requestOriginFromEvent(event);
   const contextId =
@@ -366,10 +371,14 @@ export async function processA2ATaskFromQueue(
     | A2ASourceContext
     | undefined;
 
-  const resolvedOrgId = await resolveVerifiedA2AOrgId(
-    verifiedEmail,
-    orgDomainHint,
-  );
+  const resolvedOrgId =
+    verifiedOrgId ??
+    (await resolveVerifiedA2AOrgId(verifiedEmail, orgDomainHint));
+  if (event?.context) {
+    if (verifiedEmail) event.context.__a2aVerifiedEmail = verifiedEmail;
+    if (orgDomainHint) event.context.__a2aOrgDomain = orgDomainHint;
+    if (verifiedOrgId) event.context.__a2aVerifiedOrgId = verifiedOrgId;
+  }
 
   const { runWithRequestContext } =
     await import("../server/request-context.js");
@@ -541,8 +550,10 @@ async function withA2ARequestContext<T>(
     (event?.context?.__a2aVerifiedEmail as string | undefined) ?? undefined;
   const orgDomain =
     (event?.context?.__a2aOrgDomain as string | undefined) ?? undefined;
-
-  const resolvedOrgId = await resolveVerifiedA2AOrgId(verifiedEmail, orgDomain);
+  const verifiedOrgId =
+    (event?.context?.__a2aVerifiedOrgId as string | undefined) ?? undefined;
+  const resolvedOrgId =
+    verifiedOrgId ?? (await resolveVerifiedA2AOrgId(verifiedEmail, orgDomain));
   const requestOrigin = requestOriginForContext(metadata, event);
 
   return runWithRequestContext(
@@ -665,12 +676,18 @@ function verifiedTaskOwner(event?: any): {
 } {
   const ownerEmail =
     (event?.context?.__a2aVerifiedEmail as string | undefined) ?? null;
+  const verifiedOrgId =
+    (event?.context?.__a2aVerifiedOrgId as string | undefined)
+      ?.trim()
+      .toLowerCase() ?? "";
   return {
     ownerEmail,
     ownerScope: ownerEmail
-      ? ((event?.context?.__a2aOrgDomain as string | undefined)
-          ?.trim()
-          .toLowerCase() ?? A2A_PERSONAL_OWNER_SCOPE)
+      ? verifiedOrgId
+        ? `${A2A_ORG_ID_OWNER_SCOPE_PREFIX}${verifiedOrgId}`
+        : ((event?.context?.__a2aOrgDomain as string | undefined)
+            ?.trim()
+            .toLowerCase() ?? A2A_PERSONAL_OWNER_SCOPE)
       : null,
   };
 }
@@ -769,6 +786,9 @@ async function handleSend(
       __a2a_processor: {
         verifiedEmail,
         orgDomainHint,
+        ...(typeof event?.context?.__a2aVerifiedOrgId === "string"
+          ? { verifiedOrgId: event.context.__a2aVerifiedOrgId }
+          : {}),
         ...(requestOrigin ? { requestOrigin } : {}),
         contextId: contextId ?? null,
         callerMetadata: safeMetadata ?? null,
@@ -1074,11 +1094,23 @@ function authorizeTaskAccess(
       return jsonRpcError(0, -32001, "Task not found");
     }
     if (taskOwnerScope) {
-      const verifiedScope =
-        (event?.context?.__a2aOrgDomain as string | undefined)
+      const verifiedOrgId =
+        (event?.context?.__a2aVerifiedOrgId as string | undefined)
           ?.trim()
-          .toLowerCase() ?? A2A_PERSONAL_OWNER_SCOPE;
-      if (verifiedScope !== taskOwnerScope.toLowerCase()) {
+          .toLowerCase() ?? "";
+      const verifiedScope = taskOwnerScope.startsWith(
+        A2A_ORG_ID_OWNER_SCOPE_PREFIX,
+      )
+        ? verifiedOrgId
+          ? `${A2A_ORG_ID_OWNER_SCOPE_PREFIX}${verifiedOrgId}`
+          : null
+        : ((event?.context?.__a2aOrgDomain as string | undefined)
+            ?.trim()
+            .toLowerCase() ?? A2A_PERSONAL_OWNER_SCOPE);
+      if (
+        verifiedScope === null ||
+        verifiedScope !== taskOwnerScope.toLowerCase()
+      ) {
         return jsonRpcError(0, -32001, "Task not found");
       }
     }
