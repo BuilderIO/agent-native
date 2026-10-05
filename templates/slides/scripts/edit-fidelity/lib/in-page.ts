@@ -1477,7 +1477,7 @@ export function installInPageHelpers(chromeSelector: string) {
         recordParagraph?.getAttribute("data-pptx-paragraph") ?? null;
       const path: string[] = [];
       for (
-        let node = element;
+        let node: Element | null | undefined = element;
         node && recordParagraph && node !== recordParagraph;
         node = node.parentElement
       ) {

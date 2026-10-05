@@ -519,7 +519,7 @@ function rowTextPoint(
   range: Range,
   marker: HTMLElement | null,
   edge: "start" | "end",
-) {
+): [Node, number] {
   const walker = document.createTreeWalker(
     range.commonAncestorContainer,
     NodeFilter.SHOW_TEXT,
