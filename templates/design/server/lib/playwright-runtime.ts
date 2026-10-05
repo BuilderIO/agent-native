@@ -74,19 +74,23 @@ export async function launchChromium(
     builderBrowserError = error;
   }
 
+  const chromiumSandbox = process.env.CI !== "true";
+  const rendererDescription = chromiumSandbox
+    ? "sandboxed local Chromium"
+    : "CI local Chromium";
   try {
-    return await chromium.launch({ chromiumSandbox: true });
+    return await chromium.launch({ chromiumSandbox });
   } catch (localBrowserError) {
     const describe = (error: unknown) =>
       error instanceof Error ? error.message : String(error);
     console.error(
-      "Design export could not launch sandboxed local Chromium:",
+      `Design export could not launch ${rendererDescription}:`,
       localBrowserError,
     );
     throw new ChromiumUnavailableError(
       new Error(
         `Builder Browser unavailable: ${describe(builderBrowserError)}; ` +
-          `sandboxed local Chromium unavailable: ${describe(localBrowserError)}.`,
+          `${rendererDescription} unavailable: ${describe(localBrowserError)}.`,
       ),
     );
   }
