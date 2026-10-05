@@ -1038,7 +1038,6 @@ const rawLiterals = {
 
 const landing = {
   previousPageUnavailable: "您之前的页面已不可用，因此我们打开了欢迎页面。",
-  requestedPageUnavailable: "该页面对你的账户不可用，因此我们打开了欢迎页面。",
   saveFailed: "无法保存您的位置",
   workspaceWelcomeUnavailableTitle: "此处尚未打开任何内容",
   workspaceWelcomeUnavailableDescription:
@@ -1413,6 +1412,9 @@ const overrides = {
   },
   empty: {
     noPageTitle: "未选择页面",
+    signedInAs: "当前登录账号：{{email}}",
+    goToMyPages: "前往我的页面",
+    switchAccount: "切换账号",
     noPageDescription: "从侧边栏选择页面，或创建新页面开始。",
     newPage: "新页面",
     createFailed: "创建页面失败",

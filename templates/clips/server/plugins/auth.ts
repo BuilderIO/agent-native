@@ -8,7 +8,8 @@ export default createAuthPlugin({
   mountGoogleOAuthRoutes: false,
   marketing: {
     appName: "Clips",
-    learnMoreUrl: "https://agent-native.com/apps/clips",
+    learnMoreUrl:
+      "https://agent-native.com/apps/clips?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     tagline:
       "Your AI agent transcribes, summarizes, and searches everything you record alongside you.",
     features: [

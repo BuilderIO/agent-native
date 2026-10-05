@@ -37,6 +37,8 @@ export interface FirstTouchAttribution {
   vector_source?: string;
   landing_path?: string;
   landing_referrer?: string;
+  site_referrer?: string;
+  site_landing_path?: string;
   landed_at?: string;
   capture_truncated?: string;
 }
@@ -72,6 +74,8 @@ const STRING_FIELDS: Array<keyof FirstTouchAttribution> = [
   "vector_source",
   "landing_path",
   "landing_referrer",
+  "site_referrer",
+  "site_landing_path",
   "landed_at",
   "capture_truncated",
 ];
@@ -175,7 +179,12 @@ export function deriveReferralSource(ft: FirstTouchAttribution | null): string {
   ) {
     return "plan_share";
   }
-  if (isExternalReferrerHost(ft?.landing_referrer)) return "external";
+  if (
+    isExternalReferrerHost(ft?.landing_referrer) ||
+    isExternalReferrerHost(ft?.site_referrer)
+  ) {
+    return "external";
+  }
   return "direct";
 }
 
@@ -205,6 +214,8 @@ export function deriveSignupAttribution(
   setIf("vector_source", ft.vector_source);
   setIf("first_touch_path", ft.landing_path);
   setIf("landing_referrer", ft.landing_referrer);
+  setIf("site_referrer", ft.site_referrer);
+  setIf("site_landing_path", ft.site_landing_path);
   if (ft.capture_truncated === "1") out.attribution_truncated = "true";
 
   return out;

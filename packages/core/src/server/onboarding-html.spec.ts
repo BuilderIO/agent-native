@@ -177,7 +177,7 @@ describe("getOnboardingHtml", () => {
 
     expect(readAuthPageData(html).appName).toBe("Agent-Native Clips");
     expect(readAuthPageData(html).marketing?.learnMoreUrl).toBe(
-      "https://agent-native.com/apps/clips",
+      "https://agent-native.com/apps/clips?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more",
     );
   });
 
@@ -919,7 +919,7 @@ describe("getOnboardingHtml", () => {
         BUILT_IN_AUTH_MARKETING[slug]!.appName,
       );
       expect(readAuthPageData(html).marketing?.learnMoreUrl).toBe(
-        `https://agent-native.com/apps/${slug}`,
+        `https://agent-native.com/apps/${slug}?utm_source=app&utm_medium=product&utm_content=onboarding-learn-more`,
       );
     }
   });
