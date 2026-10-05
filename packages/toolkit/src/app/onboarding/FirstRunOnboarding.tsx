@@ -711,10 +711,6 @@ export function FirstRunOnboarding({
                       Recommended
                     </Badge>
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    Configure using Builder.io and use your account credits to
-                    power the app&rsquo;s services.
-                  </p>
                 </div>
                 <div className="flex flex-col gap-1 rounded-[10px] bg-emerald-50 px-4 py-3 dark:bg-emerald-950/30">
                   <p className="text-[13px] font-semibold text-foreground">
@@ -766,10 +762,6 @@ export function FirstRunOnboarding({
                   <h2 className="text-lg font-bold text-foreground">
                     Configure manually
                   </h2>
-                  <p className="text-sm text-muted-foreground">
-                    Configure your own API keys and credentials to power the
-                    app&rsquo;s services.
-                  </p>
                 </div>
                 <div className="flex flex-col gap-1 rounded-xl bg-muted px-4 py-3">
                   <p className="text-[13px] font-semibold text-foreground">

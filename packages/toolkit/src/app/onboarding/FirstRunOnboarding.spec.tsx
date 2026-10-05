@@ -888,6 +888,12 @@ describe("FirstRunOnboarding", () => {
     const manualCard = document.body
       .querySelector("[data-testid='first-run-open-key-settings']")
       ?.closest("section");
+    expect(builderCard?.textContent).not.toContain(
+      "Configure using Builder.io and use your account credits to power the app’s services.",
+    );
+    expect(manualCard?.textContent).not.toContain(
+      "Configure your own API keys and credentials to power the app’s services.",
+    );
     expect(manualCard?.textContent).not.toContain("Design system intelligence");
     expect(manualCard?.textContent).not.toContain("Background agents");
     expect(manualCard?.querySelector("svg.tabler-icon-x")).toBeNull();
