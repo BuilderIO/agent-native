@@ -489,7 +489,7 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
   - Prototype: Open a Fill and choose Libraries › Link: the fill reads Link.
 - **COLOR-06** · decided
   - Today: The eyedropper button uses Tabler `color-picker`, which has no bulb and reads as a pen. Tabler has no other pipette.
-  - Change: Use an app-owned eyedropper drawn on Tabler's grid (24px, 2px round strokes): a round squeeze bulb, a collar, and a slender tube with a fine tip. It's the one exception to Tabler-only icons, and it lives with the app's other icons so the next change finds it.
+  - Change: Use an app-owned eyedropper drawn on Tabler's grid (24px, 2px round strokes): a round squeeze bulb, a collar, and a slender tube with a fine tip, all on one diagonal axis and centered in the 24px box. It's the one exception to Tabler-only icons, and it lives with the app's other icons so the next change finds it.
 - **COLOR-07** · proposed
   - Change: A copy button ends the channel row and copies the color as CSS in the current mode (oklch(54.1% 0.183 256.5), color(display-p3 …), #hex); its tooltip shows exactly what it copies. Any CSS color pasted or typed into any channel field is read as the color and shown in the current mode.
   - Prototype: In OKLCH, paste #0a6bd6 into L, then click copy.

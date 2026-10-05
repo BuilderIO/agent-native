@@ -1307,7 +1307,7 @@
           "id": "COLOR-06",
           "status": "decided",
           "today": "The eyedropper button uses Tabler `color-picker`, which has no bulb and reads as a pen. Tabler has no other pipette.",
-          "change": "Use an app-owned eyedropper drawn on Tabler's grid (24px, 2px round strokes): a round squeeze bulb, a collar, and a slender tube with a fine tip. It's the one exception to Tabler-only icons, and it lives with the app's other icons so the next change finds it.",
+          "change": "Use an app-owned eyedropper drawn on Tabler's grid (24px, 2px round strokes): a round squeeze bulb, a collar, and a slender tube with a fine tip, all on one diagonal axis and centered in the 24px box. It's the one exception to Tabler-only icons, and it lives with the app's other icons so the next change finds it.",
           "refs": [
             "templates/design/app/components/design/inspector/DesignColorPicker.tsx#IconColorPicker"
           ]
