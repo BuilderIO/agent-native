@@ -115,6 +115,18 @@ describe("route chunk recovery bootstrap", () => {
 
     expect(assign).toHaveBeenCalledOnce();
     expect(windowState[STALE_CHUNK_RELOAD_AT_KEY]).toBe(2_000_000);
+
+    onError({
+      target: {
+        getAttribute: (name) => (name === "rel" ? "modulepreload" : null),
+        hasAttribute: () => false,
+        rel: "modulepreload",
+        tagName: "LINK",
+      },
+      stopImmediatePropagation: vi.fn(),
+    });
+
+    expect(assign).toHaveBeenCalledOnce();
   });
 
   it("ignores speculative module preloads", () => {

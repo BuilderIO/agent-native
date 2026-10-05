@@ -19,11 +19,16 @@ if(/^(localhost|127\\.0\\.0\\.1|\\[::1\\])$/.test(location.hostname))return;
 const url=new URL(location.href);
 if(url.searchParams.has(queryParam))return;
 const now=Date.now();
+let last=Number(window[reloadKey])||0;
 try{
-const last=Number(sessionStorage.getItem(reloadKey));
+last=Math.max(last,Number(sessionStorage.getItem(reloadKey))||0);
 if(last>0&&now-last<=${STALE_CHUNK_RELOAD_COOLDOWN_MS})return;
 sessionStorage.setItem(reloadKey,String(now));
-}catch{window[reloadKey]=now;}
+}catch{
+last=Number(window[reloadKey])||0;
+if(last>0&&now-last<=${STALE_CHUNK_RELOAD_COOLDOWN_MS})return;
+}
+window[reloadKey]=now;
 url.searchParams.set(queryParam,queryValue);
 location.assign(url.href);
 event.stopImmediatePropagation();
