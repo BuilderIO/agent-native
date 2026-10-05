@@ -136,6 +136,7 @@ describe("appendSiteHandoff", () => {
         ref: "steve",
         utm_medium: "video",
         landing_referrer: "www.youtube.com",
+        landing_path: "/blog/launch",
         touched_at: "2026-10-01T00:00:00.000Z",
       },
     );
@@ -147,6 +148,7 @@ describe("appendSiteHandoff", () => {
       last_ref: "steve",
       last_utm_medium: "video",
       last_referrer: "www.youtube.com",
+      last_landing_path: "/blog/launch",
       last_at: "2026-10-01T00:00:00.000Z",
     });
 

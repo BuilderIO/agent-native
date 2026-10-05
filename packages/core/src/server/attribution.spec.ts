@@ -383,7 +383,7 @@ describe("last touch", () => {
   it("reads only last-touch fields out of an_lt", () => {
     const raw = JSON.stringify({
       ref: "steve",
-      site_landing_path: "/not-a-last-touch-field",
+      landed_at: "2026-09-01T00:00:00.000Z",
       touched_at: "2026-10-02T00:00:00.000Z",
     });
     expect(
@@ -399,6 +399,7 @@ describe("last touch", () => {
         utm_source: "youtube",
         utm_medium: "video",
         site_referrer: "www.youtube.com",
+        site_landing_path: "/blog/launch",
         landing_path: "/",
         touched_at: "2026-10-02T00:00:00.000Z",
       }),
@@ -408,6 +409,7 @@ describe("last touch", () => {
       last_touch_utm_medium: "video",
       last_touch_site_referrer: "www.youtube.com",
       last_touch_path: "/",
+      last_touch_site_path: "/blog/launch",
       last_touch_at: "2026-10-02T00:00:00.000Z",
     });
     expect(deriveLastTouchAttribution({ landing_path: "/share/clip" })).toEqual(

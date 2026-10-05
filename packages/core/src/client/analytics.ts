@@ -300,6 +300,7 @@ const LAST_TOUCH_COOKIE_FIELD_PRIORITY = [
   "site_referrer",
   "landing_path",
   "touched_at",
+  "site_landing_path",
 ] as const satisfies readonly (keyof LastTouchAttribution)[];
 // The marketing site forwards its own last touch under these names when it
 // differs from the first touch it forwards as plain campaign params.
@@ -315,6 +316,7 @@ const FORWARDED_LAST_TOUCH_FIELDS = {
   last_msclkid: "msclkid",
   last_vector_source: "vector_source",
   last_referrer: "site_referrer",
+  last_landing_path: "site_landing_path",
 } as const satisfies Record<string, keyof LastTouchAttribution>;
 // When the site's latest sourced visit happened, so an older site visit can't
 // replace a newer one the app already has.
@@ -372,6 +374,7 @@ export interface LastTouchAttribution {
   vector_source?: string;
   landing_referrer?: string;
   site_referrer?: string;
+  site_landing_path?: string;
   landing_path?: string;
   touched_at?: string;
   capture_truncated?: string;
@@ -857,7 +860,12 @@ function captureLastTouchAttribution(current: FirstTouchAttribution): void {
     const value = source[field];
     if (value) lastTouch[field] = value;
   }
+  // As for first touch, `landing_path` is where the visitor entered this app
+  // and `site_landing_path` the marketing-site page the touch landed on.
   if (current.landing_path) lastTouch.landing_path = current.landing_path;
+  if (source.site_landing_path) {
+    lastTouch.site_landing_path = source.site_landing_path;
+  }
   lastTouch.touched_at = forwardedAt ?? current.landed_at;
   storeAttribution(LAST_TOUCH_STORAGE_KEY, LAST_TOUCH_COOKIE, lastTouch);
 }

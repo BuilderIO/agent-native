@@ -32,6 +32,7 @@ const LAST_TOUCH_HANDOFF_FIELDS = [
   ["last_msclkid", "msclkid"],
   ["last_vector_source", "vector_source"],
   ["last_referrer", "landing_referrer"],
+  ["last_landing_path", "landing_path"],
 ] as const satisfies ReadonlyArray<
   readonly [string, keyof LastTouchAttribution]
 >;

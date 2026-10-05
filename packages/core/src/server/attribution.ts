@@ -67,6 +67,7 @@ export interface LastTouchAttribution {
   vector_source?: string;
   landing_referrer?: string;
   site_referrer?: string;
+  site_landing_path?: string;
   landing_path?: string;
   touched_at?: string;
   capture_truncated?: string;
@@ -123,6 +124,7 @@ const LAST_TOUCH_STRING_FIELDS: Array<keyof LastTouchAttribution> = [
   "vector_source",
   "landing_referrer",
   "site_referrer",
+  "site_landing_path",
   "landing_path",
   "touched_at",
   "capture_truncated",
@@ -306,6 +308,7 @@ export function deriveLastTouchAttribution(
   setIf("last_touch_referrer", lt.landing_referrer);
   setIf("last_touch_site_referrer", lt.site_referrer);
   setIf("last_touch_path", lt.landing_path);
+  setIf("last_touch_site_path", lt.site_landing_path);
   setIf("last_touch_at", lt.touched_at);
   // The browser dropped fields to fit the cookie.
   if (lt.capture_truncated === "1") out.last_touch_truncated = "true";

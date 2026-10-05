@@ -465,6 +465,7 @@ describe("browser analytics pageviews", () => {
       last_ref: "steve",
       last_utm_medium: "video",
       last_referrer: "www.youtube.com",
+      last_landing_path: "/blog/launch",
     });
     const { cookieJson, revisit } = installBrowser();
     await revisit(`https://plan.agent-native.com/?${params}`);
@@ -473,10 +474,12 @@ describe("browser analytics pageviews", () => {
       utm_source: "google",
       site_referrer: "www.google.com",
     });
+    // The app page they entered on, and the site page the touch landed on.
     expect(cookieJson("an_lt")).toEqual({
       ref: "steve",
       utm_medium: "video",
       site_referrer: "www.youtube.com",
+      site_landing_path: "/blog/launch",
       landing_path: "/",
       touched_at: expect.any(String),
     });
