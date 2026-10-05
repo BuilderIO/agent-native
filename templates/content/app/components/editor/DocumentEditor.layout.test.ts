@@ -27,6 +27,7 @@ import {
   documentEditorReviewReadsSettled,
   documentEditorShowsInlineComments,
   documentEditorShowsUtilityPanelSheet,
+  utilityPanelRegionShouldReceiveFocus,
   dismissDocumentCommentFocus,
   documentEditorLoadState,
   documentTitleWidthChanged,
@@ -1162,6 +1163,34 @@ describe("document editor layout", () => {
       documentEditorShowsUtilityPanelSheet({
         ...state,
         selectedSuggestionId: "materialized-suggestion",
+      }),
+    ).toBe(false);
+  });
+
+  it("moves comments above a forced agent overlay", () => {
+    expect(
+      documentEditorShowsUtilityPanelSheet({
+        utilityPanel: "comments",
+        commentsHistoryDrawerOpen: true,
+        hasUtilityRailSpace: true,
+        hasInlineCommentSpace: false,
+        selectedSuggestionId: null,
+        agentPanelOverlay: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("enters a utility region when the menu opener unmounts", () => {
+    expect(
+      utilityPanelRegionShouldReceiveFocus({
+        openerConnected: false,
+        focusOnBody: false,
+      }),
+    ).toBe(true);
+    expect(
+      utilityPanelRegionShouldReceiveFocus({
+        openerConnected: true,
+        focusOnBody: false,
       }),
     ).toBe(false);
   });
@@ -2650,7 +2679,11 @@ describe("document editor layout", () => {
     );
 
     expect(source).toContain(
-      'className="flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0',
+      '"flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0',
+    );
+    expect(source).toContain("overlayClassName={");
+    expect(source).toContain(
+      'shellLayout?.agentPanel === "overlay" && "z-[80]"',
     );
     expect(source).toContain(
       'className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"',

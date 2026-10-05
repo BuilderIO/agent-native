@@ -988,8 +988,10 @@ export function DocumentToolbar({
   const presenceHidden = foldLevel >= 3;
   const commentsInMenu = foldLevel >= 4;
   const shareInMenu = foldLevel >= 5;
+  const pageActionsButtonRef = useRef<HTMLButtonElement | null>(null);
   const pageActionsRef = useCallback(
     (node: HTMLButtonElement | null) => {
+      pageActionsButtonRef.current = node;
       if (typeof utilityPanelFocusFallbackRef === "function") {
         utilityPanelFocusFallbackRef(node);
       } else if (utilityPanelFocusFallbackRef) {
@@ -1070,6 +1072,7 @@ export function DocumentToolbar({
   const suggestFocusTimeoutRef = useRef<number | undefined>(undefined);
   const pageActionsPreservationFrameRef = useRef<number | null>(null);
   const pageActionsRestoreFrameRef = useRef<number | null>(null);
+  const shareFocusFrameRef = useRef<number | null>(null);
   const pageActionsTriggerClosingRef = useRef(false);
   const pageActionsOpenRef = useRef(false);
 
@@ -1083,6 +1086,9 @@ export function DocumentToolbar({
       }
       if (pageActionsRestoreFrameRef.current != null) {
         cancelAnimationFrame(pageActionsRestoreFrameRef.current);
+      }
+      if (shareFocusFrameRef.current != null) {
+        cancelAnimationFrame(shareFocusFrameRef.current);
       }
     },
     [],
@@ -1301,6 +1307,15 @@ export function DocumentToolbar({
     (nextOpen: boolean) => {
       if (nextOpen) return;
       setShareRequested(false);
+      if (shareInMenu && shareRequested) {
+        if (shareFocusFrameRef.current != null) {
+          cancelAnimationFrame(shareFocusFrameRef.current);
+        }
+        shareFocusFrameRef.current = requestAnimationFrame(() => {
+          shareFocusFrameRef.current = null;
+          pageActionsButtonRef.current?.focus();
+        });
+      }
       if (!openShareOnLoad) return;
       const params = new URLSearchParams(location.search);
       params.delete("share");
@@ -1312,7 +1327,14 @@ export function DocumentToolbar({
         },
       );
     },
-    [location.pathname, location.search, navigate, openShareOnLoad],
+    [
+      location.pathname,
+      location.search,
+      navigate,
+      openShareOnLoad,
+      shareInMenu,
+      shareRequested,
+    ],
   );
 
   useEffect(() => {

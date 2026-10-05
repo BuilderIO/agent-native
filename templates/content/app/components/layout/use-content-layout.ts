@@ -58,10 +58,9 @@ function milliseconds(time: string) {
   return time.trim().endsWith("ms") ? value : value * 1000;
 }
 
-// How long the element's drawn width animates after a style change, from its
-// computed transition: 0 when reduced motion or a non-animating layout turns
-// the transition off.
-function widthTransitionMs(element: Element) {
+// How long the panel remains in motion after a style change, from its computed
+// transition: 0 when reduced motion or a non-animating layout turns it off.
+function panelTransitionMs(element: Element) {
   const style = getComputedStyle(element);
   const durations = style.transitionDuration.split(",");
   const delays = style.transitionDelay.split(",");
@@ -70,7 +69,7 @@ function widthTransitionMs(element: Element) {
     ...style.transitionProperty
       .split(",")
       .map((property, index) =>
-        ["width", "all"].includes(property.trim())
+        ["width", "transform", "all"].includes(property.trim())
           ? milliseconds(durations[index % durations.length]) +
             milliseconds(delays[index % delays.length])
           : 0,
@@ -180,20 +179,24 @@ export function useContentShellLayout({
       budgeted = dock;
       measure({ agentPanel: dock });
     };
-    // Opening budgets the target width at once. A docked panel that closes
-    // keeps drawing its width until its transition ends, so the page keeps
-    // budgeting it until then; releasing early hands comments a margin the
-    // text column does not have yet.
+    // Opening budgets the target width at once. A closing panel keeps its
+    // layout budget until its width/transform transition ends.
     const holdClosingPanel = () => {
       const panel = agentPanelElements(shell).find(
         (element) =>
           element.classList.contains("agent-sidebar-panel") &&
-          element.dataset.agentSidebarLayout === "desktop",
+          (element.dataset.agentSidebarLayout === "desktop" ||
+            element.dataset.agentSidebarLayout === "overlay"),
       );
-      const duration = panel ? widthTransitionMs(panel) : 0;
+      const duration = panel ? panelTransitionMs(panel) : 0;
       if (!panel || duration <= 0) return false;
       const onTransitionEnd = (event: TransitionEvent) => {
-        if (event.target === panel && event.propertyName === "width") {
+        if (
+          event.target === panel &&
+          (event.propertyName === "width" ||
+            (panel.dataset.agentSidebarLayout === "overlay" &&
+              event.propertyName === "transform"))
+        ) {
           apply(readAgentPanelDock(shell));
         }
       };

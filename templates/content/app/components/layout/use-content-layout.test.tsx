@@ -23,11 +23,15 @@ function setViewportWidth(width: number) {
   window.dispatchEvent(new Event("resize"));
 }
 
-function agentPanel(state: "open" | "closed", width = 380) {
+function agentPanel(
+  state: "open" | "closed",
+  width = 380,
+  layout: "desktop" | "overlay" = "desktop",
+) {
   const panel = document.createElement("div");
   panel.className = "agent-sidebar-panel";
   panel.dataset.agentSidebarState = state;
-  panel.dataset.agentSidebarLayout = "desktop";
+  panel.dataset.agentSidebarLayout = layout;
   panel.style.setProperty("--agent-sidebar-width", `${width}px`);
   return panel;
 }
@@ -154,6 +158,23 @@ describe("useContentShellLayout", () => {
       agentPanel: "closed",
       comments: { margin: "lane", list: "rail" },
     });
+  });
+
+  it("keeps a forced overlay's budget until its transform transition ends", async () => {
+    await act(async () => setViewportWidth(768));
+    const panel = agentPanel("open", 380, "overlay");
+    panel.style.transitionProperty = "transform";
+    panel.style.transitionDuration = "260ms";
+    await act(async () => agentShell().append(panel));
+    expect(latestLayout().agentPanel).toBe("overlay");
+
+    await act(async () => {
+      panel.dataset.agentSidebarState = "closed";
+    });
+    expect(latestLayout().agentPanel).toBe("overlay");
+
+    await act(async () => panel.dispatchEvent(transitionEnd("transform")));
+    expect(latestLayout().agentPanel).toBe("closed");
   });
 
   it("releases a closing panel's width without a transitionend", async () => {

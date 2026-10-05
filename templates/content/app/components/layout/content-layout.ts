@@ -170,6 +170,7 @@ export function resolveCommentSurfaces({
 }
 
 export function resolveContentLayout(input: ContentLayoutInput): ContentLayout {
+  const agentPanel = contentAgentPanelMode(input);
   const sidebar = resolveContentSidebar(
     contentAvailableWidth(input),
     input.sidebar,
@@ -180,9 +181,11 @@ export function resolveContentLayout(input: ContentLayoutInput): ContentLayout {
     sidebar,
     sidebarAutoCollapsed:
       sidebar === "drawer" || (sidebar === "rail" && !input.sidebar.collapsed),
-    agentPanel: contentAgentPanelMode(input),
+    agentPanel,
     comments: resolveCommentSurfaces({
-      pageWidth: contentPageWidth(input, sidebar),
+      pageWidth:
+        contentPageWidth(input, sidebar) -
+        (agentPanel === "overlay" ? input.agentPanel.width : 0),
       viewportWidth: input.viewportWidth,
       previous: input.previous?.comments,
     }),

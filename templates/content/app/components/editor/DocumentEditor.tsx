@@ -2048,15 +2048,27 @@ export function documentEditorShowsUtilityPanelSheet(
   args: DocumentCommentSurfaceLayout & {
     utilityPanel: DocumentUtilityPanel;
     selectedSuggestionId: string | null;
+    agentPanelOverlay?: boolean;
   },
 ) {
   if (args.utilityPanel === "comments") {
     return (
-      !documentEditorHasDesktopCommentSurface(args) &&
-      (args.commentsHistoryDrawerOpen || !!args.selectedSuggestionId)
+      args.agentPanelOverlay ||
+      (!documentEditorHasDesktopCommentSurface(args) &&
+        (args.commentsHistoryDrawerOpen || !!args.selectedSuggestionId))
     );
   }
   return args.utilityPanel === "info" && !args.hasUtilityRailSpace;
+}
+
+export function utilityPanelRegionShouldReceiveFocus({
+  openerConnected,
+  focusOnBody,
+}: {
+  openerConnected: boolean;
+  focusOnBody: boolean;
+}) {
+  return !openerConnected || focusOnBody;
 }
 
 export {
@@ -6259,6 +6271,7 @@ function PageEditorSessionBody({
   const [utilityPanelSheetContainer, setUtilityPanelSheetContainer] =
     useState<HTMLElement | null>(null);
   const utilityPanelSheetCloseRef = useRef<HTMLButtonElement>(null);
+  const utilityPanelRegionRef = useRef<HTMLElement>(null);
   const utilityPanelSheetTriggerRef = useRef<HTMLElement | null>(null);
   const commentsHistoryTriggerRef = useRef<HTMLButtonElement>(null);
   const utilityPanelFocusFallbackRef = useRef<HTMLButtonElement>(null);
@@ -6458,7 +6471,9 @@ function PageEditorSessionBody({
     selectedSuggestionId,
   });
   const showUtilityPanelSheet =
-    showUtilityPanelOffColumn && commentSurfaces.list === "sheet";
+    showUtilityPanelOffColumn &&
+    (commentSurfaces.list === "sheet" ||
+      (utilityPanel === "comments" && shellLayout?.agentPanel === "overlay"));
   const showUtilityPanelRegion =
     showUtilityPanelOffColumn && commentSurfaces.list === "region-list";
   const hasFocusedCommentReply =
@@ -6466,6 +6481,16 @@ function PageEditorSessionBody({
 
   useEffect(() => {
     if (showUtilityPanelRegion) {
+      if (
+        !utilityPanelRegionWasOpenRef.current &&
+        utilityPanelRegionShouldReceiveFocus({
+          openerConnected: !!utilityPanelSheetTriggerRef.current?.isConnected,
+          focusOnBody:
+            globalThis.document.activeElement === globalThis.document.body,
+        })
+      ) {
+        utilityPanelRegionRef.current?.focus();
+      }
       utilityPanelRegionWasOpenRef.current = true;
       return;
     }
@@ -8464,6 +8489,8 @@ function PageEditorSessionBody({
 
         {showUtilityPanelRegion && utilityPanel ? (
           <aside
+            ref={utilityPanelRegionRef}
+            tabIndex={-1}
             className="absolute inset-y-0 end-0 z-40 flex w-80 max-w-full flex-col border-s border-border bg-background shadow-[var(--agent-kit-drawer-elevation)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-right-8 motion-safe:duration-[260ms] motion-safe:ease-[var(--ease-drawer)]"
             aria-label={
               utilityPanel === "info"
@@ -8532,7 +8559,13 @@ function PageEditorSessionBody({
                 utilityPanelSheetTriggerRef.current = null;
               }, 0);
             }}
-            className="flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0 data-[state=closed]:duration-[260ms] data-[state=open]:duration-[260ms] data-[state=closed]:ease-[var(--ease-drawer)] data-[state=open]:ease-[var(--ease-drawer)]"
+            overlayClassName={
+              shellLayout?.agentPanel === "overlay" ? "z-[79]" : undefined
+            }
+            className={cn(
+              "flex min-h-0 w-[min(26rem,calc(100vw-1rem))] flex-col overflow-hidden p-0 data-[state=closed]:duration-[260ms] data-[state=open]:duration-[260ms] data-[state=closed]:ease-[var(--ease-drawer)] data-[state=open]:ease-[var(--ease-drawer)]",
+              shellLayout?.agentPanel === "overlay" && "z-[80]",
+            )}
             aria-describedby={undefined}
             onEscapeKeyDown={(event) => {
               preserveCommentReplyEscape(event);

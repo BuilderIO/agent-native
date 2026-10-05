@@ -34,11 +34,29 @@ vi.mock("sonner", async (importOriginal) => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
 vi.mock("@agent-native/toolkit/app/sharing", () => ({
-  ShareButton: (props: { defaultOpen?: boolean; hideTrigger?: boolean }) =>
-    createElement("div", {
-      "data-share-open": String(props.defaultOpen),
-      "data-share-trigger-hidden": String(props.hideTrigger),
-    }),
+  ShareButton: (props: {
+    defaultOpen?: boolean;
+    hideTrigger?: boolean;
+    onOpenChange?: (open: boolean) => void;
+  }) =>
+    createElement(
+      "div",
+      {
+        "data-share-open": String(props.defaultOpen),
+        "data-share-trigger-hidden": String(props.hideTrigger),
+      },
+      props.defaultOpen
+        ? createElement(
+            "button",
+            {
+              type: "button",
+              "data-share-close": "",
+              onClick: () => props.onOpenChange?.(false),
+            },
+            "Close sharing",
+          )
+        : null,
+    ),
 }));
 
 import { DocumentToolbar, toolbarFoldLevel } from "./DocumentToolbar";
@@ -262,6 +280,23 @@ describe("DocumentToolbar at narrow widths", () => {
     expect(
       container.querySelector('[data-share-trigger-hidden="true"]'),
     ).not.toBeNull();
+  });
+
+  it("restores focus to Page actions after closing folded Share", async () => {
+    await renderToolbar(118);
+    const items = await openPageActions();
+    await act(async () => menuItem(items, "editor.toolbar.share")!.click());
+    const close =
+      container.querySelector<HTMLButtonElement>("[data-share-close]");
+    expect(close).not.toBeNull();
+
+    await act(async () => close!.click());
+    await act(
+      async () => new Promise((resolve) => requestAnimationFrame(resolve)),
+    );
+    expect(document.activeElement).toBe(
+      toolbarButton("editor.toolbar.morePageActions"),
+    );
   });
 
   it("keeps the existing clipboard action in page actions", async () => {

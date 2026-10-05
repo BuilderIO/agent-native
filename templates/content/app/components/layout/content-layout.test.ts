@@ -26,12 +26,14 @@ function input(
   viewportWidth: number,
   {
     agentOpen = false,
+    agentWidth = AGENT_WIDTH,
     collapsed = false,
     sidebarWidth = DEFAULT_SIDEBAR_WIDTH,
     utilityRail = false,
     previous,
   }: {
     agentOpen?: boolean;
+    agentWidth?: number;
     collapsed?: boolean;
     sidebarWidth?: number;
     utilityRail?: boolean;
@@ -42,7 +44,7 @@ function input(
     viewportWidth,
     sidebar: { collapsed, width: sidebarWidth },
     agentPanel: agentOpen
-      ? { open: true, width: AGENT_WIDTH }
+      ? { open: true, width: agentWidth }
       : { open: false, width: 0 },
     utilityRail,
     previous,
@@ -147,6 +149,26 @@ describe("resolveContentLayout", () => {
     expect(
       resolveContentLayout(input(1280, { utilityRail: true })),
     ).toMatchObject({ sidebar: "docked", comments: { list: "rail" } });
+  });
+
+  it("does not place the comments rail beneath a forced agent overlay", () => {
+    const commentsRail = input(944, {
+      collapsed: true,
+      utilityRail: true,
+    });
+    const previous = resolveContentLayout(commentsRail);
+    expect(previous.comments.list).toBe("rail");
+
+    const opened = input(920, {
+      agentOpen: true,
+      collapsed: true,
+      utilityRail: true,
+      previous,
+    });
+    const layout = resolveContentLayout(opened);
+
+    expect(layout.agentPanel).toBe("overlay");
+    expect(layout.comments.list).toBe("region-list");
   });
 
   it("keeps the sidebar for the text when even a drawer leaves no room for the list", () => {
