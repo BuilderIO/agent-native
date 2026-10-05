@@ -166,6 +166,7 @@ import {
   isEffectivelyEmptyDocumentContent,
 } from "./body-hydration";
 import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
+import { flushBeforeSave } from "./collab-flush-before-save";
 import { useCommentAiRequests } from "./comment-ai";
 import type { CommentTextAnchor } from "./comment-anchors";
 import {
@@ -3779,7 +3780,7 @@ function PageEditorSessionBody({
           // A peer that reads this body before the Yjs update carrying the
           // same text merges it in, then inserts it again when the update
           // lands. Durability outranks that, so a stalled flush still saves.
-          if (!(await flushCollabUpdates())) {
+          if (!(await flushBeforeSave(flushCollabUpdates))) {
             console.warn("Saving before this tab's live edits reached peers");
           }
           result = await saveDocumentWithRebase({
