@@ -536,6 +536,7 @@ function humanizeAgentKind(kind: string): string {
 function humanizeAgentLabel(value: string): string {
   const label = readableText(value);
   if (!label) return "";
+  if (label.toLowerCase() === "agent-native") return "Agent-Native";
   return /\s/.test(label) ? label : humanizeAgentKind(label);
 }
 

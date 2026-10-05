@@ -2249,7 +2249,7 @@ describe("AgentChat lifecycle", () => {
     ).find(
       (row) =>
         row.querySelector(".agentkit-activity-label")?.textContent ===
-        "update-slide",
+        "Update Slide",
     );
     expect(failedToolRow?.textContent).not.toContain(
       "slide_content_edit_failed",
@@ -2853,6 +2853,77 @@ describe("AgentChat lifecycle", () => {
     expect(
       failedTool?.querySelector(".agentkit-activity-summary")?.textContent,
     ).toBe("The file could not be saved.");
+  });
+
+  it("sanitizes and bounds expanded tool details for keyboard access", async () => {
+    const threadId = "thread-bounded-tool-details";
+    const runId = "run-bounded-tool-details";
+    const internalId = "550e8400-e29b-41d4-a716-446655440000";
+    const sparseOutput = new Array(100_000);
+    sparseOutput[99_999] = "beyond preview";
+    const tool: AgentToolCall = {
+      id: "tool-read-file",
+      name: "read-file",
+      status: "completed",
+      input: { documentId: internalId },
+      output: { documentId: internalId, entries: sparseOutput },
+    };
+    const thread = reduceAgentEvent(createAgentThreadState(threadId), {
+      id: "event-read-file",
+      threadId,
+      runId,
+      sequence: 1,
+      occurredAt: "2026-10-01T00:00:00.000Z",
+      type: "tool.updated",
+      toolCall: tool,
+    });
+    const { controller } = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    await tree.render(
+      <AgentKitProvider controller={controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+
+    const work = tree.container.querySelector<HTMLDetailsElement>(
+      ".agentkit-activities",
+    );
+    await act(async () => work?.querySelector("summary")?.click());
+    const row = Array.from(
+      work?.querySelectorAll<HTMLElement>(".agentkit-activity-item") ?? [],
+    ).find(
+      (item) =>
+        item.querySelector(".agentkit-activity-label")?.textContent ===
+        "Read File",
+    );
+    expect(row?.textContent).not.toContain(internalId);
+    await act(async () => row?.querySelector("button")?.click());
+
+    const details = Array.from(
+      row?.querySelectorAll<HTMLPreElement>(
+        ".agentkit-activity-summary-value",
+      ) ?? [],
+    );
+    expect(details.map((detail) => detail.getAttribute("aria-label"))).toEqual([
+      "Input",
+      "Result",
+    ]);
+    expect(
+      details.every((detail) => detail.getAttribute("role") === "region"),
+    ).toBe(true);
+    expect(details.every((detail) => detail.tabIndex === 0)).toBe(true);
+    expect(details[0]?.textContent).toContain("[ID]");
+    expect(details[1]?.textContent).toContain("[ID]");
+    expect(details[1]?.textContent).toContain("[Truncated]");
+    expect(details[1]?.textContent).not.toContain(internalId);
+    expect(details[1]?.textContent).not.toContain("beyond preview");
+    await tree.unmount();
   });
 
   it("resets disclosure state when switching threads with reused run ids", async () => {
