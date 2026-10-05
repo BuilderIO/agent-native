@@ -1220,6 +1220,7 @@ export default {
     chartTypeLine: "Line",
     chartTypeArea: "Area",
     chartTypeBar: "Bar",
+    chartTypeCombo: "Combo (bar + line)",
     chartTypePie: "Pie",
     chartTypeMetric: "Metric",
     chartTypeTable: "Table",

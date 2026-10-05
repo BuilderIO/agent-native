@@ -776,6 +776,7 @@ export default {
     chartTypeLine: "خط",
     chartTypeArea: "منطقة",
     chartTypeBar: "حاجِز",
+    chartTypeCombo: "مركّب (أعمدة وخطوط)",
     chartTypePie: "فطيرة",
     chartTypeMetric: "متري",
     chartTypeTable: "طاولة",

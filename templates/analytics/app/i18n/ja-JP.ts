@@ -789,6 +789,7 @@ export default {
     chartTypeLine: "ライン",
     chartTypeArea: "エリア",
     chartTypeBar: "バー",
+    chartTypeCombo: "コンボ（棒+線）",
     chartTypePie: "パイ",
     chartTypeMetric: "メトリック",
     chartTypeTable: "テーブル",

@@ -806,6 +806,7 @@ export default {
     chartTypeLine: "Linie",
     chartTypeArea: "Bereich",
     chartTypeBar: "Balken",
+    chartTypeCombo: "Kombi (Balken + Linie)",
     chartTypePie: "Torte",
     chartTypeMetric: "Metrisch",
     chartTypeTable: "Tisch",

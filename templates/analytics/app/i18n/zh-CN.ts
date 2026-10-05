@@ -749,6 +749,7 @@ export default {
     chartTypeLine: "线",
     chartTypeArea: "区域",
     chartTypeBar: "酒吧",
+    chartTypeCombo: "组合图（柱状图+折线图）",
     chartTypePie: "馅饼",
     chartTypeMetric: "公制",
     chartTypeTable: "桌子",

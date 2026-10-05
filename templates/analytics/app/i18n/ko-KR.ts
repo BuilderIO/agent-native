@@ -776,6 +776,7 @@ export default {
     chartTypeLine: "선",
     chartTypeArea: "영역",
     chartTypeBar: "술집",
+    chartTypeCombo: "콤보 (막대 + 선)",
     chartTypePie: "파이",
     chartTypeMetric: "미터법",
     chartTypeTable: "테이블",

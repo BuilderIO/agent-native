@@ -770,6 +770,7 @@ export default {
     chartTypeLine: "रेखा",
     chartTypeArea: "क्षेत्र",
     chartTypeBar: "छड़",
+    chartTypeCombo: "कॉम्बो (बार + लाइन)",
     chartTypePie: "पाई",
     chartTypeMetric: "मीट्रिक",
     chartTypeTable: "मेज़",

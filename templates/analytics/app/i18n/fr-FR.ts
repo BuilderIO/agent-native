@@ -805,6 +805,7 @@ export default {
     chartTypeLine: "Doubler",
     chartTypeArea: "Zone",
     chartTypeBar: "Barres",
+    chartTypeCombo: "Combiné (barres et lignes)",
     chartTypePie: "Tarte",
     chartTypeMetric: "Métrique",
     chartTypeTable: "Tableau",

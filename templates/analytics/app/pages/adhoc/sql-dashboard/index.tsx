@@ -312,10 +312,7 @@ const PanelCell = memo(function PanelCell({
             ...panel,
             config: {
               ...panel.config,
-              description: interpolate(
-                panel.config.description,
-                effectiveVars,
-              ),
+              description: interpolate(panel.config.description, effectiveVars),
             },
           }
         : panel,
