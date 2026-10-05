@@ -3078,6 +3078,28 @@ async function runAuthoringCorpusQa(
         (element: HTMLElement) => element.textContent ?? "",
       ),
     );
+  const placeCaretAtBlockStart = async (editor: any) =>
+    editor.evaluate((element: HTMLElement) => {
+      const markerSpans = Array.from(element.querySelectorAll("span")).filter(
+        (span) => /^[-*•●◦▪‣·⁃–—]+$/u.test(span.textContent?.trim() ?? ""),
+      );
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const text = node as Text;
+        if (markerSpans.some((marker) => marker.contains(text))) continue;
+        if (!text.parentElement?.isContentEditable) continue;
+        const offset = /^[\u200b\ufeff]/u.test(text.data) ? 1 : 0;
+        const range = document.createRange();
+        range.setStart(text, offset);
+        range.collapse(true);
+        const selection = window.getSelection();
+        if (!selection) return false;
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return true;
+      }
+      return false;
+    });
   const canonicalMarkup = async (html: string) =>
     page.evaluate(
       (value: string) => JSON.stringify(window.__editFidelity.canonical(value)),
@@ -3468,8 +3490,13 @@ async function runAuthoringCorpusQa(
                 })
               : null;
           if (flow === "shortcut") {
-            await editor.press(lineStartKey);
-            await editor.pressSequentially("**bold** next");
+            if (!(await placeCaretAtBlockStart(editor))) {
+              throw new Error(
+                "shortcut flow could not place the caret at the block start",
+              );
+            }
+            await page.keyboard.press("Enter");
+            await page.keyboard.type("**bold** next");
             const shortcutState = await editor.evaluate(
               (element: HTMLElement) => {
                 const marks = Array.from(
@@ -3506,8 +3533,12 @@ async function runAuthoringCorpusQa(
               );
             }
           } else if (flow === "slash") {
-            await editor.press(lineStartKey);
-            await editor.pressSequentially("/heading 2");
+            if (!(await placeCaretAtBlockStart(editor))) {
+              throw new Error(
+                "slash flow could not place the caret at the block start",
+              );
+            }
+            await page.keyboard.type("/heading 2");
             const options = page.locator('[role="listbox"] [role="option"]');
             await options.first().waitFor({ state: "visible" });
             const active = await editor.getAttribute("aria-activedescendant");
@@ -3540,7 +3571,11 @@ async function runAuthoringCorpusQa(
               );
             }
           } else if (flow === "paste") {
-            await editor.press(lineStartKey);
+            if (!(await placeCaretAtBlockStart(editor))) {
+              throw new Error(
+                "paste flow could not place the caret at the block start",
+              );
+            }
             const slideContent = page.locator(
               `${canvasSelector(slideId)} .slide-content`,
             );
@@ -3774,13 +3809,13 @@ async function runAuthoringCorpusQa(
                 "list flow could not place the caret at the new row start",
               );
             }
-            await editor.press("Backspace");
+            await page.keyboard.press("Backspace");
             if (!(await editorText(editor)).includes("Corpus row")) {
               throw new Error(
                 `first Backspace after list indentation lost the new row: ${JSON.stringify(await editorDetails(editor))}`,
               );
             }
-            await editor.press("Backspace");
+            await page.keyboard.press("Backspace");
             const joined = await editorText(editor);
             if (!joined.includes("Corpus row")) {
               throw new Error(

@@ -4389,6 +4389,30 @@ describe("in-place text session: Content authoring parity", () => {
     expect(window.getSelection()!.isCollapsed).toBe(true);
   });
 
+  it("keeps typing after a markdown mark at a new paragraph boundary", () => {
+    const el = mount('<div id="t">Existing text</div>');
+    session = startInPlaceTextSession(el);
+    caret(textOf(el, "Existing text"), 0);
+    beforeInput(el, "insertParagraph");
+
+    let firstFollowingCharacterWasHandled = false;
+    el.addEventListener("beforeinput", (event) => {
+      const input = event as InputEvent;
+      if (input.data === "n") {
+        firstFollowingCharacterWasHandled = input.defaultPrevented;
+      }
+    });
+    type(el, "**bold** next");
+
+    const mark = Array.from(
+      el.querySelectorAll<HTMLElement>('span[style*="font-weight"]'),
+    ).find((span) => span.textContent === "bold");
+    expect(mark).toBeDefined();
+    expect(mark!.contains(textOf(el, "next"))).toBe(false);
+    expect(el.textContent?.replaceAll(ZWSP, "")).toContain("bold next");
+    expect(firstFollowingCharacterWasHandled).toBe(true);
+  });
+
   it.each([
     [500, "700"],
     [600, "600"],

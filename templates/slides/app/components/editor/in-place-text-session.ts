@@ -1432,6 +1432,7 @@ export function startInPlaceTextSession(
   let pointerFocusPending = false;
   let edited = false;
   const enterCreatedListItems = new WeakSet<HTMLElement>();
+  const editorCreatedTextNodes = new WeakSet<Text>();
   /** A drag-move's deletion, which its drop joins into one undo step. */
   let dragDeleted = false;
   /** The text a drag-move deleted from, reshaped once the drop has landed. */
@@ -1570,6 +1571,7 @@ export function startInPlaceTextSession(
         ? range.startOffset
         : null;
     const copy = text.cloneNode() as Text;
+    if (editorCreatedTextNodes.has(text)) editorCreatedTextNodes.add(copy);
     text.replaceWith(copy);
     if (caret !== null) placeCaret(copy, caret);
   }
@@ -2628,6 +2630,7 @@ export function startInPlaceTextSession(
       range.collapsed &&
       text instanceof Text &&
       text.length > 0 &&
+      !editorCreatedTextNodes.has(text) &&
       !placeholderFlags(text)?.some((author) => !author) &&
       !atRowTextStart(range)
     );
@@ -2678,6 +2681,7 @@ export function startInPlaceTextSession(
       return;
     }
     const text = document.createTextNode(insertion);
+    editorCreatedTextNodes.add(text);
     caret.insertNode(text);
     placeCaret(text, insertion.length);
   }
@@ -4186,29 +4190,34 @@ export function startInPlaceTextSession(
     formattedRange: Range,
     format: InlineTextFormat,
   ) {
+    const ownsFormat = (current: HTMLElement) =>
+      (format === "code" && current.tagName === "CODE") ||
+      (format === "bold" && !!current.style.fontWeight) ||
+      (format === "italic" && !!current.style.fontStyle) ||
+      (format === "strike" &&
+        /line-through/.test(
+          `${current.style.textDecoration} ${current.style.textDecorationLine}`,
+        ));
     const node = formattedRange.endContainer;
     const position = formattedRange.endOffset;
+    let current: HTMLElement | null = null;
     if (node instanceof Text && position === node.length) {
-      for (
-        let current = node.parentElement;
-        current && current !== block;
-        current = current.parentElement
-      ) {
-        const ownsFormat =
-          (format === "code" && current.tagName === "CODE") ||
-          (format === "bold" && !!(current as HTMLElement).style.fontWeight) ||
-          (format === "italic" && !!(current as HTMLElement).style.fontStyle) ||
-          (format === "strike" &&
-            /line-through/.test(
-              `${(current as HTMLElement).style.textDecoration} ${(current as HTMLElement).style.textDecorationLine}`,
-            ));
-        if (ownsFormat && current.parentNode) {
-          placeCaret(
-            current.parentNode,
-            Array.from(current.parentNode.childNodes).indexOf(current) + 1,
-          );
-          return;
-        }
+      current = node.parentElement;
+    } else if (node instanceof HTMLElement) {
+      const previous = node.childNodes[position - 1];
+      current =
+        previous instanceof HTMLElement
+          ? previous
+          : (previous?.parentElement ??
+            (position === node.childNodes.length ? node : null));
+    }
+    for (; current && current !== block; current = current.parentElement) {
+      if (ownsFormat(current) && current.parentNode) {
+        placeCaret(
+          current.parentNode,
+          Array.from(current.parentNode.childNodes).indexOf(current) + 1,
+        );
+        return;
       }
     }
     placeCaret(node, position);
