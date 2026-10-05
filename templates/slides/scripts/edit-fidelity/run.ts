@@ -110,7 +110,12 @@ const VALUE_FLAGS = new Set([
 ]);
 const opt = (name: string) => {
   const i = argv.indexOf(name);
-  return i >= 0 ? argv[i + 1] : undefined;
+  if (i < 0) return undefined;
+  const value = argv[i + 1];
+  if (!value || value.startsWith("--")) {
+    fatal(`${name} requires a value`);
+  }
+  return value;
 };
 const numOpt = (name: string, fallback: number) => {
   const raw = opt(name);
