@@ -752,17 +752,10 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .cpk-fields .cpk-copy { grid-column: 4; width: 32px; }
 .cpk-fields .inp .pre[data-scrub]:hover { color: var(--fg); }
 .cpk-fields .inp .pre:not([data-scrub]) { cursor: default; }
-.cpk-new { position: relative; }
-.cpk-gamut { position: absolute; right: 2px; top: 2px; height: 12px; padding: 0 3px; border-radius: 3px; background: rgb(0 0 0 / 55%); color: #fff; font-size: 8px; font-weight: 600; line-height: 12px; cursor: help; }
-.cpk-con { border-top: 1px solid var(--border); padding: 12px; display: flex; align-items: center; gap: 8px; height: 49px; }
-.cpk-aa { width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; font-size: 12px; font-weight: 600; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); flex: none; }
-.cpk-ratio { font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; min-width: 40px; }
-.cpk-badges { display: flex; gap: 4px; margin-right: auto; }
-.cpk-badge { height: 20px; display: inline-flex; align-items: center; gap: 2px; padding: 0 6px 0 4px; border-radius: 4px; font-size: 11px; font-weight: 500; background: var(--muted); color: var(--muted-fg); }
-.cpk-badge[data-pass="true"] { color: var(--fg); }
-.cpk-badge[data-pass="false"] { color: hsl(0 72% 51%); }
-.cpk-fix { height: 24px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--border); font-size: 12px; font-weight: 500; }
-.cpk-fix:hover { background: var(--hover); }
+.cpk-new[data-fixable="true"] { cursor: pointer; }
+/* The New swatch's tooltip carries contrast and gamut, in the app's tooltip style, so the swatch stays just the color. */
+.cpk-tip { position: fixed; z-index: 90; pointer-events: none; max-width: 232px; padding: 4px 8px; border-radius: 6px; background: var(--fg); color: var(--bg); font-size: 12px; line-height: 16px; }
+.cpk-tip .sub { opacity: .7; }
 .cpk-doc { border-top: 1px solid var(--border); padding: 12px; }
 .cpk-doc-h { height: 16px; display: flex; align-items: center; margin-bottom: 8px; color: var(--muted-fg); }
 .cpk-grid { display: grid; grid-template-columns: repeat(8, 24px); gap: 8px; }
@@ -2110,10 +2103,9 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
         <div class="cpk-sv" role="slider" aria-label="Saturation and brightness"></div>
         <div class="cpk-ctl"><button class="cpk-eye" ${canEye ? "" : "disabled"} title="${canEye ? "Pick a color from the screen" : "This browser can't pick colors from the screen"}" aria-label="Pick a color from the screen">${ic("eyedropper")}</button>
           <div class="cpk-track cpk-hue" role="slider" aria-label="Hue" title="Hue"><span class="cpk-knob"></span></div>
-          <div class="cpk-cmp"><span class="cpk-new" title="New"><span class="cpk-gamut" hidden title="Outside sRGB. Screens without Display P3 show the nearest sRGB color.">P3</span></span><button class="cpk-prev" title="Previous · click to restore" aria-label="Restore previous color"></button></div>
+          <div class="cpk-cmp"><span class="cpk-new" aria-label="New color"></span><button class="cpk-prev" title="Previous · click to restore" aria-label="Restore previous color"></button></div>
           <div class="cpk-track cpk-alpha" role="slider" aria-label="Opacity" title="Opacity"><span class="cpk-knob"></span></div></div>
         <div class="cpk-val"><div class="cpk-row"><button class="inp sel cpk-mode" aria-haspopup="menu" title="Color mode"></button><label class="inp cpk-op" title="Opacity"><span class="pre">${ic("grid-dots", "s12")}</span><input class="cpk-a" aria-label="Opacity" inputmode="numeric"></label></div><div class="cpk-fields"></div></div>
-        ${contrast ? `<div class="cpk-con"><span class="cpk-aa" style="background:${contrast.bg}" aria-hidden="true">Aa</span><span class="cpk-ratio"></span><span class="cpk-badges"></span><button class="cpk-fix" hidden title="Change lightness to the nearest value that passes AA, keeping hue and chroma">Fix</button></div>` : ""}
         <div class="cpk-doc"><div class="cpk-doc-h">Document colors</div><div class="cpk-grid">${docs.map(c => `<button data-cpk-doc="${c}" aria-label="${c}" title="${c}" style="background:${c}"></button>`).join("")}</div></div>
       </div>
       ${libraries ? `<div class="cpk-pane" data-cpk-pane="libraries" aria-hidden="true"><label class="cpk-lsearch">${ic("search", "s14")}<input placeholder="Search" aria-label="Search tokens"></label><div class="cpk-llabel">Design tokens</div><div class="cpk-list">${libs.map(t => `<button class="cpk-lrow" data-cpk-token="${t.cssVar}" title="${t.cssVar}" aria-selected="${t.cssVar === current}"><span class="sw" style="background:${t.value}"></span><span class="grow">${t.name}</span>${t.cssVar === current ? ic("check", "s14") : ""}</button>`).join("")}</div></div>` : ""}
@@ -2164,6 +2156,26 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   const lum = rgb => { const [r, g, b] = rgb.map(c => toLin(c / 255)); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
   const ratioFor = lin => { if (!contrast) return 0; const b = parseHex(contrast.bg), bg = [b.r, b.g, b.b], fg = fitGamut(lin, inSrgb).map(toGam).map(c => clamp01(c) * 255).map((c, i) => c * C.a + bg[i] * (1 - C.a)); const [l1, l2] = [lum(fg), lum(bg)].sort((x, y) => y - x); return (l1 + 0.05) / (l2 + 0.05); };
   const need = () => contrast?.large ? [3, 4.5] : [4.5, 7];
+  // The New swatch's tooltip: contrast against what's behind a text fill (WCAG 2.2, rounded down so it never
+  // overstates), whether it passes AA and AAA, and whether the color leaves sRGB.
+  let tip = null, tipTimer = 0;
+  const tipHTML = () => {
+    const lines = [];
+    if (contrast) {
+      const r = ratioFor(C.lin), [aa, aaa] = need(), kind = contrast.large ? "large text" : "body text";
+      lines.push(`Contrast ${(Math.floor(r * 10) / 10).toFixed(1)}:1 on ${contrast.bg.toUpperCase()}`);
+      lines.push(r >= aaa ? `Passes AA and AAA for ${kind}` : r >= aa ? `Passes AA, fails AAA for ${kind}` : `Fails AA for ${kind}, which needs ${aa}:1. Click to fix.`);
+    } else lines.push("New");
+    if (!inSrgb(C.lin)) lines.push("Outside sRGB. Screens without Display P3 show the nearest sRGB color.");
+    return lines.map((l, i) => `<div class="${i ? "sub" : ""}">${l}</div>`).join("");
+  };
+  const hideTip = () => { clearTimeout(tipTimer); tip?.remove(); tip = null; };
+  const showTip = () => {
+    hideTip(); tip = document.createElement("div"); tip.className = "cpk-tip"; tip.setAttribute("role", "tooltip"); tip.innerHTML = tipHTML(); document.body.append(tip);
+    const r = q(".cpk-new").getBoundingClientRect();
+    tip.style.left = Math.max(8, Math.min(innerWidth - tip.offsetWidth - 8, r.right - tip.offsetWidth)) + "px";
+    tip.style.top = (r.top - tip.offsetHeight - 6 >= 8 ? r.top - tip.offsetHeight - 6 : r.bottom + 6) + "px";
+  };
   // Fix moves OKLCH lightness, keeping hue and chroma, to the passing value nearest the current one.
   const fixContrast = () => {
     const [L0, Ch, h] = linToOklch(C.lin), aa = need()[0], at = L => fitGamut(oklchToLin([L, Ch, h]), fitsSpace);
@@ -2206,7 +2218,6 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     q(".cpk-alpha").style.setProperty("--cpk-fill", inset(["transparent", css(1)]));
     q(".cpk-new").style.setProperty("--cpk-fill", `linear-gradient(${css()}, ${css()})`);
     q(".cpk-prev").style.setProperty("--cpk-fill", `linear-gradient(${before}, ${before})`);
-    q(".cpk-gamut").hidden = inSrgb(C.lin);
     q(".cpk-mode").innerHTML = `<span class="v">${CPK_MODES.find(m => m[0] === C.mode)[1]}</span>${ic("chevron-down", "s12")}`;
     if (document.activeElement !== q(".cpk-a")) q(".cpk-a").value = Math.round(C.a * 100) + "%";
     if (fields) {
@@ -2217,14 +2228,8 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
         + `<button class="icon-btn cpk-copy" aria-label="Copy color"></button>`;
     }
     const cp = q(".cpk-copy"); if (cp) { cp.title = `Copy ${css()}`; cp.innerHTML = ic("copy"); }
-    if (contrast) {
-      const r = ratioFor(C.lin), [aa, aaa] = need(), kind = contrast.large ? "large text" : "body text";
-      q(".cpk-aa").style.color = css();
-      q(".cpk-ratio").textContent = `${(Math.floor(r * 10) / 10).toFixed(1)}:1`;
-      q(".cpk-ratio").title = `Contrast against ${contrast.bg.toUpperCase()} behind this text`;
-      q(".cpk-badges").innerHTML = [["AA", aa], ["AAA", aaa]].map(([n, t]) => `<span class="cpk-badge" data-pass="${r >= t}" title="${n} needs ${t}:1 for ${kind} (WCAG 2.2)">${r >= t ? ic("check", "s12") : ic("x", "s12")}${n}</span>`).join("");
-      q(".cpk-fix").hidden = r >= aa;
-    }
+    q(".cpk-new").dataset.fixable = !!contrast && ratioFor(C.lin) < need()[0];
+    if (tip) tip.innerHTML = tipHTML();
     const now = css().toLowerCase();
     pop.querySelectorAll("[data-cpk-doc]").forEach(b => b.setAttribute("aria-pressed", b.dataset.cpkDoc === now));
   };
@@ -2278,7 +2283,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   pop.addEventListener("click", e => {
     const tab = e.target.closest("[data-cpk-tab]"); if (tab) return setTab(tab.dataset.cpkTab);
     if (e.target.closest(".cpk-copy")) return copyText(css(), `Copied ${css()}`);
-    if (e.target.closest(".cpk-fix")) return fixContrast();
+    if (e.target.closest(".cpk-new") && q(".cpk-new").dataset.fixable === "true") return fixContrast();
     if (e.target.closest(".cpk-create")) return startCreate();
     const tok = e.target.closest("[data-cpk-token]"); if (tok) { onPickToken?.(libs.find(t => t.cssVar === tok.dataset.cpkToken)); return close(false); }
     if (e.target.closest(".cpk-prev")) { const p = parseColor(before); if (p) Object.assign(C, { lin: p.lin, a: p.a, mode: p.mode, okHue: p.hue ?? C.okHue, wantC: null }); return update(); }
@@ -2310,12 +2315,14 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
   // Switching into an sRGB mode maps a wider color into sRGB; New shows the result before you keep it.
   const setMode = k => { C.mode = k; C.wantC = null; if (!fitsSpace(C.lin)) C.lin = fitGamut(C.lin, fitsSpace); update(); };
   let done = false;
-  const close = cancelled => { if (done) return; done = true; pop.remove(); document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", key, true); onClose(cancelled); };
+  const close = cancelled => { if (done) return; done = true; hideTip(); pop.remove(); document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", key, true); onClose(cancelled); };
   const outside = e => { if (!pop.contains(e.target) && !e.target.closest?.(".menu, .scrim")) close(false); };
   // Esc in a Create draft belongs to the draft; anywhere else it puts the color back and closes.
   const key = e => { if (e.key === "Escape" && !document.querySelector(".menu") && !e.target.closest?.(".cpk-tdraft")) { e.preventDefault(); e.stopPropagation(); close(true); } };
   document.addEventListener("pointerdown", outside, true); document.addEventListener("keydown", key, true);
   pop._close = () => close(false);
+  q(".cpk-new").addEventListener("pointerenter", () => { tipTimer = setTimeout(showTip, 300); });
+  q(".cpk-new").addEventListener("pointerleave", hideTip);
   hsv(); oklch(); paint(); place();
   if (current && libraries) setTab("libraries");
 }
