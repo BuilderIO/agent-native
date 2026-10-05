@@ -5,7 +5,6 @@ import { Link, useParams, type LoaderFunctionArgs } from "react-router";
 import { BuilderImage } from "../components/builder-image";
 import { firstPartyAppUrl } from "../components/deployment-links";
 import { sitePathForLocale } from "../components/docs-locale";
-import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
 import {
   TemplateFinalCta,
@@ -158,8 +157,7 @@ export default function GenericTemplatePage() {
               target="_blank"
               rel="noopener noreferrer"
               className="primary-button"
-              onClick={(event) => {
-                applyFirstTouchAttributionToLink(event.currentTarget);
+              onClick={() => {
                 trackEvent("try live demo", {
                   template: template.slug,
                   location: "generic_template_page_hero",

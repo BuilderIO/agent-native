@@ -3,7 +3,6 @@ import { IconArrowRight, IconInfoCircle } from "@tabler/icons-react";
 import { useRef } from "react";
 
 import { firstPartyAppUrl } from "./deployment-links";
-import { applyFirstTouchAttributionToLink } from "./marketing-attribution";
 import { trackEvent } from "./TemplateCard";
 
 export function extractPromptText(node: Node): string {
@@ -85,7 +84,6 @@ export function SlidesTryNow() {
                 `https://slides.agent-native.com/?initialPrompt=${encodeURIComponent(promptText)}`,
               );
               event.currentTarget.href = targetUrl;
-              applyFirstTouchAttributionToLink(event.currentTarget);
               trackEvent("generate deck", {
                 template: "slides",
                 location: "try_now",

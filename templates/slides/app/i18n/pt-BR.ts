@@ -1027,9 +1027,13 @@ const messages = {
     all: "Todos",
     showMineDecks: "Mostrar decks criados por mim",
     mine: "Meus",
+    ownedByAnyone: "De qualquer pessoa",
+    ownedByMe: "Meus",
+    sharedWithMe: "Compartilhado comigo",
     createDeckOrVisual: "Criar uma apresentação",
     noMineDecks: "Nenhum deck criado por você ainda.",
     noDecksMatchSearch: "Nenhum deck corresponde à sua busca.",
+    noDecksMatchFilter: "Nenhum deck corresponde ao filtro atual.",
     deleteDeckTitle: "Excluir deck?",
     deleteDeckDescription:
       "Isso excluirá permanentemente este deck e todos os seus slides. Esta ação não pode ser desfeita.",

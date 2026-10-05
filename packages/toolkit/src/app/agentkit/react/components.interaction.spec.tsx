@@ -1344,7 +1344,7 @@ describe("AgentKitChat interactions", () => {
         container.querySelectorAll<HTMLButtonElement>(
           'section[data-agent-message-queue="true"] button',
         ),
-      ).find((button) => button.textContent?.trim() === "Steer");
+      ).find((button) => button.textContent?.trim() === "Send now");
       expect(steerButton?.disabled).toBe(false);
 
       await act(async () => {
@@ -1359,7 +1359,7 @@ describe("AgentKitChat interactions", () => {
         container.querySelectorAll<HTMLButtonElement>(
           'section[data-agent-message-queue="true"] button',
         ),
-      ).find((button) => button.textContent?.trim() === "Steer");
+      ).find((button) => button.textContent?.trim() === "Send now");
       expect(blockedSteerButton).toBeUndefined();
       expect(
         container.querySelector<HTMLButtonElement>(
@@ -1376,11 +1376,19 @@ describe("AgentKitChat interactions", () => {
         await Promise.resolve();
       });
 
+      const queueRows = container.querySelectorAll(
+        'section[data-agent-message-queue="true"] li',
+      );
+      expect(
+        queueRows[0]?.querySelector('button[aria-label="More actions"]'),
+      ).toBeNull();
+
       const moreActions = container.querySelectorAll<HTMLButtonElement>(
         'section[data-agent-message-queue="true"] button[aria-label="More actions"]',
       );
+      expect(moreActions).toHaveLength(2);
       await act(async () => {
-        moreActions[1]?.dispatchEvent(
+        moreActions[0]?.dispatchEvent(
           new PointerEvent("pointerdown", {
             bubbles: true,
             button: 0,
@@ -1392,7 +1400,7 @@ describe("AgentKitChat interactions", () => {
       await act(async () => {
         const moveToTop =
           document.body.querySelector<HTMLElement>('[role="menuitem"]');
-        expect(moveToTop?.textContent).toContain("Move to top");
+        expect(moveToTop?.textContent).toContain("Send next");
         moveToTop?.click();
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
@@ -1413,7 +1421,7 @@ describe("AgentKitChat interactions", () => {
             'section[data-agent-message-queue="true"] button',
           ),
         )
-          .find((button) => button.textContent?.trim() === "Steer")
+          .find((button) => button.textContent?.trim() === "Send now")
           ?.click();
         await new Promise((resolve) => setTimeout(resolve, 0));
       });

@@ -13,6 +13,7 @@ const mockUpsertBuilderProxyDesignSystem = vi.hoisted(() => vi.fn());
 vi.mock("@agent-native/core/server", () => ({
   cdnSafeOriginStatus: mockCdnSafeOriginStatus,
   getSession: (...args: unknown[]) => mockGetSession(...args),
+  isCredentialMembershipUnavailable: () => false,
   getMcpOAuthBearerSession: (...args: unknown[]) =>
     mockGetMcpOAuthBearerSession(...args),
   runWithRequestContext: async (_ctx: unknown, fn: () => unknown) => fn(),

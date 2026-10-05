@@ -148,6 +148,19 @@ describe("deriveReferralSource", () => {
     ).toBe("external");
   });
 
+  it("a referrer forwarded from the marketing site derives external", () => {
+    expect(
+      deriveReferralSource({
+        landing_path: "/",
+        site_referrer: "github.com",
+        site_landing_path: "/apps/design",
+      }),
+    ).toBe("external");
+    expect(
+      deriveReferralSource({ landing_path: "/", site_landing_path: "/apps" }),
+    ).toBe("direct");
+  });
+
   it("nothing derives direct", () => {
     expect(deriveReferralSource(null)).toBe("direct");
     expect(deriveReferralSource({})).toBe("direct");
@@ -199,6 +212,21 @@ describe("deriveSignupAttribution", () => {
     ).toMatchObject({
       gclid: "click-id",
       attribution_truncated: "true",
+    });
+  });
+
+  it("keeps the forwarded marketing-site source apart from the app's own", () => {
+    expect(
+      deriveSignupAttribution({
+        landing_path: "/",
+        site_referrer: "github.com",
+        site_landing_path: "/apps/design",
+      }),
+    ).toEqual({
+      referral_source: "external",
+      first_touch_path: "/",
+      site_referrer: "github.com",
+      site_landing_path: "/apps/design",
     });
   });
 

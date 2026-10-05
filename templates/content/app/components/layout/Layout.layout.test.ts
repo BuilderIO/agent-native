@@ -65,7 +65,7 @@ describe("app layout", () => {
     );
     expect(source).toContain("const showPendingDocumentSkeleton =");
     expect(source).toMatch(
-      /<DocumentEditorSkeleton\s+title=\{pendingDocumentTitle\}\s+iconRow=\{readPageIconRowHint\(pendingDocumentId\)\}/,
+      /<DocumentEditorSkeleton\s+title=\{pendingDocumentTitle\}\s+iconRow=\{readPageIconRowHint\(pendingDocumentId\)\}\s+shape=\{readPageShapeHint\(pendingDocumentId\)\}/,
     );
   });
 

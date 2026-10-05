@@ -3,10 +3,51 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-10-05
+
+### Improved
+
+- Collection pages keep selected rows visible through failed refreshes, and review space stays in place while comments refresh.
+
+### Fixed
+
+- Collection view context now survives quick page changes when the saved summary fits.
+- Exact saved-view links keep the collection retry available when rows fail to load
+- Expanding a Files folder now shares one navigation read across open branches, and legacy owner shares retain their row controls.
+- Files navigation retries temporary failures consistently
+- Shared page owners keep edit and manage controls in Files, and newly opened folders populate faster.
+- Tagging an AI in a comment works again instead of failing right away with "AI request failed".
+- The home loading shell keeps the layout of your last opened page.
+- Typing `>` and a space, or inserting a toggle or callout, no longer freezes and crashes the page on a Mac.
+
+## 2026-10-03
+
+### Fixed
+
+- A malformed Lab preference no longer blocks unrelated editor commands.
+
+## 2026-10-02
+
+### Improved
+
+- After a refresh, the Files sidebar shows the open page's folders in one load instead of one level at a time
+- Builder.io setup instructions now use consistent action language across editor workflows.
+- Large collections open faster
+- Pages with open comments and collections with sorted or filtered views no longer jump while they load
+
+### Fixed
+
+- A page link you can't open now says so, with the account you're signed in as, instead of opening another page. People who can open a private share link no longer see "This document is private" first.
+- Comment edits and deletions now refresh collaborators with the document open.
+- Pages stay inside the window at every width: long inline code and links wrap, and wide tables scroll inside their own frame instead of crushing their columns
+- Suggest edits works on pages written by agents, including pages with Markdown tables, instead of refusing to start or rejecting each edit; suggestions inside a table cell are still not supported
+- While you suggest edits, tables and other blocks that suggestions don't support yet are read-only, and an agent that tries to suggest a change inside one gets a clear message instead of "Internal server error".
+
 ## 2026-10-01
 
 ### Improved
 
+- Home opens the page you were last on sooner
 - Pages and the sidebar load in place instead of jumping around
 
 ### Fixed
