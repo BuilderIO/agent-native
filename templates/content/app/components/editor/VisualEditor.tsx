@@ -166,6 +166,7 @@ import {
   type SuggestionPresentationTransition,
 } from "./suggestions/presentation-rebase";
 import { SuggestingReadOnlyBlocks } from "./suggestions/read-only-blocks";
+import { ContentTableView } from "./table-view";
 import { TableHoverControls } from "./TableHoverControls";
 
 function compareDocumentBodyRevisions(
@@ -2645,6 +2646,7 @@ export function createVisualEditorExtensions({
       MediaSourceCommit.configure({ onMediaSourceCommitted }),
       CustomTable.configure({
         resizable: true,
+        View: ContentTableView,
         HTMLAttributes: { class: "notion-table" },
       }),
       TableRow,
