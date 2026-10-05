@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import {
-  COMPACT_TOKEN_PREFIX,
   signCompactShortLivedToken,
   signGatewayAccessToken,
   signRealtimeSubscribeToken,
@@ -121,7 +120,6 @@ describe("short-lived-token", () => {
         agentLabel: "Fusion",
       });
 
-      expect(token.startsWith(COMPACT_TOKEN_PREFIX)).toBe(true);
       expect(verifyCompactShortLivedToken(token, "rec_abc")).toEqual({
         ok: true,
         viewerEmail: "alice@example.com",
@@ -144,8 +142,8 @@ describe("short-lived-token", () => {
         resourceId: "rec_abc",
         ttlSeconds: 60,
       });
-      const [, sig] = token.slice(COMPACT_TOKEN_PREFIX.length).split(".");
-      const forged = `${COMPACT_TOKEN_PREFIX}${Buffer.from(
+      const [, sig] = token.split(".");
+      const forged = `${Buffer.from(
         JSON.stringify({ e: 9e12, v: "attacker@example.com" }),
       ).toString("base64url")}.${sig}`;
 
@@ -157,13 +155,10 @@ describe("short-lived-token", () => {
 
     it("rejects a tampered signature", () => {
       const token = signCompactShortLivedToken({ resourceId: "rec_abc" });
-      const [payload] = token.slice(COMPACT_TOKEN_PREFIX.length).split(".");
+      const [payload] = token.split(".");
 
       expect(
-        verifyCompactShortLivedToken(
-          `${COMPACT_TOKEN_PREFIX}${payload}.AAAAAAAA`,
-          "rec_abc",
-        ).ok,
+        verifyCompactShortLivedToken(`${payload}.AAAAAAAA`, "rec_abc").ok,
       ).toBe(false);
     });
 
@@ -193,11 +188,9 @@ describe("short-lived-token", () => {
 
     it("rejects malformed tokens", () => {
       expect(verifyCompactShortLivedToken("", "rec_abc").ok).toBe(false);
-      expect(verifyCompactShortLivedToken("v2_nodot", "rec_abc").ok).toBe(
-        false,
-      );
-      expect(verifyCompactShortLivedToken("v2_a.", "rec_abc").ok).toBe(false);
-      expect(verifyCompactShortLivedToken("v2_.b", "rec_abc").ok).toBe(false);
+      expect(verifyCompactShortLivedToken("nodot", "rec_abc").ok).toBe(false);
+      expect(verifyCompactShortLivedToken("a.", "rec_abc").ok).toBe(false);
+      expect(verifyCompactShortLivedToken(".b", "rec_abc").ok).toBe(false);
     });
 
     it("is not interchangeable with the legacy format", () => {
@@ -207,7 +200,7 @@ describe("short-lived-token", () => {
       expect(verifyShortLivedToken(compact, "rec_abc").ok).toBe(false);
       expect(verifyCompactShortLivedToken(legacy, "rec_abc")).toEqual({
         ok: false,
-        reason: "malformed",
+        reason: "bad_signature",
       });
     });
 

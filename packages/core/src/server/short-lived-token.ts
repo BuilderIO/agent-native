@@ -144,15 +144,13 @@ export function verifyShortLivedToken(
 // Agent-access tokens ride in URLs that Anthropic's web fetch tool refuses once
 // they pass 250 characters. The legacy payload carries the resource id (up to
 // ~110 characters for Clips), so here the signature covers the id instead and
-// the verifier supplies it. Legacy tokens stay verifiable through
-// `verifyShortLivedToken` for as long as they live (up to seven days).
+// the verifier supplies it. Both formats are `<payload>.<sig>`, so a verifier
+// tries this one first and falls back to `verifyShortLivedToken` for legacy
+// tokens, which stay valid for as long as they live (up to seven days).
 //
 // The HMAC input starts with a domain tag and contains a newline, which a
 // legacy signature input (base64url text) can never contain, so neither format
 // can be replayed as the other.
-
-/** Marks a compact token. Legacy payloads always begin `eyJ`, never `v2_`. */
-export const COMPACT_TOKEN_PREFIX = "v2_";
 
 interface DecodedCompactClaims {
   e: number;
@@ -160,15 +158,8 @@ interface DecodedCompactClaims {
   l?: string;
 }
 
-export function isCompactShortLivedToken(token: unknown): token is string {
-  return typeof token === "string" && token.startsWith(COMPACT_TOKEN_PREFIX);
-}
-
 function compactSignature(resourceId: string, payloadStr: string): string {
-  return hmacB64(
-    `agent-access:${COMPACT_TOKEN_PREFIX}\n${resourceId}\n${payloadStr}`,
-    getSigningKey(),
-  );
+  return hmacB64(`agent-access\n${resourceId}\n${payloadStr}`, getSigningKey());
 }
 
 export function signCompactShortLivedToken(
@@ -182,24 +173,22 @@ export function signCompactShortLivedToken(
   if (claims.agentLabel) payload.l = claims.agentLabel;
 
   const payloadStr = base64UrlEncode(JSON.stringify(payload));
-  return `${COMPACT_TOKEN_PREFIX}${payloadStr}.${compactSignature(claims.resourceId, payloadStr)}`;
+  return `${payloadStr}.${compactSignature(claims.resourceId, payloadStr)}`;
 }
 
 /**
  * Verify a token produced by {@link signCompactShortLivedToken}. A token for a
- * different resource fails as `bad_signature` — the id is not in the payload,
- * so a mismatch is indistinguishable from tampering.
+ * different resource, and any legacy token, fails as `bad_signature` — the id
+ * is not in the payload, so a mismatch is indistinguishable from tampering.
  */
 export function verifyCompactShortLivedToken(
   token: string,
   expectedResourceId: string,
 ): VerifyResult {
-  if (!isCompactShortLivedToken(token)) {
+  if (typeof token !== "string" || !token.includes(".")) {
     return { ok: false, reason: "malformed" };
   }
-  const [payloadStr, sig] = token
-    .slice(COMPACT_TOKEN_PREFIX.length)
-    .split(".", 2);
+  const [payloadStr, sig] = token.split(".", 2);
   if (!payloadStr || !sig) return { ok: false, reason: "malformed" };
 
   if (

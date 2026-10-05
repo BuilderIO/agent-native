@@ -7,10 +7,7 @@ import {
   signScopedAgentAccessToken,
   verifyScopedAgentAccessToken,
 } from "./agent-access.js";
-import {
-  COMPACT_TOKEN_PREFIX,
-  signShortLivedToken,
-} from "./short-lived-token.js";
+import { signShortLivedToken } from "./short-lived-token.js";
 
 describe("agent-access server helpers", () => {
   const originalEnv = { ...process.env };
@@ -106,10 +103,9 @@ describe("agent-access server helpers", () => {
       resourceId: "deck-CQ39871wK7EHoCOS67EE1",
     });
 
-    const decoded = Buffer.from(
-      token.slice(COMPACT_TOKEN_PREFIX.length).split(".")[0],
-      "base64url",
-    ).toString("utf8");
+    const decoded = Buffer.from(token.split(".")[0], "base64url").toString(
+      "utf8",
+    );
     expect(decoded).not.toContain("deck-CQ39871wK7EHoCOS67EE1");
   });
 
@@ -143,6 +139,21 @@ describe("agent-access server helpers", () => {
         resourceId: "rec-1",
       }),
     ).toEqual({ ok: false, reason: "expired" });
+  });
+
+  it("rejects empty, malformed and forged tokens", () => {
+    const scope = { resourceKind: "clip-agent-context", resourceId: "rec-1" };
+    const token = signScopedAgentAccessToken(scope);
+    const [payload] = token.split(".");
+
+    expect(verifyScopedAgentAccessToken("", scope)).toEqual({
+      ok: false,
+      reason: "missing",
+    });
+    expect(verifyScopedAgentAccessToken("nodot", scope).ok).toBe(false);
+    expect(verifyScopedAgentAccessToken(`${payload}.AAAA`, scope).ok).toBe(
+      false,
+    );
   });
 
   describe("link length", () => {

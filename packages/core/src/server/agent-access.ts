@@ -4,7 +4,6 @@ import {
   type AgentAccessResourceScope,
 } from "../shared/agent-access.js";
 import {
-  isCompactShortLivedToken,
   signCompactShortLivedToken,
   verifyCompactShortLivedToken,
   verifyShortLivedToken,
@@ -62,9 +61,9 @@ export function verifyScopedAgentAccessToken(
     scope.resourceKind,
     scope.resourceId,
   );
-  return isCompactShortLivedToken(token)
-    ? verifyCompactShortLivedToken(token, resourceId)
-    : verifyShortLivedToken(token, resourceId);
+  const compact = verifyCompactShortLivedToken(token, resourceId);
+  if (compact.ok || compact.reason !== "bad_signature") return compact;
+  return verifyShortLivedToken(token, resourceId);
 }
 
 export function createScopedAgentAccessGrant(
