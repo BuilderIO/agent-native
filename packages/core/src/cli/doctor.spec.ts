@@ -390,6 +390,38 @@ describe("runDoctorScan", () => {
     ]);
   });
 
+  it("treats a server/plugins file as having no plugins, like Nitro", () => {
+    const root = makeTempAppRoot({
+      ...CLEAN_FILES,
+      "server/plugins": "not a directory\n",
+    });
+    const report = runDoctorScan({
+      root,
+      only: ["server-plugin-default-export"],
+    });
+
+    expect(report.findings).toEqual([]);
+  });
+
+  it.skipIf(process.getuid?.() === 0)(
+    "fails the scan instead of passing a plugin it cannot read",
+    () => {
+      const root = makeTempAppRoot({
+        ...CLEAN_FILES,
+        "server/plugins/secret.ts": "registerThing();\n",
+      });
+      const file = path.join(root, "server/plugins/secret.ts");
+      fs.chmodSync(file, 0o000);
+      try {
+        expect(() =>
+          runDoctorScan({ root, only: ["server-plugin-default-export"] }),
+        ).toThrow(/EACCES/);
+      } finally {
+        fs.chmodSync(file, 0o644);
+      }
+    },
+  );
+
   it("leaves files esbuild cannot parse to the real build", () => {
     const root = makeTempAppRoot({
       ...CLEAN_FILES,

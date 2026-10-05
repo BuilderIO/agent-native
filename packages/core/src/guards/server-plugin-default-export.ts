@@ -10,7 +10,7 @@ import path from "node:path";
 
 import { buildSync, type Loader } from "esbuild";
 
-import { readFileSafe, relPosix } from "./scan-utils.js";
+import { relPosix } from "./scan-utils.js";
 import type { GuardFinding, GuardResult, GuardScanOptions } from "./types.js";
 
 // Mirrors Nitro's plugin scan (`plugins/**/*.{js,mjs,cjs,ts,mts,cts,tsx,jsx}`)
@@ -32,7 +32,9 @@ function* walkFollowingSymlinks(
     realDir = fs.realpathSync(dir);
     entries = fs.readdirSync(dir, { withFileTypes: true });
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    // Nitro skips a missing plugins dir and warns past a non-directory one.
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return;
     throw error;
   }
   if (seen.has(realDir)) return;
@@ -98,8 +100,13 @@ export function scanServerPluginDefaultExport(
     .sort();
 
   for (const file of files) {
-    const source = readFileSafe(file);
-    if (source === null) continue;
+    let source: string;
+    try {
+      source = fs.readFileSync(file, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
     if (!DECLARATION_FILE_RE.test(file)) {
       const exports = runtimeExports(source, file);
       if (exports === null || exports.includes("default")) continue;
