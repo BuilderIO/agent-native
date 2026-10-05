@@ -185,7 +185,7 @@ export function BuilderConnectPopover({
               type="button"
               data-testid={primaryTestId}
               className="w-full"
-              onClick={() => start(true)}
+              onClick={() => start(!flow.accountExists)}
               disabled={flow.connecting}
             >
               {flow.connecting ? <Spinner aria-hidden /> : null}

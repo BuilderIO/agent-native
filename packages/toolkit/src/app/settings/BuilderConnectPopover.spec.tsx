@@ -307,7 +307,7 @@ describe("BuilderConnectPopover before the status read resolves", () => {
     click(servicesToggle!);
     expect(servicesToggle?.getAttribute("aria-expanded")).toBe("true");
     click(consent?.querySelector("[data-testid='create']") as HTMLElement);
-    expect(onConnect).toHaveBeenCalledWith(true);
+    expect(onConnect).toHaveBeenCalledWith(false);
   });
 
   it("reopens the same account choices when activation finds an existing account", () => {
@@ -348,6 +348,9 @@ describe("BuilderConnectPopover before the status read resolves", () => {
     );
     expect(consent?.querySelector("[data-testid='create']")).not.toBeNull();
     expect(consent?.querySelector("[data-testid='sign-in']")).not.toBeNull();
+
+    click(consent?.querySelector("[data-testid='create']") as HTMLElement);
+    expect(flow.start).toHaveBeenLastCalledWith({ provisionAccount: false });
   });
 
   it("stacks the create and sign-in buttons together with the terms below them", () => {
