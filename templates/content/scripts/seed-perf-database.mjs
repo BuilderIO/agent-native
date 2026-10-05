@@ -268,7 +268,12 @@ async function signIn(accountEmail, accountPassword) {
   return cookie;
 }
 
-async function callAction(cookie, name, payload, attempt = 1) {
+async function callAction(
+  cookie,
+  name,
+  payload,
+  { attempt = 1, retryable = true } = {},
+) {
   const response = await fetch(`${baseUrl}/_agent-native/actions/${name}`, {
     method: "POST",
     headers: {
@@ -280,10 +285,13 @@ async function callAction(cookie, name, payload, attempt = 1) {
   });
   if (response.ok) return response.json();
   const text = await response.text();
-  const retryable = response.status === 429 || response.status >= 500;
-  if (retryable && attempt < 5) {
+  const retryableStatus = response.status === 429 || response.status >= 500;
+  if (retryable && retryableStatus && attempt < 5) {
     await new Promise((done) => setTimeout(done, 500 * 2 ** attempt));
-    return callAction(cookie, name, payload, attempt + 1);
+    return callAction(cookie, name, payload, {
+      attempt: attempt + 1,
+      retryable,
+    });
   }
   throw new Error(`${name} failed (${response.status}): ${text.slice(0, 400)}`);
 }
@@ -381,14 +389,21 @@ for (const property of pendingProperties) {
     saveManifest(manifest);
     continue;
   }
-  const response = await callAction(cookie, "configure-document-property", {
-    documentId: databaseDocumentId,
-    databaseId,
-    name: property.name,
-    type: property.type,
-    ...(property.options ? { options: property.options } : {}),
-    ...(property.relation ? { options: { relation: { databaseId } } } : {}),
-  });
+  // A failed response can arrive after this non-idempotent create commits;
+  // stop here so the next run can recover it from the schema read above.
+  const response = await callAction(
+    cookie,
+    "configure-document-property",
+    {
+      documentId: databaseDocumentId,
+      databaseId,
+      name: property.name,
+      type: property.type,
+      ...(property.options ? { options: property.options } : {}),
+      ...(property.relation ? { options: { relation: { databaseId } } } : {}),
+    },
+    { retryable: false },
+  );
   const created = response.properties.find(
     (candidate) => candidate.definition.name === property.name,
   );
