@@ -275,8 +275,30 @@ describe("Page draft recovery", () => {
         operation: "delete",
         expectedVersion: 3,
         expectedContent: "Saved body",
+        ifPageHoldsDraft: true,
       }),
     );
+    expect(
+      container.querySelector('[data-testid="recovery-comparison"]'),
+    ).toBeNull();
+  });
+
+  it("keeps a draft the page held when the stored page moves before the delete", async () => {
+    state.draft = {
+      title: "Saved",
+      content: "Saved body",
+      version: 3,
+      baseDocumentUpdatedAt: "v1",
+      loadedContentWasEmpty: 0,
+      editorSessionId: "tab:page",
+      editGeneration: 4,
+    };
+    state.remove.mockResolvedValue({ status: "conflict", draft: state.draft });
+    await act(async () => render());
+    expect(state.remove).toHaveBeenCalledWith(
+      expect.objectContaining({ ifPageHoldsDraft: true }),
+    );
+    expect(state.refetch).toHaveBeenCalled();
     expect(
       container.querySelector('[data-testid="recovery-comparison"]'),
     ).toBeNull();
@@ -301,7 +323,11 @@ describe("Page draft recovery", () => {
       expect.objectContaining({ choice: "use_saved" }),
     );
     expect(state.remove).toHaveBeenCalledWith(
-      expect.objectContaining({ operation: "delete", expectedVersion: 3 }),
+      expect.objectContaining({
+        operation: "delete",
+        expectedVersion: 3,
+        ifPageHoldsDraft: true,
+      }),
     );
     expect(
       container.querySelector('[data-testid="recovery-comparison"]'),

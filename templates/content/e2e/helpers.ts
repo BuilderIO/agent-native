@@ -65,7 +65,11 @@ export async function getDocument(page: Page, id: string) {
   expect(response.ok(), `get-document (${response.status()}): ${text}`).toBe(
     true,
   );
-  return JSON.parse(text) as { content?: string; revision?: string };
+  return JSON.parse(text) as {
+    title?: string;
+    content?: string;
+    revision?: string;
+  };
 }
 
 /** The signed-in reader's recovery draft for a page, or null when none is kept. */

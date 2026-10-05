@@ -349,9 +349,14 @@ test.describe("two tabs editing one page at beta cadence", () => {
         .toContain(bMarker);
       await bSaves.release();
       await s.tabs.quiet();
+      // The chooser this scenario guards against offers these two as
+      // different versions.
       const draft = await getPreviewDraft(s.reader, s.id);
       const page = await getDocument(s.reader, s.id);
-      s.notes.draftMatchesPage = draft?.content === page.content;
+      expect(
+        draft && { title: draft.title, content: draft.content },
+        "A's recovery draft should hold exactly the page B saved",
+      ).toEqual({ title: page.title, content: page.content });
       const noticesBeforeRefresh = s.tabs.record(a).recovery.length;
       recoveries.hold();
       await a.reload({ waitUntil: "domcontentloaded" });

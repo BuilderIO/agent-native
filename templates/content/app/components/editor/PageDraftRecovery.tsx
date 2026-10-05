@@ -509,7 +509,10 @@ export function PageDraftRecovery({
     }
   }
 
-  async function discardDraft(settled: NonNullable<typeof draft>) {
+  async function discardDraft(
+    settled: NonNullable<typeof draft>,
+    ifPageHoldsDraft = false,
+  ) {
     const result = await updateDraft.mutateAsync({
       operation: "delete",
       documentId: document.id,
@@ -522,11 +525,30 @@ export function PageDraftRecovery({
       ...(typeof settled.editGeneration === "number"
         ? { expectedEditGeneration: settled.editGeneration }
         : {}),
+      ...(ifPageHoldsDraft ? { ifPageHoldsDraft: true as const } : {}),
     });
-    if (result.status !== "deleted")
+    // A page that moved on since this tab read it is recovered against
+    // its newer version once both are read again.
+    if (result.status !== "deleted" && !ifPageHoldsDraft)
       throw new Error("The saved draft changed during recovery.");
     await queryClient.refetchQueries(documentQueryFilter(document.id));
     await drafts.refetch();
+  }
+
+  // This tab's copy of the page can trail the server, and a rename shows
+  // before it saves, so the server checks the stored page before deleting.
+  async function discardHeldDraft(held: NonNullable<typeof draft>) {
+    if (busy) return;
+    setBusy(true);
+    setFailure(null);
+    try {
+      await discardDraft(held, true);
+    } catch {
+      setFailure("error");
+      await drafts.refetch();
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function resolveConflict(
@@ -547,7 +569,7 @@ export function PageDraftRecovery({
       });
       if (result.status === "document_conflict") {
         if (result.document && pageHoldsDraft(draft, result.document)) {
-          await discardDraft(draft);
+          await discardDraft(draft, true);
           return;
         }
         setFailure("conflict");
@@ -620,7 +642,7 @@ export function PageDraftRecovery({
     if (automaticRecoveryRef.current === attempt) return;
     if (pageHoldsDraft(draft, document)) {
       automaticRecoveryRef.current = attempt;
-      void settleDraft(false);
+      void discardHeldDraft(draft);
       return;
     }
     if (draft.baseDocumentUpdatedAt === document.updatedAt) {
