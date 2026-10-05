@@ -31,6 +31,8 @@ export interface AccessRequestRow {
   decidedBy: string | null;
   decidedAt: number | null;
   grantedRole: ShareRole | null;
+  /** Whether anyone was told about this generation. */
+  delivered: boolean;
 }
 
 const TABLE = "resource_access_requests";
@@ -104,6 +106,7 @@ function parseRow(row: Record<string, unknown>): AccessRequestRow {
     decidedBy: optionalString(row.decided_by),
     decidedAt: optionalNumber(row.decided_at),
     grantedRole: optionalString(row.granted_role) as ShareRole | null,
+    delivered: row.delivery != null,
   };
 }
 
@@ -181,12 +184,20 @@ export interface OpenAccessRequestInput {
   now: number;
   /** A request declined after this time stays closed instead of reopening. */
   declinedCooldownStart: number;
+  /**
+   * A pending request nobody was told about, asked before this time, is
+   * claimed to be sent again; one asked later may still be sending.
+   */
+  sendWindowStart: number;
 }
 
 /**
- * Opens a request, or reopens a closed one as a new generation. Returns
- * `opened: false` with the existing row when a request is already pending, or
- * was declined too recently to ask again, so the caller sends nothing.
+ * Opens a request, or reopens a closed one as a new generation. A pending
+ * request whose send was cut off before anyone was told is claimed again in
+ * its own generation, so recipients the cut-off send reached get nothing new.
+ * Returns `opened: false` with the existing row when a request is already
+ * pending, or was declined too recently to ask again, so the caller sends
+ * nothing.
  */
 export async function openAccessRequest(
   input: OpenAccessRequestInput,
@@ -225,6 +236,21 @@ export async function openAccessRequest(
     ],
   });
   if (rows[0]) return { request: parseRow(rows[0]), opened: true };
+  // Moving requested_at makes the claim one ask's alone.
+  const { rows: unsent } = await getDbExec().execute({
+    sql: `UPDATE ${TABLE} SET requested_at = ?
+      WHERE resource_type = ? AND resource_id = ? AND requester_email = ?
+        AND state = 'pending' AND delivery IS NULL AND requested_at <= ?
+      RETURNING *`,
+    args: [
+      input.now,
+      input.resourceType,
+      input.resourceId,
+      input.requesterEmail,
+      input.sendWindowStart,
+    ],
+  });
+  if (unsent[0]) return { request: parseRow(unsent[0]), opened: true };
   const existing = await findAccessRequest(
     input.resourceType,
     input.resourceId,
@@ -236,7 +262,8 @@ export async function openAccessRequest(
 
 /**
  * Withdraws a request that was just opened but reached nobody, so asking
- * again isn't blocked and doesn't count toward the limits.
+ * again isn't blocked and doesn't count toward the limits. One that another
+ * ask already delivered stays.
  */
 export async function deleteAccessRequest(
   id: string,
@@ -244,7 +271,7 @@ export async function deleteAccessRequest(
 ): Promise<void> {
   await ensureTable();
   await getDbExec().execute({
-    sql: `DELETE FROM ${TABLE} WHERE id = ? AND generation = ? AND state = 'pending'`,
+    sql: `DELETE FROM ${TABLE} WHERE id = ? AND generation = ? AND state = 'pending' AND delivery IS NULL`,
     args: [id, generation],
   });
 }

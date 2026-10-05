@@ -34,10 +34,7 @@ import {
   resolveAccessStatus,
   type ResourceAccessStatus,
 } from "./access.js";
-import {
-  isSyntheticQaEmail,
-  resolveShareNotificationUrl,
-} from "./actions/share-resource.js";
+import { resolveShareNotificationUrl } from "./actions/share-resource.js";
 import { announceResourceAccessChange, grantResourceAccess } from "./grant.js";
 import { filterRecipientsByResourceAccess } from "./recipients.js";
 import {
@@ -55,6 +52,12 @@ export const ACCESS_REQUEST_DECLINE_COOLDOWN_MS = 7 * DAY_MS;
 export const ACCESS_REQUESTS_PER_REQUESTER_PER_DAY = 20;
 /** Requests one owner can receive in a day, across their resources. */
 export const ACCESS_REQUESTS_PER_OWNER_PER_DAY = 50;
+/**
+ * How long a request nobody has been told about yet reads as still sending.
+ * After that its send was cut off, and asking again sends it again; the
+ * request's idempotency keys stop anyone it already reached hearing twice.
+ */
+export const ACCESS_REQUEST_SEND_WINDOW_MS = 2 * 60 * 1000;
 // People shared directly as admin who hear about a request, besides the owner.
 const ADMIN_RECIPIENT_LIMIT = 20;
 const PENDING_LIST_LIMIT = 50;
@@ -87,14 +90,17 @@ function viewerEmail(): string | null {
 
 // A declined request reads to the requester as still pending until the
 // cooldown ends, so declining tells them nothing and they can't ask again
-// straight away.
+// straight away. A pending one whose send was cut off before anyone was told
+// isn't open, so the requester isn't left waiting on nobody.
 function openRequestFor(
   row: AccessRequestRow | null,
   now: number,
 ): ViewerAccessRequest | undefined {
   if (!row) return undefined;
   const open =
-    row.state === "pending" ||
+    (row.state === "pending" &&
+      (row.delivered ||
+        row.requestedAt > now - ACCESS_REQUEST_SEND_WINDOW_MS)) ||
     (row.state === "declined" &&
       row.decidedAt !== null &&
       row.decidedAt > now - ACCESS_REQUEST_DECLINE_COOLDOWN_MS);
@@ -300,7 +306,7 @@ async function deliverAccessRequest(
       console.error("[access-requests] request notification failed:", err);
     }
 
-    if (!app || isSyntheticQaEmail(recipient)) continue;
+    if (!app) continue;
     try {
       const { subject, html, text } = await renderTransactionalEmail(
         CORE_ACCESS_REQUESTED_EMAIL_ID,
@@ -318,7 +324,7 @@ async function deliverAccessRequest(
           app,
         },
       );
-      await sendEmail({
+      const sent = await sendEmail({
         to: recipient,
         subject,
         html,
@@ -327,7 +333,7 @@ async function deliverAccessRequest(
         templateId: CORE_ACCESS_REQUESTED_EMAIL_ID,
         idempotencyKey: `${key}:${recipient}`,
       });
-      delivery.email++;
+      if (sent.status === "sent") delivery.email++;
     } catch (err) {
       delivery.failed++;
       console.error("[access-requests] request email failed:", err);
@@ -343,9 +349,10 @@ export type RequestResourceAccessResult =
 /**
  * Asks the owner, and anyone with admin, to give the signed-in viewer access
  * to a resource they can't open. Asking again while a request is open sends
- * nothing. If the request is over a daily limit, or nobody could be told,
- * it is withdrawn and this fails, so the viewer never sees "sent" for a
- * request nobody will find.
+ * nothing; asking again after its send was cut off sends it again. If the
+ * request is over a daily limit, or nobody could be told, it is withdrawn
+ * and this fails, so the viewer never sees "sent" for a request nobody will
+ * find.
  */
 export async function requestResourceAccess(input: {
   resourceType: string;
@@ -406,6 +413,7 @@ export async function requestResourceAccess(input: {
     note: note || null,
     now,
     declinedCooldownStart: now - ACCESS_REQUEST_DECLINE_COOLDOWN_MS,
+    sendWindowStart: now - ACCESS_REQUEST_SEND_WINDOW_MS,
   });
   const view = openRequestFor(request, now);
   if (!opened || !view) {
@@ -559,8 +567,8 @@ function staleRequest(): never {
 
 /**
  * Whether the requester was emailed that they're in: `skipped` when the app
- * has no email set up, `failed` when sending failed or the email setup is
- * broken or unreadable.
+ * has no email set up or the requester is a test identity, `failed` when
+ * sending failed or the email setup is broken or unreadable.
  */
 export type AccessGrantedEmail = "sent" | "skipped" | "failed";
 
@@ -572,7 +580,6 @@ async function sendAccessGrantedEmail(
   role: ShareRole,
 ): Promise<AccessGrantedEmail> {
   try {
-    if (isSyntheticQaEmail(request.requesterEmail)) return "skipped";
     // `isEmailConfigured` is false for a broken setup too, which the approver
     // needs to hear about rather than read as "no email here".
     const readiness = await getEmailReadiness();
@@ -605,7 +612,7 @@ async function sendAccessGrantedEmail(
         app: await emailBrand(reg, resource),
       },
     );
-    await sendEmail({
+    const sent = await sendEmail({
       to: request.requesterEmail,
       subject,
       html,
@@ -613,7 +620,7 @@ async function sendAccessGrantedEmail(
       templateId: CORE_ACCESS_GRANTED_EMAIL_ID,
       idempotencyKey: `access-granted:${request.id}:${request.generation}`,
     });
-    return "sent";
+    return sent.status === "sent" ? "sent" : "skipped";
   } catch (err) {
     console.error("[access-requests] access-granted email failed:", err);
     return "failed";

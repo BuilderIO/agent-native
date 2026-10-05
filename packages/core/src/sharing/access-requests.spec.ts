@@ -77,7 +77,14 @@ vi.mock("../notifications/registry.js", () => ({
     notifyWithDelivery(input, meta),
 }));
 
-const sendEmail = vi.fn(async (_args: any) => {});
+const sendEmail = vi.fn(
+  async (
+    _args: any,
+  ): Promise<
+    | { status: "sent"; provider: "resend" }
+    | { status: "suppressed"; reason: "test-identity" }
+  > => ({ status: "sent", provider: "resend" }),
+);
 const emailConfigured: {
   value: boolean;
   error: Error | null;
@@ -119,6 +126,7 @@ const { registerShareableResource } = await import("./registry.js");
 const { createSharesTable } = await import("./schema.js");
 const {
   ACCESS_REQUEST_DECLINE_COOLDOWN_MS,
+  ACCESS_REQUEST_SEND_WINDOW_MS,
   ACCESS_REQUESTS_PER_OWNER_PER_DAY,
   ACCESS_REQUESTS_PER_REQUESTER_PER_DAY,
   approveAccessRequest,
@@ -128,7 +136,8 @@ const {
   requestResourceAccess,
   resolveLinkStatus,
 } = await import("./access-requests.js");
-const { ensureTable } = await import("./access-request-store.js");
+const { deleteAccessRequest, ensureTable } =
+  await import("./access-request-store.js");
 
 const requestableType = "qa-request-doc";
 const closedType = "qa-request-closed";
@@ -298,6 +307,10 @@ beforeEach(async () => {
     deliveredChannels: ["inbox"],
   }));
   sendEmail.mockReset();
+  sendEmail.mockImplementation(async () => ({
+    status: "sent",
+    provider: "resend",
+  }));
   emailConfigured.value = true;
   emailConfigured.error = null;
   emailConfigured.broken = null;
@@ -441,6 +454,86 @@ describe("requestResourceAccess", () => {
     expect(again).toMatchObject({ state: "requested", sent: false });
     expect(notifyWithDelivery).not.toHaveBeenCalled();
     expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  describe("after an ask was cut off before anyone was told", () => {
+    // The row an ask leaves when its process stops partway through sending.
+    async function cutOffRequest(askedAt: number) {
+      await rawClient.execute({
+        sql: `INSERT INTO resource_access_requests (id, resource_type, resource_id, requester_email, owner_email, state, generation, requested_at, created_at) VALUES ('cut-off', ?, 'doc', ?, ?, 'pending', 1, ?, ?)`,
+        args: [requestableType, outsiderEmail, ownerEmail, askedAt, askedAt],
+      });
+    }
+
+    it("lets the viewer ask again, and sends the same request under the same keys", async () => {
+      await insertDoc("doc");
+      await cutOffRequest(Date.now() - ACCESS_REQUEST_SEND_WINDOW_MS - 1_000);
+
+      expect(
+        await as(outsiderEmail, () =>
+          resolveLinkStatus(requestableType, "doc"),
+        ),
+      ).toEqual({ state: "denied", canRequest: true });
+      expect(await requestAs(outsiderEmail, "doc")).toMatchObject({
+        state: "requested",
+        sent: true,
+      });
+
+      expect(notifyWithDelivery).toHaveBeenCalledWith(
+        expect.objectContaining({ idempotencyKey: "access-request:cut-off:1" }),
+        { owner: ownerEmail },
+      );
+      expect(sendEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          idempotencyKey: `access-request:cut-off:1:${ownerEmail}`,
+        }),
+      );
+      const row = await requestRow("doc");
+      expect(row).toMatchObject({ id: "cut-off", generation: 1 });
+      expect(row?.delivery).not.toBeNull();
+    });
+
+    it("waits while the send may still be running", async () => {
+      await insertDoc("doc");
+      await cutOffRequest(Date.now() - 1_000);
+
+      expect(
+        await as(outsiderEmail, () =>
+          resolveLinkStatus(requestableType, "doc"),
+        ),
+      ).toMatchObject({ state: "denied", canRequest: false });
+      expect(await requestAs(outsiderEmail, "doc")).toMatchObject({
+        state: "requested",
+        sent: false,
+      });
+      expect(notifyWithDelivery).not.toHaveBeenCalled();
+    });
+
+    it("sends it again from one ask when several arrive at once", async () => {
+      await insertDoc("doc");
+      await cutOffRequest(Date.now() - ACCESS_REQUEST_SEND_WINDOW_MS - 1_000);
+
+      const results = await Promise.all([
+        requestAs(outsiderEmail, "doc"),
+        requestAs(outsiderEmail, "doc"),
+        requestAs(outsiderEmail, "doc"),
+      ]);
+
+      expect(
+        results.filter((result) => "sent" in result && result.sent),
+      ).toHaveLength(1);
+      expect(notifyWithDelivery).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("never withdraws a request someone was told about", async () => {
+    await insertDoc("doc");
+    await requestAs(outsiderEmail, "doc");
+    const row = await requestRow("doc");
+
+    await deleteAccessRequest(row!.id, row!.generation);
+
+    expect(await requestRow("doc")).toMatchObject({ id: row!.id });
   });
 
   it("refuses signed-out callers, missing resources, and types that don't take requests", async () => {
@@ -717,6 +810,21 @@ describe("reviewing a request", () => {
         }),
       ),
     ).toMatchObject({ email: "skipped" });
+  });
+
+  it("says the email was skipped when it would have gone to a test identity", async () => {
+    await insertDoc("doc");
+    const { id, generation } = await openRequest();
+    sendEmail.mockResolvedValue({
+      status: "suppressed",
+      reason: "test-identity",
+    });
+
+    expect(
+      await as(ownerEmail, () =>
+        approveAccessRequest({ requestId: id, generation, role: "viewer" }),
+      ),
+    ).toEqual({ state: "approved", role: "viewer", email: "skipped" });
   });
 
   it("never lowers a stronger role the requester already holds", async () => {
