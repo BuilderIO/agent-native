@@ -8974,12 +8974,29 @@ describe("server/auth", () => {
         .spyOn(console, "error")
         .mockImplementation(() => undefined);
 
-      const mockExecute = vi.fn(async ({ sql }: { sql: string }) => {
-        if (/FROM org_members/.test(sql)) {
-          throw new Error("connection terminated");
-        }
-        return { rows: [] };
-      });
+      const mockExecute = vi.fn(
+        async ({ sql, args }: { sql: string; args?: unknown[] }) => {
+          if (/FROM org_members/.test(sql)) {
+            throw new Error("connection terminated");
+          }
+          if (
+            /FROM mcp_connect_tokens/.test(sql) &&
+            args?.[0] === "jti-connect-unavailable-test"
+          ) {
+            return {
+              rows: [
+                {
+                  org_id: "org-123",
+                  owner_email: "owner@plans.test",
+                  kind: "personal",
+                  revoked_at: null,
+                },
+              ],
+            };
+          }
+          return { rows: [] };
+        },
+      );
       vi.doMock("../db/client.js", () => ({
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
