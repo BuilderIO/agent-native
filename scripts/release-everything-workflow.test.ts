@@ -145,8 +145,14 @@ describe("release everything workflow", () => {
       .workflow_dispatch as Workflow;
     const docsInputs = docsDispatch.inputs as Workflow;
     const docsJobs = docsWorkflow.jobs as Workflow;
+    const verifyStableRelease = docsJobs["verify-stable-release"] as Workflow;
     const pauseDocsBuilds = docsJobs["pause-netlify-builds"] as Workflow;
     const restoreDocsBuilds = docsJobs["restore-netlify-builds"] as Workflow;
+    const verifyStep = (verifyStableRelease.steps as Workflow[])[0];
+    const verifySource = String((verifyStep.with as Workflow).script);
+    const AsyncFunction = Object.getPrototypeOf(
+      async function () {},
+    ).constructor;
 
     assert.match(source, /const docsSite = sitesManifest\.fw/);
     assert.match(source, /docsSite\?\.host !== "www\.agent-native\.com"/);
@@ -160,13 +166,45 @@ describe("release everything workflow", () => {
       /waitForRun\(docs, "Agent-Native docs production site", 120 \* 60_000\)/,
     );
     assert.match(source, /\["Docs site", docsSite\.host\]/);
+    assert.deepEqual(docsWorkflow.permissions, {
+      contents: "read",
+      "pull-requests": "read",
+    });
+    assert.match(
+      String(verifyStableRelease.if),
+      /github\.event_name == 'push'.*contains\(github\.event\.head_commit\.message, '\[stable-release\]'\)/,
+    );
+    assert.deepEqual(verifyStableRelease.permissions, {
+      contents: "read",
+      "pull-requests": "read",
+    });
+    assert.doesNotThrow(() => new AsyncFunction(verifySource));
+    assert.match(
+      verifySource,
+      /context\.actor !== "builder-io-integration\[bot\]"/,
+    );
+    assert.match(verifySource, /commits\/\{commit_sha\}\/pulls/);
+    assert.match(verifySource, /pullRequest\.base\?\.ref === "main"/);
+    assert.match(
+      verifySource,
+      /pullRequest\.head\?\.ref === "changeset-release\/main"/,
+    );
+    assert.match(
+      verifySource,
+      /pullRequest\.merge_commit_sha === context\.sha/,
+    );
+    assert.match(
+      verifySource,
+      /pullRequest\.title\.includes\("\[stable-release\]"\)/,
+    );
+    assert.match(String(pauseDocsBuilds.needs), /verify-stable-release/);
     assert.match(
       String(pauseDocsBuilds.if),
-      /github\.event_name != 'push'.*contains\(github\.event\.head_commit\.message, '\[stable-release\]'\)/,
+      /needs\.verify-stable-release\.outputs\.verified != 'true'/,
     );
     assert.match(
       String(restoreDocsBuilds.if),
-      /always\(\).*github\.event_name != 'push'.*contains\(github\.event\.head_commit\.message, '\[stable-release\]'\)/,
+      /needs\.verify-stable-release\.outputs\.verified != 'true'/,
     );
     assert.deepEqual(docsInputs, {
       source_ref: {
