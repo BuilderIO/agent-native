@@ -9,7 +9,7 @@ import { NotificationsBell } from "@agent-native/toolkit/app/notifications";
 export function HeaderActions() {
   return (
     <>
-      <NotificationsBell />
+      <NotificationsBell pollMs={30_000} />
       <AgentToggleButton />
     </>
   );

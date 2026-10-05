@@ -57,7 +57,7 @@ describe("Calendar header actions", () => {
     );
   });
 
-  it("is the trailing control on every Calendar header", () => {
+  it("is the trailing control on both app-owned Calendar headers", () => {
     for (const file of ["./AppLayout.tsx", "../../pages/CalendarView.tsx"]) {
       const text = source(file);
       expect(text).toContain("<HeaderActions />");
