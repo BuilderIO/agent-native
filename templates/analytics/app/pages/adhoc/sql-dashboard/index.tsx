@@ -139,7 +139,12 @@ import { useAutoFocusSelect } from "@/lib/use-auto-focus-select";
 
 import BlankDashboard from "../BlankDashboard";
 import { DashboardSkeleton } from "../DashboardSkeleton";
-import { resolveDashboardFilterRestore } from "./dashboard-filter-restore";
+import {
+  dashboardFilterParams,
+  resolveDashboardFilterRestoreStep,
+  sameDashboardFilterMap,
+  type DashboardFilterRestoreProgress,
+} from "./dashboard-filter-restore";
 import {
   availableDropSlotIdsForPanel,
   buildDashboardPanelGroups,
@@ -189,15 +194,6 @@ type DashboardTabGroup = {
   name: string;
   tabs: Array<{ value: string; label: string }>;
 };
-
-function sameFilterMap(
-  a: Record<string, string> | undefined,
-  b: Record<string, string>,
-): boolean {
-  const aKeys = Object.keys(a ?? {});
-  if (aKeys.length !== Object.keys(b).length) return false;
-  return aKeys.every((key) => a![key] === b[key]);
-}
 
 function groupDashboardTabs(tabs: string[]): {
   groups: DashboardTabGroup[];
@@ -906,22 +902,27 @@ function SqlDashboardPageContent({
   const filterPrefKey = dashboardId ? `dashboard-filters:${dashboardId}` : "";
   const {
     data: savedFilters,
-    isLoading: filtersLoading,
     isSuccess: filtersLoaded,
+    isError: filtersError,
     save: saveFilterPref,
   } = useUserPref<{ filters: Record<string, string> }>(filterPrefKey);
 
   const {
     views,
+    isSuccess: dashboardViewsLoaded,
     isSettled: dashboardViewsSettled,
     saveView,
   } = useDashboardViews(dashboardId ?? undefined);
   const defaultView = views.find((view) => view.isDefault);
 
-  const appliedSaved = useRef(false);
+  const filterRestoreProgress = useRef<DashboardFilterRestoreProgress>({
+    status: "pending",
+  });
+  const skipFilterPreferenceSave = useRef<Record<string, string> | null>(null);
 
   useEffect(() => {
-    appliedSaved.current = false;
+    filterRestoreProgress.current = { status: "pending" };
+    skipFilterPreferenceSave.current = null;
     setLoaded(false);
     setDashboard(null);
     setArchivedAt(null);
@@ -1024,44 +1025,58 @@ function SqlDashboardPageContent({
   useEffect(() => {
     if (
       reportScreenshot ||
-      appliedSaved.current ||
-      !dashboardViewsSettled ||
+      filterRestoreProgress.current.status === "complete" ||
       !loaded ||
       !dashboard
     )
       return;
 
-    const hasUrlState =
-      searchParams.has("view") ||
-      Array.from(searchParams.keys()).some((key) =>
-        key.startsWith(FILTER_PARAM_PREFIX),
-      );
-    if (hasUrlState) {
-      appliedSaved.current = true;
-      return;
-    }
-    if (!defaultView && (filtersLoading || !filtersLoaded)) return;
-    appliedSaved.current = true;
-
-    const filterRestore = resolveDashboardFilterRestore(
+    const previousProgress = filterRestoreProgress.current;
+    const restoreStep = resolveDashboardFilterRestoreStep({
       searchParams,
       defaultView,
-      filtersLoaded ? savedFilters?.filters : undefined,
-    );
+      savedFilters: savedFilters?.filters,
+      viewsState: dashboardViewsLoaded
+        ? "success"
+        : dashboardViewsSettled
+          ? "error"
+          : "loading",
+      savedFiltersSettled: filtersLoaded || filtersError,
+      progress: previousProgress,
+    });
+    filterRestoreProgress.current = restoreStep.progress;
+    const filterRestore = restoreStep.restore;
     if (!filterRestore) return;
 
     try {
       const appliedAt = Number(
         sessionStorage.getItem("__agentUrlAppliedAt__") || 0,
       );
-      if (appliedAt && Date.now() - appliedAt < 5000) return;
+      if (appliedAt && Date.now() - appliedAt < 5000) {
+        filterRestoreProgress.current = { status: "complete" };
+        return;
+      }
     } catch {
       // sessionStorage unavailable — fall through.
     }
 
+    if (filterRestore.source === "dashboard-default") {
+      skipFilterPreferenceSave.current = filterRestore.filters;
+    }
+
     setSearchParams(
       (prev) => {
-        if (
+        if (previousProgress.status === "fallback-applied") {
+          if (
+            !sameDashboardFilterMap(
+              previousProgress.filters,
+              dashboardFilterParams(prev),
+            ) ||
+            prev.get("view") !== previousProgress.viewId
+          ) {
+            return prev;
+          }
+        } else if (
           prev.has("view") ||
           Array.from(prev.keys()).some((key) =>
             key.startsWith(FILTER_PARAM_PREFIX),
@@ -1070,19 +1085,25 @@ function SqlDashboardPageContent({
           return prev;
         }
         const next = new URLSearchParams(prev);
+        for (const key of Array.from(next.keys())) {
+          if (key.startsWith(FILTER_PARAM_PREFIX)) next.delete(key);
+        }
         for (const [key, value] of Object.entries(filterRestore.filters)) {
           if (value) next.set(key, value);
         }
         if (filterRestore.viewId) {
           next.set("view", filterRestore.viewId);
+        } else {
+          next.delete("view");
         }
         return next;
       },
       { replace: true },
     );
   }, [
-    filtersLoading,
     filtersLoaded,
+    filtersError,
+    dashboardViewsLoaded,
     dashboardViewsSettled,
     loaded,
     dashboard,
@@ -1110,7 +1131,12 @@ function SqlDashboardPageContent({
           currentFilters[k] = v;
         }
       });
-      if (sameFilterMap(savedFilters?.filters, currentFilters)) return;
+      if (skipFilterPreferenceSave.current) {
+        const skippedFilters = skipFilterPreferenceSave.current;
+        skipFilterPreferenceSave.current = null;
+        if (sameDashboardFilterMap(skippedFilters, currentFilters)) return;
+      }
+      if (sameDashboardFilterMap(savedFilters?.filters, currentFilters)) return;
       saveFilterPref({ filters: currentFilters });
     }, 1500);
     return () => clearTimeout(saveTimer.current);
