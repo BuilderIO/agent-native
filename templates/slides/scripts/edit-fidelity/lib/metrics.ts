@@ -273,9 +273,14 @@ export function diffSnapshots(
   );
   const pairs: Array<[SnapRecord, SnapRecord]> = [];
   const pairedB = new Set<SnapRecord>();
-  const A = allA.filter((record) => {
+  const unmatchedA = allA.filter((record) => {
     const other = record.stableKey ? stableB.get(record.stableKey) : undefined;
-    if (other) {
+    if (
+      other &&
+      (!record.pptxRecordKey ||
+        !other.pptxRecordKey ||
+        record.pptxRecordKey === other.pptxRecordKey)
+    ) {
       pairs.push([record, other]);
       pairedB.add(other);
       return false;
@@ -283,25 +288,46 @@ export function diffSnapshots(
     return true;
   });
   const B = allB.filter((record) => !pairedB.has(record));
+  const pptxB = new Map<string, SnapRecord[]>();
+  for (const record of B) {
+    if (!record.pptxRecordKey) continue;
+    const records = pptxB.get(record.pptxRecordKey) ?? [];
+    records.push(record);
+    pptxB.set(record.pptxRecordKey, records);
+  }
+  const A = unmatchedA.filter((record) => {
+    const matches = record.pptxRecordKey
+      ? pptxB.get(record.pptxRecordKey)
+      : undefined;
+    if (matches?.length !== 1 || pairedB.has(matches[0]!)) return true;
+    pairs.push([record, matches[0]!]);
+    pairedB.add(matches[0]!);
+    return false;
+  });
+  const unmatchedB = B.filter((record) => !pairedB.has(record));
   // An edit changes one contiguous stretch of the document, so the head and
   // tail pair by position. Per-text ordinals cannot: when the edited copy of a
   // repeated text changes, later copies renumber onto their neighbours. Never
   // pair on `inside`; each snapshot locates the edited element differently.
-  const same = (i: number, j: number) => baseOf(A[i].key) === baseOf(B[j].key);
+  const same = (i: number, j: number) =>
+    baseOf(A[i].key) === baseOf(unmatchedB[j].key);
   let head = 0;
-  while (head < A.length && head < B.length && same(head, head)) head++;
+  while (head < A.length && head < unmatchedB.length && same(head, head))
+    head++;
   let tail = 0;
   while (
     head + tail < A.length &&
-    head + tail < B.length &&
-    same(A.length - 1 - tail, B.length - 1 - tail)
+    head + tail < unmatchedB.length &&
+    same(A.length - 1 - tail, unmatchedB.length - 1 - tail)
   ) {
     tail++;
   }
-  for (let i = 0; i < head; i++) pairs.push([A[i], B[i]]);
+  for (let i = 0; i < head; i++) pairs.push([A[i], unmatchedB[i]]);
   for (let i = 1; i <= tail; i++)
-    pairs.push([A[A.length - i], B[B.length - i]]);
-  const bByKey = new Map(B.slice(head, B.length - tail).map((r) => [r.key, r]));
+    pairs.push([A[A.length - i], unmatchedB[unmatchedB.length - i]]);
+  const bByKey = new Map(
+    unmatchedB.slice(head, unmatchedB.length - tail).map((r) => [r.key, r]),
+  );
   const leftA: SnapRecord[] = [];
   for (const r of A.slice(head, A.length - tail)) {
     const other = bByKey.get(r.key);
@@ -338,6 +364,17 @@ export function diffSnapshots(
   for (const [ra, rb] of pairs) {
     const inside = ra.inside || rb.inside;
     const protectedInside = inside && !(ra.protectedStyle || rb.protectedStyle);
+    const protectedRectStable = Boolean(
+      ra.protectedStyle &&
+      rb.protectedStyle &&
+      ra.protectedRect &&
+      rb.protectedRect &&
+      (["x", "y", "width", "height"] as const).every(
+        (prop) =>
+          Math.abs(ra.protectedRect![prop] - rb.protectedRect![prop]) <=
+          GEOMETRY_TOLERANCE,
+      ),
+    );
     // Computed values can change with intrinsic layout; authored attrs cannot.
     for (const [prop, before, after] of [
       ["class", ra.className, rb.className],
@@ -385,7 +422,7 @@ export function diffSnapshots(
           prop,
           a: String(ra.rect[prop]),
           b: String(rb.rect[prop]),
-          inside: protectedInside,
+          inside: protectedInside || protectedRectStable,
         });
       }
     }
@@ -424,6 +461,11 @@ export function outsideChangesFor(
       record.stableKey ? [[record.stableKey, record] as const] : [],
     ),
   );
+  const afterRecordsByPptxKey = new Map(
+    after.records.flatMap((record) =>
+      record.pptxRecordKey ? [[record.pptxRecordKey, record] as const] : [],
+    ),
+  );
   const followsNaturalReflow = (change: StyleDelta) => {
     const beforeRecord = beforeRecords.get(change.key);
     const afterRecord = beforeRecord?.stableKey
@@ -458,9 +500,133 @@ export function outsideChangesFor(
       )
     );
   };
+  const followsImportedTextObjectReflow = (change: StyleDelta) => {
+    const beforeRecord = beforeRecords.get(change.key);
+    const stableAfter = beforeRecord?.stableKey
+      ? afterRecordsByStableKey.get(beforeRecord.stableKey)
+      : undefined;
+    const stableAfterMatchesParagraph =
+      !beforeRecord?.pptxRecordKey ||
+      !stableAfter?.pptxRecordKey ||
+      beforeRecord.pptxRecordKey === stableAfter.pptxRecordKey;
+    const afterRecord = beforeRecord?.pptxRecordKey
+      ? (afterRecordsByPptxKey.get(beforeRecord.pptxRecordKey) ??
+        (stableAfterMatchesParagraph ? stableAfter : undefined) ??
+        afterRecordsByKey.get(change.key))
+      : (stableAfter ?? afterRecordsByKey.get(change.key));
+    const beforeObject = before.editedObjectRect;
+    const afterObject = after.editedObjectRect;
+    const beforeTarget = before.editedFlowAnchorRect ?? before.editedTargetRect;
+    const afterTarget = after.editedFlowAnchorRect ?? after.editedTargetRect;
+    const targetParagraph = Number(before.editedParagraphId);
+    const siblingParagraph = Number(beforeRecord?.pptxParagraph);
+    const targetShift =
+      beforeTarget && afterTarget ? afterTarget.y - beforeTarget.y : 0;
+    const targetGrowth =
+      beforeTarget && afterTarget
+        ? afterTarget.height - beforeTarget.height
+        : 0;
+    const insertedBeforeTarget =
+      targetShift > GEOMETRY_TOLERANCE &&
+      Math.abs(targetGrowth) <= GEOMETRY_TOLERANCE;
+    const siblingYShifts = outside.geometry.flatMap((geometry) => {
+      if (geometry.prop !== "y") return [];
+      const previous = beforeRecords.get(geometry.key);
+      const stable = previous?.stableKey
+        ? afterRecordsByStableKey.get(previous.stableKey)
+        : undefined;
+      const current = previous?.pptxRecordKey
+        ? (afterRecordsByPptxKey.get(previous.pptxRecordKey) ??
+          (stable?.pptxRecordKey === previous.pptxRecordKey
+            ? stable
+            : undefined))
+        : stable;
+      const paragraph = Number(previous?.pptxParagraph);
+      if (
+        !previous ||
+        !current ||
+        previous.slideObjectId !== before.editedObjectId ||
+        current.slideObjectId !== before.editedObjectId ||
+        !Number.isSafeInteger(paragraph) ||
+        paragraph < targetParagraph
+      ) {
+        return [];
+      }
+      return [Number(geometry.b) - Number(geometry.a)];
+    });
+    const insertedFragments = after.editedAuthoringFragmentRects ?? [];
+    const insertedAfterTarget =
+      !!beforeTarget &&
+      !!afterTarget &&
+      !!afterRecord &&
+      Math.abs(targetShift) <= GEOMETRY_TOLERANCE &&
+      Math.abs(targetGrowth) <= GEOMETRY_TOLERANCE &&
+      insertedFragments.length > 0 &&
+      insertedFragments.every(
+        (fragment) =>
+          fragment.y >=
+            beforeTarget.y + beforeTarget.height - GEOMETRY_TOLERANCE &&
+          fragment.y + fragment.height <=
+            afterRecord.rect.y + GEOMETRY_TOLERANCE,
+      ) &&
+      siblingYShifts.length > 0 &&
+      siblingYShifts.every(
+        (shift) => Math.abs(shift - siblingYShifts[0]!) <= GEOMETRY_TOLERANCE,
+      );
+    if (
+      change.prop !== "y" ||
+      !before.editedObjectId ||
+      before.editedObjectId !== after.editedObjectId ||
+      !before.editedParagraphId ||
+      before.editedParagraphId !== after.editedParagraphId ||
+      before.editedObjectPosition !== "absolute" ||
+      after.editedObjectPosition !== "absolute" ||
+      !beforeObject ||
+      !afterObject ||
+      !beforeTarget ||
+      !afterTarget ||
+      !beforeRecord ||
+      !afterRecord ||
+      beforeRecord.slideObjectId !== before.editedObjectId ||
+      afterRecord.slideObjectId !== before.editedObjectId ||
+      !beforeRecord.pptxParagraph ||
+      beforeRecord.pptxParagraph !== afterRecord.pptxParagraph ||
+      !Number.isSafeInteger(targetParagraph) ||
+      !Number.isSafeInteger(siblingParagraph) ||
+      siblingParagraph < targetParagraph ||
+      (siblingParagraph === targetParagraph && !insertedBeforeTarget) ||
+      (["x", "y", "width", "height"] as const).some(
+        (prop) => Math.abs(beforeObject[prop] - afterObject[prop]) > 1,
+      ) ||
+      (["x", "width"] as const).some(
+        (prop) => Math.abs(beforeTarget[prop] - afterTarget[prop]) > 1,
+      )
+    ) {
+      return false;
+    }
+    const growsTarget =
+      targetGrowth > GEOMETRY_TOLERANCE &&
+      Math.abs(targetShift) <= GEOMETRY_TOLERANCE;
+    const siblingShift = Number(change.b) - Number(change.a);
+    const expectedShift = growsTarget
+      ? targetGrowth
+      : insertedBeforeTarget
+        ? targetShift
+        : insertedAfterTarget
+          ? siblingShift
+          : null;
+    return (
+      expectedShift !== null &&
+      Math.abs(siblingShift - expectedShift) <= GEOMETRY_TOLERANCE
+    );
+  };
   const changes = [
     ...outside.deltas,
-    ...outside.geometry.filter((change) => !followsNaturalReflow(change)),
+    ...outside.geometry.filter(
+      (change) =>
+        !followsNaturalReflow(change) &&
+        !followsImportedTextObjectReflow(change),
+    ),
     ...outside.missing,
     ...outside.added,
   ].filter((change) => !change.inside);

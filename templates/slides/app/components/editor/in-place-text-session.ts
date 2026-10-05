@@ -515,6 +515,28 @@ function placeCaret(node: Node, offset: number) {
   selection.addRange(range);
 }
 
+function rowTextPoint(
+  range: Range,
+  marker: HTMLElement | null,
+  edge: "start" | "end",
+) {
+  const walker = document.createTreeWalker(
+    range.commonAncestorContainer,
+    NodeFilter.SHOW_TEXT,
+  );
+  let last: [Node, number] | null = null;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const text = node as Text;
+    if (marker?.contains(text) || !range.intersectsNode(text)) continue;
+    const start = text === range.startContainer ? range.startOffset : 0;
+    const end = text === range.endContainer ? range.endOffset : text.length;
+    if (end <= start) continue;
+    if (edge === "start") return [text, start];
+    last = [text, end];
+  }
+  return last ?? [range.startContainer, range.startOffset];
+}
+
 /**
  * Characters before a point in `root`. With `breaks`, each `<br>` counts as
  * one, so a caret between two `<br>`s keeps its line; a count that must
@@ -4525,6 +4547,7 @@ export function startInPlaceTextSession(
       event.preventDefault();
       if (!dragged) return;
       // Not edit(): its reshape would move Chrome's live drop point.
+      captureReservationParentHeight();
       checkpoint("command");
       deleteRange(dragged);
       dragSource = selectionRange()?.startContainer ?? null;
@@ -4672,12 +4695,31 @@ export function startInPlaceTextSession(
       const row = range && legacyRowAt(range.startContainer);
       if (range && row) {
         event.preventDefault();
-        const text = rowTextRange(row, rowMarker(row));
+        const marker = rowMarker(row);
+        const text = rowTextRange(row, marker);
         if (key === "arrowleft") {
-          placeCaret(text.startContainer, text.startOffset);
+          placeCaret(...rowTextPoint(text, marker, "start"));
         } else {
-          placeCaret(text.endContainer, text.endOffset);
+          placeCaret(...rowTextPoint(text, marker, "end"));
         }
+        return;
+      }
+    }
+    if (
+      event.key === "Home" &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.shiftKey &&
+      !/Mac|iPhone|iPad/.test(navigator.platform)
+    ) {
+      const range = selectionRange();
+      const row = range && legacyRowAt(range.startContainer);
+      if (range && row) {
+        event.preventDefault();
+        const marker = rowMarker(row);
+        const text = rowTextRange(row, marker);
+        placeCaret(...rowTextPoint(text, marker, "start"));
         return;
       }
     }

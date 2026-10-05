@@ -165,7 +165,10 @@ because it creates and rewrites decks.
 | `--text-surface-qa`            | Exercise Slides text fields, IME, paste, undo/redo, and slide switching in synthetic decks; defaults to Chromium                   |
 | `--authoring`                  | Exercise slash commands, Markdown shortcuts, and list authoring in synthetic decks; defaults to Chromium                           |
 | `--authoring-corpus`           | Exercise slash, Markdown, and list authoring against corpus layouts; checks save/reload, outside-block fidelity, and input latency |
+| `--authoring-source <id>`      | Focus `--authoring-corpus` on one selected layout source                                                                           |
+| `--authoring-flow <flow>`      | Focus `--authoring-corpus` on `slash`, `shortcut`, `list`, or `paste`                                                              |
 | `--authoring-fuzz`             | Run deterministic mixed-operation authoring soak; `--seed`, `--steps` (default 500), and `--seeds` select the run                  |
+| `--line-key-platform <os>`     | Emulate an OS and use its caret keys for reproduction; choices are `darwin`, `linux`, and `win32`                                  |
 | `--browser`                    | Browser for authoring, fuzz, or text-surface QA; choices are `chromium`, `webkit`, `firefox`, with Chromium as default             |
 
 Exit codes:

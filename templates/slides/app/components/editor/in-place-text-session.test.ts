@@ -319,6 +319,58 @@ describe("in-place text session: entering and ending", () => {
     );
   });
 
+  it("captures an auto-sized parent before deleting a drag across text runs", async () => {
+    const parent = mount(
+      '<div id="parent" style="transform: rotate(30deg)"><ul id="t"><li style="margin-bottom: 12px">Alpha <b>beta</b></li></ul></div>',
+      "#parent",
+    );
+    const el = parent.querySelector<HTMLElement>("#t")!;
+    vi.stubGlobal("CSS", { supports: () => true });
+    vi.spyOn(el, "offsetWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "offsetHeight", "get").mockReturnValue(48);
+    vi.spyOn(el, "clientWidth", "get").mockReturnValue(240);
+    vi.spyOn(el, "clientHeight", "get").mockReturnValue(48);
+    const localParentHeight = () => {
+      const intrinsicHeight = Number.parseFloat(
+        el.style.getPropertyValue("contain-intrinsic-size").split(/\s+/u)[1] ??
+          "",
+      );
+      if (Number.isNaN(intrinsicHeight)) {
+        return el.textContent === "Alpha beta" ? 200 : 194;
+      }
+      return intrinsicHeight === 54 ? 200 : 194;
+    };
+    const getComputedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (element, pseudo) => {
+        const computed = getComputedStyle(element, pseudo);
+        if (element !== parent) return computed;
+        return new Proxy(computed, {
+          get(target, property) {
+            if (property === "height") return "auto";
+            return Reflect.get(target, property, target);
+          },
+        });
+      },
+    );
+    vi.spyOn(parent, "offsetHeight", "get").mockImplementation(
+      localParentHeight,
+    );
+    session = startInPlaceTextSession(el);
+    select(textOf(el, "Alpha"), 2, textOf(el, "beta"), 2);
+
+    expect(beforeInput(el, "deleteByDrag").defaultPrevented).toBe(true);
+    await new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    });
+
+    expect(el.textContent).toBe("Alta");
+    expect(el.style.getPropertyValue("contain-intrinsic-size")).toBe(
+      "240px 54px",
+    );
+    expect(localParentHeight()).toBe(200);
+  });
+
   it("checks an auto-sized parent again after a markdown list conversion", async () => {
     const parent = mount(
       '<div id="parent" style="transform: rotate(30deg)"><p id="t">Alpha</p></div>',
@@ -884,6 +936,29 @@ describe("in-place text session: the caret at the click point", () => {
     expect(el.children[0].innerHTML).toBe(
       '<span aria-hidden="true" style="display: inline-block">•</span><span>xAlpha</span>',
     );
+  });
+
+  it("keeps Home and inline Markdown insertion after a legacy bullet marker", () => {
+    const el = mount(
+      '<div id="t"><p><span aria-hidden="true" style="display: inline-block">•</span><span>Alpha beta</span></p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const marker = el.querySelector<HTMLElement>("[aria-hidden='true']")!;
+    const text = textOf(el, "Alpha");
+    caret(text, 4);
+
+    const event = key(el, { key: "Home" });
+
+    expect(event.defaultPrevented).toBe(true);
+    expect([
+      window.getSelection()!.anchorNode,
+      window.getSelection()!.anchorOffset,
+    ]).toEqual([text, 0]);
+
+    type(el, "**bold** next");
+
+    expect(marker.textContent).toBe("•");
+    expect(el.textContent).toBe("•bold nextAlpha beta");
   });
 
   it("keeps a double-clicked word that covers the click point", () => {
@@ -1476,8 +1551,8 @@ describe("in-place text session: Enter", () => {
     expect(key(el, { key: "ArrowLeft", metaKey: true }).defaultPrevented).toBe(
       true,
     );
-    expect(window.getSelection()?.anchorNode).toBe(el.children[1]);
-    expect(window.getSelection()?.anchorOffset).toBe(1);
+    expect(window.getSelection()?.anchorNode).toBe(textOf(el, "Beta"));
+    expect(window.getSelection()?.anchorOffset).toBe(0);
 
     expect(beforeInput(el, "deleteContentBackward").defaultPrevented).toBe(
       true,

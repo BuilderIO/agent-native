@@ -104,6 +104,9 @@ const VALUE_FLAGS = new Set([
   "--seed",
   "--steps",
   "--seeds",
+  "--authoring-source",
+  "--authoring-flow",
+  "--line-key-platform",
 ]);
 const opt = (name: string) => {
   const i = argv.indexOf(name);
@@ -153,12 +156,29 @@ const typingChatOnly = argv.includes("--typing-chat");
 const caretQaOnly = argv.includes("--caret-qa");
 const imeEscapeOnly = argv.includes("--ime-escape");
 const textSurfaceQaOnly = argv.includes("--text-surface-qa");
-const { start: lineStartKey, end: lineEndKey } = lineNavigationKeys(
-  process.platform,
-);
+const lineKeyPlatform = opt("--line-key-platform") ?? process.platform;
+if (!["darwin", "linux", "win32"].includes(lineKeyPlatform)) {
+  fatal("--line-key-platform must be one of: darwin, linux, win32");
+}
+const { start: lineStartKey, end: lineEndKey } =
+  lineNavigationKeys(lineKeyPlatform);
 const authoringOnly = argv.includes("--authoring");
 const authoringCorpusOnly = argv.includes("--authoring-corpus");
 const authoringFuzzOnly = argv.includes("--authoring-fuzz");
+const authoringSourceFilter = opt("--authoring-source");
+const authoringFlowFilter = opt("--authoring-flow");
+const authoringFlows = ["slash", "shortcut", "list", "paste"] as const;
+if ((authoringSourceFilter || authoringFlowFilter) && !authoringCorpusOnly) {
+  fatal("--authoring-source and --authoring-flow require --authoring-corpus");
+}
+if (
+  authoringFlowFilter &&
+  !authoringFlows.includes(
+    authoringFlowFilter as (typeof authoringFlows)[number],
+  )
+) {
+  fatal(`--authoring-flow must be one of: ${authoringFlows.join(", ")}`);
+}
 const fuzzSeed = Number(opt("--seed") ?? 1);
 if (!Number.isSafeInteger(fuzzSeed) || fuzzSeed < 0) {
   fatal(`--seed expects a non-negative safe integer, got ${opt("--seed")}`);
@@ -2752,7 +2772,18 @@ async function runAuthoringCorpusQa(
   cases: CorpusCase[],
 ) {
   const problems: string[] = [];
-  const sources = corpusAuthoringSources(cases);
+  const allSources = corpusAuthoringSources(cases);
+  const sources = authoringSourceFilter
+    ? allSources.filter((source) => source.id === authoringSourceFilter)
+    : allSources;
+  if (authoringSourceFilter && sources.length === 0) {
+    throw new CouldNotRun(
+      `no authoring corpus source named ${authoringSourceFilter}; available: ${allSources.map((source) => source.id).join(", ")}`,
+    );
+  }
+  const flows = authoringFlowFilter
+    ? [authoringFlowFilter as (typeof authoringFlows)[number]]
+    : authoringFlows;
   const slideIdFor = (source: CorpusAuthoringSource) =>
     `authoring-corpus-${source.id}`;
   const selectorFor = (slideId: string) =>
@@ -3110,7 +3141,7 @@ async function runAuthoringCorpusQa(
       deckId = String(created.id ?? created.deckId);
       original = await getSlideContent(page, deckId, slideId);
       const originalCanonical = await canonicalMarkup(original);
-      for (const flow of ["slash", "shortcut", "list", "paste"] as const) {
+      for (const flow of flows) {
         const scaled = source.kind === "scaled";
         const preserveStyledBulletMarker =
           source.testTarget === "bullet-row" &&
@@ -3144,6 +3175,8 @@ async function runAuthoringCorpusQa(
           const viewBefore = await snapshot(page, slideId, {
             targetIndex: target.index,
             targetBuilderId: target.builderId ?? undefined,
+            targetSlideObjectId: target.slideObjectId ?? undefined,
+            targetPptxParagraph: target.pptxParagraph ?? undefined,
             preserveStyledBulletMarker,
           });
           if (!(await enterEdit(page, slideId, target.point, []))) {
@@ -3157,6 +3190,8 @@ async function runAuthoringCorpusQa(
           const before = await snapshot(page, slideId, {
             targetIndex: target.index,
             targetBuilderId: editedBuilderId,
+            targetSlideObjectId: target.slideObjectId ?? undefined,
+            targetPptxParagraph: target.pptxParagraph ?? undefined,
             preserveStyledBulletMarker,
           });
           const wrapperRectBefore =
@@ -3475,9 +3510,31 @@ async function runAuthoringCorpusQa(
               ),
           );
           const authoredText = await editorText(editor);
+          const stableParagraphAfterFlow =
+            source.kind === "styled-paragraph-bullet-row" &&
+            (flow === "shortcut" || flow === "paste") &&
+            target.slideObjectId !== null &&
+            target.pptxParagraph !== null;
           const authoredTarget = {
             text: authoredText,
             targetBuilderId: editedBuilderId,
+            ...(stableParagraphAfterFlow
+              ? {
+                  targetSlideObjectId: target.slideObjectId!,
+                  targetPptxParagraph: target.pptxParagraph!,
+                  targetTextIncludes:
+                    flow === "shortcut" ? "bold next" : "Docs paragraph",
+                  ...(flow === "paste"
+                    ? {
+                        authoringFragmentTexts: [
+                          "Docs paragraph",
+                          "Second paragraph",
+                          "Docs list item",
+                        ],
+                      }
+                    : {}),
+                }
+              : {}),
             preserveStyledBulletMarker,
           };
           const editingAfter = await snapshot(page, slideId, {
@@ -3607,6 +3664,8 @@ async function runAuthoringCorpusQa(
                   afterFlow: current?.downstreamFlow,
                   beforeRect: previous?.rect,
                   afterRect: current?.rect,
+                  beforeLayout: previous?.layoutPath?.slice(0, 4),
+                  afterLayout: current?.layoutPath?.slice(0, 4),
                 };
               });
               const props = new Set(
@@ -3623,7 +3682,7 @@ async function runAuthoringCorpusQa(
                 }),
               );
               return [
-                `${name}: ${changes.length} outside style/geometry changes (${[...props].join(", ")}); target=${JSON.stringify({ before: phaseBefore.editedRect, after: phaseAfter.editedRect, beforeInFlow: phaseBefore.editedInFlow, afterInFlow: phaseAfter.editedInFlow })}; ${JSON.stringify(details)}`,
+                `${name}: ${changes.length} outside style/geometry changes (${[...props].join(", ")}); target=${JSON.stringify({ before: phaseBefore.editedRect, after: phaseAfter.editedRect, beforeObject: phaseBefore.editedObjectRect, afterObject: phaseAfter.editedObjectRect, objectId: phaseBefore.editedObjectId, paragraphId: phaseBefore.editedParagraphId, beforeTarget: phaseBefore.editedTargetRect, afterTarget: phaseAfter.editedTargetRect, beforeFlowAnchor: phaseBefore.editedFlowAnchorRect, afterFlowAnchor: phaseAfter.editedFlowAnchorRect, afterAuthoringFragments: phaseAfter.editedAuthoringFragmentRects, beforeInFlow: phaseBefore.editedInFlow, afterInFlow: phaseAfter.editedInFlow })}; ${JSON.stringify(details)}`,
               ];
             },
           );
@@ -3734,6 +3793,8 @@ async function runAuthoringCorpusQa(
       }
     }
   }
+
+  if (authoringSourceFilter || authoringFlowFilter) return problems;
 
   let edgeDeckId: string | null = null;
   const edgeSlideId = "authoring-slash-viewport-edge";
@@ -4356,6 +4417,10 @@ async function snapshot(
     text?: string;
     marker?: string;
     targetBuilderId?: string;
+    targetSlideObjectId?: string;
+    targetPptxParagraph?: string;
+    targetTextIncludes?: string;
+    authoringFragmentTexts?: string[];
     preserveStyledBulletMarker?: boolean;
   },
 ): Promise<Snapshot> {
@@ -5599,6 +5664,15 @@ async function main() {
       viewport: { width: 1600, height: 1000 },
       deviceScaleFactor: 1,
     });
+    const navigatorPlatform =
+      lineKeyPlatform === "darwin"
+        ? "MacIntel"
+        : lineKeyPlatform === "win32"
+          ? "Win32"
+          : "Linux x86_64";
+    await context.addInitScript(
+      `Object.defineProperty(navigator, "platform", { configurable: true, get: () => ${JSON.stringify(navigatorPlatform)} });`,
+    );
     // tsx compiles with keepNames; the page has no __name helper.
     await context.addInitScript("globalThis.__name ||= (fn) => fn;");
     await context.addInitScript(installInPageHelpers, CHROME_SELECTOR);
