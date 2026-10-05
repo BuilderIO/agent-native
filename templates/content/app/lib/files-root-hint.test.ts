@@ -5,11 +5,11 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { callAction } = vi.hoisted(() => ({
-  callAction: vi.fn(),
+const { callActionWithRetry } = vi.hoisted(() => ({
+  callActionWithRetry: vi.fn(),
 }));
 
-vi.mock("@agent-native/core/client/hooks", () => ({ callAction }));
+vi.mock("@agent-native/core/client/hooks", () => ({ callActionWithRetry }));
 
 import {
   filesNavigationPageParams,
@@ -35,7 +35,7 @@ function page(ids: string[]) {
 describe("Files root hint", () => {
   beforeEach(() => {
     localStorage.clear();
-    callAction.mockReset();
+    callActionWithRetry.mockReset();
   });
 
   it("returns the last confirmed root only for the same account and organization", () => {
@@ -90,7 +90,7 @@ describe("Files root hint", () => {
   });
 
   it("starts the root page under the key the tree reads", async () => {
-    callAction.mockResolvedValue(page([]));
+    callActionWithRetry.mockResolvedValue(page([]));
     const queryClient = new QueryClient();
 
     prefetchPagedFilesRoot(queryClient, { databaseId: "files-1" });
@@ -104,11 +104,33 @@ describe("Files root hint", () => {
         queryClient.getQueryData(filesNavigationQueryKey(treeArgs)),
       ).toEqual(page([])),
     );
-    expect(callAction).toHaveBeenCalledWith(
+    expect(callActionWithRetry).toHaveBeenCalledWith(
       "query-content-database-items",
       treeArgs,
       expect.objectContaining({ method: "GET" }),
     );
+  });
+
+  it("does not add another retry loop around the root prefetch", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: 3, retryDelay: 0 },
+      },
+    });
+    callActionWithRetry.mockRejectedValue(new Error("temporary failure"));
+    const rootParams = filesNavigationPageParams({
+      databaseId: "files-1",
+      parentId: null,
+    });
+
+    prefetchPagedFilesRoot(queryClient, { databaseId: "files-1" });
+
+    await vi.waitFor(() =>
+      expect(
+        queryClient.getQueryState(filesNavigationQueryKey(rootParams))?.status,
+      ).toBe("error"),
+    );
+    expect(callActionWithRetry).toHaveBeenCalledTimes(1);
   });
 
   it("caches open folders' pages from the root read under their own keys", async () => {
@@ -119,7 +141,7 @@ describe("Files root hint", () => {
       );
     // A folder the tree already read keeps that page.
     queryClient.setQueryData(branchKey("folder-b"), page(["b-kept"]));
-    callAction.mockResolvedValue({
+    callActionWithRetry.mockResolvedValue({
       ...page(["folder-a", "folder-b"]),
       branches: {
         "folder-a": page(["a-1", "a-2"]),
@@ -140,7 +162,7 @@ describe("Files root hint", () => {
         page(["folder-a", "folder-b"]),
       ),
     );
-    expect(callAction).toHaveBeenCalledWith(
+    expect(callActionWithRetry).toHaveBeenCalledWith(
       "query-content-database-items",
       {
         databaseId: "files-1",
@@ -168,14 +190,14 @@ describe("Files root hint", () => {
       parentId: null,
     });
     queryClient.setQueryData(filesNavigationQueryKey(params), page(["kept"]));
-    callAction.mockResolvedValue({
+    callActionWithRetry.mockResolvedValue({
       ...page(["fresh"]),
       branches: { "folder-a": page(["child-a"]) },
     });
 
     await readFilesNavigationPage(queryClient, params, new Set(["folder-a"]));
 
-    expect(callAction).toHaveBeenCalledWith(
+    expect(callActionWithRetry).toHaveBeenCalledWith(
       "query-content-database-items",
       {
         ...params,
@@ -201,7 +223,7 @@ describe("Files root hint", () => {
       databaseId: "files-1",
       parentId: null,
     });
-    callAction.mockResolvedValue(page(["root"]));
+    callActionWithRetry.mockResolvedValue(page(["root"]));
 
     const container = document.createElement("div");
     const root = createRoot(container);
@@ -220,14 +242,16 @@ describe("Files root hint", () => {
           ),
         );
       });
-      await vi.waitFor(() => expect(callAction).toHaveBeenCalledTimes(1));
+      await vi.waitFor(() =>
+        expect(callActionWithRetry).toHaveBeenCalledTimes(1),
+      );
       await vi.waitFor(() =>
         expect(
           queryClient.getQueryData(filesNavigationQueryKey(params)),
         ).toEqual(page(["root"])),
       );
 
-      callAction.mockResolvedValue({
+      callActionWithRetry.mockResolvedValue({
         ...page(["root"]),
         branches: { "folder-new": page(["child-new"]) },
       });
@@ -241,8 +265,10 @@ describe("Files root hint", () => {
         );
       });
 
-      await vi.waitFor(() => expect(callAction).toHaveBeenCalledTimes(2));
-      expect(callAction).toHaveBeenLastCalledWith(
+      await vi.waitFor(() =>
+        expect(callActionWithRetry).toHaveBeenCalledTimes(2),
+      );
+      expect(callActionWithRetry).toHaveBeenLastCalledWith(
         "query-content-database-items",
         {
           ...params,
@@ -260,6 +286,49 @@ describe("Files root hint", () => {
           ),
         ),
       ).toEqual(page(["child-new"]));
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      queryClient.clear();
+    }
+  });
+
+  it("does not add another retry loop around the navigation query", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: 3, retryDelay: 0 },
+      },
+    });
+    const params = filesNavigationPageParams({
+      databaseId: "files-1",
+      parentId: null,
+    });
+    callActionWithRetry.mockRejectedValue(new Error("temporary failure"));
+
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    function Observer() {
+      useFilesNavigationPage(params, new Set());
+      return null;
+    }
+
+    try {
+      await act(async () => {
+        root.render(
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(Observer),
+          ),
+        );
+      });
+
+      await vi.waitFor(() =>
+        expect(
+          queryClient.getQueryState(filesNavigationQueryKey(params))?.status,
+        ).toBe("error"),
+      );
+      expect(callActionWithRetry).toHaveBeenCalledTimes(1);
     } finally {
       await act(async () => root.unmount());
       container.remove();
@@ -291,7 +360,7 @@ describe("Files root hint", () => {
       filesNavigationQueryKey(existingBranchParams),
       page(["folder-existing"]),
     );
-    callAction.mockResolvedValue({
+    callActionWithRetry.mockResolvedValue({
       ...page(["new-child"]),
       branches: { "folder-new": page(["new-child"]) },
     });
@@ -320,7 +389,7 @@ describe("Files root hint", () => {
           ),
         );
       });
-      expect(callAction).not.toHaveBeenCalled();
+      expect(callActionWithRetry).not.toHaveBeenCalled();
 
       await act(async () => {
         root.render(
@@ -332,8 +401,10 @@ describe("Files root hint", () => {
         );
       });
 
-      await vi.waitFor(() => expect(callAction).toHaveBeenCalledTimes(1));
-      expect(callAction).toHaveBeenCalledWith(
+      await vi.waitFor(() =>
+        expect(callActionWithRetry).toHaveBeenCalledTimes(1),
+      );
+      expect(callActionWithRetry).toHaveBeenCalledWith(
         "query-content-database-items",
         {
           ...newBranchParams,
@@ -371,7 +442,10 @@ describe("Files root hint", () => {
       { length: 120 },
       (_, index) => `expanded-${index}`,
     );
-    callAction.mockResolvedValue({ ...page([]), branchesTruncated: true });
+    callActionWithRetry.mockResolvedValue({
+      ...page([]),
+      branchesTruncated: true,
+    });
 
     const read = await readFilesNavigationPage(
       queryClient,
@@ -379,7 +453,7 @@ describe("Files root hint", () => {
       openFilesFolderIds(["ancestor-a", "ancestor-b"], expanded),
     );
 
-    const [, sent] = callAction.mock.calls[0]!;
+    const [, sent] = callActionWithRetry.mock.calls[0]!;
     const expand = (sent as { navigation: { expand: string[] } }).navigation
       .expand;
     expect(expand).toHaveLength(100);

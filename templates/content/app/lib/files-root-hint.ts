@@ -66,5 +66,6 @@ export function prefetchPagedFilesRoot(
     queryKey: filesNavigationQueryKey(params),
     queryFn: ({ signal }) =>
       readFilesNavigationPage(queryClient, params, expanded, signal),
+    retry: false,
   });
 }

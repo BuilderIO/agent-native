@@ -1,4 +1,4 @@
-import { callAction } from "@agent-native/core/client/hooks";
+import { callActionWithRetry } from "@agent-native/core/client/hooks";
 import type {
   ContentDatabaseNavigationPageResponse,
   ContentDatabasePersonalViewOverrides,
@@ -103,7 +103,7 @@ export async function readFilesNavigationPage(
     pending.add(expansionKey);
   }
   try {
-    const response = await callAction<FilesNavigationRead>(
+    const response = await callActionWithRetry<FilesNavigationRead>(
       "query-content-database-items",
       expand.length
         ? { ...params, navigation: { ...params.navigation, expand } }
@@ -155,19 +155,6 @@ function isExpansionReadPending(
   );
 }
 
-function retryFilesNavigationRead(failureCount: number, error: unknown) {
-  // A 4xx answer (an expired cursor, an unavailable parent) is the same on a
-  // second try; the branch reloads or offers Retry instead.
-  const status = (error as { status?: unknown } | null)?.status;
-  const refused =
-    typeof status === "number" &&
-    status >= 400 &&
-    status < 500 &&
-    status !== 408 &&
-    status !== 429;
-  return !refused && failureCount < 1;
-}
-
 export function useFilesNavigationPage(
   params: FilesNavigationPageParams,
   expanded: ReadonlySet<string>,
@@ -186,7 +173,7 @@ export function useFilesNavigationPage(
       rootReadExpansion.current = expansionKey;
       return readFilesNavigationPage(queryClient, params, expanded, signal);
     },
-    retry: retryFilesNavigationRead,
+    retry: false,
   });
   useEffect(() => {
     if (
