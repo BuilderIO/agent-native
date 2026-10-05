@@ -85,6 +85,10 @@ function jsonByteLength(value: unknown) {
   return new TextEncoder().encode(JSON.stringify(value)).length;
 }
 
+export function databaseNavigationStateFitsKeepaliveBudget(value: unknown) {
+  return jsonByteLength(value) <= DATABASE_NAVIGATION_STATE_MAX_BYTES;
+}
+
 /**
  * Keep the largest row prefix whose state fits the byte budget, and report
  * the applied cap in `databaseVisibleItemLimit` so a trimmed summary is never

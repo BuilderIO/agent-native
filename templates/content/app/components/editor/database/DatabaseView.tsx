@@ -303,6 +303,7 @@ import { DatabaseGalleryView } from "./GalleryView";
 import { DatabaseListView } from "./ListView";
 import {
   DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
+  databaseNavigationStateFitsKeepaliveBudget,
   databaseVisibleItemSummaries,
   fitDatabaseNavigationState,
 } from "./navigation-state";
@@ -1794,9 +1795,14 @@ function DatabaseTable({
     // whose effects run after this one in the same commit. Writing after the
     // commit keeps this fuller state from being overwritten by it.
     const timer = setTimeout(() => {
+      const navigationState = fitDatabaseNavigationState(state);
       void setClientAppState(
         `navigation:${getBrowserTabId()}`,
-        fitDatabaseNavigationState(state),
+        navigationState,
+        {
+          keepalive:
+            databaseNavigationStateFitsKeepaliveBudget(navigationState),
+        },
       ).catch(() => {
         // Navigation sync is best-effort; the next view change rewrites it.
       });

@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 import {
   DATABASE_NAVIGATION_STATE_MAX_BYTES,
   DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
+  databaseNavigationStateFitsKeepaliveBudget,
   fitDatabaseNavigationState,
 } from "./database/navigation-state";
 import {
@@ -2262,6 +2263,7 @@ describe("database item preview", () => {
     expect(bytes(fitted)).toBeLessThanOrEqual(
       DATABASE_NAVIGATION_STATE_MAX_BYTES,
     );
+    expect(databaseNavigationStateFitsKeepaliveBudget(fitted)).toBe(true);
     expect(DATABASE_NAVIGATION_STATE_MAX_BYTES).toBeLessThan(64 * 1024);
     expect(fitted.databaseVisibleItems.length).toBeGreaterThan(0);
     expect(fitted.databaseVisibleItems.length).toBeLessThan(
@@ -2297,6 +2299,26 @@ describe("database item preview", () => {
     expect(fitted.databaseSelectedItems).toEqual([]);
     expect(fitted.databaseVisibleItemLimit).toBe(0);
     expect(fitted.databaseActiveFilters).toBe(filters);
+  });
+
+  it("keeps oversized view settings out of keepalive requests", () => {
+    const state = {
+      databaseActiveFilters: [
+        {
+          propertyId: "notes",
+          value: "x".repeat(DATABASE_NAVIGATION_STATE_MAX_BYTES),
+        },
+      ],
+      databaseVisibleItems: [{ itemId: "row-0" }],
+      databaseSelectedItems: [{ itemId: "row-0" }],
+      databaseVisibleItemLimit: DATABASE_NAVIGATION_VISIBLE_ITEM_LIMIT,
+    };
+
+    const fitted = fitDatabaseNavigationState(state);
+
+    expect(fitted.databaseVisibleItems).toEqual([]);
+    expect(fitted.databaseSelectedItems).toEqual([]);
+    expect(databaseNavigationStateFitsKeepaliveBudget(fitted)).toBe(false);
   });
 
   it("omits preview row ids from navigation state when no row is open", () => {
