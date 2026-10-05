@@ -34,8 +34,12 @@ export interface MessageQueueItemAction {
 
 export interface MessageQueueDrawerLabels {
   region: string;
-  sendNow: string;
-  sendNowHint: string;
+  /** @deprecated Use sendNow. */
+  steer: string;
+  /** @deprecated Use sendNowHint. */
+  steerHint: string;
+  sendNow?: string;
+  sendNowHint?: string;
   remove: string;
   moreActions: string;
 }
@@ -83,6 +87,8 @@ export function MessageQueueDrawer({
 }: MessageQueueDrawerProps) {
   const recessed = variant === "recessed";
   const empty = items.length === 0;
+  const sendNow = labels.sendNow ?? labels.steer;
+  const sendNowHint = labels.sendNowHint ?? labels.steerHint;
   const [openActionsItemId, setOpenActionsItemId] = useState<string | null>(
     null,
   );
@@ -173,10 +179,10 @@ export function MessageQueueDrawer({
                             className="size-3.5"
                             strokeWidth={1.7}
                           />
-                          <span>{labels.sendNow}</span>
+                          <span>{sendNow}</span>
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>{labels.sendNowHint}</TooltipContent>
+                      <TooltipContent>{sendNowHint}</TooltipContent>
                     </Tooltip>
                   ) : null}
                   <Tooltip>

@@ -3830,6 +3830,8 @@ export function AgentKitComposer({
             }}
             labels={{
               region: labels.queue,
+              steer: labels.queueSteer,
+              steerHint: labels.queueSteerHint,
               sendNow: labels.queueSendNow,
               sendNowHint: labels.queueSendNowHint,
               remove: labels.queueRemove,
