@@ -1,5 +1,12 @@
 # @agent-native/creative-context
 
+## 0.8.30
+
+### Patch Changes
+
+- 263c8a9: Keep corrupt Lab choices isolated to their own state reads.
+- Release all public npm packages with a patch version bump.
+
 ## 0.8.29
 
 ### Patch Changes

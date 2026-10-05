@@ -3,6 +3,13 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-10-02
+
+### Improved
+
+- Builder.io setup copy now clarifies account activation and sign-in.
+- Owners and admins can save Apollo, HubSpot, Gong, and Pylon keys for the whole organization or just for themselves.
+
 ## 2026-10-01
 
 ### Improved
