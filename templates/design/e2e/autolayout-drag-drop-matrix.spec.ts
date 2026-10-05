@@ -96,6 +96,23 @@ const OVERSIZED_CROSS_SCREEN_SECOND_HTML = `<!doctype html>
     style="position:absolute;left:80px;top:120px;width:360px;height:180px;display:flex;flex-direction:row;background:#374151"></section>
 </body></html>`;
 
+const GRID_CROSS_SCREEN_PRIMARY_HTML = `<!doctype html>
+<html><body style="margin:0;position:relative;width:1000px;height:780px;background:#0f172a">
+  <section data-agent-native-node-id="source-grid" style="position:absolute;left:500px;top:300px;width:180px;height:120px;display:grid;grid-template-columns:repeat(3,60px);grid-template-rows:repeat(3,40px)">
+    <div data-agent-native-node-id="grid-source" data-agent-native-layer-name="Grid source"
+      style="grid-column:span 2;grid-row:span 2;background:#ea580c">Source</div>
+  </section>
+</body></html>`;
+
+const GRID_CROSS_SCREEN_SECOND_HTML = `<!doctype html>
+<html><body style="margin:0;position:relative;width:1000px;height:780px;background:#111827">
+  <section data-agent-native-node-id="target-grid" data-agent-native-layer-name="Target grid"
+    style="position:absolute;left:80px;top:120px;width:360px;height:180px;display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(3,1fr);gap:0;background:#374151">
+    <div data-agent-native-node-id="grid-first" style="grid-column:1;grid-row:1;background:#64748b"></div>
+    <div data-agent-native-node-id="grid-second" style="grid-column:2;grid-row:1;background:#64748b"></div>
+  </section>
+</body></html>`;
+
 const META_CROSS_SCREEN_PRIMARY_HTML = `<!doctype html>
 <html><body style="margin:0;position:relative;width:1000px;height:780px;background:#0f172a">
   <div data-agent-native-node-id="meta-source" data-agent-native-layer-name="Meta Source"
@@ -2693,6 +2710,140 @@ test.describe("physical Figma auto-layout drag/drop matrix", () => {
             .count(),
         )
         .toBe(0);
+    } finally {
+      await deleteDesign(request, design.id);
+    }
+  });
+
+  test("cross-Screen drop preserves a spanning grid item through preview, undo, redo, and reload", async ({
+    page,
+    request,
+  }) => {
+    const design = await createDesign(request, {
+      secondScreen: true,
+      primaryHtml: GRID_CROSS_SCREEN_PRIMARY_HTML,
+      secondHtml: GRID_CROSS_SCREEN_SECOND_HTML,
+    });
+    try {
+      await gotoEditor(page, design.id);
+      await page.keyboard.press("Shift+1");
+      const source = await boxFor(page, design.primaryId, "grid-source");
+      const grid = await boxFor(page, design.secondId!, "target-grid");
+      const release = {
+        x: grid.x + (grid.width * 3) / 8,
+        y: grid.y + grid.height / 2,
+      };
+      await page.mouse.click(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await expect.poll(() => selectionSourceId(request)).toBe("grid-source");
+      const sourceBefore = await fileHtml(request, design.id, design.primaryId);
+      const destinationBefore = await fileHtml(
+        request,
+        design.id,
+        design.secondId!,
+      );
+
+      await page.mouse.move(
+        source.x + source.width / 2,
+        source.y + source.height / 2,
+      );
+      await page.mouse.down();
+      await page.mouse.move(source.x + 12, source.y + 8, { steps: 5 });
+      await page.mouse.move(release.x, release.y, { steps: 30 });
+      const guide = page.locator("[data-cross-screen-drop-guide]");
+      await expect(guide).toBeVisible();
+      const guideBox = await guide.boundingBox();
+      expect(guideBox).not.toBeNull();
+      expect(guideBox!.x).toBeCloseTo(grid.x + grid.width / 4, 0);
+      expect(guideBox!.y).toBeCloseTo(grid.y + grid.height / 3, 0);
+      expect(guideBox!.width).toBeCloseTo(grid.width / 2, 0);
+      expect(guideBox!.height).toBeCloseTo((grid.height * 2) / 3, 0);
+      expect(release.x).toBeGreaterThan(guideBox!.x);
+      expect(release.x).toBeLessThan(guideBox!.x + guideBox!.width);
+      expect(release.y).toBeGreaterThan(guideBox!.y);
+      expect(release.y).toBeLessThan(guideBox!.y + guideBox!.height);
+      await expect(page.locator("[data-cross-screen-drag-ghost]")).toHaveCount(
+        1,
+      );
+      expect(await fileHtml(request, design.id, design.primaryId)).toBe(
+        sourceBefore,
+      );
+      expect(await fileHtml(request, design.id, design.secondId!)).toBe(
+        destinationBefore,
+      );
+      await page.mouse.up();
+
+      await expect
+        .poll(async () => {
+          const [from, to] = await Promise.all([
+            fileHtml(request, design.id, design.primaryId),
+            fileHtml(request, design.id, design.secondId!),
+          ]);
+          return {
+            source: hasNode(from, "grid-source"),
+            destination: hasNode(to, "grid-source"),
+          };
+        })
+        .toEqual({ source: false, destination: true });
+      const persistedPlacement = () =>
+        designFrame(page, design.secondId!)
+          .locator('[data-agent-native-node-id="grid-source"]')
+          .evaluate((node) => {
+            const style = getComputedStyle(node);
+            return {
+              parent: node.parentElement?.getAttribute(
+                "data-agent-native-node-id",
+              ),
+              column: style.gridColumnStart,
+              columnEnd: style.gridColumnEnd,
+              row: style.gridRowStart,
+              rowEnd: style.gridRowEnd,
+            };
+          });
+      await expect.poll(persistedPlacement).toEqual({
+        parent: "target-grid",
+        column: "2",
+        columnEnd: "4",
+        row: "2",
+        rowEnd: "4",
+      });
+
+      await page.keyboard.press(`${COMMAND}+z`);
+      await expect
+        .poll(async () => ({
+          source: hasNode(
+            await fileHtml(request, design.id, design.primaryId),
+            "grid-source",
+          ),
+          destination: hasNode(
+            await fileHtml(request, design.id, design.secondId!),
+            "grid-source",
+          ),
+        }))
+        .toEqual({ source: true, destination: false });
+      await page.keyboard.press(`${COMMAND}+Shift+z`);
+      await expect
+        .poll(async () => ({
+          source: hasNode(
+            await fileHtml(request, design.id, design.primaryId),
+            "grid-source",
+          ),
+          destination: hasNode(
+            await fileHtml(request, design.id, design.secondId!),
+            "grid-source",
+          ),
+        }))
+        .toEqual({ source: false, destination: true });
+      await settleReload(page, design.secondId!);
+      await expect.poll(persistedPlacement).toEqual({
+        parent: "target-grid",
+        column: "2",
+        columnEnd: "4",
+        row: "2",
+        rowEnd: "4",
+      });
     } finally {
       await deleteDesign(request, design.id);
     }

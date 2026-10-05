@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
@@ -243,8 +243,9 @@ export default defineAction({
       recordAsset: false,
     });
     if (!uploaded?.url) {
-      throw new Error(
-        "No object storage is connected. Connect Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads before generating slide images.",
+      fail(
+        "No object storage is connected. Use Builder.io (free) or configure your own S3-compatible storage keys in Settings → File uploads before generating slide images.",
+        { errorCode: "object_storage_unavailable", statusCode: 424 },
       );
     }
 

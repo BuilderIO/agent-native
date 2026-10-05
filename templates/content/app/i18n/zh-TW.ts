@@ -1391,7 +1391,7 @@ const overrides = {
     attached: "Attached",
     bodyDiff: "內文差異",
     builderIsntConnectedGoBackToConnectYour:
-      "Builder 未連線。請先返回並連線你的帳戶。",
+      "Builder 尚未連線。請返回並先使用 Builder.io。",
     calculate: "Calculate",
     calendarBy: "行事曆依據",
     cancel: "Cancel",
@@ -1408,7 +1408,7 @@ const overrides = {
     collapseAllGroups: "折疊所有分組",
     color: "Color",
     connectYourBuilderAccountToBrowseItsSpaces:
-      "連線你的 Builder 帳戶以瀏覽其空間和模型。",
+      "使用 Builder 帳戶瀏覽其空間和模型。",
     connectedSources: "已連線的來源",
     couldntSyncRetry: "無法同步 · 重試",
     databasePagePreview: "集合頁面預覽",

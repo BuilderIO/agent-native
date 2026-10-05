@@ -146,6 +146,38 @@ describe("saveKeyValuesToScopedSecrets", () => {
     });
   });
 
+  it("saves a model provider key for the organization when asked by name", async () => {
+    mockGetRequiredSecret.mockReturnValue({
+      key: "GOOGLE_GENERATIVE_AI_API_KEY",
+      label: "Gemini",
+      scope: "user",
+      kind: "api-key",
+    });
+
+    await saveKeyValuesToScopedSecrets(
+      event,
+      [{ key: "GOOGLE_GENERATIVE_AI_API_KEY", value: "AI-example" }],
+      "org",
+    );
+    expect(mockWriteAppSecret).toHaveBeenLastCalledWith({
+      key: "GOOGLE_GENERATIVE_AI_API_KEY",
+      value: "AI-example",
+      scope: "org",
+      scopeId: "org_1",
+    });
+
+    mockGetOrgContext.mockResolvedValue({ orgId: "org_1", role: "member" });
+    mockWriteAppSecret.mockClear();
+    await expect(
+      saveKeyValuesToScopedSecrets(
+        event,
+        [{ key: "GOOGLE_GENERATIVE_AI_API_KEY", value: "AI-example" }],
+        "org",
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(mockWriteAppSecret).not.toHaveBeenCalled();
+  });
+
   it("rejects invalid key names before writing", async () => {
     await expect(
       saveKeyValuesToScopedSecrets(event, [

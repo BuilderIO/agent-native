@@ -1,6 +1,9 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { Skeleton } from "@agent-native/toolkit/design-system";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useId } from "react";
+
+import { useCredentialSaveScope } from "./use-credential-save-scope.js";
+import { WhoField } from "./WhoField.js";
 
 interface EnvKeyStatus {
   key: string;
@@ -25,6 +28,8 @@ export function ApiKeySettings({
     ok: boolean;
     message: string;
   } | null>(null);
+  const saveScope = useCredentialSaveScope();
+  const whoId = useId();
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -59,7 +64,7 @@ export function ApiKeySettings({
       .filter(([, v]) => v.trim() !== "")
       .map(([key, value]) => ({ key, value: value.trim() }));
 
-    if (vars.length === 0) return;
+    if (vars.length === 0 || !saveScope.scope) return;
 
     setSaving(true);
     setSaveResult(null);
@@ -68,7 +73,7 @@ export function ApiKeySettings({
       const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vars }),
+        body: JSON.stringify({ vars, scope: saveScope.scope }),
       });
 
       if (!res.ok) {
@@ -168,11 +173,23 @@ export function ApiKeySettings({
         ))}
       </div>
 
+      {unconfiguredKeys.length > 0 &&
+        saveScope.canChoose &&
+        saveScope.scope && (
+          <WhoField
+            id={whoId}
+            choice
+            scope={saveScope.scope}
+            disabled={saving}
+            onChange={saveScope.setScope}
+          />
+        )}
+
       {unconfiguredKeys.length > 0 && (
         <div style={styles.actions}>
           <button
             onClick={handleSave}
-            disabled={saving || pendingCount === 0}
+            disabled={saving || pendingCount === 0 || !saveScope.scope}
             style={{
               ...styles.saveButton,
               opacity: saving || pendingCount === 0 ? 0.5 : 1,

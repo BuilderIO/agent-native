@@ -5,6 +5,7 @@ const getSettingMock = vi.hoisted(() => vi.fn());
 const readDeployCredentialEnvMock = vi.hoisted(() => vi.fn());
 const canUseDeployCredentialFallbackForRequestMock = vi.hoisted(() => vi.fn());
 const getProviderCredentialAuthFailureMock = vi.hoisted(() => vi.fn());
+const readOrgMemberRoleMock = vi.hoisted(() => vi.fn());
 const requestContextState = vi.hoisted(() => ({
   synthetic: false,
   orgId: undefined as string | undefined,
@@ -33,6 +34,16 @@ vi.mock("../server/credential-provider.js", () => ({
   readDeployCredentialEnv: readDeployCredentialEnvMock,
 }));
 
+vi.mock(
+  "../server/personal-provider-key-policy.js",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../server/personal-provider-key-policy.js")
+    >()),
+    readOrgMemberRole: readOrgMemberRoleMock,
+  }),
+);
+
 import {
   getOwnerApiKey,
   resolveOwnerEngineApiKey,
@@ -53,13 +64,40 @@ beforeEach(() => {
   getProviderCredentialAuthFailureMock.mockResolvedValue(null);
   requestContextState.synthetic = false;
   requestContextState.orgId = undefined;
+  readOrgMemberRoleMock.mockResolvedValue("member");
+});
+
+describe("getOwnerApiKey scope order", () => {
+  it("runs an owner or admin on the org's key ahead of their own, and a member on theirs", async () => {
+    requestContextState.orgId = "org-1";
+    readAppSecretMock.mockImplementation(
+      async ({ key, scope }: { key: string; scope: string }) =>
+        key === "ANTHROPIC_API_KEY" && (scope === "user" || scope === "org")
+          ? { value: `test-anthropic-${scope}`, last4: "-key", updatedAt: 1 }
+          : null,
+    );
+    for (const [role, expected] of [
+      ["owner", "test-anthropic-org"],
+      ["admin", "test-anthropic-org"],
+      ["member", "test-anthropic-user"],
+    ] as const) {
+      readOrgMemberRoleMock.mockResolvedValue(role);
+      await expect(
+        getOwnerApiKey("anthropic", "owner@example.com"),
+      ).resolves.toBe(expected);
+    }
+    expect(readOrgMemberRoleMock).toHaveBeenCalledWith(
+      "org-1",
+      "owner@example.com",
+    );
+  });
 });
 
 describe("resolveOwnerEngineApiKey", () => {
   it("resolves the named engine's own key rather than the active setting's", async () => {
     getSettingMock.mockResolvedValue({ engine: "anthropic" });
     ownerSecrets({
-      ANTHROPIC_API_KEY: "sk-ant-owner",
+      ANTHROPIC_API_KEY: "test-anthropic-owner",
       OPENAI_API_KEY: "sk-openai-owner",
     });
 
@@ -80,7 +118,7 @@ describe("resolveOwnerEngineApiKey", () => {
 
   it("never returns another provider's key for an engine the owner has no key for", async () => {
     getSettingMock.mockResolvedValue({ engine: "anthropic" });
-    ownerSecrets({ ANTHROPIC_API_KEY: "sk-ant-owner" });
+    ownerSecrets({ ANTHROPIC_API_KEY: "test-anthropic-owner" });
 
     await expect(
       resolveOwnerEngineApiKey({
@@ -112,12 +150,12 @@ describe("resolveOwnerEngineApiKey", () => {
     // The registry may select another engine, so the key must stay tagged for
     // provider matching while retaining the scope that owns its value.
     getSettingMock.mockResolvedValue({ engine: "anthropic" });
-    ownerSecrets({ ANTHROPIC_API_KEY: "sk-ant-owner" });
+    ownerSecrets({ ANTHROPIC_API_KEY: "test-anthropic-owner" });
 
     await expect(
       resolveOwnerEngineApiKey({ ownerEmail: "owner@example.com" }),
     ).resolves.toEqual({
-      apiKey: "sk-ant-owner",
+      apiKey: "test-anthropic-owner",
       apiKeyEnvVar: undefined,
       credentialProvenance: {
         scope: "user",
@@ -160,7 +198,7 @@ describe("resolveOwnerEngineApiKey", () => {
       resolveOwnerEngineApiKey({
         engineOption: "openai",
         ownerEmail: "owner@example.com",
-        anthropicFallback: "sk-ant-plugin-key",
+        anthropicFallback: "test-anthropic-plugin-key",
       }),
     ).resolves.toEqual({
       apiKey: "sk-openai-deploy",
@@ -174,10 +212,10 @@ describe("resolveOwnerEngineApiKey", () => {
       resolveOwnerEngineApiKey({
         engineOption: "openai",
         ownerEmail: "owner@example.com",
-        anthropicFallback: "sk-ant-plugin-key",
+        anthropicFallback: "test-anthropic-plugin-key",
       }),
     ).resolves.toEqual({
-      apiKey: "sk-ant-plugin-key",
+      apiKey: "test-anthropic-plugin-key",
       apiKeyEnvVar: "ANTHROPIC_API_KEY",
       credentialProvenance: { scope: "deployment" },
     });

@@ -439,7 +439,8 @@ const messages = {
     resolveThread: "스레드 해결",
     reopenThread: "스레드 다시 열기",
     hideReplies: "답글 숨기기",
-    replyCount: "답글 {{count}}개",
+    replyCount_one: "답글 {{count}}개",
+    replyCount_other: "답글 {{count}}개",
     title: "댓글",
     addComment: "댓글 추가",
     close: "닫기",
@@ -962,8 +963,8 @@ const messages = {
           "제공된 회사 웹사이트를 읽고 회사 소개 프레젠테이션을 만드세요. 사실을 지어내지 말고 접근 오류를 보고하세요.",
       },
     },
-    connectBuilderIo: "Builder.io 연결",
-    connectingBuilder: "Builder.io 연결 중…",
+    connectBuilderIo: "Builder.io 사용",
+    connectingBuilder: "Builder.io 설정 중…",
     recent: "최근 항목",
     starters: {
       pitch: {

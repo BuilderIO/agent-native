@@ -13,7 +13,11 @@ import {
   readPrivateBlob,
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
-import { recordChange, runWithRequestContext } from "@agent-native/core/server";
+import {
+  isTestIdentity,
+  recordChange,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import {
   accessFilter,
   resolveAccess,
@@ -45,6 +49,10 @@ import {
   resolveAnalyticsEventDimensions,
   touchPublicKeyLastUsedAt,
 } from "./first-party-analytics.js";
+import {
+  pruneSessionEventIndex,
+  sessionEventFilterConditions,
+} from "./session-event-index.js";
 
 export type ReplayRange = "24h" | "7d" | "30d" | "90d" | "all";
 
@@ -101,6 +109,10 @@ export interface SessionReplayListFilters {
   offset?: number;
   status?: "active" | "completed";
   limit?: number;
+  /** Sessions that tracked every one of these events. */
+  didEvents?: string[];
+  /** Sessions that tracked none of these events. */
+  didNotEvents?: string[];
 }
 
 export interface SessionReplayEventReadOptions {
@@ -1402,20 +1414,28 @@ function replayListSearchCondition(query: string | undefined) {
   );
 }
 
+export type SessionReplayIngestResult =
+  | { skipped: "test-identity"; acceptedChunks: 0 }
+  | {
+      recordingId: string;
+      sessionId: string;
+      acceptedChunks: number;
+      duplicateChunks: number;
+      chunkCount: number;
+      eventCount: number;
+      totalBytes: number;
+    };
+
 export async function recordSessionReplayChunks(
   input: ParsedSessionReplayIngest,
   context: SessionReplayIngestContext = {},
-): Promise<{
-  recordingId: string;
-  sessionId: string;
-  acceptedChunks: number;
-  duplicateChunks: number;
-  chunkCount: number;
-  eventCount: number;
-  totalBytes: number;
-}> {
+): Promise<SessionReplayIngestResult> {
   const key = await resolveReplayPublicKey(input.publicKey);
   await assertReplayKeyBudget(key, context);
+  // Test identities run every flow but never land in replay metrics.
+  if (isTestIdentity(input.userId)) {
+    return { skipped: "test-identity", acceptedChunks: 0 };
+  }
   const db = getDb() as any;
   const ingestedAt = replayTimestamp(context.now) ?? replayNowIso();
   const clampedInput = clampReplayIngestTiming(input, ingestedAt);
@@ -1719,7 +1739,9 @@ export async function listSessionRecordings(
     filters.visitorType ||
     filters.emailDomain ||
     filters.sort ||
-    filters.offset
+    filters.offset ||
+    filters.didEvents?.length ||
+    filters.didNotEvents?.length
   ) {
     return (await listSessionRecordingsPage(scope, filters)).recordings;
   }
@@ -1918,6 +1940,12 @@ export async function listSessionRecordingsPage(
   }
   const search = replayListSearchCondition(filters.query);
   if (search) conditions.push(search);
+  conditions.push(
+    ...(await sessionEventFilterConditions({
+      didEvents: filters.didEvents,
+      didNotEvents: filters.didNotEvents,
+    })),
+  );
   const appConditions = [...conditions];
   if (filters.app)
     conditions.push(eq(schema.sessionRecordings.app, filters.app));
@@ -2736,6 +2764,11 @@ export async function runSessionReplayRetentionSweep(
 }> {
   const finalized = await finalizeAbandonedSessionRecordings(now);
   const expired = await expireOldSessionRecordings(now);
+  try {
+    await pruneSessionEventIndex(replayRetentionDays(), now);
+  } catch (err) {
+    console.warn("[session-replay] Session event index pruning failed:", err);
+  }
   return {
     finalized: finalized.finalized,
     expired: expired.expired,

@@ -446,7 +446,8 @@ const messages = {
     resolveThread: "Thread lösen",
     reopenThread: "Thread wieder öffnen",
     hideReplies: "Antworten ausblenden",
-    replyCount: "{{count}} Antworten",
+    replyCount_one: "{{count}} Antwort",
+    replyCount_other: "{{count}} Antworten",
     title: "Kommentare",
     addComment: "Kommentar hinzufügen",
     close: "Schließen",
@@ -992,8 +993,8 @@ const messages = {
           "Lies die angegebene Unternehmenswebsite und erstelle eine Präsentation über das Unternehmen. Melde Zugriffsfehler, statt Fakten zu erfinden.",
       },
     },
-    connectBuilderIo: "Builder.io verbinden",
-    connectingBuilder: "Builder.io wird verbunden…",
+    connectBuilderIo: "Builder.io verwenden",
+    connectingBuilder: "Builder.io wird eingerichtet…",
     recent: "Zuletzt verwendet",
     starters: {
       pitch: {

@@ -18,6 +18,7 @@ import {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   actionErrorMessage,
   callAction,
+  callActionBlob,
   callActionWithRetry,
   computePageHidden,
   defaultActionQueryRetry,
@@ -541,6 +542,31 @@ describe("callAction", () => {
     expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
       "X-Agent-Native-Browser-Tab": expect.any(String),
     });
+  });
+
+  it("returns binary action responses through the shared action transport", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(new Blob(["png-bytes"], { type: "image/png" }), {
+        headers: { "Content-Type": "image/png" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const blob = await callActionBlob("list-plans", {}, { method: "GET" });
+
+    expect(blob.type).toBe("image/png");
+    await expect(blob.text()).resolves.toBe("png-bytes");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/actions/list-plans",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({
+          "X-Agent-Native-Frontend": "1",
+          "X-Agent-Native-Browser-Tab": expect.any(String),
+        }),
+        cache: "no-store",
+      }),
+    );
   });
 
   it("passes scoped capability headers through imperative action calls", async () => {

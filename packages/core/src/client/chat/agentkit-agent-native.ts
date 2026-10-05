@@ -575,6 +575,18 @@ function reconcileDurableMessages(
     ids.add(event.message.id);
     assistantIdsByRun.set(event.runId, ids);
   }
+  for (const value of runs ?? []) {
+    const run = asRecord(value);
+    if (
+      typeof run?.id !== "string" ||
+      typeof run.activeMessageId !== "string"
+    ) {
+      continue;
+    }
+    const ids = assistantIdsByRun.get(run.id) ?? new Set<string>();
+    ids.add(run.activeMessageId);
+    assistantIdsByRun.set(run.id, ids);
+  }
   const runByAssistantId = new Map<string, string>();
   for (const [runId, ids] of assistantIdsByRun) {
     if (ids.size === 1) runByAssistantId.set([...ids][0]!, runId);
@@ -1691,8 +1703,12 @@ export function createAgentNativeAgentKitTransport(
   ): Promise<AgentRunSnapshot | null | undefined> {
     const value = await activeRunStatus(threadId);
     const status = value.status;
-    if (value.active === false) return null;
-    if (value.active !== true) return undefined;
+    if (typeof value.active !== "boolean") return undefined;
+    // An idle thread has no run; a run that just finished keeps its id and
+    // status for replay even though it is no longer `active`.
+    if (value.active === false && (status === "idle" || !value.runId)) {
+      return null;
+    }
     if (typeof value.runId !== "string" || !value.runId) {
       throw new TypeError(
         "Agent chat active-run response must include an active run ID.",
@@ -2100,17 +2116,24 @@ export function createAgentNativeAgentKitTransport(
     };
   }
 
-  function runSlotIsClear(status: ActiveRunStatus): boolean {
+  // A server that predates `active` meaning "in flight" reports a run inside
+  // its reconnect window as `active` with a terminal status.
+  function runIsInFlight(status: ActiveRunStatus): boolean {
     return (
-      status.awaitingRedispatch !== true &&
-      (status.active !== true ||
-        status.status === "completed" ||
-        status.status === "complete" ||
-        status.status === "failed" ||
-        status.status === "cancelled" ||
-        status.status === "errored" ||
-        status.status === "aborted")
+      status.active === true &&
+      ![
+        "completed",
+        "complete",
+        "failed",
+        "cancelled",
+        "errored",
+        "aborted",
+      ].includes(String(status.status ?? ""))
     );
+  }
+
+  function runSlotIsClear(status: ActiveRunStatus): boolean {
+    return status.awaitingRedispatch !== true && !runIsInFlight(status);
   }
 
   async function waitForRunSlot(
@@ -2213,6 +2236,10 @@ export function createAgentNativeAgentKitTransport(
   const protocolTransport = createAgentKitProtocolAdapter(runtime, {
     onRunOutcome: trackRunOutcome,
     ...options.adapter,
+    // A spread would freeze the host's label at its locale when this was built.
+    get autoContinueLabel() {
+      return options.adapter?.autoContinueLabel;
+    },
     metadata: adapterMetadata(options),
     capabilities: {
       ...options.adapter?.capabilities,
@@ -2336,11 +2363,16 @@ export function createAgentNativeAgentKitTransport(
             throw new TypeError("Agent chat queue claim response is invalid.");
           }
           if (interruptActiveRun) {
-            const activeRun = await activeRunSnapshot(threadId);
-            if (activeRun) {
+            const activeRun = await activeRunStatus(threadId);
+            if (runIsInFlight(activeRun)) {
+              if (typeof activeRun.runId !== "string" || !activeRun.runId) {
+                throw new TypeError(
+                  "Agent chat active-run response must include an active run ID.",
+                );
+              }
               await transport.cancelRun({
                 threadId,
-                runId: activeRun.id,
+                runId: activeRun.runId,
               });
               await waitForRunSlot(threadId, RUN_SLOT_STABLE_POLLS * 4);
             }

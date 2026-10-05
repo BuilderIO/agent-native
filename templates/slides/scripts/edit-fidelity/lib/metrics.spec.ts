@@ -170,6 +170,26 @@ describe("diffSnapshots", () => {
     ]);
   });
 
+  it("treats an unobserved custom property as empty until it gains a value", () => {
+    const d = diffSnapshots(
+      snap([rec("box:div.card#0", {}), rec("box:div.card#1", {})]),
+      snap([
+        rec("box:div.card#0", { "--layout-token": "10px" }),
+        rec("box:div.card#1", { "--layout-token": "" }),
+      ]),
+    );
+
+    expect(d.deltas).toEqual([
+      {
+        key: "box:div.card#0",
+        prop: "--layout-token",
+        a: "",
+        b: "10px",
+        inside: false,
+      },
+    ]);
+  });
+
   it("pairs a run whose text only grew, and flags a vanished box", () => {
     const d = diffSnapshots(
       snap([

@@ -43,7 +43,7 @@ export function transcriptFailureMessage(code: TranscriptFailureCode): string {
     case "CLOUD_FAILED":
       return "No transcript was captured locally, and cloud transcription could not finish. Retrying usually works; if it persists, check the recording's audio and the Builder connection.";
     case "CLOUD_UNCONFIGURED":
-      return "No transcript was captured locally, and no cloud transcription provider is connected. Connect Builder in Settings to transcribe automatically.";
+      return "No transcript was captured locally, and no cloud transcription provider is connected. Use Builder.io in Settings to transcribe automatically.";
     case "UNKNOWN":
       return "Transcription did not finish.";
   }

@@ -204,14 +204,18 @@ describe("BuilderIntegrationPage", () => {
     await render(member);
 
     expect(row("builder-organization")?.textContent).toContain(
-      "Not connected. An owner or admin can connect it.",
+      "Not connected. An owner or admin can enable Builder.io for everyone.",
     );
-    expect(button("Connect", row("builder-organization")!)).toBeUndefined();
+    expect(
+      button("Use Builder.io", row("builder-organization")!),
+    ).toBeUndefined();
     expect(row("builder-personal")?.textContent).toContain(
-      "Connect your own account. Only you use it.",
+      "Use your own Builder.io account. Only you use it.",
     );
 
-    await act(async () => button("Connect", row("builder-personal")!)?.click());
+    await act(async () =>
+      button("Use Builder.io", row("builder-personal")!)?.click(),
+    );
     expect(flowMock.current.start).toHaveBeenCalledWith(
       expect.objectContaining({ scope: "personal", provisionAccount: false }),
     );
@@ -238,7 +242,7 @@ describe("BuilderIntegrationPage", () => {
     expect(row("builder-personal")?.textContent).toContain(
       "Owners and admins restricted personal API keys.",
     );
-    expect(button("Connect", row("builder-personal")!)).toBeUndefined();
+    expect(button("Use Builder.io", row("builder-personal")!)).toBeUndefined();
   });
 
   it("gives an admin the organization connect and no personal row", async () => {
@@ -246,11 +250,11 @@ describe("BuilderIntegrationPage", () => {
     await render(admin);
 
     expect(row("builder-organization")?.textContent).toContain(
-      "Not connected. When you connect it, everyone in Acme can use it.",
+      "Not connected. Use Builder.io to enable access for everyone in Acme.",
     );
     expect(row("builder-personal")).toBeNull();
     await act(async () =>
-      button("Connect", row("builder-organization")!)?.click(),
+      button("Use Builder.io", row("builder-organization")!)?.click(),
     );
     expect(flowMock.current.start).toHaveBeenCalledWith(
       expect.objectContaining({ scope: "org" }),

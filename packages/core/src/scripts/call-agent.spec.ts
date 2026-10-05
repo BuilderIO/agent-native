@@ -78,10 +78,10 @@ vi.mock("../org/context.js", () => ({
 }));
 
 vi.mock("../server/request-context.js", () => ({
-  getRequestUserEmail: () => "alice+qa@agent-native.test",
+  getRequestUserEmail: () => "alice+qa@agent-native.example.com",
   getRequestOrgId: () => "org-qa",
   getRequestRunContext: () => ({ model: "claude-opus-4-8" }),
-  getRequestContext: () => ({ userEmail: "alice+qa@agent-native.test" }),
+  getRequestContext: () => ({ userEmail: "alice+qa@agent-native.example.com" }),
   isIntegrationCallerRequest: () => true,
   getIntegrationRequestContext: integrationRequestContextMock,
 }));
@@ -297,7 +297,7 @@ describe("call-agent action", () => {
     callAgentMock.mockResolvedValueOnce("sent");
     const { run } = await import("./call-agent.js");
     const approvedActions = [
-      { tool: "send-email", input: { to: "alice@example.test" } },
+      { tool: "send-email", input: { to: "alice@example.org" } },
     ];
 
     await run({
@@ -348,7 +348,7 @@ describe("call-agent action", () => {
     expect(resolveRemoteAgentTokenMock).toHaveBeenCalledWith(
       { type: "bearer", credentialRef: "slides-token" },
       expect.objectContaining({
-        userEmail: "alice+qa@agent-native.test",
+        userEmail: "alice+qa@agent-native.example.com",
         orgId: "org-qa",
       }),
     );
@@ -572,7 +572,7 @@ describe("call-agent action", () => {
       "gong-calls",
       { company: "Edmunds", days: 90 },
       expect.objectContaining({
-        userEmail: "alice+qa@agent-native.test",
+        userEmail: "alice+qa@agent-native.example.com",
         orgDomain: "builder.io",
         orgSecret: "org-secret",
         correlation: {
