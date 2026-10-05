@@ -2298,7 +2298,7 @@ function colorPicker(anchor, value, { onInput, onClose = () => {}, libraries = n
     if (e.target.closest(".cpk-prev")) { const p = parseColor(before); if (p) Object.assign(C, { lin: p.lin, a: p.a, mode: p.mode, okHue: p.hue ?? C.okHue, wantC: null }); return update(); }
     const d = e.target.closest("[data-cpk-doc]"); if (d) { const p = parseColor(d.dataset.cpkDoc); Object.assign(C, { lin: p.lin, a: p.a, wantC: null }); return update(); }
     const m = e.target.closest(".cpk-mode");
-    if (m) return openMenu(m, [{ label: "sRGB" }, ...CPK_MODES.filter(x => x[2] === "srgb").map(([k, t]) => ({ t, radio: true, on: C.mode === k, run: () => setMode(k) })), "-", { label: "Wide gamut" }, ...CPK_MODES.filter(x => x[2] === "p3").map(([k, t]) => ({ t, radio: true, on: C.mode === k, run: () => setMode(k) }))]);
+    if (m) return openMenu(m, [...CPK_MODES.filter(x => x[2] === "srgb").map(([k, t]) => ({ t, radio: true, on: C.mode === k, run: () => setMode(k) })), "-", ...CPK_MODES.filter(x => x[2] === "p3").map(([k, t]) => ({ t, radio: true, on: C.mode === k, run: () => setMode(k) }))]);
     if (e.target.closest(".cpk-eye") && canEye) new window.EyeDropper().open().then(r => { const p = parseColor(r.sRGBHex); if (p) { C.lin = p.lin; C.wantC = null; update(); } }, err => { if (err.name !== "AbortError") toast("Couldn't pick a color from the screen"); });
   });
   // Create: a named draft row at the top of Libraries with this color. Enter or leaving the row creates the token
