@@ -1067,6 +1067,68 @@ describe("suggest-document-edit", () => {
     },
   );
 
+  // suggest-document-edit splits these into one suggestion per cell or
+  // column; a hand-built proposal can still send them as one operation.
+  it.each([
+    [
+      "changes text in two table cells",
+      TABLE_PAGE,
+      "alpha cell | beta",
+      "omega cell | gamma",
+    ],
+    [
+      "moves text across a table cell edge",
+      TABLE_PAGE,
+      "alpha cell | beta",
+      "alpha | cell beta",
+    ],
+    [
+      "moves a paragraph's text into a callout",
+      `${CALLOUT_PAGE}\n\nAfter the callout`,
+      "alpha text\n</callout>\n\nAfter the callout",
+      "alpha text After\n</callout>\n\nthe callout",
+    ],
+  ])(
+    "refuses one operation that %s",
+    async (change, content, find, replace) => {
+      await runWithRequestContext(
+        { userEmail: ctx.userEmail, orgId: null },
+        async () => {
+          const { id, revision } = await createPage(content);
+          const createResourceSuggestion = (
+            await import("@agent-native/core/review/suggestions/actions/create-resource-suggestion")
+          ).default;
+          const { buildMarkdownSuggestionOperation } =
+            await import("./suggest-document-edit.js");
+          await expect(
+            createResourceSuggestion.run(
+              {
+                resourceType: "document",
+                resourceId: id,
+                adapterKind: "content.document-markdown",
+                baseRevision: revision,
+                summary: change,
+                idempotencyKey: `cross-edge-${id}`,
+                operations: [
+                  buildMarkdownSuggestionOperation({
+                    content,
+                    find,
+                    replace,
+                    start: content.indexOf(find),
+                  }),
+                ],
+              },
+              ctx,
+            ),
+          ).rejects.toMatchObject({
+            statusCode: 422,
+            errorCode: "suggestion_structure_unsupported",
+          });
+        },
+      );
+    },
+  );
+
   it("rejects an ambiguous find", async () => {
     await runWithRequestContext(
       { userEmail: ctx.userEmail, orgId: null },

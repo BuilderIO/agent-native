@@ -242,6 +242,22 @@ describe("suggesting read-only blocks", () => {
     expect(applies(state, transaction)).toBe(true);
   });
 
+  it("checks the steps after a load against the loaded body", () => {
+    const state = stateFor("Intro paragraph.");
+    const loaded = stateFor(`${PAGE}\n\nMore.`);
+    const row = nodeRange(loaded, "tableRow");
+    const load = () =>
+      state.tr
+        .replaceWith(0, state.doc.content.size, loaded.doc.content)
+        .setMeta("addToHistory", false);
+    expect(
+      applies(state, load().insertText("X", textPosition(loaded, "cell text"))),
+    ).toBe(true);
+    expect(
+      applies(state, load().insert(row.to, row.node.copy(row.node.content))),
+    ).toBe(false);
+  });
+
   it("allows a programmatic reconcile across the table", () => {
     const state = stateFor(PAGE);
     const { from, to } = nodeRange(state, "table");

@@ -104,7 +104,8 @@ function frameSignature(doc: ProseMirrorNode): string {
 
 // Loading a draft or the canonical body replaces the whole document outside
 // undo history. Select-all followed by typing also replaces the whole
-// document, so the history flag is what tells a load from an edit. Moving or
+// document, so the history flag is what tells a load from an edit. Steps after
+// a load edit the loaded body, so they are checked against it. Moving or
 // deleting a whole frame is refused even when every frame keeps its shape.
 // Text can't cross a frame's edge either, whether one step joins across it
 // (Backspace after a callout) or two steps move a block over it (Shift-Tab
@@ -115,6 +116,7 @@ export function editsUnsupportedSuggestionNode(
 ): boolean {
   if (transaction.getMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION)) return false;
   const loadsBody = transaction.getMeta("addToHistory") === false;
+  let base = transaction.before;
   let reachesFrame = false;
   let container: number | undefined;
   for (const [index, step] of transaction.steps.entries()) {
@@ -122,7 +124,10 @@ export function editsUnsupportedSuggestionNode(
     const range = stepRange(step, doc);
     if (!range) return true;
     if (loadsBody && range.from === 0 && range.to === doc.content.size) {
-      return false;
+      base = transaction.docs[index + 1] ?? transaction.doc;
+      reachesFrame = false;
+      container = undefined;
+      continue;
     }
     const { slice, gapFrom, gapTo } = step as {
       slice?: Slice;
@@ -161,8 +166,7 @@ export function editsUnsupportedSuggestionNode(
       findsNode(doc.content, range.from, range.to, isFrame);
   }
   return (
-    reachesFrame &&
-    frameSignature(transaction.before) !== frameSignature(transaction.doc)
+    reachesFrame && frameSignature(base) !== frameSignature(transaction.doc)
   );
 }
 

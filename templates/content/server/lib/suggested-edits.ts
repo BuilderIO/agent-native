@@ -13,6 +13,7 @@ import {
   prepareTransactionalChange,
   type TransactionalChange,
 } from "@agent-native/core/server";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { prosemirrorJSONToYXmlFragment } from "@tiptap/y-tiptap";
 import { drizzle } from "drizzle-orm/pg-proxy";
 
@@ -320,12 +321,28 @@ function unchangedSurround(before: string, after: string): string {
   return `${before.slice(0, prefix)}${before.slice(before.length - suffix)}`;
 }
 
-function unsupportedStructureKey(markdown: string): string {
+function unsupportedStructureKey(doc: ProseMirrorNode): string {
   return JSON.stringify(
-    unsupportedSuggestionStructure(
-      parseSuggestionMarkdown(markdown).toJSON() as SuggestionDocumentJson,
-    ),
+    unsupportedSuggestionStructure(doc.toJSON() as SuggestionDocumentJson),
   );
+}
+
+// The text each frame holds, split at every frame edge. A change can keep
+// every frame's shape and still move or rewrite text across a cell or frame
+// edge; it then changes two of these runs.
+function frameTextRuns(doc: ProseMirrorNode): string[] {
+  const runs = [""];
+  const visit = (node: ProseMirrorNode) => {
+    const frame = suggestionNodeRole(node.type.name) === "frame";
+    if (frame) runs.push("");
+    if (node.isText) runs[runs.length - 1] += node.text;
+    else if (node.isLeaf) runs[runs.length - 1] += "\n";
+    node.forEach(visit);
+    if (node.isBlock) runs[runs.length - 1] += "\n";
+    if (frame) runs.push("");
+  };
+  visit(doc);
+  return runs;
 }
 
 function validateSuggestionStructure(
@@ -333,13 +350,17 @@ function validateSuggestionStructure(
   afterMarkdown: string,
   refusal: string,
 ) {
+  const before = parseSuggestionMarkdown(beforeMarkdown);
   const after = parseSuggestionMarkdown(afterMarkdown);
   const surround = unsupportedStructureKey(
-    unchangedSurround(beforeMarkdown, afterMarkdown),
+    parseSuggestionMarkdown(unchangedSurround(beforeMarkdown, afterMarkdown)),
   );
+  const afterRuns = frameTextRuns(after);
   if (
-    unsupportedStructureKey(beforeMarkdown) !== surround ||
-    unsupportedStructureKey(afterMarkdown) !== surround ||
+    unsupportedStructureKey(before) !== surround ||
+    unsupportedStructureKey(after) !== surround ||
+    frameTextRuns(before).filter((run, index) => run !== afterRuns[index])
+      .length > 1 ||
     JSON.stringify(unsupportedRawNotionSpanAttrs(beforeMarkdown)) !==
       JSON.stringify(unsupportedRawNotionSpanAttrs(afterMarkdown))
   ) {
