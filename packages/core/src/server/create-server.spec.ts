@@ -76,6 +76,14 @@ describe("createServer", () => {
   it("answers MCP directory preflights before authentication", async () => {
     vi.stubEnv("CORS_ALLOWED_ORIGINS", "https://chatgpt.com");
     const { app } = createServer();
+    let directoryHandlerReached = false;
+    app.use(
+      "/mcp/directory",
+      defineEventHandler(() => {
+        directoryHandlerReached = true;
+        return new Response(null, { status: 401 });
+      }),
+    );
 
     const response = await app.request("http://localhost/mcp/directory", {
       method: "OPTIONS",
@@ -87,6 +95,7 @@ describe("createServer", () => {
     });
 
     expect(response.status).toBe(204);
+    expect(directoryHandlerReached).toBe(false);
     expect(response.headers.get("access-control-allow-origin")).toBe(
       "https://chatgpt.com",
     );
