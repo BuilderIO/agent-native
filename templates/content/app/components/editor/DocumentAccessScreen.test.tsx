@@ -322,6 +322,12 @@ describe("DocumentAccessScreen", () => {
       "empty.pageInTrash",
     );
     expect(container.querySelector("a")?.getAttribute("href")).toBe("/trash");
+    // Only where its restore starts, not the trashed page's body.
+    expect(mocks.useActionQuery).toHaveBeenCalledWith(
+      "get-trashed-document",
+      { id: "private-doc", trashRootOnly: true },
+      expect.anything(),
+    );
 
     await act(async () => {
       button("trash.restore")?.click();

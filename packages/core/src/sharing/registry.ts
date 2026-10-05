@@ -112,11 +112,16 @@ export interface ShareableResourceRegistration {
    * reads it, so such a viewer hears that a page is in the trash instead of
    * missing; `resolveAccess` and the share actions use the viewer's own
    * context, and the app applies the grant in its own access helpers.
+   * `columns` are the resource-table keys `resolve` reads; they join the
+   * lightweight access projection, so `resolve` gets the row already loaded.
    */
-  fallbackAccessContext?: (
-    resourceId: string,
-    ctx: { userEmail?: string; orgId?: string },
-  ) => Promise<{ userEmail?: string; orgId?: string } | null>;
+  fallbackAccessContext?: {
+    columns: readonly string[];
+    resolve: (
+      resource: any,
+      ctx: { userEmail?: string; orgId?: string },
+    ) => Promise<{ userEmail?: string; orgId?: string } | null>;
+  };
   agentReadable?:
     | false
     | {

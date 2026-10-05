@@ -310,9 +310,11 @@ describe("resolveAccessStatus", () => {
 
   describe("with a context the app lends, such as a space's", () => {
     const lentTo: Array<string | undefined> = [];
+    const lentRows: unknown[] = [];
 
     beforeEach(() => {
       lentTo.length = 0;
+      lentRows.length = 0;
       registerShareableResource({
         type: spacedType,
         resourceTable: docs,
@@ -323,11 +325,15 @@ describe("resolveAccessStatus", () => {
           columns: ["trashedAt"],
           isAvailable: (doc) => !doc.trashedAt,
         },
-        fallbackAccessContext: async (_resourceId, ctx) => {
-          lentTo.push(ctx.userEmail);
-          return ctx.userEmail === spaceMemberEmail
-            ? { userEmail: spaceMemberEmail, orgId: spaceOrgId }
-            : null;
+        fallbackAccessContext: {
+          columns: ["title"],
+          resolve: async (resource, ctx) => {
+            lentTo.push(ctx.userEmail);
+            lentRows.push(resource);
+            return ctx.userEmail === spaceMemberEmail
+              ? { userEmail: spaceMemberEmail, orgId: spaceOrgId }
+              : null;
+          },
         },
       });
     });
@@ -370,6 +376,19 @@ describe("resolveAccessStatus", () => {
         state: "denied",
       });
       expect(lentTo).toEqual([outsiderEmail]);
+    });
+
+    it("hands over the row it loaded, with the columns asked for", async () => {
+      await insertDoc({ id: "in-space" });
+
+      await statusAs(outsiderEmail, "in-space", spacedType);
+
+      expect(lentRows).toEqual([
+        expect.objectContaining({
+          id: "in-space",
+          title: "Secret title in-space",
+        }),
+      ]);
     });
   });
 

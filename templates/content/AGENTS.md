@@ -74,7 +74,7 @@ Read the relevant skill before deeper work:
 | `update-document` | Metadata or browser-owned full rewrite |
 | `delete-document` | Move a page and its children to Trash |
 | `list-content-trash` | Search authorized root or nested Trash metadata |
-| `get-trashed-document` | Read one authorized trashed Page body without restoring it |
+| `get-trashed-document` | Read one authorized trashed Page body without restoring it, or with `trashRootOnly` only the Page its restore starts from |
 | `plan-content-trash-purge` | Freeze exact selected/matching Pages and their trashed descendants, or a whole scope |
 | `get-content-trash-purge-plan` | Read every authorized item and effect in a frozen purge plan |
 | `execute-content-trash-purge` | Confirm a reviewed purge and start its persisted operation |
