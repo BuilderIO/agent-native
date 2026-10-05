@@ -167,6 +167,13 @@ export function lineNavigationKeys(platform: string) {
     : { start: "Home", end: "End" };
 }
 
+export function authoringFuzzLineNavigationKeys(
+  platform: string,
+  override?: ReturnType<typeof lineNavigationKeys>,
+) {
+  return override ?? lineNavigationKeys(platform);
+}
+
 export function authoringFuzzProfileIndex(seed: number): number | null {
   if (!Number.isSafeInteger(seed) || seed < 0)
     throw new Error("seed must be a non-negative safe integer");
@@ -222,10 +229,6 @@ export function assertShortcutMarkupAdded(
     );
   }
 }
-
-const { start: lineStartKey, end: lineEndKey } = lineNavigationKeys(
-  process.platform,
-);
 
 export type AuthoringFuzzOperation =
   | { kind: "type"; value: string }
@@ -321,6 +324,7 @@ export interface AuthoringFuzzOptions {
   /** Fail if the caller's viewport did not scale the selected slide down. */
   expectScaledSlide?: boolean;
   browser?: "chromium" | "webkit" | "firefox";
+  lineKeys?: ReturnType<typeof lineNavigationKeys>;
 }
 
 export interface AuthoringFuzzResult {
@@ -621,6 +625,8 @@ export async function runAuthoringFuzz(
     options;
   const plan = createAuthoringFuzzPlan(seed, steps);
   const { modifier } = options;
+  const { start: lineStartKey, end: lineEndKey } =
+    authoringFuzzLineNavigationKeys(process.platform, options.lineKeys);
   const historyLimit = options.historyLimit ?? 100;
   if (!Number.isSafeInteger(historyLimit) || historyLimit < 1) {
     throw new Error("historyLimit must be a positive safe integer");

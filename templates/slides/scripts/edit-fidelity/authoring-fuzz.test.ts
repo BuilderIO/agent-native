@@ -6,6 +6,7 @@ import {
   assertShortcutMarkupAdded,
   assertSlideIsScaled,
   AUTHORING_FUZZ_STYLE_PROPERTIES,
+  authoringFuzzLineNavigationKeys,
   authoringFuzzProfileIndex,
   canonicalizeAuthoringFuzzPersistence,
   createAuthoringFuzzPlan,
@@ -400,6 +401,14 @@ it.each([
   ["win32", "Home", "End"],
 ])("uses platform line navigation keys on %s", (platform, start, end) => {
   expect(lineNavigationKeys(platform)).toEqual({ start, end });
+});
+
+it("uses the caller's line navigation keys for fuzz operations", () => {
+  const macKeys = lineNavigationKeys("darwin");
+  expect(authoringFuzzLineNavigationKeys("linux", macKeys)).toEqual(macKeys);
+  expect(authoringFuzzLineNavigationKeys("linux")).toEqual(
+    lineNavigationKeys("linux"),
+  );
 });
 
 it("maps absolute seeds to stable synthetic and committed layout profiles", () => {

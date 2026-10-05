@@ -3743,8 +3743,43 @@ async function runAuthoringCorpusQa(
             }
             await editor.press("Tab");
             await editor.press("Shift+Tab");
-            await editor.press(lineStartKey);
+            const selectedRowStart = await editor.evaluate(
+              (element: HTMLElement) => {
+                const walker = document.createTreeWalker(
+                  element,
+                  NodeFilter.SHOW_TEXT,
+                );
+                for (
+                  let node = walker.nextNode();
+                  node;
+                  node = walker.nextNode()
+                ) {
+                  const text = node as Text;
+                  const offset = text.data.indexOf("Corpus row");
+                  if (offset < 0) continue;
+                  const range = document.createRange();
+                  range.setStart(text, offset);
+                  range.collapse(true);
+                  const selection = window.getSelection();
+                  if (!selection) return false;
+                  selection.removeAllRanges();
+                  selection.addRange(range);
+                  return true;
+                }
+                return false;
+              },
+            );
+            if (!selectedRowStart) {
+              throw new Error(
+                "list flow could not place the caret at the new row start",
+              );
+            }
             await editor.press("Backspace");
+            if (!(await editorText(editor)).includes("Corpus row")) {
+              throw new Error(
+                `first Backspace after list indentation lost the new row: ${JSON.stringify(await editorDetails(editor))}`,
+              );
+            }
             await editor.press("Backspace");
             const joined = await editorText(editor);
             if (!joined.includes("Corpus row")) {
@@ -4550,6 +4585,7 @@ async function runAuthoringFuzzQa(
         historyLimit: IN_PLACE_TEXT_UNDO_LIMIT,
         expectScaledSlide: profile?.kind === "scaled",
         browser: browserName as "chromium" | "webkit" | "firefox",
+        lineKeys: { start: lineStartKey, end: lineEndKey },
         finishAndReload: async (): Promise<AuthoringFuzzPersistence> => {
           if (!(await exitEdit(page, slideId, "escape"))) {
             throw new Error("Escape did not leave in-place text editing");
