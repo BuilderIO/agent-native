@@ -1067,6 +1067,8 @@ const exactEnglish = {
     iconPickerUploading: "جارٍ الرفع…",
     suggestionAmendmentEmpty:
       "هذا التعديل مطابق للصفحة الحالية. ارفض الاقتراح لإزالته.",
+    suggestionUnplaceable:
+      "تغيّر النص المحيط بهذا الاقتراح، لذا لا يمكن تطبيقه. لا يزال معلّقًا: ارفضه أو اقترح التعديل مرة أخرى.",
     suggestionAmendmentFailed: "تعذر حفظ الاقتراح",
     suggestionAmendmentResolved:
       "تم تغيير هذا الاقتراح في مكان آخر. لا تزال مسودتك غير المحفوظة هنا.",

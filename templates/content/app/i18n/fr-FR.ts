@@ -1100,6 +1100,8 @@ const exactEnglish = {
     iconPickerUploading: "Importation…",
     suggestionAmendmentEmpty:
       "Cette modification correspond à la page actuelle. Refusez la suggestion pour la supprimer.",
+    suggestionUnplaceable:
+      "Le texte autour de cette suggestion a changé, elle ne peut donc pas être appliquée. Elle reste en attente : refusez-la ou proposez à nouveau la modification.",
     suggestionAmendmentFailed: "Impossible d’enregistrer la suggestion",
     suggestionAmendmentResolved:
       "Cette suggestion a été modifiée ailleurs. Votre brouillon non enregistré est toujours ici.",

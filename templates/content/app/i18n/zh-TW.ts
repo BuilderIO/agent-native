@@ -334,6 +334,8 @@ const overrides = {
     suggestionFormattingBaselineUnsupported:
       "頁面中的某些格式無法安全地建議變更。編輯者可以先更新這些格式，然後您再重試。",
     suggestionAmendmentEmpty: "此編輯與目前頁面相同。拒絕建議即可移除。",
+    suggestionUnplaceable:
+      "此建議周圍的文字已變更，因此無法套用。它仍在待處理狀態：請拒絕它，或重新建議此修改。",
     suggestionAmendmentFailed: "無法儲存建議",
     suggestionAmendmentResolved:
       "此建議已在其他地方變更。你未儲存的草稿仍保留在這裡。",

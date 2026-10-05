@@ -1349,6 +1349,8 @@ const exactEnglish = {
     iconPickerUploading: "Subiendo…",
     suggestionAmendmentEmpty:
       "Esta edición coincide con la página actual. Rechaza la sugerencia para eliminarla.",
+    suggestionUnplaceable:
+      "El texto alrededor de esta sugerencia cambió, así que no se puede aplicar. Sigue pendiente: recházala o vuelve a sugerir el cambio.",
     suggestionAmendmentFailed: "No se pudo guardar la sugerencia",
     suggestionAmendmentResolved:
       "Esta sugerencia cambió en otro lugar. Tu borrador sin guardar sigue aquí.",

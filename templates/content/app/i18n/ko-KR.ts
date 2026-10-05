@@ -1064,6 +1064,8 @@ const exactEnglish = {
     iconPickerUploading: "업로드 중…",
     suggestionAmendmentEmpty:
       "이 편집 내용은 현재 페이지와 같습니다. 제안을 삭제하려면 거부하세요.",
+    suggestionUnplaceable:
+      "이 제안 주변의 텍스트가 변경되어 적용할 수 없습니다. 제안은 계속 대기 중입니다. 거부하거나 수정 사항을 다시 제안하세요.",
     suggestionAmendmentFailed: "제안을 저장하지 못했습니다",
     suggestionAmendmentResolved:
       "이 제안은 다른 곳에서 변경되었습니다. 저장하지 않은 초안은 여기에 그대로 있습니다.",

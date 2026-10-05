@@ -7251,7 +7251,9 @@ function PageEditorSessionBody({
           toast.error(
             t(unplaceable ? "editor.toolbar.conflict" : "empty.genericError"),
             {
-              description: actionErrorMessage(error) ?? t("empty.genericError"),
+              description: unplaceable
+                ? t("editor.suggestionUnplaceable")
+                : (actionErrorMessage(error) ?? t("empty.genericError")),
             },
           );
           return;

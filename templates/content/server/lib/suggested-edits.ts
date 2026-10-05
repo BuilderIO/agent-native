@@ -24,7 +24,6 @@ import { accessibleDocumentIds } from "../../actions/_document-access.js";
 import {
   documentContentHash,
   documentRevisionToken,
-  parseDocumentRevisionToken,
 } from "../../actions/_document-edit-mutation.js";
 import { hasSuggestionBodyTarget } from "../../actions/_suggestion-eligibility.js";
 import { commentIdForIdempotency } from "../../actions/add-comment.js";
@@ -154,25 +153,25 @@ export function applyMarkdownSuggestionOperation(
 // as siblings, so accepting one can remove the context another is anchored
 // to. Each accepted one is a range of that shared text whose bytes may now
 // differ; every other byte must still match for the placement to succeed.
+// Match on the operation's full before-text, not the base revision token:
+// the same text recurs under many body revisions, and Comment AI suggestions
+// carry the Page's updatedAt instead of a body token.
 async function acceptedRangesOnSameText(
   tx: DbExec,
-  suggestion: { id: string; resourceId: string; baseRevision: string },
+  suggestion: { id: string; resourceId: string },
   beforeMarkdown: string,
 ): Promise<MarkdownRange[]> {
-  const base = parseDocumentRevisionToken(suggestion.baseRevision);
-  if (!base) return [];
   const rows = (
     await tx.execute({
       sql: `SELECT o.anchor_json FROM agent_review_suggestions s
             INNER JOIN agent_review_suggestion_operations o ON o.suggestion_id = s.id
             WHERE s.resource_type = 'document' AND s.resource_id = ? AND s.adapter_kind = ?
-              AND s.status = 'accepted' AND s.id <> ? AND s.base_revision LIKE ?
+              AND s.status = 'accepted' AND s.id <> ?
               AND (o.before_json::jsonb ->> 'markdown') = ?`,
       args: [
         suggestion.resourceId,
         CONTENT_DOCUMENT_SUGGESTION_ADAPTER,
         suggestion.id,
-        `body:%:${base.contentHash}`,
         beforeMarkdown,
       ],
     })

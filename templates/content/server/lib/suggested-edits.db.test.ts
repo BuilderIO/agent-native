@@ -988,6 +988,7 @@ describe("Content single suggestion decisions", () => {
     documentId: string,
     before: string,
     after: string,
+    base: "revision" | "updatedAt" = "revision",
   ) {
     const document = await getDocumentAction.run({ id: documentId }, ctx);
     const operations = markdownSuggestionOperationsForEditorRevision({
@@ -1002,7 +1003,8 @@ describe("Content single suggestion decisions", () => {
         resourceType: "document",
         resourceId: documentId,
         adapterKind: adapter.kind,
-        baseRevision: document.revision,
+        baseRevision:
+          base === "revision" ? document.revision : document.updatedAt,
         summary: "Session",
         idempotencyKey: `session-${documentId}-${after.length}-${after}`,
         suggestions: operations.map((operation, index) => ({
@@ -1070,6 +1072,37 @@ describe("Content single suggestion decisions", () => {
       const page = await getDocumentAction.run({ id: documentId }, ctx);
       expect(page.content).toContain("## Lines worth keeping");
       expect(page.content).toContain("These lines look charming.");
+    });
+  });
+
+  it("rebases a suggestion based on the Page timestamp, as Comment AI saves them", async () => {
+    const base = canonicalizeNfm(
+      "## Hand-drawn lines\n\nThese lines look wobbly.\n\nA closing paragraph sits here.",
+    );
+    const documentId = await seedPage(base);
+    await runWithRequestContext({ userEmail: ownerEmail }, async () => {
+      await proposeSession(
+        documentId,
+        base,
+        base
+          .replace("## Hand-drawn lines", "## Lines")
+          .replace("look wobbly", "look charming"),
+      );
+      await proposeSession(
+        documentId,
+        base,
+        base.replace(
+          "## Hand-drawn lines",
+          "## Hand-drawn lines worth keeping",
+        ),
+        "updatedAt",
+      );
+      for (const suggestion of await listSuggestions(documentId)) {
+        const result = await decide(suggestion, `accept-${suggestion.id}`);
+        expect(result.suggestion.status).toBe("accepted");
+      }
+      const page = await getDocumentAction.run({ id: documentId }, ctx);
+      expect(page.content).toContain("## Lines worth keeping");
     });
   });
 

@@ -1070,6 +1070,8 @@ const exactEnglish = {
     iconPickerUploading: "アップロード中…",
     suggestionAmendmentEmpty:
       "この編集は現在のページと同じです。提案を削除するには却下してください。",
+    suggestionUnplaceable:
+      "この提案の周囲のテキストが変更されたため、適用できません。提案は保留中のままです。却下するか、もう一度編集を提案してください。",
     suggestionAmendmentFailed: "提案を保存できませんでした",
     suggestionAmendmentResolved:
       "この提案は別の場所で変更されました。未保存の下書きはここに残っています。",

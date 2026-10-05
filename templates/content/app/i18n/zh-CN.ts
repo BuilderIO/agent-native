@@ -1153,6 +1153,8 @@ const exactEnglish = {
     iconPickerUpload: "上传",
     iconPickerUploading: "正在上传…",
     suggestionAmendmentEmpty: "此编辑与当前页面相同。拒绝建议即可移除。",
+    suggestionUnplaceable:
+      "此建议周围的文本已更改，因此无法应用。它仍处于待处理状态：请拒绝它，或重新建议此修改。",
     suggestionAmendmentFailed: "无法保存建议",
     suggestionAmendmentResolved:
       "此建议已在其他地方更改。你未保存的草稿仍保留在这里。",

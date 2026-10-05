@@ -1091,6 +1091,8 @@ const exactEnglish = {
     iconPickerUploading: "Enviando…",
     suggestionAmendmentEmpty:
       "Essa edição corresponde à página atual. Rejeite a sugestão para removê-la.",
+    suggestionUnplaceable:
+      "O texto ao redor desta sugestão mudou, então ela não pode ser aplicada. Ela continua pendente: rejeite-a ou sugira a edição novamente.",
     suggestionAmendmentFailed: "Não foi possível salvar a sugestão",
     suggestionAmendmentResolved:
       "Esta sugestão foi alterada em outro lugar. Seu rascunho não salvo continua aqui.",

@@ -1057,6 +1057,8 @@ const exactEnglish = {
     iconPickerUploading: "अपलोड हो रहा है…",
     suggestionAmendmentEmpty:
       "यह संपादन मौजूदा पेज से मेल खाता है। इसे हटाने के लिए सुझाव को अस्वीकार करें।",
+    suggestionUnplaceable:
+      "इस सुझाव के आसपास का टेक्स्ट बदल गया है, इसलिए इसे लागू नहीं किया जा सकता। यह अभी भी लंबित है: इसे अस्वीकार करें, या बदलाव फिर से सुझाएँ।",
     suggestionAmendmentFailed: "सुझाव सेव नहीं किया जा सका",
     suggestionAmendmentResolved:
       "यह सुझाव कहीं और बदल दिया गया है। आपका सेव न किया गया ड्राफ़्ट अभी भी यहाँ है।",
