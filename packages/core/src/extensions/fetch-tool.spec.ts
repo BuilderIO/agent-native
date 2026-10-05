@@ -14,6 +14,55 @@ vi.mock("../workspace-files/store.js", () => ({
 }));
 
 describe("createFetchToolEntry", () => {
+  it.each([400, 403, 429, 503])(
+    "rejects an unsuccessful HTTP mutation (%s)",
+    async (status) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response("Send rejected", { status }),
+      );
+      await expect(
+        createFetchToolEntry()["web-request"].run({
+          url: "https://93.184.216.34/digest",
+          method: "POST",
+        }),
+      ).rejects.toMatchObject({
+        errorCode: `http_${status}`,
+        message: expect.stringContaining("Send rejected"),
+      });
+    },
+  );
+
+  it("rejects absent key references before any request is sent", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const tool = createFetchToolEntry({
+      resolveKeys: async () => {
+        throw new Error("Key SLACK_WEBHOOK is unavailable");
+      },
+    })["web-request"];
+    await expect(
+      tool.run({ url: "https://${keys.SLACK_WEBHOOK}", method: "POST" }),
+    ).rejects.toMatchObject({ errorCode: "web_request_key_resolution_failed" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects a network failure without exposing substituted secrets", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      new Error("Unavailable: synthetic-secret"),
+    );
+    const tool = createFetchToolEntry({
+      resolveKeys: async (text) => ({
+        resolved: text,
+        usedKeys: ["SLACK_WEBHOOK"],
+        secretValues: ["synthetic-secret"],
+      }),
+    })["web-request"];
+    await expect(
+      tool.run({ url: "https://93.184.216.34/digest", method: "POST" }),
+    ).rejects.toMatchObject({
+      errorCode: "web_request_failed",
+      message: "Request failed: Unavailable: [redacted]",
+    });
+  });
   beforeEach(() => {
     mockWriteWorkspaceFile.mockReset();
     mockWriteWorkspaceFile.mockResolvedValue({ id: "workspace-file-1" });
@@ -70,7 +119,7 @@ describe("createFetchToolEntry", () => {
   ])("blocks private/internal target %s before fetching", async (url) => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 
-    await expect(runWebRequest(url)).resolves.toContain(
+    await expect(runWebRequest(url)).rejects.toThrow(
       "Requests to private/internal addresses are not allowed",
     );
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -175,9 +224,9 @@ describe("createFetchToolEntry", () => {
       }),
     );
 
-    await expect(runWebRequest("https://93.184.216.34/redirect")).resolves.toBe(
-      "Redirect to private/internal address blocked.",
-    );
+    await expect(
+      runWebRequest("https://93.184.216.34/redirect"),
+    ).rejects.toThrow("Redirect to private/internal address blocked.");
     expect(fetchSpy).toHaveBeenCalledWith(
       "https://93.184.216.34/redirect",
       expect.objectContaining({ redirect: "manual" }),
@@ -218,7 +267,7 @@ describe("createFetchToolEntry", () => {
       }),
     );
 
-    const result = await runWithRequestContext(
+    const result = runWithRequestContext(
       { userEmail: "ada@example.com", orgId: "org-1" },
       () =>
         createFetchToolEntry()["web-request"].run({
@@ -228,10 +277,10 @@ describe("createFetchToolEntry", () => {
         }),
     );
 
-    expect(String(result)).toContain(
-      "saveToFile error: Refusing to save a failed response",
-    );
-    expect(String(result)).toContain("HTTP 403 Forbidden");
+    await expect(result).rejects.toMatchObject({
+      errorCode: "http_403",
+      message: expect.stringContaining("Refusing to save a failed response"),
+    });
     expect(mockWriteWorkspaceFile).not.toHaveBeenCalled();
   });
 
@@ -315,7 +364,7 @@ describe("createFetchToolEntry", () => {
 
     await expect(
       entry.run({ url: "https://93.184.216.34/api", method: "TRACE" }),
-    ).resolves.toContain("Unsupported HTTP method");
+    ).rejects.toThrow("Unsupported HTTP method");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -504,12 +553,12 @@ describe("createFetchToolEntry", () => {
     );
 
     const entry = createFetchToolEntry()["web-request"];
-    const result = await entry.run({
+    const result = entry.run({
       url: "https://93.184.216.34/logs",
       responseMode: "matches",
       search: { regex: "(a+)+$" },
     });
 
-    expect(result).toContain("Unsafe regex rejected");
+    await expect(result).rejects.toThrow("Unsafe regex rejected");
   });
 });

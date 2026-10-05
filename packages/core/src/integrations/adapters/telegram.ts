@@ -256,8 +256,7 @@ export function telegramAdapter(): PlatformAdapter {
     ): Promise<void> {
       const token = await resolveSecret("TELEGRAM_BOT_TOKEN");
       if (!token) {
-        console.error("[telegram] TELEGRAM_BOT_TOKEN not configured");
-        return;
+        throw new Error("[telegram] TELEGRAM_BOT_TOKEN not configured");
       }
 
       const chunks = splitMessage(message.text, TELEGRAM_MAX_LENGTH);

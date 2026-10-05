@@ -48,6 +48,11 @@ import {
   updateThreadData,
   withThreadDataLock,
 } from "../chat-threads/store.js";
+import { automationOutcomeMessagesForLocale } from "../localization/automation-outcome-messages.js";
+import {
+  LOCALIZATION_SETTING_KEY,
+  normalizeLocalizationPreference,
+} from "../localization/shared.js";
 import { queryOrgMembers } from "../org/context.js";
 import {
   organizationIdFromResourceOwner,
@@ -63,6 +68,7 @@ import {
   runWithRequestContext,
   type RequestContext,
 } from "../server/request-context.js";
+import { getUserSetting } from "../settings/user-settings.js";
 import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.js";
 import {
   applyAutomationFailure,
@@ -734,6 +740,61 @@ async function recordRunOutcome(
   }
 }
 
+async function confirmAutomationWork(
+  automation: BackgroundAutomationContext,
+  ownerEmail: string,
+  run: ActiveRun,
+  responseText: string,
+  actions: Record<string, ActionEntry>,
+): Promise<void> {
+  const events = run.events ?? [];
+  const hasConfirmedAction = events.some(
+    ({ event }) =>
+      event.type === "tool_done" &&
+      !event.isError &&
+      event.completedSideEffect === true &&
+      actions[event.tool]?.confirmsAutomationWork !== false,
+  );
+  const { deliveryPlatform, deliveryDestination } = automation.meta;
+  if (deliveryPlatform && deliveryDestination && responseText.trim()) {
+    const { getDefaultAdapter } =
+      await import("../integrations/adapters/index.js");
+    const adapter = getDefaultAdapter(deliveryPlatform);
+    if (!adapter?.sendMessageToTarget) {
+      throw new BackgroundAutomationRunError(
+        `Automation delivery is not supported for ${deliveryPlatform}`,
+        CONFIG_INVALID_ERROR_CODE,
+      );
+    }
+    await adapter.sendMessageToTarget(
+      adapter.formatAgentResponse(responseText),
+      {
+        destination: deliveryDestination,
+        threadRef: automation.meta.deliveryThreadRef ?? null,
+        tenantId: automation.meta.deliveryTenantId,
+      },
+    );
+    return;
+  }
+  if (hasConfirmedAction) return;
+
+  const preference = normalizeLocalizationPreference(
+    await getUserSetting(ownerEmail, LOCALIZATION_SETTING_KEY),
+  );
+  const messages = automationOutcomeMessagesForLocale(preference.locale);
+  const lastFailedTool = [...events]
+    .reverse()
+    .find(({ event }) => event.type === "tool_done" && event.isError);
+  const detail =
+    lastFailedTool?.event.type === "tool_done"
+      ? lastFailedTool.event.result
+      : undefined;
+  throw new BackgroundAutomationRunError(
+    `${deliveryPlatform && deliveryDestination ? messages.emptyDelivery : messages.noWork}${detail ? ` ${detail}` : ""}`,
+    "automation_no_confirmed_work",
+  );
+}
+
 /**
  * Everything below runs before any thread or `agent_runs` row exists, so an
  * automation that cannot run fails here, once, instead of leaving a "Job:"
@@ -974,12 +1035,33 @@ async function executeBackgroundAutomation(
               clearTimeout(hardAbortTimer);
               hardAbortTimer = null;
             }
-            const persistFailure = backgroundAutomationPersistFailure({
+            let persistFailure = backgroundAutomationPersistFailure({
               run,
               hardTimedOut,
               hardTimeoutMs,
             });
             try {
+              responseText = collectFinalResponseTextFromAgentEvents(
+                (run.events ?? []).map((entry) => entry.event),
+                { fallbackToPreToolText: false },
+              );
+              if (!persistFailure && run.status === "completed") {
+                try {
+                  await confirmAutomationWork(
+                    automation,
+                    ownerEmail,
+                    run,
+                    responseText,
+                    actions,
+                  );
+                } catch (error) {
+                  const failure = classifyAutomationFailure(error);
+                  persistFailure = {
+                    message: failure.message,
+                    errorCode: failure.code,
+                  };
+                }
+              }
               await persistBackgroundAutomationTurn({
                 threadId: thread.id,
                 threadTitle,
@@ -1012,9 +1094,6 @@ async function executeBackgroundAutomation(
               );
               return;
             }
-            responseText = collectFinalResponseTextFromAgentEvents(
-              (run.events ?? []).map((entry) => entry.event),
-            );
             resolve();
           },
           {
@@ -1082,30 +1161,6 @@ async function executeBackgroundAutomation(
         } catch {
           // Usage attribution must not break an otherwise successful run.
         }
-      }
-
-      if (
-        responseText.trim() &&
-        automation.meta.deliveryPlatform &&
-        automation.meta.deliveryDestination
-      ) {
-        const { getDefaultAdapter } =
-          await import("../integrations/adapters/index.js");
-        const adapter = getDefaultAdapter(automation.meta.deliveryPlatform);
-        if (!adapter?.sendMessageToTarget) {
-          throw new BackgroundAutomationRunError(
-            `Automation delivery is not supported for ${automation.meta.deliveryPlatform}`,
-            CONFIG_INVALID_ERROR_CODE,
-          );
-        }
-        await adapter.sendMessageToTarget(
-          adapter.formatAgentResponse(responseText),
-          {
-            destination: automation.meta.deliveryDestination,
-            threadRef: automation.meta.deliveryThreadRef ?? null,
-            tenantId: automation.meta.deliveryTenantId,
-          },
-        );
       }
 
       return { responseText, runId };

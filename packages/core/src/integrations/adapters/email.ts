@@ -273,8 +273,7 @@ export function emailAdapter(): PlatformAdapter {
     ): Promise<void> {
       const agentAddress = await resolveSecret("EMAIL_AGENT_ADDRESS");
       if (!agentAddress) {
-        console.error("[email] EMAIL_AGENT_ADDRESS not configured");
-        return;
+        throw new Error("[email] EMAIL_AGENT_ADDRESS not configured");
       }
 
       const config = await getIntegrationConfig("email");

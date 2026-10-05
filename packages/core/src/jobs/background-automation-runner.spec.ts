@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import type { AgentEngine, EngineEvent } from "../agent/engine/types.js";
 
 const pglite = await createTestPglite();
 
@@ -56,13 +57,21 @@ vi.mock("../agent/engine/index.js", async (importOriginal) => {
 });
 
 vi.mock("../agent/run-loop-with-resume.js", () => ({
-  runAgentLoopDirectWithSoftTimeout: vi.fn(async () => ({
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheReadTokens: 0,
-    cacheWriteTokens: 0,
-    model: "test-model",
-  })),
+  runAgentLoopDirectWithSoftTimeout: vi.fn(async (opts) => {
+    opts.send?.({
+      type: "tool_done",
+      tool: "send-notification",
+      result: "Sent",
+      completedSideEffect: true,
+    });
+    return {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      model: "test-model",
+    };
+  }),
 }));
 
 vi.mock("../chat-threads/store.js", () => ({
@@ -111,6 +120,285 @@ const testEngine = {
   defaultModel: "test-model",
   supportedModels: ["test-model"],
 } as any;
+
+describe("runBackgroundAutomation — confirmed work", () => {
+  const usage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    model: "test-model",
+  };
+
+  it.each([false, true])(
+    "rejects a real failed HTTP send (progress bookkeeping: %s)",
+    async (trackProgress) => {
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      const { runAgentLoop: actualLoop } = await vi.importActual<
+        typeof import("../agent/production-agent.js")
+      >("../agent/production-agent.js");
+      const { createFetchToolEntry } =
+        await import("../extensions/fetch-tool.js");
+      const { createProgressToolEntries } =
+        await import("../progress/actions.js");
+      let requests = 0;
+      const engine: AgentEngine = {
+        ...testEngine,
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          if (requests++ === 0) {
+            yield {
+              type: "assistant-content",
+              parts: [
+                ...(trackProgress
+                  ? [
+                      {
+                        type: "tool-call" as const,
+                        id: "progress-1",
+                        name: "manage-progress",
+                        input: { action: "start", title: "Send weekly digest" },
+                      },
+                    ]
+                  : []),
+                {
+                  type: "tool-call",
+                  id: "send-1",
+                  name: "web-request",
+                  input: {
+                    url: "https://93.184.216.34/digest",
+                    method: "POST",
+                    body: '{"text":"Digest"}',
+                  },
+                },
+              ],
+            };
+            yield { type: "stop", reason: "tool_use" };
+          } else {
+            yield {
+              type: "assistant-content",
+              parts: [{ type: "text", text: "No notification was sent." }],
+            };
+            yield { type: "stop", reason: "end_turn" };
+          }
+        },
+      };
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response("Delivery unavailable", {
+          status: 503,
+          statusText: "Unavailable",
+        }),
+      );
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+        actualLoop,
+      );
+      try {
+        await expect(
+          runBackgroundAutomation(
+            runOptions(precondition("http-digest"), { manual: true }),
+            {
+              ...standardDeps,
+              engine,
+              getActions: () => ({
+                ...createFetchToolEntry(),
+                ...createProgressToolEntries(() => "alice@agent-native.test"),
+              }),
+            },
+          ),
+        ).rejects.toMatchObject({
+          errorCode: "automation_no_confirmed_work",
+          message: expect.stringContaining("HTTP 503"),
+        });
+        expect(requests).toBe(2);
+        expect(assistantContent()).toContainEqual(
+          expect.objectContaining({
+            type: "tool-call",
+            toolName: "web-request",
+          }),
+        );
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    },
+  );
+
+  it.each(["No notification was sent.", "Everything is complete."])(
+    "rejects a prose-only finish: %s",
+    async (text) => {
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+        async (opts) => {
+          opts.send?.({ type: "text", text });
+          return usage;
+        },
+      );
+      await expect(
+        runBackgroundAutomation(
+          runOptions(precondition(`prose-only-${text.length}`)),
+          standardDeps,
+        ),
+      ).rejects.toMatchObject({ errorCode: "automation_no_confirmed_work" });
+    },
+  );
+
+  it.each(["delivered", "empty", "preparation", "failure", "action-only"])(
+    "settles configured delivery: %s",
+    async (scenario) => {
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      const adapters = await import("../integrations/adapters/index.js");
+      const sendMessageToTarget = vi.fn(async () => {
+        if (scenario === "failure")
+          throw Object.assign(new Error("Slack delivery rejected"), {
+            errorCode: "http_503",
+          });
+      });
+      const adapter = vi.spyOn(adapters, "getDefaultAdapter").mockReturnValue({
+        formatAgentResponse: (text: string) => ({
+          text,
+          platformContext: {},
+        }),
+        sendMessageToTarget,
+      } as any);
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+        async (opts) => {
+          if (scenario === "preparation") {
+            opts.send?.({ type: "text", text: "I will gather the digest." });
+            opts.send?.({
+              type: "tool_done",
+              tool: "list-events",
+              result: "[]",
+            });
+          } else if (scenario === "action-only") {
+            opts.send?.({
+              type: "tool_done",
+              tool: "send-notification",
+              result: "Sent",
+              completedSideEffect: true,
+            });
+          } else if (scenario !== "empty") {
+            opts.send?.({ type: "text", text: "Your weekly digest." });
+          }
+          return usage;
+        },
+      );
+      try {
+        const run = runBackgroundAutomation(
+          runOptions(
+            precondition(`delivery-${scenario}`, {
+              deliveryPlatform: "slack",
+              deliveryDestination: "example-channel",
+            }),
+          ),
+          standardDeps,
+        );
+        if (scenario === "delivered" || scenario === "action-only") {
+          await expect(run).resolves.toMatchObject({
+            runId: expect.any(String),
+          });
+        } else {
+          await expect(run).rejects.toMatchObject({
+            errorCode:
+              scenario === "failure"
+                ? "http_503"
+                : "automation_no_confirmed_work",
+          });
+          expect(assistantMessage().status).toMatchObject({
+            type: "incomplete",
+            reason: "error",
+          });
+        }
+        expect(sendMessageToTarget).toHaveBeenCalledTimes(
+          scenario === "delivered" || scenario === "failure" ? 1 : 0,
+        );
+      } finally {
+        adapter.mockRestore();
+      }
+    },
+  );
+
+  it.each([false, true])(
+    "rejects an undelivered digest (successful read: %s)",
+    async (readSucceeded) => {
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+        async (opts) => {
+          if (readSucceeded)
+            opts.send?.({
+              type: "tool_done",
+              tool: "list-events",
+              result: "[]",
+            });
+          opts.send?.({
+            type: "tool_done",
+            tool: "send-digest",
+            result: "Slack connection is unavailable",
+            isError: true,
+            completedSideEffect: false,
+          });
+          opts.send?.({ type: "text", text: "No notification was sent." });
+          opts.send?.({ type: "done" });
+          return {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            model: "test-model",
+          };
+        },
+      );
+      const name = `undelivered-digest-${readSucceeded}`;
+      const options = {
+        automation: {
+          name,
+          meta: { schedule: "* * * * *", enabled: true },
+          body: "Send the Slack digest.",
+          resource: {
+            owner: "alice@agent-native.test",
+            path: `jobs/${name}.md`,
+          } as any,
+        },
+        ownerEmail: "alice@agent-native.test",
+        prompt: "Send the Slack digest.",
+        threadTitle: `Job: ${name}`,
+        runIdPrefix: `job-${name}`,
+        usageLabel: name,
+        manual: true,
+      };
+      await expect(
+        runBackgroundAutomation(options, {
+          getActions: () => ({}),
+          getSystemPrompt: async () => "system",
+          engine: testEngine,
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "automation_no_confirmed_work",
+        message: expect.stringContaining("Slack connection is unavailable"),
+      });
+      const row = await pglite
+        .prepare(
+          "SELECT status, error_code FROM automation_runs WHERE automation = ?",
+        )
+        .get(name);
+      expect(row).toMatchObject({
+        status: "error",
+        error_code: "automation_no_confirmed_work",
+      });
+      expect(assistantMessage().status).toMatchObject({
+        type: "incomplete",
+        reason: "error",
+      });
+    },
+  );
+});
 
 describe("runBackgroundAutomation — background-run self-claim", () => {
   it("keeps the outer hard timeout at the ten-minute background budget", () => {
@@ -419,6 +707,12 @@ describe("runBackgroundAutomation — thread transcript", () => {
           id: "tc_1",
           tool: "poll-slack-channel",
           result: JSON.stringify({ checked: 1 }),
+        });
+        opts.send?.({
+          type: "tool_done",
+          tool: "send-notification",
+          result: "Sent",
+          completedSideEffect: true,
         });
         return {
           inputTokens: 0,

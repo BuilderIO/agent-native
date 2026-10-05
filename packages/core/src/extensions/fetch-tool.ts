@@ -10,6 +10,7 @@
  * the raw secret never enters the model's context.
  */
 
+import { fail, isActionContractError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ResolvedKeyReference } from "../secrets/substitution.js";
 import {
@@ -237,7 +238,10 @@ export function createFetchToolEntry(
         const rawUrl = String(args.url ?? "");
         const method = normalizeExtensionProxyMethod(args.method || "GET");
         if (!method) {
-          return "Unsupported HTTP method. Allowed methods: GET, POST, PUT, PATCH, DELETE, HEAD.";
+          fail(
+            "Unsupported HTTP method. Allowed methods: GET, POST, PUT, PATCH, DELETE, HEAD.",
+            { errorCode: "web_request_invalid_method" },
+          );
         }
         const rawHeaders =
           typeof args.headers === "string"
@@ -288,7 +292,9 @@ export function createFetchToolEntry(
               allResolvedKeys.push(...(bodyResult.resolvedKeys ?? []));
             }
           } catch (err: any) {
-            return `Error resolving key references: ${err?.message ?? err}`;
+            fail(`Error resolving key references: ${err?.message ?? err}`, {
+              errorCode: "web_request_key_resolution_failed",
+            });
           }
         }
         const secretValues = collectSecretValues(allSecretValues);
@@ -297,7 +303,10 @@ export function createFetchToolEntry(
           : undefined;
 
         if (await isBlockedExtensionUrlWithDns(resolvedUrl)) {
-          return `Requests to private/internal addresses are not allowed: "${rawUrl}".`;
+          fail(
+            `Requests to private/internal addresses are not allowed: "${rawUrl}".`,
+            { errorCode: "web_request_url_blocked" },
+          );
         }
 
         if (opts.validateUrl && allUsedKeys.length > 0) {
@@ -308,10 +317,16 @@ export function createFetchToolEntry(
               resolvedKeys,
             );
             if (!allowed) {
-              return `URL "${rawUrl}" is not in the allowlist for the referenced keys. Check your key settings.`;
+              fail(
+                `URL "${rawUrl}" is not in the allowlist for the referenced keys. Check your key settings.`,
+                { errorCode: "web_request_url_blocked" },
+              );
             }
           } catch (err: any) {
-            return `URL validation error: ${err?.message ?? err}`;
+            if (isActionContractError(err)) throw err;
+            fail(`URL validation error: ${err?.message ?? err}`, {
+              errorCode: "web_request_url_validation_failed",
+            });
           }
         }
 
@@ -319,7 +334,9 @@ export function createFetchToolEntry(
         try {
           headers = sanitizeOutboundHeaders(JSON.parse(resolvedHeaders));
         } catch {
-          return `Invalid headers JSON: ${rawHeaders}`;
+          fail(`Invalid headers JSON: ${rawHeaders}`, {
+            errorCode: "web_request_invalid_headers",
+          });
         }
         headers = applyBrowserDefaults(headers);
 
@@ -354,7 +371,9 @@ export function createFetchToolEntry(
               redirectUrl &&
               (await isBlockedExtensionUrlWithDns(redirectUrl))
             ) {
-              return "Redirect to private/internal address blocked.";
+              fail("Redirect to private/internal address blocked.", {
+                errorCode: "web_request_url_blocked",
+              });
             }
             if (redirectUrl && opts.validateUrl && allUsedKeys.length > 0) {
               const allowed = await opts.validateUrl(
@@ -363,12 +382,18 @@ export function createFetchToolEntry(
                 resolvedKeys,
               );
               if (!allowed) {
-                return "Redirect URL is not in the allowlist for the referenced keys.";
+                fail(
+                  "Redirect URL is not in the allowlist for the referenced keys.",
+                  { errorCode: "web_request_url_blocked" },
+                );
               }
             }
-            return `HTTP ${response.status} ${response.statusText}\n\nRedirect: ${
-              redirectUrl ? redactString(redirectUrl, secretValues) : "(none)"
-            }`;
+            fail(
+              `HTTP ${response.status} ${response.statusText}\n\nRedirect: ${
+                redirectUrl ? redactString(redirectUrl, secretValues) : "(none)"
+              }`,
+              { errorCode: `http_${response.status}` },
+            );
           }
 
           const contentType =
@@ -428,7 +453,9 @@ export function createFetchToolEntry(
             const result = await readResponseTextWithLimit(response, readLimit);
             body = result.text;
           } catch {
-            body = "(could not read response body)";
+            fail("(could not read response body)", {
+              errorCode: "web_request_body_unreadable",
+            });
           }
           body = redactString(body, secretValues);
           let displayBody: string;
@@ -450,7 +477,10 @@ export function createFetchToolEntry(
             processedMode = processed.mode;
             displayBody = formatWebContentResult(processed);
           } catch (err: any) {
-            return `web-request post-processing error: ${err?.message ?? String(err)}`;
+            fail(
+              `web-request post-processing error: ${err?.message ?? String(err)}`,
+              { errorCode: "web_request_processing_failed" },
+            );
           }
 
           console.log(
@@ -493,6 +523,11 @@ export function createFetchToolEntry(
               );
               const bytes = Buffer.byteLength(body, "utf8");
               const preview = displayBody.slice(0, 2000);
+              if (!response.ok)
+                fail(
+                  `HTTP ${response.status} ${response.statusText}\n\n${displayBody}`,
+                  { errorCode: `http_${response.status}` },
+                );
               return JSON.stringify({
                 savedToFile: true,
                 savedTo: saveToFilePath,
@@ -505,18 +540,34 @@ export function createFetchToolEntry(
                 ...(scratchPath ? {} : { file: toWorkspaceFileCard(meta) }),
               });
             } catch (saveErr: any) {
-              return `saveToFile error: ${saveErr?.message ?? String(saveErr)}\n\nHTTP ${response.status} ${response.statusText}\n\n${body.slice(0, maxChars)}`;
+              if (isActionContractError(saveErr)) throw saveErr;
+              fail(
+                `saveToFile error: ${saveErr?.message ?? String(saveErr)}\n\nHTTP ${response.status} ${response.statusText}\n\n${body.slice(0, maxChars)}`,
+                {
+                  errorCode: response.ok
+                    ? "web_request_save_failed"
+                    : `http_${response.status}`,
+                },
+              );
             }
           }
 
+          if (!response.ok)
+            fail(
+              `HTTP ${response.status} ${response.statusText}\n\n${displayBody}`,
+              { errorCode: `http_${response.status}` },
+            );
           return `HTTP ${response.status} ${response.statusText}\n\n${displayBody}`;
         } catch (err: any) {
+          if (isActionContractError(err)) throw err;
           const elapsed = Date.now() - startTime;
           if (err?.name === "AbortError") {
             console.log(
               `[fetch-tool] ${method} ${rawUrl} → TIMEOUT (${elapsed}ms)`,
             );
-            return `Request timed out after ${timeoutMs}ms.`;
+            fail(`Request timed out after ${timeoutMs}ms.`, {
+              errorCode: "web_request_timeout",
+            });
           }
           const message = redactSecrets(
             err?.message ?? String(err),
@@ -525,7 +576,9 @@ export function createFetchToolEntry(
           console.log(
             `[fetch-tool] ${method} ${rawUrl} → ERROR: ${message} (${elapsed}ms)`,
           );
-          return `Request failed: ${message}`;
+          fail(`Request failed: ${message}`, {
+            errorCode: "web_request_failed",
+          });
         } finally {
           clearTimeout(timeout);
         }

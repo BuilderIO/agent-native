@@ -1044,6 +1044,8 @@ export interface ActionEntry {
   deferLoading?: boolean;
   publicAgent?: import("../action.js").PublicAgentActionConfig;
   readOnly?: boolean;
+  /** Bookkeeping writes still need replay protection, but cannot confirm automation work. */
+  confirmsAutomationWork?: boolean;
   grounding?: boolean;
   allowInPlanMode?: boolean;
   planMode?: import("../action.js").ActionPlanModeConfig<any>;

@@ -494,6 +494,17 @@ Respond to the event.`,
           threadId,
           status: "running",
           abort,
+          events: [
+            {
+              seq: 0,
+              event: {
+                type: "tool_done",
+                tool: "send-notification",
+                result: "Sent",
+                completedSideEffect: true,
+              },
+            },
+          ],
         };
         void Promise.resolve().then(async () => {
           try {
