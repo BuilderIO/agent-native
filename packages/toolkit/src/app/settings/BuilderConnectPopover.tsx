@@ -23,6 +23,7 @@ type BuilderConnectTrigger = React.ReactElement<{
 
 export interface BuilderConnectPopoverProps {
   flow: Pick<BuilderConnectFlow, "connecting" | "start"> & {
+    accountExists?: boolean;
     cancel?: BuilderConnectFlow["cancel"];
     agentNativeProvisioningEnabled?: boolean;
     retry?: () => boolean | void;
@@ -37,7 +38,6 @@ export interface BuilderConnectPopoverProps {
   contentTestId?: string;
   primaryTestId?: string;
   secondaryTestId?: string;
-  replayTriggerClick?: boolean;
 }
 
 export function BuilderConnectPopover({
@@ -49,12 +49,10 @@ export function BuilderConnectPopover({
   contentTestId,
   primaryTestId,
   secondaryTestId,
-  replayTriggerClick = false,
 }: BuilderConnectPopoverProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const triggerContainerRef = useRef<HTMLSpanElement>(null);
-  const replayedTriggerClickRef = useRef(false);
+  const previousAccountExistsRef = useRef(flow.accountExists === true);
   const capabilityResolved = flow.statusResolved === true;
   const showPopover =
     (defaultProvisionAccount && !capabilityResolved) ||
@@ -65,12 +63,11 @@ export function BuilderConnectPopover({
   const settledCount = flow.statusReadSettledCount ?? 0;
 
   useEffect(() => {
-    if (!replayTriggerClick || replayedTriggerClickRef.current) return;
-    replayedTriggerClickRef.current = true;
-    triggerContainerRef.current
-      ?.querySelector<HTMLElement>("button, a, [role='button']")
-      ?.click();
-  }, [replayTriggerClick]);
+    const newlyFoundAccount =
+      flow.accountExists === true && !previousAccountExistsRef.current;
+    previousAccountExistsRef.current = flow.accountExists === true;
+    if (newlyFoundAccount) setOpen(true);
+  }, [flow.accountExists]);
 
   const start = (provisionAccount?: boolean) => {
     const shouldProvision =
@@ -141,26 +138,19 @@ export function BuilderConnectPopover({
     ) : null;
 
   if (!showPopover) {
-    const wrappedTrigger = (
-      <span ref={triggerContainerRef} className="contents">
-        {trigger}
-      </span>
-    );
     return cancelAction ? (
       <span className="inline-flex max-w-full items-center gap-2">
-        {wrappedTrigger}
+        <span className="contents">{trigger}</span>
         {cancelAction}
       </span>
     ) : (
-      wrappedTrigger
+      <span className="contents">{trigger}</span>
     );
   }
 
   const popover = (
     <Popover open={open} onOpenChange={setOpen}>
-      <span ref={triggerContainerRef} className="contents">
-        <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-      </span>
+      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent
         align="center"
         side="right"
@@ -176,11 +166,18 @@ export function BuilderConnectPopover({
           >
             {t("agentChat.onboarding.builderActivateTitle")}
           </h2>
-          <p className="text-xs leading-5 text-muted-foreground">
-            {t("agentChat.onboarding.builderActivationDescription", {
-              defaultValue:
-                "Create or connect a Builder.io account in one click to get free credits.",
-            })}
+          <p
+            role={flow.accountExists ? "status" : undefined}
+            className="text-xs leading-5 text-muted-foreground"
+          >
+            {flow.accountExists
+              ? t("agentChat.onboarding.builderAccountExistsTitle", {
+                  defaultValue: "You already have a Builder.io account",
+                })
+              : t("agentChat.onboarding.builderActivationDescription", {
+                  defaultValue:
+                    "Create or connect a Builder.io account in one click to get free credits.",
+                })}
           </p>
           <BuilderConnectIncludedServices />
           <div className="flex flex-col gap-2">

@@ -109,6 +109,7 @@ describe("FirstRunOnboarding", () => {
             required: true,
             builderIncluded: true,
             keySummary: "LLM provider key",
+            whyKey: "agentChat.onboarding.capability.llm.why",
             why: "Needed for chat",
           },
           {
@@ -884,7 +885,7 @@ describe("FirstRunOnboarding", () => {
     expect(included).not.toContain("Turns speech into text");
     expect(
       services?.querySelectorAll("button[aria-label^='About']").length,
-    ).toBeGreaterThan(0);
+    ).toBe(1);
     const manualCard = document.body
       .querySelector("[data-testid='first-run-open-key-settings']")
       ?.closest("section");

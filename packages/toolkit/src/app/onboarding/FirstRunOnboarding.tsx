@@ -1105,7 +1105,7 @@ type CapabilityCopy = Pick<
 > & {
   label: string;
   keySummary: string;
-  why: string;
+  why: string | null;
 };
 
 function getCapabilityCopy(
@@ -1124,7 +1124,7 @@ function getCapabilityCopy(
       : capability.keySummary,
     why: capability.whyKey
       ? t(capability.whyKey, { defaultValue: capability.why })
-      : capability.why,
+      : null,
   };
 }
 
@@ -1177,7 +1177,9 @@ function CapabilityRow({ copy }: { copy: CapabilityCopy }) {
       >
         {copy.keySummary}
       </span>
-      <CapabilityInfoButton label={copy.label} why={copy.why} />
+      {copy.why ? (
+        <CapabilityInfoButton label={copy.label} why={copy.why} />
+      ) : null}
       <span className="shrink-0 text-xs text-muted-foreground">
         {copy.required ? "Required" : "Recommended"}
       </span>

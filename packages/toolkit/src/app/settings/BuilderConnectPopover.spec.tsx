@@ -49,6 +49,7 @@ vi.mock("@agent-native/core/client/onboarding/use-onboarding", () => ({
 }));
 
 import { BuilderConnectPopover } from "./BuilderConnectPopover.js";
+import { DeferredBuilderConnectPopover } from "./deferred-builder-connect-popover.js";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -96,6 +97,23 @@ function trigger() {
 }
 
 describe("BuilderConnectPopover before the status read resolves", () => {
+  it("starts the OAuth path from the original trigger click", () => {
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      statusResolved: true,
+      agentNativeProvisioningEnabled: false,
+      accountExists: false,
+    };
+
+    render(
+      React.createElement(DeferredBuilderConnectPopover, { flow }, trigger()),
+    );
+    click(connectButton());
+
+    expect(flow.start).toHaveBeenCalledWith({ provisionAccount: false });
+  });
+
   it("uses existing-account sign-in when provisioning is unavailable", () => {
     const onConnect = vi.fn();
     const flow = {
@@ -248,8 +266,8 @@ describe("BuilderConnectPopover before the status read resolves", () => {
 
     const consent = document.querySelector("[data-testid='consent']");
     expect(consent?.textContent).toContain("builderActivateTitle");
-    expect(consent?.textContent).toContain(
-      "Create or connect a Builder.io account in one click to get free credits.",
+    expect(consent?.querySelector("p[role='status']")?.textContent).toBe(
+      "You already have a Builder.io account",
     );
     expect(consent?.textContent).toContain("Included free");
     expect(consent?.textContent).not.toContain(
@@ -290,6 +308,46 @@ describe("BuilderConnectPopover before the status read resolves", () => {
     expect(servicesToggle?.getAttribute("aria-expanded")).toBe("true");
     click(consent?.querySelector("[data-testid='create']") as HTMLElement);
     expect(onConnect).toHaveBeenCalledWith(true);
+  });
+
+  it("reopens the same account choices when activation finds an existing account", () => {
+    const flow = {
+      connecting: false,
+      start: vi.fn(),
+      statusResolved: true,
+      agentNativeProvisioningEnabled: true,
+      accountExists: false,
+    };
+    const props = {
+      flow,
+      contentTestId: "consent",
+      primaryTestId: "create",
+      secondaryTestId: "sign-in",
+    };
+
+    render(React.createElement(BuilderConnectPopover, props, trigger()));
+    click(connectButton());
+    click(
+      document.querySelector(
+        "[data-testid='consent'] [data-testid='create']",
+      ) as HTMLElement,
+    );
+    expect(flow.start).toHaveBeenCalledWith({ provisionAccount: true });
+
+    render(
+      React.createElement(
+        BuilderConnectPopover,
+        { ...props, flow: { ...flow, accountExists: true } },
+        trigger(),
+      ),
+    );
+
+    const consent = document.querySelector("[data-testid='consent']");
+    expect(consent?.querySelector("p[role='status']")?.textContent).toBe(
+      "You already have a Builder.io account",
+    );
+    expect(consent?.querySelector("[data-testid='create']")).not.toBeNull();
+    expect(consent?.querySelector("[data-testid='sign-in']")).not.toBeNull();
   });
 
   it("stacks the create and sign-in buttons together with the terms below them", () => {

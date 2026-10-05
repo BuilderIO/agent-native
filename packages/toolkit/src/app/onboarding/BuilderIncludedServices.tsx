@@ -45,7 +45,7 @@ function capabilityCopy(
       : capability.label,
     why: capability.whyKey
       ? t(capability.whyKey, { defaultValue: capability.why })
-      : capability.why,
+      : null,
   };
 }
 
@@ -101,7 +101,9 @@ function CapabilityRows({
           size={15}
         />
         <span className="text-xs text-foreground">{copy.label}</span>
-        <CapabilityInfoButton label={copy.label} why={copy.why} />
+        {copy.why ? (
+          <CapabilityInfoButton label={copy.label} why={copy.why} />
+        ) : null}
       </div>
     );
   });
@@ -220,7 +222,7 @@ export function BuilderIncludedBenefitsDisclosure({
         {creditsLabel}
       </span>
       {additionalServices.length > 0 ? (
-        <span className="text-xs font-medium text-foreground dark:text-white">
+        <span className="text-xs font-medium text-white">
           {moreServicesLabel}
         </span>
       ) : null}
@@ -248,7 +250,7 @@ export function BuilderIncludedBenefitsDisclosure({
           className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180"
         />
       </CollapsibleTrigger>
-      <CollapsibleContent className="bg-muted px-2 py-2">
+      <CollapsibleContent className="border-0 bg-muted px-2 py-2">
         {serviceList}
       </CollapsibleContent>
     </Collapsible>
