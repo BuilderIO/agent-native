@@ -1,4 +1,5 @@
 import {
+  captureAttribution,
   getFirstTouchAttribution,
   getLastTouchAttribution,
   type FirstTouchAttribution,
@@ -123,7 +124,10 @@ export function appendSiteHandoff(
  * every listener. The clean `href` comes back on the next task, so copying
  * the link later never hands this visitor's source to someone else.
  */
-export function installAppLinkAttribution(target: Document = document) {
+export function installAppLinkAttribution(target: EventTarget = window) {
+  // This installs before hydration, and tracking stores the first and last
+  // touch only after it, so store them now for a link followed in between.
+  captureAttribution();
   const decorate = (event: Event) => {
     // Primary click (also Enter on a focused link) or middle click. Other
     // buttons open menus, not the link.
@@ -148,9 +152,11 @@ export function installAppLinkAttribution(target: Document = document) {
     });
   };
 
-  // Both phases: capture still runs when a handler stops propagation, and
-  // bubble runs after handlers that rebuild `href` on click (SlidesTryNow).
-  // Decorating is idempotent. `auxclick` covers middle-click.
+  // Both phases on the window: capture still runs when a handler stops
+  // propagation, and bubble runs after React's click handlers, which React
+  // delegates to the document, so a handler that rebuilds `href` on click
+  // (SlidesTryNow) keeps the source. Decorating is idempotent. `auxclick`
+  // covers middle-click.
   const listeners = ["click", "auxclick"].flatMap((type) =>
     [true, false].map((capture) => ({ type, capture })),
   );

@@ -545,6 +545,34 @@ describe("browser analytics pageviews", () => {
     });
   });
 
+  it("captures attribution before tracking starts", async () => {
+    installBrowser(
+      "https://agent-native.com/templates/slides?utm_source=youtube&gclid=g-1",
+    );
+    const { captureAttribution, getFirstTouchAttribution } =
+      await freshAnalytics();
+
+    captureAttribution();
+
+    expect(getFirstTouchAttribution()).toMatchObject({
+      utm_source: "youtube",
+      gclid: "g-1",
+      landing_path: "/templates/slides",
+    });
+  });
+
+  it("leaves synthetic traffic uncaptured when capturing early", async () => {
+    const { localStorage } = installBrowser(
+      "https://agent-native.com/?utm_source=youtube",
+    );
+    Object.assign(window, { __AGENT_NATIVE_SYNTHETIC_TRAFFIC__: "beta-e2e" });
+    const { captureAttribution } = await freshAnalytics();
+
+    captureAttribution();
+
+    expect(localStorage.getItem("an_attribution")).toBeNull();
+  });
+
   it("keeps high-value signup attribution when the cookie payload exceeds its budget", async () => {
     const params = new URLSearchParams({
       gclid: "click-id",

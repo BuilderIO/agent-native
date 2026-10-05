@@ -905,6 +905,16 @@ export function getLastTouchAttribution(): LastTouchAttribution | null {
   return readStoredAttribution<LastTouchAttribution>(LAST_TOUCH_STORAGE_KEY);
 }
 
+/**
+ * Store the visitor's first and last touch now instead of in
+ * `configureTracking()`, for a page that reads them before tracking starts.
+ * It runs once per page load, so tracking's own capture is then a no-op.
+ */
+export function captureAttribution(): void {
+  if (isSyntheticBrowserTraffic()) return;
+  captureFirstTouchAttribution();
+}
+
 function isLocalAnalyticsHostname(hostname: string | undefined): boolean {
   const h = (hostname || "").toLowerCase();
   return (
