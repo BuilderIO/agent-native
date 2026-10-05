@@ -1,9 +1,13 @@
+import {
+  CHUNK_RECOVERY_QUERY_PARAM,
+  ROUTE_WARMUP_PRELOAD_ATTRIBUTE,
+  STALE_CHUNK_RELOAD_AT_KEY,
+  STALE_CHUNK_RELOAD_COOLDOWN_MS,
+} from "../shared/route-chunk-recovery-bootstrap.js";
+
 const INSTALL_KEY = "__agentNativeRouteChunkRecoveryInstalled";
 const INTENDED_NAV_MAX_AGE_MS = 15_000;
-const STALE_CHUNK_RELOAD_AT_KEY = "__agentNativeStaleChunkReloadAt";
-const STALE_CHUNK_RELOAD_COOLDOWN_MS = 10_000;
 const STALE_CHUNK_EXHAUSTED_KEY = "__agentNativeStaleChunkRecoveryExhausted";
-const CHUNK_RECOVERY_QUERY_PARAM = "__agentNativeChunkRecovery";
 
 /**
  * Fired on `window` the first time a stale chunk could not be recovered by a
@@ -161,7 +165,7 @@ function isModuleAssetLoadFailure(event: Event): boolean {
     | null;
   const tagName = target?.tagName?.toUpperCase();
   if (tagName === "LINK" && target) {
-    if (target.hasAttribute?.("data-agent-native-route-warmup")) return false;
+    if (target.hasAttribute?.(ROUTE_WARMUP_PRELOAD_ATTRIBUTE)) return false;
     return /(?:^|\s)modulepreload(?:\s|$)/i.test(
       target.getAttribute?.("rel") ?? target.rel ?? "",
     );
