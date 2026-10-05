@@ -505,8 +505,10 @@ async function startRebuild(
 }
 
 /**
- * Marks the rebuild complete once every change it queued is processed.
- * Returns whether the state may have changed.
+ * Marks the rebuild complete once every change it queued is processed, if
+ * it's still the rebuild that was checked: an invalidation meanwhile clears
+ * its highest `seq`, which leaves the rows to be queued again. Returns
+ * whether the state may have changed.
  */
 async function completeRebuildIfDone(
   exec: DbExec,
@@ -522,8 +524,14 @@ async function completeRebuildIfDone(
     sql: `UPDATE ${SEARCH_INDEX_STATE_TABLE}
           SET index_version = target_version, rebuild_completed_at = now()
           WHERE app = ? AND resource_type = ? AND target_version = ? AND rebuild_completed_at IS NULL
+            AND rebuild_high_seq = ?::bigint
           RETURNING target_version`,
-    args: [registration.app, registration.type, state.targetVersion],
+    args: [
+      registration.app,
+      registration.type,
+      state.targetVersion,
+      state.rebuildHighSeq,
+    ],
   });
   if (rows.length) {
     // Rows whose source row is gone are deletes the feed missed: the source

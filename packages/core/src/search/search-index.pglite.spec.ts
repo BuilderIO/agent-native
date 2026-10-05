@@ -1229,6 +1229,44 @@ describe("change capture", () => {
     expect(await indexedIds("mid-queue")).toEqual(["kept", "missed"]);
   });
 
+  it("rebuilds again when a release reinstalls capture while a rebuild is completing", async () => {
+    search.resetSearchIndexRuntime();
+    const { registered, tableName } = await isolatedRegistration("completing");
+    await run(`INSERT INTO ${tableName} (id, title) VALUES ('kept', 'Kept')`);
+    let held = false;
+    const restore = interceptStatements(async (sql, _query, execute) => {
+      if (!held && sql.includes("SET index_version = target_version")) {
+        held = true;
+        // Every queued change is processed and the drain is about to mark
+        // the rebuild complete.
+        await dropCapture({
+          app: "isolated",
+          resourceType: "completing",
+          table: tableName,
+          idColumn: "id",
+        });
+        await run(
+          `INSERT INTO ${tableName} (id, title) VALUES ('missed', 'Missed')`,
+        );
+        await search.searchIndexMigration(registered, {
+          version: 1,
+          name: "capture-completing-again",
+        }).run!(exec());
+      }
+      return execute();
+    });
+    try {
+      expect(
+        await indexer.drainSearchIndex(registered, Date.now() + 10_000),
+      ).toEqual({ ready: false, reason: "rebuilding" });
+    } finally {
+      restore();
+    }
+    search.resetSearchIndexRuntime();
+    expect(await prepareFully(registered)).toEqual({ ready: true });
+    expect(await indexedIds("completing")).toEqual(["kept", "missed"]);
+  });
+
   it("is left to the newer version when an older release migrates later", async () => {
     const { registered, tableName } = await isolatedRegistration("superseded");
     await search.searchIndexMigration(

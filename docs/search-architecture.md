@@ -258,9 +258,9 @@ Instead:
    migration installs nothing, since its older SQL would replace the newer
    build's. Two builds at the same version aren't ordered: whichever migrates
    last installs its SQL. If the migration finds capture missing, it discards
-   the finished index, because writes made in the meantime were never
-   recorded. A release that renames the triggers therefore rebuilds the index
-   once.
+   the index, finished or still rebuilding, because writes made in the
+   meantime were never recorded. A release that renames the triggers
+   therefore rebuilds the index once.
 
    Search checks at most once a minute that the triggers exist and are
    enabled. If they're missing or disabled, search reports
@@ -349,9 +349,10 @@ Instead:
    - A rebuild at the same version, after capture was missing, is claimed by
      one process in one statement, so only that process enqueues.
    - A rebuild records its highest `seq` only if its claim still stands once
-     it has enqueued. Discarding the index clears the claim, so a rebuild
-     that was enqueueing when capture went missing starts over, rather than
-     completing without the writes made while capture was gone.
+     it has enqueued, and completes only if that `seq` is still recorded.
+     Discarding the index clears both, so a rebuild that was enqueueing or
+     finishing when capture went missing starts over, rather than completing
+     without the writes made while capture was gone.
 
    Every claim, index write, and completion carries a fence: it takes effect
    only while the target version is still the drain's own. A process on the
@@ -534,7 +535,7 @@ Built:
     names collide;
   - disabled triggers keep search on the fallback, and re-enabling them
     rebuilds the index; so does a release that reinstalls capture, even while
-    a rebuild is enqueueing;
+    a rebuild is enqueueing or completing;
   - a change recorded while its batch is processing is kept;
   - a claim never takes more than its limit;
   - backlog and rebuild readiness;
