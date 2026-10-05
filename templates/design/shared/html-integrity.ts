@@ -9,6 +9,10 @@ import tokenizeCss from "postcss/lib/tokenize";
 
 import { isStructurePreservingEdit } from "./code-layer.js";
 import { isStandaloneHttpUrl } from "./html-content.js";
+import {
+  MAX_CACHED_CONTENT_CHARS,
+  memoizeByContent,
+} from "./memoize-by-content.js";
 
 export const DESIGN_HTML_INTEGRITY_ERROR_CODE = "DESIGN_HTML_INTEGRITY";
 
@@ -1031,17 +1035,14 @@ function isDocumentHtml(value: string, parsed = parseDocument(value)): boolean {
 
 // Each edit's previous content is the last edit's next content, so remembering
 // the verdict spares a full parse of the previous document on every commit.
-const DOCUMENT_VERDICT_LIMIT = 64;
-const documentVerdicts = new Map<string, boolean>();
+const documentVerdicts = memoizeByContent(64, (value: string) =>
+  isDocumentHtml(value),
+);
 function documentHtmlVerdict(value: string, parsed?: ParsedDocument): boolean {
-  const known = documentVerdicts.get(value);
-  if (known !== undefined) return known;
-  const verdict = isDocumentHtml(value, parsed ?? parseDocument(value));
-  documentVerdicts.set(value, verdict);
-  if (documentVerdicts.size > DOCUMENT_VERDICT_LIMIT) {
-    documentVerdicts.delete(documentVerdicts.keys().next().value as string);
+  if (parsed && !documentVerdicts.has(value)) {
+    documentVerdicts.prime(value, isDocumentHtml(value, parsed));
   }
-  return verdict;
+  return documentVerdicts(value);
 }
 
 function collectDocumentShapeIssue(
@@ -1356,6 +1357,26 @@ function introducedRuntimeIssues(
 // cannot introduce any issue reported here, so it inherits the previous verdict.
 const VALIDATED_CONTENT_LIMIT = 64;
 const validatedContents = new Set<string>();
+let validatedChars = 0;
+
+function rememberValidatedContent(content: string): void {
+  if (validatedContents.delete(content)) validatedChars -= content.length;
+  validatedContents.add(content);
+  validatedChars += content.length;
+  while (
+    validatedContents.size > 1 &&
+    (validatedContents.size > VALIDATED_CONTENT_LIMIT ||
+      validatedChars > MAX_CACHED_CONTENT_CHARS)
+  ) {
+    const oldest = validatedContents.values().next().value as string;
+    validatedContents.delete(oldest);
+    validatedChars -= oldest.length;
+  }
+}
+
+export function _validatedContentCountForTests(): number {
+  return validatedContents.size;
+}
 
 export function assertDesignHtmlEditIntegrity(args: {
   previousContent: string;
@@ -1378,11 +1399,7 @@ export function assertDesignHtmlEditIntegrity(args: {
   ) {
     assertDesignHtmlEditIntegrityOfHtml(args);
   }
-  validatedContents.delete(args.nextContent);
-  validatedContents.add(args.nextContent);
-  if (validatedContents.size > VALIDATED_CONTENT_LIMIT) {
-    validatedContents.delete(validatedContents.values().next().value as string);
-  }
+  rememberValidatedContent(args.nextContent);
 }
 
 function assertDesignHtmlEditIntegrityOfHtml(args: {

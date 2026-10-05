@@ -1,7 +1,7 @@
 const DERIVE_CANDIDATES = 4;
 // Each edit makes a new document, so a count limit alone keeps hundreds of
 // stale copies of a large screen alive.
-const MAX_CACHED_CONTENT_CHARS = 24_000_000;
+export const MAX_CACHED_CONTENT_CHARS = 24_000_000;
 
 export interface ContentMemo<T> {
   (content: string): T;

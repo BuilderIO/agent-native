@@ -61,9 +61,8 @@ function flushPending() {
   if (typeof localStorage === "undefined") return;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify([...remembered]));
-  } catch {
-    // A full or blocked store only means the next load checks again.
-  }
+    // coercion-ok: a full or blocked store only means the next load checks again.
+  } catch {}
 }
 
 /** Records a canonical verdict while idle, so hashing stays off the load path. */

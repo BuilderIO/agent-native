@@ -64,3 +64,72 @@ export function sourceLayerStateIds(
   sourceLayerStateIdsByProjection.set(projection, { fileId, ids });
   return ids;
 }
+
+export type LayerStateOverrides = Map<
+  string,
+  { hidden?: boolean; locked?: boolean }
+>;
+
+/**
+ * Next hidden or locked id set after the built layer models change. Settles
+ * `overrides` in place: an override is dropped once the source agrees with it
+ * or its layer no longer exists.
+ */
+export function reconcileLayerStateIds({
+  current,
+  kind,
+  liveFileIds,
+  builtStateByFileId,
+  overrides,
+}: {
+  current: Set<string>;
+  kind: "hidden" | "locked";
+  liveFileIds: ReadonlySet<string>;
+  builtStateByFileId: ReadonlyMap<string, SourceLayerStateIds>;
+  overrides: LayerStateOverrides;
+}): Set<string> {
+  const screenOf = (id: string) =>
+    liveFileIds.has(id) ? id : id.split(LAYER_STATE_SCOPE_SEPARATOR, 1)[0]!;
+  // Layer models are built on demand, so a screen without one says nothing
+  // about its layers: its ids and overrides carry over untouched.
+  const isSettled = (id: string) =>
+    !liveFileIds.has(id) && builtStateByFileId.has(screenOf(id));
+  const sourceIds = new Set(
+    [...builtStateByFileId.values()].flatMap((state) => state[kind]),
+  );
+  const next = new Set(sourceIds);
+  current.forEach((id) => {
+    if (liveFileIds.has(screenOf(id)) && !isSettled(id)) next.add(id);
+  });
+  overrides.forEach((override, id) => {
+    const screenId = screenOf(id);
+    const layerExists =
+      liveFileIds.has(screenId) &&
+      (!isSettled(id) || builtStateByFileId.get(screenId)!.all.has(id));
+    if (!layerExists) {
+      overrides.delete(id);
+      return;
+    }
+    const value = override[kind];
+    if (value === undefined) return;
+    if (isSettled(id) && sourceIds.has(id) === value) {
+      const remaining = { ...override };
+      delete remaining[kind];
+      if (remaining.hidden === undefined && remaining.locked === undefined) {
+        overrides.delete(id);
+      } else {
+        overrides.set(id, remaining);
+      }
+      return;
+    }
+    if (value) next.add(id);
+    else next.delete(id);
+  });
+  if (
+    next.size === current.size &&
+    Array.from(next).every((id) => current.has(id))
+  ) {
+    return current;
+  }
+  return next;
+}

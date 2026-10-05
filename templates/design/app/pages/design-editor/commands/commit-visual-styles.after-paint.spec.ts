@@ -110,3 +110,25 @@ it("leaves a selection made before the commit landed alone", () => {
   expect(args.setSelectedElement).not.toHaveBeenCalled();
   expect(args.setSelectedLayerIdsState).not.toHaveBeenCalled();
 });
+
+it("refuses to restyle by selector when the screen changed before the write", () => {
+  vi.stubGlobal("window", { __designCanvasSendStyle: vi.fn() });
+  const resolvedContent =
+    '<html><body><h1 data-agent-native-node-id="an-first">First</h1></body></html>';
+  const editedContent =
+    '<html><body><h1 data-agent-native-node-id="an-second">Second</h1></body></html>';
+  let currentContent = resolvedContent;
+  const args = commitArgs({
+    activeCodeLayerProjection: buildCodeLayerProjection(resolvedContent, {
+      source: { kind: "design-file", fileId },
+    }),
+    activeProjectionContent: resolvedContent,
+    getScreenContent: () => currentContent,
+  });
+
+  runCommitVisualStyles(args, "body > h1", { color: "rgb(0, 128, 0)" });
+  currentContent = editedContent;
+  flushCommitsAfterPaint();
+
+  expect(args.queueFileContentSave).not.toHaveBeenCalled();
+});

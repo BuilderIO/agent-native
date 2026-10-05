@@ -1025,6 +1025,7 @@ import { createLatestWriteQueue } from "./design-editor/latest-write-queue";
 import {
   layerStateIdsForScreen,
   scopedLayerStateId,
+  reconcileLayerStateIds,
   sourceLayerStateIds,
 } from "./design-editor/layer-state-scope";
 import {
@@ -21221,65 +21222,23 @@ function DesignEditor() {
     };
   }, [codeLayerOwnerByNodeId, effectiveCodeLayerState, selectedLayerIdsState]);
   useEffect(() => {
-    const fileIds = new Set(files.map((file) => file.id));
-    const sourceStates = codeLayerModelsByFile.map((model) =>
-      sourceLayerStateIds(model.fileId, model.projection),
+    const liveFileIds = new Set(files.map((file) => file.id));
+    const builtStateByFileId = new Map(
+      codeLayerModelsByFile.map((model) => [
+        model.fileId,
+        sourceLayerStateIds(model.fileId, model.projection),
+      ]),
     );
-    const lockedFromSource = new Set(
-      sourceStates.flatMap((state) => state.locked),
-    );
-    const hiddenFromSource = new Set(
-      sourceStates.flatMap((state) => state.hidden),
-    );
-    const isKnownLayerId = (id: string) =>
-      fileIds.has(id) || sourceStates.some((state) => state.all.has(id));
-    const reconcile = (
-      current: Set<string>,
-      sourceIds: Set<string>,
-      kind: "hidden" | "locked",
-    ): Set<string> => {
-      const next = new Set(sourceIds);
-      current.forEach((id) => {
-        if (fileIds.has(id)) next.add(id);
+    const reconcile = (current: Set<string>, kind: "hidden" | "locked") =>
+      reconcileLayerStateIds({
+        current,
+        kind,
+        liveFileIds,
+        builtStateByFileId,
+        overrides: layerStateOverridesRef.current,
       });
-      layerStateOverridesRef.current.forEach((override, id) => {
-        if (!isKnownLayerId(id)) {
-          layerStateOverridesRef.current.delete(id);
-          return;
-        }
-        const value = override[kind];
-        if (value === undefined) return;
-        if (!fileIds.has(id) && sourceIds.has(id) === value) {
-          const remaining = { ...override };
-          delete remaining[kind];
-          if (
-            remaining.hidden === undefined &&
-            remaining.locked === undefined
-          ) {
-            layerStateOverridesRef.current.delete(id);
-          } else {
-            layerStateOverridesRef.current.set(id, remaining);
-          }
-          return;
-        }
-        if (value) next.add(id);
-        else next.delete(id);
-      });
-      if (
-        next.size === current.size &&
-        Array.from(next).every((id) => current.has(id))
-      ) {
-        return current;
-      }
-      return next;
-    };
-
-    setLockedLayerIds((current) =>
-      reconcile(current, lockedFromSource, "locked"),
-    );
-    setHiddenLayerIds((current) =>
-      reconcile(current, hiddenFromSource, "hidden"),
-    );
+    setLockedLayerIds((current) => reconcile(current, "locked"));
+    setHiddenLayerIds((current) => reconcile(current, "hidden"));
   }, [codeLayerModelsByFile, files]);
   const lockedLayerSelectors = useMemo(() => {
     const activeLayerIds = activeFile?.id

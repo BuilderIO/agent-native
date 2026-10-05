@@ -10745,10 +10745,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         .filter(({ metadata }) => !metadata.previewUrl)
         .map(({ screen }) => [screen.id, screen.content]),
     );
-    requestPreviewParses([
-      ...iframeAdmissionOrder.flatMap((id) => inlineContentById.get(id) ?? []),
-      ...inlineContentById.values(),
-    ]);
+    // Only screens about to mount: the parse caches are bounded, so warming the
+    // whole board evicts earlier results and re-parses them on every camera move.
+    requestPreviewParses(
+      iframeAdmissionOrder.flatMap((id) => inlineContentById.get(id) ?? []),
+    );
   }, [canvasFrames, iframeAdmissionOrder]);
   const iframeAdmissionImmediateIds = useMemo(() => {
     const ids = new Set(protectedLiveScreenIds);

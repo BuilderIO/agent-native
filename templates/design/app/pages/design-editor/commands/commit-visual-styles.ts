@@ -525,7 +525,7 @@ export function runCommitVisualStyles(
   sendRuntimeStylePreview();
   const committedSelection = selectedElementRef.current;
   commitAfterPaint(() => {
-    const baseContent = getScreenContent(activeFile.id);
+    const latestContent = getScreenContent(activeFile.id);
 
     // §6.4 — Breakpoint-scoped editing (Framer cascade). Reuses the
     // `projection` and `targetNode` resolved above for the patch-proof
@@ -546,6 +546,9 @@ export function runCommitVisualStyles(
     // Base edits (no active breakpoint, or the active frame is the widest
     // context) keep the plain inline-style path and cascade down to every
     // narrower breakpoint unless overridden there.
+    // `selector` was resolved against `baseContent`; on a newer document it
+    // can match a different element, so only a node id may carry the write.
+    const selectorIsCurrent = latestContent === baseContent;
     const stylePatch = entries.reduce<{
       content: string;
       failed: string | null;
@@ -575,11 +578,19 @@ export function runCommitVisualStyles(
         }
         return { content: patch.content, failed: null };
       },
-      { content: baseContent, failed: null },
+      {
+        content: latestContent,
+        failed:
+          targetNode || selectorIsCurrent
+            ? null
+            : t("designEditor.patchProof.selectorMissing"),
+      },
     );
     const legacyFallbackContent =
-      stylePatch.failed && activeBreakpointUpperBoundPx == null
-        ? applyInlineStylesToHtml(baseContent, selector, {
+      stylePatch.failed &&
+      activeBreakpointUpperBoundPx == null &&
+      selectorIsCurrent
+        ? applyInlineStylesToHtml(latestContent, selector, {
             ...Object.fromEntries(entries),
           })
         : null;
@@ -631,7 +642,7 @@ export function runCommitVisualStyles(
 
     try {
       assertDesignHtmlEditIntegrity({
-        previousContent: baseContent,
+        previousContent: latestContent,
         nextContent: resolvedNextContent,
         fileType: activeFile.fileType,
       });
@@ -683,7 +694,7 @@ export function runCommitVisualStyles(
         setContentRenderRevision((revision) => revision + 1);
       }
     } else {
-      const writeLiveDoc = canWriteCollabText(ydoc, isSynced, baseContent);
+      const writeLiveDoc = canWriteCollabText(ydoc, isSynced, latestContent);
       const yjsHistoryAvailable = Boolean(
         viewModeRef.current !== "overview" &&
         writeLiveDoc &&
@@ -692,11 +703,11 @@ export function runCommitVisualStyles(
       if (
         !yjsHistoryAvailable &&
         !suppressContentHistoryRef.current &&
-        baseContent !== resolvedNextContent
+        latestContent !== resolvedNextContent
       ) {
         const change = {
           fileId: activeFile.id,
-          before: baseContent,
+          before: latestContent,
           after: resolvedNextContent,
         };
         if (viewModeRef.current === "overview") {
@@ -707,11 +718,11 @@ export function runCommitVisualStyles(
       } else if (
         yjsHistoryAvailable &&
         !suppressContentHistoryRef.current &&
-        baseContent !== resolvedNextContent
+        latestContent !== resolvedNextContent
       ) {
         recordLocalContentHistoryChangeFallback({
           fileId: activeFile.id,
-          before: baseContent,
+          before: latestContent,
           after: resolvedNextContent,
         });
       }
@@ -738,7 +749,7 @@ export function runCommitVisualStyles(
         }
       }
       queueFileContentSave(activeFile.id, resolvedNextContent, {
-        expectedVersionHash: sourceContentHash(baseContent),
+        expectedVersionHash: sourceContentHash(latestContent),
         syncCollab: !writeLiveDoc,
       });
       if (
