@@ -65,6 +65,54 @@ agent answers about browser recordings in the Analytics template.
   console events plus the additive `networkErrorCount` column on
   `session_recordings`. Keep new columns additive.
 
+## App Events In Sessions
+
+- `trackEvent` also emits an `agent-native.event` custom event holding only
+  `{ name }` (120 chars max, 1000 per replay, counted across page reloads).
+  Telemetry names such as `pageview`, `action.response`, and `session status`
+  stay unmarked; lifecycle aliases don't get a second marker. Never add event
+  properties to the payload.
+- The replay viewer shows these markers, plus failed
+  `/_agent-native/actions/<name>` requests as "Action failed", only while the
+  Sessions triage Lab is on. With the Lab off the viewer and the agent timeline
+  keep their earlier shape.
+- `recordAnalyticsEvents` writes the per-session event index
+  (`analytics_session_events`) and a per-tenant coverage start inside the
+  transaction that stores the events, in every sink mode. After that
+  transaction commits it writes the daily catalog
+  (`analytics_event_catalog_daily`) and each event's latest sighting
+  (`analytics_event_catalog_latest`) best-effort, together in one short
+  transaction, because the catalog lists events from the latest table. A
+  catalog failure only warns, and the catalog never decides a filter. Lists,
+  did/didn't filters, and the catalog read only these tables, never BigQuery.
+  The catalog keeps the 1,000 most recently seen events, sorted by volume, and
+  sets `truncated` when it cut the list; its app flags still count every event
+  in the range.
+- Unique indexes hold caller text raw, so it must stay short enough for an
+  index entry: index rows use hashed ids, event names and apps are cut to 200
+  and 100 characters, and a session id over 256 characters skips the index.
+  Bound any new caller value before it reaches a key.
+- Event filters exclude a session if any of its recordings started before the
+  tenant's coverage start, because one analytics session can span tabs.
+  Coverage starts only after a session write succeeds, and the reported start
+  is the latest among the viewer's tenants. "Didn't" also needs at least one
+  index row for the session and no gap marker: a failed index write rolls back
+  to a savepoint and records the batch's sessions in
+  `analytics_session_event_gaps` in the same transaction, so a later
+  successful batch cannot make them look complete. If the marker cannot be
+  written either, the batch fails and its events are not stored. Keep session
+  index writes inside that transaction. Deploys ship code before the scheduled
+  migration creates these tables, so until `analytics_session_event_coverage`
+  exists ingest stores events unindexed and warns: with no coverage, no
+  session can read as complete. Reads in that window report no coverage
+  instead of failing: no event names, a null coverage start, an empty
+  catalog, and no session matching an event filter. That is the only unmarked
+  gap, and it holds only while the coverage table is the last index table a
+  migration creates.
+  The retention sweep removes a session's index rows together, once all of
+  them are two days past replay retention, and its gap marker after that. The
+  BigQuery-cutover purge leaves these tables alone.
+
 ## Agent Diagnostics Surface
 
 - `buildSessionReplayAgentContext` includes a `diagnostics` section: up to 50

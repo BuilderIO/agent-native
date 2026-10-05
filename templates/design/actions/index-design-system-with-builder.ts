@@ -63,7 +63,7 @@ export default defineAction({
     "Start Builder DSI design-system indexing from connected code, a GitHub repository, code/design files, and optional design.md guidance. " +
     "Use this instead of local import-code/import-github when the user wants a reusable brand kit or design system. " +
     "Private GitHub repositories use the saved GITHUB_TOKEN server-side; the token is never sent to Builder or exposed to the client. " +
-    "Requires Builder.io to be connected (free tier available); Builder owns the indexed design-system docs, generated guidance, token/component extraction, and job state.",
+    "Use Builder.io (free tier available) to index design-system docs, generate guidance, extract tokens and components, and track job state.",
   schema: z.object({
     projectName: z
       .string()

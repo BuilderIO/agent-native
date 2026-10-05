@@ -336,6 +336,12 @@ export interface MultiScreenCanvasProps {
     targetAnchorSelector?: string;
     targetAnchorPlacement?: "before" | "after" | "inside";
     targetDropMode?: CrossScreenDropMode;
+    targetGridPlacement?: {
+      column: number;
+      columnEnd: number;
+      row: number;
+      rowEnd: number;
+    };
     targetAnchorRect?: CrossScreenHitTestAnchorRect;
     targetCanvasPoint?: Point;
     targetLocalPoint?: Point;
@@ -839,9 +845,17 @@ export interface CrossScreenHitTestResult {
   pendingNodeId?: string;
   anchorSelector?: string;
   placement?: CrossScreenDropPlacement;
+  guidePlacement?: CrossScreenDropPlacement;
   axis?: CrossScreenDropAxis;
   dropMode?: CrossScreenDropMode;
   anchorRect?: CrossScreenHitTestAnchorRect;
+  guideRect?: CrossScreenHitTestAnchorRect;
+  gridPlacement?: {
+    column: number;
+    columnEnd: number;
+    row: number;
+    rowEnd: number;
+  };
 }
 
 export interface CrossScreenDragElementRect {
@@ -865,6 +879,7 @@ export interface CanvasLayerMarqueeSelection {
 
 export interface CrossScreenDropGuide {
   placement: CrossScreenDropPlacement;
+  guidePlacement?: CrossScreenDropPlacement;
   axis: CrossScreenDropAxis;
   boardRect: FrameGeometry;
 }

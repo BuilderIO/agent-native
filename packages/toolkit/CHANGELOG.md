@@ -1,5 +1,33 @@
 # @agent-native/toolkit
 
+## 0.200.0
+
+### Minor Changes
+
+- 53f0c01: Default direct Anthropic and OpenRouter connections to Claude Sonnet 5.5, align the Builder model picker with the current gateway catalog, and refresh model labels.
+
+### Patch Changes
+
+- 4aa4088: Keep AgentKit activity icons beside their labels.
+- bf2b2ae: Add `useAgentKitStopButton` so hosts that render AgentKitChat directly, like the Chat app, can stop an active run.
+- 73c2373: Report a chat send that failed because an attached file had nothing to upload with the `attachment-unreadable` submit reason, so hosts can say which part failed.
+- 563e22a: Creating a Builder.io account from "Create and activate" or "Create Builder.io account" is now one `POST /_agent-native/builder/provision` request with no popup window, so popup blockers no longer stop it; only connecting an existing account opens Builder's sign-in window, and composer runtimes without the consent popover never create an account.
+- 73c2373: Add an optional `submit()` to the composer handle so a host can send the current draft (with its attachments) as if send were pressed, used to resume a prompt held back by missing AI setup.
+- 0c17540: Allow image attachments to be removed without opening the preview.
+- Release all public npm packages with a patch version bump.
+- 5113a23: Make follow-up queueing reliable, preserve each prompt's run options, and keep internal context out of user-visible text.
+- 9a09590: Keep useful agent activity labels visible while a run is active.
+- 73c2373: A prompt refused for missing AI setup now keeps what its retry needs (references, model, engine, effort, request mode) and a refusal marker in the thread, so the setup card finds it after a reload; the server lets only one tab send the after-setup resend of a refused run. The composer's `onBeforeSubmit` receives the draft it is holding and the handle gains `getDraftSnapshot()`, so a host resumes only a draft that was not edited while connecting. An unreadable provider 403 during a key check is retryable instead of a rejected key, and a misconfigured Builder host is no longer reported as a credit-service outage.
+- 73c2373: A refused prompt's refusal marker and retry context now survive a client thread save and reload, and the references stored with it are validated against the composer's bounded reference shape. The after-setup resend claim is released when the thread's run slot is busy and swept with a compare-and-delete, provider 408 and 425 answers during a key check are retryable, and the composer's draft snapshot tells apart a replaced attachment that has the same name and compares every field of each reference, so a held-back draft is resumed only when nothing it would submit changed.
+- 73c2373: Answer chat turns the server refuses before a run starts (AI setup missing, no usable model credential) in the thread itself: the prompt and a typed failed run are persisted server-side, the chat shows the connect card with a retry, and the refused prompt is sent again once after Builder or a provider key is connected. Run lifecycle analytics now carry the canonical user id from the request context and count refused turns as `run_no_reply`.
+- 73c2373: `onAgentRunComplete` now receives `{ turnContinues }` so an observer can tell a finished turn from a run that handed off to a continuation run. The retry marker on a recovery message now survives a reload, so a refused prompt is sent again only once across cards, tabs, and reloads, and only AI-setup refusal cards are hidden once a later run starts.
+- 4bee69d: Explain oversized agent chat requests and improve actionable failure recovery feedback.
+- 7ec9079: Align the composer context menu spacing and text contrast with its nested menus.
+- 73c2373: Report Builder credit-service outages and unverifiable provider key checks as typed, retryable failures instead of generic 500s and "rejected key" 400s, and accept OpenAI project keys restricted from listing models.
+- Updated dependencies
+- Updated dependencies [5113a23]
+  - @agent-native/agentkit@0.200.0
+
 ## 0.199.0
 
 ### Minor Changes
@@ -1011,12 +1039,5 @@
 - f0da2e0: Serialize realtime voice responses and recover from overlapping response requests without ending the voice session.
 - f0da2e0: Make the Dispatch chat composer recover from unavailable AI status checks and keep its Add menu clickable.
 - f0da2e0: Route the Builder connection card and chat history rail through semantic design-system components while preserving their default presentation and shared controller paths.
-
-## 0.9.1
-
-### Patch Changes
-
-- 03a043e: Make realtime voice the clear primary microphone action, remember the selected input mode, improve speech waveform responsiveness, and show a shine while the voice agent is working.
-- 03a043e: Prevent reasoning messages from losing their assistant UI provider, and add a progressively disclosed recent-chat rail for app sidebars.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

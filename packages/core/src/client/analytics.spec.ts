@@ -22,6 +22,7 @@ const amplitudeMock = vi.hoisted(() => ({
 
 const replayMock = vi.hoisted(() => ({
   emitSessionReplayAgentChatEvent: vi.fn(),
+  emitSessionReplayAnalyticsEvent: vi.fn(),
   emitSessionReplayException: vi.fn(),
   getSessionReplayId: vi.fn(() => undefined),
   getSessionReplayContext: vi.fn(() => null),
@@ -195,6 +196,7 @@ describe("browser analytics pageviews", () => {
     replayMock.startSessionReplay.mockClear();
     replayMock.stopSessionReplay.mockClear();
     replayMock.emitSessionReplayAgentChatEvent.mockClear();
+    replayMock.emitSessionReplayAnalyticsEvent.mockClear();
     tracingMock.recordTrackingEvent.mockClear();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
@@ -471,7 +473,7 @@ describe("browser analytics pageviews", () => {
     resolveSession(
       new Response(
         JSON.stringify({
-          email: "owner@example.test",
+          email: "owner@example.com",
           userId: "auth-user-1",
           orgId: "org-1",
         }),
@@ -486,7 +488,7 @@ describe("browser analytics pageviews", () => {
     expect(appEntries).toHaveLength(1);
     expect(appEntries[0].properties).toMatchObject({
       app_name: "mail",
-      user_email: "owner@example.test",
+      user_email: "owner@example.com",
       workspace_id: "org-1",
     });
   });
@@ -943,7 +945,7 @@ describe("browser analytics pageviews", () => {
     });
     setSentryUser({
       id: "provider-subject-1",
-      email: "person@example.test",
+      email: "person@example.com",
       authUserId: "canonical-user-1",
     });
     trackEvent("recording_started");
@@ -953,7 +955,7 @@ describe("browser analytics pageviews", () => {
       .map(([, init]) => JSON.parse(String(init.body)))
       .find((entry) => entry.event === "recording_started");
     expect(event?.properties).toMatchObject({
-      user_id: "person@example.test",
+      user_id: "person@example.com",
       auth_user_id: "canonical-user-1",
     });
   });
@@ -974,11 +976,11 @@ describe("browser analytics pageviews", () => {
     });
     setSentryUser({
       id: "provider-subject-1",
-      email: "person@example.test",
+      email: "person@example.com",
       authUserId: "canonical-user-1",
     });
     trackEvent("before_session_refresh");
-    setSentryUser({ id: "provider-subject-1", email: "person@example.test" });
+    setSentryUser({ id: "provider-subject-1", email: "person@example.com" });
     trackEvent("after_session_refresh");
     await tick();
 
@@ -1001,7 +1003,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking, setTrackingIdentity, trackAnonymousEvent } =
       await freshAnalytics();
     setTrackingIdentity({
-      email: "private@example.test",
+      email: "private@example.com",
       userId: "auth-user-1",
       authUserId: "canonical-auth-user-1",
     });
@@ -1027,13 +1029,13 @@ describe("browser analytics pageviews", () => {
 
   it("tracks replay attempts without email, URL, or replay content", async () => {
     installBrowser("https://app.agent-native.com/private?token=private-url", {
-      email: "private@example.test",
+      email: "private@example.com",
       userId: "auth-user-1",
       authUserId: "canonical-auth-user-1",
     });
     const { analyticsCalls } = installFetch({
       session: {
-        email: "private@example.test",
+        email: "private@example.com",
         userId: "auth-user-1",
         authUserId: "canonical-auth-user-1",
       },
@@ -1049,7 +1051,7 @@ describe("browser analytics pageviews", () => {
       getDefaultProps: (_name, properties) => ({
         ...properties,
         auth_user_id: "spoofed-auth-user",
-        user_email: "private@example.test",
+        user_email: "private@example.com",
         url: "https://app.agent-native.com/private?token=private-url",
         replay_content: "private-replay-content",
       }),
@@ -1110,7 +1112,7 @@ describe("browser analytics pageviews", () => {
     installBrowser();
     const { analyticsCalls } = installFetch({
       session: {
-        email: "owner@example.test",
+        email: "owner@example.com",
         userId: "owner-id",
         authUserId: "owner-id",
       },
@@ -1161,7 +1163,7 @@ describe("browser analytics pageviews", () => {
     const { gtag } = installBrowser();
     const { analyticsCalls } = installFetch({
       session: {
-        email: "owner@example.test",
+        email: "owner@example.com",
         userId: "owner-id",
         authUserId: "owner-id",
       },
@@ -1245,6 +1247,76 @@ describe("browser analytics pageviews", () => {
     expect(sentryMock.captureException).not.toHaveBeenCalled();
     expect(replayMock.startSessionReplay).not.toHaveBeenCalled();
     expect(replayMock.emitSessionReplayAgentChatEvent).not.toHaveBeenCalled();
+  });
+
+  it("keeps a session-flagged test identity out of every browser provider", async () => {
+    const { gtag } = installBrowser();
+    const { analyticsCalls } = installFetch({
+      session: {
+        email: "lead@qa.acme.co",
+        userId: "auth-user-qa",
+        orgId: "org_qa",
+        testIdentity: true,
+      },
+    });
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amplitude_test");
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+    };
+    const { captureClientException, configureTracking, trackEvent } =
+      await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      sessionReplay: { requireSignedInUser: true },
+    });
+    await tick();
+    trackEvent("signup_completed");
+    expect(
+      captureClientException(new Error("configured QA failure")),
+    ).toBeUndefined();
+    await tick();
+
+    expect(analyticsCalls).toHaveLength(0);
+    expect(gtag).not.toHaveBeenCalledWith(
+      "event",
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(amplitudeMock.track).not.toHaveBeenCalled();
+    expect(sentryMock.captureException).not.toHaveBeenCalled();
+    expect(replayMock.startSessionReplay).not.toHaveBeenCalled();
+  });
+
+  it("suppresses a published identity on the session's test-identity flag", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { configureTracking, setTrackingIdentity, trackEvent } =
+      await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      pageviewTracking: false,
+      authSessionRefresh: false,
+      llmConnectionStatus: false,
+      errorCapture: false,
+    });
+    setTrackingIdentity({ id: "auth-user-qa", email: "lead@qa.acme.co" });
+    trackEvent("tracked_before_flag");
+    setTrackingIdentity({
+      id: "auth-user-qa",
+      email: "lead@qa.acme.co",
+      testIdentity: true,
+    });
+    trackEvent("suppressed_after_flag");
+    await tick();
+
+    const events = analyticsCalls.map(
+      ([, init]) => JSON.parse(String(init.body)).event,
+    );
+    expect(events).toEqual(["tracked_before_flag"]);
   });
 
   it("tracks client-side URL changes once per URL", async () => {
@@ -1372,6 +1444,51 @@ describe("browser analytics pageviews", () => {
     expect(replayMock.emitSessionReplayAgentChatEvent).toHaveBeenCalledWith(
       event,
     );
+  });
+
+  it("marks named app events on the replay once, without telemetry events", async () => {
+    installBrowser("https://clips.agent-native.com/library");
+    installFetch({
+      session: { email: "dev@example.com", userId: "auth-user-1" },
+    });
+    replayMock.startSessionReplay.mockResolvedValue({
+      started: true,
+      replayId: "replay-1",
+      sessionId: "browser-session-1",
+    });
+    const { configureTracking, trackEvent } = await freshAnalytics();
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      sessionReplay: true,
+    });
+    await tick();
+
+    trackEvent("recording_started", { clip_id: "clip-1" });
+    trackEvent("share_link_copied", { clip_id: "clip-1" });
+    trackEvent("pageview");
+    trackEvent("action.response", { action: "list-clips" });
+    trackEvent("session_status", { signed_in: true });
+    const replayOptions = replayMock.startSessionReplay.mock.calls[0][0];
+    replayOptions.onUploadRejectedWithAttemptId(
+      { status: 409, restartAttempted: true, restartSucceeded: true },
+      "opaque-attempt-1",
+    );
+    await tick();
+
+    const marked = replayMock.emitSessionReplayAnalyticsEvent.mock.calls.map(
+      ([name]) => name,
+    );
+    expect(marked).toContain("recording_started");
+    // The lifecycle alias (output_shared) describes the same moment.
+    expect(marked.filter((name) => name !== "recording_started")).toHaveLength(
+      1,
+    );
+    expect(marked).not.toContain("output_shared");
+    expect(marked).not.toContain("pageview");
+    expect(marked).not.toContain("action.response");
+    expect(marked).not.toContain("session_status");
+    expect(marked).not.toContain("session_replay_upload_rejected");
   });
 
   it("switches content capture before emitting client-side pageviews", async () => {

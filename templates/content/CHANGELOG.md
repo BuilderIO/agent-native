@@ -11,6 +11,12 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Fixed Content's ChatGPT connector guidance so it refers only to available actions.
+- Accepting or rejecting suggested edits keeps desktop comments in place without opening an extra panel.
+- Suggested edits stay visible across paragraphs, and Suggesting opens without false formatting warnings.
+- Suggestion retries keep desktop comments open and failed decisions restore each draft change only once.
+- Suggested edits replace whole words on pages with bold, italic, code, or links, so a changed date reads as one word instead of scattered letters
+- Accepted suggestions stay visible once after another person edits the page, and reviewing your amended suggestion no longer shows a false conflict.
 - The editor no longer shifts focus to another document when you switch away from suggested edits.
 
 ## 2026-09-30
@@ -19,10 +25,21 @@ time from the command menu (Cmd+K → "What's new").
 
 - Connect ChatGPT to draft documents and organize workspace records in Content.
 
+### Improved
+
+- Search stays fast in large workspaces and finds parts of code names and links, plus Japanese, Chinese, and Korean text.
+
 ### Fixed
 
+- Pending suggested edits keep their highlights when nearby edits are accepted
+- Recent page icons update immediately when changed or removed
+- Suggestion review controls remain reachable beside long author names.
 - Chat stays ready for your next draft while a message is being sent.
 - Page edits and comments save reliably
+
+### Changed
+
+- Search matches page text from the start of each word. Titles and descriptions still match anywhere.
 
 ## 2026-09-29
 

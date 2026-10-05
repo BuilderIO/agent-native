@@ -9,6 +9,8 @@ import {
   listSessionRecordings,
   listSessionRecordingsPage,
 } from "../server/lib/session-replay.js";
+import { assertSessionsTriageLabEnabled } from "../server/lib/sessions-triage-lab.js";
+import { MAX_SESSION_EVENT_CONDITIONS } from "../shared/session-events.js";
 
 function resolveScope() {
   const userEmail = getRequestUserEmail();
@@ -18,25 +20,25 @@ function resolveScope() {
 
 export default defineAction({
   description:
-    "List first-party Analytics session replay recordings accessible to the current user/org. Returns scoped recording summaries only, not raw replay chunks.",
+    "List first-party Analytics session replay recordings accessible to the current user/org. Returns recording summaries only, not raw replay chunks.",
   schema: z.object({
     query: z
       .string()
       .optional()
       .describe(
-        "Optional broad search across recording, session, visitor, URL, app, and template fields",
+        "Broad search across recording, session, visitor, URL, app, and template fields",
       ),
-    app: z.string().optional().describe("Optional app filter"),
-    template: z.string().optional().describe("Optional template filter"),
-    sessionId: z.string().optional().describe("Optional analytics session id"),
-    userId: z.string().optional().describe("Optional signed-in user email"),
+    app: z.string().optional().describe("App filter"),
+    template: z.string().optional().describe("Template filter"),
+    sessionId: z.string().optional().describe("Analytics session id"),
+    userId: z.string().optional().describe("Signed-in user email"),
     anonymousId: z
       .string()
       .optional()
       .describe(
-        "Optional secondary anonymous id filter for otherwise email-backed recordings",
+        "Secondary anonymous id filter for otherwise email-backed recordings",
       ),
-    path: z.string().optional().describe("Optional exact path filter"),
+    path: z.string().optional().describe("Exact path filter"),
     from: z
       .string()
       .optional()
@@ -82,14 +84,32 @@ export default defineAction({
         "Return recordings, total count, and app counts rather than the legacy recordings array",
       ),
     status: z.enum(["active", "completed"]).optional(),
+    didEvents: z
+      .array(z.string().min(1).max(200))
+      .max(MAX_SESSION_EVENT_CONDITIONS)
+      .optional()
+      .describe(
+        "Only sessions that tracked every one of these event names. Requires the Sessions triage Lab; covers sessions recorded after the event index started.",
+      ),
+    didNotEvents: z
+      .array(z.string().min(1).max(200))
+      .max(MAX_SESSION_EVENT_CONDITIONS)
+      .optional()
+      .describe(
+        "Only sessions that tracked none of these event names. Requires the Sessions triage Lab; covers sessions recorded after the event index started.",
+      ),
     limit: z.coerce.number().int().min(1).max(100).optional().default(50),
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   grounding: true,
   run: async (args) => {
     const scope = resolveScope();
+    if (args.didEvents?.length || args.didNotEvents?.length) {
+      await assertSessionsTriageLabEnabled(scope.userEmail, scope.orgId);
+    }
     return args.paginated
       ? listSessionRecordingsPage(scope, args)
       : listSessionRecordings(scope, args);

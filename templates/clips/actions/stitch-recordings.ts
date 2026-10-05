@@ -97,9 +97,10 @@ export default defineAction({
       assertNativeRecordingMedia(source);
     }
     const organizationId = ordered[0].organizationId;
-    const defaultVisibility = await getDefaultRecordingVisibility(
+    const visibility = await getDefaultRecordingVisibility(
       organizationId,
       actionContext?.userEmail ?? ownerEmail,
+      args.visibility,
     );
 
     const totalDuration =
@@ -143,7 +144,7 @@ export default defineAction({
       hasCamera: ordered.some((r) => Boolean(r.hasCamera)),
       editsJson: serializeEdits(edits),
       ownerEmail,
-      visibility: args.visibility ?? defaultVisibility,
+      visibility,
       createdAt: now,
       updatedAt: now,
       thumbnailUrl: ordered[0].thumbnailUrl ?? null,

@@ -3614,7 +3614,7 @@ describe("SSE event processor error classification", () => {
                 providerLabel: "Builder.io",
                 reason: "Builder.io is not connected for this workspace.",
                 message:
-                  "Builder.io is not connected. Connect Builder.io to continue.",
+                  "Builder.io is not connected for this workspace. Use Builder.io to continue: choose the button shown here, or set up Builder.io in Settings.",
               },
             }),
           },

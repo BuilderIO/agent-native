@@ -26,6 +26,7 @@ export interface BuilderConnectPopoverProps {
     statusResolved?: boolean;
     statusReadSettledCount?: number;
     canConnect?: BuilderConnectFlow["canConnect"];
+    provisionAccount?: boolean;
   };
   children: BuilderConnectTrigger;
   onConnect?: (provisionAccount: boolean) => void;
@@ -66,14 +67,18 @@ export function BuilderConnectPopover({
     }
   }, [accountExists]);
 
-  const start = (provisionAccount: boolean) => {
+  const start = (provisionAccount?: boolean) => {
+    const shouldProvision =
+      provisionAccount ??
+      (flow.agentNativeProvisioningEnabled === true &&
+        (defaultProvisionAccount || flow.provisionAccount === true));
     initiatedByThisTriggerRef.current = true;
     setOpen(false);
     if (onConnect) {
-      onConnect(provisionAccount);
+      onConnect(shouldProvision);
       return;
     }
-    flow.start({ provisionAccount });
+    flow.start({ provisionAccount: shouldProvision });
   };
 
   const openQueuedPopoverRef = useRef<() => void>(() => {});
@@ -114,7 +119,7 @@ export function BuilderConnectPopover({
       }
       children.props.onClick?.(event);
       onTriggerClick?.(event);
-      if (!showPopover && !event.defaultPrevented) start(false);
+      if (!showPopover && !event.defaultPrevented) start();
     },
   });
 
@@ -169,6 +174,18 @@ export function BuilderConnectPopover({
                 ? t("agentChat.onboarding.builderOrgActivationDescription")
                 : t("agentChat.onboarding.builderActivationDescription")}
           </p>
+          <div className="flex flex-col gap-1 rounded-[10px] bg-emerald-50 px-4 py-3 dark:bg-emerald-950/30">
+            <p className="text-[13px] font-semibold text-foreground">
+              {t("agentChat.onboarding.builderIncludedFreeWithAccount", {
+                defaultValue: "Included free with a Builder.io account",
+              })}
+            </p>
+            <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+              {t("agentChat.onboarding.builderMonthlyCredits", {
+                defaultValue: "60 monthly Agent Credits",
+              })}
+            </p>
+          </div>
           <div className="flex flex-col gap-2">
             <Button
               type="button"

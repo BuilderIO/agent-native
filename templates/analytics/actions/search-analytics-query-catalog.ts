@@ -29,6 +29,7 @@ export default defineAction({
       .describe("Maximum ranked candidates to return"),
   }),
   readOnly: true,
+  mcpTool: true,
   run: async ({ search, limit }) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");

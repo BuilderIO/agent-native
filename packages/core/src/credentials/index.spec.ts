@@ -2,8 +2,9 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 const store = new Map<string, { value: unknown }>();
 const readAppSecret = vi.fn();
+const deleteAppSecret = vi.fn();
 
-vi.mock("../secrets/storage.js", () => ({ readAppSecret }));
+vi.mock("../secrets/storage.js", () => ({ readAppSecret, deleteAppSecret }));
 
 vi.mock("../settings/store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../settings/store.js")>()),
@@ -15,6 +16,16 @@ vi.mock("../settings/store.js", async (importOriginal) => ({
 }));
 
 let resolveOrgIdForEmail: (email: string) => Promise<string | null>;
+const readOrgMemberRole = vi.fn();
+vi.mock(
+  "../server/personal-provider-key-policy.js",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../server/personal-provider-key-policy.js")
+    >()),
+    readOrgMemberRole: (...args: unknown[]) => readOrgMemberRole(...args),
+  }),
+);
 vi.mock("../org/context.js", () => ({
   resolveOrgIdForEmail: (email: string) => resolveOrgIdForEmail(email),
 }));
@@ -24,7 +35,10 @@ beforeEach(() => {
   store.clear();
   readAppSecret.mockReset();
   readAppSecret.mockResolvedValue(null);
+  deleteAppSecret.mockReset();
   resolveOrgIdForEmail = async () => null;
+  readOrgMemberRole.mockReset();
+  readOrgMemberRole.mockResolvedValue("member");
 });
 
 describe("credentials encryption at rest", () => {
@@ -444,6 +458,28 @@ describe("credentials encryption at rest", () => {
     ).rejects.toThrow(/could not read/i);
   });
 
+  it("throws instead of answering with the caller's personal key when org membership is unreadable", async () => {
+    resolveOrgIdForEmail = async () => {
+      throw Object.assign(new Error("db connect timed out"), {
+        code: "ETIMEDOUT",
+      });
+    };
+    readAppSecret.mockImplementation(async (ref: any) =>
+      ref.scope === "user" && ref.scopeId === "owner@example.test"
+        ? { value: "personal-placeholder", last4: "lder", updatedAt: 1 }
+        : null,
+    );
+    const { resolveCredential } = await import("./index.js");
+
+    // Without the org the caller's role is unknown: an owner must not quietly
+    // run on the personal key the organization's is meant to replace.
+    await expect(
+      resolveCredential("BIGQUERY_SERVICE_ACCOUNT", {
+        userEmail: "owner@example.test",
+      }),
+    ).rejects.toThrow(/could not read/i);
+  });
+
   it("still finds a pre-org solo workspace secret once the user has an org", async () => {
     readAppSecret.mockImplementation(async (ref: any) =>
       ref.scope === "workspace" && ref.scopeId === "solo:owner@example.test"
@@ -532,6 +568,41 @@ describe("credentials encryption at rest", () => {
     expect(readAppSecret).toHaveBeenCalledTimes(1);
   });
 
+  it("puts the org's credential ahead of an owner's or admin's own, keeping theirs as the fallback", async () => {
+    const rows: Record<string, string> = {
+      "user:boss@example.test:STRIPE_KEY": "personal-token",
+      "org:org-1:STRIPE_KEY": "shared-org-token",
+    };
+    readAppSecret.mockImplementation(async (ref: any) => {
+      const value = rows[`${ref.scope}:${ref.scopeId}:${ref.key}`];
+      return value ? { value, last4: "oken", updatedAt: 1 } : null;
+    });
+    const { resolveCredentialDetailed } = await import("./index.js");
+    const ctx = { userEmail: "boss@example.test", orgId: "org-1" };
+
+    for (const role of ["owner", "admin"]) {
+      readOrgMemberRole.mockResolvedValue(role);
+      await expect(
+        resolveCredentialDetailed("STRIPE_KEY", ctx),
+      ).resolves.toMatchObject({ value: "shared-org-token", scope: "org" });
+    }
+    readOrgMemberRole.mockResolvedValue("member");
+    await expect(
+      resolveCredentialDetailed("STRIPE_KEY", ctx),
+    ).resolves.toMatchObject({ value: "personal-token", scope: "user" });
+
+    delete rows["org:org-1:STRIPE_KEY"];
+    readOrgMemberRole.mockResolvedValue("owner");
+    await expect(
+      resolveCredentialDetailed("STRIPE_KEY", ctx),
+    ).resolves.toMatchObject({ value: "personal-token", scope: "user" });
+
+    readOrgMemberRole.mockRejectedValue(new Error("db query timed out"));
+    await expect(resolveCredentialDetailed("STRIPE_KEY", ctx)).rejects.toThrow(
+      "db query timed out",
+    );
+  });
+
   it("returns undefined when the encryption key rotated (cannot decrypt)", async () => {
     process.env.SECRETS_ENCRYPTION_KEY = "key-A";
     const { saveCredential, resolveCredential } = await import("./index.js");
@@ -550,5 +621,123 @@ describe("credentials encryption at rest", () => {
     expect(
       await resolveCredential("K", { userEmail: "a@x.com" }),
     ).toBeUndefined();
+  });
+});
+
+describe("deleteResolvedCredential", () => {
+  const appSecrets = new Map<string, string>();
+  const rowKey = (ref: any) => `${ref.scope}:${ref.scopeId}:${ref.key}`;
+
+  beforeEach(() => {
+    appSecrets.clear();
+    readAppSecret.mockImplementation(async (ref: any) => {
+      const value = appSecrets.get(rowKey(ref));
+      return value ? { value, last4: "alue", updatedAt: 1 } : null;
+    });
+    deleteAppSecret.mockImplementation(async (ref: any) =>
+      appSecrets.delete(rowKey(ref)),
+    );
+  });
+
+  const member = { userEmail: "member@example.test", orgId: "org-1" };
+
+  it("removes the organization's legacy workspace row for an owner or admin", async () => {
+    appSecrets.set("workspace:org-1:STRIPE_KEY", "shared-workspace-value");
+    readOrgMemberRole.mockResolvedValue("admin");
+    const { deleteResolvedCredential, resolveCredential } =
+      await import("./index.js");
+
+    await deleteResolvedCredential("STRIPE_KEY", member);
+
+    await expect(
+      resolveCredential("STRIPE_KEY", member),
+    ).resolves.toBeUndefined();
+  });
+
+  it("refuses a member's removal of the organization's workspace row", async () => {
+    appSecrets.set("workspace:org-1:STRIPE_KEY", "shared-workspace-value");
+    const { deleteResolvedCredential, CredentialDeleteForbiddenError } =
+      await import("./index.js");
+
+    await expect(
+      deleteResolvedCredential("STRIPE_KEY", member),
+    ).rejects.toBeInstanceOf(CredentialDeleteForbiddenError);
+    expect(appSecrets.has("workspace:org-1:STRIPE_KEY")).toBe(true);
+  });
+
+  it("refuses a member's removal of the organization's legacy setting", async () => {
+    store.set("o:org-1:credential:STRIPE_KEY", { value: "org-setting-value" });
+    const { deleteResolvedCredential, CredentialDeleteForbiddenError } =
+      await import("./index.js");
+
+    await expect(
+      deleteResolvedCredential("STRIPE_KEY", member),
+    ).rejects.toBeInstanceOf(CredentialDeleteForbiddenError);
+    expect(store.has("o:org-1:credential:STRIPE_KEY")).toBe(true);
+  });
+
+  it("removes a member's own pre-organization solo row", async () => {
+    appSecrets.set(
+      "workspace:solo:member@example.test:STRIPE_KEY",
+      "solo-value",
+    );
+    const { deleteResolvedCredential, resolveCredential } =
+      await import("./index.js");
+
+    await deleteResolvedCredential("STRIPE_KEY", member);
+
+    await expect(
+      resolveCredential("STRIPE_KEY", member),
+    ).resolves.toBeUndefined();
+    expect(readOrgMemberRole).not.toHaveBeenCalledWith(
+      "solo:member@example.test",
+      expect.anything(),
+    );
+  });
+
+  it("removes every copy of the member's own key, leaving the organization's to answer", async () => {
+    appSecrets.set("user:member@example.test:STRIPE_KEY", "personal-value");
+    store.set("u:member@example.test:credential:STRIPE_KEY", {
+      value: "personal-setting-value",
+    });
+    appSecrets.set("org:org-1:STRIPE_KEY", "org-value");
+    const { deleteResolvedCredential, resolveCredential } =
+      await import("./index.js");
+
+    await deleteResolvedCredential("STRIPE_KEY", member);
+
+    await expect(resolveCredential("STRIPE_KEY", member)).resolves.toBe(
+      "org-value",
+    );
+  });
+
+  it("clears only the chosen owner's rows when told which", async () => {
+    appSecrets.set("user:member@example.test:STRIPE_KEY", "personal-value");
+    appSecrets.set("workspace:solo:member@example.test:STRIPE_KEY", "solo");
+    appSecrets.set("org:org-1:STRIPE_KEY", "org-value");
+    appSecrets.set("workspace:org-1:STRIPE_KEY", "workspace-value");
+    store.set("o:org-1:credential:STRIPE_KEY", { value: "org-setting-value" });
+    const { deleteCredential } = await import("./index.js");
+
+    await deleteCredential("STRIPE_KEY", { ...member, scope: "user" });
+    expect([...appSecrets.keys()].sort()).toEqual([
+      "org:org-1:STRIPE_KEY",
+      "workspace:org-1:STRIPE_KEY",
+    ]);
+
+    await deleteCredential("STRIPE_KEY", { ...member, scope: "org" });
+    expect(appSecrets.size).toBe(0);
+    expect(store.has("o:org-1:credential:STRIPE_KEY")).toBe(false);
+  });
+
+  it("does not guess a role it cannot read", async () => {
+    appSecrets.set("org:org-1:STRIPE_KEY", "org-value");
+    readOrgMemberRole.mockRejectedValue(new Error("db query timed out"));
+    const { deleteResolvedCredential } = await import("./index.js");
+
+    await expect(
+      deleteResolvedCredential("STRIPE_KEY", member),
+    ).rejects.toThrow("db query timed out");
+    expect(appSecrets.has("org:org-1:STRIPE_KEY")).toBe(true);
   });
 });
