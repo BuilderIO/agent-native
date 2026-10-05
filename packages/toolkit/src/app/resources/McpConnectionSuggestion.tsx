@@ -44,32 +44,48 @@ export interface McpConnectionSuggestionProps {
 
 const DISMISSED_MCP_SUGGESTIONS_STORAGE_KEY =
   "agent-native:mcp-connection-suggestions-dismissed";
+const MCP_SUGGESTION_DISMISSAL_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
-function readDismissedMcpSuggestionIds(): string[] {
-  if (typeof window === "undefined") return [];
+function readDismissedMcpSuggestionTimestamps(
+  now = Date.now(),
+): Record<string, number> {
+  if (typeof window === "undefined") return {};
   try {
     const raw = window.localStorage.getItem(
       DISMISSED_MCP_SUGGESTIONS_STORAGE_KEY,
     );
-    if (!raw) return [];
+    if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed)
-      ? parsed.filter((value): value is string => typeof value === "string")
-      : [];
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    const timestamps: Record<string, number> = {};
+    for (const [id, dismissedAt] of Object.entries(
+      parsed as Record<string, unknown>,
+    )) {
+      if (
+        typeof dismissedAt === "number" &&
+        Number.isFinite(dismissedAt) &&
+        dismissedAt <= now &&
+        now - dismissedAt < MCP_SUGGESTION_DISMISSAL_WINDOW_MS
+      ) {
+        timestamps[id] = dismissedAt;
+      }
+    }
+    return timestamps;
   } catch {
     // coercion-ok: unavailable browser storage means no persisted dismissals.
-    return [];
+    return {};
   }
 }
 
-function rememberMcpSuggestionDismissal(id: string): void {
+function rememberMcpSuggestionDismissal(id: string, dismissedAt: number): void {
   if (typeof window === "undefined") return;
   try {
-    const ids = readDismissedMcpSuggestionIds();
-    if (ids.includes(id)) return;
+    const timestamps = readDismissedMcpSuggestionTimestamps(dismissedAt);
     window.localStorage.setItem(
       DISMISSED_MCP_SUGGESTIONS_STORAGE_KEY,
-      JSON.stringify([...ids, id]),
+      JSON.stringify({ ...timestamps, [id]: dismissedAt }),
     );
   } catch {
     // coercion-ok: unavailable browser storage only skips persistence.
@@ -180,8 +196,8 @@ export function McpConnectionSuggestion({
   const [quickConnectIntegrationId, setQuickConnectIntegrationId] = useState<
     string | null
   >(null);
-  const [dismissedIds, setDismissedIds] = useState(
-    readDismissedMcpSuggestionIds,
+  const [dismissedAtById, setDismissedAtById] = useState(
+    readDismissedMcpSuggestionTimestamps,
   );
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -230,11 +246,15 @@ export function McpConnectionSuggestion({
     (mcpServersQuery.data?.role === "owner" ||
       mcpServersQuery.data?.role === "admin"),
   );
+  const dismissedAt = integration ? dismissedAtById[integration.id] : undefined;
+  const dismissed =
+    dismissedAt !== undefined &&
+    Date.now() - dismissedAt < MCP_SUGGESTION_DISMISSAL_WINDOW_MS;
   const shouldSuggest =
     mcpServersQuery.isSuccess &&
     integration &&
     !connected &&
-    !dismissedIds.includes(integration.id) &&
+    !dismissed &&
     (Boolean(integrationId) ||
       variant === "composer" ||
       isMcpConnectionFailureText(text) ||
@@ -248,6 +268,18 @@ export function McpConnectionSuggestion({
     setError(null);
     setConnecting(false);
   }, [integration?.id, integration?.logoUrl, variant]);
+
+  useEffect(() => {
+    if (!integration || dismissedAt === undefined) return;
+    const timeout = window.setTimeout(
+      () => setDismissedAtById(readDismissedMcpSuggestionTimestamps()),
+      Math.max(
+        0,
+        dismissedAt + MCP_SUGGESTION_DISMISSAL_WINDOW_MS - Date.now(),
+      ),
+    );
+    return () => window.clearTimeout(timeout);
+  }, [dismissedAt, integration?.id]);
 
   if (!shouldSuggest) return null;
 
@@ -314,12 +346,12 @@ export function McpConnectionSuggestion({
             if (connecting) return;
             setError(null);
             setConnecting(true);
-            setDismissedIds((current) =>
-              current.includes(integration.id)
-                ? current
-                : [...current, integration.id],
-            );
-            rememberMcpSuggestionDismissal(integration.id);
+            const dismissedAt = Date.now();
+            setDismissedAtById((current) => ({
+              ...current,
+              [integration.id]: dismissedAt,
+            }));
+            rememberMcpSuggestionDismissal(integration.id, dismissedAt);
             void Promise.resolve(onDismiss?.())
               .catch((cause: unknown) => {
                 setError(
@@ -372,11 +404,10 @@ export function McpConnectionSuggestion({
             : undefined
         }
         onCreated={() => {
-          setDismissedIds((current) =>
-            current.includes(integration.id)
-              ? current
-              : [...current, integration.id],
-          );
+          setDismissedAtById((current) => ({
+            ...current,
+            [integration.id]: Date.now(),
+          }));
           saveMcpConnectionResume(variant === "response" ? contextText : text);
           notifyMcpConnectionComplete();
           onConnected?.();

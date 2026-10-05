@@ -117,6 +117,7 @@ describe("McpConnectionSuggestion render", () => {
     } else {
       Reflect.deleteProperty(window, "localStorage");
     }
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -145,13 +146,12 @@ describe("McpConnectionSuggestion render", () => {
     expect(container.querySelector("[data-mcp-connection-suggestion]")).toBe(
       null,
     );
-    expect(
-      JSON.parse(
-        window.localStorage.getItem(
-          "agent-native:mcp-connection-suggestions-dismissed",
-        ) ?? "[]",
-      ),
-    ).toEqual(["test-integration"]);
+    const dismissals = JSON.parse(
+      window.localStorage.getItem(
+        "agent-native:mcp-connection-suggestions-dismissed",
+      ) ?? "{}",
+    ) as Record<string, number>;
+    expect(dismissals["test-integration"]).toEqual(expect.any(Number));
 
     act(() => root.unmount());
     root = createRoot(container);
@@ -159,6 +159,28 @@ describe("McpConnectionSuggestion render", () => {
     expect(container.querySelector("[data-mcp-connection-suggestion]")).toBe(
       null,
     );
+  });
+
+  it("shows a dismissed suggestion again after one week", () => {
+    vi.useFakeTimers();
+    const dismissedAt = new Date("2026-10-01T00:00:00.000Z").getTime();
+    vi.setSystemTime(dismissedAt);
+    window.localStorage.setItem(
+      "agent-native:mcp-connection-suggestions-dismissed",
+      JSON.stringify({ "test-integration": dismissedAt }),
+    );
+
+    renderSuggestion();
+
+    expect(container.querySelector("[data-mcp-connection-suggestion]")).toBe(
+      null,
+    );
+
+    act(() => vi.advanceTimersByTime(7 * 24 * 60 * 60 * 1000));
+
+    expect(
+      container.querySelector("[data-mcp-connection-suggestion]"),
+    ).not.toBeNull();
   });
 
   it("does not suggest an integration that is already connected", () => {
