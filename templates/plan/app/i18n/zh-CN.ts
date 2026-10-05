@@ -179,6 +179,7 @@ const messages = {
       changeStatistics: "变更统计",
       untitledPlan: "未命名计划",
       saveFailed: "无法保存",
+      openFailed: "无法打开此计划进行编辑。请刷新页面后重试。",
     },
     imageViewer: {
       actualSize: "实际大小",

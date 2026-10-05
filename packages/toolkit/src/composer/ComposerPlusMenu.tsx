@@ -465,7 +465,7 @@ export function useComposerDefaultActions({
               setMcpDialogOpen(open);
               if (!open) onRestoreFocus?.();
             }}
-            defaultScope="user"
+            defaultScope="org"
             canCreateOrgMcp={canCreateOrgMcp}
             hasOrg={Boolean(org?.orgId)}
             onCreateMcpServer={(args: unknown) => createMcp.mutateAsync(args)}

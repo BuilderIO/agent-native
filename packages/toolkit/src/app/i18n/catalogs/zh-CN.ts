@@ -1115,6 +1115,7 @@ const messages: ToolkitAgentChatTranslation = {
   "setup.connectPlaceholder": "连接 AI 以开始聊天...",
   "setup.connectToChat": "连接 AI 以聊天",
   "setup.connectToStart": "连接 AI 以开始聊天",
+  "setup.modelListUnavailable": "无法加载模型。",
   "setup.providerStatusUnavailable": "无法确认 AI 是否已就绪。",
   "agentNativeClips.meetingAsk.placeholder": "随便问点什么",
   "agentNativeClips.meetingAsk.ariaLabel": "询问有关此会议的任何问题",
@@ -1818,6 +1819,8 @@ const messages: ToolkitAgentChatTranslation = {
     "在此浏览器中使用示例数据进行演示。",
   "settingsShell.appGroup.labsFootnote": "这些新功能尚不稳定，可能存在错误。",
   "settingsShell.appGroup.labsLoadError": "无法加载实验室功能。",
+  "settingsShell.appGroup.labsReadError":
+    "无法读取此已保存选项。请选择开启或关闭以重新设置。",
   "settingsShell.appGroup.labsSaveError": "无法更改 {{lab}}。请重试。",
   "settingsShell.appGroup.mcpAbout":
     "将 {{app}} 连接到 Claude、ChatGPT、Cursor 或任何支持 MCP 的 AI 应用。之后该应用即可代你在 {{app}} 中工作。它只能看到你有权看到的内容。",

@@ -216,6 +216,11 @@ export interface PublicAgentActionConfig {
 
 export type ActionPlanModeEffect = "read" | "write" | "unknown";
 
+export interface ActionChangeResource {
+  resourceType: string;
+  resourceId: string;
+}
+
 export interface ActionPlanModeConfig<TInput = unknown> {
   effect: ActionPlanModeEffect | ((args: TInput) => ActionPlanModeEffect);
   allowedValues?: Record<string, readonly string[]>;
@@ -377,6 +382,16 @@ interface DefineActionWithSchema<
    *  needs to see, such as telemetry. Defaults to publishing; read-only
    *  actions never publish. */
   changeEvents?: boolean;
+  /** Names the shareable resource a mutating call changes so the `action`
+   *  change event also reaches every collaborator who can read it, not only the
+   *  actor. Without it other open sessions are never told and show stale data
+   *  until they reload. Receives the call's raw input and what the action
+   *  returned (for a call keyed by a child id whose resource only the result
+   *  names); return `null` when the call touches no resource or changed nothing. */
+  changeResource?: (
+    input: StandardSchemaV1.InferInput<TSchema>,
+    result: TReturn,
+  ) => ActionChangeResource | null | undefined;
   parallelSafe?: boolean;
   endsTurn?: boolean;
   dedupe?: boolean;
@@ -454,6 +469,10 @@ interface DefineActionWithParams<
   allowInPlanMode?: boolean;
   planMode?: ActionPlanModeConfig<InferParams<TParams>>;
   changeEvents?: boolean;
+  changeResource?: (
+    input: InferParams<TParams>,
+    result: TReturn,
+  ) => ActionChangeResource | null | undefined;
   parallelSafe?: boolean;
   endsTurn?: boolean;
   dedupe?: boolean;
@@ -497,6 +516,10 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly allowInPlanMode?: boolean;
   readonly planMode?: ActionPlanModeConfig<TInput>;
   readonly changeEvents?: boolean;
+  readonly changeResource?: (
+    input: TInput,
+    result: TReturn,
+  ) => ActionChangeResource | null | undefined;
   readonly parallelSafe?: boolean;
   readonly endsTurn?: boolean;
   readonly dedupe?: boolean;
@@ -726,6 +749,9 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof options.changeEvents === "boolean"
       ? { changeEvents: options.changeEvents }
+      : {}),
+    ...(typeof options.changeResource === "function"
+      ? { changeResource: options.changeResource }
       : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
     ...(typeof endsTurn === "boolean" ? { endsTurn } : {}),

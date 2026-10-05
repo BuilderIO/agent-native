@@ -44,6 +44,7 @@ const chatMocks = vi.hoisted(() => ({
   failureCopies: 1,
   connectionError: null as any,
   setupCardProps: null as any,
+  providerGateProps: null as any,
   suggestionBarProps: null as any,
   dynamicSuggestionOptions: null as any,
   approvalRequest: null as any,
@@ -378,7 +379,25 @@ vi.mock("./agentkit-chat/index.js", async () => {
       React.createElement(React.Fragment, null, children),
     createAgentNativeAgentKitTransport: chatMocks.createTransport,
     findMcpConnectionSuggestionIntegration: () => null,
-    GuidedQuestionProviderGate: () => null,
+    GuidedQuestionProviderGate: (props: any) => {
+      chatMocks.providerGateProps = props;
+      return React.createElement(
+        "div",
+        { "data-testid": "provider-status-gate" },
+        React.createElement(
+          "span",
+          null,
+          props.modelListUnavailable
+            ? "agentChat.setup.modelListUnavailable"
+            : "agentChat.setup.providerStatusUnavailable",
+        ),
+        React.createElement(
+          "button",
+          { type: "button", onClick: props.onRetry },
+          "Retry",
+        ),
+      );
+    },
     GuidedQuestionFlow: (props: unknown) => {
       chatMocks.guidedFlowProps = props;
       return null;
@@ -720,6 +739,7 @@ beforeEach(() => {
   chatMocks.failureCopies = 1;
   chatMocks.connectionError = null;
   chatMocks.setupCardProps = null;
+  chatMocks.providerGateProps = null;
   chatMocks.suggestionBarProps = null;
   chatMocks.dynamicSuggestionOptions = null;
   chatMocks.approvalRequest = null;
@@ -779,6 +799,33 @@ afterEach(async () => {
 });
 
 describe("AgentKitAssistantChat host behavior", () => {
+  it("asks for a title on the engine and model the first prompt was sent with", async () => {
+    const onGenerateTitle = vi.fn();
+    const props = baseProps({ onGenerateTitle });
+    await mount(props);
+
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      messages: [
+        {
+          id: "message-user-1",
+          role: "user",
+          parts: [{ type: "text", text: "Write forty lines" }],
+          metadata: { engine: "ai-sdk:openai", model: "gpt-5.6-luna" },
+        },
+      ],
+    };
+    await act(async () => {
+      root.render(<AgentKitAssistantChat {...props} />);
+    });
+
+    expect(onGenerateTitle).toHaveBeenCalledWith(
+      chatMocks.threadId,
+      "Write forty lines",
+      { engine: "ai-sdk:openai", model: "gpt-5.6-luna" },
+    );
+  });
+
   it("shows a retry when chat history fails to load", async () => {
     const retryHistory = vi.fn();
     chatMocks.history = {
@@ -1822,6 +1869,39 @@ describe("AgentKitAssistantChat host behavior", () => {
     await unmount();
     await mount(baseProps({ showModelSelector: false }));
     expect(chatMocks.composerProps.modelStatusChecksEnabled).toBe(false);
+  });
+
+  it("shows a model catalog retry instead of missing-provider setup", async () => {
+    const onRetryModelList = vi.fn();
+    chatMocks.readiness = {
+      canChat: false,
+      missing: true,
+      state: "missing",
+    };
+    await mount(
+      baseProps({
+        providerStatusChecksEnabled: true,
+        modelListError: true,
+        onRetryModelList,
+      }),
+    );
+
+    expect(chatMocks.setupCardProps).toBeNull();
+    expect(chatMocks.providerGateProps).toMatchObject({
+      modelListUnavailable: true,
+      providerStatus: "unavailable",
+    });
+    expect(container.textContent).toContain(
+      "agentChat.setup.modelListUnavailable",
+    );
+
+    const dispatchEvent = vi.spyOn(window, "dispatchEvent");
+    await act(async () => container.querySelector("button")?.click());
+    expect(onRetryModelList).toHaveBeenCalledOnce();
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "agent-engine:configured-changed" }),
+    );
+    dispatchEvent.mockRestore();
   });
 
   it("keeps the composer editable while provider readiness is checked", async () => {

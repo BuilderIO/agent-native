@@ -185,6 +185,8 @@ const messages = {
       changeStatistics: "Statistiques de changement",
       untitledPlan: "Plan sans titre",
       saveFailed: "Impossible d enregistrer",
+      openFailed:
+        "Impossible d'ouvrir ce plan pour le modifier. Rechargez la page pour réessayer.",
     },
     imageViewer: {
       actualSize: "Taille reelle",

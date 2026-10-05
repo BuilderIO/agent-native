@@ -4,11 +4,22 @@ import { isShaderWriteInFlight } from "@/components/design/inspector/GlslShaderP
 import type { ContentHistoryChange } from "@/pages/design-editor/history";
 import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
 import { prepareAcceptedSourceContent } from "@/pages/design-editor/source-publication";
+import { threeWayMergeContent } from "@/pages/design-editor/three-way-merge";
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface PreparedContentHistoryReplay {
   historyBeforeContent: string;
+  /** The content to write: the entry's target with later edits by others kept. */
+  nextContent: string;
 }
+
+/**
+ * Returned instead of a replay when a collaborator's later edit overlaps the
+ * history entry, so replaying it would either clobber their work or guess.
+ */
+export const STALE_CONTENT_HISTORY_REPLAY = Symbol(
+  "stale-content-history-replay",
+);
 
 export function prepareContentHistoryReplay(args: {
   activeFile?: DesignFile | null;
@@ -19,7 +30,10 @@ export function prepareContentHistoryReplay(args: {
   getScreenContent: (fileId: string) => string;
   liveScreenSnapshotsById: Record<string, unknown>;
   t: (key: string, options?: Record<string, unknown>) => string;
-}): Map<string, PreparedContentHistoryReplay> | null {
+}):
+  | Map<string, PreparedContentHistoryReplay>
+  | typeof STALE_CONTENT_HISTORY_REPLAY
+  | null {
   const preparedByFileId = new Map<string, PreparedContentHistoryReplay>();
 
   for (const change of args.changes) {
@@ -40,8 +54,19 @@ export function prepareContentHistoryReplay(args: {
       change.fileId === args.activeFile?.id
         ? args.getFreshActiveContent()
         : args.getScreenContent(change.fileId);
-    const nextContent =
-      args.direction === "undo" ? change.before : change.after;
+    const [recordedContent, targetContent] =
+      args.direction === "undo"
+        ? [change.after, change.before]
+        : [change.before, change.after];
+    // The entry holds whole-document snapshots, so replaying one verbatim would
+    // also revert whatever a collaborator saved after it. Replay only this
+    // user's edit on top of the content that is live now.
+    const nextContent = threeWayMergeContent({
+      base: recordedContent,
+      mine: targetContent,
+      theirs: historyBeforeContent,
+    });
+    if (nextContent === null) return STALE_CONTENT_HISTORY_REPLAY;
     try {
       prepareAcceptedSourceContent(nextContent, {
         fileId: change.fileId,
@@ -51,7 +76,10 @@ export function prepareContentHistoryReplay(args: {
         )?.fileType,
         previousContent: historyBeforeContent,
       });
-      preparedByFileId.set(change.fileId, { historyBeforeContent });
+      preparedByFileId.set(change.fileId, {
+        historyBeforeContent,
+        nextContent,
+      });
     } catch (error) {
       toast.error(
         designSaveErrorMessage(error) ?? args.t("common.genericError"),

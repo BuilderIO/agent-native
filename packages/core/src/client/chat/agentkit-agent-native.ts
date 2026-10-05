@@ -575,6 +575,18 @@ function reconcileDurableMessages(
     ids.add(event.message.id);
     assistantIdsByRun.set(event.runId, ids);
   }
+  for (const value of runs ?? []) {
+    const run = asRecord(value);
+    if (
+      typeof run?.id !== "string" ||
+      typeof run.activeMessageId !== "string"
+    ) {
+      continue;
+    }
+    const ids = assistantIdsByRun.get(run.id) ?? new Set<string>();
+    ids.add(run.activeMessageId);
+    assistantIdsByRun.set(run.id, ids);
+  }
   const runByAssistantId = new Map<string, string>();
   for (const [runId, ids] of assistantIdsByRun) {
     if (ids.size === 1) runByAssistantId.set([...ids][0]!, runId);
@@ -2224,6 +2236,10 @@ export function createAgentNativeAgentKitTransport(
   const protocolTransport = createAgentKitProtocolAdapter(runtime, {
     onRunOutcome: trackRunOutcome,
     ...options.adapter,
+    // A spread would freeze the host's label at its locale when this was built.
+    get autoContinueLabel() {
+      return options.adapter?.autoContinueLabel;
+    },
     metadata: adapterMetadata(options),
     capabilities: {
       ...options.adapter?.capabilities,

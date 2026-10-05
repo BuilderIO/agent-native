@@ -1207,7 +1207,7 @@ export function App({
   const [authStatus, setAuthStatus] = useState<
     "unknown" | "authed" | "anon" | "unavailable"
   >("unknown");
-  const [labValues, setLabValues] = useState<Record<string, boolean>>({});
+  const [labValues, setLabValues] = useState<Record<string, unknown>>({});
   const [serverReachable, setServerReachable] = useState(true);
   const serverHostForSignIn = serverUrl
     .replace(/^https?:\/\//, "")
@@ -1667,8 +1667,8 @@ export function App({
       }
 
       try {
-        const values = await callClipsAction<Record<string, boolean>>(
-          "get-labs",
+        const values = await callClipsAction<Record<string, unknown>>(
+          "get-lab-states",
           {},
           { method: "GET" },
         );
@@ -3634,6 +3634,7 @@ export function App({
   async function handleStartRecording(options?: {
     resumeCapture?: RestartHandoff;
   }): Promise<RecorderHandle | null> {
+    const recordingClickAt = performance.now();
     if (recordingStopFinalizingRef.current) {
       console.warn(
         "[clips-popover] handleStartRecording ignored — previous recording still finalizing",
@@ -3767,6 +3768,9 @@ export function App({
             options?.resumeCapture?.transcriptionTornDown ?? null,
           signal: attempt.signal,
           onCaptureStartRequested: (recordingId) => {
+            console.log(
+              `[recording-start-latency] click to capture request ${Math.round(performance.now() - recordingClickAt)}ms`,
+            );
             captureStartRequestedDuringStart = true;
             if (recordingStartAttemptRef.current === attempt) {
               captureStartedDuringStartRef.current = true;

@@ -379,9 +379,22 @@ const nextStackCandidate =
 const resolveCornerRadiusXY = loadPureBridgeFn<
   (value: string, width: number, height: number) => { x: number; y: number }
 >("resolveCornerRadiusXY", ["readPx", "resolveCornerRadiusComponent"]);
-const isDirectCornerRadiusValue = loadPureBridgeFn<(value: string) => boolean>(
-  "isDirectCornerRadiusValue",
-);
+const cornerRadiusMap = loadPureBridgeFn<
+  (
+    computedStyle: {
+      borderTopLeftRadius: string;
+      borderTopRightRadius: string;
+      borderBottomRightRadius: string;
+      borderBottomLeftRadius: string;
+    },
+    width: number,
+    height: number,
+  ) => Record<string, { x: number; y: number }>
+>("cornerRadiusMap", [
+  "resolveCornerRadiusXY",
+  "resolveCornerRadiusComponent",
+  "readPx",
+]);
 const composeRadiusTransformMatrices = loadPureBridgeFn<
   (parent: number[], child: number[]) => number[]
 >("composeRadiusTransformMatrices");
@@ -409,6 +422,7 @@ const radiusDragMaximums =
       radii: Record<string, { x: number; y: number }>,
       width: number,
       height: number,
+      minimumRadius?: { x: number; y: number },
     ) => { x: number; y: number }
   >("radiusDragMaximums");
 
@@ -1046,12 +1060,17 @@ describe("editor-chrome bridge — corner radius math", () => {
     expect(resolveCornerRadiusXY("50%", 200, 100)).toEqual({ x: 100, y: 50 });
   });
 
-  it("uses computed geometry when the authored radius is tokenized", () => {
-    const authored = "var(--radius)";
-    const computed = "24px";
-    const value = isDirectCornerRadiusValue(authored) ? authored : computed;
-    expect(isDirectCornerRadiusValue(authored)).toBe(false);
-    expect(resolveCornerRadiusXY(value, 200, 100)).toEqual({ x: 24, y: 24 });
+  it("uses computed geometry for tokenized corner radii", () => {
+    const computedStyle = {
+      borderTopLeftRadius: "24px",
+      borderTopRightRadius: "24px",
+      borderBottomRightRadius: "24px",
+      borderBottomLeftRadius: "24px",
+    };
+    expect(cornerRadiusMap(computedStyle, 200, 100).nw).toEqual({
+      x: 24,
+      y: 24,
+    });
   });
 
   it("composes full 3D transforms before projecting the radius plane", () => {
@@ -1131,6 +1150,23 @@ describe("editor-chrome bridge — corner radius math", () => {
         100,
       ),
     ).toEqual({ x: 60, y: 30 });
+  });
+
+  it("does not clamp an individual corner below its rendered radius", () => {
+    expect(
+      radiusDragMaximums(
+        "nw",
+        {
+          nw: { x: 100, y: 100 },
+          ne: { x: 0, y: 0 },
+          se: { x: 0, y: 0 },
+          sw: { x: 0, y: 0 },
+        },
+        200,
+        100,
+        { x: 100, y: 100 },
+      ),
+    ).toEqual({ x: 100, y: 100 });
   });
 });
 

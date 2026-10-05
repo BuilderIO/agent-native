@@ -1,14 +1,24 @@
 import { getDbExec } from "../db/client.js";
+import { canManageOrg } from "../org/permissions.js";
 import {
   encryptSecretValue,
   decryptSecretValue,
   isEncryptedSecretValue,
 } from "../secrets/crypto.js";
-import { readAppSecret, type SecretRef } from "../secrets/storage.js";
+import {
+  deleteAppSecret,
+  readAppSecret,
+  type SecretRef,
+} from "../secrets/storage.js";
 import { assertCredentialStoreReadable } from "../server/credential-provider.js";
+import {
+  isPersonalCredentialScope,
+  readsOrgCredentialFirst,
+} from "../server/credential-read-order.js";
 import {
   isPersonalProviderKeyUseRestricted,
   isPersonalProviderPolicyKey,
+  readOrgMemberRole,
 } from "../server/personal-provider-key-policy.js";
 import { getSetting, putSetting, deleteSetting } from "../settings/store.js";
 
@@ -196,7 +206,7 @@ async function resolveEffectiveOrgId(
 
 /**
  * Resolve a credential across the encrypted app_secrets store and the legacy
- * settings-backed credential store. User overrides win, followed by the
+ * settings-backed credential store. A member's own value wins, followed by the
  * active org/workspace shared value.
  *
  * SECURITY: NEVER reads from process.env. Env vars are global to the
@@ -209,6 +219,8 @@ async function resolveEffectiveOrgId(
  *   4. legacy workspace-scoped app_secrets for the org
  *   5. org-scoped legacy settings credential
  *   6. solo workspace-scoped app_secrets (`solo:<email>`)
+ *
+ * An owner or admin of the org reads 3-5 before 1-2 (`readsOrgCredentialFirst`).
  *
  * Steps 3-5 use `ctx.orgId` when given, else the org resolved from
  * `ctx.userEmail` (see `resolveEffectiveOrgId`), and are skipped only when the
@@ -233,25 +245,23 @@ export async function resolveCredentialDetailed(
         : { email: ctx.userEmail },
     ));
 
+  let personal: ResolvedCredential | undefined;
   if (ctx.credentialScope !== "org" && !personalRestricted) {
-    const userSecret = await readScopedAppSecret(key, "user", ctx.userEmail);
-    if (userSecret) {
-      return { value: userSecret, scope: "user", scopeId: ctx.userEmail };
-    }
-
-    const userSetting = await resolveCredentialForScope(key, {
-      ...ctx,
-      scope: "user",
-    });
-    if (userSetting) {
-      return { value: userSetting, scope: "user", scopeId: ctx.userEmail };
-    }
+    const value =
+      (await readScopedAppSecret(key, "user", ctx.userEmail)) ??
+      (await resolveCredentialForScope(key, { ...ctx, scope: "user" }));
+    if (value) personal = { value, scope: "user", scopeId: ctx.userEmail };
   }
 
   if (ctx.credentialScope === "org" && !ctx.orgId) return undefined;
   const orgLookup = await resolveEffectiveOrgId(ctx);
+  // Before the personal answer: without the org, an owner's role is unknown.
   assertCredentialStoreReadable(orgLookup);
   const { orgId } = orgLookup;
+  // An owner or admin runs on the organization's credential ahead of their own.
+  if (personal && !(await readsOrgCredentialFirst(orgId, ctx.userEmail))) {
+    return personal;
+  }
 
   if (orgId) {
     const orgSecret = await readScopedAppSecret(key, "org", orgId);
@@ -273,6 +283,7 @@ export async function resolveCredentialDetailed(
   }
 
   if (ctx.credentialScope === "org") return undefined;
+  if (personal) return personal;
 
   // Solo-workspace fallback: always checked, even when an org id was found
   // above. A credential written before the user joined/created an org lives
@@ -443,6 +454,13 @@ export async function saveCredential(
   });
 }
 
+/**
+ * Remove every row of `key` the named owner holds: the caller's own (user
+ * secret, legacy user setting, `solo:` workspace secret) or, with
+ * `scope: "org"`, the organization's (org secret, legacy workspace secret,
+ * legacy org setting). Callers check that the caller may change the
+ * organization's credentials; `deleteResolvedCredential` does it for them.
+ */
 export async function deleteCredential(
   key: string,
   ctx: CredentialContext & { scope?: "user" | "org" },
@@ -456,8 +474,50 @@ export async function deleteCredential(
     if (!ctx.orgId) {
       throw new Error("deleteCredential scope='org' requires orgId");
     }
+    await deleteAppSecret({ key, scope: "org", scopeId: ctx.orgId });
+    await deleteAppSecret({ key, scope: "workspace", scopeId: ctx.orgId });
     await deleteSetting(orgCredentialSettingKey(ctx.orgId, key));
     return;
   }
+  await deleteAppSecret({ key, scope: "user", scopeId: ctx.userEmail });
   await deleteSetting(userCredentialSettingKey(ctx.userEmail, key));
+  await deleteAppSecret({
+    key,
+    scope: "workspace",
+    scopeId: `solo:${ctx.userEmail}`,
+  });
+}
+
+export class CredentialDeleteForbiddenError extends Error {
+  statusCode = 403;
+  constructor() {
+    super(
+      "Only organization owners and admins can remove the organization's credentials",
+    );
+    this.name = "CredentialDeleteForbiddenError";
+  }
+}
+
+/**
+ * Remove the credential `resolveCredentialDetailed` answers with, so a
+ * disconnect takes effect: every row of the owner that answers (see
+ * `deleteCredential`), since deleting just the answering row would let the
+ * next row of that owner answer instead. Only an owner or admin may remove
+ * the organization's. A save that clears a value knows its scope and calls
+ * `deleteCredential` with it instead, which never follows the read order.
+ */
+export async function deleteResolvedCredential(
+  key: string,
+  ctx: CredentialContext,
+): Promise<void> {
+  const held = await resolveCredentialDetailed(key, ctx);
+  if (!held) return;
+  if (isPersonalCredentialScope(held)) {
+    await deleteCredential(key, { ...ctx, scope: "user" });
+    return;
+  }
+  if (!canManageOrg(await readOrgMemberRole(held.scopeId, ctx.userEmail))) {
+    throw new CredentialDeleteForbiddenError();
+  }
+  await deleteCredential(key, { ...ctx, orgId: held.scopeId, scope: "org" });
 }

@@ -469,6 +469,17 @@ export function useUpdatePlan() {
   );
 }
 
+// The editor's autosave reports a failed save through its own "couldn't save"
+// pill and merges revision conflicts itself, so a toast here would announce
+// conflicts that were already resolved.
+export function useSavePlanBlocks() {
+  const invalidate = usePlanInvalidation();
+  return useActionMutation<PlanBundle & { html?: string }, UpdatePlanInput>(
+    "update-visual-plan",
+    { onSuccess: invalidate },
+  );
+}
+
 export function useUpdateLocalPlan() {
   const qc = useQueryClient();
   const invalidate = usePlanInvalidation();

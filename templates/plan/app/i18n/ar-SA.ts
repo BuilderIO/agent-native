@@ -183,6 +183,7 @@ const messages = {
       changeStatistics: "إحصاءات التغييرات",
       untitledPlan: "خطة بلا عنوان",
       saveFailed: "تعذر الحفظ",
+      openFailed: "تعذر فتح هذه الخطة للتحرير. أعد التحميل للمحاولة مرة أخرى.",
     },
     imageViewer: {
       actualSize: "الحجم الفعلي",

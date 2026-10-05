@@ -174,6 +174,24 @@ describe("action discovery", () => {
     expect(registry["save-position"].changeEvents).toBe(false);
   });
 
+  it("preserves the declared changeResource", () => {
+    const changeResource = (input: { id: string }) => ({
+      resourceType: "document",
+      resourceId: input.id,
+    });
+    const registry = loadActionsFromStaticRegistry({
+      "update-doc": {
+        default: {
+          tool: { description: "Update doc", parameters: {} },
+          changeResource,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["update-doc"].changeResource).toBe(changeResource);
+  });
+
   it("preserves request-scoped action discovery predicates", () => {
     const available = vi.fn(() => true);
     const registry = loadActionsFromStaticRegistry({
