@@ -327,15 +327,15 @@ function unsupportedStructureKey(doc: ProseMirrorNode): string {
   );
 }
 
-// The text each frame holds, split at every frame edge. A change can keep
-// every frame's shape and still move or rewrite text across a cell or frame
-// edge; it then changes two of these runs.
+// The formatted text each frame holds, split at every frame edge. A change can
+// keep every frame's shape and still move, rewrite, or format text on both
+// sides of a cell or frame edge; it then changes two of these runs.
 function frameTextRuns(doc: ProseMirrorNode): string[] {
   const runs = [""];
   const visit = (node: ProseMirrorNode) => {
     const frame = suggestionNodeRole(node.type.name) === "frame";
     if (frame) runs.push("");
-    if (node.isText) runs[runs.length - 1] += node.text;
+    if (node.isText) runs[runs.length - 1] += JSON.stringify(node.toJSON());
     else if (node.isLeaf) runs[runs.length - 1] += "\n";
     node.forEach(visit);
     if (node.isBlock) runs[runs.length - 1] += "\n";

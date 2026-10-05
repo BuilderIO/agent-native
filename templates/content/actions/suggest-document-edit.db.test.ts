@@ -1083,6 +1083,12 @@ describe("suggest-document-edit", () => {
       "alpha | cell beta",
     ],
     [
+      "bolds text in two table cells",
+      TABLE_PAGE,
+      "alpha cell | beta",
+      "**alpha cell** | **beta**",
+    ],
+    [
       "moves a paragraph's text into a callout",
       `${CALLOUT_PAGE}\n\nAfter the callout`,
       "alpha text\n</callout>\n\nAfter the callout",
