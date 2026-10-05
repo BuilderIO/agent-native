@@ -2848,9 +2848,8 @@ function orgIdFromConnectTokenResolution(
   if (resolution.status === "claimed" || resolution.status === "found") {
     return resolution.orgId;
   }
-  // A connect token with no row here was not issued for any org this app
-  // knows. Its `org_domain` claim must not grant that domain's org, so it
-  // runs Personal.
+  // A first-party cross-app token with no row here was not issued for any org
+  // this app knows. Its `org_domain` claim must not grant that domain's org.
   if (resolution.status === "missing") return null;
   return undefined;
 }
@@ -3095,8 +3094,7 @@ export async function verifyAuth(
         !matchesStoredConnectTokenIdentity(orgResolution, {
           ownerEmail: typeof payload.sub === "string" ? payload.sub : undefined,
           orgId: orgIdClaim.orgId,
-        }) &&
-        (orgIdClaim.orgId !== undefined || orgResolution.status === "found")
+        })
       ) {
         return { authed: false };
       }

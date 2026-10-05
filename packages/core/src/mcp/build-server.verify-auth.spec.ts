@@ -230,10 +230,9 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(touchTokenUsedMock).toHaveBeenCalledWith("jti-active");
   });
 
-  it("runs a connect token this app has no record of as Personal, never as its org_domain's org", async () => {
+  it("rejects a non-first-party connect token this app has no record of", async () => {
     isJtiRevokedMock.mockResolvedValue(false);
     lookupConnectTokenOrgMock.mockResolvedValue({ status: "missing" });
-    resolveOrgByDomainMock.mockResolvedValue({ orgId: "org_by_domain" });
     const token = await sign({
       sub: "a@example.com",
       scope: "mcp-connect",
@@ -241,13 +240,9 @@ describe("verifyAuth — connect-token revoke check", () => {
       org_domain: "builder.io",
     });
     const res = await verifyAuth(`Bearer ${token}`);
-    expect(res).toMatchObject({
-      authed: true,
-      identity: { userEmail: "a@example.com", orgId: null },
-    });
-    await expect(resolveMcpIdentityOrgId(res.identity)).resolves.toBe(
-      undefined,
-    );
+    expect(res).toEqual({ authed: false });
+    expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
+    expect(touchTokenUsedMock).not.toHaveBeenCalled();
     expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
   });
 
@@ -669,6 +664,12 @@ describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => 
   it("connect-minted JWT → fullSurface true", async () => {
     process.env.A2A_SECRET = SECRET;
     isJtiRevokedMock.mockResolvedValue(false);
+    lookupConnectTokenOrgMock.mockResolvedValue({
+      status: "found",
+      kind: "personal",
+      ownerEmail: "a@example.com",
+      orgId: null,
+    });
     const token = await sign({
       sub: "a@example.com",
       scope: "mcp-connect",
@@ -1260,6 +1261,12 @@ describe("verifyAuth — a credential for an address an email change retired", (
 
   it("answers a retryable failure when the retirement check cannot run", async () => {
     checkCredentialEmailRetirementMock.mockResolvedValue("unavailable");
+    lookupConnectTokenOrgMock.mockResolvedValue({
+      status: "found",
+      kind: "personal",
+      ownerEmail: "renamed@example.com",
+      orgId: null,
+    });
     const token = await sign({
       sub: "renamed@example.com",
       scope: "mcp-connect",
