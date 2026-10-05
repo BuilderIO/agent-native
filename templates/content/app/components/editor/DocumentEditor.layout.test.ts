@@ -24,6 +24,7 @@ import {
   visibleSavedSuggestionsDuringDraftMaterialization,
   observeAcceptedCanonicalSettlement,
   documentEditorReservesInlineReviewSpace,
+  documentEditorReviewReadsSettled,
   documentEditorShowsInlineComments,
   documentEditorShowsUtilityPanelSheet,
   dismissDocumentCommentFocus,
@@ -303,7 +304,9 @@ describe("document editor layout", () => {
     expect(source).toContain('showDesktopInfoPanel ? "flex-1" : "w-full"');
     expect(source).toContain('className="absolute right-0 top-0 w-80"');
     expect(source).toContain("useElementMinWidth(documentLayoutRef, 960)");
-    expect(source).toContain("useElementMinWidth(documentLayoutRef, 1088)");
+    expect(source).toMatch(
+      /useElementMinWidth\(\s*documentLayoutRef,\s*DOCUMENT_EDITOR_INLINE_REVIEW_MIN_WIDTH,\s*\)/,
+    );
     expect(source).toContain('reserveInlineReviewSpace && "pr-80"');
     expect(source).toContain(
       "observeCommentLane(container, lane, setCommentLaneOffset)",
@@ -433,6 +436,64 @@ describe("document editor layout", () => {
         preserveInlineReviewSpace: true,
         hasInlineCommentSpace: true,
         isDatabasePage: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps remembered review geometry until cached reads finish refreshing", () => {
+    expect(
+      documentEditorReviewReadsSettled({
+        isLocalFileDocument: false,
+        hasThreads: true,
+        hasSuggestions: true,
+        commentsFetching: true,
+        suggestionsFetching: false,
+        commentsError: false,
+        suggestionsError: false,
+      }),
+    ).toBe(false);
+    expect(
+      documentEditorReviewReadsSettled({
+        isLocalFileDocument: false,
+        hasThreads: true,
+        hasSuggestions: true,
+        commentsFetching: false,
+        suggestionsFetching: true,
+        commentsError: false,
+        suggestionsError: false,
+      }),
+    ).toBe(false);
+    expect(
+      documentEditorReviewReadsSettled({
+        isLocalFileDocument: false,
+        hasThreads: true,
+        hasSuggestions: true,
+        commentsFetching: false,
+        suggestionsFetching: false,
+        commentsError: false,
+        suggestionsError: false,
+      }),
+    ).toBe(true);
+    expect(
+      documentEditorReviewReadsSettled({
+        isLocalFileDocument: false,
+        hasThreads: true,
+        hasSuggestions: true,
+        commentsFetching: false,
+        suggestionsFetching: false,
+        commentsError: true,
+        suggestionsError: false,
+      }),
+    ).toBe(false);
+    expect(
+      documentEditorReviewReadsSettled({
+        isLocalFileDocument: false,
+        hasThreads: true,
+        hasSuggestions: true,
+        commentsFetching: false,
+        suggestionsFetching: false,
+        commentsError: false,
+        suggestionsError: true,
       }),
     ).toBe(false);
   });
@@ -2286,7 +2347,7 @@ describe("document editor layout", () => {
     expect(source).toContain("queriedDocument?.id === documentId");
     expect(source).toContain("documentEditorLoadState");
     expect(source).toMatch(
-      /return \(\s*<DocumentEditorSkeleton\s+title=\{optimisticTitle\}\s+iconRow=\{readPageIconRowHint\(documentId\)\}/,
+      /return \(\s*<DocumentEditorSkeleton\s+title=\{optimisticTitle\}\s+iconRow=\{readPageIconRowHint\(documentId\)\}\s+shape=\{\s*document\s*\?\s*readDocumentShapeHint\(document\)\s*:\s*readPageShapeHint\(documentId\)\s*\}/,
     );
   });
 

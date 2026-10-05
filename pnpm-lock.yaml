@@ -4178,6 +4178,9 @@ importers:
       '@agent-native/creative-context':
         specifier: workspace:*
         version: link:../../packages/creative-context
+      '@agent-native/otel':
+        specifier: workspace:*
+        version: link:../../packages/otel
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../../packages/toolkit
@@ -4452,6 +4455,9 @@ importers:
       '@agent-native/creative-context':
         specifier: workspace:*
         version: link:../../packages/creative-context
+      '@agent-native/otel':
+        specifier: workspace:*
+        version: link:../../packages/otel
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../../packages/toolkit
@@ -4612,6 +4618,9 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@agent-native/otel':
+        specifier: workspace:*
+        version: link:../../packages/otel
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../../packages/toolkit
@@ -4739,6 +4748,9 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@agent-native/otel':
+        specifier: workspace:*
+        version: link:../../packages/otel
       '@agent-native/scheduling':
         specifier: workspace:*
         version: link:../../packages/scheduling
@@ -5236,6 +5248,9 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@agent-native/otel':
+        specifier: workspace:*
+        version: link:../../packages/otel
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../../packages/toolkit
@@ -5605,6 +5620,9 @@ importers:
       '@agent-native/creative-context':
         specifier: workspace:*
         version: link:../../packages/creative-context
+      '@agent-native/otel':
+        specifier: workspace:*
+        version: link:../../packages/otel
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../../packages/toolkit
@@ -5867,6 +5885,9 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@agent-native/otel':
+        specifier: workspace:*
+        version: link:../../packages/otel
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../../packages/toolkit
@@ -5994,6 +6015,9 @@ importers:
       '@agent-native/creative-context':
         specifier: workspace:*
         version: link:../../packages/creative-context
+      '@agent-native/otel':
+        specifier: workspace:*
+        version: link:../../packages/otel
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../../packages/toolkit
@@ -6289,6 +6313,9 @@ importers:
       '@agent-native/dispatch':
         specifier: workspace:*
         version: link:../../packages/dispatch
+      '@agent-native/otel':
+        specifier: workspace:*
+        version: link:../../packages/otel
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../../packages/toolkit
@@ -6389,6 +6416,9 @@ importers:
       '@agent-native/dispatch':
         specifier: workspace:*
         version: link:../../packages/dispatch
+      '@agent-native/otel':
+        specifier: workspace:*
+        version: link:../../packages/otel
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../../packages/toolkit
@@ -6612,6 +6642,9 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@agent-native/otel':
+        specifier: workspace:*
+        version: link:../../packages/otel
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../../packages/toolkit
@@ -6835,6 +6868,9 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@agent-native/otel':
+        specifier: workspace:*
+        version: link:../../packages/otel
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../../packages/toolkit
@@ -7118,6 +7154,9 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@agent-native/otel':
+        specifier: workspace:*
+        version: link:../../packages/otel
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../../packages/toolkit
@@ -7401,6 +7440,9 @@ importers:
       '@agent-native/creative-context':
         specifier: workspace:*
         version: link:../../packages/creative-context
+      '@agent-native/otel':
+        specifier: workspace:*
+        version: link:../../packages/otel
       '@agent-native/toolkit':
         specifier: workspace:*
         version: link:../../packages/toolkit
@@ -27287,7 +27329,7 @@ snapshots:
   '@libsql/isomorphic-ws@0.1.5':
     dependencies:
       '@types/ws': 8.18.1
-      ws: 8.22.0
+      ws: 8.21.0
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate

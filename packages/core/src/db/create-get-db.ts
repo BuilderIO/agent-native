@@ -19,6 +19,7 @@ import {
   guardNeonPool,
   withDbTimeout,
   retryOnConnectionError,
+  hasRetryBudgetFor,
   dbOpTimeoutMs,
   sharedDbPool,
   toPostgresParams,
@@ -29,6 +30,10 @@ import {
   assertHostedRuntimeDatabase,
 } from "./client.js";
 import type { DbExec, DbExecStatement } from "./client.js";
+import {
+  assertPoolConnectionAvailable,
+  runHoldingPoolConnection,
+} from "./pool-self-deadlock.js";
 
 let _pgDrizzle: Promise<{ drizzle: any; postgres: any }> | undefined;
 function getPgDrizzle() {
@@ -654,6 +659,7 @@ function drizzleTransactionExec(
 function scopeDbExecToDrizzleTransactions<T extends object>(
   db: T,
   queryQueue?: DrizzleTransactionQueryQueue,
+  pool?: object,
 ): T {
   return new Proxy(db, {
     get(target, prop, receiver) {
@@ -676,19 +682,21 @@ function scopeDbExecToDrizzleTransactions<T extends object>(
                   return await withTransactionStatementTimeout(
                     transaction,
                     () =>
-                      withDbExec(
-                        drizzleTransactionExec(transaction, transactionQueue),
-                        () =>
-                          runInActiveDrizzleTransactionScope(
-                            { queue: transactionQueue, transaction },
-                            () =>
-                              (run as (transaction: any) => unknown)(
-                                scopeDbExecToDrizzleTransactions(
-                                  transaction,
-                                  transactionQueue,
+                      runHoldingPoolConnection(pool, () =>
+                        withDbExec(
+                          drizzleTransactionExec(transaction, transactionQueue),
+                          () =>
+                            runInActiveDrizzleTransactionScope(
+                              { queue: transactionQueue, transaction },
+                              () =>
+                                (run as (transaction: any) => unknown)(
+                                  scopeDbExecToDrizzleTransactions(
+                                    transaction,
+                                    transactionQueue,
+                                  ),
                                 ),
-                              ),
-                          ),
+                            ),
+                        ),
                       ),
                   );
                 } finally {
@@ -732,6 +740,22 @@ function scopeDbExecToDrizzleTransactions<T extends object>(
       return typeof value === "function" ? value.bind(receiver) : value;
     },
   });
+}
+
+/**
+ * Routes `getDb()` and `getDbExec()` calls made inside a root transaction of
+ * `db` onto that transaction, and marks the transaction as holding `pool`'s
+ * connection. `pool` is the shared pool `db` was built over.
+ *
+ * TRAP: every Drizzle instance built over a shared pool needs this. One that
+ * does not leaves a callback inside its transaction asking the same pool for a
+ * second connection, which on a one-connection pool never arrives.
+ */
+export function scopeDbToPoolTransactions<T extends object>(
+  db: T,
+  pool: object,
+): T {
+  return scopeDbExecToDrizzleTransactions(db, undefined, pool);
 }
 
 /**
@@ -803,11 +827,13 @@ export function buildResilientNeonPool<
           ? sql.text
           : "";
     const isRead = isSqlRead(sqlText);
+    const startedAt = Date.now();
 
     const runAttempt = async (): Promise<{
       rows: unknown[];
       rowCount?: number;
     }> => {
+      assertPoolConnectionAvailable(pool, "A database query");
       let acquireTimedOut = false;
       const client = await withDbTimeout(
         "connect",
@@ -858,7 +884,11 @@ export function buildResilientNeonPool<
     try {
       return await runAttempt();
     } catch (err) {
-      if (isConnectionError(err) && (err as any)?.code === "CONNECT_TIMEOUT") {
+      if (
+        isConnectionError(err) &&
+        (err as any)?.code === "CONNECT_TIMEOUT" &&
+        hasRetryBudgetFor(startedAt)
+      ) {
         return runAttempt();
       }
       throw err;
@@ -871,6 +901,7 @@ export function buildResilientNeonPool<
       if (prop === "connect") {
         return (...args: any[]) =>
           retryOnConnectionError(async () => {
+            assertPoolConnectionAvailable(target, "A database connection");
             let acquireTimedOut = false;
             const client = await withDbTimeout<any>(
               "connect",
@@ -902,6 +933,7 @@ export function buildResilientPostgresJsClient<
     const isRead = isSqlRead(query);
 
     const runAttempt = (mode: "rows" | "values") => async (): Promise<any> => {
+      assertPoolConnectionAvailable(client, "A database query");
       const pending = client.unsafe(query, params, options);
       return withDbTimeout(
         "query",
@@ -920,12 +952,14 @@ export function buildResilientPostgresJsClient<
 
     const execute = async (mode: "rows" | "values"): Promise<any> => {
       if (isRead) return retryOnConnectionError(runAttempt(mode));
+      const startedAt = Date.now();
       try {
         return await runAttempt(mode)();
       } catch (err) {
         if (
           isConnectionError(err) &&
-          (err as any)?.code === "CONNECT_TIMEOUT"
+          (err as any)?.code === "CONNECT_TIMEOUT" &&
+          hasRetryBudgetFor(startedAt)
         ) {
           return runAttempt(mode)();
         }
@@ -1012,7 +1046,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
         );
         guardNeonPool(rawPool, url);
         const pool = buildResilientNeonPool(rawPool);
-        _db = scopeDbExecToDrizzleTransactions(drizzle(pool, { schema }));
+        _db = scopeDbToPoolTransactions(drizzle(pool, { schema }), rawPool);
         return _db;
       });
     } else {
@@ -1021,8 +1055,9 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
         const client = sharedDbPool("postgres-js", url, () =>
           postgres(url, pgPoolOptions(url)),
         );
-        _db = scopeDbExecToDrizzleTransactions(
+        _db = scopeDbToPoolTransactions(
           drizzle(buildResilientPostgresJsClient(client), { schema }),
+          client,
         );
         return _db;
       });
