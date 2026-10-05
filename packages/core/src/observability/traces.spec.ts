@@ -6,6 +6,7 @@ import {
   unregisterTrackingProvider,
 } from "../tracking/registry.js";
 import type { TrackingEvent } from "../tracking/types.js";
+import { registerObservabilityProvider } from "./otel-provider.js";
 import * as traceStore from "./store.js";
 import { instrumentAgentLoop, redactSensitiveFields } from "./traces.js";
 import {
@@ -1545,7 +1546,9 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       ).rejects.toThrow("provider disconnected");
 
       await new Promise((resolve) => setTimeout(resolve, 0));
-      const toolOtelSpan = spans.find((span) => span.name === "tool.call");
+      const toolOtelSpan = spans.find((span) =>
+        span.name.startsWith("execute_tool "),
+      );
       expect(toolOtelSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
       expect(toolOtelSpan?.status?.message).toBe(
         captureToolResults
@@ -1942,24 +1945,25 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
     await new Promise((r) => setTimeout(r, 0));
 
-    const byName = (n: string) => spans.filter((s) => s.name === n);
+    const byName = (n: string) =>
+      spans.filter((s) => s.name === n || s.name.startsWith(`${n} `));
 
-    const runSpan = byName("agent.run")[0];
+    const runSpan = byName("invoke_agent")[0];
     expect(runSpan).toBeDefined();
     expect(runSpan.attributes["agent.run_id"]).toBe("run-otel-1");
-    expect(runSpan.attributes["agent.model"]).toBe("claude-test");
+    expect(runSpan.attributes["gen_ai.request.model"]).toBe("claude-test");
     expect(runSpan.attributes["agent.tool_calls"]).toBe(2);
     expect(runSpan.attributes["agent.failed_tools"]).toBe(1);
     expect(runSpan.status?.code).toBe(SPAN_STATUS_OK);
     expect(runSpan.ended).toBe(true);
 
-    const toolSpans = byName("tool.call");
+    const toolSpans = byName("execute_tool");
     expect(toolSpans).toHaveLength(2);
     const readSpan = toolSpans.find(
-      (s) => s.attributes["tool.name"] === "read",
+      (s) => s.attributes["gen_ai.tool.name"] === "read",
     );
     const dbSpan = toolSpans.find(
-      (s) => s.attributes["tool.name"] === "db-exec",
+      (s) => s.attributes["gen_ai.tool.name"] === "db-exec",
     );
     expect(readSpan?.status?.code).toBe(SPAN_STATUS_OK);
     expect(readSpan?.ended).toBe(true);
@@ -1969,12 +1973,12 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(dbSpan?.ended).toBe(true);
     expect(dbSpan?.parent).toBe(runSpan);
 
-    const llmSpan = byName("llm.call")[0];
+    const llmSpan = byName("chat")[0];
     expect(llmSpan).toBeDefined();
-    expect(llmSpan.attributes["llm.model"]).toBe("claude-test");
-    expect(llmSpan.attributes["llm.input_tokens"]).toBe(100);
-    expect(llmSpan.attributes["llm.output_tokens"]).toBe(20);
-    expect(llmSpan.attributes["llm.cache_read_tokens"]).toBe(5);
+    expect(llmSpan.attributes["gen_ai.request.model"]).toBe("claude-test");
+    expect(llmSpan.attributes["gen_ai.usage.input_tokens"]).toBe(100);
+    expect(llmSpan.attributes["gen_ai.usage.output_tokens"]).toBe(20);
+    expect(llmSpan.attributes["gen_ai.usage.cache_read.input_tokens"]).toBe(5);
     expect(llmSpan.status?.code).toBe(SPAN_STATUS_OK);
     expect(llmSpan.ended).toBe(true);
     expect(llmSpan.parent).toBe(runSpan);
@@ -2025,7 +2029,9 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
         },
       });
 
-      const toolSpan = spans.find((span) => span.name === "tool.call");
+      const toolSpan = spans.find((span) =>
+        span.name.startsWith("execute_tool "),
+      );
       expect(toolSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
       if (captureToolResults) {
         expect(toolSpan?.status?.message).toBe(
@@ -2039,6 +2045,97 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     }
   });
 
+  it("records unsampled GenAI and tool metrics for each call", async () => {
+    const recorded: Array<{
+      instrument: string;
+      value: number;
+      attributes?: Record<string, string | number>;
+    }> = [];
+    const instrument = (name: string) => {
+      const write = (
+        value: number,
+        attributes?: Record<string, string | number>,
+      ) => recorded.push({ instrument: name, value, attributes });
+      return { record: write, add: write };
+    };
+    const unregister = registerObservabilityProvider({
+      meterProvider: {
+        getMeter: () => ({
+          createHistogram: instrument,
+          createCounter: instrument,
+        }),
+      },
+    });
+    try {
+      await instrumentAgentLoop({
+        runAgentLoop: async ({ send, onUsage }) => {
+          send({ type: "model_stream", status: "start" });
+          onUsage?.({
+            inputTokens: 12,
+            outputTokens: 4,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            model: "claude-test",
+          } as any);
+          send({ type: "model_stream", status: "end", reason: "tool_use" });
+          send({ type: "tool_start", tool: "my-tool", input: {}, id: "t1" });
+          send({
+            type: "tool_done",
+            tool: "my-tool",
+            result: "boom",
+            id: "t1",
+            isError: true,
+          } as any);
+          send({ type: "model_stream", status: "start" });
+          throw new Error("provider down");
+        },
+        loopOpts: {
+          engine: { name: "anthropic" },
+          model: "claude-test",
+          systemPrompt: "",
+          tools: [],
+          messages: [],
+          actions: {},
+          send: () => {},
+          signal: new AbortController().signal,
+        } as any,
+        runId: "run-metrics",
+        threadId: "thread-1",
+        userId: "user-1",
+        config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+      }).catch(() => {});
+    } finally {
+      unregister();
+    }
+
+    const chat = {
+      "gen_ai.operation.name": "chat",
+      "gen_ai.request.model": "claude-test",
+    };
+    expect(
+      recorded
+        .filter((r) => r.instrument === "gen_ai.client.operation.duration")
+        .map((r) => r.attributes),
+    ).toEqual([chat, { ...chat, "error.type": "_OTHER" }]);
+    expect(
+      recorded
+        .filter((r) => r.instrument === "gen_ai.client.token.usage")
+        .map((r) => [r.attributes?.["gen_ai.token.type"], r.value]),
+    ).toEqual([
+      ["input", 12],
+      ["output", 4],
+    ]);
+    expect(
+      recorded.filter((r) => r.instrument === "agent_native.tool.calls"),
+    ).toEqual([
+      {
+        instrument: "agent_native.tool.calls",
+        value: 1,
+        attributes: { "gen_ai.tool.name": "other", "error.type": "tool_error" },
+      },
+    ]);
+  });
+
   it("exports each bracketed model call as a live child span", async () => {
     const { spans, runtime } = createRecordingTracer();
     __setAgentTraceRuntimeForTests(runtime as any);
@@ -2048,7 +2145,9 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       runAgentLoop: async ({ send, onUsage }) => {
         send({ type: "model_stream", status: "start" });
         await new Promise((resolve) => setTimeout(resolve, 0));
-        const startedModelSpan = spans.find((span) => span.name === "llm.call");
+        const startedModelSpan = spans.find((span) =>
+          span.name.startsWith("chat "),
+        );
         modelSpanWasLive =
           startedModelSpan !== undefined && !startedModelSpan.ended;
         onUsage?.({
@@ -2090,17 +2189,17 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
     });
 
-    const runSpan = spans.find((span) => span.name === "agent.run");
-    const modelSpan = spans.find((span) => span.name === "llm.call");
+    const runSpan = spans.find((span) => span.name === "invoke_agent");
+    const modelSpan = spans.find((span) => span.name.startsWith("chat "));
     expect(modelSpanWasLive).toBe(true);
     expect(modelSpan?.parent).toBe(runSpan);
     expect(modelSpan?.attributes).toMatchObject({
-      "llm.model": "claude-test",
+      "gen_ai.request.model": "claude-test",
       "llm.call_index": 0,
-      "llm.stop_reason": "end_turn",
-      "llm.input_tokens": 12,
-      "llm.output_tokens": 4,
-      "llm.cache_read_tokens": 2,
+      "gen_ai.response.finish_reasons": ["end_turn"],
+      "gen_ai.usage.input_tokens": 12,
+      "gen_ai.usage.output_tokens": 4,
+      "gen_ai.usage.cache_read.input_tokens": 2,
       "llm.cost_cents_x100": expect.any(Number),
     });
     expect(modelSpan?.status?.code).toBe(SPAN_STATUS_OK);
@@ -2119,7 +2218,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
         send({ type: "clear" });
         firstSpanEndedBeforeRetry =
-          spans.find((span) => span.name === "llm.call")?.ended ?? false;
+          spans.find((span) => span.name.startsWith("chat "))?.ended ?? false;
         send({ type: "model_stream", status: "start" });
         send({ type: "model_stream", status: "end", reason: "end_turn" });
         return {
@@ -2146,7 +2245,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
     });
 
-    const modelSpans = spans.filter((span) => span.name === "llm.call");
+    const modelSpans = spans.filter((span) => span.name.startsWith("chat "));
     expect(firstSpanEndedBeforeRetry).toBe(true);
     expect(modelSpans[0]?.status?.code).toBe(SPAN_STATUS_ERROR);
     expect(modelSpans[0]?.ended).toBe(true);
@@ -2178,8 +2277,8 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
     }).catch(() => {});
 
-    const runSpan = spans.find((span) => span.name === "agent.run");
-    const modelSpan = spans.find((span) => span.name === "llm.call");
+    const runSpan = spans.find((span) => span.name === "invoke_agent");
+    const modelSpan = spans.find((span) => span.name.startsWith("chat "));
     expect(modelSpan?.parent).toBe(runSpan);
     expect(modelSpan?.status).toEqual({
       code: SPAN_STATUS_ERROR,
@@ -2215,7 +2314,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
     }).catch(() => {});
 
-    const runSpan = spans.find((span) => span.name === "agent.run");
+    const runSpan = spans.find((span) => span.name === "invoke_agent");
     expect(runSpan?.attributes["agent.llm_calls"]).toBe(2);
   });
 
@@ -2273,11 +2372,13 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const toolSpan = spans.find((span) => span.name === "tool.call");
+    const toolSpan = spans.find((span) =>
+      span.name.startsWith("execute_tool "),
+    );
     expect(toolSpan?.status?.code).toBe(SPAN_STATUS_ERROR);
     expect(toolSpan?.status?.message).toBeUndefined();
 
-    const runSpan = spans.find((span) => span.name === "agent.run");
+    const runSpan = spans.find((span) => span.name === "invoke_agent");
     expect(runSpan?.attributes["agent.tool_calls"]).toBe(2);
     expect(runSpan?.attributes["agent.successful_tools"]).toBe(0);
     expect(runSpan?.attributes["agent.failed_tools"]).toBe(2);
@@ -2490,7 +2591,7 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
       }),
     ).rejects.toThrow("This operation was aborted");
 
-    const runSpan = spans.find((span) => span.name === "agent.run");
+    const runSpan = spans.find((span) => span.name === "invoke_agent");
     expect(runSpan?.status?.code).toBe(SPAN_STATUS_OK);
     expect(runSpan?.status?.message).toBeUndefined();
     expect(runSpan?.ended).toBe(true);

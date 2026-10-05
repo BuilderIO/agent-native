@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   hostedTelemetryIdentityEnv,
+  hostedTraceSamplerEnv,
   isAllowedHostedTemplateEnvKey,
   isForbiddenHostedTemplateEnvKey,
   normalizeProductionUrlEntry,
@@ -175,6 +176,20 @@ describe("resolveNetlifyTemplateName", () => {
 
   it("preserves current Netlify site names", () => {
     expect(resolveNetlifyTemplateName("clips")).toBe("clips");
+  });
+});
+
+describe("hostedTraceSamplerEnv", () => {
+  it("samples 1% of new traces on production sites", () => {
+    expect(hostedTraceSamplerEnv("production")).toEqual([
+      ["OTEL_TRACES_SAMPLER", "parentbased_traceidratio"],
+      ["OTEL_TRACES_SAMPLER_ARG", "0.01"],
+    ]);
+  });
+
+  it("leaves beta and other contexts on the SDK default", () => {
+    expect(hostedTraceSamplerEnv("branch:beta")).toEqual([]);
+    expect(hostedTraceSamplerEnv("deploy-preview")).toEqual([]);
   });
 });
 

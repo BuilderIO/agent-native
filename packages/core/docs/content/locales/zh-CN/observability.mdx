@@ -336,11 +336,11 @@ export default defineAppConfig({
 
 代理循环发出三种跨度类型：
 
-| 跨度        | 何时             | 属性                                                              |
-| ----------- | ---------------- | ----------------------------------------------------------------- |
-| `agent.run` | 每个代理运行一次 | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | 每次操作调用一次 | `tool.name`，加上成功/错误状态                                    |
-| `llm.call`  | 每个模型调用     | 计时+正常/错误状态                                                |
+| 跨度                  | 何时             | 属性                                                                              |
+| --------------------- | ---------------- | --------------------------------------------------------------------------------- |
+| `invoke_agent`        | 每个代理运行一次 | `agent.run_id`, `gen_ai.conversation.id`, `agent.user_id`, `gen_ai.request.model` |
+| `execute_tool {tool}` | 每次操作调用一次 | `gen_ai.tool.name`，加上成功/错误状态                                             |
+| `chat {model}`        | 每个模型调用     | 计时+正常/错误状态                                                                |
 
 跨度以 OK/ERROR 状态完成，并记录失败时的错误消息。零/哨兵属性值被修剪，因此跨度不会因噪音而混乱。该 OTel 层纯粹是对内部 `agent_trace_spans` / `agent_trace_summaries` 表的补充，这些表为上面的仪表板提供支持 - 两者都是由相同的运行事件生成的。
 

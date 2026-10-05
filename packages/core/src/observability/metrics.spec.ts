@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   OBSERVABILITY_FLUSH_TIMEOUT_MS,
   flushObservability,
+  recordAgentRun,
+  recordAgentToolCall,
+  recordGenAiChat,
   recordHttpServerRequest,
 } from "./metrics.js";
 import {
@@ -153,6 +156,105 @@ describe("recordHttpServerRequest", () => {
 
     expect(first.recorded).toHaveLength(1);
     expect(second.recorded).toHaveLength(1);
+  });
+});
+
+describe("GenAI and agent metrics", () => {
+  it("records a chat call's duration and both token types", () => {
+    const meterProvider = createTestMeterProvider();
+    register({ meterProvider });
+
+    recordGenAiChat({
+      requestModel: "claude-test",
+      durationMs: 1_500,
+      inputTokens: 120,
+      outputTokens: 30,
+    });
+
+    const attributes = {
+      "gen_ai.operation.name": "chat",
+      "gen_ai.request.model": "claude-test",
+    };
+    expect(meterProvider.recorded).toEqual([
+      {
+        instrument: "gen_ai.client.operation.duration",
+        value: 1.5,
+        attributes,
+      },
+      {
+        instrument: "gen_ai.client.token.usage",
+        value: 120,
+        attributes: { ...attributes, "gen_ai.token.type": "input" },
+      },
+      {
+        instrument: "gen_ai.client.token.usage",
+        value: 30,
+        attributes: { ...attributes, "gen_ai.token.type": "output" },
+      },
+    ]);
+  });
+
+  it("marks a failed chat call with error.type and skips unknown tokens", () => {
+    const meterProvider = createTestMeterProvider();
+    register({ meterProvider });
+
+    recordGenAiChat({ requestModel: "m", durationMs: 10, failed: true });
+
+    expect(meterProvider.recorded).toEqual([
+      {
+        instrument: "gen_ai.client.operation.duration",
+        value: 0.01,
+        attributes: {
+          "gen_ai.operation.name": "chat",
+          "gen_ai.request.model": "m",
+          "error.type": "_OTHER",
+        },
+      },
+    ]);
+  });
+
+  it("drops the open-ended suffix from terminal reasons", () => {
+    const meterProvider = createTestMeterProvider();
+    register({ meterProvider });
+
+    recordAgentRun({
+      status: "errored",
+      terminalReason: "error:provider_rate_limited",
+      requestModel: "claude-test",
+    });
+    recordAgentRun({ status: "completed", terminalReason: "done" });
+
+    expect(meterProvider.recorded).toEqual([
+      {
+        instrument: "agent_native.agent.runs",
+        value: 1,
+        attributes: {
+          status: "errored",
+          terminal_reason: "error",
+          "gen_ai.request.model": "claude-test",
+        },
+      },
+      {
+        instrument: "agent_native.agent.runs",
+        value: 1,
+        attributes: { status: "completed", terminal_reason: "done" },
+      },
+    ]);
+  });
+
+  it("keeps built-in tool names and collapses app tools to other", () => {
+    const meterProvider = createTestMeterProvider();
+    register({ meterProvider });
+
+    recordAgentToolCall({ toolName: "explain-access" });
+    recordAgentToolCall({ toolName: "my-app-tool", errorType: "tool_error" });
+    recordAgentToolCall({ toolName: "toString" });
+
+    expect(meterProvider.recorded.map((r) => r.attributes)).toEqual([
+      { "gen_ai.tool.name": "explain-access" },
+      { "gen_ai.tool.name": "other", "error.type": "tool_error" },
+      { "gen_ai.tool.name": "other" },
+    ]);
   });
 });
 

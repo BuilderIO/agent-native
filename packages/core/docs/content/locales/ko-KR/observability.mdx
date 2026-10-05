@@ -336,11 +336,11 @@ export default defineAppConfig({
 
 에이전트 루프는 세 가지 범위 종류를 내보냅니다.
 
-| 스팬        | 언제                  | 속성                                                              |
-| ----------- | --------------------- | ----------------------------------------------------------------- |
-| `agent.run` | 에이전트 실행당 한 번 | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | 액션 호출당 한 번     | `tool.name` 및 성공/오류 상태                                     |
-| `llm.call`  | 모델 호출당           | 타이밍 + 정상/오류 상태                                           |
+| 스팬                  | 언제                  | 속성                                                                              |
+| --------------------- | --------------------- | --------------------------------------------------------------------------------- |
+| `invoke_agent`        | 에이전트 실행당 한 번 | `agent.run_id`, `gen_ai.conversation.id`, `agent.user_id`, `gen_ai.request.model` |
+| `execute_tool {tool}` | 액션 호출당 한 번     | `gen_ai.tool.name` 및 성공/오류 상태                                              |
+| `chat {model}`        | 모델 호출당           | 타이밍 + 정상/오류 상태                                                           |
 
 스팬은 OK/ERROR 상태로 완료되고 실패 시 오류 메시지를 기록합니다. 0/감시 속성 값은 정리되어 범위가 노이즈로 인해 복잡해지지 않습니다. 이 OTel 레이어는 위의 대시보드를 구동하는 내부 `agent_trace_spans`/`agent_trace_summaries` 테이블에 순전히 추가됩니다. 둘 다 동일한 실행 이벤트에서 생성됩니다.
 

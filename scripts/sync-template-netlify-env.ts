@@ -528,7 +528,10 @@ function buildTemplateEnvPlan(
       context,
       values.get("OTEL_RESOURCE_ATTRIBUTES"),
     );
-    for (const [key, value] of identity) {
+    const sampler = values.get("OTEL_TRACES_SAMPLER")
+      ? []
+      : hostedTraceSamplerEnv(context);
+    for (const [key, value] of [...identity, ...sampler]) {
       const index = entries.findIndex(([entryKey]) => entryKey === key);
       if (index >= 0) entries.splice(index, 1);
       entries.push([key, value] as const);
@@ -607,6 +610,21 @@ export function hostedTelemetryIdentityEnv(
       "OTEL_RESOURCE_ATTRIBUTES",
       attributes.map(([key, value]) => `${key}=${value}`).join(","),
     ],
+  ];
+}
+
+/**
+ * Production sites sample 1% of new traces; the SDK default records every
+ * trace, which only a low-traffic beta site can afford. A configured
+ * `OTEL_TRACES_SAMPLER` replaces this default.
+ */
+export function hostedTraceSamplerEnv(
+  context: string,
+): Array<readonly [string, string]> {
+  if (context !== "production") return [];
+  return [
+    ["OTEL_TRACES_SAMPLER", "parentbased_traceidratio"],
+    ["OTEL_TRACES_SAMPLER_ARG", "0.01"],
   ];
 }
 

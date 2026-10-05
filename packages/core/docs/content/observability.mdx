@@ -396,13 +396,28 @@ So the cost when you haven't wired OTel is a couple of cached property reads per
 
 The agent loop emits three span kinds:
 
-| Span        | When                       | Attributes                                                        |
-| ----------- | -------------------------- | ----------------------------------------------------------------- |
-| `agent.run` | once per agent run         | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | once per action invocation | `tool.name`, plus success/error status                            |
-| `llm.call`  | per model call             | timing + OK/error status                                          |
+| Span                  | When                       | Attributes                                                                                                                               |
+| --------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `invoke_agent`        | once per agent run         | `gen_ai.conversation.id` (the thread), `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `agent.run_id` |
+| `chat {model}`        | per model call             | `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.response.finish_reasons`, `gen_ai.usage.*`                                      |
+| `execute_tool {tool}` | once per action invocation | `gen_ai.tool.name`, `gen_ai.tool.call.id`, plus success/error status                                                                     |
 
 Spans are finished with OK/ERROR status and record the error message on failure. Zero/sentinel attribute values are pruned so spans aren't cluttered with noise. This OTel layer is purely additive to the in-house `agent_trace_spans` / `agent_trace_summaries` tables that power the dashboard above — both are produced from the same run events.
+
+### Metrics {#otel-metrics}
+
+Core also records metrics once the host registers a meter provider with `registerObservabilityProvider()` from `@agent-native/core/server`. Metrics are recorded for every request and run, with no sampling:
+
+| Instrument                              | Attributes                                                                     |
+| --------------------------------------- | ------------------------------------------------------------------------------ |
+| `http.server.request.duration`          | `http.request.method`, `http.response.status_code`, `http.route`, `error.type` |
+| `gen_ai.client.operation.duration`      | `gen_ai.operation.name`, `gen_ai.request.model`, `error.type`                  |
+| `gen_ai.client.token.usage`             | `gen_ai.operation.name`, `gen_ai.request.model`, `gen_ai.token.type`           |
+| `agent_native.agent.runs`               | `status`, `terminal_reason`, `gen_ai.request.model`                            |
+| `agent_native.tool.calls`               | `gen_ai.tool.name`, `error.type`                                               |
+| `agent_native.telemetry.flush_failures` | `error.type`, `agent_native.telemetry.signal`                                  |
+
+On metrics, `gen_ai.tool.name` is a framework action's name or `other`, so app-defined tools cannot create unbounded series; spans keep the exact name.
 
 ## Error reporting (Sentry or PostHog) {#sentry}
 

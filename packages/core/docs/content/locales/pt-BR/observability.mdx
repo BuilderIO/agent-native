@@ -338,11 +338,11 @@ Portanto, o custo quando você não conecta o OTel é algumas leituras de propri
 
 O loop do agente emite três tipos de span:
 
-| Período     | Quando                         | Atributos                                                         |
-| ----------- | ------------------------------ | ----------------------------------------------------------------- |
-| `agent.run` | uma vez por execução do agente | `agent.run_id`, `agent.thread_id`, `agent.user_id`, `agent.model` |
-| `tool.call` | uma vez por invocação de ação  | `tool.name`, mais status de sucesso/erro                          |
-| `llm.call`  | por chamada de modelo          | tempo + OK/status de erro                                         |
+| Período               | Quando                         | Atributos                                                                         |
+| --------------------- | ------------------------------ | --------------------------------------------------------------------------------- |
+| `invoke_agent`        | uma vez por execução do agente | `agent.run_id`, `gen_ai.conversation.id`, `agent.user_id`, `gen_ai.request.model` |
+| `execute_tool {tool}` | uma vez por invocação de ação  | `gen_ai.tool.name`, mais status de sucesso/erro                                   |
+| `chat {model}`        | por chamada de modelo          | tempo + OK/status de erro                                                         |
 
 Os trechos são concluídos com o status OK/ERROR e registram a mensagem de erro em caso de falha. Os valores de atributos zero/sentinel são removidos para que os trechos não fiquem cheios de ruído. Essa camada OTel é puramente aditiva às tabelas internas `agent_trace_spans`/`agent_trace_summaries` que alimentam o painel acima — ambas são produzidas a partir dos mesmos eventos de execução.
 
