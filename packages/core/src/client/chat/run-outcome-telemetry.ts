@@ -1,7 +1,4 @@
-import {
-  agentTroubleCauseForCode,
-  normalizeAgentTroubleMessage,
-} from "../../shared/analytics-events.js";
+import { agentTroubleCauseForCode } from "../../shared/analytics-events.js";
 import { trackEvent } from "../analytics.js";
 import type { RunOutcomeReport } from "./run-outcome.js";
 
@@ -15,9 +12,9 @@ import type { RunOutcomeReport } from "./run-outcome.js";
  * weight, so rates still add up. The server counts every run exactly (`agent_run_outcome_daily`,
  * `$ai_trace`); this event is what the browser saw and how it came to know.
  *
- * A failure carries its named `cause` when it has one, or else its message
- * reduced to a shape, so Analytics can group agent trouble. The shape keeps
- * unquoted words, so only first-party Analytics receives it.
+ * A failure carries its named `cause` when it has one and its error `code`,
+ * so Analytics can group agent trouble. Never its message: no redaction can
+ * tell an unquoted document or person's name from the words around it.
  */
 export const RUN_OUTCOME_EVENT = "agent_run_outcome";
 
@@ -76,13 +73,10 @@ export function trackRunOutcome(
     const troubled =
       report.outcome === "failed" || report.outcome === "interrupted";
     const cause = troubled ? agentTroubleCauseForCode(report.code) : null;
-    const errorMessage =
-      troubled && !cause ? normalizeAgentTroubleMessage(report.message) : "";
     send(RUN_OUTCOME_EVENT, {
       outcome: report.outcome,
       ...(report.code ? { code: report.code } : {}),
       ...(cause ? { cause } : {}),
-      ...(errorMessage ? { error_message: errorMessage } : {}),
       ...(report.retryable !== undefined
         ? { retryable: report.retryable }
         : {}),

@@ -354,39 +354,44 @@ describe("aggregateSessionFrictionEvents", () => {
     ).toEqual([
       { label: "rate_limit", cause: "rate_limit", eventCount: 2 },
       {
-        label: "Tool <text> failed after <n> tries",
-        cause: null,
-        eventCount: 1,
-      },
-      {
         label: "no_model_connected",
         cause: "no_model_connected",
         eventCount: 1,
       },
+      { label: "runtime_error", cause: null, eventCount: 1 },
     ]);
   });
 
-  it("groups unnamed agent failures by their normalized message", () => {
+  it("groups unnamed agent failures by code and never keeps a message", () => {
     const { troubles } = aggregateSessionFrictionEvents(
       [
         runOutcome("s1", 1, {
           outcome: "failed",
           code: "runtime_error",
-          error_message: "Tool 'search' failed after 3 tries",
+          error_message: "Deck Quarterly Planning not found",
         }),
         runOutcome("s1", 2, {
           outcome: "failed",
           code: "runtime_error",
           error_message: "Tool 'fetch' failed after 5 tries",
         }),
+        runOutcome("s1", 3, {
+          outcome: "interrupted",
+          error_message: "Jane Doe's notes are locked",
+        }),
       ],
       new Map(),
     );
-    expect(troubles).toHaveLength(1);
-    expect(troubles[0]).toMatchObject({
-      label: "Tool <text> failed after <n> tries",
-      eventCount: 2,
-    });
+    expect(
+      troubles.map(({ label, eventCount }) => ({ label, eventCount })),
+    ).toEqual(
+      expect.arrayContaining([
+        { label: "runtime_error", eventCount: 2 },
+        { label: "interrupted", eventCount: 1 },
+      ]),
+    );
+    expect(troubles).toHaveLength(2);
+    expect(JSON.stringify(troubles)).not.toMatch(/Quarterly|fetch|Jane/);
   });
 
   it("counts stopped runs, stuck chats, and only negative feedback", () => {

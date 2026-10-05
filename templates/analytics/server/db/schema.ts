@@ -466,7 +466,7 @@ export const analyticsSessionFrictionGaps = table(
 );
 
 // Failed actions and agent failures grouped per session: actions by name and
-// status, agent failures by named cause or else by normalized message.
+// status, agent failures by named cause or else by error code.
 export const analyticsSessionTrouble = table(
   "analytics_session_trouble",
   {

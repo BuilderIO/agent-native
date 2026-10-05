@@ -1317,26 +1317,6 @@ function exceptionEventProperties(
   };
 }
 
-/**
- * Properties only first-party Analytics receives. A run's error message is
- * reduced to its shape but keeps every unquoted word, so it can still name a
- * user's document or a person.
- */
-const FIRST_PARTY_ONLY_PROPERTIES = new Map<string, readonly string[]>([
-  ["agent_run_outcome", ["error_message"]],
-]);
-
-function thirdPartyEventProperties(
-  name: string,
-  properties: Record<string, unknown>,
-): Record<string, unknown> {
-  const omitted = FIRST_PARTY_ONLY_PROPERTIES.get(name);
-  if (!omitted) return properties;
-  return Object.fromEntries(
-    Object.entries(properties).filter(([key]) => !omitted.includes(key)),
-  );
-}
-
 function amplitudeEventProperties(
   name: string,
   properties: Record<string, unknown>,
@@ -2114,17 +2094,10 @@ function emitBrowserTrackingEvent(
   } = {},
 ): void {
   const { gtagProperties = props, sendGtag = true } = options;
-  const amplitudeProps = amplitudeEventProperties(
-    name,
-    thirdPartyEventProperties(name, props),
-  );
+  const amplitudeProps = amplitudeEventProperties(name, props);
   if (sendGtag) {
     const gtag = window.__AGENT_NATIVE_GA_GTAG__ ?? window.gtag;
-    gtag?.(
-      "event",
-      name.replace(/\s+/g, "_"),
-      thirdPartyEventProperties(name, gtagProperties),
-    );
+    gtag?.("event", name.replace(/\s+/g, "_"), gtagProperties);
   }
   if (ensureAmplitude()) {
     _amplitudeModule?.track(name, amplitudeProps);

@@ -5,7 +5,6 @@ import {
   AGENT_SIGNALS_VERSION,
   agentTroubleCauseForCode,
   isAgentTroubleCause,
-  normalizeAgentTroubleMessage,
   PAGE_LOAD_PAGEVIEW_PROPERTY,
 } from "@agent-native/core/shared/analytics-events";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -593,13 +592,9 @@ export function aggregateSessionFrictionEvents(
         addTrouble("agent", cause, code, cause, ["cause", cause]);
         continue;
       }
-      const message =
-        normalizeAgentTroubleMessage(
-          stringProperty(properties.error_message),
-        ) ||
-        code ||
-        String(properties.outcome);
-      addTrouble("agent", message, code, null, ["message", message]);
+      // Never by message text, which can name a person or a document.
+      const label = code || String(properties.outcome);
+      addTrouble("agent", label, code, null, ["code", label]);
       continue;
     }
 

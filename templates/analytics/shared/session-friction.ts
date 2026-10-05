@@ -190,7 +190,7 @@ export function readSessionFrictionSignals(
 
 export interface SessionTroubleGroup {
   kind: "action" | "agent";
-  /** Action name, or an agent failure's normalized message or cause id. */
+  /** Action name, or an agent failure's cause id or error code. */
   label: string;
   /** HTTP status or outcome for actions; the run error code for agents. */
   status: string | null;

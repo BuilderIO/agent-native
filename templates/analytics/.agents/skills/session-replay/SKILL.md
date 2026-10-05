@@ -179,7 +179,8 @@ agent answers about browser recordings in the Analytics template.
   not measured from its start, falls back to the recording's `errorCount`.
 - Agent failures group by a named cause from `AGENT_TROUBLE_CAUSES` in core
   (`no_model_connected`, `rate_limit`, `context_overflow`, `provider_error`),
-  else by the normalized message. Failed actions group by action and status.
+  else by error code, never by message text. Failed actions group by action
+  and status.
   New causes need product approval; add them to that one list.
 - The score is a weighted sum with each signal capped at
   `SESSION_FRICTION_SIGNAL_CAP`, computed per part at ingest and summed at

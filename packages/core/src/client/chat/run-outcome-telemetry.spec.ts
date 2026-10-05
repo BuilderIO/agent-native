@@ -104,21 +104,20 @@ describe("run outcome telemetry", () => {
     expect(send.mock.calls[0]![1]).not.toHaveProperty("error_message");
   });
 
-  it("sends an unnamed failure's message reduced to its shape", () => {
+  it("sends an unnamed failure's code and never its message", () => {
     trackRunOutcome(
       report({
         outcome: "failed",
         code: "runtime_error",
-        message:
-          'Tool "rename deck" failed for jane@example.com after 3 tries: https://example.com/x?id=42',
+        message: "Deck Quarterly Planning not found for Jane Doe",
       }),
       send,
     );
-    expect(send.mock.calls[0]![1]).toMatchObject({
-      code: "runtime_error",
-      error_message: "Tool <text> failed for <email> after <n> tries: <url>",
-    });
+    expect(send.mock.calls[0]![1]).toMatchObject({ code: "runtime_error" });
     expect(send.mock.calls[0]![1]).not.toHaveProperty("cause");
+    expect(JSON.stringify(send.mock.calls[0]![1])).not.toMatch(
+      /Quarterly|Jane/,
+    );
   });
 
   it("caps the unexpected outcomes one page reports and counts what it dropped", () => {
