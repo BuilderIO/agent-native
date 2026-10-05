@@ -28,6 +28,7 @@ import {
   screenLocalPointToBoardPoint,
 } from "./multi-screen/coordinate-transforms";
 import {
+  getBoardDropRoute,
   getCrossScreenDropGuideForHitTest,
   getCrossScreenDropGuideStyle,
   isCrossScreenGridPlacement,
@@ -728,6 +729,53 @@ describe("layer marquee bounds", () => {
       right: 180,
       bottom: 240,
     });
+  });
+});
+
+describe("getBoardDropRoute", () => {
+  const viewportGeometry = makeGeom(0, 0, 1200, 800);
+  const renderGeometry = makeGeom(200, 100, 400, 300);
+  const sourceScreenGeometry = makeGeom(700, 250, 200, 160);
+
+  it("uses the iframe for a point inside its rendered crop", () => {
+    expect(
+      getBoardDropRoute({
+        point: { x: 300, y: 200 },
+        viewportGeometry,
+        renderGeometry,
+        sourceScreenGeometry,
+      }),
+    ).toBe("board-hit-test");
+  });
+
+  it("routes a visible empty point outside the iframe crop to board root", () => {
+    expect(
+      getBoardDropRoute({
+        point: { x: 1100, y: 700 },
+        viewportGeometry,
+        renderGeometry,
+        sourceScreenGeometry,
+      }),
+    ).toBe("board-root");
+  });
+
+  it("refuses points outside the camera viewport or inside the source Screen", () => {
+    expect(
+      getBoardDropRoute({
+        point: { x: 1300, y: 400 },
+        viewportGeometry,
+        renderGeometry,
+        sourceScreenGeometry,
+      }),
+    ).toBeNull();
+    expect(
+      getBoardDropRoute({
+        point: { x: 750, y: 300 },
+        viewportGeometry,
+        renderGeometry,
+        sourceScreenGeometry,
+      }),
+    ).toBeNull();
   });
 });
 
