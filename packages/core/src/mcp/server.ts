@@ -18,6 +18,7 @@ import { trackMcpInitialize } from "./analytics.js";
 import {
   createMCPServerForRequest,
   verifyAuth,
+  McpIdentityVerificationUnavailableError,
   getAccessTokens,
   resolveOrgIdFromDomain,
   buildLinkArtifacts,
@@ -339,14 +340,26 @@ async function handleMcpRequestInternal(
         widgetDomain: requestMeta.origin,
       }
     : config;
-  const authResult = await verifyAuth(authHeader, ownerEmailHeader, {
-    allowDevOpen:
-      isLoopbackRequest(event) &&
-      isLoopbackOrigin(requestMeta.origin) &&
-      (hasLocalOwnerHint || process.env.AGENT_NATIVE_MCP_DEV_OPEN === "1"),
-    resourceUrl: getMcpOAuthAudiences(event, routePath),
-    requestOrigin: getOrigin(event),
-  });
+  let authResult: Awaited<ReturnType<typeof verifyAuth>>;
+  try {
+    authResult = await verifyAuth(authHeader, ownerEmailHeader, {
+      allowDevOpen:
+        isLoopbackRequest(event) &&
+        isLoopbackOrigin(requestMeta.origin) &&
+        (hasLocalOwnerHint || getAppConfig().mcp.allowDevOpen),
+      resourceUrl: getMcpOAuthAudiences(event, routePath),
+      requestOrigin: getOrigin(event),
+    });
+  } catch (error) {
+    if (!(error instanceof McpIdentityVerificationUnavailableError))
+      throw error;
+    setResponseStatus(event, 503);
+    setResponseHeader(event, "Retry-After", "5");
+    return {
+      error: "Service Unavailable",
+      message: CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
+    };
+  }
   if (!authResult.authed && authResult.unavailable) {
     // The token is valid but its org membership could not be checked. No auth
     // challenge: re-authenticating would not help, and the client must keep

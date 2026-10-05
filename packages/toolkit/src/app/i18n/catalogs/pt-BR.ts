@@ -134,12 +134,15 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderIncludedFreeWithAccount":
     "Incluído gratuitamente em uma conta do Builder.io",
   "onboarding.builderMonthlyCredits": "60 Agent Credits por mês",
+  "onboarding.builderIncludedFree": "Incluído grátis",
+  "onboarding.builderMoreServices": "+ {{count}} serviços adicionais",
+  "onboarding.builderIncludedServices": "Serviços incluídos",
   "onboarding.builderActivateTitle": "Ativar créditos gratuitos",
   "onboarding.builderAccountExistsTitle": "Você já tem uma conta do Builder.io",
   "onboarding.builderAccountExistsDescription":
     "Faça login para usar sua conta.",
   "onboarding.builderActivationDescription":
-    "Criaremos automaticamente sua conta do Builder.io com um clique.",
+    "Crie ou conecte uma conta do Builder.io com um clique para obter créditos grátis.",
   "onboarding.builderOrgActivationDescription":
     "Criaremos sua conta do Builder.io com um clique para que sua organização possa usá-la.",
   "onboarding.builderCreateAndActivate": "Criar e ativar",
@@ -166,6 +169,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.llm.keySummary": "Conecte seu próprio modelo de IA",
   "onboarding.capability.fileStorage.keySummary":
     "Upload e armazenamento de arquivos",
+  "onboarding.capability.llm.why":
+    "O agente usa um modelo de linguagem para entender solicitações e gerar respostas.",
+  "onboarding.capability.fileStorage.why":
+    "Armazena imagens e arquivos enviados para que o agente possa reutilizá-los na conversa.",
   "onboarding.fileStorage.title":
     "Conecte o armazenamento para enviar arquivos",
   "onboarding.fileStorage.statusUnavailable":
@@ -184,6 +191,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.capability.embeddings.keySummary": "Vetores semânticos",
   "onboarding.capability.embeddings.why":
     "Vetores semânticos melhoram a busca semântica. A busca por palavras-chave continua funcionando sem eles.",
+  "onboarding.capability.systemOne.why":
+    "Jev é um modelo de decisão opcional que ajuda a escolher ferramentas e habilidades relevantes antes da primeira solicitação de modelo do agente.",
   "onboarding.capability.assetsImageGeneration.label": "Geração de imagens",
   "onboarding.capability.assetsImageGeneration.keySummary":
     "Créditos Builder ou chave de provedor de imagens",

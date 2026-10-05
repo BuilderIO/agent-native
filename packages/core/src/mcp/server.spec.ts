@@ -151,9 +151,13 @@ vi.mock("./builtin-tools.js", () => ({
   }),
 }));
 const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn(async () => null));
+const resolveA2AOrganizationMetadataByIdMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../org/context.js", () => ({
   resolveOrgByDomain: vi.fn(async () => null),
+  resolveA2AOrganizationMetadataById: (
+    ...args: Parameters<typeof resolveA2AOrganizationMetadataByIdMock>
+  ) => resolveA2AOrganizationMetadataByIdMock(...args),
   resolveOrgIdForEmail: (
     ...args: Parameters<typeof resolveOrgIdForEmailMock>
   ) => resolveOrgIdForEmailMock(...args),
@@ -643,6 +647,11 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     approvalStoreMocks.grants.clear();
     resolveOrgIdForEmailMock.mockReset();
     resolveOrgIdForEmailMock.mockResolvedValue(null);
+    resolveA2AOrganizationMetadataByIdMock.mockReset();
+    resolveA2AOrganizationMetadataByIdMock.mockImplementation(
+      async (orgId: string) =>
+        orgId === "org_123" ? { orgId, orgDomain: null } : null,
+    );
   });
   afterEach(() => {
     delete process.env.ACCESS_TOKEN;
