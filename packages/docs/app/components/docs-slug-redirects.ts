@@ -45,11 +45,18 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
 };
 
 export const DOCS_FRAGMENT_REDIRECTS: Record<string, Record<string, string>> = {
-  // Old /docs/other-platforms#aws-lambda and #deno-deploy links land here
-  // after the slug redirect, and the browser keeps their fragment.
+  // Removed host pages redirect here and the browser keeps their fragment:
+  // /docs/other-platforms#aws-lambda, /docs/aws-amplify#streaming-requests,
+  // and so on. Never map an id the deployment page itself renders.
   deployment: {
     "aws-lambda": "#supported-deployment-targets",
     "deno-deploy": "#supported-deployment-targets",
+    "build-with-nitro": "#supported-deployment-targets",
+    "runtime-variables-and-cli": "#supported-deployment-targets",
+    "configure-the-app": "#supported-deployment-targets",
+    "cloudfront-caching": "#supported-deployment-targets",
+    "streaming-requests": "#supported-deployment-targets",
+    "verify-the-deployment": "#supported-deployment-targets",
   },
   "template-clips-features": {
     "browser-logs-with-the-chrome-extension": "#chrome-extension-browser-logs",

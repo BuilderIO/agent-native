@@ -89,4 +89,28 @@ describe("resolveFragmentRedirect", () => {
       "#supported-deployment-targets",
     );
   });
+
+  it("sends removed AWS Amplify section anchors to the deployment targets", () => {
+    for (const fragment of [
+      "#build-with-nitro",
+      "#runtime-variables-and-cli",
+      "#configure-the-app",
+      "#cloudfront-caching",
+      "#streaming-requests",
+      "#verify-the-deployment",
+    ]) {
+      expect(resolveFragmentRedirect("deployment", fragment)).toBe(
+        "#supported-deployment-targets",
+      );
+    }
+  });
+
+  it("leaves the deployment page's own section anchors alone", () => {
+    expect(
+      resolveFragmentRedirect("deployment", "#whats-next"),
+    ).toBeUndefined();
+    expect(
+      resolveFragmentRedirect("deployment", "#persistent-database"),
+    ).toBeUndefined();
+  });
 });
