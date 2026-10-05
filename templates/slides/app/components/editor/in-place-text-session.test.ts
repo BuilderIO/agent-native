@@ -961,6 +961,39 @@ describe("in-place text session: the caret at the click point", () => {
     expect(el.textContent).toBe("•bold nextAlpha beta");
   });
 
+  it("moves Home to the focused row for a forward cross-row selection", () => {
+    const el = mount(
+      '<div id="t"><p><span aria-hidden="true">•</span><span>Alpha</span></p><p><span aria-hidden="true">•</span><span>Beta</span></p></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const alpha = textOf(el, "Alpha");
+    const beta = textOf(el, "Beta");
+    select(alpha, 0, beta, 2);
+
+    expect(key(el, { key: "Home" }).defaultPrevented).toBe(true);
+    expect([
+      window.getSelection()!.anchorNode,
+      window.getSelection()!.anchorOffset,
+    ]).toEqual([beta, 0]);
+  });
+
+  it("keeps Cmd+Right at the end of a styled row before its nested bullet", () => {
+    const el = mount(
+      '<div id="t"><div><span aria-hidden="true">•</span><span>Parent text</span><div><span aria-hidden="true">◦</span><span>Nested text</span></div></div></div>',
+    );
+    session = startInPlaceTextSession(el);
+    const parent = textOf(el, "Parent text");
+    caret(parent, 0);
+
+    expect(key(el, { key: "ArrowRight", metaKey: true }).defaultPrevented).toBe(
+      true,
+    );
+    expect([
+      window.getSelection()!.anchorNode,
+      window.getSelection()!.anchorOffset,
+    ]).toEqual([parent, parent.length]);
+  });
+
   it("keeps a double-clicked word that covers the click point", () => {
     const el = mount('<p id="t">Alpha beta gamma</p>');
     const text = el.firstChild as Text;

@@ -526,6 +526,10 @@ export function outsideChangesFor(
       beforeTarget && afterTarget
         ? afterTarget.height - beforeTarget.height
         : 0;
+    const targetTextShift =
+      before.editedTargetRect && after.editedTargetRect
+        ? after.editedTargetRect.y - before.editedTargetRect.y
+        : null;
     const insertedBeforeTarget =
       targetShift > GEOMETRY_TOLERANCE &&
       Math.abs(targetGrowth) <= GEOMETRY_TOLERANCE;
@@ -555,6 +559,24 @@ export function outsideChangesFor(
       return [Number(geometry.b) - Number(geometry.a)];
     });
     const insertedFragments = after.editedAuthoringFragmentRects ?? [];
+    const insertedFragmentBounds = insertedFragments.reduce(
+      (bounds, fragment) => ({
+        top: Math.min(bounds.top, fragment.y),
+        bottom: Math.max(bounds.bottom, fragment.y + fragment.height),
+      }),
+      { top: Infinity, bottom: -Infinity },
+    );
+    const insertedFlowExtent =
+      insertedFragments.length > 0
+        ? insertedFragmentBounds.bottom - insertedFragmentBounds.top
+        : null;
+    const insertedAfterTargetShift =
+      targetTextShift !== null &&
+      insertedFlowExtent !== null &&
+      targetTextShift >= -GEOMETRY_TOLERANCE &&
+      targetTextShift <= insertedFlowExtent + GEOMETRY_TOLERANCE
+        ? targetTextShift + insertedFlowExtent
+        : null;
     const insertedAfterTarget =
       !!beforeTarget &&
       !!afterTarget &&
@@ -569,6 +591,7 @@ export function outsideChangesFor(
           fragment.y + fragment.height <=
             afterRecord.rect.y + GEOMETRY_TOLERANCE,
       ) &&
+      insertedAfterTargetShift !== null &&
       siblingYShifts.length > 0 &&
       siblingYShifts.every(
         (shift) => Math.abs(shift - siblingYShifts[0]!) <= GEOMETRY_TOLERANCE,
@@ -613,7 +636,7 @@ export function outsideChangesFor(
       : insertedBeforeTarget
         ? targetShift
         : insertedAfterTarget
-          ? siblingShift
+          ? insertedAfterTargetShift
           : null;
     return (
       expectedShift !== null &&

@@ -633,12 +633,13 @@ describe("outsideChangesFor", () => {
         width: number;
         height: number;
       }> = [],
+      targetY = 20,
     ) => ({
       ...edited(records, { x: 20, y: 20, width: 100, height: 20 }, false),
       editedObjectId: "5",
       editedParagraphId: "1",
       editedObjectRect: object,
-      editedTargetRect: { x: 20, y: 20, width: 100, height: 20 },
+      editedTargetRect: { x: 20, y: targetY, width: 100, height: 20 },
       editedFlowAnchorRect: {
         x: 20,
         y: anchorY,
@@ -686,6 +687,7 @@ describe("outsideChangesFor", () => {
       ],
       20,
       fragments,
+      49,
     );
     expect(outsideChangesFor(before, after).changes).toEqual([]);
     const mismatch = outsideChangesFor(
@@ -699,9 +701,26 @@ describe("outsideChangesFor", () => {
         ],
         20,
         fragments,
+        49,
       ),
     );
     expect(mismatch.changes).not.toEqual([]);
+
+    const uniformlyShifted = outsideChangesFor(
+      before,
+      pasted(
+        [
+          pastedParagraph,
+          paragraph("1", 20),
+          paragraph("2", 160),
+          paragraph("3", 176),
+        ],
+        20,
+        fragments,
+        49,
+      ),
+    );
+    expect(uniformlyShifted.changes).toHaveLength(2);
   });
 
   it("still flags a sibling object or an unrelated in-object shift", () => {

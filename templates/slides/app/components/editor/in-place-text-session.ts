@@ -518,6 +518,7 @@ function placeCaret(node: Node, offset: number) {
 function rowTextPoint(
   range: Range,
   marker: HTMLElement | null,
+  row: HTMLElement,
   edge: "start" | "end",
 ): [Node, number] {
   const walker = document.createTreeWalker(
@@ -527,7 +528,25 @@ function rowTextPoint(
   let last: [Node, number] | null = null;
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const text = node as Text;
-    if (marker?.contains(text) || !range.intersectsNode(text)) continue;
+    let nestedRow = false;
+    for (
+      let parent = text.parentElement;
+      parent && parent !== row;
+      parent = parent.parentElement
+    ) {
+      if (
+        parent.tagName === "UL" ||
+        parent.tagName === "OL" ||
+        parent.tagName === "LI" ||
+        isBulletRow(parent)
+      ) {
+        nestedRow = true;
+        break;
+      }
+    }
+    if (nestedRow || marker?.contains(text) || !range.intersectsNode(text)) {
+      continue;
+    }
     const start = text === range.startContainer ? range.startOffset : 0;
     const end = text === range.endContainer ? range.endOffset : text.length;
     if (end <= start) continue;
@@ -1478,6 +1497,15 @@ export function startInPlaceTextSession(
     return el.contains(range.startContainer) && el.contains(range.endContainer)
       ? range
       : null;
+  }
+
+  function selectionFocusRange(): Range | null {
+    const selection = window.getSelection();
+    if (!selection?.focusNode || !el.contains(selection.focusNode)) return null;
+    const range = document.createRange();
+    range.setStart(selection.focusNode, selection.focusOffset);
+    range.collapse(true);
+    return range;
   }
 
   function selectionOffsets(breaks = false): TextOffsets {
@@ -4691,16 +4719,16 @@ export function startInPlaceTextSession(
       !event.shiftKey &&
       (key === "arrowleft" || key === "arrowright")
     ) {
-      const range = selectionRange();
+      const range = selectionFocusRange();
       const row = range && legacyRowAt(range.startContainer);
       if (range && row) {
         event.preventDefault();
         const marker = rowMarker(row);
         const text = rowTextRange(row, marker);
         if (key === "arrowleft") {
-          placeCaret(...rowTextPoint(text, marker, "start"));
+          placeCaret(...rowTextPoint(text, marker, row, "start"));
         } else {
-          placeCaret(...rowTextPoint(text, marker, "end"));
+          placeCaret(...rowTextPoint(text, marker, row, "end"));
         }
         return;
       }
@@ -4713,13 +4741,13 @@ export function startInPlaceTextSession(
       !event.shiftKey &&
       !/Mac|iPhone|iPad/.test(navigator.platform)
     ) {
-      const range = selectionRange();
+      const range = selectionFocusRange();
       const row = range && legacyRowAt(range.startContainer);
       if (range && row) {
         event.preventDefault();
         const marker = rowMarker(row);
         const text = rowTextRange(row, marker);
-        placeCaret(...rowTextPoint(text, marker, "start"));
+        placeCaret(...rowTextPoint(text, marker, row, "start"));
         return;
       }
     }
