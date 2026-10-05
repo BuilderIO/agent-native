@@ -1,17 +1,131 @@
 ---
 title: "Node.js"
-description: "Localized pointer to the the default Nitro Node.js server preset."
+description: "スタンドアロンの Agent-Native アプリを、自分で運用する Node.js サーバーとしてデプロイします。"
 ---
-
-<!-- i18n-docs-ignore -->
 
 # Node.js
 
-Read the [English Node.js guide](/docs/node-js) for the build steps and
-provider-specific production configuration.
+Node.js は、Agent-Native アプリを本番環境で実行する最もシンプルな方法です。ビルドすると、アプリのページと API の両方を提供する単一の Node.js サーバーが生成されます。このサーバーは、仮想マシン、マネージド Node.js ホスト、自前のハードウェアなど、Node.js が動作する場所であればどこでも実行できます。
 
-Use the generated app's `pnpm build` script for the build step.
+このガイドでは、スタンドアロン アプリを 1 つ、ゼロからデプロイする手順を説明します。アプリを作成し、本番用のデータベースと認証シークレットを用意し、データベースを準備してから、サーバーをビルドして起動します。
 
-The deployment must use a persistent PostgreSQL database. Configure `DATABASE_URL`
-and `BETTER_AUTH_SECRET` in the provider environment. The Nitro preset is
-`node`.
+<Callout tone="info">
+
+Node.js `22.22+` が必要です。
+
+</Callout>
+
+このガイドのコマンドはすべて、アプリをホストするサーバー上で実行してください。仮想マシンの場合、通常はまず SSH で接続します。アプリのフォルダー、環境変数、実行中のサーバーはすべてそのマシン上に置かれます。
+
+## ステップ 1: アプリを作成する {#step-1-create-the-app}
+
+新しいスタンドアロン アプリを作成します。以下の例では Chat テンプレートからアプリを作成していますが、どのテンプレートから始めてもかまいません。アプリのフォルダーに移動し、依存関係をインストールします。`corepack enable` はアプリが想定する `pnpm` のバージョンを有効にするため、`pnpm` を自分でインストールする必要はありません。
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+必要に応じて、`my-app` を自分のアプリ名に置き換えてください。このガイドの以降の手順は、アプリのフォルダー内にいることを前提としています。
+
+## ステップ 2: 環境シークレットを設定する {#step-2-configure-environment-secrets}
+
+アプリは本番用の設定を環境変数から読み取ります。
+
+| 変数                 | 必須   | 用途                                       |
+| -------------------- | ------ | ------------------------------------------ |
+| `DATABASE_URL`       | はい   | アプリを PostgreSQL データベースに接続する |
+| `BETTER_AUTH_SECRET` | はい   | ユーザー セッションに署名する              |
+| `BETTER_AUTH_URL`    | いいえ | ユーザーがアプリにアクセスする公開アドレスを設定する |
+
+以下の export により、このシェルで後続のコマンドが動作するようになります。デプロイする前に、同じ変数をホストのプロジェクトまたはサービスの環境設定にも保存してください。そうすれば、再起動や新しいデプロイの後もサーバーがそれらの値を保持できます。
+
+### データベース URL {#database-url}
+
+ローカル開発中、`DATABASE_URL` が設定されていない場合、アプリはデータをローカル データベースに保存します。デプロイしたアプリには、再起動後もデータを保持する本物の PostgreSQL データベースが必要です。プロバイダーから接続文字列をコピーし、export します。
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+各プロバイダーで接続文字列を確認する場所は、[データベース プロバイダー ガイド](/docs/neon)で説明しています。
+
+<Callout tone="warning">
+
+Neon、Supabase、Amazon RDS などの永続的な PostgreSQL プロバイダーを選択してください。
+
+</Callout>
+
+### 認証シークレット {#auth-secret}
+
+この値は一度だけ生成し、デプロイ間で変更しないでください。
+
+アプリは `BETTER_AUTH_SECRET` を使ってユーザー セッションに署名します。この値が変わると、サインイン中のすべてのユーザーがサインアウトされます。以下のコマンドでランダムな値を生成します。
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+生成した値は、ホストのシークレット設定やパスワード マネージャーなど、安全な場所に保存してください。デプロイのたびに同じ値を使用します。
+
+### 公開 URL {#public-url}
+
+省略可能です。カスタム ドメイン、リバース プロキシ、または固定の公開オリジンを必要とする認証や OAuth のフローを使う場合に設定します。
+
+`BETTER_AUTH_URL` は、ユーザーがアプリにアクセスする公開アドレスです。設定しない場合、アプリは受信したリクエストごとに自身のアドレスを判断します。通常はそれで問題ありませんが、アプリがプロキシやカスタム ドメインの背後にある場合、サインイン リンクや OAuth のリダイレクトが誤った場所を指すことがあります。
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## ステップ 3: マイグレーション {#step-3-migrate}
+
+マイグレーションは、アプリに必要なテーブルをデータベースに作成し、更新します。
+
+最初のアクセスの前に、ホスト上で本番用の `DATABASE_URL` に対してこれを実行してください。
+
+```bash
+pnpm migrate:production
+```
+
+このコマンドは、前のステップで export した環境から `DATABASE_URL` を読み取ります。アプリをアップグレードした後は、新しいバージョンを起動する前にもう一度実行してください。
+
+## ステップ 4: ビルドと起動 {#step-4-build-and-start}
+
+Node.js ターゲット向けに明示的にビルドします。
+
+```bash
+NITRO_PRESET=node pnpm build
+```
+
+ビルドは完成したサーバーを `.output` フォルダーに書き出します。`NITRO_PRESET=node` を指定すると、別のホスティング ターゲットが検出されるマシン上でも、出力が通常の Node.js サーバーになります。
+
+export した環境変数を使って、生成されたサーバーを起動します。
+
+```bash
+NODE_ENV=production \
+DATABASE_URL="$DATABASE_URL" \
+BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" \
+pnpm start
+```
+
+`NODE_ENV=production` はサーバーを本番モードで実行します。変数を事前に export しているため、`BETTER_AUTH_URL` を設定した場合はサーバーにもその値が渡されます。
+
+サーバーはポート `3000` で待ち受けます。ホストが別のポートを割り当てる場合は、サーバーを起動する前に `PORT` 環境変数を設定してください。
+
+インターネットからアプリにアクセスできるようにするには、サーバーのファイアウォールでポート `3000` を開放するか、Nginx や Caddy などのリバース プロキシを前段に置いて、自分のドメインを HTTPS で提供します。その後、アプリの公開アドレスを開き、最初のアカウントを作成します。
+
+## サーバーを動かし続ける {#keep-the-server-running}
+
+`pnpm start` コマンドは、ターミナルを閉じたりサーバーが再起動したりすると停止します。アプリを動かし続けるには、`systemd` などのプロセス マネージャーやサービスから同じコマンドを起動し、そのサービスにも同じ環境変数を渡してください。
+
+## 次のステップ {#whats-next}
+
+- [**Docker**](/docs/docker) - この Node.js サーバーをコンテナにパッケージ化する
+- [**デプロイ環境変数**](/docs/deployment-environment-variables) - 本番設定の完全な一覧
+- [**デプロイ**](/docs/deployment) - ホスティング ターゲットと前提条件を比較する

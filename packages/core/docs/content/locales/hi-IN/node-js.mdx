@@ -1,17 +1,166 @@
 ---
 title: "Node.js"
-description: "Localized pointer to the the default Nitro Node.js server preset."
+description: "किसी standalone Agent-Native ऐप को ऐसे Node.js server के रूप में deploy करें जिसे आप खुद चलाते हैं।"
 ---
-
-<!-- i18n-docs-ignore -->
 
 # Node.js
 
-Read the [English Node.js guide](/docs/node-js) for the build steps and
-provider-specific production configuration.
+Production में Agent-Native ऐप चलाने का सबसे आसान तरीका Node.js है। Build एक
+ही Node.js server बनाता है, जो ऐप के pages और उसकी API दोनों को serve करता है।
+आप इस server को कहीं भी चला सकते हैं जहां Node.js चलता है, जैसे virtual
+machine, managed Node.js host, या आपका अपना hardware।
 
-Use the generated app's `pnpm build` script for the build step.
+यह guide शुरुआत से एक standalone ऐप deploy करने के चरण बताती है। आप ऐप बनाएंगे,
+उसे production database और auth secret देंगे, database तैयार करेंगे, और फिर
+server को build करके start करेंगे।
 
-The deployment must use a persistent PostgreSQL database. Configure `DATABASE_URL`
-and `BETTER_AUTH_SECRET` in the provider environment. The Nitro preset is
-`node`.
+<Callout tone="info">
+
+Node.js `22.22+` आवश्यक है।
+
+</Callout>
+
+इस guide का हर command उसी server पर चलाएं जो ऐप को host करेगा। Virtual machine
+के लिए, इसका मतलब आमतौर पर पहले SSH से उससे connect करना होता है। ऐप का folder,
+उसके environment variables, और चल रहा server, सब उसी machine पर रहते हैं।
+
+## चरण 1: ऐप बनाएं {#step-1-create-the-app}
+
+अपना नया standalone ऐप बनाएं। नीचे दिया गया उदाहरण Chat template से ऐप बनाता है,
+लेकिन आप किसी भी template से शुरू कर सकते हैं। ऐप के folder में जाएं और उसकी
+dependencies install करें। `corepack enable` वह `pnpm` version चालू करता है
+जिसकी ऐप को ज़रूरत है, इसलिए आपको `pnpm` खुद install करने की ज़रूरत नहीं है।
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+चाहें तो `my-app` को अपने ऐप के नाम से बदल दें। इस guide का बाकी हिस्सा मानता है
+कि आप ऐप के folder के अंदर हैं।
+
+## चरण 2: Environment secrets configure करें {#step-2-configure-environment-secrets}
+
+ऐप अपनी production settings environment variables से पढ़ता है:
+
+| Variable             | आवश्यक | उद्देश्य                                                   |
+| -------------------- | ------ | ---------------------------------------------------------- |
+| `DATABASE_URL`       | हां    | ऐप को उसके PostgreSQL database से connect करता है          |
+| `BETTER_AUTH_SECRET` | हां    | User sessions sign करता है                                 |
+| `BETTER_AUTH_URL`    | नहीं   | वह public address सेट करता है जिससे लोग आपके ऐप तक पहुंचते हैं |
+
+नीचे दिए गए exports से आगे के commands इस shell में काम करते हैं। Deploy करने
+से पहले, यही variables अपने host की project या service environment settings में
+save करें, ताकि restart या नए deploy के बाद भी server के पास वे मौजूद रहें।
+
+### Database URL {#database-url}
+
+Local development के दौरान, `DATABASE_URL` unset होने पर ऐप data को local
+database में store करता है। Deployed ऐप को एक असली PostgreSQL database चाहिए जो
+restarts के बीच अपना data बनाए रखे। अपने provider से connection string copy करें
+और उसे export करें:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+[Database provider guides](/docs/neon) बताती हैं कि हर provider के लिए connection
+string कहां मिलती है।
+
+<Callout tone="warning">
+
+एक persistent PostgreSQL provider चुनें: Neon, Supabase, Amazon RDS, आदि।
+
+</Callout>
+
+### Auth secret {#auth-secret}
+
+इसे एक बार generate करें और सभी deploys में इसे एक जैसा रखें।
+
+ऐप user sessions sign करने के लिए `BETTER_AUTH_SECRET` का उपयोग करता है। अगर यह
+बदलता है, तो हर signed-in user sign out हो जाता है। नीचे दिया गया command एक
+random value generate करता है:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Generate की गई value को किसी सुरक्षित जगह save करें, जैसे अपने host की secret
+settings या password manager में। हर बार deploy करते समय यही value इस्तेमाल करें।
+
+### Public URL {#public-url}
+
+वैकल्पिक। इसे तब सेट करें जब आप custom domain, reverse proxy, या ऐसा auth/OAuth
+flow इस्तेमाल करें जिसे fixed public origin चाहिए।
+
+`BETTER_AUTH_URL` वह public address है जिससे लोग आपके ऐप तक पहुंचते हैं। इसके
+बिना, ऐप हर incoming request से अपना address पता करता है। आमतौर पर यह ठीक रहता
+है, लेकिन जब ऐप किसी proxy या custom domain के पीछे होता है, तब sign-in links और
+OAuth redirects गलत जगह की ओर इशारा कर सकते हैं।
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## चरण 3: Migrate करें {#step-3-migrate}
+
+Migrations आपके database में वे tables बनाती और update करती हैं जिनकी ऐप को
+ज़रूरत है।
+
+इसे पहली visit से पहले host पर, production `DATABASE_URL` के against चलाएं।
+
+```bash
+pnpm migrate:production
+```
+
+यह command पिछले चरण में export किए गए environment से `DATABASE_URL` पढ़ता है।
+ऐप upgrade करने के बाद, नया version start करने से पहले इसे फिर से चलाएं।
+
+## चरण 4: Build और start करें {#step-4-build-and-start}
+
+Node.js target के लिए स्पष्ट रूप से build करें:
+
+```bash
+NITRO_PRESET=node pnpm build
+```
+
+Build तैयार server को `.output` folder में लिखता है। `NITRO_PRESET=node` यह
+पक्का करता है कि output एक सामान्य Node.js server हो, भले ही machine पर कोई अलग
+hosting target detect हो।
+
+Export किए गए environment variables के साथ generated server start करें:
+
+```bash
+NODE_ENV=production \
+DATABASE_URL="$DATABASE_URL" \
+BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" \
+pnpm start
+```
+
+`NODE_ENV=production` server को production mode में चलाता है। क्योंकि आपने
+variables पहले export किए थे, इसलिए `BETTER_AUTH_URL` सेट करने पर server को वह
+भी मिल जाता है।
+
+Server port `3000` पर listen करता है। अगर आपका host कोई अलग port assign करता है,
+तो server start करने से पहले `PORT` environment variable सेट करें।
+
+Internet से ऐप तक पहुंचने के लिए, server के firewall में port `3000` खोलें, या
+अपने domain को HTTPS पर serve करने के लिए उसके आगे Nginx या Caddy जैसा reverse
+proxy लगाएं। फिर ऐप का public address खोलें और पहला account बनाएं।
+
+## Server को चालू रखें {#keep-the-server-running}
+
+Terminal बंद करने पर या server restart होने पर `pnpm start` command रुक जाता है।
+ऐप को चालू रखने के लिए, यही command किसी process manager या service से start
+करें, जैसे `systemd`, और उस service को वही environment variables दें।
+
+## आगे क्या है {#whats-next}
+
+- [**Docker**](/docs/docker) - इस Node.js server को container में package करें
+- [**तैनाती: पर्यावरण चर**](/docs/deployment-environment-variables) - production settings की पूरी सूची
+- [**तैनाती**](/docs/deployment) - hosting targets और prerequisites की तुलना करें

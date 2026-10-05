@@ -1,56 +1,171 @@
 ---
 title: "Node.js"
-description: "Deploy an Agent-Native app with Nitro's default Node.js server preset."
-search: "Node.js deployment Nitro node server preset production"
+description: "Deploy a standalone Agent-Native app as a Node.js server you run yourself."
+search: "Node.js deployment standalone app Nitro node server preset production migrate build start"
 ---
 
 # Node.js
 
-Node.js is the default Nitro target. Use it when you want to run the generated
-server yourself on a VM, a managed Node host, or your own infrastructure.
+Node.js is the simplest way to run an Agent-Native app in production. The build
+produces a single Node.js server that serves both the app's pages and its API.
+You can run that server anywhere Node.js runs, such as a virtual machine, a
+managed Node.js host, or your own hardware.
 
-<Steps>
+This guide walks through deploying one standalone app from scratch. You will
+create the app, give it a production database and an auth secret, prepare the
+database, and then build and start the server.
 
-### Build the app
+<Callout tone="info">
 
-Build the client and server output:
+Node.js `22.22+` is required.
+
+</Callout>
+
+Run every command in this guide on the server that will host the app. For a
+virtual machine, that usually means connecting to it over SSH first. The app's
+folder, its environment variables, and the running server all live on that
+machine.
+
+## Step 1: Create the app
+
+Create your new standalone app. The example below creates an app from the Chat
+template, but you can start from any template. Move into the app's folder and
+install its dependencies. `corepack enable` turns on the `pnpm` version the app
+expects, so you do not need to install `pnpm` yourself.
 
 ```bash
-pnpm build
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
 ```
 
-You can make the target explicit in a build environment:
+Replace `my-app` with your own app name if you like. The rest of this guide
+assumes you are inside the app's folder.
+
+## Step 2: Configure environment secrets
+
+The app reads its production settings from environment variables:
+
+| Variable             | Required | Purpose                                               |
+| -------------------- | -------- | ----------------------------------------------------- |
+| `DATABASE_URL`       | Yes      | Connects the app to its PostgreSQL database           |
+| `BETTER_AUTH_SECRET` | Yes      | Signs user sessions                                   |
+| `BETTER_AUTH_URL`    | No       | Sets the public address people use to reach your app |
+
+The exports below make the following commands work in this shell. Before
+deploying, save these same variables in your host's project or service
+environment settings, so the server still has them after a restart or a new
+deploy.
+
+### Database URL
+
+During local development the app stores data in a local database when
+`DATABASE_URL` is unset. A deployed app needs a real PostgreSQL database that
+keeps its data between restarts. Copy the connection string from your provider
+and export it:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+The [database provider guides](/docs/neon) show where to find the connection
+string for each provider.
+
+<Callout tone="warning">
+
+Select a persistent PostgreSQL provider: Neon, Supabase, Amazon RDS, etc.
+
+</Callout>
+
+### Auth secret
+
+Generate this once and keep it stable across deploys.
+
+The app uses `BETTER_AUTH_SECRET` to sign user sessions. If it changes, every
+signed-in user is signed out. The command below generates a random value:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Save the generated value somewhere safe, such as your host's secret settings or
+a password manager. Use the same value every time you deploy.
+
+### Public URL
+
+Optional. Set it when using a custom domain, reverse proxy, or an auth/OAuth flow
+that needs a fixed public origin.
+
+`BETTER_AUTH_URL` is the public address people use to reach your app. Without
+it, the app works out its address from each incoming request. That is usually
+fine, but sign-in links and OAuth redirects can point to the wrong place when
+the app sits behind a proxy or a custom domain.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Step 3: Migrate
+
+Migrations create and update the tables the app needs in your database.
+
+Run this on the host, against the production `DATABASE_URL`, before the first
+visit.
+
+```bash
+pnpm migrate:production
+```
+
+The command reads `DATABASE_URL` from the environment you exported in the
+previous step. Run it again after you upgrade the app, before you start the new
+version.
+
+## Step 4: Build and start
+
+Build explicitly for the Node.js target:
 
 ```bash
 NITRO_PRESET=node pnpm build
 ```
 
-### Configure production
+The build writes the finished server to the `.output` folder. `NITRO_PRESET=node`
+makes sure the output is a plain Node.js server, even on a machine where a
+different hosting target is detected.
 
-Use a persistent PostgreSQL database and set `DATABASE_URL` before the first
-production start. Local development uses PGlite when the URL is unset. Add a stable `BETTER_AUTH_SECRET` and the provider variables
-your app uses. The [deployment environment reference](/docs/deployment-environment-variables)
-covers the full production configuration.
-
-### Start the server
-
-Run the generated server with a supported Node.js LTS release:
+Start the generated server with the exported environment variables:
 
 ```bash
-node .output/server/index.mjs
+NODE_ENV=production \
+DATABASE_URL="$DATABASE_URL" \
+BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" \
+pnpm start
 ```
 
-The server listens on port `3000` by default. Set `PORT` when your host assigns
-a different port.
+`NODE_ENV=production` runs the server in production mode. Because you exported
+the variables earlier, the server also receives `BETTER_AUTH_URL` when you set
+it.
 
-</Steps>
+The server listens to port `3000`. If your host assigns a different port, set
+the `PORT` environment variable before starting the server.
 
-Node.js is a runtime choice, not a requirement to use Docker. If you want a
-container image, use the separate [Docker guide](/docs/docker).
+To reach the app from the internet, open port `3000` in the server's firewall,
+or put a reverse proxy such as Nginx or Caddy in front of it to serve your
+domain over HTTPS. Then open the app's public address and create the first
+account.
+
+## Keep the server running
+
+The `pnpm start` command stops when you close your terminal or the server
+restarts. To keep the app running, start the same command from a process
+manager or service, such as `systemd`, and give that service the same
+environment variables.
 
 ## What's next
 
-- [**Deploy an app**](/docs/deploy-an-app) - the complete app path
-- [**Workspace Deployment**](/docs/workspace-deployment) - one origin for many apps
 - [**Docker**](/docs/docker) - package this Node.js server in a container
-- [**Deployment**](/docs/deployment) - compare targets and prerequisites
+- [**Deployment Environment Variables**](/docs/deployment-environment-variables) - the full list of production settings
+- [**Deployment**](/docs/deployment) - compare hosting targets and prerequisites

@@ -1,17 +1,170 @@
 ---
 title: "Node.js"
-description: "Localized pointer to the the default Nitro Node.js server preset."
+description: "Implementa una aplicación independiente de Agent-Native como un servidor Node.js que ejecutas tú mismo."
 ---
-
-<!-- i18n-docs-ignore -->
 
 # Node.js
 
-Read the [English Node.js guide](/docs/node-js) for the build steps and
-provider-specific production configuration.
+Node.js es la forma más sencilla de ejecutar una aplicación de Agent-Native en producción. La compilación
+produce un único servidor Node.js que sirve tanto las páginas de la aplicación como su API.
+Puedes ejecutar ese servidor en cualquier lugar donde funcione Node.js, como una máquina virtual, un
+host administrado de Node.js o tu propio hardware.
 
-Use the generated app's `pnpm build` script for the build step.
+Esta guía explica cómo implementar una aplicación independiente desde cero. Vas a
+crear la aplicación, darle una base de datos de producción y un secreto de autenticación, preparar la
+base de datos y, después, compilar e iniciar el servidor.
 
-The deployment must use a persistent PostgreSQL database. Configure `DATABASE_URL`
-and `BETTER_AUTH_SECRET` in the provider environment. The Nitro preset is
-`node`.
+<Callout tone="info">
+
+Se requiere Node.js `22.22+`.
+
+</Callout>
+
+Ejecuta todos los comandos de esta guía en el servidor que alojará la aplicación. En una
+máquina virtual, eso normalmente significa conectarte primero a ella por SSH. La carpeta de la
+aplicación, sus variables de entorno y el servidor en ejecución se encuentran en esa
+máquina.
+
+## Paso 1: Crea la aplicación {#step-1-create-the-app}
+
+Crea tu nueva aplicación independiente. El siguiente ejemplo crea una aplicación a partir de la plantilla Chat,
+pero puedes empezar desde cualquier plantilla. Entra en la carpeta de la aplicación e
+instala sus dependencias. `corepack enable` activa la versión de `pnpm` que la aplicación
+espera, así que no necesitas instalar `pnpm` por tu cuenta.
+
+```bash
+npx --yes @agent-native/core@latest create my-app --standalone --template chat
+
+cd my-app
+
+corepack enable
+
+pnpm install
+```
+
+Si quieres, reemplaza `my-app` por el nombre de tu aplicación. El resto de esta guía
+supone que estás dentro de la carpeta de la aplicación.
+
+## Paso 2: Configura los secretos del entorno {#step-2-configure-environment-secrets}
+
+La aplicación lee su configuración de producción desde variables de entorno:
+
+| Variable             | Obligatoria | Propósito                                                          |
+| -------------------- | ----------- | ------------------------------------------------------------------ |
+| `DATABASE_URL`       | Sí          | Conecta la aplicación con su base de datos PostgreSQL              |
+| `BETTER_AUTH_SECRET` | Sí          | Firma las sesiones de los usuarios                                 |
+| `BETTER_AUTH_URL`    | No          | Define la dirección pública que usan las personas para acceder a tu aplicación |
+
+Las exportaciones siguientes hacen que los comandos posteriores funcionen en esta terminal. Antes de
+implementar, guarda estas mismas variables en la configuración del entorno del proyecto o servicio de tu host,
+para que el servidor las siga teniendo después de un reinicio o de una nueva
+implementación.
+
+### URL de la base de datos {#database-url}
+
+Durante el desarrollo local, la aplicación guarda los datos en una base de datos local cuando
+`DATABASE_URL` no está definida. Una aplicación implementada necesita una base de datos PostgreSQL real que
+conserve sus datos entre reinicios. Copia la cadena de conexión de tu proveedor
+y expórtala:
+
+```bash
+export DATABASE_URL='your-postgres-url-string'
+```
+
+Las [guías de proveedores de bases de datos](/docs/neon) muestran dónde encontrar la cadena de conexión
+de cada proveedor.
+
+<Callout tone="warning">
+
+Elige un proveedor de PostgreSQL persistente, como Neon, Supabase o Amazon RDS.
+
+</Callout>
+
+### Secreto de autenticación {#auth-secret}
+
+Genéralo una sola vez y mantenlo igual en todas las implementaciones.
+
+La aplicación usa `BETTER_AUTH_SECRET` para firmar las sesiones de los usuarios. Si cambia, se cierra la sesión de
+todos los usuarios que la tenían iniciada. El siguiente comando genera un valor aleatorio:
+
+```bash
+export BETTER_AUTH_SECRET="$(openssl rand -hex 32)"
+```
+
+Guarda el valor generado en un lugar seguro, como la configuración de secretos de tu host o
+un gestor de contraseñas. Usa el mismo valor cada vez que implementes.
+
+### URL pública {#public-url}
+
+Es opcional. Defínela cuando uses un dominio personalizado, un proxy inverso o un flujo de autenticación u OAuth
+que necesite un origen público fijo.
+
+`BETTER_AUTH_URL` es la dirección pública que usan las personas para acceder a tu aplicación. Sin
+ella, la aplicación deduce su dirección a partir de cada solicitud entrante. Eso suele
+funcionar bien, pero los enlaces de inicio de sesión y las redirecciones de OAuth pueden apuntar al lugar equivocado cuando
+la aplicación está detrás de un proxy o de un dominio personalizado.
+
+```bash
+export BETTER_AUTH_URL='https://your-domain.example'
+```
+
+## Paso 3: Ejecuta las migraciones {#step-3-migrate}
+
+Las migraciones crean y actualizan las tablas que la aplicación necesita en tu base de datos.
+
+Ejecuta esto en el host, contra la `DATABASE_URL` de producción, antes de la primera
+visita.
+
+```bash
+pnpm migrate:production
+```
+
+El comando lee `DATABASE_URL` del entorno que exportaste en el
+paso anterior. Vuelve a ejecutarlo después de actualizar la aplicación y antes de iniciar la nueva
+versión.
+
+## Paso 4: Compila e inicia {#step-4-build-and-start}
+
+Compila de forma explícita para el destino Node.js:
+
+```bash
+NITRO_PRESET=node pnpm build
+```
+
+La compilación escribe el servidor terminado en la carpeta `.output`. `NITRO_PRESET=node`
+garantiza que el resultado sea un servidor Node.js simple, incluso en una máquina donde se
+detecte otro destino de alojamiento.
+
+Inicia el servidor generado con las variables de entorno exportadas:
+
+```bash
+NODE_ENV=production \
+DATABASE_URL="$DATABASE_URL" \
+BETTER_AUTH_SECRET="$BETTER_AUTH_SECRET" \
+pnpm start
+```
+
+`NODE_ENV=production` ejecuta el servidor en modo de producción. Como exportaste
+las variables antes, el servidor también recibe `BETTER_AUTH_URL` cuando la
+defines.
+
+El servidor escucha en el puerto `3000`. Si tu host asigna otro puerto, define
+la variable de entorno `PORT` antes de iniciar el servidor.
+
+Para acceder a la aplicación desde internet, abre el puerto `3000` en el firewall del servidor
+o coloca delante un proxy inverso como Nginx o Caddy para servir tu
+dominio a través de HTTPS. Después, abre la dirección pública de la aplicación y crea la primera
+cuenta.
+
+## Mantén el servidor en ejecución {#keep-the-server-running}
+
+El comando `pnpm start` se detiene cuando cierras la terminal o cuando el servidor se
+reinicia. Para mantener la aplicación en ejecución, inicia el mismo comando desde un administrador de procesos
+o un servicio, como `systemd`, y dale a ese servicio las mismas
+variables de entorno.
+
+## Qué sigue {#whats-next}
+
+- [**Docker**](/docs/docker) - empaqueta este servidor Node.js en un contenedor
+- [**Implementación: variables de entorno**](/docs/deployment-environment-variables) - la lista completa de la configuración de producción
+- [**Implementación**](/docs/deployment) - compara los destinos de alojamiento y sus requisitos previos
