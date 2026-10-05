@@ -992,7 +992,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.fxmacrodata.useCase":
     "為替レート、経済指標、発表カレンダー、中央銀行の政策",
   "mcpIntegrations.catalog.fxmacrodata.setupNote":
-    "FXMacroData のリモート MCP エンドポイントは、キーなしで USD データを提供します。22 通貨すべて、全履歴、リアルタイムの発表を利用するには、FXMacroData API キーを `X-API-Key` ヘッダーとして追加してください。",
+    "FXMacroData のリモート MCP エンドポイントは、キーなしで USD データを提供します。22 通貨すべて、全履歴、リアルタイムの発表に FXMacroData API キーを使うには、このエンドポイントを `Authorization: Bearer <key>` ヘッダー付きのカスタムエージェント連携として追加してください。",
   "mcpIntegrations.auth.none": "認証なし",
   "mcpIntegrations.auth.headers": "ヘッダー",
   "mcpIntegrations.auth.oauth": "OAuth",

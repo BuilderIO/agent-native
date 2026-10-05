@@ -915,7 +915,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.fxmacrodata.useCase":
     "外汇汇率、经济指标、发布日历、央行政策",
   "mcpIntegrations.catalog.fxmacrodata.setupNote":
-    "FXMacroData 的远程 MCP 端点无需密钥即可提供美元数据。将 FXMacroData API 密钥添加为 `X-API-Key` 请求头，即可解锁全部 22 种货币、完整历史数据和实时发布。",
+    "FXMacroData 的远程 MCP 端点无需密钥即可提供美元数据。如需使用 FXMacroData API 密钥获取全部 22 种货币、完整历史数据和实时发布，请将此端点添加为自定义代理集成，并附带 `Authorization: Bearer <key>` 请求头。",
   "mcpIntegrations.auth.none": "无需身份验证",
   "mcpIntegrations.auth.headers": "请求头",
   "mcpIntegrations.auth.oauth": "OAuth",

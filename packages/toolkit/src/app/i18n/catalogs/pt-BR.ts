@@ -708,7 +708,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.fxmacrodata.useCase":
     "Taxas de câmbio, indicadores econômicos, calendários de divulgação, política de bancos centrais",
   "mcpIntegrations.catalog.fxmacrodata.setupNote":
-    "O endpoint MCP remoto do FXMacroData fornece dados do USD sem chave. Adicione uma chave de API do FXMacroData como cabeçalho `X-API-Key` para liberar as 22 moedas, o histórico completo e as divulgações em tempo real.",
+    "O endpoint MCP remoto do FXMacroData fornece dados do USD sem chave. Para usar uma chave de API do FXMacroData com as 22 moedas, o histórico completo e as divulgações em tempo real, adicione este endpoint como uma integração de agente personalizada com um cabeçalho `Authorization: Bearer <key>`.",
   "mcpIntegrations.auth.none": "Sem autenticação",
   "mcpIntegrations.auth.headers": "Cabeçalho",
   "mcpIntegrations.auth.oauth": "OAuth",

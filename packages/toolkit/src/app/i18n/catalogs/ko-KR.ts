@@ -968,7 +968,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.fxmacrodata.useCase":
     "환율, 경제 지표, 발표 일정, 중앙은행 정책",
   "mcpIntegrations.catalog.fxmacrodata.setupNote":
-    "FXMacroData의 원격 MCP 엔드포인트는 키 없이 USD 데이터를 제공합니다. 22개 통화 전체, 전체 이력, 실시간 발표를 사용하려면 FXMacroData API 키를 `X-API-Key` 헤더로 추가하세요.",
+    "FXMacroData의 원격 MCP 엔드포인트는 키 없이 USD 데이터를 제공합니다. 22개 통화 전체, 전체 이력, 실시간 발표에 FXMacroData API 키를 사용하려면 이 엔드포인트를 `Authorization: Bearer <key>` 헤더와 함께 사용자 지정 에이전트 통합으로 추가하세요.",
   "mcpIntegrations.auth.none": "인증 없음",
   "mcpIntegrations.auth.headers": "헤더",
   "mcpIntegrations.auth.oauth": "OAuth",

@@ -973,7 +973,7 @@ const messages = {
   "mcpIntegrations.catalog.fxmacrodata.useCase":
     "FX rates, economic indicators, release calendars, central bank policy",
   "mcpIntegrations.catalog.fxmacrodata.setupNote":
-    "FXMacroData's remote MCP endpoint serves USD data without a key. Add an FXMacroData API key as an `X-API-Key` header to unlock all 22 currencies, full history, and real-time releases.",
+    "FXMacroData's remote MCP endpoint serves USD data without a key. To use an FXMacroData API key for all 22 currencies, full history, and real-time releases, add this endpoint as a custom agent integration with an `Authorization: Bearer <key>` header.",
   "mcpIntegrations.auth.none": "No auth",
   "mcpIntegrations.auth.headers": "Header",
   "mcpIntegrations.auth.oauth": "OAuth",

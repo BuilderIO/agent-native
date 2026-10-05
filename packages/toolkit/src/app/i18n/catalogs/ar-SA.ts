@@ -975,7 +975,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.fxmacrodata.useCase":
     "أسعار الصرف، المؤشرات الاقتصادية، تقويمات الإصدارات، سياسات البنوك المركزية",
   "mcpIntegrations.catalog.fxmacrodata.setupNote":
-    "تقدم نقطة نهاية MCP البعيدة من FXMacroData بيانات الدولار الأمريكي دون مفتاح. أضف مفتاح FXMacroData API كترويسة `X-API-Key` لفتح جميع العملات الـ22 والسجل الكامل والإصدارات الفورية.",
+    "تقدم نقطة نهاية MCP البعيدة من FXMacroData بيانات الدولار الأمريكي دون مفتاح. لاستخدام مفتاح FXMacroData API لفتح جميع العملات الـ22 والسجل الكامل والإصدارات الفورية، أضف نقطة النهاية هذه كتكامل وكيل مخصص مع ترويسة `Authorization: Bearer <key>`.",
   "mcpIntegrations.auth.none": "بدون مصادقة",
   "mcpIntegrations.auth.headers": "ترويسة",
   "mcpIntegrations.auth.oauth": "OAuth",

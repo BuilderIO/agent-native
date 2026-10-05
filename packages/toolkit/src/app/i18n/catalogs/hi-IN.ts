@@ -959,7 +959,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpIntegrations.catalog.fxmacrodata.useCase":
     "FX दरें, आर्थिक संकेतक, रिलीज़ कैलेंडर, केंद्रीय बैंक नीति",
   "mcpIntegrations.catalog.fxmacrodata.setupNote":
-    "FXMacroData का रिमोट MCP एंडपॉइंट बिना कुंजी के USD डेटा देता है। सभी 22 मुद्राएँ, पूरा इतिहास और रियल-टाइम रिलीज़ अनलॉक करने के लिए FXMacroData API कुंजी को `X-API-Key` हेडर के रूप में जोड़ें।",
+    "FXMacroData का रिमोट MCP एंडपॉइंट बिना कुंजी के USD डेटा देता है। सभी 22 मुद्राओं, पूरे इतिहास और रियल-टाइम रिलीज़ के लिए FXMacroData API कुंजी का उपयोग करने हेतु, इस एंडपॉइंट को `Authorization: Bearer <key>` हेडर के साथ कस्टम एजेंट इंटीग्रेशन के रूप में जोड़ें।",
   "mcpIntegrations.auth.none": "कोई ऑथ नहीं",
   "mcpIntegrations.auth.headers": "हेडर",
   "mcpIntegrations.auth.oauth": "OAuth",
