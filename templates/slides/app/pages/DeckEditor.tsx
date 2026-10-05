@@ -1860,7 +1860,6 @@ export default function DeckEditor() {
   const commentsOpen = sidePanel === "comments";
 
   const {
-    payload: questionFlowPayload,
     questions: questionFlowQuestions,
     title: questionFlowTitle,
     description: questionFlowDescription,
