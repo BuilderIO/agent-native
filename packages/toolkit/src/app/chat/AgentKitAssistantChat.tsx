@@ -612,6 +612,8 @@ export const AgentKitAssistantChat = forwardRef<
     );
   }
   const t = useT();
+  const translatorRef = useRef(t);
+  translatorRef.current = t;
   const { formatDate } = useFormatters();
   const threadId = props.threadId ?? props.tabId;
   if (!threadId) {
@@ -840,7 +842,13 @@ export const AgentKitAssistantChat = forwardRef<
         signal: context?.signal,
       });
       if (!response.ok) {
-        throw new Error(`Upload failed with ${response.status}.`);
+        throw new Error(
+          translatorRef.current(
+            response.status === 415
+              ? "agentChat.composer.unsupportedFileType"
+              : "agentChat.composer.uploadFailed",
+          ),
+        );
       }
       const result: unknown = await response.json();
       const uploaded = asRecord(result);

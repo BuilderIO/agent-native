@@ -1145,6 +1145,9 @@ export default {
     filters: "Filters",
     autoApplied: "auto-applied",
     saveView: "Ansicht speichern",
+    saveViewFailed: "Ansicht konnte nicht gespeichert werden",
+    saveViewFailedWithMessage:
+      "Ansicht konnte nicht gespeichert werden: {{message}}",
     clearAll: "Alles löschen",
     collapseFilters: "Filter ausblenden",
     expandFilters: "Filter erweitern",
@@ -1211,6 +1214,8 @@ export default {
     savedViews: "Gespeicherte Ansichten",
     views: "Views",
     noSavedViews: "Noch keine gespeicherten Ansichten.",
+    defaultView: "Standard",
+    setAsDefault: "Als Standard für dieses Dashboard festlegen",
     deleteView: "Delete {{name}}",
     saveCurrentView: "Aktuelle Ansicht speichern",
     viewNameEnterprisePlaceholder: "View name (e.g. 'Enterprise only')",

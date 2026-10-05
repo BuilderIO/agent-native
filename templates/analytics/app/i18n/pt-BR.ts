@@ -1129,6 +1129,9 @@ export default {
     filters: "Filters",
     autoApplied: "auto-applied",
     saveView: "Salvar visualização",
+    saveViewFailed: "Não foi possível salvar a visualização",
+    saveViewFailedWithMessage:
+      "Não foi possível salvar a visualização: {{message}}",
     clearAll: "Limpar tudo",
     collapseFilters: "Recolher filtros",
     expandFilters: "Expandir filtros",
@@ -1195,6 +1198,8 @@ export default {
     savedViews: "Visualizações salvas",
     views: "Views",
     noSavedViews: "Nenhuma visualização salva ainda.",
+    defaultView: "Padrão",
+    setAsDefault: "Definir como padrão para este painel",
     deleteView: "Delete {{name}}",
     saveCurrentView: "Salvar visualização atual",
     viewNameEnterprisePlaceholder: "View name (e.g. 'Enterprise only')",

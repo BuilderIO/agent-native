@@ -501,6 +501,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "スキルファイルをアップロード",
   "composer.upload": "アップロード",
   "composer.uploadFailed": "選択したファイルをアップロードできませんでした。",
+  "composer.unsupportedFileType": "このファイル形式はサポートされていません。",
   "composer.useAttachedContext": "添付されたコンテキストを使用してください。",
   "mentions.commands": "コマンド",
   "mentions.learnMore": "詳細を見る",

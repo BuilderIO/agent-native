@@ -483,6 +483,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "스킬 파일 업로드",
   "composer.upload": "업로드",
   "composer.uploadFailed": "선택한 파일을 업로드할 수 없습니다.",
+  "composer.unsupportedFileType": "지원되지 않는 파일 형식입니다.",
   "composer.useAttachedContext": "첨부된 컨텍스트를 사용하세요.",
   "mentions.commands": "명령",
   "mentions.learnMore": "자세히 알아보기",

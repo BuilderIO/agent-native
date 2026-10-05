@@ -1105,6 +1105,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.skill.uploadFile": "Subir archivo de habilidad",
   "composer.upload": "Subir",
   "composer.uploadFailed": "No se pudo cargar el archivo seleccionado.",
+  "composer.unsupportedFileType": "Este tipo de archivo no es compatible.",
   "composer.useAttachedContext": "Usa el contexto adjunto.",
   "mentions.commands": "Comandos",
   "mentions.learnMore": "Más información",

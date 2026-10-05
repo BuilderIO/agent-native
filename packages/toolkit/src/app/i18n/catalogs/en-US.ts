@@ -486,6 +486,7 @@ const messages = {
   "composer.skill.uploadFile": "Upload skill file",
   "composer.upload": "Upload",
   "composer.uploadFailed": "Could not upload the selected file.",
+  "composer.unsupportedFileType": "This file type isn't supported.",
   "composer.useAttachedContext": "Use the attached context.",
   "mentions.commands": "Commands",
   "mentions.learnMore": "Learn more",
