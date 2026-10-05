@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { hexToLinearRgb } from "./brand-colors.js";
 import { HeroOceanBackground } from "./hero-ocean-background.js";
 
+const FIRST_FRAME_TIMEOUT_MS = 6000;
+
 const { createRenderer, renderer, importSpy } = vi.hoisted(() => {
   const renderer = {
     ready: Promise.resolve(),
@@ -64,6 +66,12 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  Object.defineProperty(document, "hidden", {
+    configurable: true,
+    value: false,
+  });
+  renderer.ready = Promise.resolve();
+  renderer.firstFrame = Promise.resolve();
   createRenderer.mockClear();
   importSpy.mockClear();
   renderer.dispose.mockClear();
@@ -153,6 +161,47 @@ describe("HeroOceanBackground", () => {
       for (let i = 0; i < 10; i++) await Promise.resolve();
     });
     expect(onReady).toHaveBeenCalledOnce();
+  });
+
+  it("pauses the first-frame deadline while the document is hidden", async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(document, "hidden", {
+      configurable: true,
+      value: false,
+    });
+    renderer.firstFrame = new Promise<void>(() => {});
+    const onError = vi.fn();
+    render(<HeroOceanBackground onError={onError} onReady={vi.fn()} />);
+
+    await act(async () => {
+      for (let tick = 0; tick < 10; tick += 1) await Promise.resolve();
+    });
+    expect(createRenderer).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+      Object.defineProperty(document, "hidden", {
+        configurable: true,
+        value: true,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(7000);
+      expect(onError).not.toHaveBeenCalled();
+      Object.defineProperty(document, "hidden", {
+        configurable: true,
+        value: false,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+      await vi.advanceTimersByTimeAsync(FIRST_FRAME_TIMEOUT_MS - 1001);
+      expect(onError).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+    });
+
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "The ocean wave did not draw a frame",
+      }),
+    );
   });
 
   it("pushes brand colours through on a theme change", async () => {

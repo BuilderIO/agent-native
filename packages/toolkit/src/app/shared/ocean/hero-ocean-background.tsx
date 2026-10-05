@@ -41,26 +41,67 @@ export function HeroOceanBackground({
     let rendererFailed = false;
     const cleanups: (() => void)[] = [];
     let firstFrameTimeout: number | undefined;
+    let firstFrameStartedAt: number | undefined;
+    let firstFrameRemainingMs = FIRST_FRAME_TIMEOUT_MS;
+    let waitingForFirstFrame = false;
+    const pauseFirstFrameDeadline = () => {
+      if (firstFrameTimeout === undefined) return;
+      window.clearTimeout(firstFrameTimeout);
+      firstFrameTimeout = undefined;
+      firstFrameRemainingMs = Math.max(
+        0,
+        firstFrameRemainingMs -
+          (Date.now() - (firstFrameStartedAt ?? Date.now())),
+      );
+      firstFrameStartedAt = undefined;
+    };
+    const resumeFirstFrameDeadline = () => {
+      if (
+        cancelled ||
+        rendererFailed ||
+        !waitingForFirstFrame ||
+        document.hidden ||
+        firstFrameTimeout !== undefined
+      ) {
+        return;
+      }
+      firstFrameStartedAt = Date.now();
+      firstFrameTimeout = window.setTimeout(
+        () => failRenderer(new Error("The ocean wave did not draw a frame")),
+        firstFrameRemainingMs,
+      );
+    };
+    const stopFirstFrameDeadline = () => {
+      waitingForFirstFrame = false;
+      pauseFirstFrameDeadline();
+    };
     const rendererInitTimeout = window.setTimeout(() => {
       failRenderer(new Error("The ocean wave renderer did not initialize"));
     }, RENDERER_INIT_TIMEOUT_MS);
     cleanups.push(() => {
       window.clearTimeout(rendererInitTimeout);
-      if (firstFrameTimeout !== undefined) {
-        window.clearTimeout(firstFrameTimeout);
-      }
+      stopFirstFrameDeadline();
     });
 
     const failRenderer = (error: unknown) => {
       if (cancelled || rendererFailed) return;
       rendererFailed = true;
       window.clearTimeout(rendererInitTimeout);
-      if (firstFrameTimeout !== undefined) {
-        window.clearTimeout(firstFrameTimeout);
-      }
+      stopFirstFrameDeadline();
       renderer?.dispose();
       onErrorRef.current(error);
     };
+    const handleDocumentVisibility = () => {
+      if (document.hidden) pauseFirstFrameDeadline();
+      else resumeFirstFrameDeadline();
+    };
+    document.addEventListener("visibilitychange", handleDocumentVisibility);
+    cleanups.push(() =>
+      document.removeEventListener(
+        "visibilitychange",
+        handleDocumentVisibility,
+      ),
+    );
     let pointerTarget: PointerTarget = [0, 0, 0];
     let lastPointer: readonly [number, number] | undefined;
 
@@ -126,18 +167,13 @@ export function HeroOceanBackground({
           .then(() => {
             if (cancelled || rendererFailed) return;
             window.clearTimeout(rendererInitTimeout);
-            firstFrameTimeout = window.setTimeout(
-              () =>
-                failRenderer(new Error("The ocean wave did not draw a frame")),
-              FIRST_FRAME_TIMEOUT_MS,
-            );
+            waitingForFirstFrame = true;
+            resumeFirstFrameDeadline();
             return renderer?.firstFrame;
           })
           .then(() => {
             if (cancelled || rendererFailed) return;
-            if (firstFrameTimeout !== undefined) {
-              window.clearTimeout(firstFrameTimeout);
-            }
+            stopFirstFrameDeadline();
             setReady(true);
             onReadyRef.current();
           })
@@ -160,7 +196,7 @@ export function HeroOceanBackground({
         cleanups.push(() => visibility.disconnect());
       })
       .catch((error: unknown) => {
-        if (!cancelled) onErrorRef.current(error);
+        failRenderer(error);
       });
 
     return () => {
