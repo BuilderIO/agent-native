@@ -18,6 +18,9 @@ const desktopWorkflow = parse(
 const clipsWorkflow = parse(
   readFileSync(".github/workflows/clips-desktop-release.yml", "utf8"),
 ) as Workflow;
+const docsWorkflow = parse(
+  readFileSync(".github/workflows/deploy-docs-production.yml", "utf8"),
+) as Workflow;
 const trigger = workflow.on as Workflow;
 const schedules = trigger.schedule as Workflow[];
 const dispatch = trigger.workflow_dispatch as Workflow;
@@ -112,6 +115,7 @@ describe("release everything workflow", () => {
     assert.match(source, /desktop-release\.yml/);
     assert.match(source, /clips-desktop-release\.yml/);
     assert.match(source, /deploy-production-sites-prebuilt\.yml/);
+    assert.match(source, /deploy-docs-production\.yml/);
     assert.match(source, /channel: "production"/);
     assert.match(
       source,
@@ -132,6 +136,40 @@ describe("release everything workflow", () => {
     assert.match(source, /source_ref: releaseSha/);
     assert.match(source, /endsWith\("\.agent-native\.com"\)/);
     assert.match(source, /Promise\.allSettled/);
+  });
+
+  it("uses the docs publisher for www instead of the app-site fleet", () => {
+    const source = String((coordinator.with as Workflow).script);
+    const docsDispatch = (docsWorkflow.on as Workflow)
+      .workflow_dispatch as Workflow;
+    const docsInputs = docsDispatch.inputs as Workflow;
+
+    assert.match(source, /const docsSite = sitesManifest\.fw/);
+    assert.match(source, /docsSite\?\.host !== "www\.agent-native\.com"/);
+    assert.match(source, /name !== "fw"/);
+    assert.match(
+      source,
+      /dispatch\("deploy-docs-production\.yml", workflowRef/,
+    );
+    assert.match(
+      source,
+      /waitForRun\(docs, "Agent-Native docs production site", 120 \* 60_000\)/,
+    );
+    assert.match(source, /\["Docs site", docsSite\.host\]/);
+    assert.deepEqual(docsInputs, {
+      source_ref: {
+        description: "Optional exact commit SHA; blank uses the selected ref",
+        required: false,
+        type: "string",
+        default: "",
+      },
+      smoke: {
+        description: "Probe www.agent-native.com after publishing",
+        required: true,
+        type: "boolean",
+        default: true,
+      },
+    });
   });
 
   it("recovers only a hosted-runner failure after stable npm publication", () => {

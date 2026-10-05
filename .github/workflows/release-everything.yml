@@ -713,6 +713,7 @@ jobs:
               releaseSha,
               "scripts/netlify-production-sites.json",
             );
+            const docsSite = sitesManifest.fw;
             let desktopVersion;
             let clipsVersion;
             let productionSites;
@@ -728,9 +729,14 @@ jobs:
                 stableVersion(clipsPackage.version, "Clips desktop app"),
                 releaseSha,
               );
+              if (docsSite?.host !== "www.agent-native.com") {
+                throw new Error("The production docs site is not configured for www.agent-native.com.");
+              }
               productionSites = Object.entries(sitesManifest)
-                .filter(([, site]) =>
-                  typeof site?.host === "string" && site.host.endsWith(".agent-native.com"),
+                .filter(([name, site]) =>
+                  name !== "fw" &&
+                  typeof site?.host === "string" &&
+                  site.host.endsWith(".agent-native.com"),
                 )
                 .map(([name]) => name);
               if (productionSites.length === 0) {
@@ -743,7 +749,7 @@ jobs:
             core.info(`Selected stable desktop versions: v${desktopVersion}, clips-v${clipsVersion}.`);
 
             // Downstream workflows own these reserved tags after dispatch.
-            const [desktop, clips, production] = await Promise.all([
+            const [desktop, clips, production, docs] = await Promise.all([
               dispatch("desktop-release.yml", workflowRef, {
                 channel: "production",
                 version: desktopVersion,
@@ -760,12 +766,17 @@ jobs:
                 beta_e2e: "false",
                 smoke: "true",
               }),
+              dispatch("deploy-docs-production.yml", workflowRef, {
+                source_ref: releaseSha,
+                smoke: "true",
+              }),
             ]);
 
             const downstream = await Promise.allSettled([
               waitForRun(desktop, "Agent-Native desktop stable release", 120 * 60_000),
               waitForRun(clips, "Clips desktop stable release", 120 * 60_000),
               waitForRun(production, "Production site fleet", 120 * 60_000),
+              waitForRun(docs, "Agent-Native docs production site", 120 * 60_000),
             ]);
             const failures = downstream
               .filter((result) => result.status === "rejected")
@@ -782,12 +793,14 @@ jobs:
                 ["Agent-Native desktop", `stable v${desktopVersion}`],
                 ["Clips desktop", `stable v${clipsVersion}`],
                 ["Production sites", `${productionSites.length} *.agent-native.com apps`],
+                ["Docs site", docsSite.host],
                 ["Source commit", releaseSha],
               ])
               .addLink("Package release PR", releasePr.html_url)
               .addLink("Desktop release run", desktop.url)
               .addLink("Clips release run", clips.url)
               .addLink("Production fleet run", production.url)
+              .addLink("Docs production run", docs.url)
               .write();
 
             core.info(`Release everything completed from ${releaseBaseSha} through ${releaseSha}.`);
