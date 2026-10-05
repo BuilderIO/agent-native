@@ -622,6 +622,7 @@
     "@radix-ui/react-tooltip": "catalog:",
     "@shadcn/react": "^0.2.0",
     "@tabler/icons-react": "3.44.0",
+    "@tailwindcss/typography": "^0.5.20",
     "@tanstack/react-table": "^8.21.3",
     "@tiptap/core": "catalog:",
     "@tiptap/extension-bubble-menu": "catalog:",
