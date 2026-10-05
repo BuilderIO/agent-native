@@ -175,9 +175,9 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
   - Change: Tokens ships behind a `design.tokens` lab in `shared/labs.ts` (like `DESIGN_TWEAKS`), read with `useLab` for the rail item and listed in Settings › Labs. It leaves the build switch; Assets and Tools keep it, and Code gets its own lab (CODE-05).
   - Prototype: Toggle “Labs: Tokens” in the review strip or Settings › Labs.
 - **TOK-03** · proposed
-  - Change: Tokens is a rail item (after Agents) and a left panel on the shared 16px row strip: groups Colors, Typography, Spacing & Layout, Radius, Shadows & Effects, Other, each collapsible. A row is swatch or type glyph, name, and value; hovering shows the source.
+  - Change: Tokens is a rail item (after Agents) and a left panel on the shared 16px row strip: groups Colors, Typography, Spacing & Layout, Radius, Shadows & Effects, Other, each collapsible. A row is swatch or type glyph, name, and value (TOK-19 covers where a token comes from).
 - **TOK-04** · proposed
-  - Change: Click a row to edit its value in place (Enter saves, Esc cancels). The color swatch opens the system color picker. Edits restyle the canvas live, like `apply-design-token-edit`.
+  - Change: Click a row to edit its value in place (Enter saves, Esc cancels); color rows open a color picker instead (TOK-20). Edits restyle the canvas live, like `apply-design-token-edit`.
 - **TOK-05** · decided
   - Today: One create popover: Add one token is a CSS-variable field and a value field that defaults to `#000000`, and `classifyVar` guesses the group from the name and value.
   - Change: + Add token is a Nova menu of token kinds in the panel's group order: Color · Font family, Font weight, Font size, Line height, Letter spacing · Spacing, Container, Breakpoint, Radius · Shadow, Opacity. A kind adds a draft row at the end of its group with the kind's prefix and a starting value (Font size → `--font-size-`, 16px), stored with that type; Enter moves to the value, Enter or clicking away saves, Esc cancels.
@@ -213,6 +213,12 @@ Statuses: `context` describes the code with nothing to build; `proposed`, `quest
   - Change: Container and Breakpoint stay (they feed RESP-05). Keep the Opacity kind, or leave opacity to the inspector?
 - **TOK-18** · proposed
   - Change: The token panel's strings get localized (en-US plus the 11 locale files) when it leaves the build switch.
+- **TOK-19** · decided
+  - Today: Hovering a row shows a 9px outline badge with the token's source: the design file whose `:root` defines it (index.html) or Brand Kit.
+  - Change: The source badge goes. The row's tooltip reads the CSS variable and its file (--radius-pill · index.html). A warning mark appears only when files define the token with different values, and its tooltip names each file and value; `index-design-tokens` already returns `sources` and `sourceValues`.
+- **TOK-20** · proposed
+  - Today: Clicking a color token opens a text field for its hex value, the same as every other token.
+  - Change: Clicking a color token opens the inspector's `DesignColorPicker` with `supportedPaintTypes` set to solid, beside the panel and level with the row: saturation and brightness field, eyedropper, hue and opacity sliders, Hex ▾ (RGB, HSL, HSB) with an opacity %, and Document colors. Dragging restyles the canvas live, Esc puts the old value back, and clicking away keeps the new one. A new color token's swatch opens the same picker.
 
 ## Floating toolbar (TOOL, step 4)
 

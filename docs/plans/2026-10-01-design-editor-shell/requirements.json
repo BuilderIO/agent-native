@@ -455,12 +455,12 @@
         {
           "id": "TOK-03",
           "status": "proposed",
-          "change": "Tokens is a rail item (after Agents) and a left panel on the shared 16px row strip: groups Colors, Typography, Spacing & Layout, Radius, Shadows & Effects, Other, each collapsible. A row is swatch or type glyph, name, and value; hovering shows the source."
+          "change": "Tokens is a rail item (after Agents) and a left panel on the shared 16px row strip: groups Colors, Typography, Spacing & Layout, Radius, Shadows & Effects, Other, each collapsible. A row is swatch or type glyph, name, and value (TOK-19 covers where a token comes from)."
         },
         {
           "id": "TOK-04",
           "status": "proposed",
-          "change": "Click a row to edit its value in place (Enter saves, Esc cancels). The color swatch opens the system color picker. Edits restyle the canvas live, like `apply-design-token-edit`."
+          "change": "Click a row to edit its value in place (Enter saves, Esc cancels); color rows open a color picker instead (TOK-20). Edits restyle the canvas live, like `apply-design-token-edit`."
         },
         {
           "id": "TOK-05",
@@ -557,6 +557,26 @@
           "id": "TOK-18",
           "status": "proposed",
           "change": "The token panel's strings get localized (en-US plus the 11 locale files) when it leaves the build switch."
+        },
+        {
+          "id": "TOK-19",
+          "status": "decided",
+          "today": "Hovering a row shows a 9px outline badge with the token's source: the design file whose `:root` defines it (index.html) or Brand Kit.",
+          "change": "The source badge goes. The row's tooltip reads the CSS variable and its file (--radius-pill · index.html). A warning mark appears only when files define the token with different values, and its tooltip names each file and value; `index-design-tokens` already returns `sources` and `sourceValues`.",
+          "refs": [
+            "templates/design/app/components/design/TokensPanel.tsx#token.source",
+            "templates/design/actions/index-design-tokens.ts#sourceValues"
+          ]
+        },
+        {
+          "id": "TOK-20",
+          "status": "proposed",
+          "today": "Clicking a color token opens a text field for its hex value, the same as every other token.",
+          "change": "Clicking a color token opens the inspector's `DesignColorPicker` with `supportedPaintTypes` set to solid, beside the panel and level with the row: saturation and brightness field, eyedropper, hue and opacity sliders, Hex ▾ (RGB, HSL, HSB) with an opacity %, and Document colors. Dragging restyles the canvas live, Esc puts the old value back, and clicking away keeps the new one. A new color token's swatch opens the same picker.",
+          "refs": [
+            "templates/design/app/components/design/inspector/DesignColorPicker.tsx#DesignColorPicker",
+            "templates/design/app/components/design/TokensPanel.tsx#editing"
+          ]
         }
       ]
     },

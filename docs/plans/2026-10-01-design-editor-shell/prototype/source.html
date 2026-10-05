@@ -705,14 +705,45 @@ body.resizing, body.resizing * { cursor: col-resize !important; user-select: non
 .tk-search .kbd { padding-right: 4px; }
 .tk-search .tk-clear { width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; color: var(--muted-fg); flex: none; }
 .tk-search .tk-clear:hover { background: var(--hover); color: var(--fg); }
-.row.tk .tk-sw { width: 16px; height: 16px; border-radius: 4px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); position: relative; overflow: hidden; }
-.row.tk .tk-sw input { position: absolute; inset: -4px; width: 24px; height: 24px; opacity: 0; cursor: pointer; }
+.row.tk .tk-sw { width: 16px; height: 16px; border-radius: 4px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
+.row.tk[aria-expanded="true"] { background: var(--hover); }
+.row.tk .tk-warn { margin-left: 6px; display: grid; color: hsl(38 92% 45%); flex: none; }
 .row.tk .tk-glyph { color: var(--muted-fg); }
 .row.tk .tk-val { margin-left: 8px; font: 11px/16px var(--mono); color: var(--muted-fg); max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; text-align: right; }
 .row.tk:hover .tk-val { color: var(--fg); }
 .row.tk input.tk-edit { margin-left: 8px; width: 104px; height: 20px; border: 1px solid var(--accent); border-radius: 4px; background: var(--bg); font: 11px/16px var(--mono); padding: 0 4px; color: var(--fg); flex: none; }
-.row.tk .tk-src { display: none; margin-left: 6px; font-size: 10px; color: var(--muted-fg); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; line-height: 14px; flex: none; }
-.row.tk:hover .tk-src { display: inline-block; }
+/* Solid color picker: the inspector's DesignColorPicker limited to solid paint. 252px popover, 192px saturation/brightness field,
+   eyedropper beside hue and swatch beside alpha, then [Hex ▾] [value] [opacity %], then Document colors. */
+.cpk { position: fixed; z-index: 49; width: 252px; background: var(--popover); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 20px 25px -5px rgb(0 0 0 / 10%), 0 8px 10px -6px rgb(0 0 0 / 10%); overflow: hidden; font-size: 11px; line-height: 16px; animation: swap .12s ease-out; }
+.cpk-sv { position: relative; height: 192px; cursor: crosshair; touch-action: none; }
+.cpk-sv::before, .cpk-sv::after { content: ""; position: absolute; inset: 0; }
+.cpk-sv::before { background: linear-gradient(to right, #fff, rgb(255 255 255 / 0)); }
+.cpk-sv::after { background: linear-gradient(to top, #000, rgb(0 0 0 / 0)); }
+.cpk-knob { position: absolute; z-index: 1; width: 16px; height: 16px; translate: -50% -50%; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgb(0 0 0 / 60%); pointer-events: none; }
+.cpk-ctl { margin-top: 10px; padding: 0 12px; display: grid; grid-template-columns: 24px 1fr; column-gap: 8px; row-gap: 8px; align-items: center; }
+.cpk-eye { grid-row: span 2; width: 24px; height: 24px; border-radius: 4px; display: grid; place-items: center; }
+.cpk-eye:hover:not([disabled]) { background: var(--hover); }
+.cpk-eye[disabled] { opacity: .5; cursor: default; }
+.cpk-ctl .pair { display: flex; align-items: center; gap: 8px; }
+.cpk-cur { width: 18px; height: 18px; border-radius: 3px; flex: none; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
+.cpk-track { position: relative; flex: 1; height: 14px; border-radius: 7px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 10%); cursor: pointer; touch-action: none; }
+.cpk-hue { background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
+.cpk-alpha, .cpk-cur { background-image: var(--cpk-fill), repeating-conic-gradient(#ddd 0 25%, #fff 0 50%); background-size: auto, 8px 8px; }
+.cpk-track .cpk-knob { top: 50%; }
+.cpk-val { margin-top: 10px; padding: 0 12px 12px; display: grid; grid-template-columns: 72px 1fr 48px; gap: 4px; align-items: center; }
+.cpk-mode { height: 24px; display: inline-flex; align-items: center; gap: 2px; padding: 0 2px; color: var(--fg); justify-self: start; }
+.cpk-mode svg { color: var(--muted-fg); }
+.cpk-fields { display: flex; gap: 4px; min-width: 0; }
+.cpk-in { height: 24px; display: flex; flex: 1; min-width: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); overflow: hidden; }
+.cpk-in:focus-within { border-color: var(--accent); }
+.cpk-in input { flex: 1; min-width: 0; border: 0; background: none; outline: none; padding: 0 4px; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--fg); }
+.cpk-in .u { width: 16px; display: grid; place-items: center; border-left: 1px solid var(--border); color: var(--muted-fg); font-size: 10px; flex: none; }
+.cpk-doc { border-top: 1px solid var(--border); padding: 10px 12px; }
+.cpk-doc-h { height: 24px; display: flex; align-items: center; padding: 0 2px; margin-bottom: 8px; color: var(--muted-fg); }
+.cpk-grid { display: grid; grid-template-columns: repeat(8, 20px); justify-content: space-between; row-gap: 4px; }
+.cpk-grid button { width: 20px; height: 20px; border-radius: 4px; box-shadow: inset 0 0 0 1px rgb(0 0 0 / 12%); }
+.cpk-grid button:hover { scale: 1.1; }
+.cpk-grid button[aria-pressed="true"] { box-shadow: 0 0 0 1px var(--fg), inset 0 0 0 1px rgb(255 255 255 / 60%); }
 .tk-form { margin: 8px 16px; display: flex; flex-direction: column; gap: 8px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; }
 .tk-form label { display: flex; flex-direction: column; gap: 4px; font-size: 10px; color: var(--muted-fg); }
 .tk-form input, .tk-form textarea { height: 24px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); font: 11px/16px var(--mono); padding: 0 6px; color: var(--fg); }
@@ -1941,6 +1972,100 @@ function toast(t) {
   const d = document.createElement("div"); d.className = "toast"; d.textContent = t; d.setAttribute("role", "status");
   document.body.append(d); setTimeout(() => d.remove(), 2200);
 }
+/* ───────── color picker: DesignColorPicker.tsx with supportedPaintTypes ["solid"] ───────── */
+const clamp01 = x => Math.min(1, Math.max(0, x));
+function parseHex(v) {
+  let h = String(v).trim().replace(/^#/, "");
+  if (h.length === 3 || h.length === 4) h = [...h].map(c => c + c).join("");
+  if (!/^[0-9a-f]{6}([0-9a-f]{2})?$/i.test(h)) return null;
+  const n = i => parseInt(h.slice(i, i + 2), 16);
+  return { r: n(0), g: n(2), b: n(4), a: h.length === 8 ? n(6) / 255 : 1 };
+}
+const hex2 = n => Math.round(n).toString(16).padStart(2, "0");
+const toHex = ({ r, g, b, a = 1 }) => `#${hex2(r)}${hex2(g)}${hex2(b)}${a < 1 ? hex2(a * 255) : ""}`;
+function rgbToHsv({ r, g, b }) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), d = mx - Math.min(r, g, b);
+  const h = !d ? 0 : mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return { h: h * 60, s: mx ? d / mx : 0, v: mx };
+}
+function hsvToRgb({ h, s, v }) { const f = n => { const k = (n + h / 60) % 6; return 255 * (v - v * s * Math.max(0, Math.min(k, 4 - k, 1))); }; return { r: f(5), g: f(3), b: f(1) }; }
+function rgbToHsl(c) { const { h } = rgbToHsv(c), r = c.r / 255, g = c.g / 255, b = c.b / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn; return { h, s: d ? d / (1 - Math.abs(2 * l - 1)) : 0, l }; }
+function hslToRgb({ h, s, l }) { const a = s * Math.min(l, 1 - l), f = n => { const k = (n + h / 30) % 12; return 255 * (l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))); }; return { r: f(0), g: f(8), b: f(4) }; }
+const CPK_MODES = { hex: "Hex", rgb: "RGB", hsl: "HSL", hsb: "HSB" };
+let cpkMode = "hex";
+// Opens beside the panel that holds the anchor. Esc puts the color back; clicking outside keeps it.
+function colorPicker(anchor, value, { onInput, onClose = () => {} }) {
+  document.querySelector(".cpk")?._close();
+  const start = parseHex(value) || { r: 0, g: 0, b: 0, a: 1 };
+  const C = { ...rgbToHsv(start), a: start.a };
+  const canEye = "EyeDropper" in window;
+  const docs = [...new Set(TOKENS.filter(t => t.type === "color" && parseHex(t.value)).map(t => t.value.toLowerCase()))].slice(0, 16);
+  const pop = document.createElement("div"); pop.className = "cpk"; pop.setAttribute("role", "dialog"); pop.setAttribute("aria-label", "Color");
+  pop.innerHTML = `<div class="cpk-sv" role="slider" aria-label="Saturation and brightness"><span class="cpk-knob"></span></div>
+    <div class="cpk-ctl"><button class="cpk-eye" ${canEye ? "" : "disabled"} title="${canEye ? "Pick a color from the screen" : "This browser can't pick colors from the screen"}" aria-label="Pick a color from the screen">${ic("color-picker")}</button>
+      <div class="cpk-track cpk-hue" role="slider" aria-label="Hue"><span class="cpk-knob"></span></div>
+      <div class="pair"><span class="cpk-cur"></span><div class="cpk-track cpk-alpha" role="slider" aria-label="Opacity"><span class="cpk-knob"></span></div></div></div>
+    <div class="cpk-val"><button class="cpk-mode" aria-haspopup="menu"></button><div class="cpk-fields"></div><label class="cpk-in"><input class="cpk-a" inputmode="numeric" aria-label="Opacity"><span class="u">%</span></label></div>
+    <div class="cpk-doc"><div class="cpk-doc-h">Document colors</div><div class="cpk-grid">${docs.map(c => `<button data-cpk-doc="${c}" aria-label="${c}" title="${c}" style="background:${c}"></button>`).join("")}</div></div>`;
+  document.body.append(pop);
+  const host = (anchor.closest("#tokens") || anchor).getBoundingClientRect(), ar = anchor.getBoundingClientRect();
+  pop.style.left = Math.min(innerWidth - pop.offsetWidth - 8, host.right + 8) + "px";
+  pop.style.top = Math.max(8, Math.min(ar.top, innerHeight - pop.offsetHeight - 8)) + "px";
+  const q = sel => pop.querySelector(sel);
+  const rgb = () => ({ ...hsvToRgb(C), a: C.a });
+  const fields = () => {
+    const c = rgb();
+    if (cpkMode === "hex") return [["Hex", toHex({ ...c, a: 1 }).slice(1).toUpperCase()]];
+    if (cpkMode === "rgb") return [["Red", c.r], ["Green", c.g], ["Blue", c.b]].map(([k, v]) => [k, Math.round(v)]);
+    if (cpkMode === "hsl") { const l = rgbToHsl(c); return [["Hue", Math.round(l.h)], ["Saturation", Math.round(l.s * 100)], ["Lightness", Math.round(l.l * 100)]]; }
+    return [["Hue", Math.round(C.h)], ["Saturation", Math.round(C.s * 100)], ["Brightness", Math.round(C.v * 100)]];
+  };
+  const paint = () => {
+    const c = rgb(), solid = `rgb(${c.r} ${c.g} ${c.b})`;
+    q(".cpk-sv").style.background = `hsl(${C.h} 100% 50%)`;
+    Object.assign(q(".cpk-sv .cpk-knob").style, { left: C.s * 100 + "%", top: (1 - C.v) * 100 + "%" });
+    q(".cpk-hue .cpk-knob").style.left = C.h / 360 * 100 + "%";
+    q(".cpk-alpha .cpk-knob").style.left = C.a * 100 + "%";
+    q(".cpk-alpha").style.setProperty("--cpk-fill", `linear-gradient(to right, rgb(${c.r} ${c.g} ${c.b} / 0), ${solid})`);
+    q(".cpk-cur").style.setProperty("--cpk-fill", `linear-gradient(rgb(${c.r} ${c.g} ${c.b} / ${C.a}), rgb(${c.r} ${c.g} ${c.b} / ${C.a}))`);
+    q(".cpk-mode").innerHTML = `${CPK_MODES[cpkMode]}${ic("chevron-down", "s12")}`;
+    q(".cpk-fields").innerHTML = fields().map(([k, v]) => `<label class="cpk-in"><input value="${v}" aria-label="${k}" spellcheck="false"></label>`).join("");
+    q(".cpk-a").value = Math.round(C.a * 100);
+    const now = toHex(c).toLowerCase();
+    pop.querySelectorAll("[data-cpk-doc]").forEach(b => b.setAttribute("aria-pressed", b.dataset.cpkDoc === now));
+  };
+  const update = () => { paint(); onInput(toHex(rgb())); };
+  const drag = (el, fn) => el.addEventListener("pointerdown", e => {
+    e.preventDefault(); el.setPointerCapture(e.pointerId);
+    const move = ev => { const r = el.getBoundingClientRect(); fn(clamp01((ev.clientX - r.left) / r.width), clamp01((ev.clientY - r.top) / r.height)); update(); };
+    move(e); el.onpointermove = move; el.onpointerup = () => { el.onpointermove = null; };
+  });
+  drag(q(".cpk-sv"), (x, y) => { C.s = x; C.v = 1 - y; });
+  drag(q(".cpk-hue"), x => { C.h = Math.min(359.9, x * 360); });
+  drag(q(".cpk-alpha"), x => { C.a = Math.round(x * 100) / 100; });
+  pop.addEventListener("change", e => {
+    if (e.target.matches(".cpk-a")) { const n = parseFloat(e.target.value); if (!isNaN(n)) C.a = clamp01(n / 100); return update(); }
+    const v = [...pop.querySelectorAll(".cpk-fields input")].map(i => i.value.trim()), n = v.map(Number), ok = n.every(x => !isNaN(x));
+    if (cpkMode === "hex") { const c = parseHex(v[0]); if (c) Object.assign(C, rgbToHsv(c), c.a < 1 ? { a: c.a } : {}); }
+    else if (ok && cpkMode === "rgb") Object.assign(C, rgbToHsv({ r: Math.min(255, Math.max(0, n[0])), g: Math.min(255, Math.max(0, n[1])), b: Math.min(255, Math.max(0, n[2])) }));
+    else if (ok && cpkMode === "hsl") Object.assign(C, rgbToHsv(hslToRgb({ h: ((n[0] % 360) + 360) % 360, s: clamp01(n[1] / 100), l: clamp01(n[2] / 100) })));
+    else if (ok) Object.assign(C, { h: ((n[0] % 360) + 360) % 360, s: clamp01(n[1] / 100), v: clamp01(n[2] / 100) });
+    update();
+  });
+  pop.addEventListener("click", e => {
+    const d = e.target.closest("[data-cpk-doc]"); if (d) { Object.assign(C, rgbToHsv(parseHex(d.dataset.cpkDoc)), { a: parseHex(d.dataset.cpkDoc).a }); return update(); }
+    const m = e.target.closest(".cpk-mode"); if (m) return openMenu(m, Object.entries(CPK_MODES).map(([k, t]) => ({ t, radio: true, on: cpkMode === k, run: () => { cpkMode = k; paint(); } })));
+    if (e.target.closest(".cpk-eye") && canEye) new window.EyeDropper().open().then(r => { const c = parseHex(r.sRGBHex); if (c) { Object.assign(C, rgbToHsv(c)); update(); } }, err => { if (err.name !== "AbortError") toast("Couldn't pick a color from the screen"); });
+  });
+  let done = false;
+  const close = cancelled => { if (done) return; done = true; pop.remove(); document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", key, true); onClose(cancelled); };
+  const outside = e => { if (!pop.contains(e.target) && !e.target.closest?.(".menu, .scrim")) close(false); };
+  const key = e => { if (e.key === "Escape" && !document.querySelector(".menu")) { e.preventDefault(); e.stopPropagation(); close(true); } };
+  document.addEventListener("pointerdown", outside, true); document.addEventListener("keydown", key, true);
+  pop._close = () => close(false);
+  paint();
+}
 
 /* ───────── behavior ───────── */
 function render() {
@@ -2110,7 +2235,12 @@ document.addEventListener("click", e => {
   if (t.closest("[data-tk-open-import]")) { openMenu(t.closest("button"), TOKEN_IMPORT_MENU()); return; }
   if (t.closest("[data-tk-gen]")) { startSkill("Generate tokens"); return; }
   const tks = t.closest("[data-tk-sec]"); if (tks) { const k = tks.dataset.tkSec; TK.collapsed.has(k) ? TK.collapsed.delete(k) : TK.collapsed.add(k); renderTokens(); return; }
-  const tkr = t.closest(".row.tk"); if (tkr && !tkr.matches("[data-tk-draft]") && !t.closest("[data-tk-color], .tk-edit")) { TK.editing = tkr.dataset.tk; renderTokens(); return; }
+  if (t.closest("[data-tk-dcolor]")) { const sw = t.closest("[data-tk-dcolor]"), v = $("#tk-dval"); return colorPicker(sw.closest(".row"), v.value, { onInput: x => { v.value = x; sw.style.background = x; }, onClose: () => $("#tk-dval")?.focus() }); }
+  const tkr = t.closest(".row.tk"); if (tkr && !tkr.matches("[data-tk-draft]") && !t.closest(".tk-edit")) {
+    const tok = TOKENS.find(x => x.cssVar === tkr.dataset.tk);
+    if (tok.type === "color" && isColor(tok.value)) return pickTokenColor(tok, tkr);
+    TK.editing = tkr.dataset.tk; renderTokens(); return;
+  }
   const pin = t.closest("[data-pin]"); if (pin) { if (S.cmOpen === +pin.dataset.pin) closeCard(); else openThread(+pin.dataset.pin); return; }
   const cth = t.closest("[data-cthread]"); if (cth) { openThread(+cth.dataset.cthread, { fromPanel: true }); return; }
   const mp = t.closest("[data-mention]"); if (mp) { insertMention(mp.closest(".cmc"), mp.dataset.mention); return; }
@@ -2664,7 +2794,7 @@ const TK_TYPES = [["color", "Colors", "palette"], ["typography", "Typography", "
 let TOKENS = [
   { name: "Primary", cssVar: "--color-primary", value: "#171717", type: "color", source: "Agent-Native brand" },
   { name: "On primary", cssVar: "--color-on-primary", value: "#ffffff", type: "color", source: "Agent-Native brand" },
-  { name: "Surface", cssVar: "--color-surface", value: "#f7f7f7", type: "color", source: "index.html" },
+  { name: "Surface", cssVar: "--color-surface", value: "#f7f7f7", type: "color", source: "index.html", sourceValues: { "index.html": "#f7f7f7", "docs.html": "#fafafa" } },
   { name: "Link", cssVar: "--color-link", value: "#0a6bd6", type: "color", source: "index.html" },
   { name: "Display font", cssVar: "--font-display", value: "Inter", type: "typography", source: "Agent-Native brand" },
   { name: "Display weight", cssVar: "--font-weight-display", value: "700", type: "typography", source: "index.html" },
@@ -2750,6 +2880,15 @@ function commitTokenDraft(save) {
   renderTokens();
 }
 const isColor = v => /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v.trim()) || /^(rgba?|hsla?|oklch|color)\(/.test(v.trim());
+// A token whose files define it with different values gets a mark naming them (index-design-tokens returns sourceValues).
+const tokenConflict = t => { const e = Object.entries(t.sourceValues || {}); return new Set(e.map(([, v]) => v.toLowerCase())).size > 1 ? `Defined differently in ${e.map(([f, v]) => `${f} (${v})`).join(" and ")}` : ""; };
+function pickTokenColor(t, row) {
+  const before = t.value; TK.picking = t.cssVar; row.setAttribute("aria-expanded", "true");
+  colorPicker(row, t.value, {
+    onInput: v => { t.value = v; applyTokens(); row.querySelector(".tk-sw").style.background = v; row.querySelector(".tk-val").textContent = v; },
+    onClose: cancelled => { TK.picking = null; row.setAttribute("aria-expanded", "false"); if (cancelled) { t.value = before; applyTokens(); renderTokens(); } else if (t.value !== before) toast(`${t.cssVar} updated`); },
+  });
+}
 const guessType = (name, v) => isColor(v) ? "color" : /radius|round/.test(name) ? "radius" : /shadow|elev/.test(name) ? "shadow" : /font|text|tracking|leading|weight/.test(name) ? "typography" : /space|gap|pad|margin|size/.test(name) ? "spacing" : "other";
 const KIND_SUFFIX = [["font-size-", " size"], ["font-weight-", " weight"], ["leading-", " line height"], ["tracking-", " tracking"], ["opacity-", " opacity"], ["container-", " container"], ["breakpoint-", " breakpoint"]];
 const friendly = cssVar => { let n = cssVar.replace(/^--/, ""), tail = ""; const k = KIND_SUFFIX.find(([p]) => n.startsWith(p)); if (k) { n = n.slice(k[0].length); tail = k[1]; } else n = n.replace(/^(color|font|space|radius|shadow)-/, ""); return (n.replace(/-/g, " ") + tail).replace(/^./, c => c.toUpperCase()); };
@@ -2772,8 +2911,10 @@ function renderTokens() {
     return `<div class="sec-head ${gi ? "rule" : ""}"><button class="sec-toggle" data-tk-sec="${type}" aria-expanded="${open}"><span class="chev">${ic("chevron-down", "s12")}</span>${label}</button></div>
       ${open ? `<div class="sec-block">${items.map(t => {
         const editing = TK.editing === t.cssVar;
-        const lead = t.type === "color" && isColor(t.value) ? `<span class="tk-sw" style="background:${t.value}"><input type="color" value="${/^#[0-9a-f]{6}$/i.test(t.value) ? t.value : "#000000"}" data-tk-color="${t.cssVar}" aria-label="Pick ${t.name}"></span>` : `<span class="tk-glyph">${ic(icon, "s14")}</span>`;
-        return `<div class="row tk" data-tk="${t.cssVar}" title="${t.cssVar}"><span class="slot ico">${lead}</span><span class="gap"></span><span class="label">${t.name}</span>${editing ? `<input class="tk-edit" id="tk-edit" value="${t.value}" spellcheck="false" aria-label="Value for ${t.name}">` : `<span class="tk-src">${t.source}</span><span class="tk-val">${t.value}</span>`}</div>`;
+        const lead = t.type === "color" && isColor(t.value) ? `<span class="tk-sw" style="background:${t.value}"></span>` : `<span class="tk-glyph">${ic(icon, "s14")}</span>`;
+        const clash = tokenConflict(t);
+        const picker = t.type === "color" ? ` aria-haspopup="dialog" aria-expanded="${TK.picking === t.cssVar}"` : "";
+        return `<div class="row tk" data-tk="${t.cssVar}" title="${t.cssVar} · ${t.source}"${picker}><span class="slot ico">${lead}</span><span class="gap"></span><span class="label">${t.name}</span>${editing ? `<input class="tk-edit" id="tk-edit" value="${t.value}" spellcheck="false" aria-label="Value for ${t.name}">` : `${clash ? `<span class="tk-warn" title="${clash}">${ic("alert-triangle", "s14")}</span>` : ""}<span class="tk-val">${t.value}</span>`}</div>`;
       }).join("")}${TK.draft?.type === type ? draftRow(TK.draft) : ""}</div>` : ""}`;
   }).join("") : (q ? `<div class="tk-empty">No tokens match “${TK.q}”.</div>` : `<div class="tk-empty"><b>No tokens yet</b><span class="acts"><button class="btn secondary" data-tk-open-import>Import</button><button class="btn secondary" data-tk-gen>${ic("sparkles", "s14")}Generate from design</button></span></div>`);
   el.innerHTML = head + `<div class="ag-body">${body}</div>`;
@@ -2782,7 +2923,7 @@ function renderTokens() {
   if (TK.draft) { const i = $("#tk-dname"); i.focus(); i.select(); i.closest(".row").scrollIntoView({ block: "nearest" }); }
 }
 function draftRow(d) {
-  const lead = d.type === "color" ? `<span class="tk-sw" style="background:${d.value}"><input type="color" value="${d.value}" data-tk-dcolor aria-label="Pick a color"></span>` : `<span class="tk-glyph">${ic(d.icon, "s14")}</span>`;
+  const lead = d.type === "color" ? `<button class="tk-sw" style="background:${d.value}" data-tk-dcolor aria-haspopup="dialog" aria-label="Pick a color"></button>` : `<span class="tk-glyph">${ic(d.icon, "s14")}</span>`;
   return `<div class="row tk draft" data-tk-draft><span class="slot ico">${lead}</span><span class="gap"></span><input class="tk-dname" id="tk-dname" value="${d.slug}" spellcheck="false" aria-label="${d.label} token name" title="${d.prefix}…"><input class="tk-edit" id="tk-dval" value="${d.value}" spellcheck="false" aria-label="${d.label} value"></div>`;
 }
 function commitTokenEdit(save) {
@@ -2793,9 +2934,7 @@ function commitTokenEdit(save) {
   renderTokens();
 }
 document.addEventListener("input", e => {
-  if (e.target.matches?.("[data-tk-dcolor]")) { $("#tk-dval").value = e.target.value; e.target.parentElement.style.background = e.target.value; }
   if (e.target.id === "tk-dval" && TK.draft?.type === "color") { const sw = e.target.closest(".row").querySelector(".tk-sw"); if (sw && isColor(e.target.value)) sw.style.background = e.target.value; }
-  const c = e.target.closest?.("[data-tk-color]"); if (c) { const t = TOKENS.find(x => x.cssVar === c.dataset.tkColor); t.value = c.value; applyTokens(); c.parentElement.style.background = c.value; c.closest(".row").querySelector(".tk-val").textContent = c.value; }
 });
 document.addEventListener("keydown", e => {
   if (e.target.id === "tk-dname" || e.target.id === "tk-dval") {
@@ -2809,8 +2948,8 @@ document.addEventListener("keydown", e => {
 }, true);
 document.addEventListener("focusout", e => {
   if (e.target.id === "tk-edit") commitTokenEdit(true);
-  // Leaving the draft row saves it, like Figma's new variable row; moving between its fields doesn't.
-  if (e.target.closest?.("[data-tk-draft]") && !e.relatedTarget?.closest?.("[data-tk-draft]")) setTimeout(() => { if (!document.activeElement?.closest?.("[data-tk-draft]")) commitTokenDraft(true); });
+  // Leaving the draft row saves it, like Figma's new variable row; moving between its fields, or into its color picker, doesn't.
+  if (e.target.closest?.("[data-tk-draft], .cpk") && $("[data-tk-draft]") && !e.relatedTarget?.closest?.("[data-tk-draft], .cpk")) setTimeout(() => { if (!document.activeElement?.closest?.("[data-tk-draft], .cpk") && !$(".cpk")) commitTokenDraft(true); });
 });
 
 // DTCG export: groups from the token type and name, $type from the DTCG type list, colors and dimensions as 2025.10 objects.
